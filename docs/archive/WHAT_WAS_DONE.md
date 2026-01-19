@@ -1,12 +1,202 @@
 # 🎯 Production-Ready Multi-tenant платформа
 
 **Период:** 2-14 января 2026  
-**Версия:** v0.9.4  
+**Версия:** v0.9.5  
 **Статус:** Production Ready
 
 ---
 
-## 🔒 Последние обновления (15 января 2026)
+## 🔄 Two-Level Recording Deletion System (19 января 2026)
+
+**Проблема:** Hard deleted recordings возвращались при Zoom sync, нет гибкого управления retention
+
+**Решение - Two-Level Deletion:**
+
+**Архитектура:**
+- **Level 1 (Soft Delete):** `delete_state="soft"` - файлы на месте, можно restore
+- **Level 2 (Files Cleanup):** `delete_state="hard"` - видео/аудио удалены, master.json/topics сохранены
+- **Level 3 (Hard Delete):** запись полностью удалена из БД
+
+**Timeline:**
+```
+Day 0:  User DELETE → deleted=true, delete_state="soft"
+        hard_delete_at = now + (soft_delete_days + hard_delete_days)
+        
+Day 3:  Maintenance → Files cleanup (Level 2)
+        Удалены: video, audio | Сохранены: master.json, topics.json, метаданные БД
+        delete_state="hard", soft_deleted_at=now
+        
+Day 33: Maintenance → Hard delete (Level 3)
+        Удалена запись из БД полностью
+```
+
+**Миграция:** `021_add_two_level_deletion.py`
+
+**Новые поля в RecordingModel:**
+- `delete_state` - явное состояние: "active", "soft", "hard"
+- `deletion_reason` - "manual" (user), "expired" (auto), "admin"
+- `soft_deleted_at` - когда удалили файлы (Level 2)
+- `hard_delete_at` - когда удалить из БД (Level 3)
+
+**Per-user настройки (в user config):**
+- `retention.soft_delete_days` (default: 3) - через сколько удалить файлы
+- `retention.hard_delete_days` (default: 30) - через сколько удалить из БД от deleted_at
+- `retention.auto_expire_days` (default: 90) - автоистечение активных записей
+
+**Repository методы:**
+- `soft_delete(recording, user_config)` - ручное удаление
+- `auto_expire(recording, user_config)` - автоистечение
+- `cleanup_recording_files(recording)` - удаление файлов (Level 2)
+- `delete(recording)` - hard delete (Level 3)
+- `restore(recording, user_config)` - восстановление (только для delete_state="soft")
+
+**API эндпоинты:**
+- `DELETE /recordings/{id}` - soft delete с user config
+- `POST /recordings/bulk/delete` - bulk soft delete
+- `POST /recordings/{id}/restore` - restore (валидация delete_state)
+- `POST /recordings/{id}/reset` - только для active recordings
+- Response включает: delete_state, deletion_reason, soft_deleted_at, hard_delete_at
+
+**Maintenance Tasks:**
+- `auto_expire_recordings_task` (3:30 UTC) - expire активных записей при expire_at
+- `cleanup_recording_files_task` (4:00 UTC) - удаление файлов (Level 2)
+- `hard_delete_recordings_task` (5:00 UTC) - удаление из БД (Level 3)
+
+**Решена проблема re-sync:** Deleted recordings остаются в БД → sync находит их → пропускает (проверка `if existing.deleted`)
+
+**Конфигурация:**
+- Глобальные defaults: `config/settings.py` (RetentionSettings)
+- Per-user overrides: `UserConfigModel.config_data['retention']`
+- API: `PATCH /api/v1/users/me/config`
+
+**Critical fixes (post-implementation code review):**
+1. **Race condition**: User может сделать restore во время maintenance task → файлы удаляются для активной записи
+   - Fix: Проверка `delete_state != "soft"` в начале `cleanup_recording_files()`
+   - Fix: Re-check state после refetch в `cleanup_recording_files_task()`
+2. **Null pointer**: `deleted_at` может быть None → TypeError при `deleted_at + timedelta(...)`
+   - Fix: Проверка `if not recording.deleted_at: continue`
+3. **Timestamp consistency**: `updated_at` не обновлялся при cleanup
+   - Fix: Явная установка `recording.updated_at = datetime.utcnow()`
+4. **Idempotency**: Повторный вызов мог изменять timestamps
+   - Fix: State check предотвращает повторное выполнение
+5. **Timestamps logic improvement**: Обе даты (`soft_deleted_at`, `hard_delete_at`) теперь устанавливаются сразу при DELETE (в будущем)
+   - `soft_delete()`: устанавливает `soft_deleted_at = now + soft_days`, `hard_delete_at = now + soft_days + hard_days`
+   - Maintenance task: просто проверяет `soft_deleted_at < now` вместо расчета threshold
+   - `cleanup_recording_files()`: только меняет `delete_state`, даты не трогает
+
+---
+
+
+---
+
+## ⚙️ Unified Configuration System (18 января 2026)
+
+**Проблема:** Настройки разбросаны по 3 файлам, Celery retry hardcoded, OAuth в JSON файлах
+
+**Решение:**
+- Создан `config/settings.py` (599 строк) с Pydantic BaseSettings
+- 12 секций: APP, SERVER, DATABASE, REDIS, CELERY, SECURITY, STORAGE, LOGGING, MONITORING, OAUTH, FEATURES, PROCESSING
+- Все Celery retry параметры через env (6 типов задач)
+- Production validators (JWT min 32 chars)
+- Singleton `get_settings()`
+- `.env.example` с 200+ переменными
+
+**Удалено legacy (~1200 строк):**
+- `api/config.py` (200 строк)
+- `config/unified_config.py` (459 строк)
+- `config/accounts.py` (28 строк, hardcoded Zoom)
+- `utils/title_mapper.py` (214 строк)
+- `video_upload_module/config_factory.py` (старая версия, 219 строк)
+
+**Обновлено:**
+- 8 файлов Celery tasks (15 задач) - используют settings для retry
+- `api/celery_app.py`, `api/main.py`, `api/routers/auth.py`
+- `api/auth/security.py`, `api/dependencies.py`, `api/middleware/rate_limit.py`
+
+**Архитектурная очистка:**
+
+1. **video_processing_module/config.py**: 164 строки → 21 строка (minimal dataclass, -88%)
+2. **RateLimitMiddleware**: 113 → 72 строки, без параметров в __init__, читает из settings (-36%)
+3. **ZoomConfig** вынесен: config/settings.py → models/ (Separation of Concerns)
+
+**Результат:** config/settings.py: 599 строк, zero legacy, DRY/KISS/YAGNI
+
+---
+
+## 🔐 Zoom Authentication - Pydantic Models (18 января 2026)
+
+**Проблема:** Два типа аутентификации (Server-to-Server + OAuth 2.0) в одном @dataclass без различия
+
+**Решение:** `models/zoom_auth.py` (91 строка) с Pydantic дискриминатором
+
+**Модели:**
+1. **ZoomServerToServerCredentials**
+   - auth_type: "server_to_server", account, account_id, client_id, client_secret
+   - Frozen, validated (min_length=1)
+
+2. **ZoomOAuthCredentials**
+   - auth_type: "oauth", access_token, refresh_token, token_type, scope, expiry
+   - @computed_field is_expired property
+   - Frozen, validated
+
+3. **create_zoom_credentials()** - auto-detect helper
+
+**Обновлено 4 файла:**
+- `api/helpers/config_helper.py` - использует create_zoom_credentials()
+- `api/zoom_api.py` - isinstance() проверки
+- `api/token_manager.py` - только ZoomServerToServerCredentials
+- `api/routers/input_sources.py` - 19 строк → 2 строки (-89%)
+
+**Преимущества:**
+- ✅ Type safety 100% (было 50%)
+- ✅ Pydantic validation + JSON serialization
+- ✅ Discriminator auto-detection
+- ✅ Immutable (frozen=True)
+- ✅ Computed properties (is_expired)
+
+**Удалено:** `models/zoom_config.py` (21 строка simple @dataclass)
+
+---
+
+## 🚀 Production Configuration Updates (18 января 2026)
+
+### Scaling for 10+ users (5-10 recordings each)
+
+**Changes:**
+- ✅ Increased Celery worker concurrency: 4 → 8 workers
+- ✅ Enabled API service in docker-compose.yml (4 FastAPI workers)
+- ✅ Added Celery Beat scheduler service for automation jobs
+- ✅ Updated Makefile dev commands to use concurrency=8
+
+**Files modified:**
+- `docker-compose.yml` - API uncommented, concurrency increased, celery_beat added
+- `Makefile` - Updated celery and celery-dev targets
+
+**Performance:** Supports 8 parallel tasks (up from 4), sufficient for 10 users with 5-10 recordings each
+
+---
+
+## 🔒 Bug Fixes: OAuth & YouTube Upload (18 января 2026)
+
+### Bug Fixes: OAuth & YouTube Upload
+
+**Проблемы:**
+- OAuth callback падал с UniqueViolationError при повторной авторизации
+- YouTube upload падал с TypeError при форматировании topics
+- MediaFileUpload использовал устаревший chunksize=-1
+
+**Исправления:**
+- ✅ OAuth upsert pattern: автоопределение account_name (email для YouTube/Zoom, user_id для VK)
+- ✅ Добавлены scopes `openid` и `email` для получения user info из Google API
+- ✅ Template renderer: обработка None значений в min_length/max_length
+- ✅ YouTube uploader: chunksize=10MB вместо deprecated -1
+- ✅ Проверка category_id на None перед передачей в upload
+
+**Результат:** Поддержка множественных OAuth аккаунтов + стабильная загрузка на YouTube
+
+---
+
+## 🔒 Обновления (15 января 2026)
 
 ### Завершена полная изоляция данных пользователей
 
@@ -402,164 +592,5 @@ Strategy: **first_match** (по `created_at ASC`)
 - ✅ Recordings API
 - ✅ Template system basics
 
----
-
-## 🎯 Ключевые архитектурные принципы
-
-### KISS (Keep It Simple)
-- Используем существующие таблицы (recordings, output_targets)
-- Simple first_match strategy для templates
-- Минимум новых сущностей
-
-### DRY (Don't Repeat Yourself)
-- ConfigResolver - единое место для config resolution
-- Template reuse across recordings
-- Unified OAuth pattern для всех платформ
-- Базовые Pydantic схемы для переиспользования
-
-### YAGNI (You Aren't Gonna Need It)
-- Нет audit/versioning templates (пока не нужно)
-- Нет сложной системы priority
-- Нет WebSocket (polling работает)
-
-### Separation of Concerns
-- **Output Preset** = Credentials + Platform defaults
-- **Template** = Matching rules + Processing config + Content-specific metadata + Preset overrides
-- **Manual Override** = Per-recording processing_preferences (highest priority)
-- **Metadata Resolution** = Deep merge: preset → template → manual override
-
----
-
-## 📈 Метрики
-
-**Endpoints:** 84  
-**Таблицы БД:** 12  
-**Миграции:** 19  
-**Pydantic схем:** 118  
-**OAuth платформы:** 3 (YouTube, VK, Zoom)  
-**Строк кода:** ~6000  
-**Linter errors:** 0 ✅
-
----
-
-## 🚀 Быстрый старт
-
-### Docker Compose (recommended)
-```bash
-docker-compose up -d
-```
-
-### Local Development
-```bash
-# 1. Start services
-make docker-up  # PostgreSQL + Redis
-
-# 2. FastAPI (auto DB init)
-make api
-
-# 3. Celery Worker
-make celery
-
-# 4. Celery Beat (for automation)
-make celery-beat
-
-# 5. Flower (monitoring)
-make flower
-
-# URLs:
-# - API: http://localhost:8000/docs
-# - Flower: http://localhost:5555
-```
-
-### Create Test User
-```bash
-python utils/create_test_user.py
-```
-
----
-
-## 🎯 Production Readiness
-
-| Компонент | Статус | Комментарий |
-|-----------|--------|-------------|
-| Multi-tenancy | ✅ | Полная изоляция |
-| Authentication | ✅ | JWT + Refresh + OAuth 2.0 |
-| API | ✅ | 84 endpoints, 100% RESTful |
-| Database | ✅ | Auto-init, 19 миграций |
-| Celery + Redis | ✅ | Async tasks, progress tracking |
-| Subscription System | ✅ | 4 plans + Pay-as-you-go ready |
-| Template System | ✅ | Auto-matching + config hierarchy |
-| OAuth | ✅ | YouTube, VK, Zoom |
-| Admin API | ✅ | Stats & monitoring |
-| Encryption | ✅ | Fernet для credentials |
-| Security | ✅ | CSRF protection, token refresh |
-| Documentation | ✅ | 15+ docs |
-| Linter | ✅ | 0 errors |
-| Code Quality | ✅ | Pydantic V2, Clean Architecture |
-
----
-
-## 🔧 Технологии
-
-**Backend:**
-- FastAPI (async)
-- SQLAlchemy (asyncpg)
-- Celery + Redis
-- Pydantic V2 validation
-- Alembic migrations
-
-**Auth:**
-- JWT (access + refresh)
-- OAuth 2.0 (YouTube, VK, Zoom)
-- Fernet encryption
-
-**Processing:**
-- FFmpeg (silence detection)
-- Fireworks AI (transcription)
-- DeepSeek (topics)
-
-**Upload:**
-- YouTube Data API v3
-- VK Video API
-- Zoom API
-
----
-
-## 💡 Best Practices реализованные
-
-- ✅ Repository Pattern
-- ✅ Factory Pattern (uploaders)
-- ✅ Service Layer
-- ✅ Dependency Injection
-- ✅ Config hierarchy
-- ✅ FSM для status tracking
-- ✅ Multi-tenancy isolation
-- ✅ Async-first design
-- ✅ Progress tracking (0-100%)
-- ✅ Automatic retry logic
-- ✅ Error handling & logging
-- ✅ Type safety (Pydantic V2 + SQLAlchemy)
-- ✅ RESTful API conventions
-- ✅ CSRF protection
-- ✅ Token refresh
-- ✅ Encrypted storage
-- ✅ Clean Architecture (KISS/DRY/YAGNI)
-
----
-
-## 🚀 Итог
-
-Полноценная production-ready платформа для автоматизации обработки и загрузки видео с:
-- Multi-user support
-- Template-driven automation
-- OAuth 2.0 для всех платформ
-- Subscription management
-- Admin monitoring
-- Full documentation
-- Clean code architecture
-
-**Response time:** < 50ms (было 5-40 min)  
-**Concurrent users:** Unlimited (было 1)  
-**Architecture:** Multi-tenant SaaS (было CLI)
 
 **Статус:** 🎉 **Production-Ready!**

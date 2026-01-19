@@ -11,8 +11,8 @@ import time
 
 import httpx
 
-from config.settings import ZoomConfig
 from logger import get_logger
+from models.zoom_auth import ZoomServerToServerCredentials
 
 logger = get_logger()
 
@@ -87,22 +87,22 @@ class TokenManager:
 
     async def _fetch_token(
         self,
-        config: ZoomConfig,
+        config: ZoomServerToServerCredentials,
         max_retries: int = 3,
         base_delay: float = 1.0,
         max_delay: float = 60.0,
     ) -> tuple[str | None, int | None]:
         """
-        Получение токена с механизмом повторных попыток и экспоненциальной задержкой.
+        Fetch token with retry mechanism and exponential backoff.
 
         Args:
-            config: Конфигурация Zoom аккаунта
-            max_retries: Максимальное количество попыток
-            base_delay: Базовая задержка в секундах (для первой попытки)
-            max_delay: Максимальная задержка в секундах
+            config: Zoom Server-to-Server credentials
+            max_retries: Maximum retry attempts
+            base_delay: Base delay in seconds (for first retry)
+            max_delay: Maximum delay in seconds
 
         Returns:
-            Кортеж (access_token, expires_in) или (None, None) в случае неудачи
+            Tuple (access_token, expires_in) or (None, None) on failure
         """
         credentials = f"{config.client_id}:{config.client_secret}"
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
@@ -188,25 +188,24 @@ class TokenManager:
 
     async def get_token(
         self,
-        config: ZoomConfig,
+        config: ZoomServerToServerCredentials,
         max_retries: int = 3,
         base_delay: float = 1.0,
         max_delay: float = 60.0,
     ) -> str | None:
         """
-        Получение токена доступа с синхронизацией и кэшированием.
+        Get access token with caching and synchronization.
 
-        Метод потокобезопасен и предотвращает дублирование запросов при параллельном
-        доступе из разных корутин.
+        Thread-safe method that prevents duplicate requests during parallel access.
 
         Args:
-            config: Конфигурация Zoom аккаунта
-            max_retries: Максимальное количество попыток при ошибках
-            base_delay: Базовая задержка для экспоненциальной задержки
-            max_delay: Максимальная задержка между попытками
+            config: Zoom Server-to-Server credentials
+            max_retries: Maximum retry attempts on errors
+            base_delay: Base delay for exponential backoff
+            max_delay: Maximum delay between retries
 
         Returns:
-            Access token или None в случае неудачи
+            Access token or None on failure
         """
         # Проверяем валидность кэшированного токена без блокировки
         if self._is_token_valid():

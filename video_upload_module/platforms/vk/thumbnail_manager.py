@@ -85,7 +85,7 @@ class VKThumbnailManager:
     async def _upload_thumbnail_file(self, upload_url: str, thumbnail_path: str) -> str | None:
         """Upload thumbnail file to server."""
         try:
-            with open(thumbnail_path, "rb") as thumbnail_file:
+            with Path(thumbnail_path).open("rb") as thumbnail_file:
                 files = {"file": thumbnail_file}
 
                 async with aiohttp.ClientSession() as session:

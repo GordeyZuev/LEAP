@@ -63,7 +63,8 @@ class YouTubeThumbnailManager:
             return False
 
         try:
-            media = MediaFileUpload(thumbnail_path, mimetype="image/jpeg")
+            # Thumbnail files are small (< 2MB), use non-resumable upload
+            media = MediaFileUpload(thumbnail_path, mimetype="image/jpeg", resumable=False)
             self.service.thumbnails().set(videoId=video_id, media_body=media).execute()
 
             logger.info(f"Thumbnail set for video {video_id}")
@@ -131,7 +132,7 @@ class YouTubeThumbnailManager:
             async with aiohttp.ClientSession() as session:
                 async with session.get(thumbnail_url) as response:
                     if response.status == 200:
-                        with open(output_path, "wb") as f:
+                        with Path(output_path).open("wb") as f:
                             async for chunk in response.content.iter_chunked(8192):
                                 f.write(chunk)
 

@@ -92,10 +92,10 @@ class BaseUploader(ABC):
 
     async def upload_caption(
         self,
-        video_id: str,
-        caption_path: str,
-        language: str = "ru",
-        name: str | None = None,
+        _video_id: str,
+        _caption_path: str,
+        _language: str = "ru",
+        _name: str | None = None,
     ) -> bool:
         """
         Upload captions/subtitles (not implemented by default).

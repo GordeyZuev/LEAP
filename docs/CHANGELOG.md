@@ -14,9 +14,9 @@
 ### Метрики
 
 ```
-API Endpoints:       84 (100% типизация)
-Database Tables:     12 (19 миграций)
-Pydantic Models:     118+
+API Endpoints:       89 (100% типизация)
+Database Tables:     16 (21 миграция)
+Pydantic Models:     185+
 Platform Integrations: 3 (Zoom, YouTube, VK)
 AI Models:           2 (Whisper, DeepSeek)
 Subscription Plans:  4 (Free/Plus/Pro/Enterprise)
@@ -44,7 +44,7 @@ Subscription Plans:  4 (Free/Plus/Pro/Enterprise)
 - ✅ Field constraints вместо custom валидаторов
 - ✅ Централизованные валидаторы (`api/schemas/common/validators.py`)
 - ✅ Порядок полей в Swagger UI (не алфавитный)
-- ✅ 100% типизация (118+ моделей)
+- ✅ 100% типизация (185+ моделей)
 - ✅ 0 lint errors
 
 **Принципы:**
@@ -77,7 +77,7 @@ Subscription Plans:  4 (Free/Plus/Pro/Enterprise)
 
 **Документация:**
 - [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md)
-- [TEMPLATE_MAPPING_ARCHITECTURE.md](TEMPLATE_MAPPING_ARCHITECTURE.md)
+- [TEMPLATES.md](TEMPLATES.md)
 
 ---
 
@@ -226,8 +226,7 @@ Preset → Template → Manual Override
 - ✅ Polling механизм для batch jobs
 
 **Документация:**
-- [ZOOM_OAUTH_IMPLEMENTATION.md](ZOOM_OAUTH_IMPLEMENTATION.md)
-- [VK_TOKEN_API.md](VK_TOKEN_API.md)
+- [OAUTH.md](OAUTH.md)
 - [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md)
 
 ---
@@ -252,7 +251,6 @@ Preset → Template → Manual Override
 
 **Документация:**
 - [API_GUIDE.md](API_GUIDE.md) - Admin & Quota API
-- [API_CONSISTENCY_AUDIT.md](API_CONSISTENCY_AUDIT.md)
 
 ---
 
@@ -284,8 +282,7 @@ Preset → Template → Manual Override
 
 **Документация:**
 - [TEMPLATES.md](TEMPLATES.md) - Metadata configuration
-- [PLATFORM_SPECIFIC_METADATA.md](PLATFORM_SPECIFIC_METADATA.md)
-- [VK_POLICY_UPDATE_2026.md](VK_POLICY_UPDATE_2026.md)
+- [archive/VK_POLICY_UPDATE_2026.md](archive/VK_POLICY_UPDATE_2026.md)
 
 ---
 
@@ -302,8 +299,7 @@ Preset → Template → Manual Override
 - ✅ Account deletion
 
 **Документация:**
-- [SECURITY_AUDIT.md](SECURITY_AUDIT.md)
-- [SECURITY_QUICKSTART.md](SECURITY_QUICKSTART.md)
+- [archive/SECURITY_AUDIT.md](archive/SECURITY_AUDIT.md)
 
 ---
 
@@ -415,7 +411,7 @@ Preset → Template → Manual Override
 |-----------|--------|-------------|
 | Multi-tenancy | ✅ | Полная изоляция |
 | Authentication | ✅ | JWT + Refresh + OAuth 2.0 |
-| API | ✅ | 84 endpoints |
+| API | ✅ | 89 endpoints |
 | Database | ✅ | Auto-init, 19 миграций |
 | Async Processing | ✅ | Celery + Redis |
 | Subscriptions | ✅ | 4 plans + custom quotas |
@@ -455,7 +451,7 @@ Preset → Template → Manual Override
 - Celery async processing
 - Template-driven automation
 - Subscription system
-- Full API coverage (84 endpoints)
+- Full API coverage (89 endpoints)
 
 ---
 

@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 
 from fastapi import FastAPI
@@ -12,7 +13,6 @@ import api.tasks.processing
 import api.tasks.sync_tasks
 import api.tasks.template
 import api.tasks.upload  # noqa: F401
-from api.config import get_settings
 from api.middleware.error_handler import (
     api_exception_handler,
     global_exception_handler,
@@ -39,6 +39,7 @@ from api.routers import (
     users,
 )
 from api.shared.exceptions import APIException
+from config.settings import get_settings
 from database.config import DatabaseConfig
 from database.manager import DatabaseManager
 from logger import get_logger
@@ -47,12 +48,12 @@ settings = get_settings()
 logger = get_logger()
 
 app = FastAPI(
-    title=settings.api_title,
-    version=settings.api_version,
-    description=settings.api_description,
-    docs_url=settings.docs_url,
-    redoc_url=settings.redoc_url,
-    openapi_url=settings.openapi_url,
+    title=settings.app.name,
+    version=settings.app.version,
+    description=settings.app.description,
+    docs_url=settings.server.docs_url,
+    redoc_url=settings.server.redoc_url,
+    openapi_url=settings.server.openapi_url,
 )
 
 
@@ -72,8 +73,9 @@ async def startup_event():
 
         # Применяем миграции Alembic
         logger.info("🔄 Применение миграций Alembic...")
+        alembic_cmd = shutil.which("alembic") or "alembic"
         result = subprocess.run(
-            ["alembic", "upgrade", "head"],
+            [alembic_cmd, "upgrade", "head"],
             check=False,
             capture_output=True,
             text=True,
@@ -91,18 +93,14 @@ async def startup_event():
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=settings.cors_allow_credentials,
-    allow_methods=settings.cors_allow_methods,
-    allow_headers=settings.cors_allow_headers,
+    allow_origins=settings.server.cors_origins,
+    allow_credentials=settings.server.cors_allow_credentials,
+    allow_methods=settings.server.cors_allow_methods,
+    allow_headers=settings.server.cors_allow_headers,
 )
 
 # Rate limiting middleware
-app.add_middleware(
-    RateLimitMiddleware,
-    per_minute=settings.rate_limit_per_minute,
-    per_hour=settings.rate_limit_per_hour,
-)
+app.add_middleware(RateLimitMiddleware)
 
 # Logging middleware
 app.add_middleware(LoggingMiddleware)
@@ -140,8 +138,8 @@ async def root():
     """Корневой endpoint."""
     return {
         "message": "LEAP API",
-        "version": settings.api_version,
-        "docs": settings.docs_url,
+        "version": settings.app.version,
+        "docs": settings.server.docs_url,
     }
 
 
@@ -150,7 +148,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "api.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.reload,
+        host=settings.server.host,
+        port=settings.server.port,
+        reload=settings.server.reload,
     )

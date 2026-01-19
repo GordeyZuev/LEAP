@@ -1,4 +1,8 @@
-from .accounts import ZOOM_ACCOUNTS
-from .settings import ZoomConfig, load_config_from_file
+"""
+Configuration package.
 
-__all__ = ["ZOOM_ACCOUNTS", "ZoomConfig", "load_config_from_file"]
+Use config.settings.get_settings() for all configuration needs.
+All credentials are stored in database (user_credentials table).
+"""
+
+__all__ = []

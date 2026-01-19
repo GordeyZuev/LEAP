@@ -14,7 +14,6 @@ class TranscriptionManager:
 
     def __init__(self):
         """Initialize transcription manager."""
-        pass
 
     def get_dir(self, recording_id: int, user_id: int | None = None) -> Path:
         """
@@ -97,7 +96,7 @@ class TranscriptionManager:
         }
 
         master_path = dir_path / "master.json"
-        with open(master_path, "w", encoding="utf-8") as f:
+        with master_path.open("w", encoding="utf-8") as f:
             json.dump(master_data, f, ensure_ascii=False, indent=2)
 
         logger.info(
@@ -124,7 +123,7 @@ class TranscriptionManager:
         if not master_path.exists():
             raise FileNotFoundError(f"master.json not found for recording {recording_id}: {master_path}")
 
-        with open(master_path, encoding="utf-8") as f:
+        with master_path.open(encoding="utf-8") as f:
             return json.load(f)
 
     def add_topics_version(
@@ -164,7 +163,7 @@ class TranscriptionManager:
 
         # Загружаем существующий topics.json или создаём новый
         if topics_path.exists():
-            with open(topics_path, encoding="utf-8") as f:
+            with topics_path.open(encoding="utf-8") as f:
                 topics_file = json.load(f)
         else:
             topics_file = {
@@ -197,7 +196,7 @@ class TranscriptionManager:
 
         # Сохраняем
         topics_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(topics_path, "w", encoding="utf-8") as f:
+        with topics_path.open("w", encoding="utf-8") as f:
             json.dump(topics_file, f, ensure_ascii=False, indent=2)
 
         logger.info(
@@ -225,7 +224,7 @@ class TranscriptionManager:
         if not topics_path.exists():
             raise FileNotFoundError(f"topics.json not found for recording {recording_id}: {topics_path}")
 
-        with open(topics_path, encoding="utf-8") as f:
+        with topics_path.open(encoding="utf-8") as f:
             return json.load(f)
 
     def get_active_topics(self, recording_id: int, user_id: int | None = None) -> dict | None:
@@ -357,7 +356,7 @@ class TranscriptionManager:
 
     def _generate_segments_txt(self, segments: list[dict], output_path: Path):
         """Генерировать segments.txt из списка сегментов."""
-        with open(output_path, "w", encoding="utf-8") as f:
+        with output_path.open("w", encoding="utf-8") as f:
             for seg in segments:
                 start = self._format_time_ms(seg["start"])
                 end = self._format_time_ms(seg["end"])
@@ -368,7 +367,7 @@ class TranscriptionManager:
 
     def _generate_words_txt(self, words: list[dict], output_path: Path):
         """Генерировать words.txt из списка слов."""
-        with open(output_path, "w", encoding="utf-8") as f:
+        with output_path.open("w", encoding="utf-8") as f:
             for word in words:
                 start = self._format_time_ms(word["start"])
                 end = self._format_time_ms(word["end"])

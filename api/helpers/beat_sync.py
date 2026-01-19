@@ -1,15 +1,15 @@
 """Automation jobs and Celery Beat synchronization"""
 
 import json
-import logging
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.helpers.schedule_converter import schedule_to_cron
 from database.automation_models import AutomationJobModel
+from logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 
 async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> None:

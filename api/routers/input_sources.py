@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth.dependencies import get_current_active_user
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import UserCredentialRepository
+from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingAsyncRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
 from api.schemas.template import (
@@ -17,10 +18,10 @@ from api.schemas.template import (
     InputSourceUpdate,
 )
 from api.zoom_api import ZoomAPI
-from config.settings import ZoomConfig
 from database.auth_models import UserModel
 from logger import get_logger
 from models.recording import SourceType
+from models.zoom_auth import create_zoom_credentials
 
 router = APIRouter(prefix="/api/v1/sources", tags=["Input Sources"])
 logger = get_logger()
@@ -82,24 +83,8 @@ async def _sync_single_source(
 
     if source.source_type == "ZOOM":
         try:
-            # Определяем тип credentials
-            if "access_token" in credentials:
-                zoom_config = ZoomConfig(
-                    account=credentials.get("account", "oauth_user"),
-                    account_id="",
-                    client_id=credentials.get("client_id", ""),
-                    client_secret=credentials.get("client_secret", ""),
-                    access_token=credentials.get("access_token"),
-                    refresh_token=credentials.get("refresh_token"),
-                )
-            else:
-                zoom_config = ZoomConfig(
-                    account=credentials.get("account", ""),
-                    account_id=credentials["account_id"],
-                    client_id=credentials["client_id"],
-                    client_secret=credentials["client_secret"],
-                )
-
+            # Create Zoom credentials from dict
+            zoom_config = create_zoom_credentials(credentials)
             zoom_api = ZoomAPI(zoom_config)
             recordings_data = await zoom_api.get_recordings(from_date=from_date, to_date=to_date)
             meetings = recordings_data.get("meetings", [])
@@ -109,6 +94,10 @@ async def _sync_single_source(
             # Получаем шаблоны
             template_repo = RecordingTemplateRepository(session)
             templates = await template_repo.find_active_by_user(user_id)
+
+            # Получаем user config для retention settings (merged with defaults)
+            user_config_repo = UserConfigRepository(session)
+            user_config = await user_config_repo.get_effective_config(user_id)
 
             # Сохраняем recordings
             recording_repo = RecordingAsyncRepository(session)
@@ -180,17 +169,17 @@ async def _sync_single_source(
                     }
 
                     # Determine if this is a blank record (too short or too small)
-                    MIN_DURATION_MINUTES = 20
-                    MIN_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB
+                    min_duration_minutes = 20
+                    min_file_size_bytes = 25 * 1024 * 1024  # 25 MB
 
                     video_file_size = video_file.get("file_size") if video_file else 0
-                    is_blank = (duration < MIN_DURATION_MINUTES) or (video_file_size < MIN_FILE_SIZE_BYTES)
+                    is_blank = (duration < min_duration_minutes) or (video_file_size < min_file_size_bytes)
 
                     if is_blank:
                         logger.info(
                             f"Recording '{display_name}' marked as blank: "
-                            f"duration={duration}min (min={MIN_DURATION_MINUTES}), "
-                            f"size={video_file_size} bytes (min={MIN_FILE_SIZE_BYTES})"
+                            f"duration={duration}min (min={min_duration_minutes}), "
+                            f"size={video_file_size} bytes (min={min_file_size_bytes})"
                         )
 
                     # Template matching
@@ -206,6 +195,7 @@ async def _sync_single_source(
                         source_type=SourceType.ZOOM,
                         source_key=meeting_id,
                         source_metadata=source_metadata,
+                        user_config=user_config,
                         video_file_size=video_file.get("file_size") if video_file else None,
                         is_mapped=matched_template is not None,
                         template_id=matched_template.id if matched_template else None,

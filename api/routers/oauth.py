@@ -27,6 +27,110 @@ def get_state_manager(redis=Depends(get_redis)) -> OAuthStateManager:
     return OAuthStateManager(redis)
 
 
+async def get_account_identifier(platform: str, access_token: str) -> str:
+    """
+    Get unique account identifier from OAuth provider.
+
+    This allows users to have multiple accounts per platform.
+
+    Returns:
+        Unique account identifier (email, user_id, etc.)
+    """
+    import httpx
+
+    logger.info(f"[get_account_identifier] Starting for platform={platform}")
+
+    try:
+        if platform == "youtube":
+            # Get user info from Google
+            logger.debug("[get_account_identifier] Requesting Google UserInfo API")
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=10.0,
+                )
+                logger.debug(f"[get_account_identifier] Google API response: status={response.status_code}")
+
+                if response.status_code == 200:
+                    user_info = response.json()
+                    logger.debug(f"[get_account_identifier] User info: {user_info}")
+                    email = user_info.get("email", "unknown")
+                    logger.info(f"[get_account_identifier] ✅ Retrieved YouTube account identifier: {email}")
+                    return email
+                error_text = response.text
+                logger.warning(
+                    f"[get_account_identifier] ❌ Failed to get YouTube user info: "
+                    f"status={response.status_code} body={error_text[:200]}"
+                )
+                return "oauth_auto"
+
+        elif platform == "vk_video":
+            # Get user info from VK API
+            logger.debug("[get_account_identifier] Requesting VK API")
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://api.vk.com/method/users.get",
+                    params={"access_token": access_token, "v": "5.131"},
+                    timeout=10.0,
+                )
+                logger.debug(f"[get_account_identifier] VK API response: status={response.status_code}")
+
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.debug(f"[get_account_identifier] VK data: {data}")
+
+                    if "response" in data and len(data["response"]) > 0:
+                        user_id = data["response"][0].get("id")
+                        first_name = data["response"][0].get("first_name", "")
+                        last_name = data["response"][0].get("last_name", "")
+                        account_name = f"vk_{user_id}" if user_id else "oauth_auto"
+                        logger.info(
+                            f"[get_account_identifier] ✅ Retrieved VK account identifier: "
+                            f"{account_name} ({first_name} {last_name})"
+                        )
+                        return account_name
+                    logger.warning("[get_account_identifier] ❌ VK API returned empty response")
+                    return "oauth_auto"
+                error_text = response.text
+                logger.warning(
+                    f"[get_account_identifier] ❌ Failed to get VK user info: "
+                    f"status={response.status_code} body={error_text[:200]}"
+                )
+                return "oauth_auto"
+
+        elif platform == "zoom":
+            # Get user info from Zoom API
+            logger.debug("[get_account_identifier] Requesting Zoom API")
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    "https://api.zoom.us/v2/users/me",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=10.0,
+                )
+                logger.debug(f"[get_account_identifier] Zoom API response: status={response.status_code}")
+
+                if response.status_code == 200:
+                    user_info = response.json()
+                    logger.debug(f"[get_account_identifier] User info: {user_info}")
+                    email = user_info.get("email", "unknown")
+                    logger.info(f"[get_account_identifier] ✅ Retrieved Zoom account identifier: {email}")
+                    return email
+                error_text = response.text
+                logger.warning(
+                    f"[get_account_identifier] ❌ Failed to get Zoom user info: "
+                    f"status={response.status_code} body={error_text[:200]}"
+                )
+                return "oauth_auto"
+
+    except Exception as e:
+        logger.error(f"[get_account_identifier] ❌ Exception for {platform}: {type(e).__name__}: {e}", exc_info=True)
+        return "oauth_auto"
+
+    logger.warning(f"[get_account_identifier] ⚠️ Unknown platform {platform}, returning fallback")
+    return "oauth_auto"
+
+
 async def save_oauth_credentials(
     user_id: int,
     platform: str,
@@ -34,7 +138,14 @@ async def save_oauth_credentials(
     config: OAuthPlatformConfig,
     session: AsyncSession,
 ) -> int:
-    """Save OAuth credentials to database."""
+    """
+    Save OAuth credentials to database.
+
+    Automatically detects account identifier (email, user_id) to support
+    multiple accounts per platform.
+    """
+    from api.schemas.auth import UserCredentialUpdate
+
     encryption = get_encryption()
     cred_repo = UserCredentialRepository(session)
 
@@ -103,17 +214,40 @@ async def save_oauth_credentials(
     else:
         raise ValueError(f"Unsupported platform: {platform}")
 
+    # Get unique account identifier (email for YouTube/Zoom, user_id for VK)
+    logger.info(f"[save_oauth_credentials] Getting account identifier for user_id={user_id} platform={platform}")
+    account_name = await get_account_identifier(platform, token_data["access_token"])
+    logger.info(f"[save_oauth_credentials] Account identifier: {account_name}")
+
     encrypted_data = encryption.encrypt_credentials(credentials)
 
-    cred_create = UserCredentialCreate(
-        user_id=user_id,
-        platform=platform,
-        account_name="oauth_auto",
-        encrypted_data=encrypted_data,
-    )
+    # Check if credentials already exist (upsert pattern)
+    existing_cred = await cred_repo.get_by_platform(user_id, platform, account_name=account_name)
 
-    credential = await cred_repo.create(credential_data=cred_create)
-    logger.info(f"OAuth credentials saved: user_id={user_id} platform={platform} credential_id={credential.id}")
+    if existing_cred:
+        # Update existing credentials
+        cred_update = UserCredentialUpdate(
+            encrypted_data=encrypted_data,
+            is_active=True,
+        )
+        credential = await cred_repo.update(existing_cred.id, cred_update)
+        logger.info(
+            f"OAuth credentials updated: user_id={user_id} platform={platform} "
+            f"account={account_name} credential_id={credential.id}"
+        )
+    else:
+        # Create new credentials
+        cred_create = UserCredentialCreate(
+            user_id=user_id,
+            platform=platform,
+            account_name=account_name,
+            encrypted_data=encrypted_data,
+        )
+        credential = await cred_repo.create(credential_data=cred_create)
+        logger.info(
+            f"OAuth credentials created: user_id={user_id} platform={platform} "
+            f"account={account_name} credential_id={credential.id}"
+        )
 
     return credential.id
 
@@ -251,7 +385,7 @@ async def vk_authorize_implicit(
     - Works immediately without VK approval
     - Grants video, groups, wall permissions
 
-    **Cons:**
+ й    **Cons:**
     - Token expires in 24 hours
     - No refresh token
     - Deprecated by VK (use for testing only)

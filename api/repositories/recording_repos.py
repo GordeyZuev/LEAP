@@ -1,6 +1,8 @@
 """Async recording repository with multi-tenancy"""
 
-from datetime import datetime
+import shutil
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -15,27 +17,30 @@ logger = get_logger()
 
 
 class RecordingAsyncRepository:
-    """Async репозиторий для работы с recordings."""
+    """Async repository for working with recordings."""
 
     def __init__(self, session: AsyncSession):
         """
-        Инициализация репозитория.
+        Initialize repository.
 
         Args:
             session: Async database session
         """
         self.session = session
 
-    async def get_by_id(self, recording_id: int, user_id: int) -> RecordingModel | None:
+    async def get_by_id(
+        self, recording_id: int, user_id: int, include_deleted: bool = False
+    ) -> RecordingModel | None:
         """
-        Получить запись по ID с проверкой принадлежности пользователю.
+        Get recording by ID with user ownership check.
 
         Args:
-            recording_id: ID записи
-            user_id: ID пользователя
+            recording_id: Recording ID
+            user_id: User ID
+            include_deleted: Include deleted recordings
 
         Returns:
-            Recording или None
+            Recording or None
         """
         query = (
             select(RecordingModel)
@@ -51,6 +56,9 @@ class RecordingAsyncRepository:
             )
         )
 
+        if not include_deleted:
+            query = query.where(RecordingModel.deleted == False)  # noqa: E712
+
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
@@ -59,21 +67,23 @@ class RecordingAsyncRepository:
         user_id: int,
         status: ProcessingStatus | None = None,
         input_source_id: int | None = None,
+        include_deleted: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> list[RecordingModel]:
         """
-        Получить список записей пользователя.
+        Get list of recordings for user.
 
         Args:
-            user_id: ID пользователя
-            status: Фильтр по статусу
-            input_source_id: Фильтр по источнику
-            limit: Лимит записей
-            offset: Смещение
+            user_id: User ID
+            status: Filter by status
+            input_source_id: Filter by input source
+            include_deleted: Include deleted recordings
+            limit: Limit of recordings
+            offset: Offset
 
         Returns:
-            Список recordings
+            List of recordings
         """
         query = (
             select(RecordingModel)
@@ -87,6 +97,9 @@ class RecordingAsyncRepository:
             .limit(limit)
             .offset(offset)
         )
+
+        if not include_deleted:
+            query = query.where(RecordingModel.deleted == False)  # noqa: E712
 
         if status:
             query = query.where(RecordingModel.status == status)
@@ -107,25 +120,36 @@ class RecordingAsyncRepository:
         source_type: SourceType,
         source_key: str,
         source_metadata: dict[str, Any] | None = None,
+        user_config: dict | None = None,
         **kwargs,
     ) -> RecordingModel:
         """
-        Создать новую запись.
+        Create new recording.
 
         Args:
-            user_id: ID пользователя
-            input_source_id: ID источника
-            display_name: Название записи
-            start_time: Время начала
-            duration: Длительность
-            source_type: Тип источника
-            source_key: Ключ источника
-            source_metadata: Метаданные источника
-            **kwargs: Дополнительные поля
+            user_id: User ID
+            input_source_id: Input source ID
+            display_name: Recording name
+            start_time: Start time
+            duration: Duration
+            source_type: Source type
+            source_key: Source key
+            source_metadata: Source metadata
+            user_config: User configuration for retention settings
+            **kwargs: Additional fields
 
         Returns:
-            Созданная запись
+            Created recording
         """
+        # Get retention settings
+        retention = user_config.get("retention", {}) if user_config else {}
+        auto_expire_days = retention.get("auto_expire_days", 90)
+
+        # Set expire_at (can be overridden by Zoom API deleted_at via kwargs)
+        expire_at = kwargs.get("expire_at")
+        if expire_at is None and auto_expire_days:
+            expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
+
         recording = RecordingModel(
             user_id=user_id,
             input_source_id=input_source_id,
@@ -135,7 +159,8 @@ class RecordingAsyncRepository:
             status=kwargs.get("status", ProcessingStatus.INITIALIZED),
             is_mapped=kwargs.get("is_mapped", False),
             video_file_size=kwargs.get("video_file_size"),
-            expire_at=kwargs.get("expire_at"),
+            expire_at=expire_at,
+            delete_state="active",
             local_video_path=kwargs.get("local_video_path"),
             processed_video_path=kwargs.get("processed_video_path"),
         )
@@ -143,7 +168,7 @@ class RecordingAsyncRepository:
         self.session.add(recording)
         await self.session.flush()
 
-        # Создаем source metadata
+        # Create source metadata
         source = SourceMetadataModel(
             recording_id=recording.id,
             user_id=user_id,
@@ -166,14 +191,14 @@ class RecordingAsyncRepository:
         **fields,
     ) -> RecordingModel:
         """
-        Обновить запись.
+        Update recording.
 
         Args:
-            recording: Запись для обновления
-            **fields: Поля для обновления
+            recording: Recording to update
+            **fields: Fields to update
 
         Returns:
-            Обновленная запись
+            Updated recording
         """
         for field, value in fields.items():
             if hasattr(recording, field):
@@ -194,17 +219,17 @@ class RecordingAsyncRepository:
         main_topics: list[str],
     ) -> RecordingModel:
         """
-        Сохранить результаты транскрибации.
+        Save transcription results.
 
         Args:
-            recording: Запись
-            transcription_dir: Директория с транскрипцией
-            transcription_info: Информация о транскрипции
-            topic_timestamps: Временные метки тем
-            main_topics: Основные темы
+            recording: Recording
+            transcription_dir: Directory with transcription
+            transcription_info: Transcription info
+            topic_timestamps: Topic timestamps
+            main_topics: Main topics
 
         Returns:
-            Обновленная запись
+            Updated recording
         """
         recording.transcription_dir = transcription_dir
         recording.transcription_info = transcription_info
@@ -225,11 +250,11 @@ class RecordingAsyncRepository:
         preset_id: int | None = None,
     ) -> OutputTargetModel:
         """
-        Получить или создать output_target.
+        Get or create output_target.
 
         Args:
-            recording: Запись
-            target_type: Тип цели (YOUTUBE, VK)
+            recording: Recording
+            target_type: Target type
             preset_id: ID output preset
 
         Returns:
@@ -239,8 +264,8 @@ class RecordingAsyncRepository:
 
         from models.recording import TargetStatus
 
-        # Ищем существующий output_target через явный DB query
-        # (не полагаемся на recording.outputs - может быть не загружен)
+        # Find existing output_target via explicit DB query
+        # (don't rely on recording.outputs - it may not be loaded)
         stmt = select(OutputTargetModel).where(
             OutputTargetModel.recording_id == recording.id,
             OutputTargetModel.target_type == target_type,
@@ -252,7 +277,7 @@ class RecordingAsyncRepository:
             logger.debug(f"Found existing output_target for recording {recording.id} to {target_type}")
             return existing_output
 
-        # Создаем новый
+        # Create new
         output = OutputTargetModel(
             recording_id=recording.id,
             user_id=recording.user_id,
@@ -273,10 +298,7 @@ class RecordingAsyncRepository:
         output_target: OutputTargetModel,
     ) -> None:
         """
-        Пометить output_target как загружаемый.
-
-        Args:
-            output_target: Output target
+        Mark output_target as uploading.
         """
         from models.recording import TargetStatus
 
@@ -293,18 +315,18 @@ class RecordingAsyncRepository:
         error_message: str,
     ) -> None:
         """
-        Пометить output_target как failed.
+        Mark output_target as failed.
 
         Args:
             output_target: Output target
-            error_message: Сообщение об ошибке
+            error_message: Error message
         """
         from models.recording import TargetStatus
 
         output_target.status = TargetStatus.FAILED
         output_target.failed = True
         output_target.failed_at = datetime.utcnow()
-        output_target.failed_reason = error_message[:1000]  # Ограничение длины
+        output_target.failed_reason = error_message[:1000]  # Length limit
         output_target.retry_count += 1
         output_target.updated_at = datetime.utcnow()
         await self.session.flush()
@@ -321,15 +343,15 @@ class RecordingAsyncRepository:
         target_meta: dict[str, Any] | None = None,
     ) -> OutputTargetModel:
         """
-        Сохранить результаты загрузки.
+        Save upload results.
 
         Args:
-            recording: Запись
-            target_type: Тип цели (YOUTUBE, VK)
+            recording: Recording
+            target_type: Target type
             preset_id: ID output preset
-            video_id: ID видео на платформе
-            video_url: URL видео
-            target_meta: Метаданные
+            video_id: ID video on platform
+            video_url: Video URL
+            target_meta: Target metadata
 
         Returns:
             OutputTarget
@@ -338,7 +360,7 @@ class RecordingAsyncRepository:
 
         from models.recording import TargetStatus
 
-        # Проверяем, есть ли уже output для этого target_type (явный DB query)
+        # Check if there is already output for this target_type (explicit DB query)
         stmt = select(OutputTargetModel).where(
             OutputTargetModel.recording_id == recording.id,
             OutputTargetModel.target_type == target_type,
@@ -347,7 +369,7 @@ class RecordingAsyncRepository:
         existing_output = result.scalar_one_or_none()
 
         if existing_output:
-            # Обновляем существующий
+            # Update existing
             existing_output.status = TargetStatus.UPLOADED
             existing_output.preset_id = preset_id
             existing_output.target_meta = {
@@ -363,7 +385,7 @@ class RecordingAsyncRepository:
 
             logger.info(f"Updated upload result for recording {recording.id} to {target_type}")
             return existing_output
-        # Создаем новый
+        # Create new
         output = OutputTargetModel(
             recording_id=recording.id,
             user_id=recording.user_id,
@@ -386,14 +408,7 @@ class RecordingAsyncRepository:
 
     async def count_by_user(self, user_id: int, status: ProcessingStatus | None = None) -> int:
         """
-        Подсчитать количество записей пользователя.
-
-        Args:
-            user_id: ID пользователя
-            status: Фильтр по статусу
-
-        Returns:
-            Количество записей
+        Count number of recordings for user.
         """
         from sqlalchemy import func
 
@@ -413,16 +428,7 @@ class RecordingAsyncRepository:
         start_time: datetime,
     ) -> RecordingModel | None:
         """
-        Найти запись по source_key, source_type и start_time.
-
-        Args:
-            user_id: ID пользователя
-            source_type: Тип источника
-            source_key: Ключ источника (meeting_id для Zoom)
-            start_time: Время начала
-
-        Returns:
-            Recording или None
+        Find recording by source_key, source_type and start_time.
         """
         query = (
             select(RecordingModel)
@@ -454,41 +460,48 @@ class RecordingAsyncRepository:
         source_type: SourceType,
         source_key: str,
         source_metadata: dict[str, Any] | None = None,
+        user_config: dict | None = None,
         **kwargs,
     ) -> tuple[RecordingModel, bool]:
         """
-        Создать или обновить запись (upsert логика).
+        Create or update recording (upsert logic).
 
         Args:
-            user_id: ID пользователя
-            input_source_id: ID источника
-            display_name: Название записи
-            start_time: Время начала
-            duration: Длительность
-            source_type: Тип источника
-            source_key: Ключ источника
-            source_metadata: Метаданные источника
-            **kwargs: Дополнительные поля
+            user_id: User ID
+            input_source_id: Input source ID
+            display_name: Recording name
+            start_time: Start time
+            duration: Duration
+            source_type: Source type
+            source_key: Source key
+            source_metadata: Source metadata
+            user_config: User configuration for retention settings
+            **kwargs: Additional fields
 
         Returns:
-            Tuple (запись, был_ли_создан_новый)
+            Tuple (recording, was_created)
         """
-        # Проверяем существующую запись
+        # Check existing recording
         existing = await self.find_by_source_key(user_id, source_type, source_key, start_time)
 
         if existing:
-            # Обновляем существующую запись, но только если статус не UPLOADED
+            # Don't update deleted recordings (user deleted manually)
+            if existing.deleted:
+                logger.info(f"Skipped updating recording {existing.id} - marked as deleted")
+                return existing, False
+
+            # Update existing recording, but only if status is not UPLOADED
             if existing.status != ProcessingStatus.UPLOADED:
                 existing.display_name = display_name
                 existing.duration = duration
                 existing.video_file_size = kwargs.get("video_file_size", existing.video_file_size)
 
-                # Обновляем is_mapped если передан
+                # Update is_mapped if passed
                 if "is_mapped" in kwargs:
                     old_is_mapped = existing.is_mapped
                     existing.is_mapped = kwargs["is_mapped"]
 
-                    # Если is_mapped изменился, обновляем статус
+                    # If is_mapped changed, update status
                     if old_is_mapped != existing.is_mapped and existing.status in [
                         ProcessingStatus.INITIALIZED,
                         ProcessingStatus.SKIPPED,
@@ -497,15 +510,15 @@ class RecordingAsyncRepository:
                             ProcessingStatus.INITIALIZED if existing.is_mapped else ProcessingStatus.SKIPPED
                         )
 
-                # Обновляем template_id если передан
+                # Update template_id if passed
                 if "template_id" in kwargs:
                     existing.template_id = kwargs["template_id"]
 
-                # Обновляем blank_record если передан
+                # Update blank_record if passed
                 if "blank_record" in kwargs:
                     existing.blank_record = kwargs["blank_record"]
 
-                # Обновляем source metadata
+                # Update source metadata
                 if existing.source:
                     existing_meta = existing.source.meta or {}
                     merged_meta = dict(existing_meta)
@@ -518,12 +531,21 @@ class RecordingAsyncRepository:
 
                 await self.session.flush()
                 return existing, False
-            # Запись уже загружена, не обновляем
+            # Recording already uploaded, don't update
             logger.info(f"Skipped updating recording {existing.id} - already uploaded")
             return existing, False
-        # Создаем новую запись
+        # Create new recording
         is_mapped = kwargs.get("is_mapped", False)
         status = ProcessingStatus.INITIALIZED if is_mapped else ProcessingStatus.SKIPPED
+
+        # Get retention settings
+        retention = user_config.get("retention", {}) if user_config else {}
+        auto_expire_days = retention.get("auto_expire_days", 90)
+
+        # Set expire_at (can be overridden by Zoom API deleted_at via kwargs)
+        expire_at = kwargs.get("expire_at")
+        if expire_at is None and auto_expire_days:
+            expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
 
         recording = RecordingModel(
             user_id=user_id,
@@ -536,7 +558,8 @@ class RecordingAsyncRepository:
             is_mapped=is_mapped,
             blank_record=kwargs.get("blank_record", False),
             video_file_size=kwargs.get("video_file_size"),
-            expire_at=kwargs.get("expire_at"),
+            expire_at=expire_at,
+            delete_state="active",
             local_video_path=kwargs.get("local_video_path"),
             processed_video_path=kwargs.get("processed_video_path"),
         )
@@ -544,7 +567,7 @@ class RecordingAsyncRepository:
         self.session.add(recording)
         await self.session.flush()
 
-        # Создаем source metadata
+        # Create source metadata
         source = SourceMetadataModel(
             recording_id=recording.id,
             user_id=user_id,
@@ -561,14 +584,204 @@ class RecordingAsyncRepository:
 
         return recording, True
 
-    async def delete(self, recording: RecordingModel) -> None:
+    async def soft_delete(self, recording: RecordingModel, user_config: dict) -> None:
         """
-        Удалить запись.
+        Soft delete recording - mark as manually deleted by user.
+
+        Sets delete_state to "soft", schedules file cleanup and hard delete based on user retention.
 
         Args:
-            recording: Запись для удаления
+            recording: Recording to soft delete
+            user_config: User configuration containing retention settings
         """
+        now = datetime.utcnow()
+        recording.deleted = True
+        recording.delete_state = "soft"
+        recording.deletion_reason = "manual"
+        recording.deleted_at = now
+        recording.expire_at = None  # Cancel auto-expiration
+        recording.updated_at = now
+
+        # Schedule both cleanup dates immediately (both in future)
+        retention = user_config.get("retention", {})
+        soft_days = retention.get("soft_delete_days", 3)
+        hard_days = retention.get("hard_delete_days", 30)
+        recording.soft_deleted_at = now + timedelta(days=soft_days)  # When files will be deleted
+        recording.hard_delete_at = now + timedelta(days=soft_days + hard_days)  # When DB record deleted
+
+        await self.session.flush()
+
+        logger.info(
+            f"Soft deleted recording {recording.id} (manual), "
+            f"files cleanup at {recording.soft_deleted_at}, hard delete at {recording.hard_delete_at}"
+        )
+
+    async def auto_expire(self, recording: RecordingModel, user_config: dict) -> None:
+        """
+        Mark recording as auto-expired (expire_at reached).
+
+        Sets delete_state to "soft", schedules file cleanup and hard delete based on user retention.
+
+        Args:
+            recording: Recording to expire
+            user_config: User configuration containing retention settings
+        """
+        now = datetime.utcnow()
+        recording.deleted = True
+        recording.delete_state = "soft"
+        recording.deletion_reason = "expired"
+        recording.deleted_at = now
+        recording.expire_at = None  # Already expired
+        recording.updated_at = now
+
+        # Schedule both cleanup dates immediately (both in future)
+        retention = user_config.get("retention", {})
+        soft_days = retention.get("soft_delete_days", 3)
+        hard_days = retention.get("hard_delete_days", 30)
+        recording.soft_deleted_at = now + timedelta(days=soft_days)  # When files will be deleted
+        recording.hard_delete_at = now + timedelta(days=soft_days + hard_days)  # When DB record deleted
+
+        await self.session.flush()
+
+        logger.info(
+            f"Auto-expired recording {recording.id}, "
+            f"files cleanup at {recording.soft_deleted_at}, hard delete at {recording.hard_delete_at}"
+        )
+
+    async def restore(self, recording: RecordingModel, user_config: dict) -> None:
+        """
+        Restore soft deleted recording (only if files still present).
+
+        Clears deletion info and sets new expire_at from user config.
+
+        Args:
+            recording: Recording to restore
+            user_config: User configuration containing retention settings
+
+        Raises:
+            ValueError: If files already deleted (delete_state != "soft")
+        """
+        if recording.delete_state != "soft":
+            raise ValueError("Cannot restore: files already deleted")
+
+        # Clear deletion info
+        recording.deleted = False
+        recording.delete_state = "active"
+        recording.deletion_reason = None
+        recording.deleted_at = None
+        recording.hard_delete_at = None
+        recording.soft_deleted_at = None
+
+        # Set new expire_at from user config
+        retention = user_config.get("retention", {})
+        auto_expire_days = retention.get("auto_expire_days", 90)
+        if auto_expire_days:
+            recording.expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
+
+        recording.updated_at = datetime.utcnow()
+
+        await self.session.flush()
+
+        logger.info(f"Restored recording {recording.id}, will expire at {recording.expire_at}")
+
+    async def cleanup_recording_files(self, recording: RecordingModel) -> int:
+        """
+        Delete large files (videos, audio) for recording.
+        Keeps: master.json, topics.json (transcription_dir), DB metadata.
+
+        Used by maintenance tasks and hard delete.
+
+        Args:
+            recording: Recording to clean up
+
+        Returns:
+            Total bytes freed
+        """
+        # CRITICAL: Check state before cleanup to prevent race conditions
+        if recording.delete_state != "soft":
+            logger.warning(
+                f"Skipped cleanup for recording {recording.id}: "
+                f"delete_state={recording.delete_state} (expected 'soft')"
+            )
+            return 0
+
+        total_bytes = 0
+
+        # Delete original video
+        if recording.local_video_path and Path(recording.local_video_path).exists():
+            try:
+                size = Path(recording.local_video_path).stat().st_size
+                Path(recording.local_video_path).unlink()
+                total_bytes += size
+                logger.debug(f"Deleted local_video_path: {recording.local_video_path} ({size} bytes)")
+            except Exception as e:
+                logger.warning(f"Failed to delete local_video: path={recording.local_video_path} | error={e}")
+
+        # Delete processed video
+        if recording.processed_video_path and Path(recording.processed_video_path).exists():
+            try:
+                size = Path(recording.processed_video_path).stat().st_size
+                Path(recording.processed_video_path).unlink()
+                total_bytes += size
+                logger.debug(f"Deleted processed_video_path: {recording.processed_video_path} ({size} bytes)")
+            except Exception as e:
+                logger.warning(f"Failed to delete processed_video: path={recording.processed_video_path} | error={e}")
+
+        # Delete audio
+        if recording.processed_audio_path and Path(recording.processed_audio_path).exists():
+            try:
+                size = Path(recording.processed_audio_path).stat().st_size
+                Path(recording.processed_audio_path).unlink()
+                total_bytes += size
+                logger.debug(f"Deleted processed_audio_path: {recording.processed_audio_path} ({size} bytes)")
+            except Exception as e:
+                logger.warning(f"Failed to delete audio: path={recording.processed_audio_path} | error={e}")
+
+        # Clear paths in DB
+        recording.local_video_path = None
+        recording.processed_video_path = None
+        recording.processed_audio_path = None
+
+        # Update state (soft_deleted_at already set, just change state)
+        recording.delete_state = "hard"
+        recording.updated_at = datetime.utcnow()
+
+        return total_bytes
+
+    async def delete(self, recording: RecordingModel) -> None:
+        """
+        Hard delete recording - complete removal from DB.
+
+        Deletes all files (if not cleaned yet) and removes DB record.
+        Used by hard delete maintenance task and account deletion.
+
+        Args:
+            recording: Recording to delete
+        """
+        total_bytes = 0
+
+        # Delete large files if not cleaned yet
+        if recording.delete_state != "hard":
+            total_bytes += await self.cleanup_recording_files(recording)
+
+        # Delete transcription directory (master.json, topics.json, etc)
+        if recording.transcription_dir and Path(recording.transcription_dir).exists():
+            try:
+                dir_path = Path(recording.transcription_dir)
+                dir_size = sum(f.stat().st_size for f in dir_path.rglob("*") if f.is_file())
+                shutil.rmtree(dir_path)
+                total_bytes += dir_size
+                logger.debug(f"Deleted transcription_dir: {recording.transcription_dir} ({dir_size} bytes)")
+            except Exception as e:
+                logger.warning(f"Failed to delete transcription_dir: path={recording.transcription_dir} | error={e}")
+
+        # Delete from DB
         await self.session.delete(recording)
         await self.session.flush()
 
-        logger.info(f"Deleted recording {recording.id}")
+        # TODO: Update quota (placeholder for now)
+        # if total_bytes > 0 and recording.user_id:
+        #     quota_service = QuotaService(self.session)
+        #     await quota_service.track_storage_removed(recording.user_id, total_bytes)
+
+        logger.info(f"Hard deleted recording {recording.id}, freed {total_bytes} bytes")

@@ -6,10 +6,9 @@ from functools import lru_cache
 import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from api.config import get_settings
-from config.settings import settings
+from config.settings import get_settings
 
-api_settings = get_settings()
+settings = get_settings()
 
 
 @lru_cache
@@ -42,7 +41,7 @@ async def get_redis() -> redis.Redis:
     global _redis_client
     if _redis_client is None:
         _redis_client = redis.from_url(
-            api_settings.celery_broker_url,
+            settings.celery.broker_url,
             encoding="utf-8",
             decode_responses=True,
         )

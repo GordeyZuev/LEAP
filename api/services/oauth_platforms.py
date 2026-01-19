@@ -69,6 +69,8 @@ def create_youtube_config() -> OAuthPlatformConfig:
         scopes=[
             "https://www.googleapis.com/auth/youtube.upload",
             "https://www.googleapis.com/auth/youtube.force-ssl",
+            "openid",  # Required for getting user email via UserInfo API
+            "email",  # Required for getting user email
         ],
         redirect_uri=redirect_uri,
         response_type="code",

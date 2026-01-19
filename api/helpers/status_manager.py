@@ -123,11 +123,8 @@ def should_allow_download(recording: RecordingModel, allow_skipped: bool = False
     if recording.status == ProcessingStatus.INITIALIZED:
         return True
 
-    if recording.status == ProcessingStatus.SKIPPED and allow_skipped:
-        return True
-
-    # Из других статусов загрузка не имеет смысла
-    return False
+    # Разрешаем SKIPPED только если allow_skipped=True
+    return recording.status == ProcessingStatus.SKIPPED and allow_skipped
 
 
 def should_allow_processing(recording: RecordingModel, allow_skipped: bool = False) -> bool:
@@ -211,14 +208,10 @@ def should_allow_transcription(recording: RecordingModel, allow_skipped: bool = 
 
     # Если TRANSCRIBE stage существует - проверяем его статус
     # Можно перезапустить только если PENDING или FAILED
-    if transcribe_stage.status in [
+    return transcribe_stage.status in [
         ProcessingStageStatus.PENDING,
         ProcessingStageStatus.FAILED,
-    ]:
-        return True
-
-    # Если уже COMPLETED или IN_PROGRESS - нельзя
-    return False
+    ]
 
 
 def should_allow_upload(recording: RecordingModel, target_type: str, allow_skipped: bool = False) -> bool:
@@ -260,8 +253,5 @@ def should_allow_upload(recording: RecordingModel, target_type: str, allow_skipp
         return True
 
     # Если target существует - проверяем его статус
-    if target.status in [TargetStatus.NOT_UPLOADED, TargetStatus.FAILED]:
-        return True
-
-    # Если уже UPLOADED или UPLOADING - нельзя
-    return False
+    # Разрешаем загрузку только если NOT_UPLOADED или FAILED
+    return target.status in [TargetStatus.NOT_UPLOADED, TargetStatus.FAILED]

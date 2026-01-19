@@ -6,7 +6,7 @@ from typing import Any
 import bcrypt
 import jwt
 
-from api.config import get_settings
+from config.settings import get_settings
 
 settings = get_settings()
 
@@ -17,29 +17,29 @@ class PasswordHelper:
     @staticmethod
     def hash_password(password: str) -> str:
         """
-        Хеширование пароля с помощью bcrypt.
+        Hash password using bcrypt.
 
         Args:
-            password: Пароль в открытом виде
+            password: Password in plain text
 
         Returns:
-            Хешированный пароль
+            Hashed password
         """
-        salt = bcrypt.gensalt(rounds=settings.bcrypt_rounds)
+        salt = bcrypt.gensalt(rounds=settings.security.bcrypt_rounds)
         hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
         return hashed.decode("utf-8")
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
         """
-        Проверка пароля.
+        Verify password.
 
         Args:
-            plain_password: Пароль в открытом виде
-            hashed_password: Хешированный пароль
+            plain_password: Password in plain text
+            hashed_password: Hashed password
 
         Returns:
-            True если пароль совпадает, иначе False
+            True if password matches, otherwise False
         """
         try:
             return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
@@ -48,79 +48,79 @@ class PasswordHelper:
 
 
 class JWTHelper:
-    """Помощник для работы с JWT токенами."""
+    """Helper for working with JWT tokens."""
 
     @staticmethod
     def create_access_token(subject: dict[str, Any], expires_delta: timedelta | None = None) -> str:
         """
-        Создание access токена.
+        Create access token.
 
         Args:
-            subject: Данные для кодирования в токен (обычно {"user_id": 123})
-            expires_delta: Время жизни токена (по умолчанию из настроек)
+            subject: Data to encode in token (usually {"user_id": 123})
+            expires_delta: Token expiration time (default from settings)
 
         Returns:
-            JWT токен
+            JWT token
         """
         if expires_delta is None:
-            expires_delta = timedelta(minutes=settings.jwt_access_token_expire_minutes)
+            expires_delta = timedelta(minutes=settings.security.jwt_access_token_expire_minutes)
 
         expire = datetime.utcnow() + expires_delta
 
         to_encode = subject.copy()
         to_encode.update({"exp": expire, "type": "access"})
 
-        return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+        return jwt.encode(to_encode, settings.security.jwt_secret_key, algorithm=settings.security.jwt_algorithm)
 
     @staticmethod
     def create_refresh_token(subject: dict[str, Any], expires_delta: timedelta | None = None) -> str:
         """
-        Создание refresh токена.
+        Create refresh token.
 
         Args:
-            subject: Данные для кодирования в токен
-            expires_delta: Время жизни токена (по умолчанию из настроек)
+            subject: Data to encode in token
+            expires_delta: Token expiration time (default from settings)
 
         Returns:
-            JWT токен
+            JWT token
         """
         if expires_delta is None:
-            expires_delta = timedelta(days=settings.jwt_refresh_token_expire_days)
+            expires_delta = timedelta(days=settings.security.jwt_refresh_token_expire_days)
 
         expire = datetime.utcnow() + expires_delta
 
         to_encode = subject.copy()
         to_encode.update({"exp": expire, "type": "refresh"})
 
-        return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+        return jwt.encode(to_encode, settings.security.jwt_secret_key, algorithm=settings.security.jwt_algorithm)
 
     @staticmethod
     def decode_token(token: str) -> dict[str, Any] | None:
         """
-        Декодирование JWT токена.
+        Decode JWT token.
 
         Args:
-            token: JWT токен
+            token: JWT token
 
         Returns:
-            Декодированные данные или None при ошибке
+            Decoded data or None if error
         """
         try:
-            return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+            return jwt.decode(token, settings.security.jwt_secret_key, algorithms=[settings.security.jwt_algorithm])
         except Exception:
             return None
 
     @staticmethod
     def verify_token(token: str, token_type: str = "access") -> dict[str, Any] | None:
         """
-        Проверка и декодирование токена с проверкой типа.
+        Verify and decode token with type check.
 
         Args:
-            token: JWT токен
-            token_type: Ожидаемый тип токена ("access" или "refresh")
+            token: JWT token
+            token_type: Expected token type ("access" or "refresh")
 
         Returns:
-            Декодированные данные или None при ошибке
+            Decoded data or None if error
         """
         payload = JWTHelper.decode_token(token)
         if payload is None:

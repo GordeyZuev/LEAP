@@ -15,7 +15,7 @@ logger = get_logger()
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 
 
-async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+async def global_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Глобальный обработчик исключений."""
     try:
         exc_str = str(exc)
@@ -33,7 +33,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     )
 
 
-async def api_exception_handler(request: Request, exc: APIException) -> JSONResponse:
+async def api_exception_handler(_request: Request, exc: APIException) -> JSONResponse:
     """Обработчик API исключений."""
     return JSONResponse(
         status_code=exc.status_code,
@@ -41,7 +41,7 @@ async def api_exception_handler(request: Request, exc: APIException) -> JSONResp
     )
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
     """Обработчик ошибок валидации."""
     errors = []
     for error in exc.errors():
@@ -64,7 +64,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-async def response_validation_exception_handler(request: Request, exc: ResponseValidationError) -> JSONResponse:
+async def response_validation_exception_handler(_request: Request, exc: ResponseValidationError) -> JSONResponse:
     """Обработчик ошибок валидации response (внутренние ошибки сервера)."""
     logger.error("Response validation error: {}", exc, exc_info=exc)
 
@@ -93,7 +93,7 @@ async def response_validation_exception_handler(request: Request, exc: ResponseV
     )
 
 
-async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
+async def sqlalchemy_exception_handler(_request: Request, exc: SQLAlchemyError) -> JSONResponse:
     """Обработчик ошибок SQLAlchemy."""
     logger.error("Database error: {}", exc, exc_info=exc)
     return JSONResponse(

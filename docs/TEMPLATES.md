@@ -366,7 +366,7 @@ CREATE TABLE recording_template_mappings (
 
 **Decision:** Use separate table when needed (>10k recordings, >50 templates)
 
-**См.:** [TEMPLATE_MAPPING_ARCHITECTURE.md](archive/TEMPLATE_MAPPING_ARCHITECTURE.md) - Detailed ADR
+**См.:** [ADR_FEATURES.md](ADR_FEATURES.md) - Template architecture & decisions
 
 ---
 

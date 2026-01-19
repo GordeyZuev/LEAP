@@ -2,7 +2,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, TypeVar
 
+from logger import get_logger
+
 T = TypeVar("T", bound=Enum)
+logger = get_logger(__name__)
 
 
 def _normalize_enum(value: T | str, enum_class: type[T]) -> T:
@@ -241,7 +244,8 @@ class MeetingRecording:
                             uploaded_at=raw.get("uploaded_at"),
                         )
                     )
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to parse output target: {e}")
                     continue
 
         self.meeting_id: str = (
@@ -276,7 +280,8 @@ class MeetingRecording:
                             completed_at=raw.get("completed_at"),
                         )
                     )
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to parse processing stage: {e}")
                     continue
 
         self._process_recording_files(meeting_data.get("recording_files", []))

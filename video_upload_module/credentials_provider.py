@@ -2,6 +2,7 @@
 
 import json
 from abc import ABC, abstractmethod
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -205,8 +206,8 @@ class DatabaseCredentialProvider(CredentialProvider):
             if refresh_token:
                 data["refresh_token"] = refresh_token
 
-            expiry = datetime.utcnow() + timedelta(seconds=expires_in)
-            data["expiry"] = expiry.isoformat() + "Z"
+            expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
+            data["expiry"] = expiry.isoformat().replace("+00:00", "Z")
 
             return await self.save_credentials(data)
         except Exception as e:

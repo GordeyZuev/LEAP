@@ -41,6 +41,14 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
+# Temporary documentation files (development notes)
+*_SUMMARY.md
+*_ANALYSIS.md
+*_REVIEW.md
+*_CHECK.md
+*_MIGRATION*.md
+FINAL_*.md
+
 # Credentials and sensitive files
 config/app_config.json
 config/accounts.py

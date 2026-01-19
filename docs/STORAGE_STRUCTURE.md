@@ -1,4 +1,4 @@
-# 📁 Storage Structure - Final Design
+    # 📁 Storage Structure - Final Design
 
 **Version:** 2.0  
 **Date:** 2026-01-16  

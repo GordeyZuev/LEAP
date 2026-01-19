@@ -1,20 +1,28 @@
 """Celery tasks for automation jobs."""
 
 import asyncio
-import logging
 
 from api.celery_app import celery_app
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron
 from api.repositories.automation_repos import AutomationJobRepository
 from api.repositories.recording_repo import RecordingRepository
 from api.tasks.base import AutomationTask
+from config.settings import get_settings
 from database.manager import DatabaseManager
+from logger import get_logger
 from models.recording import ProcessingStatus
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
+settings = get_settings()
 
 
-@celery_app.task(bind=True, base=AutomationTask, name="automation.run_job")
+@celery_app.task(
+    bind=True,
+    base=AutomationTask,
+    name="automation.run_job",
+    max_retries=settings.celery.automation_max_retries,
+    default_retry_delay=settings.celery.automation_retry_delay,
+)
 def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
     """
     Execute automation job:
@@ -127,13 +135,19 @@ def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
                 }
 
             except Exception as e:
-                logger.error(f"Job {job_id} failed: {e}", exc_info=True)
+                logger.error("Job {} failed: {}", job_id, str(e), exc_info=True)
                 return {"status": "error", "job_id": job_id, "error": str(e)}
 
     return asyncio.run(_run())
 
 
-@celery_app.task(bind=True, base=AutomationTask, name="automation.dry_run")
+@celery_app.task(
+    bind=True,
+    base=AutomationTask,
+    name="automation.dry_run",
+    max_retries=settings.celery.automation_max_retries,
+    default_retry_delay=settings.celery.automation_retry_delay,
+)
 def dry_run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
     """
     Preview what the job would do without executing.

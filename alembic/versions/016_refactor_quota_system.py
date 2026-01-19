@@ -241,7 +241,7 @@ def upgrade():
 
     # Migrate all users to Free plan with their current usage
     connection.execute(
-        sa.text(f"""
+        sa.text("""
         INSERT INTO user_subscriptions (
             user_id, plan_id,
             custom_max_recordings_per_month, custom_max_storage_gb, custom_max_concurrent_tasks,
@@ -250,7 +250,7 @@ def upgrade():
         )
         SELECT
             uq.user_id,
-            {free_plan_id},
+            :free_plan_id,
             CASE WHEN uq.max_recordings_per_month != 100 THEN uq.max_recordings_per_month ELSE NULL END,
             CASE WHEN uq.max_storage_gb != 50 THEN uq.max_storage_gb ELSE NULL END,
             CASE WHEN uq.max_concurrent_tasks != 3 THEN uq.max_concurrent_tasks ELSE NULL END,
@@ -260,24 +260,26 @@ def upgrade():
             uq.created_at,
             'Migrated from old quota system'
         FROM user_quotas uq
-    """)
+    """),
+        {"free_plan_id": free_plan_id}
     )
 
     # Migrate current usage to quota_usage
     connection.execute(
-        sa.text(f"""
+        sa.text("""
         INSERT INTO quota_usage (
             user_id, period,
             recordings_count, storage_bytes, concurrent_tasks_count
         )
         SELECT
             uq.user_id,
-            {current_period},
+            :current_period,
             uq.current_recordings_count,
             uq.current_storage_gb::bigint * 1024 * 1024 * 1024,  -- Convert GB to bytes
             uq.current_tasks_count
         FROM user_quotas uq
-    """)
+    """),
+        {"current_period": current_period}
     )
 
     # ========================================
@@ -323,7 +325,7 @@ def downgrade():
 
     # Restore quotas with current usage
     connection.execute(
-        sa.text(f"""
+        sa.text("""
         INSERT INTO user_quotas (
             user_id,
             max_recordings_per_month, max_storage_gb, max_concurrent_tasks,
@@ -345,8 +347,9 @@ def downgrade():
             us.created_at
         FROM user_subscriptions us
         JOIN subscription_plans sp ON us.plan_id = sp.id
-        LEFT JOIN quota_usage qu ON us.user_id = qu.user_id AND qu.period = {current_period}
-    """)
+        LEFT JOIN quota_usage qu ON us.user_id = qu.user_id AND qu.period = :current_period
+    """),
+        {"current_period": current_period}
     )
 
     # Drop new tables

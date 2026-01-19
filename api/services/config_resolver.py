@@ -308,8 +308,7 @@ class ConfigResolver:
     async def _get_user_config(self, user_id: int) -> dict[str, Any]:
         """Get user configuration or return empty dict."""
         try:
-            user_config_model = await self.user_config_repo.get_by_user_id(user_id)
-            return user_config_model.config_data if user_config_model else {}
+            return await self.user_config_repo.get_effective_config(user_id)
         except Exception as e:
             logger.warning(f"Failed to get user config for user {user_id}: {e}")
             return {}

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 from logger import get_logger
 
@@ -138,21 +139,21 @@ class AudioDetector:
         Validate video file before processing.
         """
         try:
-            import os
+            video_file = Path(video_path)
 
             # Check if file exists
-            if not os.path.exists(video_path):
+            if not video_file.exists():
                 logger.error(f"File does not exist: {video_path}")
                 return False
 
             # Check file size
-            file_size = os.path.getsize(video_path)
+            file_size = video_file.stat().st_size
             if file_size < 1024:  # Less than 1 KB
                 logger.error(f"File too small: {file_size} bytes")
                 return False
 
             # Check if file is HTML
-            with open(video_path, "rb") as f:
+            with video_file.open("rb") as f:
                 first_chunk = f.read(1024)
                 if b"<html" in first_chunk.lower() or b"<!doctype html" in first_chunk.lower():
                     logger.error("File is an HTML page, not a video")

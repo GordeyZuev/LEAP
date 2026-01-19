@@ -8,7 +8,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from api.config import get_settings
+from config.settings import get_settings
 
 settings = get_settings()
 
@@ -18,9 +18,9 @@ class CredentialEncryption:
 
     def __init__(self):
         """Инициализация шифрования."""
-        # Используем JWT secret как базовый ключ для шифрования
-        # В production лучше использовать отдельный ключ
-        self._fernet = self._create_fernet(settings.jwt_secret_key)
+        # Используем encryption_key если задан, иначе JWT secret
+        encryption_key = settings.security.encryption_key or settings.security.jwt_secret_key
+        self._fernet = self._create_fernet(encryption_key)
 
     def _create_fernet(self, secret: str) -> Fernet:
         """

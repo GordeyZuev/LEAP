@@ -19,23 +19,28 @@
 ### 🏗️ Architecture & Design
 
 **Core architecture:**
-- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Architecture Decision Records (multi-tenancy, auth, config hierarchy)
-- [ADR_FEATURES.md](ADR_FEATURES.md) - Feature-specific ADRs (automation, FSM, async processing)
-- [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema, migrations, indexing
-- [TECHNICAL.md](TECHNICAL.md) - Technical documentation, REST API, modules
+- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Architecture Decision Records
+- [ADR_FEATURES.md](ADR_FEATURES.md) - Feature-specific ADRs
+- [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema & migrations
+- [TECHNICAL.md](TECHNICAL.md) - Complete technical reference
 
 ### ✨ Features & Integration
 
 **Templates & Automation:**
-- [TEMPLATES.md](TEMPLATES.md) - Template-driven automation, matching rules, re-match
+- [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
 - [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Batch processing API
 
 **OAuth & Credentials:**
-- [OAUTH.md](OAUTH.md) - Complete OAuth guide (YouTube, VK, Zoom setup + troubleshooting)
-- [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow, policy update 2026
+- [OAUTH.md](OAUTH.md) - Complete OAuth guide
+- [OAUTH_MULTIPLE_ACCOUNTS.md](OAUTH_MULTIPLE_ACCOUNTS.md) - Multi-account setup
+- [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow
 
 **Processing:**
-- [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) - Fireworks Batch API (50% cost savings)
+- [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) - Fireworks Batch API
+
+**Storage:**
+- [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) - Storage architecture
+- [MEDIA_SYSTEM_AUDIT.md](MEDIA_SYSTEM_AUDIT.md) - Media system audit
 
 ### 🔧 API & Development
 
@@ -46,12 +51,19 @@
 ### 🚀 Deployment & Operations
 
 **Setup & Deploy:**
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Complete deployment guide (dev → production, monitoring)
-- [PLAN.md](PLAN.md) - Project roadmap, milestones, research
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment guide
+- [PLAN.md](PLAN.md) - Project roadmap (thesis)
+- [ROADMAP.md](../ROADMAP.md) - Technical roadmap & TODO
+
+### 🔒 Security
+
+- [security/ARCHITECTURE_DECISION.md](security/ARCHITECTURE_DECISION.md) - Security architecture
+- [security/MULTI_TENANCY_FIXES.md](security/MULTI_TENANCY_FIXES.md) - Multi-tenancy security
+- [security/TASK_MIGRATION_GUIDE.md](security/TASK_MIGRATION_GUIDE.md) - Task isolation
 
 ### 📜 History
 
-- [CHANGELOG.md](CHANGELOG.md) - Project history, major milestones
+- [CHANGELOG.md](CHANGELOG.md) - Project history
 
 ---
 
@@ -121,7 +133,8 @@
 
 | File | Size | Description |
 |------|------|-------------|
-| [PLAN.md](PLAN.md) | 17K | Project roadmap & thesis plan |
+| [PLAN.md](PLAN.md) | 17K | Project roadmap (thesis) |
+| [ROADMAP.md](../ROADMAP.md) | 5K | Technical roadmap & TODO |
 | [CHANGELOG.md](CHANGELOG.md) | 15K | Project history |
 | [ADR_OVERVIEW.md](ADR_OVERVIEW.md) | 24K | Core architecture decisions |
 | [ADR_FEATURES.md](ADR_FEATURES.md) | 19K | Feature-specific ADRs |
@@ -134,16 +147,23 @@
 | [API_GUIDE.md](API_GUIDE.md) | 9K | Pydantic schemas & API |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 16K | Deployment guide |
 | [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) | 4K | Fireworks Batch API |
+| [OAUTH_MULTIPLE_ACCOUNTS.md](OAUTH_MULTIPLE_ACCOUNTS.md) | 3K | Multi-account OAuth |
+| [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) | 12K | Storage architecture |
+| [MEDIA_SYSTEM_AUDIT.md](MEDIA_SYSTEM_AUDIT.md) | 8K | Media system audit |
+| [security/ARCHITECTURE_DECISION.md](security/ARCHITECTURE_DECISION.md) | 4K | Security architecture |
+| [security/MULTI_TENANCY_FIXES.md](security/MULTI_TENANCY_FIXES.md) | 3K | Multi-tenancy security |
+| [security/TASK_MIGRATION_GUIDE.md](security/TASK_MIGRATION_GUIDE.md) | 2K | Task isolation guide |
 
-**Total:** 14 active documents (241KB)
+**Total:** 20 active documents (~250KB)  
+**Roadmap:** 1 technical roadmap (5KB)
 
 ---
 
 ## 🗄️ Archive
 
-Legacy и устаревшая документация: [archive/README.md](archive/README.md)
+Legacy documentation and historical records: [archive/](archive/)
 
-**Archived:** 25 files (включая старый 252KB ADR.md)
+**Archived:** 9 files (essential history only, cleaned Jan 2026)
 
 ---
 
@@ -195,14 +215,15 @@ ls -lh docs/*.md | sort -h -k5
 
 ## ✅ Quality Metrics
 
-- ✅ **14 active documents** (down from 29, -52%)
-- ✅ **0 duplicates**
+- ✅ **20 active documents** (core + security + storage)
+- ✅ **Minimal duplication** (reduced by ~750 lines)
 - ✅ **Clear structure** (Architecture, Features, API, Deployment)
 - ✅ **Comprehensive guides** (OAuth, Templates, API)
-- ✅ **Up-to-date** (январь 2026)
+- ✅ **Up-to-date** (January 2026)
+- ✅ **Accurate metrics** (verified 19 Jan 2026)
 
 ---
 
-**Index last updated:** Январь 2026  
-**Total docs:** 14 active + 25 archived  
-**Status:** ✅ Clean & organized
+**Index last updated:** 19 января 2026  
+**Total docs:** 20 active + 1 roadmap + 9 archived  
+**Status:** ✅ Clean & optimized (-64% archive size)

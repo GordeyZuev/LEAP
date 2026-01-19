@@ -69,7 +69,7 @@ ZoomUploader/
 │   ├── routers/              # API endpoints (15 routers)
 │   ├── services/             # Business logic layer
 │   ├── repositories/         # Data access layer
-│   ├── schemas/              # Pydantic models (118+)
+│   ├── schemas/              # Pydantic models (185+)
 │   ├── core/                 # Core utilities (context, security)
 │   ├── helpers/              # Helper classes
 │   └── tasks/                # Celery tasks
@@ -101,7 +101,7 @@ ZoomUploader/
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Client Layer                          │
-│              REST API (84 endpoints) + JWT Auth              │
+│              REST API (89 endpoints) + JWT Auth              │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -129,7 +129,7 @@ ZoomUploader/
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                      Data Layer                              │
-│              PostgreSQL (12 tables, 19 migrations)           │
+│              PostgreSQL (16 tables, 21 migrations)           │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -379,10 +379,10 @@ platforms = await cred_service.list_available_platforms(user_id)
 **Purpose:** REST API endpoints, аутентификация, валидация
 
 **Key Components:**
-- `routers/` - 15 routers (84 endpoints)
+- `routers/` - 14 routers (89 endpoints)
 - `services/` - Business logic
 - `repositories/` - Data access
-- `schemas/` - Pydantic models (118+)
+- `schemas/` - Pydantic models (185+)
 - `core/` - Auth, security, context
 
 **Features:**
@@ -588,7 +588,7 @@ video_upload_module/
 
 **ORM:** SQLAlchemy 2.0 (async)
 
-**Migrations:** Alembic (19 migrations, auto-init)
+**Migrations:** Alembic (21 migrations, auto-init)
 
 **Documentation:** [DATABASE_DESIGN.md](DATABASE_DESIGN.md)
 
@@ -596,311 +596,38 @@ video_upload_module/
 
 ## Database Design
 
-### Overview
+**Database:** PostgreSQL 12+ with SQLAlchemy 2.0 (async)  
+**Tables:** 16 (multi-tenant architecture)  
+**Migrations:** 21 (auto-init on first run)
 
-**Database:** PostgreSQL 12+  
-**ORM:** SQLAlchemy 2.0 (async)  
-**Migrations:** Alembic (19 migrations)  
-**Tables:** 12 (multi-tenant)
+**Key Features:**
+- Multi-tenant isolation via `user_id` filtering
+- Encrypted credentials (Fernet)
+- Automatic migrations
+- Composite indexes for performance
 
-### Table Categories
+**Table Categories:**
+- Authentication & Users (4 tables)
+- Subscriptions & Quotas (4 tables)
+- Processing (4 tables)
+- Automation (2 tables)
 
-**Authentication & Users (4 tables):**
-- `users` - Пользователи с ролями и permissions
-- `refresh_tokens` - JWT refresh tokens
-- `user_credentials` - Encrypted credentials для внешних API
-- `user_configs` - User-specific конфигурации
-
-**Subscription & Quotas (4 tables):**
-- `subscription_plans` - Планы подписок (Free/Plus/Pro/Enterprise)
-- `user_subscriptions` - Привязка пользователей к планам
-- `quota_usage` - Использование квот (recordings, storage, tasks)
-- `quota_change_history` - История изменений квот
-
-**Processing (4 tables):**
-- `recordings` - Записи видео
-- `source_metadata` - Метаданные источника (1:1 с recordings)
-- `output_targets` - Целевые платформы (1:N с recordings)
-- `recording_templates` - Шаблоны обработки
-
-**Configuration (3 tables):**
-- `base_configs` - Базовые конфигурации (deprecated)
-- `input_sources` - Источники данных (Zoom accounts)
-- `output_presets` - Пресеты загрузки (YouTube, VK)
-
-**Automation (2 tables):**
-- `automation_jobs` - Scheduled jobs (Celery Beat)
-- `processing_stages` - Tracking stages (download, process, upload)
-
-### Entity Relationship Diagram
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    AUTHENTICATION                        │
-└─────────────────────────────────────────────────────────┘
-                          users
-                            │
-        ┌───────────────────┼───────────────────┐
-        │                   │                   │
-  refresh_tokens    user_credentials    user_configs
-
-┌─────────────────────────────────────────────────────────┐
-│                    SUBSCRIPTIONS                         │
-└─────────────────────────────────────────────────────────┘
-       subscription_plans
-                │
-        user_subscriptions (user ← plan)
-                │
-        ┌───────┴────────┐
-   quota_usage   quota_change_history
-
-┌─────────────────────────────────────────────────────────┐
-│                      PROCESSING                          │
-└─────────────────────────────────────────────────────────┘
-   recording_templates ─┐
-                        │
-   input_sources ───────┼─┐
-                        │ │
-   output_presets ──────┼─┼─┐
-                        │ │ │
-                recordings ←┘ │
-                │   │         │
-     source_metadata  │       │
-                │     │       │
-          output_targets ←────┘
-
-┌─────────────────────────────────────────────────────────┐
-│                     AUTOMATION                           │
-└─────────────────────────────────────────────────────────┘
-   automation_jobs (schedule + template)
-        │
-   processing_stages (tracking)
-```
-
-### Key Models
-
-#### RecordingModel
-```python
-class RecordingModel:
-    # Identification
-    id: int
-    user_id: int
-    input_source_id: int | None
-    template_id: int | None
-    
-    # Core metadata
-    display_name: str
-    start_time: datetime
-    duration: int
-    status: ProcessingStatus  # INITIALIZED → ... → UPLOADED
-    
-    # Flags
-    is_mapped: bool           # Matched to template
-    blank_record: bool        # Short/empty recording
-    failed: bool
-    
-    # File paths
-    local_video_path: str | None
-    processed_video_path: str | None
-    processed_audio_path: str | None
-    transcription_dir: str | None
-    
-    # AI results
-    transcription_info: dict | None
-    topic_timestamps: dict | None
-    main_topics: dict | None
-    
-    # Overrides
-    processing_preferences: dict | None  # Config overrides
-    
-    # Relationships
-    owner: UserModel
-    input_source: InputSourceModel
-    template: RecordingTemplateModel
-    source: SourceMetadataModel (1:1)
-    outputs: list[OutputTargetModel] (1:N)
-```
-
-#### RecordingTemplateModel
-```python
-class RecordingTemplateModel:
-    # Identification
-    id: int
-    user_id: int
-    name: str
-    
-    # Matching rules
-    matching_rules: dict  # exact_matches, keywords, patterns
-    
-    # Configuration
-    processing_config: dict  # transcription, video_processing
-    metadata_config: dict    # title_template, youtube, vk
-    output_config: dict      # preset_ids, auto_upload
-    
-    # State
-    is_active: bool
-```
-
-#### UserCredentialModel
-```python
-class UserCredentialModel:
-    # Identification
-    id: int
-    user_id: int
-    platform: str  # zoom, youtube, vk_video, fireworks, deepseek
-    account_name: str | None
-    
-    # Encrypted data (Fernet)
-    encrypted_data: str
-    encryption_key_version: int
-    
-    # State
-    is_active: bool
-    last_used_at: datetime | None
-```
-
-### Multi-Tenancy Strategy
-
-**Shared Database + Row-Level Filtering**
-
-**Implementation:**
-1. Все таблицы имеют `user_id` колонку (кроме глобальных)
-2. Foreign Key: `REFERENCES users(id) ON DELETE CASCADE`
-3. Index на `user_id` для производительности
-4. Repository Layer автоматически фильтрует по `user_id`
-
-**Example:**
-```python
-class RecordingRepository:
-    async def find_all(self, user_id: int, **filters) -> list[Recording]:
-        query = select(RecordingModel).where(
-            RecordingModel.user_id == user_id  # Automatic isolation
-        )
-        # ... apply filters
-```
-
-### Migrations
-
-**19 migrations (автоматическая инициализация):**
-
-```
-001 → Create base tables (recordings, source_metadata, output_targets)
-002 → Add auth tables (users, refresh_tokens)
-003 → Add multitenancy (user_id to all tables)
-004 → Add config_type field to base_configs
-005 → Add account_name to user_credentials
-006 → Add foreign keys to input_sources and output_presets
-007 → Create user_configs table
-008 → Update platform enum (add yandex_disk, rutube)
-009 → Add unique constraint to input_sources
-010 → Add FSM fields to output_targets
-011 → Update ProcessingStatus enum
-012 → Add automation quotas (max_automation_jobs to plans)
-013 → Create automation_jobs table
-014 → Create Celery Beat tables
-015 → Add timezone to users
-016 → Refactor quota system (quota_usage, quota_change_history)
-017 → Add template_id to recordings
-018 → Add blank_record flag
-019 → Replace processed_audio_dir with processed_audio_path
-```
-
-**Auto-init on first run:**
-```python
-@app.on_event("startup")
-async def startup_event():
-    db_manager = DatabaseManager(DatabaseConfig.from_env())
-    await db_manager.create_database_if_not_exists()
-    subprocess.run(["alembic", "upgrade", "head"])
-```
-
-**Documentation:** [DATABASE_DESIGN.md](DATABASE_DESIGN.md)
+**Full Details:** [DATABASE_DESIGN.md](DATABASE_DESIGN.md)
 
 ---
 
 ## Processing Pipeline
 
-### Full Pipeline Flow
+### Pipeline Stages
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           INPUT: Zoom Recording                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  STAGE 1: SYNC                                                               │
-│  • Zoom API request (OAuth 2.0)                                             │
-│  • Fetch recordings metadata                                                 │
-│  • Filter (duration > 30min, size > 40MB)                                   │
-│  • Template matching (keywords, patterns)                                    │
-│  • Save to PostgreSQL                                                        │
-│  Status: INITIALIZED                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  STAGE 2: DOWNLOAD                                                           │
-│  • Multi-threaded download from Zoom                                         │
-│  • Progress tracking                                                         │
-│  • Checksum validation                                                       │
-│  • Save to: media/video/unprocessed/                                        │
-│  Status: DOWNLOADING → DOWNLOADED                                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  STAGE 3: VIDEO PROCESSING                                                   │
-│  • FFmpeg silence detection                                                  │
-│  • Trim silent parts (begin, end, middle)                                   │
-│  • Extract audio for transcription                                           │
-│  • Output:                                                                   │
-│    - media/video/processed/recording_*_processed.mp4                        │
-│    - media/processed_audio/recording_*_processed.mp3                        │
-│  Status: PROCESSING → PROCESSED                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  STAGE 4: TRANSCRIPTION                                                      │
-│  • Fireworks AI (Whisper-v3-turbo) transcription                            │
-│  • DeepSeek topic extraction                                                 │
-│  • Generate main topics + detailed topics with timestamps                    │
-│  • Auto-detect breaks (pauses ≥8min)                                        │
-│  • Save to: media/user_{user_id}/transcriptions/{recording_id}/             │
-│    - words.txt (words + timestamps)                                         │
-│    - segments.txt (segments)                                                │
-│    - topics.json (structured topics)                                        │
-│    - master.json (metadata)                                                 │
-│  Status: TRANSCRIBING → TRANSCRIBED                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  STAGE 5: SUBTITLE GENERATION                                                │
-│  • Convert transcription to SRT/VTT                                          │
-│  • Format lines with timestamps                                              │
-│  • Save to: transcription_dir/subtitles.(srt|vtt)                           │
-│  Optional stage                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  STAGE 6: UPLOAD                                                             │
-│  • Format description with timestamps                                        │
-│  • Upload to YouTube and/or VK                                               │
-│  • Upload subtitles (YouTube only)                                           │
-│  • Upload thumbnails                                                         │
-│  • Add to playlists/albums                                                   │
-│  Status: UPLOADING → UPLOADED                                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    OUTPUT: Published Videos                                  │
-│  • YouTube: video + description + timestamps + subtitles + thumbnail        │
-│  • VK: video + description + timestamps + thumbnail                         │
-└─────────────────────────────────────────────────────────────────────────────┘
+1. SYNC         → Fetch from Zoom, template matching
+2. DOWNLOAD     → Multi-threaded download, validation
+3. PROCESS      → FFmpeg trim silence, extract audio
+4. TRANSCRIBE   → Fireworks AI (Whisper-v3-turbo)
+5. TOPICS       → DeepSeek extraction with timestamps
+6. SUBTITLES    → Generate SRT/VTT (optional)
+7. UPLOAD       → YouTube + VK with metadata
 ```
 
 ### Processing Status Flow
@@ -954,29 +681,29 @@ final = {
 
 ### API Statistics
 
-**84 endpoints** across 15 routers:
+**89 endpoints** across 14 routers:
 
 | Category | Count | Description |
 |----------|-------|-------------|
-| 🔐 **Authentication** | 6 | Register, Login, Refresh, Logout, Profile |
+| 🔐 **Authentication** | 5 | Register, Login, Refresh, Logout, Profile |
 | 👤 **User Management** | 6 | Profile, Config, Password, Account |
 | 👔 **Admin** | 3 | Stats, Users, Quotas |
-| 🎥 **Recordings** | 16 | CRUD, Pipeline, Batch operations |
-| 📋 **Templates** | 8 | CRUD, Matching, Re-match |
+| 🎥 **Recordings** | 25 | CRUD, Pipeline, Batch operations |
+| 📋 **Templates** | 9 | CRUD, Matching, Re-match |
 | 🔑 **Credentials** | 6 | CRUD, Platform management |
-| 🔌 **OAuth** | 6 | YouTube, VK, Zoom flows |
+| 🔌 **OAuth** | 7 | YouTube, VK, Zoom flows |
 | 🤖 **Automation** | 6 | Jobs, Scheduling, Celery Beat |
-| 📊 **Tasks** | 4 | Async task monitoring |
-| 📥 **Input Sources** | 6 | Zoom sources, Sync |
+| 📊 **Tasks** | 2 | Async task monitoring |
+| 📥 **Input Sources** | 7 | Zoom sources, Sync |
 | 📤 **Output Presets** | 5 | Upload presets |
 | 🖼️ **Thumbnails** | 4 | Upload, Management |
 | 💚 **Health** | 1 | System status |
-| 🔧 **User Config** | 2 | User-specific settings |
-| **TOTAL** | **84** | **100% Production Ready** |
+| 🔧 **User Config** | 3 | User-specific settings |
+| **TOTAL** | **89** | **100% Production Ready** |
 
 ### Pydantic Schemas
 
-**118+ models** with full type safety:
+**185+ models** with full type safety:
 
 - Request/Response models для всех endpoints
 - Nested typing (templates, presets, configs)
@@ -1430,10 +1157,10 @@ psql -U postgres -d zoom_manager
 
 ## Quick Reference
 
-**API Endpoints:** 84 (production-ready)  
-**Database Tables:** 12 (multi-tenant)  
-**Migrations:** 19 (auto-init)  
-**Pydantic Models:** 118+ (fully typed)  
+**API Endpoints:** 89 (production-ready)  
+**Database Tables:** 16 (multi-tenant)  
+**Migrations:** 21 (auto-init)  
+**Pydantic Models:** 185+ (fully typed)  
 **Processing Modules:** 7 (video, transcription, upload)  
 **OAuth Platforms:** 3 (YouTube, VK, Zoom)  
 **AI Models:** 2 (Whisper, DeepSeek)

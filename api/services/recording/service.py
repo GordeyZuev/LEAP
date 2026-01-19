@@ -16,30 +16,19 @@ from api.tasks.processing import (
 )
 from api.tasks.upload import batch_upload_recordings as upload_to_platforms
 from api.zoom_api import ZoomAPI
-from config.unified_config import AppConfig, load_app_config
 from logger import get_logger
 from models import MeetingRecording, ProcessingStatus
 from utils import filter_available_recordings, get_recordings_by_date_range
-from utils.title_mapper import TitleMapper
 
 logger = get_logger()
 
 
 class RecordingService:
-    """Service for recording operations.
+    """Service for recording operations"""
 
-    Main business logic hub for the API.
-    """
-
-    def __init__(
-        self,
-        repo: RecordingRepository,
-        app_config: AppConfig | None = None,
-    ):
+    def __init__(self, repo: RecordingRepository):
         self.repo = repo
         self.logger = get_logger()
-        self.app_config = app_config or load_app_config()
-        self.title_mapper = TitleMapper(self.app_config)
 
     async def list_recordings(
         self,
@@ -482,22 +471,13 @@ class RecordingService:
         return synced_count
 
     def _check_and_set_mapping(self, recording: MeetingRecording) -> None:
-        """Check recording mapping and set appropriate status."""
+        """Check recording mapping and set status"""
         try:
-            topic = recording.display_name.strip() if recording.display_name else ""
-            mapping_result = self.title_mapper.map_title(topic, recording.start_time, recording.duration)
-
-            if mapping_result.title:
-                recording.is_mapped = True
-                recording.status = ProcessingStatus.INITIALIZED
-                self.logger.debug(
-                    f"Mapping found: original='{topic}' | mapped='{mapping_result.title}' | recording_id={recording.db_id}"
-                )
-            else:
-                recording.is_mapped = False
-                recording.status = ProcessingStatus.SKIPPED
-                self.logger.debug(f"Mapping not found: topic='{topic}' | recording_id={recording.db_id}")
-
+            recording.is_mapped = False
+            recording.status = ProcessingStatus.INITIALIZED
+            self.logger.debug(
+                f"Recording initialized: {recording.display_name} | recording_id={recording.db_id}"
+            )
         except Exception as e:
             recording.is_mapped = False
             recording.status = ProcessingStatus.SKIPPED

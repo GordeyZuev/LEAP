@@ -66,8 +66,7 @@ class TopicExtractor:
 
     async def extract_topics(
         self,
-        transcription_text: str,
-        segments: list[dict] | None = None,
+        segments: list[dict],
         recording_topic: str | None = None,
         granularity: str = "long",  # "short" | "long"
     ) -> dict[str, Any]:
@@ -75,7 +74,6 @@ class TopicExtractor:
         Извлечение тем из транскрипции через DeepSeek.
 
         Args:
-            transcription_text: Полный текст транскрипции
             segments: Список сегментов с временными метками (обязательно)
             recording_topic: Название курса/предмета для контекста (опционально)
 
@@ -189,19 +187,19 @@ class TopicExtractor:
         Returns:
             Словарь с темами (аналогично extract_topics)
         """
-        if not Path(segments_file_path).exists():
+        segments_path = Path(segments_file_path)
+        if not segments_path.exists():
             raise FileNotFoundError(f"Файл segments.txt не найден: {segments_file_path}")
 
         logger.info(f"📖 Чтение сегментов из файла: {segments_file_path}")
 
         segments = []
-        transcription_text_parts = []
         timestamp_pattern = re.compile(r"\[(\d{2}):(\d{2}):(\d{2})\s*-\s*(\d{2}):(\d{2}):(\d{2})\]\s*(.+)")
         timestamp_pattern_ms = re.compile(
             r"\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)"
         )
 
-        with open(segments_file_path, encoding="utf-8") as f:
+        with segments_path.open(encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
@@ -232,24 +230,18 @@ class TopicExtractor:
                                     "text": text,
                                 }
                             )
-                            transcription_text_parts.append(text)
                     except (ValueError, IndexError) as e:
                         logger.warning(
                             f"⚠️ Ошибка парсинга строки {line_num} в файле {segments_file_path}: {line[:50]}... - {e}"
                         )
                         continue
-                elif line and not line.startswith("["):
-                    transcription_text_parts.append(line)
 
         if not segments:
             raise ValueError(f"Не удалось извлечь сегменты из файла {segments_file_path}")
 
-        transcription_text = " ".join(transcription_text_parts)
-
         logger.info(f"✅ Прочитано {len(segments)} сегментов из файла {segments_file_path}")
 
         return await self.extract_topics(
-            transcription_text=transcription_text,
             segments=segments,
             recording_topic=recording_topic,
             granularity=granularity,
@@ -278,8 +270,8 @@ class TopicExtractor:
             if text0 and any(re.search(pat, text0) for pat in noise_patterns):
                 try:
                     noise_times.append(float(seg.get("start", 0)))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to parse noise segment start time: {e}")
         exclude_from = None
         exclude_to = None
         if noise_times:
@@ -301,8 +293,8 @@ class TopicExtractor:
                     try:
                         if exclude_from <= float(start) <= exclude_to:
                             continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to check segment time range: {e}")
                 hours = int(start // 3600)
                 minutes = int((start % 3600) // 60)
                 seconds = int(start % 60)
@@ -602,8 +594,8 @@ class TopicExtractor:
                     try:
                         error_data = response.json()
                         error_text = str(error_data)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to parse error response as JSON: {e}")
 
                     logger.error(
                         f"❌ Ошибка Fireworks API (status {response.status_code}):\n"

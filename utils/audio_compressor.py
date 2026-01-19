@@ -1,7 +1,6 @@
 """Audio compression and processing"""
 
 import asyncio
-import os
 from pathlib import Path
 
 from logger import get_logger
@@ -25,58 +24,58 @@ class AudioCompressor:
 
     async def compress_audio(self, input_path: str, output_path: str | None = None) -> str:
         """
-        Сжатие аудио файла.
+        Compress audio file.
 
         Args:
-            input_path: Путь к исходному аудио файлу
-            output_path: Путь для сохранения сжатого файла (если None, создается автоматически)
+            input_path: Path to original audio file
+            output_path: Path to save compressed file (if None, it is created automatically)
 
         Returns:
-            Путь к сжатому файлу
+            Path to compressed file
         """
         if not Path(input_path).exists():
-            raise FileNotFoundError(f"Аудио файл не найден: {input_path}")
+            raise FileNotFoundError(f"Audio file not found: {input_path}")
 
-        # Проверяем размер исходного файла
+        # Check size of original file
         file_size = Path(input_path).stat().st_size
         file_size_mb = file_size / (1024 * 1024)
 
-        logger.info(f"📊 Исходный файл: {file_size_mb:.2f} МБ")
+        logger.info(f"📊 Original file: {file_size_mb:.2f} MB")
 
-        # Если файл уже меньше лимита, можно вернуть исходный путь
-        # Но лучше все равно сжать до оптимальных параметров
+        # If file is already smaller than limit, we can return original path
+        # But it is better to compress to optimal parameters anyway
         if file_size <= self.max_file_size_bytes and file_size_mb < 10:
-            logger.info("✅ Файл уже достаточно мал, но сжимаем для оптимизации")
+            logger.info("✅ File is already small, but we compress it for optimization")
 
-        # Определяем путь для выходного файла
+        # Define path for output file
         if output_path is None:
             input_path_obj = Path(input_path)
             output_path = str(input_path_obj.parent / f"{input_path_obj.stem}_compressed.mp3")
 
-        # Создаем директорию, если нужно
-        os.makedirs(Path(output_path).parent, exist_ok=True)
+        # Create directory if needed
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Команда FFmpeg для сжатия
+        # FFmpeg command for compression
         cmd = [
             "ffmpeg",
             "-i",
             input_path,
-            "-vn",  # Без видео
+            "-vn",  # Without video
             "-acodec",
-            "libmp3lame",  # MP3 кодек
+            "libmp3lame",  # MP3 codec
             "-ab",
-            self.target_bitrate,  # Битрейт
+            self.target_bitrate,  # Bitrate
             "-ar",
-            str(self.target_sample_rate),  # Частота дискретизации
+            str(self.target_sample_rate),  # Sample rate
             "-ac",
-            "1",  # Моно (для речи достаточно)
-            "-y",  # Перезаписать файл, если существует
+            "1",  # Mono (enough for speech)
+            "-y",  # Overwrite file if it exists
             output_path,
         ]
 
         try:
-            logger.info(f"🔧 Сжатие аудио: {input_path}")
-            logger.info(f"🔧 Параметры: битрейт={self.target_bitrate}, частота={self.target_sample_rate}Hz, моно")
+            logger.info(f"🔧 Compression audio: {input_path}")
+            logger.info(f"🔧 Parameters: bitrate={self.target_bitrate}, frequency={self.target_sample_rate}Hz, mono")
 
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -85,32 +84,32 @@ class AudioCompressor:
             _stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                error_msg = stderr.decode() if stderr else "Неизвестная ошибка"
-                raise RuntimeError(f"Ошибка сжатия аудио: {error_msg}")
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                raise RuntimeError(f"Error compressing audio: {error_msg}")
 
             if not Path(output_path).exists():
-                raise RuntimeError(f"Сжатый файл не был создан: {output_path}")
+                raise RuntimeError(f"Compressed file was not created: {output_path}")
 
-            # Проверяем размер сжатого файла
+            # Check size of compressed file
             compressed_size = Path(output_path).stat().st_size
             compressed_size_mb = compressed_size / (1024 * 1024)
 
-            logger.info(f"✅ Аудио сжато: {compressed_size_mb:.2f} МБ")
+            logger.info(f"✅ Audio compressed: {compressed_size_mb:.2f} MB")
 
             if compressed_size > self.max_file_size_bytes:
                 logger.warning(
-                    f"⚠️ Сжатый файл все еще превышает лимит: {compressed_size_mb:.2f} МБ > {self.max_file_size_mb} МБ"
+                    f"⚠️ Compressed file still exceeds limit: {compressed_size_mb:.2f} MB > {self.max_file_size_mb} MB"
                 )
-                # Можно попробовать еще больше сжать, но для начала оставим так
+                # We can try to compress more, but for now let's leave it as is
 
             return output_path
 
         except Exception as e:
-            logger.error(f"❌ Ошибка сжатия аудио: {e}")
+            logger.error(f"❌ Error compressing audio: {e}")
             raise
 
     async def get_audio_info(self, audio_path: str) -> dict:
-        """Получение информации об аудио файле"""
+        """Get audio file information"""
         import json
 
         cmd = [
@@ -132,13 +131,13 @@ class AudioCompressor:
             stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                raise RuntimeError(f"Ошибка получения информации об аудио: {stderr.decode()}")
+                raise RuntimeError(f"Error getting audio information: {stderr.decode()}")
 
             info = json.loads(stdout.decode())
             audio_stream = next((s for s in info["streams"] if s["codec_type"] == "audio"), None)
 
             if not audio_stream:
-                raise RuntimeError("Аудио поток не найден")
+                raise RuntimeError("Audio stream not found")
 
             return {
                 "duration": float(info["format"]["duration"]),
@@ -150,25 +149,25 @@ class AudioCompressor:
             }
 
         except Exception as e:
-            logger.error(f"❌ Ошибка получения информации об аудио: {e}")
+            logger.error(f"❌ Error getting audio information: {e}")
             raise
 
     async def split_audio(self, audio_path: str, max_size_mb: float = 20.0, output_dir: str | None = None) -> list[str]:
         """
-        Разбиение аудио файла на части, если он слишком большой.
+        Split audio file into parts if it is too large.
 
         Args:
-            audio_path: Путь к аудио файлу
-            max_size_mb: Максимальный размер одной части в МБ
-            output_dir: Директория для сохранения частей (если None, используется та же директория)
+            audio_path: Path to audio file
+            max_size_mb: Maximum size of one part in MB
+            output_dir: Directory to save parts (if None, the same directory is used)
 
         Returns:
-            Список путей к частям файла
+            List of paths to parts of the file
         """
         if not Path(audio_path).exists():
-            raise FileNotFoundError(f"Аудио файл не найден: {audio_path}")
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        # Получаем информацию об аудио
+        # Get audio information
         audio_info = await self.get_audio_info(audio_path)
         duration = audio_info["duration"]
         file_size_mb = Path(audio_path).stat().st_size / (1024 * 1024)

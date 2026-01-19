@@ -33,8 +33,8 @@ def upgrade():
     op.create_index("ix_recordings_blank_record", "recordings", ["blank_record"])
 
     # Backfill existing records
-    MIN_DURATION = 20  # minutes
-    MIN_SIZE = 25 * 1024 * 1024  # 25 MB in bytes
+    min_duration = 20  # minutes
+    min_size = 25 * 1024 * 1024  # 25 MB in bytes
 
     connection = op.get_bind()
 
@@ -47,13 +47,13 @@ def upgrade():
                OR video_file_size < :min_size
                OR (video_file_size IS NULL AND duration < :min_duration)
         """),
-        {"min_duration": MIN_DURATION, "min_size": MIN_SIZE},
+        {"min_duration": min_duration, "min_size": min_size},
     )
 
     # Log results
     result = connection.execute(text("SELECT COUNT(*) FROM recordings WHERE blank_record = true"))
     count = result.scalar()
-    print(f"✅ Marked {count} existing recordings as blank_record=true")
+    print(f"[DEBUG] Marked {count} existing recordings as blank_record=true")
 
 
 def downgrade():

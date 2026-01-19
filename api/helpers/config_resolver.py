@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.template_repos import RecordingTemplateRepository
+from logger import format_log, get_logger
+
+logger = get_logger(__name__)
 
 
 async def get_allow_skipped_flag(
@@ -57,9 +60,9 @@ async def get_allow_skipped_flag(
             allow_skipped = processing_config.get("allow_skipped")
             if allow_skipped is not None:
                 return bool(allow_skipped)
-    except Exception:
+    except Exception as e:
         # Если нет user_config, продолжаем
-        pass
+        logger.debug(format_log("Could not get user config", error=str(e)))
 
     # 4. Default: False (не разрешаем обработку SKIPPED)
     return False
@@ -85,6 +88,6 @@ async def get_user_processing_config(
         if user_config_model:
             return user_config_model.config_data.get("processing", {})
     except Exception as e:
-        logger.warning(f"Ignored exception: {e}")
+        logger.warning(format_log("Could not get user processing config", error=str(e)))
 
     return {}

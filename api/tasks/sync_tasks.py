@@ -5,18 +5,20 @@ import asyncio
 from api.celery_app import celery_app
 from api.repositories.template_repos import InputSourceRepository
 from api.tasks.base import SyncTask
+from config.settings import get_settings
 from database.manager import DatabaseManager
 from logger import get_logger
 
 logger = get_logger()
+settings = get_settings()
 
 
 @celery_app.task(
     bind=True,
     base=SyncTask,
     name="api.tasks.sync.sync_single_source",
-    max_retries=3,
-    default_retry_delay=300,
+    max_retries=settings.celery.sync_max_retries,
+    default_retry_delay=settings.celery.sync_retry_delay,
 )
 def sync_single_source_task(
     self,
@@ -56,7 +58,7 @@ def sync_single_source_task(
         return self.build_result(user_id=user_id, **result)
 
     except Exception as e:
-        logger.error(f"Sync task failed for source {source_id}: {e}", exc_info=True)
+        logger.error("Sync task failed for source {}: {}", source_id, str(e), exc_info=True)
         raise
 
 
@@ -64,8 +66,8 @@ def sync_single_source_task(
     bind=True,
     base=SyncTask,
     name="api.tasks.sync.batch_sync_sources",
-    max_retries=3,
-    default_retry_delay=300,
+    max_retries=settings.celery.sync_max_retries,
+    default_retry_delay=settings.celery.sync_retry_delay,
 )
 def bulk_sync_sources_task(
     self,
@@ -110,7 +112,7 @@ def bulk_sync_sources_task(
         return self.build_result(user_id=user_id, **result)
 
     except Exception as e:
-        logger.error(f"Batch sync task failed for sources {source_ids}: {e}", exc_info=True)
+        logger.error("Batch sync task failed for sources {}: {}", source_ids, str(e), exc_info=True)
         raise
 
 
@@ -223,7 +225,7 @@ async def _async_batch_sync_sources(
                     )
 
             except Exception as e:
-                logger.error(f"Unexpected error during sync of source {source_id}: {e}", exc_info=True)
+                logger.error("Unexpected error during sync of source {}: {}", source_id, str(e), exc_info=True)
                 failed += 1
                 results.append(
                     {

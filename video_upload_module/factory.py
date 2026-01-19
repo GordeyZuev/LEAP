@@ -52,11 +52,11 @@ class UploaderFactory:
         credentials_file = temp_dir / "credentials.json"
 
         if "client_secrets" in creds:
-            with open(client_secrets_file, "w", encoding="utf-8") as f:
+            with client_secrets_file.open("w", encoding="utf-8") as f:
                 json.dump(creds["client_secrets"], f, ensure_ascii=False, indent=2)
 
         if "token" in creds:
-            with open(credentials_file, "w", encoding="utf-8") as f:
+            with credentials_file.open("w", encoding="utf-8") as f:
                 json.dump(creds, f, ensure_ascii=False, indent=2)
 
         config = YouTubeConfig(

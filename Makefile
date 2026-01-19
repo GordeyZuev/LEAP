@@ -26,7 +26,7 @@ api-prod:
 # Celery: Запуск worker (все очереди)
 .PHONY: celery
 celery:
-	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=4
+	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=8
 
 # Celery: Запуск worker только для processing
 .PHONY: celery-processing
@@ -51,7 +51,7 @@ celery-beat:
 # Celery: Запуск worker + beat вместе (dev mode)
 .PHONY: celery-dev
 celery-dev:
-	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --beat --loglevel=info --queues=processing,upload,automation --concurrency=4
+	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --beat --loglevel=info --queues=processing,upload,automation --concurrency=8
 
 # Celery: Проверить активные tasks
 .PHONY: celery-status

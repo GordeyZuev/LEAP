@@ -1,6 +1,7 @@
 """VK video uploader implementation."""
 
 import asyncio
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +58,7 @@ class VKUploader(BaseUploader):
                     from datetime import datetime
 
                     expiry = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
-                    now = datetime.utcnow()
+                    now = datetime.now(UTC)
                     if expiry <= now or (expiry - now).total_seconds() < 300:
                         needs_refresh = True
                         logger.info("VK token expired or expiring soon, refreshing...")
@@ -277,13 +278,11 @@ class VKUploader(BaseUploader):
         self, upload_url: str, video_path: str, progress=None, task_id=None
     ) -> dict[str, Any] | None:
         """Upload video file."""
-        video_file = None
         try:
-            video_file = open(video_path, "rb")
-            files = {"video_file": video_file}
+            with Path(video_path).open("rb") as video_file:
+                files = {"video_file": video_file}
 
-            async with aiohttp.ClientSession() as session:
-                try:
+                async with aiohttp.ClientSession() as session:
                     async with session.post(upload_url, data=files) as response:
                         if response.status == 200:
                             result_data = await response.json()
@@ -301,12 +300,6 @@ class VKUploader(BaseUploader):
                             return result_data
                         logger.error(f"HTTP Upload Error: {response.status}")
                         return None
-                finally:
-                    if video_file:
-                        try:
-                            video_file.close()
-                        except Exception as e:
-                            logger.warning(f"Ignored exception: {e}")
         except Exception as e:
             logger.error(f"File upload error: {e}")
             if video_file:

@@ -1,7 +1,26 @@
+"""User configuration repository"""
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import DEFAULT_USER_CONFIG
 from database.config_models import UserConfigModel
+
+
+def deep_merge(base: dict, override: dict) -> dict:
+    """
+    Deep merge two dictionaries.
+
+    Base values are used as defaults, override values take precedence.
+    Nested dicts are merged recursively.
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
 
 
 class UserConfigRepository:
@@ -11,6 +30,32 @@ class UserConfigRepository:
     async def get_by_user_id(self, user_id: int) -> UserConfigModel | None:
         result = await self.session.execute(select(UserConfigModel).where(UserConfigModel.user_id == user_id))
         return result.scalars().first()
+
+    async def get_effective_config(self, user_id: int) -> dict:
+        """
+        Get user config merged with defaults.
+
+        Returns effective configuration with:
+        - Default values from DEFAULT_USER_CONFIG constant
+        - User-specific overrides from database
+
+        This ensures backward compatibility - users automatically get new config fields
+        (like retention settings) without manual migration.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            Merged configuration dict
+        """
+        user_config_model = await self.get_by_user_id(user_id)
+
+        if not user_config_model:
+            # User has no config yet, return defaults
+            return DEFAULT_USER_CONFIG.copy()
+
+        # Merge: defaults as base, user overrides on top
+        return deep_merge(DEFAULT_USER_CONFIG, user_config_model.config_data)
 
     async def create(self, user_id: int, config_data: dict) -> UserConfigModel:
         config = UserConfigModel(user_id=user_id, config_data=config_data)

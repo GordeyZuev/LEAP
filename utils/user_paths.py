@@ -1,6 +1,5 @@
 """User file path utilities"""
 
-import os
 from pathlib import Path
 
 
@@ -111,9 +110,8 @@ class UserPathManager:
             return 0
 
         total_size = 0
-        for dirpath, _dirnames, filenames in os.walk(user_root):
-            for filename in filenames:
-                file_path = Path(dirpath) / filename
+        for file_path in user_root.rglob("*"):
+            if file_path.is_file():
                 try:
                     total_size += file_path.stat().st_size
                 except (OSError, FileNotFoundError):

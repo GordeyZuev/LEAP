@@ -2,10 +2,10 @@
 
 import asyncio
 import json
-import os
 import re
 import time
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 try:
@@ -24,7 +24,6 @@ except ImportError as exc:  # pragma: no cover - среда без зависи�
         "Не установлен пакет 'httpx'. Установите его командой `pip install httpx` для использования Batch API."
     ) from exc
 
-from pathlib import Path
 
 from logger import get_logger
 
@@ -89,7 +88,7 @@ class FireworksTranscriptionService:
                     attempt=attempt,
                     total=retry_attempts,
                     model=self.config.model,
-                    file=os.path.basename(audio_path),
+                    file=Path(audio_path).name,
                 )
 
                 response = await asyncio.to_thread(
@@ -161,7 +160,7 @@ class FireworksTranscriptionService:
         return {
             "model": self.config.model,
             "base_url": self.config.base_url,
-            "file": os.path.basename(audio_path),
+            "file": Path(audio_path).name,
             **safe_params,
         }
 
@@ -856,12 +855,12 @@ class FireworksTranscriptionService:
         url = f"{self.config.batch_base_url}/v1/audio/transcriptions"
 
         logger.info(
-            f"Fireworks Batch | Submitting | endpoint={endpoint_id} | file={os.path.basename(audio_path)} | model={self.config.model}"
+            f"Fireworks Batch | Submitting | endpoint={endpoint_id} | file={Path(audio_path).name} | model={self.config.model}"
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             with Path(audio_path).open("rb") as audio_file:
-                files = {"file": (os.path.basename(audio_path), audio_file, "audio/mpeg")}
+                files = {"file": (Path(audio_path).name, audio_file, "audio/mpeg")}
 
                 # Batch API требует параметры в формате multipart/form-data
                 # Документация требует JSON-сериализацию параметров

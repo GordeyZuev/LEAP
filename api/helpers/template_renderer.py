@@ -8,7 +8,7 @@ class TemplateRenderer:
     """Renders templates with variable substitution and flexible topics formatting."""
 
     @staticmethod
-    def render(template: str, context: dict, topics_display: dict | None = None) -> str:
+    def render(template: str, context: dict, topics_display: dict | None = None) -> str:  # noqa: ARG004
         """
         Render template with context variables.
 
@@ -154,6 +154,10 @@ class TemplateRenderer:
                 "show_timestamps": true  # Show timestamps if available
             }
         """
+        # Ensure config is a dict
+        if not isinstance(config, dict):
+            config = {}
+
         if not config.get("enabled", True) or not topics:
             return ""
 
@@ -168,9 +172,14 @@ class TemplateRenderer:
                 # String topic without timestamp
                 normalized_topics.append({"topic": str(item), "start": None, "end": None})
 
-        # Filter topics by length
-        min_length = config.get("min_length", 0)
-        max_length = config.get("max_length", 1000)
+        # Filter topics by length (handle None values if explicitly set in config)
+        # Use 'is None' check to allow 0 as valid value, while replacing None with default
+        min_length = config.get("min_length")
+        min_length = 0 if min_length is None else min_length
+
+        max_length = config.get("max_length")
+        max_length = 1000 if max_length is None else max_length
+
         filtered_topics = [t for t in normalized_topics if min_length <= len(t.get("topic", "")) <= max_length]
 
         # Limit count (None = unlimited)

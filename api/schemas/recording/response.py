@@ -83,6 +83,13 @@ class RecordingListItem(BaseModel):
     template_name: str | None = None
     source: SourceInfo | None = None
     uploads: dict[str, UploadInfo] = Field(default_factory=dict)
+    deleted: bool = False
+    deleted_at: datetime | None = None
+    delete_state: str = "active"
+    deletion_reason: str | None = None
+    soft_deleted_at: datetime | None = None
+    hard_delete_at: datetime | None = None
+    expire_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -106,6 +113,13 @@ class RecordingResponse(BaseModel):
     failed_reason: str | None = None
     failed_at_stage: str | None = None
     video_file_size: int | None = None
+    deleted: bool = False
+    deleted_at: datetime | None = None
+    delete_state: str = "active"
+    deletion_reason: str | None = None
+    soft_deleted_at: datetime | None = None
+    hard_delete_at: datetime | None = None
+    expire_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

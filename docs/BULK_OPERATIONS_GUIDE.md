@@ -765,8 +765,7 @@ POST /api/v1/recordings/bulk/process
 ## См. также
 
 - [FIREWORKS_BATCH_API.md](./FIREWORKS_BATCH_API.md) - Экономия на транскрибации
-- [TEMPLATES.md](./TEMPLATES.md) - Metadata configuration for templates
-- [TEMPLATE_REMATCH_FEATURE.md](./TEMPLATE_REMATCH_FEATURE.md) - Template mapping
+- [TEMPLATES.md](./TEMPLATES.md) - Template system & re-matching
 
 ---
 

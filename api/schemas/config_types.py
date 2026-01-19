@@ -126,7 +126,7 @@ class YandexDiskSyncConfigData(BaseModel):
 
     @field_validator("folder_path", "folder_url")
     @classmethod
-    def validate_folder(cls, v: str | None, info) -> str | None:
+    def validate_folder(cls, v: str | None, _info) -> str | None:
         """Валидация папки - должен быть указан либо путь, либо URL."""
         # Проверка будет на уровне модели
         return v

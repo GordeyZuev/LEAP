@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -132,7 +131,7 @@ class FireworksConfig(BaseSettings):
 
     @field_validator("base_url", mode="after")
     @classmethod
-    def validate_base_url(cls, v: str, info: Any) -> str:
+    def validate_base_url(cls, _v: str, info: Any) -> str:
         """Automatically sets base_url depending on the model."""
         model = info.data.get("model", "whisper-v3-turbo")
         if model == "whisper-v3-turbo":
@@ -187,14 +186,17 @@ class FireworksConfig(BaseSettings):
     @classmethod
     def from_file(cls, config_file: str = "config/fireworks_creds.json") -> FireworksConfig:
         """Download Fireworks configuration from a JSON file."""
-        if not os.path.exists(config_file):
+        from pathlib import Path
+
+        config_path = Path(config_file)
+        if not config_path.exists():
             raise FileNotFoundError(
                 f"Fireworks configuration file not found: {config_file}\n"
                 f"Create a file with the following content:\n"
                 f'{{"api_key": "your-fireworks-api-key"}}'
             )
 
-        with open(config_file, encoding="utf-8") as fp:
+        with config_path.open(encoding="utf-8") as fp:
             data = json.load(fp)
 
         api_key = data.pop("api_key", "")

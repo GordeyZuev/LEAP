@@ -56,8 +56,7 @@ async def resolve_full_config(
 
     # Get full user config as base
     user_config_repo = UserConfigRepository(session)
-    user_config_model = await user_config_repo.get_by_user_id(user_id)
-    full_config = user_config_model.config_data if user_config_model else {}
+    full_config = await user_config_repo.get_effective_config(user_id)
 
     # Initialize config resolver for merging
     config_resolver = ConfigResolver(session)

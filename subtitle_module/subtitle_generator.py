@@ -1,6 +1,5 @@
 """Subtitle generator from transcriptions (SRT and VTT formats)"""
 
-import os
 import re
 from datetime import timedelta
 from pathlib import Path
@@ -57,12 +56,13 @@ class SubtitleGenerator:
         Returns:
             Список объектов SubtitleEntry
         """
-        if not os.path.exists(file_path):
+        path = Path(file_path)
+        if not path.exists():
             raise FileNotFoundError(f"Файл транскрипции не найден: {file_path}")
 
         entries = []
 
-        with open(file_path, encoding="utf-8") as f:
+        with path.open(encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if not line:
@@ -106,7 +106,7 @@ class SubtitleGenerator:
         Returns:
             Список объектов SubtitleEntry (сгруппированные слова)
         """
-        if not os.path.exists(file_path):
+        if not Path(file_path).exists():
             raise FileNotFoundError(f"Файл транскрипции не найден: {file_path}")
 
         words = []
@@ -115,7 +115,7 @@ class SubtitleGenerator:
 
         logger.info(f"📖 Парсинг файла words: {file_path}")
 
-        with open(file_path, encoding="utf-8") as f:
+        with Path(file_path).open(encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
                 total_lines += 1
                 line = line.strip()
@@ -303,7 +303,7 @@ class SubtitleGenerator:
         Returns:
             Путь к созданному файлу
         """
-        with open(output_path, "w", encoding="utf-8") as f:
+        with Path(output_path).open("w", encoding="utf-8") as f:
             for index, entry in enumerate(entries, start=1):
                 # Номер субтитра
                 f.write(f"{index}\n")
@@ -334,7 +334,7 @@ class SubtitleGenerator:
         Returns:
             Путь к созданному файлу
         """
-        with open(output_path, "w", encoding="utf-8") as f:
+        with Path(output_path).open("w", encoding="utf-8") as f:
             # Заголовок VTT
             f.write("WEBVTT\n\n")
 
@@ -372,22 +372,24 @@ class SubtitleGenerator:
         if formats is None:
             formats = ["srt", "vtt"]
 
+        trans_path = Path(transcription_path)
         if output_dir is None:
-            output_dir = os.path.dirname(transcription_path)
+            output_dir = trans_path.parent
 
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         entries = []
         base_name = "subtitles"
 
-        if os.path.isdir(transcription_path):
-            segments_path = os.path.join(transcription_path, "segments.txt")
-            if os.path.exists(segments_path):
+        if trans_path.is_dir():
+            segments_path = trans_path / "segments.txt"
+            if segments_path.exists():
                 logger.info(f"📝 Используем segments.txt: {segments_path}")
-                entries = self.parse_transcription_file(segments_path)
+                entries = self.parse_transcription_file(str(segments_path))
             else:
                 raise FileNotFoundError(f"В папке нет segments.txt: {transcription_path}")
-        elif Path(transcription_path).name == "segments.txt":
+        elif trans_path.name == "segments.txt":
             logger.info(f"📝 Используем segments.txt: {transcription_path}")
             entries = self.parse_transcription_file(transcription_path)
         else:
@@ -399,13 +401,13 @@ class SubtitleGenerator:
         result = {}
 
         if "srt" in formats:
-            srt_path = os.path.join(output_dir, f"{base_name}.srt")
-            self.generate_srt(entries, srt_path)
-            result["srt"] = srt_path
+            srt_path = output_dir / f"{base_name}.srt"
+            self.generate_srt(entries, str(srt_path))
+            result["srt"] = str(srt_path)
 
         if "vtt" in formats:
-            vtt_path = os.path.join(output_dir, f"{base_name}.vtt")
-            self.generate_vtt(entries, vtt_path)
-            result["vtt"] = vtt_path
+            vtt_path = output_dir / f"{base_name}.vtt"
+            self.generate_vtt(entries, str(vtt_path))
+            result["vtt"] = str(vtt_path)
 
         return result

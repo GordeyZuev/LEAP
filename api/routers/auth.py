@@ -1,14 +1,11 @@
 """Authentication and user management endpoints"""
 
-import json
 from datetime import datetime, timedelta
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.security import JWTHelper, PasswordHelper
-from api.config import get_settings
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import (
     RefreshTokenRepository,
@@ -32,6 +29,7 @@ from api.schemas.auth import (
     UserSubscriptionCreate,
     UserUpdate,
 )
+from config.settings import DEFAULT_USER_CONFIG, get_settings
 from logger import get_logger
 from utils.thumbnail_manager import get_thumbnail_manager
 from utils.user_paths import get_path_manager
@@ -92,11 +90,7 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
 
     existing_config = await config_repo.get_by_user_id(user.id)
     if not existing_config:
-        config_path = Path(__file__).parent.parent.parent / "config" / "default_user_config.json"
-        with open(config_path, encoding="utf-8") as f:
-            default_config = json.load(f)
-
-        await config_repo.create(user_id=user.id, config_data=default_config)
+        await config_repo.create(user_id=user.id, config_data=DEFAULT_USER_CONFIG)
 
     # Создать директории пользователя
     path_manager = get_path_manager()
@@ -153,7 +147,7 @@ async def login(request: LoginRequest, session: AsyncSession = Depends(get_db_se
     access_token = JWTHelper.create_access_token({"user_id": user.id, "email": user.email})
     refresh_token = JWTHelper.create_refresh_token({"user_id": user.id})
 
-    expires_at = datetime.utcnow() + timedelta(days=settings.jwt_refresh_token_expire_days)
+    expires_at = datetime.utcnow() + timedelta(days=settings.security.jwt_refresh_token_expire_days)
 
     token_create = RefreshTokenCreate(
         user_id=user.id,
@@ -170,7 +164,7 @@ async def login(request: LoginRequest, session: AsyncSession = Depends(get_db_se
     return TokenPair(
         access_token=access_token,
         refresh_token=refresh_token,
-        expires_in=settings.jwt_access_token_expire_minutes * 60,
+        expires_in=settings.security.jwt_access_token_expire_minutes * 60,
     )
 
 
@@ -225,7 +219,7 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
 
     await token_repo.revoke(request.refresh_token)
 
-    expires_at = datetime.utcnow() + timedelta(days=settings.jwt_refresh_token_expire_days)
+    expires_at = datetime.utcnow() + timedelta(days=settings.security.jwt_refresh_token_expire_days)
 
     token_create = RefreshTokenCreate(
         user_id=user.id,
@@ -239,7 +233,7 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
     return TokenPair(
         access_token=new_access_token,
         refresh_token=new_refresh_token,
-        expires_in=settings.jwt_access_token_expire_minutes * 60,
+        expires_in=settings.security.jwt_access_token_expire_minutes * 60,
     )
 
 

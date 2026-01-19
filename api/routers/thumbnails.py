@@ -104,7 +104,7 @@ async def upload_thumbnail(
     temp_path = Path(f"/tmp/{file.filename}")
 
     try:
-        with open(temp_path, "wb") as f:
+        with temp_path.open("wb") as f:
             f.write(content)
 
         # Загрузить через менеджер

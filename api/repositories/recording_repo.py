@@ -31,9 +31,9 @@ class RecordingRepository:
 
         return recordings
 
-    async def find_by_id(self, id: int) -> MeetingRecording | None:
+    async def find_by_id(self, recording_id: int) -> MeetingRecording | None:
         """Get recording by ID."""
-        recordings = await self.db.get_recordings_by_ids([id])
+        recordings = await self.db.get_recordings_by_ids([recording_id])
         return recordings[0] if recordings else None
 
     async def find_by_ids(self, ids: list[int]) -> list[MeetingRecording]:

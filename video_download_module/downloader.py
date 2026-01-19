@@ -160,7 +160,7 @@ class ZoomDownloader:
                         )
 
                         # Open file in the needed mode (wb or ab)
-                        with open(filepath, mode) as f:
+                        with filepath.open(mode) as f:
                             chunk_count = 0
                             bytes_in_session = 0
 
@@ -276,7 +276,7 @@ class ZoomDownloader:
                         f"({file_size / (1024 * 1024):.1f} > {reference_size / (1024 * 1024):.1f} MB)"
                     )
 
-            with open(filepath, "rb") as f:
+            with filepath.open("rb") as f:
                 first_chunk = f.read(1024)
                 if b"<html" in first_chunk.lower() or b"<!doctype html" in first_chunk.lower():
                     logger.error("Downloaded file is an HTML page (possibly requires a password)")
@@ -330,40 +330,8 @@ class ZoomDownloader:
         base_filename = self._get_filename(recording)
         final_path = self.download_dir / base_filename
 
-        fresh_download_token = None
-        if recording.download_access_token:
-            try:
-                from api.zoom_api import ZoomAPI
-                from config.accounts import ZOOM_ACCOUNTS
-
-                account_config = ZOOM_ACCOUNTS.get(recording.account)
-                if account_config:
-                    api = ZoomAPI(account_config)
-                    detailed_data = await api.get_recording_details(recording.meeting_id, include_download_token=True)
-                    fresh_download_token = detailed_data.get("download_access_token")
-                    logger.info(
-                        f"🔄 Fresh download_access_token received (length: {len(fresh_download_token) if fresh_download_token else 0})"
-                    )
-                else:
-                    logger.warning(f"⚠️ No config found for account: {recording.account}")
-            except Exception as e:
-                logger.error(f"❌ Error getting fresh token: {e}")
-                fresh_download_token = recording.download_access_token
-
+        fresh_download_token = recording.download_access_token if recording.download_access_token else None
         oauth_token = None
-        try:
-            from api.zoom_api import ZoomAPI
-            from config.accounts import ZOOM_ACCOUNTS
-
-            account_config = ZOOM_ACCOUNTS.get(recording.account)
-            if account_config:
-                api = ZoomAPI(account_config)
-                oauth_token = await api.get_access_token()
-                logger.info(
-                    f"🔄 OAuth access token received for authentication (length: {len(oauth_token) if oauth_token else 0})"
-                )
-        except Exception as e:
-            logger.error(f"❌ Error getting OAuth token: {e}")
 
         total_size = recording.video_file_size or 0
 

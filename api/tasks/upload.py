@@ -9,6 +9,7 @@ from api.core.context import ServiceContext
 from api.services.config_resolver import ConfigResolver
 from api.shared.exceptions import CredentialError, ResourceNotFoundError
 from api.tasks.base import UploadTask
+from config.settings import get_settings
 from database.config import DatabaseConfig
 from database.manager import DatabaseManager
 from logger import get_logger
@@ -16,14 +17,15 @@ from video_upload_module.platforms.youtube.token_handler import TokenRefreshErro
 from video_upload_module.uploader_factory import create_uploader_from_db
 
 logger = get_logger()
+settings = get_settings()
 
 
 @celery_app.task(
     bind=True,
     base=UploadTask,
     name="api.tasks.upload.upload_recording_to_platform",
-    max_retries=3,
-    default_retry_delay=600,  # 10 minutes between retries
+    max_retries=settings.celery.upload_max_retries,
+    default_retry_delay=settings.celery.upload_retry_delay,
 )
 def upload_recording_to_platform(
     self,
@@ -108,8 +110,13 @@ def upload_recording_to_platform(
 
     except Exception as exc:
         # Неожиданная ошибка - логируем с traceback и делаем retry
+        # Используем параметризованное логирование вместо f-string для безопасности
         logger.error(
-            f"[Task {self.request.id}] Unexpected error uploading to {platform}: {type(exc).__name__}: {exc!s}",
+            "[Task {}] Unexpected error uploading to {}: {}: {}",
+            self.request.id,
+            platform,
+            type(exc).__name__,
+            str(exc),
             exc_info=True,
         )
         raise self.retry(exc=exc)
@@ -355,7 +362,7 @@ async def _async_upload_recording(
                 if "tags" in preset_metadata:
                     upload_params["tags"] = preset_metadata["tags"]
 
-                if "category_id" in preset_metadata:
+                if "category_id" in preset_metadata and preset_metadata["category_id"] is not None:
                     upload_params["category_id"] = preset_metadata["category_id"]
 
                 if "privacy" in preset_metadata:
@@ -466,7 +473,8 @@ async def _async_upload_recording(
     bind=True,
     base=UploadTask,
     name="api.tasks.upload.batch_upload_recordings",
-    max_retries=1,
+    max_retries=settings.celery.upload_max_retries,
+    default_retry_delay=settings.celery.upload_retry_delay,
 )
 def batch_upload_recordings(
     self,
@@ -513,5 +521,5 @@ def batch_upload_recordings(
         )
 
     except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error in batch upload: {exc}", exc_info=True)
+        logger.error("[Task {}] Error in batch upload: {}", self.request.id, str(exc), exc_info=True)
         raise

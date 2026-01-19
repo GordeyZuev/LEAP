@@ -29,35 +29,35 @@ services:
       timeout: 3s
       retries: 5
 
-  # API (комментируем для локальной разработки, раскомментируйте для production)
-  # api:
-  #   build: .
-  #   container_name: leap_api
-  #   command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
-  #   environment:
-  #     DATABASE_HOST: postgres
-  #     DATABASE_PORT: 5432
-  #     DATABASE_NAME: leap_platform
-  #     DATABASE_USERNAME: postgres
-  #     DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
-  #     CELERY_BROKER_URL: redis://redis:6379/0
-  #     CELERY_RESULT_BACKEND: redis://redis:6379/0
-  #     JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
-  #   ports:
-  #     - "8000:8000"
-  #   volumes:
-  #     - ./media:/app/media
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
+  # API
+  api:
+    build: .
+    container_name: leap_api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: leap_platform
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./media:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   # Celery Worker
   celery_worker:
     build: .
     container_name: leap_celery_worker
-    command: celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=4
+    command: celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=8
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -68,6 +68,25 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
       - ./media:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery Beat (scheduler)
+  celery_beat:
+    build: .
+    container_name: leap_celery_beat
+    command: celery -A api.celery_app beat --loglevel=info --scheduler celery_sqlalchemy_scheduler.schedulers:DatabaseScheduler
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: leap_platform
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy

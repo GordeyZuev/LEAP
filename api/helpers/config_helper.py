@@ -5,10 +5,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.credential_service import CredentialService
-from config.settings import ZoomConfig
 from deepseek_module import DeepSeekConfig
 from fireworks_module import FireworksConfig
 from logger import get_logger
+from models.zoom_auth import ZoomOAuthCredentials, ZoomServerToServerCredentials, create_zoom_credentials
 
 logger = get_logger()
 
@@ -28,53 +28,41 @@ class ConfigHelper:
         self.user_id = user_id
         self.cred_service = CredentialService(session)
 
-    async def get_zoom_config(self, account_name: str | None = None) -> ZoomConfig:
+    async def get_zoom_config(
+        self, account_name: str | None = None
+    ) -> ZoomServerToServerCredentials | ZoomOAuthCredentials:
         """
-        Получить ZoomConfig для пользователя.
+        Get Zoom credentials for user.
 
         Args:
-            account_name: Имя аккаунта (опционально)
+            account_name: Account name (optional)
 
         Returns:
-            ZoomConfig с credentials пользователя
+            Zoom credentials (Server-to-Server or OAuth)
 
         Raises:
-            ValueError: Если credentials не найдены
+            ValueError: If credentials not found
         """
         creds = await self.cred_service.get_zoom_credentials(user_id=self.user_id, account_name=account_name)
+        return create_zoom_credentials(creds)
 
-        return ZoomConfig(
-            account=creds.get("account", ""),
-            account_id=creds["account_id"],
-            client_id=creds["client_id"],
-            client_secret=creds["client_secret"],
-        )
-
-    async def get_zoom_config_by_credential_id(self, credential_id: int) -> ZoomConfig:
+    async def get_zoom_config_by_credential_id(
+        self, credential_id: int
+    ) -> ZoomServerToServerCredentials | ZoomOAuthCredentials:
         """
-        Получить ZoomConfig по ID credential.
+        Get Zoom credentials by credential ID.
 
         Args:
-            credential_id: ID credential
+            credential_id: Credential ID
 
         Returns:
-            ZoomConfig с credentials
+            Zoom credentials (Server-to-Server or OAuth)
 
         Raises:
-            ValueError: Если credentials не найдены
+            ValueError: If credentials not found or invalid
         """
         creds = await self.cred_service.get_credentials_by_id(credential_id)
-
-        # Validate it's actually zoom credentials
-        if "account_id" not in creds or "client_id" not in creds:
-            raise ValueError(f"Credential {credential_id} is not valid Zoom credentials")
-
-        return ZoomConfig(
-            account=creds.get("account", ""),
-            account_id=creds["account_id"],
-            client_id=creds["client_id"],
-            client_secret=creds["client_secret"],
-        )
+        return create_zoom_credentials(creds)
 
     async def get_fireworks_config(self) -> FireworksConfig:
         """

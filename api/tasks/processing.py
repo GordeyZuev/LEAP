@@ -8,6 +8,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from api.celery_app import celery_app
 from api.repositories.recording_repos import RecordingAsyncRepository
 from api.tasks.base import ProcessingTask
+from config.settings import get_settings
 from database.config import DatabaseConfig
 from database.manager import DatabaseManager
 from logger import get_logger
@@ -16,14 +17,15 @@ from video_download_module.downloader import ZoomDownloader
 from video_processing_module.video_processor import VideoProcessor
 
 logger = get_logger()
+settings = get_settings()
 
 
 @celery_app.task(
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.download_recording",
-    max_retries=3,
-    default_retry_delay=600,
+    max_retries=settings.celery.download_max_retries,
+    default_retry_delay=settings.celery.download_retry_delay,
 )
 def download_recording_task(
     self,
@@ -186,8 +188,8 @@ async def _async_download_recording(
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.trim_video",
-    max_retries=2,
-    default_retry_delay=300,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def trim_video_task(
     self,
@@ -379,8 +381,8 @@ async def _async_process_video(
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.transcribe_recording",
-    max_retries=2,
-    default_retry_delay=300,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def transcribe_recording_task(
     self,
@@ -622,8 +624,8 @@ async def _async_transcribe_recording(
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.process_recording",
-    max_retries=1,
-    default_retry_delay=600,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def process_recording_task(
     self,
@@ -934,8 +936,8 @@ def process_recording_task(
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.extract_topics",
-    max_retries=2,
-    default_retry_delay=300,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def extract_topics_task(
     self,
@@ -1126,8 +1128,8 @@ async def _async_extract_topics(
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.generate_subtitles",
-    max_retries=2,
-    default_retry_delay=60,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def generate_subtitles_task(
     self,
@@ -1222,8 +1224,8 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: int, 
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.batch_transcribe_recording",
-    max_retries=3,
-    default_retry_delay=300,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def batch_transcribe_recording_task(
     self,

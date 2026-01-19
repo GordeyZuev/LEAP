@@ -61,7 +61,7 @@ class YouTubeUploader(BaseUploader):
 
                     flow = None
                     try:
-                        with open(self.config.client_secrets_file, encoding="utf-8") as f:
+                        with Path(self.config.client_secrets_file).open(encoding="utf-8") as f:
                             secrets_data = json.load(f)
                         if isinstance(secrets_data, dict) and "client_secrets" in secrets_data:
                             flow = InstalledAppFlow.from_client_config(
@@ -169,7 +169,8 @@ class YouTubeUploader(BaseUploader):
                 "status": status,
             }
 
-            media = MediaFileUpload(video_path, chunksize=-1, resumable=True, mimetype="video/*")
+            # Use 10MB chunks for resumable uploads
+            media = MediaFileUpload(video_path, chunksize=10 * 1024 * 1024, resumable=True, mimetype="video/*")
 
             logger.info(f"Uploading video to YouTube: {title}")
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -120,14 +119,17 @@ class DeepSeekConfig(BaseSettings):
             FileNotFoundError: Если файл не найден
             ValueError: Если API ключ не указан или валидация не прошла
         """
-        if not os.path.exists(config_file):
+        from pathlib import Path
+
+        config_path = Path(config_file)
+        if not config_path.exists():
             raise FileNotFoundError(
                 f"Файл конфигурации DeepSeek не найден: {config_file}\n"
                 f"Создайте файл с содержимым:\n"
                 f'{{"api_key": "your-api-key-here"}}'
             )
 
-        with open(config_file, encoding="utf-8") as f:
+        with config_path.open(encoding="utf-8") as f:
             data = json.load(f)
 
         api_key = data.get("api_key", "")

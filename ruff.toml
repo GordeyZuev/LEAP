@@ -66,8 +66,14 @@ ignore = [
     
     # Security - allow some common patterns
     "S101",   # Allow assert statements (useful in tests and validation)
+    "S104",   # Allow binding to all interfaces (normal for web servers)
+    "S105",   # Hardcoded password string (false positives in validation)
+    "S106",   # Hardcoded password argument (false positives for token_type, token_url)
+    "S107",   # Hardcoded password default (false positives for token_type)
+    "S108",   # Hardcoded temp file (handled case-by-case)
     "S311",   # Allow pseudo-random generators (not all use cases are security-critical)
     "S324",   # Allow md5/sha1 for non-security purposes
+    "S603",   # subprocess call (we validate with shutil.which)
     
     # Type checking - can be too aggressive for gradual typing
     "TC001",  # Type checking import optimization

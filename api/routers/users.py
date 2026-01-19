@@ -11,6 +11,7 @@ from api.repositories.auth_repos import (
     RefreshTokenRepository,
     UserRepository,
 )
+from api.repositories.recording_repos import RecordingAsyncRepository
 from api.schemas.auth import QuotaStatusResponse, QuotaUsageResponse, UserInDB, UserResponse, UserUpdate
 from api.schemas.auth.response import UserMeResponse
 from api.schemas.user import (
@@ -356,11 +357,12 @@ async def delete_account(
     for source in sources:
         await session.delete(source)
 
-    # 4. Recordings
+    # 4. Recordings (use repository to delete files and update quota)
     result = await session.execute(select(RecordingModel).where(RecordingModel.user_id == user_id))
     recordings = result.scalars().all()
+    recording_repo = RecordingAsyncRepository(session)
     for recording in recordings:
-        await session.delete(recording)
+        await recording_repo.delete(recording)
 
     # 5. Templates
     result = await session.execute(select(RecordingTemplateModel).where(RecordingTemplateModel.user_id == user_id))

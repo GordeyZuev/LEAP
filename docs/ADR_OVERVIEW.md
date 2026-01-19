@@ -26,7 +26,7 @@
 
 **✅ Реализовано (Production-Ready):**
 - Multi-tenancy с полной изоляцией данных
-- REST API (84 endpoints) с полной типизацией
+- REST API (89 endpoints) с полной типизацией
 - JWT Authentication + OAuth 2.0 (YouTube, VK, Zoom)
 - Асинхронная обработка (Celery + Redis)
 - Template-driven automation
@@ -38,7 +38,7 @@
 - FastAPI (async)
 - PostgreSQL (12 таблиц)
 - Redis + Celery
-- Pydantic V2 (118+ моделей)
+- Pydantic V2 (185+ моделей)
 - SQLAlchemy (async)
 - Alembic (19 миграций)
 
@@ -73,8 +73,8 @@
 ### Текущее состояние (v0.9.3)
 
 **Production-Ready SaaS платформа:**
-- 84 REST API endpoints
-- 12 database tables
+- 89 REST API endpoints
+- 16 database tables
 - 3 OAuth integrations (YouTube, VK, Zoom)
 - 4 subscription plans
 - Template-driven automation
@@ -657,8 +657,8 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 - OpenAPI автогенерация
 
 **Реализация:**
-- 84 endpoints с полной типизацией
-- 118+ Pydantic моделей
+- 89 endpoints с полной типизацией
+- 185+ Pydantic моделей
 - Swagger UI: `/docs`
 - OpenAPI: `/openapi.json`
 
@@ -666,7 +666,6 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 
 **См. также:** 
 - [API_GUIDE.md](API_GUIDE.md)
-- [API_CONSISTENCY_AUDIT.md](API_CONSISTENCY_AUDIT.md)
 
 ---
 
@@ -675,14 +674,14 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 ### Метрики
 
 **API:**
-- 84 REST endpoints
-- 118+ Pydantic models
+- 89 REST endpoints
+- 185+ Pydantic models
 - 100% типизация
 - 0 lint errors
 
 **Database:**
-- 12 tables
-- 19 migrations
+- 16 tables
+- 21 migrations
 - Multi-tenant isolation
 - Encrypted credentials
 
@@ -704,7 +703,7 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 |-----------|--------|-------------|
 | Multi-tenancy | ✅ | Полная изоляция |
 | Authentication | ✅ | JWT + OAuth 2.0 |
-| API | ✅ | 84 endpoints |
+| API | ✅ | 89 endpoints |
 | Database | ✅ | Auto-init, 19 миграций |
 | Async Processing | ✅ | Celery + Redis |
 | Subscriptions | ✅ | 4 plans + custom quotas |

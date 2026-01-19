@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import shutil
 import traceback
 from datetime import datetime
@@ -62,12 +61,21 @@ class VideoProcessor:
             video_stream = next((s for s in info["streams"] if s["codec_type"] == "video"), None)
             audio_stream = next((s for s in info["streams"] if s["codec_type"] == "audio"), None)
 
+            # Calculate FPS from r_frame_rate (e.g., "30/1" or "60000/1001")
+            fps = 0
+            if video_stream and "r_frame_rate" in video_stream:
+                try:
+                    numerator, denominator = map(int, video_stream["r_frame_rate"].split("/"))
+                    fps = numerator / denominator if denominator != 0 else 0
+                except (ValueError, ZeroDivisionError):
+                    fps = 0
+
             return {
                 "duration": float(info["format"]["duration"]),
                 "size": int(info["format"]["size"]),
                 "width": int(video_stream["width"]) if video_stream else 0,
                 "height": int(video_stream["height"]) if video_stream else 0,
-                "fps": eval(video_stream["r_frame_rate"]) if video_stream else 0,
+                "fps": fps,
                 "video_codec": video_stream["codec_name"] if video_stream else None,
                 "audio_codec": audio_stream["codec_name"] if audio_stream else None,
                 "bitrate": int(info["format"]["bit_rate"]) if "bit_rate" in info["format"] else 0,
@@ -153,7 +161,7 @@ class VideoProcessor:
                 max_time = video_info["duration"]
                 end_time = min(max_time - self.config.outro_duration, end_time)
 
-            os.makedirs(Path(segment.output_path).parent, exist_ok=True)
+            Path(segment.output_path).parent.mkdir(parents=True, exist_ok=True)
             success = await self.trim_video(input_path, segment.output_path, start_time, end_time)
 
             if success:
@@ -236,7 +244,7 @@ class VideoProcessor:
             # Если звук есть на всем протяжении видео, не обрезаем и используем исходный файл
             if last_sound is None and first_sound == 0.0:
                 logger.info("🔊 Звук на всем протяжении видео, пропускаем обрезку и используем исходный файл")
-                return True, os.path.abspath(video_path)
+                return True, str(Path(video_path).resolve())
 
             if last_sound is None:
                 logger.warning(f"⚠️ Не удалось определить конечную границу звука для {title}")
@@ -266,7 +274,7 @@ class VideoProcessor:
             output_filename = f"{safe_title}{date_suffix}_processed.mp4"
             output_path = Path(self.config.output_dir) / output_filename
 
-            os.makedirs(Path(output_path).parent, exist_ok=True)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             logger.info("🎬 Запуск FFmpeg для обрезки...")
             success = await self.trim_video(video_path, output_path, start_time_trim, end_time)
 

@@ -141,7 +141,7 @@
 
 ### Enterprise-Ready Features
 
-**⚡ 84 REST API Endpoints**
+**⚡ 89 REST API Endpoints**
 - Полноценный `CRUD` для всех сущностей
 - `JWT` аутентификация + `RBAC`
 - `OpenAPI` документация (`Swagger`, `ReDoc`)
@@ -176,9 +176,9 @@
 ## 📈 Key Metrics
 
 ```
-📊 API Endpoints:        84 (full production coverage)
-🗄️  Database Tables:      12 (multi-tenant architecture)
-🗃️  Database Migrations:  19 (auto-init on first run)
+📊 API Endpoints:        89 (full production coverage)
+🗄️  Database Tables:      16 (multi-tenant architecture)
+🗃️  Database Migrations:  21 (auto-init on first run)
 🔌 Platform Integrations: 3 (Zoom, YouTube, VK)
 🤖 AI Models:            2 (Whisper, DeepSeek)
 🔒 Security Features:    JWT + OAuth2 + RBAC + Fernet Encryption
@@ -228,7 +228,7 @@
 - Audit logs и usage tracking
 
 **Production-Ready**
-- 84 REST API endpoints с `OpenAPI` docs
+- 89 REST API endpoints с `OpenAPI` docs
 - Health checks и monitoring (`Flower`)
 - Automatic retry mechanisms
 - Error handling и graceful degradation
@@ -278,102 +278,46 @@ Ruff (linter) • Flower (monitoring) • Make
 
 ---
 
-## 🚀 Быстрый старт
-
-### Production Deployment
+## 🚀 Quick Start
 
 ```bash
-# Docker Compose (рекомендуется)
+# Production (Docker Compose)
 docker-compose up -d
 
-# Проверка статуса
-docker-compose ps
+# Development
+make docker-up && make init-db && make api
 ```
 
-**Доступ:**
-- API: http://localhost:8000
-- Swagger UI: http://localhost:8000/docs
-- Flower: http://localhost:5555
+**Access:**
+- API: http://localhost:8000/docs (Swagger)
+- Monitoring: http://localhost:5555 (Flower)
 
-### Development Setup
+📖 **Full Documentation:** [docs/INDEX.md](docs/INDEX.md)
 
-```bash
-# 1. Установка зависимостей (UV рекомендуется)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync
-
-# 2. Запуск инфраструктуры
-make docker-up
-
-# 3. Инициализация БД
-make init-db
-
-# 4. Запуск API
-make api
-```
-
-### Требования
-
-**Система:**
-- `Python 3.11+` • `PostgreSQL 12+` • `Redis` • `FFmpeg`
-- CPU: 4+ cores • RAM: 8+ GB • SSD: 100+ GB
-
-**API Keys:**
-- `Zoom` • `YouTube` • `VK` • `Fireworks AI` • `DeepSeek`
-
-📖 **Полная документация:** [docs/INDEX.md](docs/INDEX.md)
-
-**Quick Links:**
-- 🚀 [DEPLOYMENT.md](docs/DEPLOYMENT.md) - Setup guide
-- 🔐 [OAUTH.md](docs/OAUTH.md) - OAuth setup (YouTube, VK, Zoom)
-- 📝 [TEMPLATES.md](docs/TEMPLATES.md) - Template-driven automation
-- 🔧 [API_GUIDE.md](docs/API_GUIDE.md) - API schemas & best practices
+**Key Guides:**
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) - Setup & deployment
+- [OAUTH.md](docs/OAUTH.md) - OAuth configuration
+- [TECHNICAL.md](docs/TECHNICAL.md) - Technical reference
+- [TEMPLATES.md](docs/TEMPLATES.md) - Automation guide
 
 ---
 
-## 🌐 REST API (84 endpoints)
+## 🌐 REST API
 
-Production-ready `REST API` с полной `OpenAPI` документацией:
+**89 production-ready endpoints** with full OpenAPI documentation:
 
-### Основные группы
+- 🔐 Authentication (6) - JWT + OAuth 2.0
+- 👤 Users (6) - Profile, config, quotas
+- 🎥 Recordings (16) - Full processing pipeline
+- 📋 Templates (8) - Automation rules
+- 🔌 OAuth (6) - YouTube, VK, Zoom
+- 🤖 Automation (6) - Scheduled jobs
+- And more...
 
-| Группа | Endpoints | Описание |
-|--------|-----------|----------|
-| 🔐 **Authentication** | 6 | Register, Login, Refresh, Logout, Logout-All, Profile |
-| 👤 **User Management** | 6 | Profile, Config, Password, Account deletion |
-| 🎥 **Recordings** | 15+ | CRUD, Processing pipeline, Batch operations |
-| 🔑 **Credentials** | 4 | Encrypted storage для API keys |
-| 📋 **Templates** | 8+ | Template-based automation rules |
-| 🔌 **OAuth** | 4 | YouTube & VK OAuth 2.0 flows |
-| 🤖 **Automation** | 6 | Scheduled jobs, Celery Beat integration |
-| 📊 **Tasks** | 4+ | Async task monitoring & management |
-| 🖼️ **Thumbnails** | 4 | Multi-tenant thumbnail system |
-| 🎯 **Sources & Presets** | 8+ | Data sources, Upload presets |
-
-**Документация:**
-- 📖 Interactive API: http://localhost:8000/docs (`Swagger UI`)
-- 📘 Alternative Docs: http://localhost:8000/redoc (`ReDoc`)
-- 🔧 Technical Details: [TECHNICAL.md](docs/TECHNICAL.md#rest-api-endpoints)
-
-### Template-Based Automation Example
-
-```json
-{
-  "name": "ML Lectures Auto-Publish",
-  "matching_rules": {
-    "name_pattern": "Лекция*",
-    "source_type": "ZOOM"
-  },
-  "processing_config": {
-    "video": {"remove_silence": true},
-    "transcription": {"model": "whisper-v3-turbo"}
-  },
-  "output_targets": {
-    "youtube": {"playlist_id": "PLxxx", "privacy": "public"},
-    "vk": {"album_id": "12345"}
-  }
-}
-```
+**Documentation:**
+- Interactive: http://localhost:8000/docs
+- Reference: [TECHNICAL.md](docs/TECHNICAL.md#rest-api)
+- Guide: [API_GUIDE.md](docs/API_GUIDE.md)
 
 ---
 
@@ -469,75 +413,25 @@ TRANSCRIBED → UPLOADING → READY
 
 ---
 
-## 🆕 Latest Release: v0.9.3 (January 2026)
+## 🆕 Version: v0.9.3 (January 2026)
 
-**Multi-tenant SaaS in Development**
+**Status:** Production-ready multi-tenant SaaS
 
-### 🎯 Core Features
+**Key Metrics:**
+- 89 REST API endpoints (100% typed)
+- 16 database tables (multi-tenant)
+- 21 database migrations (auto-init)
+- 3 OAuth platforms (YouTube, VK, Zoom)
+- 2 AI models (Whisper, DeepSeek)
+- 20 documentation guides
 
-**REST API (84 endpoints)**
-- ✅ 100% typed with Pydantic V2 (118+ models)
-- ✅ Clean Architecture (DRY, YAGNI, KISS)
-- ✅ Full OpenAPI documentation (Swagger + ReDoc)
-- ✅ Async-first with FastAPI
+**Latest Features:**
+- ✅ Template-driven automation
+- ✅ Two-level deletion system
+- ✅ Unified configuration
+- ✅ Bulk operations API
 
-**Template-Driven Automation**
-- ✅ Auto-matching recordings to templates
-- ✅ Deep merge config hierarchy (user → template → override)
-- ✅ Re-match functionality with preview
-- ✅ Blank records filtering
-
-**OAuth 2.0 Integration**
-- ✅ YouTube, VK, Zoom (all platforms)
-- ✅ Auto-refresh tokens with DB storage
-- ✅ CSRF protection via Redis
-- ✅ Multi-tenant credential management
-
-**Bulk Operations**
-- ✅ Unified API for batch processing
-- ✅ Filters (status, template, source, dates)
-- ✅ Dry-run mode for previews
-- ✅ Template lifecycle management
-
-**Automation System**
-- ✅ Celery Beat scheduling
-- ✅ Declarative config (time/cron/weekdays)
-- ✅ Quota management (max 5 jobs/user)
-- ✅ Dry-run mode
-
-**AI Processing**
-- ✅ Fireworks AI (whisper-v3-turbo) - transcription
-- ✅ DeepSeek - topic extraction with timestamps
-- ✅ Subtitle generation (SRT, VTT)
-- ✅ Cost tracking & monitoring
-
-**Subscription & Quotas**
-- ✅ 4 plans: Free/Plus/Pro/Enterprise
-- ✅ Quotas (recordings, storage, tasks, automation)
-- ✅ Usage tracking & history
-- ✅ Admin API for quota management
-
-### 📊 Statistics
-
-```
-API Endpoints:       84 (fully implemented)
-Pydantic Models:     118+ (fully typed)
-Database Tables:     14 (multi-tenant)
-Migrations:          19 (auto-init)
-OAuth Platforms:     3 (YouTube, VK, Zoom)
-AI Models:           2 (Whisper, DeepSeek)
-Documentation:       14 guides (optimized from 29)
-```
-
-### 📖 Documentation
-
-**14 comprehensive guides** (down from 29, -52%):
-- ✅ 0 duplicates
-- ✅ Complete OAuth guide (3→1)
-- ✅ Complete Templates guide (2→1)
-- ✅ Complete API guide (4→1)
-
-📜 **Full history:** [CHANGELOG.md](docs/CHANGELOG.md)
+📜 **Full changelog:** [CHANGELOG.md](docs/CHANGELOG.md)
 
 ---
 
@@ -556,4 +450,4 @@ Documentation:       14 guides (optimized from 29)
 ---
 
 **Version:** `v0.9.3` (January 2026) • **Status:** Dev Status  
-**Documentation:** [docs/INDEX.md](docs/INDEX.md) • 14 comprehensive guides
+**Documentation:** [docs/INDEX.md](docs/INDEX.md) • 20 comprehensive guides

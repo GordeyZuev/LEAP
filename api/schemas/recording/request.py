@@ -256,3 +256,15 @@ class BulkProcessRequest(BulkOperationRequest):
                 "limit": 50,
             }
         }
+
+
+class BulkDeleteRequest(BulkOperationRequest):
+    """Bulk soft delete записей."""
+
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {"recording_ids": [1, 2, 3, 4, 5]},
+                {"filters": {"status": ["FAILED"], "from_date": "2024-01-01"}, "limit": 50},
+            ]
+        }

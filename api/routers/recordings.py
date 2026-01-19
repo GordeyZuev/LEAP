@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
+from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingAsyncRepository
 from api.schemas.recording.filters import RecordingFilters as RecordingFiltersSchema
 from api.schemas.recording.operations import (
@@ -22,6 +23,7 @@ from api.schemas.recording.operations import (
     RetryUploadResponse,
 )
 from api.schemas.recording.request import (
+    BulkDeleteRequest,
     BulkDownloadRequest,
     BulkProcessRequest,
     BulkSubtitlesRequest,
@@ -236,7 +238,7 @@ async def _query_recordings_by_filters(
 
 async def _execute_dry_run_single(
     recording_id: int,
-    config_override: ConfigOverrideRequest | None,
+    _config_override: ConfigOverrideRequest | None,
     ctx: ServiceContext,
 ) -> dict:
     """
@@ -246,7 +248,7 @@ async def _execute_dry_run_single(
 
     Args:
         recording_id: ID recording
-        config_override: Override configuration
+        _config_override: Override configuration (reserved for future use)
         ctx: Service context
 
     Returns:
@@ -380,6 +382,7 @@ async def list_recordings(
     failed: bool | None = Query(None, description="Only failed recordings"),
     mapped: bool | None = Query(None, description="Filter by is_mapped (true/false/null=all)"),
     include_blank: bool = Query(False, description="Include blank records (short/small)"),
+    include_deleted: bool = Query(False, description="Include deleted recordings"),
     from_date: str | None = Query(None, description="Filter: start_time >= from_date (YYYY-MM-DD)"),
     to_date: str | None = Query(None, description="Filter: start_time <= to_date (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
@@ -395,6 +398,7 @@ async def list_recordings(
         failed: Only failed recordings
         mapped: Filter by is_mapped (true - only mapped, false - only unmapped, null - all)
         include_blank: Include blank records (default: False - hides blank records)
+        include_deleted: Include deleted recordings (default: False - hides deleted)
         from_date: Filter by start date (YYYY-MM-DD)
         to_date: Filter by end date (YYYY-MM-DD)
         page: Page number
@@ -407,7 +411,7 @@ async def list_recordings(
     recording_repo = RecordingAsyncRepository(ctx.session)
 
     # Get all recordings for user
-    recordings = await recording_repo.list_by_user(ctx.user_id)
+    recordings = await recording_repo.list_by_user(ctx.user_id, include_deleted=include_deleted)
 
     # Apply filters
     if status_filter:
@@ -493,6 +497,13 @@ async def list_recordings(
                 template_name=r.template.name if r.template else None,
                 source=source_info,
                 uploads=uploads,
+                deleted=r.deleted,
+                deleted_at=r.deleted_at,
+                delete_state=r.delete_state,
+                deletion_reason=r.deletion_reason,
+                soft_deleted_at=r.soft_deleted_at,
+                hard_delete_at=r.hard_delete_at,
+                expire_at=r.expire_at,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )
@@ -528,7 +539,7 @@ async def get_recording(
         RecordingListItem (default) or DetailedRecordingResponse (detailed=true)
     """
     recording_repo = RecordingAsyncRepository(ctx.session)
-    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id, include_deleted=True)
 
     if not recording:
         raise HTTPException(
@@ -577,6 +588,13 @@ async def get_recording(
             template_name=recording.template.name if recording.template else None,
             source=source_info,
             uploads=uploads,
+            deleted=recording.deleted,
+            deleted_at=recording.deleted_at,
+            delete_state=recording.delete_state,
+            deletion_reason=recording.deletion_reason,
+            soft_deleted_at=recording.soft_deleted_at,
+            hard_delete_at=recording.hard_delete_at,
+            expire_at=recording.expire_at,
             created_at=recording.created_at,
             updated_at=recording.updated_at,
         )
@@ -625,6 +643,13 @@ async def get_recording(
         "failed_reason": recording.failed_reason,
         "failed_at_stage": recording.failed_at_stage,
         "video_file_size": recording.video_file_size,
+        "deleted": recording.deleted,
+        "deleted_at": recording.deleted_at,
+        "delete_state": recording.delete_state,
+        "deletion_reason": recording.deletion_reason,
+        "soft_deleted_at": recording.soft_deleted_at,
+        "hard_delete_at": recording.hard_delete_at,
+        "expire_at": recording.expire_at,
         "created_at": recording.created_at,
         "updated_at": recording.updated_at,
     }
@@ -808,7 +833,7 @@ async def add_local_recording(
     try:
         # Save file in chunks for large files
         total_size = 0
-        with open(file_path, "wb") as f:
+        with file_path.open("wb") as f:
             while chunk := await file.read(1024 * 1024):  # Read 1MB at a time
                 f.write(chunk)
                 total_size += len(chunk)
@@ -836,6 +861,10 @@ async def add_local_recording(
         # Use meeting_id or generate unique key
         source_key = meeting_id or f"local_{ctx.user_id}_{datetime.now().timestamp()}"
 
+        # Get user config for retention settings (merged with defaults)
+        user_config_repo = UserConfigRepository(ctx.session)
+        user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
         created_recording = await recording_repo.create(
             user_id=ctx.user_id,
             input_source_id=None,
@@ -845,6 +874,7 @@ async def add_local_recording(
             source_type=SourceType.LOCAL_FILE,
             source_key=source_key,
             source_metadata={"uploaded_via_api": True, "original_filename": filename},
+            user_config=user_config,
             status=ProcessingStatus.DOWNLOADED,
             local_video_path=str(file_path),
             video_file_size=actual_size,
@@ -2088,8 +2118,11 @@ async def reset_recording(
     - Clears metadata (topics, transcription_info)
     - Deletes output_targets
     - Deletes processing_stages
-    - Returns status to INITIALIZED
+    - Returns status to INITIALIZED (if is_mapped) or SKIPPED (if not)
     - Clears failed flag and failed_reason
+    - Updates expire_at from user config
+
+    Note: RESET only works for active recordings. Deleted recordings must be restored first.
 
     Optional:
     - local_video_path (downloaded video) - if delete_files=False
@@ -2103,6 +2136,9 @@ async def reset_recording(
 
     Returns:
         Result of reset operation
+
+    Raises:
+        HTTPException 400: If recording is deleted
     """
     from pathlib import Path
 
@@ -2115,6 +2151,12 @@ async def reset_recording(
 
     if not recording:
         raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+
+    if recording.deleted:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot reset deleted recording. Please restore it first using POST /recordings/{id}/restore",
+        )
 
     deleted_files = []
     errors = []
@@ -2172,7 +2214,18 @@ async def reset_recording(
     recording.transcription_info = None
     recording.failed = False
     recording.failed_reason = None
-    recording.status = ProcessingStatus.INITIALIZED
+
+    # Set status based on is_mapped
+    recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
+
+    # Update expire_at from user config (merged with defaults)
+    user_config_repo = UserConfigRepository(ctx.session)
+    user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    retention = user_config.get("retention", {})
+    auto_expire_days = retention.get("auto_expire_days", 90)
+    if auto_expire_days:
+        recording.expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
 
     # Delete output_targets
     await ctx.session.execute(delete(OutputTargetModel).where(OutputTargetModel.recording_id == recording_id))
@@ -2184,7 +2237,7 @@ async def reset_recording(
 
     logger.info(
         f"Reset recording {recording_id}: deleted {len(deleted_files)} files, "
-        f"{len(errors)} errors, status -> INITIALIZED"
+        f"{len(errors)} errors, status -> {recording.status}"
     )
 
     return ResetRecordingResponse(
@@ -2193,7 +2246,7 @@ async def reset_recording(
         message="Recording reset to initial state",
         deleted_files=deleted_files if deleted_files else None,
         errors=errors if errors else None,
-        status="INITIALIZED",
+        status=recording.status.value,
         preserved={
             "template_id": recording.template_id,
             "is_mapped": recording.is_mapped,
@@ -2508,3 +2561,238 @@ async def bulk_upload_recordings(
         "skipped_count": skipped_count,
         "tasks": tasks,
     }
+
+
+# ============================================================================
+# Soft Delete Endpoints
+# ============================================================================
+
+
+class DeleteRecordingResponse(BaseModel):
+    """Response for soft delete recording."""
+
+    message: str
+    recording_id: int
+    deleted_at: datetime
+    hard_delete_at: datetime  # When recording will be completely removed from DB
+
+
+class RestoreRecordingResponse(BaseModel):
+    """Response for restore recording."""
+
+    message: str
+    recording_id: int
+    restored_at: datetime
+    expire_at: datetime
+
+
+@router.delete("/{recording_id}", response_model=DeleteRecordingResponse)
+async def delete_recording(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> DeleteRecordingResponse:
+    """
+    Soft delete recording - mark as deleted.
+
+    Files will be cleaned up after user's soft_delete_days.
+    Recording will be completely removed from DB after hard_delete_days.
+
+    Recording will be excluded from default listings but can be restored (before files cleanup).
+
+    Args:
+        recording_id: Recording ID
+        ctx: Service context
+
+    Returns:
+        Deletion confirmation with hard delete date
+    """
+    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+
+    if not recording:
+        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+
+    if recording.deleted:
+        raise HTTPException(status_code=400, detail="Recording is already deleted")
+
+    # Get user config (merged with defaults)
+    user_config_repo = UserConfigRepository(ctx.session)
+    user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    await recording_repo.soft_delete(recording, user_config)
+    await ctx.session.commit()
+
+    logger.info(f"Soft deleted recording {recording_id} by user {ctx.user_id}")
+
+    return DeleteRecordingResponse(
+        message="Recording deleted successfully",
+        recording_id=recording.id,
+        deleted_at=recording.deleted_at,
+        hard_delete_at=recording.hard_delete_at,
+    )
+
+
+class BulkDeleteResponse(BaseModel):
+    """Response for bulk delete operation."""
+
+    message: str
+    deleted_count: int
+    skipped_count: int
+    error_count: int
+    details: list[dict]
+
+
+@router.post("/bulk/delete", response_model=BulkDeleteResponse)
+async def bulk_delete_recordings(
+    data: BulkDeleteRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> BulkDeleteResponse:
+    """
+    Bulk soft delete recordings - mark as deleted.
+
+    Files cleanup and hard delete scheduled based on user's retention settings.
+
+    Supports recording_ids or filters for automatic selection.
+
+    Args:
+        data: Bulk delete request with recording_ids or filters
+        ctx: Service context
+
+    Returns:
+        Statistics about deleted recordings
+    """
+    # Resolve recording IDs
+    recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
+
+    # Get user config once (merged with defaults)
+    user_config_repo = UserConfigRepository(ctx.session)
+    user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    recording_repo = RecordingAsyncRepository(ctx.session)
+    deleted_count = 0
+    skipped_count = 0
+    error_count = 0
+    details = []
+
+    for recording_id in recording_ids:
+        try:
+            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+
+            if not recording:
+                error_count += 1
+                details.append(
+                    {
+                        "recording_id": recording_id,
+                        "status": "error",
+                        "message": "Recording not found",
+                    }
+                )
+                continue
+
+            if recording.deleted:
+                skipped_count += 1
+                details.append(
+                    {
+                        "recording_id": recording_id,
+                        "status": "skipped",
+                        "message": "Already deleted",
+                    }
+                )
+                continue
+
+            await recording_repo.soft_delete(recording, user_config)
+            deleted_count += 1
+            details.append(
+                {
+                    "recording_id": recording_id,
+                    "status": "deleted",
+                    "deleted_at": recording.deleted_at.isoformat() if recording.deleted_at else None,
+                    "hard_delete_at": recording.hard_delete_at.isoformat() if recording.hard_delete_at else None,
+                }
+            )
+
+        except Exception as e:
+            error_count += 1
+            details.append(
+                {
+                    "recording_id": recording_id,
+                    "status": "error",
+                    "message": str(e),
+                }
+            )
+            logger.error(f"Failed to delete recording {recording_id}: {e}")
+
+    # Commit all changes
+    try:
+        await ctx.session.commit()
+    except Exception as e:
+        logger.error(f"Failed to commit bulk delete: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to commit bulk delete: {e!s}",
+        )
+
+    logger.info(
+        f"Bulk delete completed by user {ctx.user_id}: "
+        f"{deleted_count} deleted, {skipped_count} skipped, {error_count} errors"
+    )
+
+    return BulkDeleteResponse(
+        message=f"Bulk delete completed: {deleted_count} recordings deleted",
+        deleted_count=deleted_count,
+        skipped_count=skipped_count,
+        error_count=error_count,
+        details=details,
+    )
+
+
+@router.post("/{recording_id}/restore", response_model=RestoreRecordingResponse)
+async def restore_recording(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> RestoreRecordingResponse:
+    """
+    Restore soft deleted recording (only if files still present).
+
+    Sets new expire_at based on user's auto_expire_days setting.
+
+    Args:
+        recording_id: Recording ID
+        ctx: Service context
+
+    Returns:
+        Restore confirmation with new expire date
+
+    Raises:
+        HTTPException 400: If files already deleted (delete_state == "hard")
+    """
+    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id, include_deleted=True)
+
+    if not recording:
+        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+
+    if not recording.deleted:
+        raise HTTPException(status_code=400, detail="Recording is not deleted")
+
+    if recording.delete_state != "soft":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot restore: files already deleted. Recording can only be restored before files cleanup.",
+        )
+
+    # Get user config (merged with defaults)
+    user_config_repo = UserConfigRepository(ctx.session)
+    user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    await recording_repo.restore(recording, user_config)
+    await ctx.session.commit()
+
+    logger.info(f"Restored recording {recording_id} by user {ctx.user_id}")
+
+    return RestoreRecordingResponse(
+        message="Recording restored successfully",
+        recording_id=recording.id,
+        restored_at=datetime.utcnow(),
+        expire_at=recording.expire_at,
+    )

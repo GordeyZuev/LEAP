@@ -1,6 +1,6 @@
-import os
 import shutil
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -122,9 +122,9 @@ class DatabaseManager:
             # Close all active connections with the current database (if any)
             try:
                 await self.close()
-            except Exception:
+            except Exception as e:
                 # Ignore errors when closing, if the engine is not used yet
-                pass
+                logger.debug(f"Error closing connection (may not exist yet): {e}")
 
             # Connect to the system postgres database
             conn = await asyncpg.connect(
@@ -682,9 +682,9 @@ class DatabaseManager:
                             continue
 
                     # Удаляем физические файлы
-                    if db_recording.local_video_path and os.path.exists(db_recording.local_video_path):
+                    if db_recording.local_video_path and Path(db_recording.local_video_path).exists():
                         try:
-                            os.remove(db_recording.local_video_path)
+                            Path(db_recording.local_video_path).unlink()
                             logger.debug(
                                 f"Удален файл: path={db_recording.local_video_path} | recording_id={db_recording.id}"
                             )
@@ -693,9 +693,9 @@ class DatabaseManager:
                                 f"Не удалось удалить файл: path={db_recording.local_video_path} | recording_id={db_recording.id} | error={e}"
                             )
 
-                    if db_recording.processed_video_path and os.path.exists(db_recording.processed_video_path):
+                    if db_recording.processed_video_path and Path(db_recording.processed_video_path).exists():
                         try:
-                            os.remove(db_recording.processed_video_path)
+                            Path(db_recording.processed_video_path).unlink()
                             logger.debug(
                                 f"Удален файл: path={db_recording.processed_video_path} | recording_id={db_recording.id}"
                             )
@@ -704,9 +704,9 @@ class DatabaseManager:
                                 f"Не удалось удалить файл: path={db_recording.processed_video_path} | recording_id={db_recording.id} | error={e}"
                             )
 
-                    if db_recording.processed_audio_path and os.path.exists(db_recording.processed_audio_path):
+                    if db_recording.processed_audio_path and Path(db_recording.processed_audio_path).exists():
                         try:
-                            os.remove(db_recording.processed_audio_path)
+                            Path(db_recording.processed_audio_path).unlink()
                             logger.debug(
                                 f"Удален аудио файл: path={db_recording.processed_audio_path} | recording_id={db_recording.id}"
                             )
@@ -715,7 +715,7 @@ class DatabaseManager:
                                 f"Не удалось удалить аудио файл: path={db_recording.processed_audio_path} | recording_id={db_recording.id} | error={e}"
                             )
 
-                    if db_recording.transcription_dir and os.path.exists(db_recording.transcription_dir):
+                    if db_recording.transcription_dir and Path(db_recording.transcription_dir).exists():
                         try:
                             shutil.rmtree(db_recording.transcription_dir)
                             logger.debug(

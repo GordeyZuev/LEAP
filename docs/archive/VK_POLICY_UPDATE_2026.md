@@ -275,7 +275,7 @@ def remind_token_refresh():
 
 ## Полезные ссылки
 
-- [CREDENTIALS_GUIDE.md](CREDENTIALS_GUIDE.md) - Полное руководство по credentials
+- [../OAUTH.md](../OAUTH.md) - OAuth setup & credentials management
 - [VK ID Оферта](https://id.vk.com/terms) - Официальные условия
 - [VK ID Documentation](https://id.vk.com/about/business/go/docs/ru/vkid/latest/vk-id/connection/tokens/access-token) - Документация по токенам
 - [Implicit Flow Endpoint](/api/v1/oauth/vk/authorize/implicit) - Генерация токена

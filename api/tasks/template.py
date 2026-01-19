@@ -1,24 +1,26 @@
 """Celery tasks для работы с templates."""
 
 import asyncio
-import logging
 
 from api.celery_app import celery_app
 from api.repositories.template_repos import RecordingTemplateRepository
 from api.tasks.base import TemplateTask
+from config.settings import get_settings
 from database.config import DatabaseConfig
 from database.manager import DatabaseManager
+from logger import get_logger
 from models.recording import ProcessingStatus
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
+settings = get_settings()
 
 
 @celery_app.task(
     bind=True,
     base=TemplateTask,
     name="api.tasks.template.rematch_recordings",
-    max_retries=2,
-    default_retry_delay=60,
+    max_retries=settings.celery.task_default_max_retries,
+    default_retry_delay=settings.celery.task_default_retry_delay,
 )
 def rematch_recordings_task(
     self,

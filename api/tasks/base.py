@@ -113,7 +113,7 @@ class UploadTask(BaseTask):
         # Args: (recording_id, user_id, platform, ...)
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
         platform = args[2] if len(args) > 2 else kwargs.get("platform", "unknown")
-        logger.error(f"Upload task {task_id} failed: user={user_id}, platform={platform}, error={exc}")
+        logger.error("Upload task {} failed: user={}, platform={}, error={}", task_id, user_id, platform, str(exc))
 
 
 class SyncTask(BaseTask):

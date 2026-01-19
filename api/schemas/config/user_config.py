@@ -62,6 +62,12 @@ class MetadataConfig(BaseModel):
     topics_display: TopicsDisplayConfig = Field(default_factory=TopicsDisplayConfig)
 
 
+class RetentionConfig(BaseModel):
+    soft_delete_days: int = 3
+    hard_delete_days: int = 30
+    auto_expire_days: int = 90
+
+
 class PlatformSettings(BaseModel):
     enabled: bool = False
     default_privacy: str = "unlisted"
@@ -77,6 +83,7 @@ class UserConfigData(BaseModel):
     download: DownloadConfig = Field(default_factory=DownloadConfig)
     upload: UploadConfig = Field(default_factory=UploadConfig)
     metadata: MetadataConfig = Field(default_factory=MetadataConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
     platforms: dict[str, PlatformSettings] = Field(default_factory=dict)
 
 
@@ -97,4 +104,5 @@ class UserConfigUpdate(BaseModel):
     download: DownloadConfig | None = None
     upload: UploadConfig | None = None
     metadata: MetadataConfig | None = None
+    retention: RetentionConfig | None = None
     platforms: dict[str, PlatformSettings] | None = None
