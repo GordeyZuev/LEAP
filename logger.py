@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from pathlib import Path
@@ -7,6 +8,14 @@ from dotenv import load_dotenv
 from loguru import logger
 
 load_dotenv()
+
+
+def http_filter(record):
+    """Filter out verbose HTTP logs from third-party libraries."""
+    # Filter httpx/httpcore INFO logs but keep WARNING/ERROR
+    if record["name"].startswith(("httpx", "httpcore", "hpack")):
+        return record["level"].no >= 30  # Only WARNING and above
+    return True
 
 
 def setup_logger(log_level: str | None = None, log_file: str | None = None) -> None:
@@ -43,6 +52,7 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
         format=console_format,
         level=console_level,
         colorize=True,
+        filter=http_filter,  # Filter out verbose HTTP logs
     )
 
     # Файловый handler - всегда INFO
@@ -57,6 +67,7 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
             rotation="10 MB",
             retention="7 days",
             compression="zip",
+            filter=http_filter,  # Filter out verbose HTTP logs
         )
 
     if error_log_file:
@@ -70,6 +81,11 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
             retention="14 days",
             compression="zip",
         )
+
+    # Suppress noisy third-party loggers at stdlib logging level
+    # (httpx uses standard logging, not loguru)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def get_logger(module_name: str | None = None):

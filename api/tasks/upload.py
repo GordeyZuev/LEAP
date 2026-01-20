@@ -1,18 +1,24 @@
 """Celery tasks for uploading videos with multi-tenancy support."""
 
-import asyncio
+from pathlib import Path
 
 from celery.exceptions import SoftTimeLimitExceeded
+from sqlalchemy import select
 
 from api.celery_app import celery_app
 from api.core.context import ServiceContext
+from api.dependencies import get_async_session_maker
+from api.helpers.template_renderer import TemplateRenderer
+from api.repositories.auth_repos import UserCredentialRepository
+from api.repositories.recording_repos import RecordingRepository
+from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
 from api.services.config_resolver import ConfigResolver
 from api.shared.exceptions import CredentialError, ResourceNotFoundError
 from api.tasks.base import UploadTask
 from config.settings import get_settings
-from database.config import DatabaseConfig
-from database.manager import DatabaseManager
+from database.template_models import OutputPresetModel
 from logger import get_logger
+from models.recording import TargetStatus
 from video_upload_module.platforms.youtube.token_handler import TokenRefreshError
 from video_upload_module.uploader_factory import create_uploader_from_db
 
@@ -56,8 +62,7 @@ def upload_recording_to_platform(
             f"for user {user_id} to {platform}, metadata_override={bool(metadata_override)}"
         )
 
-        # Perform async upload
-        result = asyncio.run(
+        result = self.run_async(
             _async_upload_recording(
                 recording_id=recording_id,
                 user_id=user_id,
@@ -81,36 +86,48 @@ def upload_recording_to_platform(
         raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
 
     except TokenRefreshError as exc:
-        # Token refresh failed (YouTube or VK)
-        logger.warning(
-            f"[Task {self.request.id}] Token error for {exc.platform}: {exc}. "
+        logger.error(
+            f"[Task {self.request.id}] Token refresh failed for {exc.platform}. "
             f"User {user_id} needs to re-authenticate."
         )
-        raise CredentialError(
+        return self.build_result(
+            user_id=user_id,
+            status="failed",
+            recording_id=recording_id,
             platform=exc.platform,
+            error="token_refresh_error",
             reason="Token refresh failed. Please re-authenticate via OAuth.",
         )
 
     except CredentialError as exc:
-        # Ошибка credentials - не нужно повторять, токен невалиден
-        logger.warning(
+        logger.error(
             f"[Task {self.request.id}] Credential error for {platform}: {exc.reason}. "
             f"User {user_id} needs to re-authenticate."
         )
-        # Не делаем retry - пользователю нужно обновить токен
-        raise
+        return self.build_result(
+            user_id=user_id,
+            status="failed",
+            recording_id=recording_id,
+            platform=platform,
+            error="credential_error",
+            reason=exc.reason,
+        )
 
     except ResourceNotFoundError as exc:
-        # Ресурс не найден - не нужно повторять
-        logger.warning(
-            f"[Task {self.request.id}] Resource not found: {exc.resource_type} {exc.resource_id}. "
-            "Upload cannot proceed."
+        logger.error(
+            f"[Task {self.request.id}] Resource not found: {exc.resource_type} {exc.resource_id}."
         )
-        raise
+        return self.build_result(
+            user_id=user_id,
+            status="failed",
+            recording_id=recording_id,
+            platform=platform,
+            error="resource_not_found",
+            resource_type=exc.resource_type,
+            resource_id=exc.resource_id,
+        )
 
     except Exception as exc:
-        # Неожиданная ошибка - логируем с traceback и делаем retry
-        # Используем параметризованное логирование вместо f-string для безопасности
         logger.error(
             "[Task {}] Unexpected error uploading to {}: {}: {}",
             self.request.id,
@@ -140,47 +157,34 @@ async def _async_upload_recording(
         preset_id: ID of output preset
         credential_id: ID of credential
 
-    Returns:
-        Upload results
+        Returns:
+            Upload results
     """
-    from pathlib import Path
+    session_maker = get_async_session_maker()
 
-    from api.helpers.template_renderer import TemplateRenderer
-    from api.repositories.recording_repos import RecordingAsyncRepository
-
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-
-    async with db_manager.async_session() as session:
+    async with session_maker() as session:
         ctx = ServiceContext.create(session=session, user_id=user_id)
-        recording_repo = RecordingAsyncRepository(session)
+        recording_repo = RecordingRepository(session)
 
         # Get recording from DB
         recording = await recording_repo.get_by_id(recording_id, user_id)
         if not recording:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
 
-        # DEBUG: Check what data is loaded from DB for debugging
-        logger.info(f"[Upload] Recording {recording_id} loaded from DB")
-        logger.info(
+        # DEBUG: Check what data is loaded from DB
+        logger.debug(f"[Upload] Recording {recording_id} loaded from DB")
+        logger.debug(
             f"[Upload] Recording has main_topics: {hasattr(recording, 'main_topics')} = {getattr(recording, 'main_topics', None)}"
         )
-        logger.info(
+        logger.debug(
             f"[Upload] Recording has topic_timestamps: {hasattr(recording, 'topic_timestamps')} = {type(getattr(recording, 'topic_timestamps', None))}"
         )
         if hasattr(recording, "topic_timestamps") and recording.topic_timestamps:
-            logger.info(
+            logger.debug(
                 f"[Upload] topic_timestamps is list: {isinstance(recording.topic_timestamps, list)}, length: {len(recording.topic_timestamps) if isinstance(recording.topic_timestamps, list) else 'N/A'}"
             )
 
-        if not recording.processed_video_path:
-            raise ResourceNotFoundError("processed video", recording_id)
-
-        video_path = recording.processed_video_path
-        if not Path(video_path).exists():
-            raise ResourceNotFoundError("video file", video_path)
-
-        # Create or get output_target and mark as UPLOADING
+        # Create or get output_target FIRST (before any checks that might fail)
         target_type_map = {
             "youtube": "YOUTUBE",
             "vk": "VK",
@@ -195,26 +199,37 @@ async def _async_upload_recording(
 
         await recording_repo.mark_output_uploading(output_target)
 
+        # Now check if video file exists
+        if not recording.processed_video_path:
+            raise ResourceNotFoundError("processed video", recording_id)
+
+        video_path = recording.processed_video_path
+        if not Path(video_path).exists():
+            raise ResourceNotFoundError("video file", video_path)
+
         # Initialize preset metadata
         preset_metadata = {}
         preset = None
 
         # If preset_id not provided but recording has template, try to get preset from template
         if not preset_id and recording.template_id:
-            from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
-
             template_repo = RecordingTemplateRepository(ctx.session)
             template = await template_repo.find_by_id(recording.template_id, user_id)
 
             if template and template.output_config:
                 preset_ids = template.output_config.get("preset_ids", [])
                 if preset_ids:
-                    # Find preset matching the platform
-                    preset_repo = OutputPresetRepository(ctx.session)
-                    for pid in preset_ids:
-                        candidate_preset = await preset_repo.find_by_id(pid, user_id)
-                        if candidate_preset and candidate_preset.platform.lower() == platform.lower():
-                            preset_id = pid
+                    # Find preset matching the platform (single query instead of N queries)
+                    stmt = select(OutputPresetModel).where(
+                        OutputPresetModel.id.in_(preset_ids),
+                        OutputPresetModel.user_id == user_id,
+                    )
+                    result = await ctx.session.execute(stmt)
+                    presets = result.scalars().all()
+
+                    for candidate_preset in presets:
+                        if candidate_preset.platform.lower() == platform.lower():
+                            preset_id = candidate_preset.id
                             logger.info(
                                 f"[Upload] Auto-selected preset {preset_id} ('{candidate_preset.name}') "
                                 f"from template '{template.name}' for platform {platform}"
@@ -224,8 +239,6 @@ async def _async_upload_recording(
         # Create uploader with new factory
         if preset_id:
             # Get preset to extract platform and credential_id
-            from api.repositories.template_repos import OutputPresetRepository
-
             preset_repo = OutputPresetRepository(ctx.session)
             preset = await preset_repo.find_by_id(preset_id, user_id)
 
@@ -240,7 +253,7 @@ async def _async_upload_recording(
             preset_metadata = await config_resolver.resolve_upload_metadata(
                 recording=recording, user_id=user_id, preset_id=preset.id
             )
-            logger.info(f"Resolved metadata from preset '{preset.name}' + template: {list(preset_metadata.keys())}")
+            logger.debug(f"Resolved metadata from preset '{preset.name}' + template: {list(preset_metadata.keys())}")
 
             # Apply metadata_override if provided (only for platform-specific fields like playlist_id, album_id, etc.)
             if metadata_override:
@@ -267,8 +280,6 @@ async def _async_upload_recording(
             )
         else:
             # No credential specified - need to find default
-            from api.repositories.auth_repos import UserCredentialRepository
-
             cred_repo = UserCredentialRepository(ctx.session)
             credentials = await cred_repo.list_by_platform(user_id, platform)
 
@@ -287,20 +298,20 @@ async def _async_upload_recording(
         template_context = TemplateRenderer.prepare_recording_context(recording, topics_display)
 
         # DEBUG: Log context and preset metadata
-        logger.info(
+        logger.debug(
             f"[Upload {platform}] Preset metadata keys: {list(preset_metadata.keys()) if preset_metadata else 'None'}"
         )
-        logger.info(f"[Upload {platform}] Template context keys: {list(template_context.keys())}")
-        logger.info(
+        logger.debug(f"[Upload {platform}] Template context keys: {list(template_context.keys())}")
+        logger.debug(
             f"[Upload {platform}] Has topic_timestamps: {hasattr(recording, 'topic_timestamps') and recording.topic_timestamps is not None}"
         )
         if hasattr(recording, "topic_timestamps") and recording.topic_timestamps:
-            logger.info(f"[Upload {platform}] topic_timestamps count: {len(recording.topic_timestamps)}")
-        logger.info(
+            logger.debug(f"[Upload {platform}] topic_timestamps count: {len(recording.topic_timestamps)}")
+        logger.debug(
             f"[Upload {platform}] Has main_topics: {hasattr(recording, 'main_topics') and recording.main_topics is not None}"
         )
         if hasattr(recording, "main_topics") and recording.main_topics:
-            logger.info(f"[Upload {platform}] main_topics: {recording.main_topics}")
+            logger.debug(f"[Upload {platform}] main_topics: {recording.main_topics}")
 
         try:
             # Authentication
@@ -315,15 +326,15 @@ async def _async_upload_recording(
             title_template = preset_metadata.get("title_template", "{display_name}")
             description_template = preset_metadata.get("description_template", "Uploaded on {record_time:date}")
 
-            logger.info(f"[Upload {platform}] title_template: {title_template[:100]}...")
-            logger.info(f"[Upload {platform}] description_template: {description_template[:200]}...")
+            logger.debug(f"[Upload {platform}] title_template: {title_template[:100]}...")
+            logger.debug(f"[Upload {platform}] description_template: {description_template[:200]}...")
 
             title = TemplateRenderer.render(title_template, template_context, topics_display)
             description = TemplateRenderer.render(description_template, template_context, topics_display)
 
-            logger.info(f"[Upload {platform}] Rendered title: {title[:100] if title else 'EMPTY'}")
-            logger.info(f"[Upload {platform}] Rendered description length: {len(description)} chars")
-            logger.info(
+            logger.debug(f"[Upload {platform}] Rendered title: {title[:100] if title else 'EMPTY'}")
+            logger.debug(f"[Upload {platform}] Rendered description length: {len(description)} chars")
+            logger.debug(
                 f"[Upload {platform}] Rendered description preview: {description[:200] if description else 'EMPTY'}"
             )
 
@@ -346,8 +357,8 @@ async def _async_upload_recording(
                         topics_str = ", ".join(recording.main_topics[:5])
                     description += f"\n\n{topics_str}"
 
-            logger.info(f"[Upload {platform}] Final title: {title[:50]}...")
-            logger.info(f"[Upload {platform}] Final description length: {len(description)}")
+            logger.debug(f"[Upload {platform}] Final title: {title[:50]}...")
+            logger.debug(f"[Upload {platform}] Final description length: {len(description)}")
 
             # Prepare upload parameters from preset_metadata
             upload_params = {
@@ -372,12 +383,12 @@ async def _async_upload_recording(
                 playlist_id = preset_metadata.get("playlist_id") or preset_metadata.get("youtube", {}).get(
                     "playlist_id"
                 )
-                logger.info(
+                logger.debug(
                     f"[Upload YouTube] Playlist lookup: top-level={preset_metadata.get('playlist_id')}, youtube={preset_metadata.get('youtube', {}).get('playlist_id')}"
                 )
                 if playlist_id:
                     upload_params["playlist_id"] = playlist_id
-                    logger.info(f"[Upload YouTube] Using playlist_id: {playlist_id}")
+                    logger.debug(f"[Upload YouTube] Using playlist_id: {playlist_id}")
                 else:
                     logger.warning("[Upload YouTube] No playlist_id found in metadata")
 
@@ -388,14 +399,14 @@ async def _async_upload_recording(
                 thumbnail_path_str = preset_metadata.get("youtube", {}).get("thumbnail_path") or preset_metadata.get(
                     "thumbnail_path"
                 )
-                logger.info(
+                logger.debug(
                     f"[Upload YouTube] Thumbnail lookup: youtube-specific={preset_metadata.get('youtube', {}).get('thumbnail_path')}, common={preset_metadata.get('thumbnail_path')}"
                 )
                 if thumbnail_path_str:
                     thumbnail_path = Path(thumbnail_path_str)
                     if thumbnail_path.exists():
                         upload_params["thumbnail_path"] = str(thumbnail_path)
-                        logger.info(f"[Upload YouTube] Using thumbnail: {thumbnail_path}")
+                        logger.debug(f"[Upload YouTube] Using thumbnail: {thumbnail_path}")
                     else:
                         logger.warning(f"[Upload YouTube] Thumbnail not found: {thumbnail_path}")
                 else:
@@ -411,7 +422,7 @@ async def _async_upload_recording(
                 album_id = preset_metadata.get("album_id") or preset_metadata.get("vk", {}).get("album_id")
                 if album_id:
                     upload_params["album_id"] = str(album_id)
-                    logger.info(f"[Upload VK] Using album_id: {album_id}")
+                    logger.debug(f"[Upload VK] Using album_id: {album_id}")
                 else:
                     logger.warning("[Upload VK] No album_id found in metadata")
 
@@ -423,7 +434,7 @@ async def _async_upload_recording(
                     thumbnail_path = Path(thumbnail_path_str)
                     if thumbnail_path.exists():
                         upload_params["thumbnail_path"] = str(thumbnail_path)
-                        logger.info(f"[Upload VK] Using thumbnail: {thumbnail_path}")
+                        logger.debug(f"[Upload VK] Using thumbnail: {thumbnail_path}")
                     else:
                         logger.warning(f"[Upload VK] Thumbnail not found: {thumbnail_path}")
                 else:
@@ -463,7 +474,7 @@ async def _async_upload_recording(
 
         except Exception as e:
             # Mark as failed if not already marked
-            if output_target.status != "FAILED":
+            if output_target.status != TargetStatus.FAILED:
                 await recording_repo.mark_output_failed(output_target, str(e))
                 await session.commit()
             raise

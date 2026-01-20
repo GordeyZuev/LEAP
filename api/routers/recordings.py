@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.repositories.config_repos import UserConfigRepository
-from api.repositories.recording_repos import RecordingAsyncRepository
+from api.repositories.recording_repos import RecordingRepository
 from api.schemas.recording.filters import RecordingFilters as RecordingFiltersSchema
 from api.schemas.recording.operations import (
     BulkProcessDryRunResponse,
@@ -256,7 +256,7 @@ async def _execute_dry_run_single(
     """
     from api.services.config_resolver import ConfigResolver
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -328,12 +328,14 @@ async def _execute_dry_run_bulk(
     """
     resolved_ids = await _resolve_recording_ids(recording_ids, filters, limit, ctx)
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recordings_info = []
     skipped_count = 0
 
+    recordings_map = await recording_repo.get_by_ids(resolved_ids, ctx.user_id)
+
     for rec_id in resolved_ids:
-        recording = await recording_repo.get_by_id(rec_id, ctx.user_id)
+        recording = recordings_map.get(rec_id)
 
         if not recording:
             recordings_info.append(
@@ -408,7 +410,7 @@ async def list_recordings(
     Returns:
         List of recordings
     """
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
 
     # Get all recordings for user
     recordings = await recording_repo.list_by_user(ctx.user_id, include_deleted=include_deleted)
@@ -538,7 +540,7 @@ async def get_recording(
     Returns:
         RecordingListItem (default) or DetailedRecordingResponse (detailed=true)
     """
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id, include_deleted=True)
 
     if not recording:
@@ -854,7 +856,7 @@ async def add_local_recording(
         logger.info(f"File verified: {file_path} exists with size {actual_size} bytes")
 
         # Create recording in DB
-        recording_repo = RecordingAsyncRepository(ctx.session)
+        recording_repo = RecordingRepository(ctx.session)
 
         from models.recording import SourceType
 
@@ -931,11 +933,11 @@ async def download_recording(
         - Explicitly pass allow_skipped=true in query parameter, OR
         - Set allow_skipped=true in user_config.processing
     """
-    from api.helpers.config_resolver import get_allow_skipped_flag
     from api.helpers.status_manager import should_allow_download
+    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.processing import download_recording_task
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -1023,11 +1025,11 @@ async def trim_recording(
         - Explicitly pass allow_skipped=true in the query parameter, OR
         - Set allow_skipped=true in user_config.processing
     """
-    from api.helpers.config_resolver import get_allow_skipped_flag
     from api.helpers.status_manager import should_allow_processing
+    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.processing import trim_video_task
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -1128,7 +1130,7 @@ async def bulk_process_recordings(
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     tasks = []
 
     # Build manual override from config_override
@@ -1140,10 +1142,11 @@ async def bulk_process_recordings(
     if data.output_config:
         manual_override["output_config"] = data.output_config
 
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
+
     for recording_id in recording_ids:
         try:
-            # Check if recording exists
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
 
             if not recording:
                 tasks.append(
@@ -1259,7 +1262,7 @@ async def process_recording(
 
     from api.tasks.processing import process_recording_task
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -1325,12 +1328,12 @@ async def transcribe_recording(
         This is an async operation. Use GET /api/v1/tasks/{task_id}
         to check status of execution and get results.
     """
-    from api.helpers.config_resolver import get_allow_skipped_flag
     from api.helpers.status_manager import should_allow_transcription
+    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.processing import batch_transcribe_recording_task, transcribe_recording_task
 
     # Get recording from DB
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -1368,6 +1371,7 @@ async def transcribe_recording(
     # Select mode: Batch API or synchronous API
     if use_batch_api:
         # Batch API mode: submit batch job, then polling
+        from api.services.config_utils import resolve_full_config
         from fireworks_module import FireworksConfig, FireworksTranscriptionService
 
         fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
@@ -1382,12 +1386,21 @@ async def transcribe_recording(
 
         fireworks_service = FireworksTranscriptionService(fireworks_config)
 
+        # Resolve config from template hierarchy to get language and prompt
+        full_config, _ = await resolve_full_config(ctx.session, recording_id, ctx.user_id, None)
+        transcription_config = full_config.get("transcription", {})
+        language = transcription_config.get("language", "ru")
+        user_prompt = transcription_config.get("prompt", "")
+
+        # Compose prompt with recording topic
+        fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording.display_name)
+
         # Submit batch job
         try:
             batch_result = await fireworks_service.submit_batch_transcription(
                 audio_path=audio_path,
-                language=fireworks_config.language,
-                prompt=None,  # TODO: add prompt from config
+                language=language,
+                prompt=fireworks_prompt,
             )
             batch_id = batch_result.get("batch_id")
 
@@ -1478,13 +1491,13 @@ async def upload_recording(
         - Set allow_skipped=true in user_config.processing, OR
         - Set allow_skipped=true in template.output_config
     """
-    from api.helpers.config_resolver import get_allow_skipped_flag
     from api.helpers.status_manager import should_allow_upload
+    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.upload import upload_recording_to_platform
     from models.recording import TargetType
 
     # Get recording from DB
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -1584,7 +1597,7 @@ async def extract_topics(
     from api.tasks.processing import extract_topics_task
 
     # Get recording from DB
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -1652,7 +1665,7 @@ async def generate_subtitles(
     from api.tasks.processing import generate_subtitles_task
 
     # Get recording from DB
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -1736,13 +1749,14 @@ async def bulk_transcribe_recordings(
             "message": "No recordings matched the criteria",
         }
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     tasks = []
+
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
 
     for recording_id in recording_ids:
         try:
-            # Check if recording exists
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
 
             if not recording:
                 tasks.append(
@@ -1755,7 +1769,6 @@ async def bulk_transcribe_recordings(
                 )
                 continue
 
-            # Skip blank records
             if recording.blank_record:
                 tasks.append(
                     {
@@ -1863,7 +1876,7 @@ async def retry_failed_uploads(
     """
     from api.tasks.upload import upload_recording_to_platform
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
 
     # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -1958,7 +1971,7 @@ async def get_recording_config(
     from api.schemas.recording.operations import RecordingConfigResponse
     from api.services.config_resolver import ConfigResolver
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
 
     # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -2012,7 +2025,7 @@ async def update_recording_config(
     """
     from api.services.config_resolver import ConfigResolver
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
 
     # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -2079,7 +2092,7 @@ async def reset_to_template(
     """
     from api.services.config_resolver import ConfigResolver
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
 
     # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -2146,7 +2159,7 @@ async def reset_recording(
 
     from database.models import OutputTargetModel, ProcessingStageModel
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -2276,12 +2289,14 @@ async def bulk_download_recordings(
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     tasks = []
+
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
 
     for recording_id in recording_ids:
         try:
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
             if not recording:
                 tasks.append(
                     {
@@ -2367,12 +2382,14 @@ async def bulk_trim_recordings(
         }
     }
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     tasks = []
+
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
 
     for recording_id in recording_ids:
         try:
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
             if not recording or recording.blank_record:
                 continue
 
@@ -2418,12 +2435,14 @@ async def bulk_extract_topics(
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     tasks = []
+
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
 
     for recording_id in recording_ids:
         try:
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
             if not recording or recording.blank_record:
                 continue
 
@@ -2470,12 +2489,14 @@ async def bulk_generate_subtitles(
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     tasks = []
+
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
 
     for recording_id in recording_ids:
         try:
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
             if not recording or recording.blank_record:
                 continue
 
@@ -2520,12 +2541,14 @@ async def bulk_upload_recordings(
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     tasks = []
+
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
 
     for recording_id in recording_ids:
         try:
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
             if not recording or recording.blank_record:
                 continue
 
@@ -2606,7 +2629,7 @@ async def delete_recording(
     Returns:
         Deletion confirmation with hard delete date
     """
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
@@ -2668,15 +2691,17 @@ async def bulk_delete_recordings(
     user_config_repo = UserConfigRepository(ctx.session)
     user_config = await user_config_repo.get_effective_config(ctx.user_id)
 
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     deleted_count = 0
     skipped_count = 0
     error_count = 0
     details = []
 
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
+
     for recording_id in recording_ids:
         try:
-            recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+            recording = recordings_map.get(recording_id)
 
             if not recording:
                 error_count += 1
@@ -2766,7 +2791,7 @@ async def restore_recording(
     Raises:
         HTTPException 400: If files already deleted (delete_state == "hard")
     """
-    recording_repo = RecordingAsyncRepository(ctx.session)
+    recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id, include_deleted=True)
 
     if not recording:

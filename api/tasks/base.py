@@ -6,11 +6,17 @@ Provides common functionality for all Celery tasks:
 - Logging hooks
 """
 
+import asyncio
+from collections.abc import Awaitable
+from typing import TypeVar
+
 from celery import Task
 
 from logger import get_logger
 
 logger = get_logger()
+
+T = TypeVar("T")
 
 
 class BaseTask(Task):
@@ -21,14 +27,41 @@ class BaseTask(Task):
     - Progress tracking with user_id for access control
     - Standardized result format
     - Logging hooks
+    - Event loop management for async tasks
 
     Usage:
         @celery_app.task(bind=True, base=ProcessingTask)
         def my_task(self, recording_id: int, user_id: int):
             self.update_progress(user_id, 50, "Processing...")
-            result = do_work()
+            result = self.run_async(async_function(recording_id))
             return self.build_result(user_id, result=result)
     """
+
+    def run_async(self, coro: Awaitable[T]) -> T:
+        """
+        Run async coroutine in Celery worker with proper event loop management.
+
+        Handles event loop lifecycle in Celery workers where:
+        - Worker may reuse processes across tasks
+        - Previous loops may be closed
+        - Python 3.10+ requires explicit loop management
+
+        Args:
+            coro: Async coroutine to run
+
+        Returns:
+            Result of coroutine execution
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        return loop.run_until_complete(coro)
 
     def update_progress(
         self,
@@ -91,7 +124,7 @@ class BaseTask(Task):
 
     def on_success(self, retval, task_id, args, kwargs):
         """Log task success with user_id."""
-        user_id = kwargs.get("user_id", "unknown")
+        user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
         logger.info(f"Task {task_id} for user {user_id} completed successfully")
 
 

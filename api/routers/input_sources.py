@@ -9,7 +9,7 @@ from api.auth.dependencies import get_current_active_user
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.config_repos import UserConfigRepository
-from api.repositories.recording_repos import RecordingAsyncRepository
+from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
 from api.schemas.template import (
     BulkSyncRequest,
@@ -100,7 +100,7 @@ async def _sync_single_source(
             user_config = await user_config_repo.get_effective_config(user_id)
 
             # Сохраняем recordings
-            recording_repo = RecordingAsyncRepository(session)
+            recording_repo = RecordingRepository(session)
 
             for meeting in meetings:
                 try:

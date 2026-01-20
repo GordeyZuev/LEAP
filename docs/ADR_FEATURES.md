@@ -14,6 +14,7 @@
 4. [ADR-013: Audit Logging](#adr-013-audit-logging)
 5. [ADR-014: Notifications](#adr-014-notifications)
 6. [ADR-015: FSM для надежной обработки](#adr-015-fsm-для-надежной-обработки)
+7. [ADR-016: Database Performance Optimization](#adr-016-database-performance-optimization)
 
 ---
 
@@ -248,6 +249,33 @@ GET /tasks/{task_id} - Get task status
 DELETE /tasks/{task_id} - Cancel task
 GET /tasks - List user's tasks
 ```
+
+### Celery Chains для параллелизма (январь 2026)
+
+**Проблема:** Монолитный `process_recording_task` блокировал worker на 5+ минут.
+
+**Решение:** Orchestrator pattern с Celery chains:
+
+```python
+# Orchestrator (~0.08s)
+process_recording_task(recording_id, user_id)
+  └─ chain.apply_async() → освобождает worker
+       └─ download → trim → transcribe → topics → subs → launch_uploads
+          (каждый шаг на любом свободном worker)
+```
+
+**Benefits:**
+- Worker освобождается за 0.08s (не блокирован на 5+ минут)
+- Параллельная обработка разных recordings
+- Динамическое распределение шагов между workers
+- Worker reuse - один worker может делать download для rec A, потом trim для rec B
+
+**Graceful Error Handling (январь 2026):**
+- Credential/Token/Resource errors обрабатываются gracefully
+- Output target помечается как FAILED в БД
+- Задача возвращает `status='failed'` вместо raise
+- ERROR логируется без traceback spam
+- Celery видит задачу как успешно завершённую
 
 ### Реализация
 
@@ -704,16 +732,123 @@ GET /recordings/{id}/stages - Get processing stages
 
 ---
 
+## ADR-016: Database Performance Optimization
+
+**Статус:** ✅ Полностью реализовано  
+**Дата:** Январь 2026
+
+### Решение
+
+Оптимизация производительности БД через устранение N+1 queries, bulk operations и eager loading.
+
+### Проблемы
+
+**До оптимизации:**
+- N+1 queries: загрузка пресетов в циклах (1 запрос + N запросов)
+- Загрузка всех записей в память для подсчета
+- Отсутствие eager loading для вложенных связей
+- Множественные запросы в batch операциях
+- Импорты внутри функций (anti-pattern)
+
+### Решение
+
+**1. Bulk Operations:**
+```python
+# До: N запросов
+for recording_id in recording_ids:
+    recording = await repo.find_by_id(user_id, recording_id)
+
+# После: 1 запрос
+recordings = await repo.get_by_ids(user_id, recording_ids)
+```
+
+**2. Efficient Counting:**
+```python
+# До: загрузка всех записей
+jobs = await session.execute(select(AutomationJob).where(...))
+count = len(jobs.scalars().all())
+
+# После: database count
+count = await session.scalar(
+    select(func.count()).select_from(AutomationJob).where(...)
+)
+```
+
+**3. Eager Loading:**
+```python
+# До: N+1 queries
+recording = await session.get(Recording, id)
+source = recording.source  # +1 query
+preset = recording.outputs[0].preset  # +N queries
+
+# После: 1 query with joins
+stmt = (
+    select(Recording)
+    .options(
+        selectinload(Recording.source).selectinload(SourceMetadata.input_source),
+        selectinload(Recording.outputs).selectinload(OutputTarget.preset)
+    )
+    .where(Recording.id == id)
+)
+```
+
+### Оптимизированные области
+
+**Repositories:**
+- `recording_repos.py` - добавлен `get_by_ids()`, eager loading
+- `template_repos.py` - добавлен `find_by_ids()` для пресетов
+- `automation_repos.py` - оптимизирован `count_user_jobs()`
+
+**Tasks:**
+- `upload.py` - устранена N+1 при поиске пресетов
+- `processing.py` - устранена N+1 при загрузке пресетов
+
+**Routers:**
+- `recordings.py` - устранено 8 N+1 проблем в batch операциях
+- `users.py` - удален дублирующий запрос
+
+**Code Quality:**
+- Все импорты перенесены в начало файлов (PEP8)
+- Удалены неиспользуемые импорты и вызовы
+
+### Метрики
+
+**До:**
+- Batch операция (10 recordings): ~50 queries
+- Count операция: загрузка всех записей в память
+- Nested relations: N+1 queries
+
+**После:**
+- Batch операция (10 recordings): ~5 queries (-90%)
+- Count операция: 1 database query
+- Nested relations: eager loading (1 query)
+
+### Реализация
+
+**Файлы:**
+- `api/repositories/recording_repos.py`
+- `api/repositories/template_repos.py`
+- `api/repositories/automation_repos.py`
+- `api/tasks/upload.py`
+- `api/tasks/processing.py`
+- `api/routers/recordings.py`
+- `api/routers/users.py`
+
+**Статус:** ✅ Реализовано (январь 2026)
+
+---
+
 ## Итоговая таблица статусов
 
 | ADR | Feature | Status | Priority | Notes |
 |-----|---------|--------|----------|-------|
 | ADR-010 | Automation | ✅ Done | High | Celery Beat |
-| ADR-011 | Async Processing | ✅ Done | High | Celery + Redis |
+| ADR-011 | Async Processing | ✅ Done | High | Celery Chains |
 | ADR-012 | Quotas & Subscriptions | ✅ Done | High | 4 plans |
 | ADR-013 | Audit Logging | 🚧 Partial | Medium | Basic logging |
 | ADR-014 | Notifications | 🚧 Partial | Low | Logging only |
 | ADR-015 | FSM | ✅ Done | High | Production-ready |
+| ADR-016 | DB Optimization | ✅ Done | High | N+1 eliminated |
 
 ---
 

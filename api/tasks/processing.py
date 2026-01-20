@@ -1,19 +1,28 @@
 """Celery tasks for processing recordings with multi-tenancy support."""
 
 import asyncio
+import subprocess
+import time
 from pathlib import Path
 
 from celery.exceptions import SoftTimeLimitExceeded
 
 from api.celery_app import celery_app
-from api.repositories.recording_repos import RecordingAsyncRepository
+from api.dependencies import get_async_session_maker
+from api.helpers.status_manager import update_aggregate_status
+from api.repositories.recording_repos import RecordingRepository
+from api.repositories.template_repos import OutputPresetRepository
+from api.services.config_utils import resolve_full_config
 from api.tasks.base import ProcessingTask
 from config.settings import get_settings
-from database.config import DatabaseConfig
-from database.manager import DatabaseManager
+from deepseek_module import DeepSeekConfig, TopicExtractor
+from fireworks_module import FireworksConfig, FireworksTranscriptionService
 from logger import get_logger
 from models import MeetingRecording, ProcessingStageType, ProcessingStatus
+from transcription_module.manager import TranscriptionManager, get_transcription_manager
+from utils.formatting import sanitize_filename
 from video_download_module.downloader import ZoomDownloader
+from video_processing_module.config import ProcessingConfig
 from video_processing_module.video_processor import VideoProcessor
 
 logger = get_logger()
@@ -49,12 +58,10 @@ def download_recording_task(
     try:
         logger.info(f"[Task {self.request.id}] Downloading recording {recording_id} for user {user_id}")
 
-        # Update progress with user_id for multi-tenancy validation
         self.update_progress(user_id=user_id, progress=10, status="Initializing download...", step="download")
 
-        result = asyncio.run(_async_download_recording(self, recording_id, user_id, force, manual_override))
+        result = self.run_async(_async_download_recording(self, recording_id, user_id, force, manual_override))
 
-        # Return result with user_id for access validation
         return self.build_result(
             user_id=user_id,
             status="completed",
@@ -79,12 +86,8 @@ async def _async_download_recording(
     manual_override: dict | None = None,
 ) -> dict:
     """Async function for downloading (template-driven)."""
-    from api.helpers.config_resolution_helper import resolve_full_config
-
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-
-    async with db_manager.async_session() as session:
+    async_session_maker = get_async_session_maker()
+    async with async_session_maker() as session:
         # Resolve config
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
 
@@ -99,7 +102,7 @@ async def _async_download_recording(
             f"max_file_size_mb={max_file_size_mb}, retry_attempts={retry_attempts}"
         )
 
-        recording_repo = RecordingAsyncRepository(session)
+        recording_repo = RecordingRepository(session)
 
         # Check download_url
         download_url = None
@@ -113,10 +116,10 @@ async def _async_download_recording(
         if not force and recording.status == ProcessingStatus.DOWNLOADED and recording.local_video_path:
             if Path(recording.local_video_path).exists():
                 return {
-                "success": True,
-                "message": "Already downloaded",
-                "local_video_path": recording.local_video_path,
-            }
+                    "success": True,
+                    "message": "Already downloaded",
+                    "local_video_path": recording.local_video_path,
+                }
 
         task_self.update_progress(
             user_id=user_id,
@@ -219,7 +222,7 @@ def trim_video_task(
 
         self.update_progress(user_id, 10, "Initializing video trimming...", step="trim")
 
-        result = asyncio.run(_async_process_video(self, recording_id, user_id, manual_override))
+        result = self.run_async(_async_process_video(self, recording_id, user_id, manual_override))
 
         return self.build_result(
             user_id=user_id,
@@ -244,12 +247,11 @@ async def _async_process_video(
     manual_override: dict | None = None,
 ) -> dict:
     """Async function for processing video (template-driven)."""
-    from api.helpers.config_resolution_helper import resolve_full_config
+    from api.services.config_utils import resolve_full_config
 
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
+    session_maker = get_async_session_maker()
 
-    async with db_manager.async_session() as session:
+    async with session_maker() as session:
         # Resolve config from hierarchy
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
 
@@ -266,7 +268,7 @@ async def _async_process_video(
             f"silence_threshold={silence_threshold}, min_silence_duration={min_silence_duration}"
         )
 
-        recording_repo = RecordingAsyncRepository(session)
+        recording_repo = RecordingRepository(session)
 
         if not recording.local_video_path:
             raise ValueError("No video file available. Please download first.")
@@ -277,8 +279,6 @@ async def _async_process_video(
         task_self.update_progress(user_id, 20, "Analyzing video...", step="process")
 
         # Create processor with ProcessingConfig
-        from video_processing_module.config import ProcessingConfig
-
         user_processed_dir = f"media/user_{user_id}/video/processed"
         config = ProcessingConfig(
             silence_threshold=silence_threshold,
@@ -306,10 +306,6 @@ async def _async_process_video(
             task_self.update_progress(user_id, 60, "Extracting audio from processed video...", step="extract_audio")
 
             # Extract audio from processed video
-            import subprocess
-
-            from utils.formatting import sanitize_filename
-
             audio_dir = f"media/user_{user_id}/audio/processed"
             Path(audio_dir).mkdir(parents=True, exist_ok=True)
 
@@ -414,7 +410,7 @@ def transcribe_recording_task(
 
         self.update_progress(user_id, 10, "Initializing transcription...", step="transcribe")
 
-        result = asyncio.run(_async_transcribe_recording(self, recording_id, user_id, manual_override))
+        result = self.run_async(_async_transcribe_recording(self, recording_id, user_id, manual_override))
 
         return self.build_result(
             user_id=user_id,
@@ -449,14 +445,13 @@ async def _async_transcribe_recording(
     - transcription.prompt (default: "")
     - transcription.temperature (default: 0.0)
     """
-    from api.helpers.config_resolution_helper import resolve_full_config
+    from api.services.config_utils import resolve_full_config
     from fireworks_module import FireworksConfig, FireworksTranscriptionService
     from transcription_module.manager import get_transcription_manager
 
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
+    session_maker = get_async_session_maker()
 
-    async with db_manager.async_session() as session:
+    async with session_maker() as session:
         # Resolve config from hierarchy
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
 
@@ -472,7 +467,7 @@ async def _async_transcribe_recording(
             f"language={language}, has_prompt={bool(user_prompt)}, temperature={temperature}"
         )
 
-        recording_repo = RecordingAsyncRepository(session)
+        recording_repo = RecordingRepository(session)
 
         # Priority: processed audio > processed video > original video
         audio_path = None
@@ -521,9 +516,7 @@ async def _async_transcribe_recording(
         task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
 
         # Compose prompt: user_prompt (from config) + display_name
-        from transcription_module.service import TranscriptionService
-
-        fireworks_prompt = TranscriptionService._compose_fireworks_prompt(user_prompt, recording.display_name)
+        fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording.display_name)
 
         # Transcription through Fireworks API (ONLY transcription, WITHOUT topic extraction)
         # Use language and temperature from resolved config
@@ -599,8 +592,6 @@ async def _async_transcribe_recording(
         )
 
         # Update aggregated status based on processing_stages (aggregate status)
-        from api.helpers.status_manager import update_aggregate_status
-
         update_aggregate_status(recording)
 
         await recording_repo.update(recording)
@@ -623,6 +614,69 @@ async def _async_transcribe_recording(
 @celery_app.task(
     bind=True,
     base=ProcessingTask,
+    name="api.tasks.processing.launch_uploads",
+    max_retries=0,
+)
+def _launch_uploads_task(
+    self,
+    recording_id: int,
+    user_id: int,
+    platforms: list[str],
+    preset_map: dict[str, int],
+    metadata_override: dict | None = None,
+) -> dict:
+    """
+    Launch upload tasks after processing chain completes.
+
+    This task is added as final step in chain to ensure uploads start
+    only after all processing is complete.
+
+    Args:
+        recording_id: ID of recording
+        user_id: ID of user
+        platforms: List of platforms to upload to
+        preset_map: Mapping of platform -> preset_id
+        metadata_override: Optional metadata override
+
+    Returns:
+        Dict with launched upload task IDs
+    """
+    from api.tasks.upload import upload_recording_to_platform
+
+    logger.info(
+        f"[Task {self.request.id}] Launching uploads for recording {recording_id}: platforms={platforms}"
+    )
+
+    upload_task_ids = []
+    for platform in platforms:
+        try:
+            preset_id = preset_map.get(platform)
+            upload_task = upload_recording_to_platform.delay(
+                recording_id, user_id, platform, preset_id, None, metadata_override
+            )
+
+            upload_task_ids.append(
+                {
+                    "platform": platform,
+                    "task_id": upload_task.id,
+                    "preset_id": preset_id,
+                }
+            )
+            logger.info(f"Upload task for {platform} launched: {upload_task.id}")
+        except Exception as e:
+            logger.error(f"Failed to launch upload to {platform}: {e}")
+
+    return self.build_result(
+        user_id=user_id,
+        status="completed",
+        recording_id=recording_id,
+        result={"upload_tasks": upload_task_ids},
+    )
+
+
+@celery_app.task(
+    bind=True,
+    base=ProcessingTask,
     name="api.tasks.processing.process_recording",
     max_retries=settings.celery.processing_max_retries,
     default_retry_delay=settings.celery.processing_retry_delay,
@@ -634,77 +688,66 @@ def process_recording_task(
     manual_override: dict | None = None,
 ) -> dict:
     """
-    Full processing pipeline: download -> trim -> transcribe -> topics -> upload.
+    Full processing pipeline orchestrator using Celery chains for parallel execution.
 
-    Template-driven: all parameters are taken from resolved config (user_config < template < manual_override).
+    Benefits of chain approach:
+    - Each step can run on any available worker
+    - Better resource utilization during I/O operations
+    - Natural task boundaries for monitoring and retries
 
     Args:
         recording_id: ID of recording
         user_id: ID of user
-        manual_override: Optional configuration override (any fields)
+        manual_override: Optional configuration override
 
     Returns:
-        Results of full pipeline
+        Task chain signature (not blocking)
     """
     try:
-        logger.info(f"[Task {self.request.id}] Processing recording {recording_id}, user {user_id}")
+        logger.info(f"[Task {self.request.id}] Orchestrating pipeline for recording {recording_id}, user {user_id}")
 
-        from api.helpers.config_resolution_helper import resolve_full_config
-        from api.tasks.upload import upload_recording_to_platform
-        from database.config import DatabaseConfig
-        from database.manager import DatabaseManager
+        from celery import chain
+
+        from api.dependencies import get_async_session_maker
+        from api.services.config_utils import resolve_full_config
 
         manual_override = manual_override or {}
+        session_maker = get_async_session_maker()
 
-        # Resolve configuration from hierarchy using helper
-        db_config = DatabaseConfig.from_env()
-        db_manager = DatabaseManager(db_config)
-
-        async def _resolve_config_and_presets():
-            async with db_manager.async_session() as session:
-                # Resolve config
+        # Resolve config to determine which steps are enabled
+        async def _resolve_pipeline_config():
+            async with session_maker() as session:
                 full_config, output_config, recording = await resolve_full_config(
                     session, recording_id, user_id, manual_override, include_output_config=True
                 )
 
-                # Load presets in the same async context
                 preset_ids_list = output_config.get("preset_ids", [])
                 presets = []
                 if preset_ids_list:
-                    from api.repositories.template_repos import OutputPresetRepository
-
                     preset_repo = OutputPresetRepository(session)
-                    for preset_id in preset_ids_list:
-                        preset = await preset_repo.find_by_id(preset_id, user_id)
-                        if preset:
-                            presets.append(preset)
+                    presets = await preset_repo.find_by_ids(preset_ids_list, user_id)
 
                 return full_config, output_config, recording, presets
 
-        import asyncio
+        full_config, output_config, recording, presets = self.run_async(_resolve_pipeline_config())
 
-        full_config, output_config, recording, presets = asyncio.run(_resolve_config_and_presets())
-
-        # Skip blank records
+        # Check blank_record
         if recording.blank_record:
             logger.info(
-                f"[Task {self.request.id}] Skipping full_pipeline for recording {recording_id}: marked as blank_record "
-                f"(duration={recording.duration}min, size={recording.video_file_size} bytes)"
+                f"[Task {self.request.id}] Skipping pipeline for blank_record {recording_id}: "
+                f"duration={recording.duration}min, size={recording.video_file_size} bytes"
             )
 
-            # Update status to SKIPPED
             async def _mark_skipped():
-                async with db_manager.async_session() as session:
-                    from api.repositories.recording_repos import RecordingAsyncRepository
-
-                    recording_repo = RecordingAsyncRepository(session)
+                async with session_maker() as session:
+                    recording_repo = RecordingRepository(session)
                     rec = await recording_repo.get_by_id(recording_id, user_id)
                     if rec:
                         rec.status = ProcessingStatus.SKIPPED
                         rec.failed_reason = "Blank record (too short or too small)"
                         await session.commit()
 
-            asyncio.run(_mark_skipped())
+            self.run_async(_mark_skipped())
 
             return self.build_result(
                 user_id=user_id,
@@ -713,222 +756,102 @@ def process_recording_task(
                 recording_id=recording_id,
             )
 
-        logger.info(
-            f"[Task {self.request.id}] Resolved config for recording {recording_id}: "
-            f"template_id={recording.template_id}, has_manual_override={bool(recording.processing_preferences)}"
-        )
-
-        # Extract pipeline parameters from resolved config
+        # Extract config flags
         processing = full_config.get("processing", {})
         transcription = full_config.get("transcription", {})
 
-        # Pipeline steps
-        download = True  # Always download if not already downloaded
-        process = processing.get("enable_processing", True)
-        transcribe = transcription.get("enable_transcription", True)
-        extract_topics = transcription.get("enable_topics", True)
-        generate_subs = transcription.get("enable_subtitles", True)
+        download_enabled = True
+        process_enabled = processing.get("enable_processing", True)
+        transcribe_enabled = transcription.get("enable_transcription", True)
+        extract_topics_enabled = transcription.get("enable_topics", True)
+        generate_subs_enabled = transcription.get("enable_subtitles", True)
 
-        # Upload configuration from output_config
-        upload = output_config.get("auto_upload", False)
-        preset_ids_list = output_config.get("preset_ids", [])
+        upload_enabled = output_config.get("auto_upload", False)
         platforms = output_config.get("default_platforms", [])
 
-        # Processing parameters
         granularity = transcription.get("granularity", "long")
+        subtitle_formats = transcription.get("subtitle_formats", ["srt", "vtt"])
 
         logger.info(
-            f"[Task {self.request.id}] Pipeline steps: "
-            f"download={download}, process={process}, transcribe={transcribe}, "
-            f"extract_topics={extract_topics}, generate_subs={generate_subs}, "
-            f"upload={upload}, preset_ids={preset_ids_list}, platforms={platforms}"
+            f"[Task {self.request.id}] Pipeline config: download={download_enabled}, "
+            f"process={process_enabled}, transcribe={transcribe_enabled}, "
+            f"topics={extract_topics_enabled}, subs={generate_subs_enabled}, upload={upload_enabled}"
         )
 
-        results = {
-            "recording_id": recording_id,
-            "steps_completed": [],
-            "errors": [],
-        }
+        # Build task chain based on enabled steps
+        task_chain = []
 
-        total_steps = sum([download, process, transcribe, extract_topics, generate_subs, upload and len(platforms) > 0])
-        current_step = 0
+        if download_enabled:
+            task_chain.append(download_recording_task.si(recording_id, user_id, False, manual_override))
 
-        # STEP 1: Download
-        if download:
-            try:
-                self.update_progress(
-                    user_id,
-                    int((current_step / total_steps) * 100),
-                    "Downloading from Zoom...",
-                    step="download",
-                )
+        if process_enabled:
+            task_chain.append(trim_video_task.si(recording_id, user_id, manual_override))
 
-                # Call async function directly (bypass Celery task wrapper to avoid .run() issues)
-                download_result = asyncio.run(
-                    _async_download_recording(self, recording_id, user_id, False, manual_override)
-                )
+        if transcribe_enabled:
+            task_chain.append(transcribe_recording_task.si(recording_id, user_id, manual_override))
 
-                results["steps_completed"].append("download")
-                results["download"] = download_result
-                current_step += 1
-            except Exception as e:
-                results["errors"].append(f"Download failed: {e!s}")
-                logger.error(f"Download step failed: {e}")
+        if extract_topics_enabled:
+            task_chain.append(extract_topics_task.si(recording_id, user_id, granularity, None))
 
-        # STEP 2: Process
-        if process:
-            try:
-                self.update_progress(
-                    user_id,
-                    int((current_step / total_steps) * 100),
-                    "Processing video...",
-                    step="process",
-                )
+        if generate_subs_enabled:
+            task_chain.append(generate_subtitles_task.si(recording_id, user_id, subtitle_formats))
 
-                # Call async function directly (bypass Celery task wrapper to avoid .run() issues)
-                process_result = asyncio.run(_async_process_video(self, recording_id, user_id, manual_override))
+        if not task_chain:
+            logger.warning(f"[Task {self.request.id}] No processing steps enabled for recording {recording_id}")
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                recording_id=recording_id,
+                result={"message": "No processing steps enabled"},
+            )
 
-                results["steps_completed"].append("process")
-                results["process"] = process_result
-                current_step += 1
-            except Exception as e:
-                results["errors"].append(f"Processing failed: {e!s}")
-                logger.error(f"Processing step failed: {e}")
-
-        # STEP 3: Transcribe
-        if transcribe:
-            try:
-                self.update_progress(
-                    user_id,
-                    int((current_step / total_steps) * 100),
-                    "Transcribing...",
-                    step="transcribe",
-                )
-
-                # Call async function directly (bypass Celery task wrapper to avoid .run() issues)
-                transcribe_result = asyncio.run(
-                    _async_transcribe_recording(self, recording_id, user_id, manual_override)
-                )
-
-                results["steps_completed"].append("transcribe")
-                results["transcribe"] = transcribe_result
-                current_step += 1
-            except Exception as e:
-                results["errors"].append(f"Transcription failed: {e!s}")
-                logger.error(f"Transcription step failed: {e}")
-
-        # STEP 4: Extract Topics
-        if extract_topics:
-            try:
-                self.update_progress(
-                    user_id,
-                    int((current_step / total_steps) * 100),
-                    "Extracting topics...",
-                    step="extract_topics",
-                )
-
-                # Call async function directly
-                topics_result = asyncio.run(_async_extract_topics(self, recording_id, user_id, granularity, None))
-
-                results["steps_completed"].append("extract_topics")
-                results["extract_topics"] = topics_result
-                current_step += 1
-            except Exception as e:
-                results["errors"].append(f"Topic extraction failed: {e!s}")
-                logger.error(f"Topic extraction step failed: {e}")
-
-        # STEP 5: Generate Subtitles
-        if generate_subs:
-            try:
-                self.update_progress(
-                    user_id,
-                    int((current_step / total_steps) * 100),
-                    "Generating subtitles...",
-                    step="generate_subtitles",
-                )
-
-                # Get subtitle formats from config
-                subtitle_formats = transcription.get("subtitle_formats", ["srt", "vtt"])
-
-                # Call async function directly
-                subtitles_result = asyncio.run(_async_generate_subtitles(self, recording_id, user_id, subtitle_formats))
-
-                results["steps_completed"].append("generate_subtitles")
-                results["generate_subtitles"] = subtitles_result
-                current_step += 1
-            except Exception as e:
-                results["errors"].append(f"Subtitle generation failed: {e!s}")
-                logger.error(f"Subtitle generation step failed: {e}")
-
-        # STEP 6: Upload
-        if upload and (platforms or preset_ids_list):
-            # Build platform -> preset_id mapping (presets already loaded at the start)
+        # Build chain with optional upload callback
+        if upload_enabled and (platforms or presets):
+            # Add upload launcher as final callback in chain
             preset_map = {preset.platform: preset.id for preset in presets}
 
-            # If platforms not specified, use platforms from presets
             if not platforms and presets:
                 platforms = [preset.platform for preset in presets]
 
-            # Extract metadata override from full_config
-            # metadata_config is NOT flattened, so it's in its own key
             metadata_override = full_config.get("metadata_config", {})
-            if metadata_override:
-                logger.info(f"Using metadata_config override for uploads: {list(metadata_override.keys())}")
 
-            upload_task_ids = []
-            for platform in platforms:
-                try:
-                    self.update_progress(
-                        user_id,
-                        int((current_step / total_steps) * 100),
-                        f"Uploading to {platform}...",
-                        step="upload",
-                    )
+            # Create upload callback task
+            task_chain.append(
+                _launch_uploads_task.si(
+                    recording_id=recording_id,
+                    user_id=user_id,
+                    platforms=platforms,
+                    preset_map=preset_map,
+                    metadata_override=metadata_override,
+                )
+            )
 
-                    preset_id = preset_map.get(platform)
+            logger.info(
+                f"[Task {self.request.id}] Added upload launcher for platforms: {platforms}"
+            )
 
-                    # Launch upload asynchronously without blocking (Celery best practice)
-                    upload_task = upload_recording_to_platform.delay(
-                        recording_id, user_id, platform, preset_id, None, metadata_override
-                    )
+        # Launch chain
+        chain_signature = chain(*task_chain)
+        chain_result = chain_signature.apply_async()
 
-                    upload_task_ids.append(
-                        {
-                            "platform": platform,
-                            "task_id": upload_task.id,
-                            "preset_id": preset_id,
-                        }
-                    )
-                    logger.info(f"Upload task for {platform} launched: {upload_task.id}")
-                except Exception as e:
-                    results["errors"].append(f"Failed to launch upload to {platform}: {e!s}")
-                    logger.error(f"Failed to launch upload to {platform}: {e}")
-
-            if upload_task_ids:
-                results["steps_completed"].append("upload")
-                results["upload"] = {
-                    "status": "launched",
-                    "tasks": upload_task_ids,
-                }
-                current_step += 1
-
-        # Final status
-        if not results["errors"]:
-            results["status"] = "completed"
-        elif results["steps_completed"]:
-            results["status"] = "partially_completed"
-        else:
-            results["status"] = "failed"
+        logger.info(
+            f"[Task {self.request.id}] Pipeline chain launched: {len(task_chain)} tasks, root_id={chain_result.id}"
+        )
 
         return self.build_result(
             user_id=user_id,
-            status="completed",
+            status="launched",
             recording_id=recording_id,
-            result=results,
+            result={
+                "chain_id": chain_result.id,
+                "chain_tasks": len(task_chain),
+                "upload_enabled": upload_enabled,
+                "platforms": platforms if upload_enabled else [],
+            },
         )
 
     except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Full pipeline failed: {exc!r}", exc_info=True)
+        logger.error(f"[Task {self.request.id}] Pipeline orchestration failed: {exc!r}", exc_info=True)
         raise
 
 
@@ -967,7 +890,7 @@ def extract_topics_task(
 
         self.update_progress(user_id, 10, "Initializing topic extraction...", step="extract_topics")
 
-        result = asyncio.run(_async_extract_topics(self, recording_id, user_id, granularity, version_id))
+        result = self.run_async(_async_extract_topics(self, recording_id, user_id, granularity, version_id))
 
         return self.build_result(
             user_id=user_id,
@@ -995,14 +918,10 @@ async def _async_extract_topics(
     1. Try with deepseek (primary model)
     2. Fallback on fireworks_deepseek on error
     """
-    from deepseek_module import DeepSeekConfig, TopicExtractor
-    from transcription_module.manager import get_transcription_manager
+    session_maker = get_async_session_maker()
 
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-
-    async with db_manager.async_session() as session:
-        recording_repo = RecordingAsyncRepository(session)
+    async with session_maker() as session:
+        recording_repo = RecordingRepository(session)
 
         recording = await recording_repo.get_by_id(recording_id, user_id)
         if not recording:
@@ -1155,7 +1074,7 @@ def generate_subtitles_task(
 
         self.update_progress(user_id, 20, "Initializing subtitle generation...", step="generate_subtitles")
 
-        result = asyncio.run(_async_generate_subtitles(self, recording_id, user_id, formats))
+        result = self.run_async(_async_generate_subtitles(self, recording_id, user_id, formats))
 
         return self.build_result(
             user_id=user_id,
@@ -1171,13 +1090,10 @@ def generate_subtitles_task(
 
 async def _async_generate_subtitles(task_self, recording_id: int, user_id: int, formats: list[str]) -> dict:
     """Async function for generating subtitles."""
-    from transcription_module.manager import get_transcription_manager
+    session_maker = get_async_session_maker()
 
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-
-    async with db_manager.async_session() as session:
-        recording_repo = RecordingAsyncRepository(session)
+    async with session_maker() as session:
+        recording_repo = RecordingRepository(session)
 
         recording = await recording_repo.get_by_id(recording_id, user_id)
         if not recording:
@@ -1258,7 +1174,7 @@ def batch_transcribe_recording_task(
 
         self.update_progress(user_id, 10, "Waiting for batch transcription...", step="batch_transcribe")
 
-        result = asyncio.run(
+        result = self.run_async(
             _async_poll_batch_transcription(
                 self,
                 recording_id,
@@ -1301,17 +1217,11 @@ async def _async_poll_batch_transcription(
     max_wait_time: float,
 ) -> dict:
     """Async function for polling batch transcription."""
-    import time
-
-    from fireworks_module import FireworksConfig, FireworksTranscriptionService
-    from transcription_module.manager import TranscriptionManager
-
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-    session = await db_manager.async_session()
+    session_maker = get_async_session_maker()
+    session = session_maker()
 
     try:
-        recording_repo = RecordingAsyncRepository(session)
+        recording_repo = RecordingRepository(session)
         recording_db = await recording_repo.find_by_id(recording_id, user_id)
 
         if not recording_db:

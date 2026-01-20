@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.helpers.config_helper import ConfigHelper
+from api.services.config_service import ConfigService
 
 
 @dataclass
@@ -25,18 +25,18 @@ class ServiceContext:
 
     def __post_init__(self):
         """Инициализация config_helper."""
-        self._config_helper: ConfigHelper | None = None
+        self._config_helper: ConfigService | None = None
 
     @property
-    def config_helper(self) -> ConfigHelper:
+    def config_helper(self) -> ConfigService:
         """
-        Lazy-loaded ConfigHelper для доступа к credentials.
+        Lazy-loaded ConfigService для доступа к credentials.
 
         Returns:
-            ConfigHelper для текущего пользователя
+            ConfigService для текущего пользователя
         """
         if self._config_helper is None:
-            self._config_helper = ConfigHelper(self.session, self.user_id)
+            self._config_helper = ConfigService(self.session, self.user_id)
         return self._config_helper
 
     @classmethod

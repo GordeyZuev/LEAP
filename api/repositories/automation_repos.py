@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.automation_models import AutomationJobModel
@@ -42,9 +42,9 @@ class AutomationJobRepository:
 
     async def count_user_jobs(self, user_id: int) -> int:
         """Count total jobs for user."""
-        stmt = select(AutomationJobModel).where(AutomationJobModel.user_id == user_id)
+        stmt = select(func.count(AutomationJobModel.id)).where(AutomationJobModel.user_id == user_id)
         result = await self.session.execute(stmt)
-        return len(list(result.scalars().all()))
+        return result.scalar() or 0
 
     async def get_all_active_jobs(self) -> list[AutomationJobModel]:
         """Get all active jobs across all users (for Celery Beat sync)."""

@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
-# Явно импортируем Celery задачи чтобы они зарегистрировались в API сервере
+# Explicitly import Celery tasks to register them in the API server
 import api.tasks.automation
 import api.tasks.maintenance
 import api.tasks.processing
@@ -59,20 +59,20 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event():
-    """Инициализация БД при запуске приложения."""
+    """Initializing database on application startup."""
     try:
-        logger.info("🚀 Инициализация базы данных...")
+        logger.info("🚀 Initializing database...")
 
-        # Создаем БД, если её нет
+        # Create database if it doesn't exist
         db_config = DatabaseConfig.from_env()
         db_manager = DatabaseManager(db_config)
         await db_manager.create_database_if_not_exists()
         await db_manager.close()
 
-        logger.info("✅ База данных создана (если не существовала)")
+        logger.info("✅ Database created (if not existed)")
 
-        # Применяем миграции Alembic
-        logger.info("🔄 Применение миграций Alembic...")
+        # Apply Alembic migrations
+        logger.info("🔄 Applying Alembic migrations...")
         alembic_cmd = shutil.which("alembic") or "alembic"
         result = subprocess.run(
             [alembic_cmd, "upgrade", "head"],
@@ -82,15 +82,15 @@ async def startup_event():
         )
 
         if result.returncode == 0:
-            logger.info("✅ Миграции применены успешно")
+            logger.info("✅ Migrations applied successfully")
         else:
-            logger.error(f"❌ Ошибка применения миграций: {result.stderr}")
+            logger.error(f"❌ Error applying migrations: {result.stderr}")
 
     except Exception as e:
-        logger.error(f"❌ Ошибка инициализации БД: {e}")
+        logger.error(f"❌ Error initializing database: {e}")
 
 
-# CORS
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.server.cors_origins,
@@ -135,7 +135,7 @@ app.include_router(tasks.router)
 
 @app.get("/")
 async def root():
-    """Корневой endpoint."""
+    """Root endpoint."""
     return {
         "message": "LEAP API",
         "version": settings.app.version,

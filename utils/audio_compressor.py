@@ -40,12 +40,12 @@ class AudioCompressor:
         file_size = Path(input_path).stat().st_size
         file_size_mb = file_size / (1024 * 1024)
 
-        logger.info(f"📊 Original file: {file_size_mb:.2f} MB")
+        logger.info(f"Original file: size={file_size_mb:.2f}MB", size_mb=file_size_mb)
 
         # If file is already smaller than limit, we can return original path
         # But it is better to compress to optimal parameters anyway
         if file_size <= self.max_file_size_bytes and file_size_mb < 10:
-            logger.info("✅ File is already small, but we compress it for optimization")
+            logger.info("File is already small, but we compress it for optimization")
 
         # Define path for output file
         if output_path is None:
@@ -74,8 +74,13 @@ class AudioCompressor:
         ]
 
         try:
-            logger.info(f"🔧 Compression audio: {input_path}")
-            logger.info(f"🔧 Parameters: bitrate={self.target_bitrate}, frequency={self.target_sample_rate}Hz, mono")
+            logger.info(f"Compressing audio: path={input_path}", path=input_path)
+            logger.info(
+                f"Parameters: bitrate={self.target_bitrate} | freq={self.target_sample_rate}Hz | channels=mono",
+                bitrate=self.target_bitrate,
+                sample_rate=self.target_sample_rate,
+                channels=1
+            )
 
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -94,18 +99,20 @@ class AudioCompressor:
             compressed_size = Path(output_path).stat().st_size
             compressed_size_mb = compressed_size / (1024 * 1024)
 
-            logger.info(f"✅ Audio compressed: {compressed_size_mb:.2f} MB")
+            logger.info(f"Audio compressed: size={compressed_size_mb:.2f}MB", size_mb=compressed_size_mb)
 
             if compressed_size > self.max_file_size_bytes:
                 logger.warning(
-                    f"⚠️ Compressed file still exceeds limit: {compressed_size_mb:.2f} MB > {self.max_file_size_mb} MB"
+                    f"Compressed file exceeds limit: size={compressed_size_mb:.2f}MB | limit={self.max_file_size_mb}MB",
+                    size_mb=compressed_size_mb,
+                    limit_mb=self.max_file_size_mb
                 )
                 # We can try to compress more, but for now let's leave it as is
 
             return output_path
 
         except Exception as e:
-            logger.error(f"❌ Error compressing audio: {e}")
+            logger.error(f"Error compressing audio: error={e}", error=str(e))
             raise
 
     async def get_audio_info(self, audio_path: str) -> dict:
@@ -149,7 +156,7 @@ class AudioCompressor:
             }
 
         except Exception as e:
-            logger.error(f"❌ Error getting audio information: {e}")
+            logger.error(f"Error getting audio info: error={e}", error=str(e))
             raise
 
     async def split_audio(self, audio_path: str, max_size_mb: float = 20.0, output_dir: str | None = None) -> list[str]:
@@ -172,11 +179,15 @@ class AudioCompressor:
         duration = audio_info["duration"]
         file_size_mb = Path(audio_path).stat().st_size / (1024 * 1024)
 
-        logger.info(f"📊 Разбиение аудио: {file_size_mb:.2f} МБ, длительность: {duration:.1f}с")
+        logger.info(
+            f"Splitting audio: size={file_size_mb:.2f}MB | duration={duration:.1f}s",
+            size_mb=file_size_mb,
+            duration_sec=duration
+        )
 
         # Если файл уже достаточно мал, возвращаем его как есть
         if file_size_mb <= max_size_mb:
-            logger.info("✅ Файл не требует разбиения")
+            logger.info("File doesn't need splitting")
             return [audio_path]
 
         # Вычисляем количество частей
@@ -195,8 +206,10 @@ class AudioCompressor:
         estimated_size_per_part = actual_duration_per_part * size_per_second
 
         logger.info(
-            f"🔪 Разбиение на {num_parts} частей, "
-            f"~{actual_duration_per_part:.1f}с каждая (~{estimated_size_per_part:.1f} МБ каждая)"
+            f"Splitting into parts: count={num_parts} | duration_per_part={actual_duration_per_part:.1f}s | size_per_part={estimated_size_per_part:.1f}MB",
+            parts=num_parts,
+            duration_per_part=actual_duration_per_part,
+            size_per_part=estimated_size_per_part
         )
 
         # Определяем директорию для частей
@@ -243,7 +256,13 @@ class AudioCompressor:
 
             try:
                 end_time = start_time + part_duration
-                logger.info(f"🔪 Создание части {i + 1}/{num_parts}: {start_time:.1f}s - {end_time:.1f}s")
+                logger.info(
+                    f"Creating part: number={i + 1}/{num_parts} | time={start_time:.1f}s-{end_time:.1f}s",
+                    part=i + 1,
+                    total_parts=num_parts,
+                    start=start_time,
+                    end=end_time
+                )
 
                 process = await asyncio.create_subprocess_exec(
                     *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -267,23 +286,41 @@ class AudioCompressor:
                         f"{part_size_mb:.2f} МБ > {self.max_file_size_mb} МБ. "
                         f"Попробуйте уменьшить max_size_mb в конфигурации."
                     )
-                    logger.error(f"❌ {error_msg}")
+                    logger.error(
+                        f"Part exceeds limit: part={i + 1}/{num_parts} | size={part_size_mb:.2f}MB | limit={self.max_file_size_mb}MB",
+                        part=i + 1,
+                        total_parts=num_parts,
+                        size_mb=part_size_mb,
+                        limit_mb=self.max_file_size_mb
+                    )
                     raise ValueError(error_msg)
                 if part_size_mb > self.max_file_size_mb * 0.95:
                     logger.warning(
-                        f"⚠️ Часть {i + 1}/{num_parts} близка к лимиту: "
-                        f"{part_size_mb:.2f} МБ (лимит: {self.max_file_size_mb} МБ)"
+                        f"Part close to limit: part={i + 1}/{num_parts} | size={part_size_mb:.2f}MB | limit={self.max_file_size_mb}MB",
+                        part=i + 1,
+                        total_parts=num_parts,
+                        size_mb=part_size_mb,
+                        limit_mb=self.max_file_size_mb
                     )
 
-                logger.info(f"✅ Часть {i + 1}/{num_parts} создана: {part_size_mb:.2f} МБ")
+                logger.info(
+                    f"Part created: number={i + 1}/{num_parts} | size={part_size_mb:.2f}MB",
+                    part=i + 1,
+                    total_parts=num_parts,
+                    size_mb=part_size_mb
+                )
                 return part_path
 
             except Exception as e:
-                logger.error(f"❌ Ошибка создания части {i + 1}: {e}")
+                logger.error(
+                    f"Error creating part: part={i + 1} | error={e}",
+                    part=i + 1,
+                    error=str(e)
+                )
                 raise
 
         # Создаем все части параллельно
-        logger.info(f"🚀 Параллельное создание {num_parts} частей...")
+        logger.info(f"Creating parts in parallel: count={num_parts}", parts=num_parts)
         part_tasks = [create_part(i) for i in range(num_parts)]
         part_results = await asyncio.gather(*part_tasks, return_exceptions=True)
 
@@ -299,7 +336,11 @@ class AudioCompressor:
 
         # Если были ошибки, удаляем созданные части и выбрасываем исключение
         if errors:
-            logger.error(f"❌ Ошибки при создании {len(errors)} частей из {num_parts}")
+            logger.error(
+                f"Errors creating parts: failed={len(errors)} | total={num_parts}",
+                failed=len(errors),
+                total=num_parts
+            )
             # Удаляем все созданные части
             for part in parts:
                 try:
@@ -312,5 +353,5 @@ class AudioCompressor:
         # Сортируем части по номеру (на случай, если порядок нарушен)
         parts.sort()
 
-        logger.info(f"✅ Аудио разбито на {len(parts)} частей (параллельно)")
+        logger.info(f"Audio split completed: parts={len(parts)} | mode=parallel", parts=len(parts))
         return parts

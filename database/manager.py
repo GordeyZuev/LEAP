@@ -52,8 +52,8 @@ def _parse_start_time(start_time_str: str) -> datetime:
             dt = dt.replace(tzinfo=ZoneInfo("UTC"))
         return dt
     except Exception as e:
-        logger.error(f"Ошибка парсинга start_time '{start_time_str}': {e}")
-        raise ValueError(f"Не удалось распарсить start_time: {start_time_str}") from e
+        logger.error(f"Error parsing start_time: value={start_time_str}", start_time_str=start_time_str, error=str(e))
+        raise ValueError(f"Failed to parse start_time: {start_time_str}") from e
 
 
 def _build_source_metadata_payload(recording: MeetingRecording) -> dict:
@@ -152,7 +152,11 @@ class DatabaseManager:
                         self.config.database,
                     )
                 except Exception as e:
-                    logger.warning(f"Не удалось завершить все соединения: database={self.config.database} | error={e}")
+                    logger.warning(
+                        f"Failed to terminate all connections: database={self.config.database}",
+                        database=self.config.database,
+                        error=str(e)
+                    )
 
                 db_name_quoted = self.config.database.replace('"', '""')
                 await conn.execute(f'DROP DATABASE IF EXISTS "{db_name_quoted}"')
@@ -771,7 +775,11 @@ class DatabaseManager:
 
             except Exception as e:
                 await session.rollback()
-                logger.error(f"Ошибка сброса записей: keep_uploaded={keep_uploaded} | error={e}")
+                logger.error(
+                    f"Error resetting recordings: keep_uploaded={keep_uploaded}",
+                    keep_uploaded=keep_uploaded,
+                    error=str(e)
+                )
                 raise
 
     # ==================== User Management ====================
@@ -962,4 +970,4 @@ class DatabaseManager:
         """Закрытие соединения с базой данных."""
         if hasattr(self, "engine") and self.engine is not None:
             await self.engine.dispose()
-            logger.info("Соединение с БД закрыто")
+            logger.info("Database connection closed")

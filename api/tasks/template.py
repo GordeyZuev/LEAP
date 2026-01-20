@@ -2,12 +2,15 @@
 
 import asyncio
 
+from sqlalchemy import select
+
 from api.celery_app import celery_app
+from api.dependencies import get_async_session_maker
 from api.repositories.template_repos import RecordingTemplateRepository
+from api.routers.input_sources import _find_matching_template
 from api.tasks.base import TemplateTask
 from config.settings import get_settings
-from database.config import DatabaseConfig
-from database.manager import DatabaseManager
+from database.models import RecordingModel
 from logger import get_logger
 from models.recording import ProcessingStatus
 
@@ -96,14 +99,9 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: int, o
     Returns:
         Dict с результатами
     """
-    from sqlalchemy import select
+    session_maker = get_async_session_maker()
 
-    from database.models import RecordingModel
-
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-
-    async with db_manager.async_session() as session:
+    async with session_maker() as session:
         template_repo = RecordingTemplateRepository(session)
 
         task_self.update_progress(user_id, 20, "Loading template...", step="rematch")
@@ -149,9 +147,6 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: int, o
             f"Checking {len(recordings)} recordings...",
             step="rematch",
         )
-
-        # Import function for matching
-        from api.routers.input_sources import _find_matching_template
 
         matched_count = 0
         updated_count = 0

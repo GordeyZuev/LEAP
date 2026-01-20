@@ -11,7 +11,7 @@ logger = get_logger()
 
 
 def process_meetings_data(response_data: dict[str, Any], filter_video_only: bool = True) -> list[MeetingRecording]:
-    """Обработка данных встреч из API ответа. Каждая MP4-подчасть превращается в отдельную MeetingRecording."""
+    """Processing meetings data from API response. Each MP4-part is converted into a separate MeetingRecording."""
     meetings = response_data.get("meetings", [])
     processed_meetings = []
 
@@ -91,10 +91,10 @@ def process_meetings_data(response_data: dict[str, Any], filter_video_only: bool
                 meeting_data["source_metadata"]["meeting_uuid"] = meeting.get("uuid")
             if meeting.get("meeting_id"):
                 meeting_data["source_metadata"]["meeting_id"] = meeting.get("meeting_id")
-                logger.debug(f"Saved meeting_id from API: meeting_id={meeting.get('meeting_id')}")
+                logger.debug(f"Saved meeting_id from API: meeting_id={meeting.get('meeting_id')}", meeting_id=meeting.get("meeting_id"))
             elif meeting.get("id"):
                 meeting_data["source_metadata"]["meeting_id"] = meeting.get("id")
-                logger.debug(f"Сохранен id как meeting_id: id={meeting.get('id')}")
+                logger.debug(f"Saved id as meeting_id: id={meeting.get('id')}", id=meeting.get("id"))
 
             recording = MeetingRecording(meeting_data)
             if not filter_video_only or recording.has_video():
@@ -106,7 +106,7 @@ def process_meetings_data(response_data: dict[str, Any], filter_video_only: bool
 def filter_recordings_by_date_range(
     recordings: list[MeetingRecording], start_date: str, end_date: str | None = None
 ) -> list[MeetingRecording]:
-    """Фильтрация записей по диапазону дат."""
+    """Filter recordings by date range."""
 
     start_dt = datetime.fromisoformat(start_date)
     if end_date:
@@ -122,7 +122,7 @@ def filter_recordings_by_date_range(
                 normalized_time = normalize_datetime_string(recording.start_time)
                 meeting_dt = datetime.fromisoformat(normalized_time)
 
-                # Приводим все даты к одному типу (naive)
+                # Convert all dates to the same type (naive)
                 if meeting_dt.tzinfo is not None:
                     meeting_dt = meeting_dt.replace(tzinfo=None)
 
@@ -141,9 +141,13 @@ async def get_recordings_by_date_range(
     page_size: int = 30,
     filter_video_only: bool = True,
 ) -> list[MeetingRecording]:
-    """Получение записей по диапазону дат через API."""
+    """Fetch recordings by date range through API."""
     try:
-        logger.info(f"Получение записей: {start_date} - {end_date or 'текущая дата'}")
+        logger.info(
+            f"Fetching recordings: start_date={start_date} | end_date={end_date or 'current date'}",
+            start_date=start_date,
+            end_date=end_date
+        )
         response = await api.get_recordings(page_size=page_size, from_date=start_date, to_date=end_date)
 
         recordings = process_meetings_data(response, filter_video_only)
@@ -152,7 +156,9 @@ async def get_recordings_by_date_range(
         for recording in recordings:
             try:
                 logger.debug(
-                    f"Получение детальной информации: meeting_id={recording.meeting_id} | recording={recording.display_name}"
+                    f"Fetching detailed info: meeting_id={recording.meeting_id} | recording={recording.display_name}",
+                    meeting_id=recording.meeting_id,
+                    recording_name=recording.display_name
                 )
                 detailed_data = await api.get_recording_details(recording.meeting_id, include_download_token=True)
 
@@ -183,12 +189,12 @@ async def get_recordings_by_date_range(
 def filter_recordings_by_duration(
     recordings: list[MeetingRecording], min_duration_minutes: int = 25
 ) -> list[MeetingRecording]:
-    """Фильтрация записей по минимальной длительности."""
+    """Filter recordings by minimum duration."""
     return [recording for recording in recordings if recording.is_long_enough(min_duration_minutes)]
 
 
 def filter_recordings_by_size(recordings: list[MeetingRecording], min_size_mb: int = 30) -> list[MeetingRecording]:
-    """Фильтрация записей по минимальному размеру."""
+    """Filter recordings by minimum size."""
     min_size_bytes = min_size_mb * 1024 * 1024
     return [recording for recording in recordings if recording.video_file_size >= min_size_bytes]
 
@@ -196,7 +202,7 @@ def filter_recordings_by_size(recordings: list[MeetingRecording], min_size_mb: i
 def filter_available_recordings(
     recordings: list[MeetingRecording], min_duration_minutes: int = 25, min_size_mb: int = 30
 ) -> list[MeetingRecording]:
-    """Фильтрация записей для формирования списка доступных записей."""
+    """Filter recordings to form a list of available recordings."""
     with_video = [recording for recording in recordings if recording.has_video()]
     long_enough = filter_recordings_by_duration(with_video, min_duration_minutes)
     large_enough = filter_recordings_by_size(long_enough, min_size_mb)

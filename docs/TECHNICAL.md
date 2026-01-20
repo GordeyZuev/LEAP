@@ -553,6 +553,7 @@ video_upload_module/
 - Thumbnail upload
 - Privacy settings
 - OAuth 2.0 authentication
+- Automatic token refresh через `@requires_valid_token` decorator
 
 #### VK (VK Video API)
 - Video upload
@@ -560,9 +561,11 @@ video_upload_module/
 - Thumbnail upload
 - Privacy settings
 - Implicit Flow authentication (2026 policy)
+- Automatic token refresh через `@requires_valid_vk_token` decorator
 
 **Key Features:**
-- Automatic token refresh (YouTube)
+- Automatic token refresh с декораторами (Jan 2026)
+- Graceful credential error handling
 - Retry механизм
 - Progress tracking
 - Multi-account support
@@ -589,6 +592,12 @@ video_upload_module/
 **ORM:** SQLAlchemy 2.0 (async)
 
 **Migrations:** Alembic (21 migrations, auto-init)
+
+**Performance Optimizations (Jan 2026):**
+- `func.count()` вместо загрузки всех записей
+- Bulk operations через `get_by_ids()` и `find_by_ids()`
+- Eager loading для вложенных связей (N+1 устранены)
+- Composite indexes для часто используемых queries
 
 **Documentation:** [DATABASE_DESIGN.md](DATABASE_DESIGN.md)
 
@@ -630,6 +639,29 @@ video_upload_module/
 7. UPLOAD       → YouTube + VK with metadata
 ```
 
+**Celery Chains Architecture (Jan 2026):**
+
+Orchestrator создает chain задач вместо монолитной обработки:
+
+```python
+# Orchestrator (~0.08s)
+process_recording_task(recording_id, user_id)
+  ↓
+# Chain (каждый шаг на любом свободном worker)
+download_task.s() 
+  | trim_task.s()
+  | transcribe_task.s()
+  | topics_task.s()
+  | subtitles_task.s()
+  | launch_uploads_task.s()
+```
+
+**Benefits:**
+- Worker освобождается за 0.08s (не блокирован на 5+ минут)
+- Параллельная обработка разных recordings
+- Динамическое распределение шагов между workers
+- Естественные boundaries для retry и мониторинга
+
 ### Processing Status Flow
 
 ```
@@ -639,8 +671,15 @@ TRANSCRIBING → TRANSCRIBED → UPLOADING → UPLOADED
 
 **Special statuses:**
 - `SKIPPED` - Пропущено (не matched к template или user choice)
-- `FAILED` - Ошибка на одном из этапов
+- `FAILED` - Ошибка на одном из этапов (graceful handling, Jan 2026)
 - `EXPIRED` - Устарело (TTL exceeded)
+
+**Error Handling (Jan 2026):**
+- Credential/Token/Resource errors обрабатываются gracefully
+- Output target помечается как FAILED в БД
+- Задача возвращает `status='failed'` вместо raise
+- ERROR логируется без traceback spam
+- Celery видит задачу как успешно завершённую
 
 ### Template-Driven Processing
 
@@ -1106,15 +1145,23 @@ psql -U postgres -d zoom_manager
 - Все I/O операции асинхронные (FastAPI, SQLAlchemy)
 - Concurrent transcription/upload (с ограничением)
 
-**3. Database Indexing:**
-- Все foreign keys имеют индексы
+**3. Database Optimization (Jan 2026):**
+- `func.count()` вместо загрузки всех записей в память
+- Bulk operations: `get_by_ids()`, `find_by_ids()` (один запрос вместо N)
+- Eager loading для вложенных связей (N+1 queries устранены)
 - Composite indexes для часто используемых queries
+- Импорты вынесены в начало файлов (PEP8)
 
-**4. Caching:**
+**4. Celery Chains (Jan 2026):**
+- Orchestrator освобождает worker за ~0.08s
+- Параллельная обработка recordings
+- Динамическое распределение шагов
+
+**5. Caching:**
 - Redis для OAuth state tokens
 - Token caching в memory (planned)
 
-**5. Connection Pooling:**
+**6. Connection Pooling:**
 - SQLAlchemy async connection pool
 - Redis connection pool
 

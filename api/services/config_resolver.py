@@ -228,21 +228,21 @@ class ConfigResolver:
             raise ValueError(f"Preset {preset_id} not found for user {user_id}")
 
         final_metadata = preset.preset_metadata or {}
-        logger.info(
+        logger.debug(
             f"[Metadata Resolution] Base preset '{preset.name}' (platform={preset.platform}) metadata keys: {list(final_metadata.keys())}"
         )
         if "description_template" in final_metadata:
-            logger.info(
+            logger.debug(
                 f"[Metadata Resolution] Preset has description_template: {final_metadata['description_template'][:100]}"
             )
         else:
-            logger.info("[Metadata Resolution] Preset does NOT have description_template")
+            logger.debug("[Metadata Resolution] Preset does NOT have description_template")
 
         # 2. Merge with template metadata if exists (with platform-specific support)
         if recording.template_id:
             template = await self.template_repo.find_by_id(recording.template_id, user_id)
             if template and template.metadata_config:
-                logger.info(
+                logger.debug(
                     f"[Metadata Resolution] Merging template '{template.name}' metadata_config keys: {list(template.metadata_config.keys())}"
                 )
 
@@ -265,21 +265,21 @@ class ConfigResolver:
                 platform_keys = {"youtube", "vk", "common"}
                 common_fields = {k: v for k, v in template_meta.items() if k not in platform_keys}
                 if common_fields:
-                    logger.info(f"[Metadata Resolution] Merging template common fields: {list(common_fields.keys())}")
+                    logger.debug(f"[Metadata Resolution] Merging template common fields: {list(common_fields.keys())}")
                     final_metadata = self._merge_configs(final_metadata, common_fields)
 
                 # Step 2: Merge 'common' block (if exists)
                 if "common" in template_meta:
-                    logger.info("[Metadata Resolution] Merging template 'common' metadata")
+                    logger.debug("[Metadata Resolution] Merging template 'common' metadata")
                     final_metadata = self._merge_configs(final_metadata, template_meta["common"])
 
                 # Step 3: Merge platform-specific fields (if exists) - highest priority in template
                 if platform_key in template_meta:
-                    logger.info(f"[Metadata Resolution] Merging template '{platform_key}' specific metadata")
+                    logger.debug(f"[Metadata Resolution] Merging template '{platform_key}' specific metadata")
                     final_metadata = self._merge_configs(final_metadata, template_meta[platform_key])
 
             elif template:
-                logger.info(
+                logger.debug(
                     f"[Metadata Resolution] Template '{template.name}' has no metadata_config, using preset only"
                 )
             else:
@@ -294,15 +294,15 @@ class ConfigResolver:
             logger.debug("[Metadata Resolution] Applying manual override metadata_config")
             final_metadata = self._merge_configs(final_metadata, manual_meta)
 
-        logger.info(
+        logger.debug(
             f"[Metadata Resolution] Final metadata keys for recording {recording.id}: {list(final_metadata.keys())}"
         )
         if "description_template" in final_metadata:
-            logger.info(
+            logger.debug(
                 f"[Metadata Resolution] Final description_template: {final_metadata['description_template'][:100]}"
             )
         else:
-            logger.info("[Metadata Resolution] Final metadata does NOT have description_template")
+            logger.debug("[Metadata Resolution] Final metadata does NOT have description_template")
         return final_metadata
 
     async def _get_user_config(self, user_id: int) -> dict[str, Any]:

@@ -70,6 +70,11 @@
 - Удаление длинных пауз
 - Извлечение аудиодорожки для транскрибации
 
+**Celery Chains для параллелизма:**
+- Orchestrator запускает chain задач (download → trim → transcribe → topics → subs → upload)
+- Каждый шаг выполняется на свободном worker (~0.08s overhead)
+- Динамическое распределение между recordings
+
 **Результат:**
 - Чистое видео без технических пауз
 - Оптимизированная длительность
@@ -155,9 +160,10 @@
 
 **🔐 Production Security**
 - `OAuth 2.0` интеграция (YouTube, VK)
-- Automatic token refresh
+- Automatic token refresh с декораторами
 - `CSRF` protection через `Redis`
 - Encrypted credentials в БД
+- Graceful error handling для credential/token errors
 
 **🤖 Smart Automation**
 - `Celery Beat` scheduling
@@ -201,9 +207,10 @@
 
 **Масштабируемость**
 - Multi-tenant архитектура для тысяч пользователей
-- Horizontal scaling через `Celery` workers
+- Horizontal scaling через `Celery` workers с chains
 - Async-first для высокой пропускной способности
 - Resource quotas для fair usage
+- DB optimization (N+1 queries устранены, eager loading, bulk operations)
 
 ### 🤖 AI-Powered Intelligence
 
@@ -232,6 +239,7 @@
 - Health checks и monitoring (`Flower`)
 - Automatic retry mechanisms
 - Error handling и graceful degradation
+- Credential error handling без traceback spam
 
 ---
 
@@ -425,7 +433,11 @@ TRANSCRIBED → UPLOADING → READY
 - 2 AI models (Whisper, DeepSeek)
 - 20 documentation guides
 
-**Latest Features:**
+**Latest Features (January 2026):**
+- ✅ Celery Chains для параллелизма (0.08s orchestrator overhead)
+- ✅ Graceful credential error handling
+- ✅ DB optimization (N+1 eliminated, eager loading, bulk ops)
+- ✅ Automatic token refresh decorators
 - ✅ Template-driven automation
 - ✅ Two-level deletion system
 - ✅ Unified configuration

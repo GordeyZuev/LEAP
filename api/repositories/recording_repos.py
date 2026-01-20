@@ -5,19 +5,19 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database.models import OutputTargetModel, RecordingModel, SourceMetadataModel
 from logger import get_logger
-from models.recording import ProcessingStatus, SourceType
+from models.recording import ProcessingStatus, SourceType, TargetStatus
 
 logger = get_logger()
 
 
-class RecordingAsyncRepository:
-    """Async repository for working with recordings."""
+class RecordingRepository:
+    """Repository for working with recordings."""
 
     def __init__(self, session: AsyncSession):
         """
@@ -45,8 +45,8 @@ class RecordingAsyncRepository:
         query = (
             select(RecordingModel)
             .options(
-                selectinload(RecordingModel.source),
-                selectinload(RecordingModel.outputs),
+                selectinload(RecordingModel.source).selectinload(SourceMetadataModel.input_source),
+                selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
                 selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
             )
@@ -61,6 +61,45 @@ class RecordingAsyncRepository:
 
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
+
+    async def get_by_ids(
+        self, recording_ids: list[int], user_id: int, include_deleted: bool = False
+    ) -> dict[int, RecordingModel]:
+        """
+        Get multiple recordings by IDs (batch load to avoid N+1).
+
+        Args:
+            recording_ids: List of recording IDs
+            user_id: User ID
+            include_deleted: Include deleted recordings
+
+        Returns:
+            Dict mapping recording_id to RecordingModel
+        """
+        if not recording_ids:
+            return {}
+
+        query = (
+            select(RecordingModel)
+            .options(
+                selectinload(RecordingModel.source).selectinload(SourceMetadataModel.input_source),
+                selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
+                selectinload(RecordingModel.processing_stages),
+                selectinload(RecordingModel.input_source),
+            )
+            .where(
+                RecordingModel.id.in_(recording_ids),
+                RecordingModel.user_id == user_id,
+            )
+        )
+
+        if not include_deleted:
+            query = query.where(RecordingModel.deleted == False)  # noqa: E712
+
+        result = await self.session.execute(query)
+        recordings = result.scalars().all()
+
+        return {rec.id: rec for rec in recordings}
 
     async def list_by_user(
         self,
@@ -88,8 +127,8 @@ class RecordingAsyncRepository:
         query = (
             select(RecordingModel)
             .options(
-                selectinload(RecordingModel.source),
-                selectinload(RecordingModel.outputs),
+                selectinload(RecordingModel.source).selectinload(SourceMetadataModel.input_source),
+                selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
                 selectinload(RecordingModel.input_source),
             )
             .where(RecordingModel.user_id == user_id)
@@ -260,10 +299,6 @@ class RecordingAsyncRepository:
         Returns:
             OutputTargetModel
         """
-        from sqlalchemy import select
-
-        from models.recording import TargetStatus
-
         # Find existing output_target via explicit DB query
         # (don't rely on recording.outputs - it may not be loaded)
         stmt = select(OutputTargetModel).where(
@@ -300,8 +335,6 @@ class RecordingAsyncRepository:
         """
         Mark output_target as uploading.
         """
-        from models.recording import TargetStatus
-
         output_target.status = TargetStatus.UPLOADING
         output_target.failed = False
         output_target.updated_at = datetime.utcnow()
@@ -321,8 +354,6 @@ class RecordingAsyncRepository:
             output_target: Output target
             error_message: Error message
         """
-        from models.recording import TargetStatus
-
         output_target.status = TargetStatus.FAILED
         output_target.failed = True
         output_target.failed_at = datetime.utcnow()
@@ -356,10 +387,6 @@ class RecordingAsyncRepository:
         Returns:
             OutputTarget
         """
-        from sqlalchemy import select
-
-        from models.recording import TargetStatus
-
         # Check if there is already output for this target_type (explicit DB query)
         stmt = select(OutputTargetModel).where(
             OutputTargetModel.recording_id == recording.id,
@@ -410,8 +437,6 @@ class RecordingAsyncRepository:
         """
         Count number of recordings for user.
         """
-        from sqlalchemy import func
-
         query = select(func.count(RecordingModel.id)).where(RecordingModel.user_id == user_id)
 
         if status:
@@ -433,8 +458,8 @@ class RecordingAsyncRepository:
         query = (
             select(RecordingModel)
             .options(
-                selectinload(RecordingModel.source),
-                selectinload(RecordingModel.outputs),
+                selectinload(RecordingModel.source).selectinload(SourceMetadataModel.input_source),
+                selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
                 selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
             )

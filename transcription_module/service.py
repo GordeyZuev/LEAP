@@ -46,13 +46,7 @@ class TranscriptionService:
     @staticmethod
     def _format_timestamp(seconds: float) -> str:
         """
-        Форматирование времени в секундах в формат HH:MM:SS
-
-        Args:
-            seconds: Время в секундах (может быть float)
-
-        Returns:
-            Строка в формате HH:MM:SS
+        Formatting time in seconds to format HH:MM:SS
         """
         total_seconds = int(seconds)
         hours = total_seconds // 3600
@@ -63,13 +57,7 @@ class TranscriptionService:
     @staticmethod
     def _format_timestamp_with_ms(seconds: float) -> str:
         """
-        Форматирование времени в секундах в формат HH:MM:SS.mmm
-
-        Args:
-            seconds: Время в секундах (может быть float)
-
-        Returns:
-            Строка в формате HH:MM:SS.mmm
+        Formatting time in seconds to format HH:MM:SS.mmm
         """
         total_seconds = int(seconds)
         hours = total_seconds // 3600
@@ -77,33 +65,6 @@ class TranscriptionService:
         secs = total_seconds % 60
         milliseconds = int((seconds - total_seconds) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milliseconds:03d}"
-
-    @staticmethod
-    def _compose_fireworks_prompt(base_prompt: str | None, recording_topic: str | None) -> str:
-        """
-        Формирование подсказки для Fireworks с учетом предмета.
-
-        Args:
-            base_prompt: Базовый промпт из конфига (может быть None)
-            recording_topic: Название записи (может быть None)
-
-        Returns:
-            Сформированный промпт для Fireworks
-        """
-        base = (base_prompt or "").strip()
-        topic = (recording_topic or "").strip()
-
-        if base and topic:
-            # Объединяем базовый промпт с названием пары в связный текст
-            return f'{base} Название пары: "{topic}". Учитывай специфику этого курса при распознавании терминов.'
-        if base:
-            # Только базовый промпт
-            return base
-        if topic:
-            # Только название пары с базовыми инструкциями
-            return f'Это лекция магистратуры по Computer Science со специализацией в Machine Learning и Data Science. Название пары: "{topic}". Сохраняй правильное написание профильных терминов (включая английские), латинских обозначений, аббревиатур, элементов кода и имён собственных.'
-        # Fallback - общие инструкции
-        return "Это лекция магистратуры по Computer Science со специализацией в Machine Learning и Data Science. Сохраняй правильное написание профильных терминов (включая английские), латинских обозначений, аббревиатур, элементов кода и имён собственных."
 
     async def process_audio(
         self,
@@ -115,35 +76,39 @@ class TranscriptionService:
         granularity: str = "long",  # "short" | "long"
     ) -> dict[str, Any]:
         """
-        Полная обработка аудио: сжатие, транскрибация, извлечение тем.
+        Full audio processing: compression, transcription, topic extraction.
 
         Args:
-            audio_path: Путь к аудио файлу
-            recording_id: ID записи (для именования файлов)
-            recording_topic: Название записи (для именования файлов)
-            granularity: Режим извлечения тем: "short" или "long"
+            audio_path: Path to the audio file
+            recording_id: Recording ID (for file naming)
+            recording_topic: Recording topic (for file naming)
+            granularity: Topic extraction mode: "short" or "long"
 
         Returns:
-            Словарь с результатами:
+            Dictionary with results:
             {
-                'transcription_dir': str,  # Путь к папке с файлами транскрипции
+                'transcription_dir': str,  # Path to the transcription folder
                 'transcription_text': str,
                 'topic_timestamps': list,
                 'main_topics': list,
             }
         """
         if not Path(audio_path).exists():
-            raise FileNotFoundError(f"Аудио файл не найден: {audio_path}")
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        logger.info(f"🎬 Начало обработки аудио: {audio_path} (модель: Fireworks)")
+        logger.info(
+            f"Starting audio processing: file={audio_path} | model=Fireworks",
+            file=audio_path,
+            model="Fireworks"
+        )
 
-        fireworks_prompt = self._compose_fireworks_prompt(self.fireworks_config.prompt, recording_topic)
+        fireworks_prompt = self.fireworks_service.compose_fireworks_prompt(self.fireworks_config.prompt, recording_topic)
 
         prepared_audio, temp_files_to_cleanup = await self._prepare_audio(audio_path)
         transcription_language = self.fireworks_config.language
 
         try:
-            logger.info("🎆 Транскрибация аудио через Fireworks API...")
+            logger.info("Transcribing audio via Fireworks API...")
             transcription_result = await self.fireworks_service.transcribe_audio(
                 audio_path=prepared_audio,
                 language=transcription_language,
@@ -154,12 +119,14 @@ class TranscriptionService:
             segments = transcription_result.get("segments", [])
             segments_auto = transcription_result.get("segments_auto", [])
             words = transcription_result.get("words", [])
-            srt_content = transcription_result.get("srt_content")  # Оригинальный SRT от Fireworks
+            srt_content = transcription_result.get("srt_content")  # Original SRT from Fireworks
             transcription_language = transcription_result.get("language", "ru")
 
             logger.info(
-                f"✅ Транскрибация завершена: {len(transcription_text)} символов, "
-                f"{len(segments)} сегментов, {len(words)} слов"
+                f"Transcription completed: chars={len(transcription_text)} | segments={len(segments)} | words={len(words)}",
+                chars=len(transcription_text),
+                segments=len(segments),
+                words=len(words)
             )
 
             transcription_dir = self._save_transcription(
@@ -174,7 +141,7 @@ class TranscriptionService:
                 recording_start_time=recording_start_time,
             )
 
-            logger.info("🔍 Извлечение тем через DeepSeek из файла...")
+            logger.info("Extracting topics via DeepSeek from file...")
             segments_file_path = Path(transcription_dir) / "segments.txt"
             topics_result = await self.topic_extractor.extract_topics_from_file(
                 segments_file_path=str(segments_file_path),
@@ -182,9 +149,9 @@ class TranscriptionService:
                 granularity=granularity,
             )
 
-            logger.info("✅ Извлечение тем завершено")
+            logger.info("Topic extraction completed")
 
-            # Преобразуем паузы в формат временных меток
+            # Convert pauses to timestamp format
             topic_timestamps = topics_result.get("topic_timestamps", [])
             long_pauses = topics_result.get("long_pauses", [])
 
@@ -209,65 +176,73 @@ class TranscriptionService:
                         }
                     )
 
-            # Объединяем темы и паузы, сортируем по времени начала
+            # Combine topics and pauses, sort by start time
             all_timestamps = topic_timestamps + pause_timestamps
             all_timestamps.sort(key=lambda x: x.get("start", 0))
 
-            # Формируем результат
+            # Form the result
             result = {
                 "transcription_dir": transcription_dir,
                 "transcription_text": transcription_text,
                 "topic_timestamps": all_timestamps,
                 "main_topics": topics_result.get("main_topics", []),
-                "long_pauses": long_pauses,  # Сохраняем также исходные данные о паузах
+                "long_pauses": long_pauses,  # Save also original data about pauses
                 "language": transcription_language,
                 "fireworks_raw": transcription_result,
             }
 
-            logger.info("✅ Обработка аудио завершена успешно")
+            logger.info("Audio processing completed successfully")
             topics_count = len(topic_timestamps)
             pauses_count = len(long_pauses)
             logger.info(
-                f"📊 Результаты: {topics_count} тем, "
-                f"{len(topics_result.get('main_topics', []))} основных тем, "
-                f"{pauses_count} пауз"
+                f"📊 Results: topics={topics_count} | main_topics={len(topics_result.get('main_topics', []))} | pauses={pauses_count}",
+                topics=topics_count,
+                main_topics=len(topics_result.get("main_topics", [])),
+                pauses=pauses_count
             )
 
             return result
 
         finally:
-            # Удаляем временные файлы, если они были созданы
+            # Delete temporary files if they were created
             for temp_file in temp_files_to_cleanup:
                 temp_file_path = Path(temp_file)
                 if temp_file != audio_path and temp_file_path.exists():
                     try:
                         temp_file_path.unlink()
-                        logger.debug(f"🗑️ Удален временный файл: {temp_file}")
+                        logger.debug(f"Deleted temporary file: file={temp_file}", file=temp_file)
                     except Exception as e:
-                        logger.warning(f"⚠️ Не удалось удалить временный файл {temp_file}: {e}")
+                        logger.warning(
+                            f"Failed to delete temporary file: file={temp_file}",
+                            file=temp_file,
+                            error=str(e)
+                        )
 
     async def _prepare_audio(self, audio_path: str) -> tuple[str, list[str]]:
         """
-        Подготовка аудио: извлечение из видео, если нужно.
-        Fireworks поддерживает большие файлы, поэтому разбиение не требуется.
+        Audio preparation: extraction from video if needed.
+        Fireworks supports large files, so splitting is not needed.
 
         Args:
-            audio_path: Путь к аудио файлу
+            audio_path: Path to the audio file
 
         Returns:
-            Tuple: (путь к файлу, список временных файлов для удаления)
+            Tuple: (path to the file, list of temporary files to delete)
         """
         file_size = Path(audio_path).stat().st_size
         file_size_mb = file_size / (1024 * 1024)
         temp_files = []
 
-        logger.info(f"🎆 Fireworks поддерживает большие файлы, разбиение не требуется ({file_size_mb:.2f} МБ)")
+        logger.info(
+            f"Fireworks supports large files: size={file_size_mb:.2f}MB | splitting=not_needed",
+            size_mb=file_size_mb
+        )
 
-        # Проверяем, является ли файл видео (нужно извлечь аудио)
+        # Check if the file is a video (need to extract audio)
         is_video = audio_path.lower().endswith((".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"))
         if is_video:
-            logger.info("🎬 Обнаружен видео файл, извлечение аудио для Fireworks...")
-            # Извлекаем аудио из видео (но не разбиваем)
+            logger.info("Video file detected, extracting audio for Fireworks...")
+            # Extract audio from video (but not split)
             compressed_path = await self.audio_compressor.compress_audio(audio_path)
             temp_files.append(compressed_path)
             return compressed_path, temp_files
@@ -287,27 +262,27 @@ class TranscriptionService:
         _recording_start_time: str | None = None,
     ) -> str:
         """
-        Сохранение транскрипции в папку с файлами.
+        Saving transcription to a folder with files.
 
-        Структура папки:
+        Folder structure:
         - media/user_{user_id}/transcriptions/{recording_id}/
-          - words.txt (слова с временными метками)
-          - segments.txt (сегменты с временными метками)
-          - subtitles.srt (субтитры SRT)
-          - subtitles.vtt (субтитры VTT)
+          - words.txt (words with timestamps)
+          - segments.txt (segments with timestamps)
+          - subtitles.srt (subtitles SRT)
+          - subtitles.vtt (subtitles VTT)
 
         Args:
-            transcription_text: Полный текст транскрипции
-            segments: Список сегментов с временными метками
-            words: Список слов с временными метками (обязательно для генерации субтитров)
-            srt_content: Оригинальный SRT от Fireworks (опционально)
-            user_id: ID пользователя (обязательно для изоляции данных)
-            recording_id: ID записи
-            recording_topic: Название записи
-            recording_start_time: Время начала записи
+            transcription_text: Full transcription text
+            segments: List of segments with timestamps
+            words: List of words with timestamps (required for subtitle generation)
+            srt_content: Original SRT from Fireworks (optional)
+            user_id: User ID (required for data isolation)
+            recording_id: Recording ID
+            recording_topic: Recording topic
+            recording_start_time: Recording start time
 
         Returns:
-            Относительный путь к папке с транскрипцией
+            Relative path to the transcription folder
         """
         from utils.user_paths import get_path_manager
 
@@ -316,21 +291,21 @@ class TranscriptionService:
 
         path_manager = get_path_manager()
 
-        # Используем recording_id для создания уникальной папки
+        # Use recording_id to create a unique folder
         if recording_id is not None:
             transcription_folder = path_manager.get_transcription_dir(user_id, recording_id)
         else:
-            # Fallback для случаев без recording_id (например, тесты)
+            # Fallback for cases without recording_id (e.g. tests)
             transcription_folder = path_manager.get_transcription_dir(user_id) / f"temp_{int(time.time())}"
 
         transcription_folder.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"📁 Создана папка для транскрипции: {transcription_folder}")
+        logger.info(f"Created transcription folder: path={transcription_folder}", path=str(transcription_folder))
 
         if words and len(words) > 0:
             words_file_path = transcription_folder / "words.txt"
             with words_file_path.open("w", encoding="utf-8") as f:
-                logger.info(f"📝 Сохранение транскрипции с {len(words)} словами и временными метками")
+                logger.info(f"Saving transcription: words={len(words)} | with_timestamps=yes", words=len(words))
 
                 for word_item in words:
                     start_time = word_item.get("start", 0) or 0.0
@@ -342,14 +317,22 @@ class TranscriptionService:
                         end_formatted = self._format_timestamp_with_ms(end_time)
                         f.write(f"[{start_formatted} - {end_formatted}] {word_text}\n")
 
-            logger.info(f"💾 Транскрипция (слова) сохранена: {words_file_path} ({len(words)} слов)")
+            logger.info(
+                f"Transcription (words) saved: path={words_file_path} | words={len(words)}",
+                path=str(words_file_path),
+                words=len(words)
+            )
         else:
-            logger.warning("⚠️ Слова не предоставлены, генерация субтитров может быть невозможна")
+            logger.warning("Words not provided, subtitle generation may be impossible")
 
         def _write_segments_file(target_path: Path, segments_data: list[dict[str, Any]], label: str) -> None:
             with target_path.open("w", encoding="utf-8") as f:
                 if segments_data and len(segments_data) > 0:
-                    logger.info(f"📝 Сохранение транскрипции с {len(segments_data)} сегментами ({label})")
+                    logger.info(
+                        f"Saving transcription: segments={len(segments_data)} | source={label}",
+                        segments=len(segments_data),
+                        source=label
+                    )
 
                     for seg in segments_data:
                         start_time = seg.get("start", 0) or 0.0
@@ -359,30 +342,32 @@ class TranscriptionService:
                         if text:
                             start_formatted = self._format_timestamp_with_ms(start_time)
                             end_formatted = self._format_timestamp_with_ms(end_time)
-                            # Защита от одинаковых меток
+                            # Protection from identical timestamps
                             if start_formatted == end_formatted:
                                 end_time = float(end_time) + 0.001
                                 end_formatted = self._format_timestamp_with_ms(end_time)
                             f.write(f"[{start_formatted} - {end_formatted}] {text}\n")
                 else:
-                    logger.warning(f"⚠️ Сегменты ({label}) отсутствуют, сохраняем только текст")
+                    logger.warning(f"Segments ({label}) absent, saving only text")
                     f.write(transcription_text)
 
-        # segments.txt — сегменты, пришедшие из Fireworks API (приоритет)
+        # segments.txt — segments coming from Fireworks API (priority)
         segments_file_path = transcription_folder / "segments.txt"
         _write_segments_file(segments_file_path, segments, "Fireworks API")
         logger.info(
-            f"💾 Транскрипция (segments.txt, API) сохранена: {segments_file_path} "
-            f"({len(segments) if segments else 0} сегментов)"
+            f"Transcription saved: file=segments.txt | source=API | segments={len(segments) if segments else 0}",
+            file=str(segments_file_path),
+            segments=len(segments) if segments else 0
         )
 
-        # segments_auto.txt — локально собранные сегменты из слов (для анализа/резерва)
+        # segments_auto.txt — locally collected segments from words (for analysis/backup)
         if segments_auto is not None:
             segments_auto_path = transcription_folder / "segments_auto.txt"
-            _write_segments_file(segments_auto_path, segments_auto, "локальные (auto)")
+            _write_segments_file(segments_auto_path, segments_auto, "local (auto)")
             logger.info(
-                f"💾 Транскрипция (segments_auto.txt, локальные) сохранена: {segments_auto_path} "
-                f"({len(segments_auto) if segments_auto else 0} сегментов)"
+                f"Transcription saved: file=segments_auto.txt | source=local | segments={len(segments_auto) if segments_auto else 0}",
+                file=str(segments_auto_path),
+                segments=len(segments_auto) if segments_auto else 0
             )
 
         if words and len(words) > 0:
@@ -391,7 +376,7 @@ class TranscriptionService:
 
                 generator = SubtitleGenerator()
 
-                # Генерируем субтитры из segments.txt (уже сгруппированные сегменты)
+                # Generate subtitles from segments.txt (already grouped segments)
                 subtitle_source_path = str(segments_file_path)
 
                 srt_target = transcription_folder / "subtitles.srt"
@@ -412,29 +397,32 @@ class TranscriptionService:
                     if srt_source.exists() and srt_source != srt_target:
                         if srt_source.name != "subtitles.srt":
                             srt_source.rename(srt_target)
-                        logger.info(f"✅ Создан SRT файл: {srt_target}")
+                        logger.info(f"Created SRT file: path={srt_target}", path=str(srt_target))
                     elif srt_source == srt_target:
-                        logger.info(f"✅ Создан SRT файл: {srt_target}")
+                        logger.info(f"Created SRT file: path={srt_target}", path=str(srt_target))
 
                 if "vtt" in subtitle_result:
                     vtt_source = Path(subtitle_result["vtt"])
                     if vtt_source.exists() and vtt_source != vtt_target:
                         if vtt_source.name != "subtitles.vtt":
                             vtt_source.rename(vtt_target)
-                        logger.info(f"✅ Создан VTT файл: {vtt_target}")
+                        logger.info(f"Created VTT file: path={vtt_target}", path=str(vtt_target))
                     elif vtt_source == vtt_target:
-                        logger.info(f"✅ Создан VTT файл: {vtt_target}")
+                        logger.info(f"Created VTT file: path={vtt_target}", path=str(vtt_target))
             except Exception as e:
-                logger.warning(f"⚠️ Не удалось автоматически создать субтитры: {e}")
+                logger.warning(f"Failed to auto-create subtitles: error={e}", error=str(e))
 
         if srt_content:
             srt_backup_path = transcription_folder / "subtitles_fireworks_original.srt"
             with srt_backup_path.open("w", encoding="utf-8") as f:
                 f.write(srt_content)
-            logger.info(f"💾 Оригинальный SRT файл от Fireworks сохранен (резервный): {srt_backup_path}")
+            logger.info(
+                f"Original SRT backup saved: path={srt_backup_path}",
+                path=str(srt_backup_path)
+            )
 
         try:
             return str(transcription_folder.relative_to(Path.cwd()))
         except ValueError:
-            logger.warning("⚠️ Не удалось получить относительный путь для транскрипции, используем абсолютный")
+            logger.warning("Failed to get relative path for transcription, using absolute")
             return str(transcription_folder)

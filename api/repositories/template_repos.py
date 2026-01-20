@@ -187,6 +187,19 @@ class OutputPresetRepository:
         )
         return result.scalar_one_or_none()
 
+    async def find_by_ids(self, preset_ids: list[int], user_id: int) -> list[OutputPresetModel]:
+        """Get multiple presets by IDs (batch load to avoid N+1)."""
+        if not preset_ids:
+            return []
+
+        result = await self.session.execute(
+            select(OutputPresetModel).where(
+                OutputPresetModel.id.in_(preset_ids),
+                OutputPresetModel.user_id == user_id,
+            )
+        )
+        return list(result.scalars().all())
+
     async def find_active_by_user(self, user_id: int) -> list[OutputPresetModel]:
         """Получение активных пресетов пользователя."""
         result = await self.session.execute(

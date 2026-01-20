@@ -109,7 +109,12 @@ class TokenManager:
 
         for attempt in range(max_retries):
             try:
-                logger.info(f"Получение токена для аккаунта: {config.account} (попытка {attempt + 1}/{max_retries})")
+                logger.info(
+                    f"Fetching token: account={config.account} | attempt={attempt + 1}/{max_retries}",
+                    account=config.account,
+                    attempt=attempt + 1,
+                    max_retries=max_retries
+                )
 
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     response = await client.post(
@@ -128,22 +133,29 @@ class TokenManager:
 
                         if access_token:
                             logger.info(
-                                f"Токен получен успешно для аккаунта {config.account} "
-                                f"(истекает через {expires_in} секунд)"
+                                f"Token fetched successfully: account={config.account} | expires_in={expires_in}s",
+                                account=config.account,
+                                expires_in=expires_in
                             )
                             return (access_token, expires_in)
-                        logger.error(f"Токен не найден в ответе API для аккаунта {config.account}")
+                        logger.error(
+                            f"Token not found in API response: account={config.account}",
+                            account=config.account
+                        )
                         return (None, None)
-                    error_msg = (
-                        f"Ошибка получения токена для аккаунта {config.account}: "
-                        f"{response.status_code} - {response.text}"
+                    logger.error(
+                        f"Error fetching token: account={config.account} | status={response.status_code}",
+                        account=config.account,
+                        status_code=response.status_code,
+                        response_preview=response.text[:200]
                     )
-                    logger.error(error_msg)
 
                     # Для ошибок аутентификации (401, 403) не имеет смысла повторять
                     if response.status_code in (401, 403):
                         logger.error(
-                            f"Ошибка аутентификации для аккаунта {config.account}. Повторные попытки не помогут."
+                            f"Authentication error, retries won't help: account={config.account} | status={response.status_code}",
+                            account=config.account,
+                            status_code=response.status_code
                         )
                         return (None, None)
 
@@ -151,7 +163,10 @@ class TokenManager:
                     if attempt < max_retries - 1:
                         delay = min(base_delay * (2**attempt), max_delay)
                         logger.warning(
-                            f"Повторная попытка получения токена для {config.account} через {delay:.1f} секунд..."
+                            f"Retrying token fetch: account={config.account} | delay={delay:.1f}s | attempt={attempt + 2}",
+                            account=config.account,
+                            delay_seconds=delay,
+                            next_attempt=attempt + 2
                         )
                         await asyncio.sleep(delay)
                     else:
@@ -159,27 +174,40 @@ class TokenManager:
 
             except (httpx.NetworkError, httpx.TimeoutException, httpx.ConnectError) as e:
                 error_type = type(e).__name__
-                logger.warning(f"Сетевая ошибка при получении токена для {config.account} ({error_type}): {e}")
+                logger.warning(
+                    f"Network error fetching token: account={config.account} | error_type={error_type}",
+                    account=config.account,
+                    error_type=error_type,
+                    error=str(e)
+                )
 
                 if attempt < max_retries - 1:
                     delay = min(base_delay * (2**attempt), max_delay)
                     logger.info(
-                        f"Повторная попытка получения токена для {config.account} "
-                        f"через {delay:.1f} секунд (попытка {attempt + 2}/{max_retries})..."
+                        f"Retrying token fetch: account={config.account} | delay={delay:.1f}s | attempt={attempt + 2}/{max_retries}",
+                        account=config.account,
+                        delay_seconds=delay,
+                        attempt=attempt + 2,
+                        max_retries=max_retries
                     )
                     await asyncio.sleep(delay)
                 else:
                     logger.error(
-                        f"Исчерпаны все попытки получения токена для {config.account}. "
-                        f"Последняя ошибка: {error_type}: {e}"
+                        f"All token fetch attempts exhausted: account={config.account} | error={error_type}",
+                        account=config.account,
+                        error_type=error_type,
+                        last_error=str(e)
                     )
                     return (None, None)
 
             except Exception as e:
                 error_type = type(e).__name__
                 logger.error(
-                    f"Неожиданная ошибка при получении токена для {config.account} ({error_type}): {e}",
-                    exc_info=True,  # Включаем traceback для диагностики
+                    f"Unexpected error fetching token: account={config.account} | error_type={error_type}",
+                    account=config.account,
+                    error_type=error_type,
+                    error=str(e),
+                    exc_info=True
                 )
                 # Для неожиданных ошибок не повторяем
                 return (None, None)
@@ -209,16 +237,19 @@ class TokenManager:
         """
         # Проверяем валидность кэшированного токена без блокировки
         if self._is_token_valid():
-            logger.debug(f"Используем кэшированный токен для аккаунта: {config.account}")
+            logger.debug(f"Using cached token: account={config.account}", account=config.account)
             return self._cached_token
 
-        # Получаем блокировку для синхронизации доступа
+        # Get lock for synchronization access
         lock = self.get_lock(config.account)
         async with lock:
-            # Двойная проверка: возможно, токен был получен другой корутиной
-            # пока мы ждали блокировки
+            # Double check: maybe token was fetched by another coroutine
+            # while we were waiting for the lock
             if self._is_token_valid():
-                logger.debug(f"Используем кэшированный токен для аккаунта: {config.account} (получен другой корутиной)")
+                logger.debug(
+                    f"Using cached token (fetched by another coroutine): account={config.account}",
+                    account=config.account
+                )
                 return self._cached_token
 
             # Получаем новый токен
@@ -231,7 +262,7 @@ class TokenManager:
                 expires_in = expires_in or 3600  # 1 час по умолчанию
                 self._token_expires_at = time.time() + expires_in
                 return access_token
-            logger.error(f"Не удалось получить токен для аккаунта: {config.account}")
+            logger.error(f"Failed to fetch token: account={config.account}", account=config.account)
             return None
 
     def invalidate_token(self) -> None:
@@ -240,6 +271,6 @@ class TokenManager:
 
         Полезно при ошибках аутентификации для принудительного обновления токена.
         """
-        logger.debug(f"Инвалидация токена для аккаунта: {self.account}")
+        logger.debug(f"Invalidating token: account={self.account}", account=self.account)
         self._cached_token = None
         self._token_expires_at = None

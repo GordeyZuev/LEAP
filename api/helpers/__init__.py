@@ -1,5 +1,3 @@
-"""Configuration and credentials helpers"""
+"""API helpers and utilities"""
 
-from api.helpers.config_helper import ConfigHelper
-
-__all__ = ["ConfigHelper"]
+__all__ = []

@@ -3,10 +3,10 @@
 import asyncio
 
 from api.celery_app import celery_app
+from api.dependencies import get_async_session_maker
 from api.repositories.template_repos import InputSourceRepository
 from api.tasks.base import SyncTask
 from config.settings import get_settings
-from database.manager import DatabaseManager
 from logger import get_logger
 
 logger = get_logger()
@@ -124,12 +124,9 @@ async def _async_sync_single_source(
     to_date: str | None,
 ) -> dict:
     """Async wrapper for syncing one source."""
-    from database.config import DatabaseConfig
+    session_maker = get_async_session_maker()
 
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-
-    async with db_manager.async_session() as session:
+    async with session_maker() as session:
         task.update_progress(user_id, 20, f"Loading source {source_id}...", step="sync")
 
         # Import here to avoid circular imports
@@ -170,15 +167,12 @@ async def _async_batch_sync_sources(
     to_date: str | None,
 ) -> dict:
     """Async wrapper for batch syncing sources."""
-    from database.config import DatabaseConfig
-
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
+    session_maker = get_async_session_maker()
     results = []
     successful = 0
     failed = 0
 
-    async with db_manager.async_session() as session:
+    async with session_maker() as session:
         repo = InputSourceRepository(session)
 
         for idx, source_id in enumerate(source_ids):

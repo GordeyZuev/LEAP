@@ -1,16 +1,24 @@
 """Celery tasks for automation jobs."""
 
-import asyncio
+from datetime import datetime, timedelta
 
+from api.auth.encryption import get_encryption
 from api.celery_app import celery_app
+from api.dependencies import get_async_session_maker
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron
+from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.automation_repos import AutomationJobRepository
-from api.repositories.recording_repo import RecordingRepository
+from api.repositories.recording_repos import RecordingRepository
+from api.repositories.template_repos import InputSourceRepository
 from api.tasks.base import AutomationTask
+from api.tasks.processing import process_recording_task
+from api.zoom_api import ZoomAPI
 from config.settings import get_settings
+from database.config import DatabaseConfig
 from database.manager import DatabaseManager
 from logger import get_logger
 from models.recording import ProcessingStatus
+from utils import get_recordings_by_date_range
 
 logger = get_logger()
 settings = get_settings()
@@ -23,7 +31,7 @@ settings = get_settings()
     max_retries=settings.celery.automation_max_retries,
     default_retry_delay=settings.celery.automation_retry_delay,
 )
-def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
+def run_automation_job_task(self, job_id: int, user_id: int):
     """
     Execute automation job:
     1. Sync source recordings
@@ -32,11 +40,8 @@ def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
     """
 
     async def _run():
-        from database.config import DatabaseConfig
-
-        db_config = DatabaseConfig.from_env()
-        db_manager = DatabaseManager(db_config)
-        async with db_manager.async_session() as session:
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
             job_repo = AutomationJobRepository(session)
             job = await job_repo.get_by_id(job_id, user_id)
 
@@ -50,13 +55,7 @@ def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
                 sync_config = job.sync_config
                 processing_config = job.processing_config
 
-                # Step 1: Sync source via RecordingService
-                from datetime import datetime, timedelta
-
-                from api.repositories.auth_repos import UserCredentialRepository
-                from api.repositories.template_repos import InputSourceRepository
-                from api.services.recording.service import RecordingService
-
+                # Step 1: Sync recordings from Zoom API
                 source_repo = InputSourceRepository(session)
                 source = await source_repo.find_by_id(job.source_id, user_id)
 
@@ -72,26 +71,44 @@ def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
                     return {"status": "error", "error": "Credential not found"}
 
                 # Decrypt credentials
-                from utils.encryption import decrypt_credentials
-
-                creds_data = decrypt_credentials(credential.encrypted_data)
+                encryption = get_encryption()
+                creds_data = encryption.decrypt_credentials(credential.encrypted_data)
 
                 # Calculate date range
                 days = sync_config.get("sync_days", 2)
                 to_date = datetime.now().strftime("%Y-%m-%d")
                 from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-                # Sync via RecordingService
-                recording_repo = RecordingRepository(session)
-                recording_service = RecordingService(repo=recording_repo)
-                synced_count = await recording_service._sync_zoom_recordings(creds_data, from_date, to_date)
+                # Fetch recordings from Zoom API
+                all_recordings = []
+                for account, config in creds_data.items():
+                    try:
+                        api = ZoomAPI(config)
+                        recordings = await get_recordings_by_date_range(
+                            api, start_date=from_date, end_date=to_date, filter_video_only=False
+                        )
+                        if recordings:
+                            for rec in recordings:
+                                rec.account = account
+                                rec.user_id = user_id
+                            all_recordings.extend(recordings)
+                    except Exception as e:
+                        logger.error(f"Job {job_id}: Failed to fetch from {account}: {e}")
+                        continue
 
+                # Save to database (DatabaseManager handles duplicate detection)
+                if all_recordings:
+                    db_config = DatabaseConfig.from_env()
+                    db_manager = DatabaseManager(db_config)
+                    synced_count = await db_manager.save_recordings(all_recordings)
+                else:
+                    synced_count = 0
                 logger.info(f"Job {job_id}: Synced {synced_count} new recordings")
 
                 # Step 2: Get INITIALIZED recordings (newly synced)
                 recording_repo = RecordingRepository(session)
-                new_recordings = await recording_repo.get_by_filters(
-                    user_id=user_id, status=ProcessingStatus.INITIALIZED.value
+                new_recordings = await recording_repo.list_by_status(
+                    user_id=user_id, status=ProcessingStatus.INITIALIZED, limit=1000
                 )
 
                 # Step 3: Process recordings if auto_process is enabled
@@ -99,8 +116,6 @@ def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
                 processed_count = 0
 
                 if processing_config.get("auto_process", True):
-                    from api.tasks.processing import process_recording_task
-
                     # Process all INITIALIZED recordings (template-driven)
                     auto_upload = processing_config.get("auto_upload", True)
                     manual_override = {"upload": {"auto_upload": auto_upload}} if auto_upload else None
@@ -138,7 +153,7 @@ def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
                 logger.error("Job {} failed: {}", job_id, str(e), exc_info=True)
                 return {"status": "error", "job_id": job_id, "error": str(e)}
 
-    return asyncio.run(_run())
+    return self.run_async(_run())
 
 
 @celery_app.task(
@@ -148,18 +163,15 @@ def run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
     max_retries=settings.celery.automation_max_retries,
     default_retry_delay=settings.celery.automation_retry_delay,
 )
-def dry_run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG001
+def dry_run_automation_job_task(self, job_id: int, user_id: int):
     """
     Preview what the job would do without executing.
     Returns estimated counts without actually processing.
     """
 
     async def _run():
-        from database.config import DatabaseConfig
-
-        db_config = DatabaseConfig.from_env()
-        db_manager = DatabaseManager(db_config)
-        async with db_manager.async_session() as session:
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
             job_repo = AutomationJobRepository(session)
             job = await job_repo.get_by_id(job_id, user_id)
 
@@ -171,8 +183,8 @@ def dry_run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG00
 
                 # Estimate current INITIALIZED recordings count
                 recording_repo = RecordingRepository(session)
-                current_recordings = await recording_repo.get_by_filters(
-                    user_id=user_id, status=ProcessingStatus.INITIALIZED.value
+                current_recordings = await recording_repo.list_by_status(
+                    user_id=user_id, status=ProcessingStatus.INITIALIZED, limit=1000
                 )
                 current_count = len(current_recordings)
 
@@ -193,4 +205,4 @@ def dry_run_automation_job_task(self, job_id: int, user_id: int):  # noqa: ARG00
                 logger.error(f"Dry run failed for job {job_id}: {e}")
                 return {"status": "error", "error": str(e)}
 
-    return asyncio.run(_run())
+    return self.run_async(_run())

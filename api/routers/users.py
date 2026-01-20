@@ -11,7 +11,7 @@ from api.repositories.auth_repos import (
     RefreshTokenRepository,
     UserRepository,
 )
-from api.repositories.recording_repos import RecordingAsyncRepository
+from api.repositories.recording_repos import RecordingRepository
 from api.schemas.auth import QuotaStatusResponse, QuotaUsageResponse, UserInDB, UserResponse, UserUpdate
 from api.schemas.auth.response import UserMeResponse
 from api.schemas.user import (
@@ -339,7 +339,6 @@ async def delete_account(
 
     # Delete all related data (in correct order due to FK)
     # 1. Output targets
-    await session.execute(select(OutputTargetModel).where(OutputTargetModel.user_id == user_id))
     result = await session.execute(select(OutputTargetModel).where(OutputTargetModel.user_id == user_id))
     output_targets = result.scalars().all()
     for target in output_targets:
@@ -360,7 +359,7 @@ async def delete_account(
     # 4. Recordings (use repository to delete files and update quota)
     result = await session.execute(select(RecordingModel).where(RecordingModel.user_id == user_id))
     recordings = result.scalars().all()
-    recording_repo = RecordingAsyncRepository(session)
+    recording_repo = RecordingRepository(session)
     for recording in recordings:
         await recording_repo.delete(recording)
 

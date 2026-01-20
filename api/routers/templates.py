@@ -142,10 +142,10 @@ async def create_template_from_recording(
             status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to create templates"
         )
 
-    from api.repositories.recording_repos import RecordingAsyncRepository
+    from api.repositories.recording_repos import RecordingRepository
     from database.template_models import RecordingTemplateModel
 
-    recording_repo = RecordingAsyncRepository(session)
+    recording_repo = RecordingRepository(session)
 
     # Get recording
     recording = await recording_repo.get_by_id(recording_id, current_user.id)

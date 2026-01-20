@@ -118,9 +118,9 @@ class VideoProcessor:
         cmd.extend(["-y", output_path])
 
         try:
-            logger.info(f"🔧 Команда FFmpeg: {' '.join(cmd)}")
+            logger.info(f"FFmpeg command: cmd={' '.join(cmd)}", cmd=" ".join(cmd))
 
-            logger.info("🔧 Starting FFmpeg for video processing...")
+            logger.info("Starting FFmpeg for video processing...")
 
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -130,21 +130,25 @@ class VideoProcessor:
             await process.wait()
 
             if process.returncode != 0:
-                logger.error(f"❌ FFmpeg finished with code {process.returncode}")
+                logger.error(f"FFmpeg finished with error: code={process.returncode}", code=process.returncode)
                 stderr_output = await process.stderr.read()
-                logger.error(f"❌ FFmpeg error: {stderr_output.decode()}")
+                logger.error(f"FFmpeg error: output={stderr_output.decode()[:500]}", error=stderr_output.decode()[:500])
                 return False
 
             if Path(output_path).exists():
                 file_size = Path(output_path).stat().st_size
-                logger.info(f"✅ File created: {output_path} ({file_size} bytes)")
+                logger.info(
+                    f"File created: path={output_path} | size={file_size} bytes",
+                    path=output_path,
+                    size_bytes=file_size
+                )
                 return True
-            logger.error(f"❌ File not created: {output_path}")
+            logger.error(f"File not created: path={output_path}", path=output_path)
             return False
 
         except Exception as e:
-            logger.error(f"❌ Exception during video trimming: {e}")
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            logger.error(f"Exception during video trimming: error={e}", error=str(e))
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     async def process_segment(self, segment: VideoSegment, input_path: str) -> bool:
@@ -171,7 +175,7 @@ class VideoProcessor:
             return False
 
         except Exception as e:
-            logger.info(f"Error processing segment {segment.title}: {e}")
+            logger.info(f"Error processing segment: title={segment.title} | error={e}", title=segment.title, error=str(e))
             return False
 
     async def process_video(
@@ -182,34 +186,43 @@ class VideoProcessor:
             video_info = await self.get_video_info(video_path)
             duration = video_info["duration"]
 
-            logger.info(f"📹 Processing video: {title}")
-            logger.info(f"   Duration: {duration / 60:.1f} minutes")
-            logger.info(f"   Size: {video_info['size'] / 1024 / 1024:.1f} MB")
-            logger.info(f"   Resolution: {video_info['width']}x{video_info['height']}")
+            logger.info(f"Processing video: title={title}", title=title)
+            logger.info(f"   Duration: {duration / 60:.1f} min", duration_min=duration / 60)
+            logger.info(f"   Size: {video_info['size'] / 1024 / 1024:.1f} MB", size_mb=video_info["size"] / 1024 / 1024)
+            logger.info(f"   Resolution: {video_info['width']}x{video_info['height']}", width=video_info["width"], height=video_info["height"])
 
             if custom_segments:
                 segments = self.segment_processor.create_segments_from_timestamps(custom_segments, title)
             else:
                 segments = self.segment_processor.create_segments_from_duration(duration, title)
 
-            logger.info(f"   Created segments: {len(segments)}")
+            logger.info(f"   Created segments: count={len(segments)}", segments=len(segments))
 
             processed_segments = []
             for i, segment in enumerate(segments, 1):
-                logger.info(f"   Обработка сегмента {i}/{len(segments)}: {segment.title}")
+                logger.info(
+                    f"   Processing segment: number={i}/{len(segments)} | title={segment.title}",
+                    segment=i,
+                    total=len(segments),
+                    title=segment.title
+                )
 
                 success = await self.process_segment(segment, video_path)
                 if success:
                     processed_segments.append(segment)
-                    logger.info(f"   ✅ Segment processed: {segment.output_path}")
+                    logger.info(f"   Segment processed: path={segment.output_path}", path=segment.output_path)
                 else:
-                    logger.info(f"   ❌ Error processing segment: {segment.title}")
+                    logger.info(f"   Error processing segment: title={segment.title}", title=segment.title)
 
-            logger.info(f"✅ Processing completed: {len(processed_segments)}/{len(segments)} segments")
+            logger.info(
+                f"Processing completed: processed={len(processed_segments)}/{len(segments)} segments",
+                processed=len(processed_segments),
+                total=len(segments)
+            )
             return processed_segments
 
         except Exception as e:
-            logger.info(f"❌ Ошибка обработки видео {title}: {e}")
+            logger.info(f"Error processing video: title={title} | error={e}", title=title, error=str(e))
             return []
 
     async def process_video_with_audio_detection(
@@ -224,39 +237,47 @@ class VideoProcessor:
                        Используется для создания уникального имени файла
         """
         try:
-            logger.info(f"🎬 Обработка видео с детекцией звука: {title}")
+            logger.info(f"Processing video with sound detection: title={title}", title=title)
 
             if not Path(video_path).exists():
-                logger.error(f"❌ Файл не найден: {video_path}")
+                logger.error(f"File not found: path={video_path}", path=video_path)
                 return False, None
 
-            logger.info(f"🔍 Детекция звука для: {title}")
+            logger.info(f"Detecting sound: title={title}", title=title)
             first_sound, last_sound = await self.audio_detector.detect_audio_boundaries(video_path)
 
             if first_sound is None and last_sound is None:
-                logger.warning(f"⚠️ Не удалось определить границы звука для {title}")
+                logger.warning(f"Failed to detect sound boundaries: title={title}", title=title)
                 return False, None
 
             if first_sound is None:
-                logger.warning(f"⚠️ Не удалось определить начало звука для {title}")
+                logger.warning(f"Failed to detect sound start: title={title}", title=title)
                 return False, None
 
             # Если звук есть на всем протяжении видео, не обрезаем и используем исходный файл
             if last_sound is None and first_sound == 0.0:
-                logger.info("🔊 Звук на всем протяжении видео, пропускаем обрезку и используем исходный файл")
+                logger.info("Sound throughout entire video, skipping trim and using original file")
                 return True, str(Path(video_path).resolve())
 
             if last_sound is None:
-                logger.warning(f"⚠️ Не удалось определить конечную границу звука для {title}")
+                logger.warning(f"Failed to detect sound end: title={title}", title=title)
                 return False, None
 
-            logger.info(f"🎵 Найденные границы звука: {first_sound:.1f}s - {last_sound:.1f}s")
+            logger.info(
+                f"Detected sound boundaries: start={first_sound:.1f}s | end={last_sound:.1f}s",
+                start=first_sound,
+                end=last_sound
+            )
 
             start_time_trim = max(0, first_sound - self.config.padding_before)
             end_time = last_sound + self.config.padding_after
 
             logger.info(
-                f"✂️ Обрезка с {start_time_trim:.1f}s по {end_time:.1f}s (отступы: -{self.config.padding_before}s, +{self.config.padding_after}s)"
+                f"Trimming: start={start_time_trim:.1f}s | end={end_time:.1f}s | padding=-{self.config.padding_before}s/+{self.config.padding_after}s",
+                start=start_time_trim,
+                end=end_time,
+                padding_before=self.config.padding_before,
+                padding_after=self.config.padding_after
             )
 
             safe_title = sanitize_filename(title)
@@ -269,24 +290,28 @@ class VideoProcessor:
                     date_obj = datetime.fromisoformat(normalized_time)
                     date_suffix = f"_{date_obj.strftime('%y-%m-%d_%H-%M')}"
                 except Exception as e:
-                    logger.warning(f"⚠️ Error parsing date '{start_time}' for filename: {e}")
+                    logger.warning(
+                        f"Error parsing date for filename: date={start_time}",
+                        date=start_time,
+                        error=str(e)
+                    )
 
             output_filename = f"{safe_title}{date_suffix}_processed.mp4"
             output_path = Path(self.config.output_dir) / output_filename
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.info("🎬 Запуск FFmpeg для обрезки...")
+            logger.info("Starting FFmpeg for trimming...")
             success = await self.trim_video(video_path, output_path, start_time_trim, end_time)
 
             if success:
-                logger.info(f"✅ Video processed: {output_path}")
+                logger.info(f"Video processed: path={output_path}", path=str(output_path))
                 return True, str(output_path)
-            logger.error(f"❌ Error trimming video: {title}")
+            logger.error(f"Error trimming video: title={title}", title=title)
             return False, None
 
         except Exception as e:
-            logger.error(f"❌ Exception during video processing {title}: {e}")
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            logger.error(f"Exception during video processing: title={title} | error={e}", title=title, error=str(e))
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False, None
 
     async def batch_process(self, video_files: list[str]) -> dict[str, list[VideoSegment]]:
@@ -295,7 +320,7 @@ class VideoProcessor:
 
         for video_path in video_files:
             if not Path(video_path).exists():
-                logger.info(f"❌ File not found: {video_path}")
+                logger.info(f"File not found: path={video_path}", path=video_path)
                 continue
 
             title = Path(video_path).stem
@@ -311,7 +336,7 @@ class VideoProcessor:
             temp_dir = Path(self.config.temp_dir)
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
-                logger.info(f"🧹 Temporary files cleaned up: {temp_dir}")
+                logger.info(f"Temporary files cleaned up: dir={temp_dir}", dir=str(temp_dir))
 
     def get_processing_statistics(self, results: dict[str, list[VideoSegment]]) -> dict[str, Any]:
         """Getting processing statistics."""

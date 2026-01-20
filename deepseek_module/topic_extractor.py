@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from openai import AsyncOpenAI
 
-from logger import format_log, get_logger
+from logger import get_logger
 
 from .config import DeepSeekConfig
 
@@ -56,12 +56,10 @@ class TopicExtractor:
         else:
             provider = "deepseek"
         logger.info(
-            format_log(
-                "TopicExtractor инициализирован",
-                провайдер=provider,
-                базовый_url=config.base_url,
-                модель=config.model,
-            )
+            f"TopicExtractor initialized: provider={provider} | base_url={config.base_url} | model={config.model}",
+            provider=provider,
+            base_url=config.base_url,
+            model=config.model
         )
 
     async def extract_topics(
@@ -95,36 +93,28 @@ class TopicExtractor:
             raise ValueError("Сегменты обязательны для извлечения тем")
 
         logger.info(
-            format_log(
-                "Извлекаем темы из транскрипта",
-                количество_сегментов=len(segments),
-            )
+            f"Extracting topics from transcript: segments={len(segments)}",
+            segments=len(segments)
         )
         if recording_topic:
             logger.info(
-                format_log(
-                    "Используем контекст записи",
-                    тема_записи=recording_topic,
-                )
+                f"Using recording context: topic={recording_topic}",
+                recording_topic=recording_topic
             )
 
         total_duration = segments[-1].get("end", 0) if segments else 0
         duration_minutes = total_duration / 60
         logger.info(
-            format_log(
-                "Рассчитана длительность видео",
-                длительность_минут=round(duration_minutes, 1),
-            )
+            f"Video duration calculated: duration={duration_minutes:.1f} min",
+            duration_min=round(duration_minutes, 1)
         )
 
         min_topics, max_topics = self._calculate_topic_range(duration_minutes, granularity=granularity)
         logger.info(
-            format_log(
-                "Рассчитан диапазон количества тем",
-                минимум_тем=min_topics,
-                максимум_тем=max_topics,
-                длительность_минут=round(duration_minutes, 1),
-            )
+            f"Topic range calculated: min={min_topics} | max={max_topics} | duration={duration_minutes:.1f} min",
+            min_topics=min_topics,
+            max_topics=max_topics,
+            duration_min=round(duration_minutes, 1)
         )
 
         transcript_with_timestamps = self._format_transcript_with_timestamps(segments)
@@ -146,11 +136,9 @@ class TopicExtractor:
             topic_timestamps_with_end = self._add_end_timestamps(topic_timestamps, total_duration)
 
             logger.info(
-                format_log(
-                    "Темы успешно извлечены",
-                    количество_основных=len(main_topics),
-                    количество_детализированных=len(topic_timestamps_with_end),
-                )
+                f"Topics extracted successfully: main={len(main_topics)} | detailed={len(topic_timestamps_with_end)}",
+                main_topics=len(main_topics),
+                detailed_topics=len(topic_timestamps_with_end)
             )
 
             return {
@@ -160,10 +148,8 @@ class TopicExtractor:
             }
         except Exception as error:
             logger.exception(
-                format_log(
-                    "Не удалось извлечь темы",
-                    ошибка=str(error),
-                )
+                f"Failed to extract topics: error={error}",
+                error=str(error)
             )
             return {
                 "topic_timestamps": [],
@@ -191,7 +177,7 @@ class TopicExtractor:
         if not segments_path.exists():
             raise FileNotFoundError(f"Файл segments.txt не найден: {segments_file_path}")
 
-        logger.info(f"📖 Чтение сегментов из файла: {segments_file_path}")
+        logger.info(f"Reading segments from file: {segments_file_path}")
 
         segments = []
         timestamp_pattern = re.compile(r"\[(\d{2}):(\d{2}):(\d{2})\s*-\s*(\d{2}):(\d{2}):(\d{2})\]\s*(.+)")
@@ -239,7 +225,7 @@ class TopicExtractor:
         if not segments:
             raise ValueError(f"Не удалось извлечь сегменты из файла {segments_file_path}")
 
-        logger.info(f"✅ Прочитано {len(segments)} сегментов из файла {segments_file_path}")
+        logger.info(f"Read {len(segments)} segments from file {segments_file_path}")
 
         return await self.extract_topics(
             segments=segments,
@@ -491,8 +477,8 @@ class TopicExtractor:
             if not content:
                 return {"main_topics": [], "topic_timestamps": []}
 
-            logger.debug(f"Промпт отправлен в DeepSeek: preview={prompt[:1000]}... | total_length={len(prompt)}")
-            logger.debug(f"Полный ответ от DeepSeek: length={len(content)} | preview={content[:200]}...")
+            logger.debug(f"Prompt sent to DeepSeek: preview={prompt[:1000]}... | total_length={len(prompt)}")
+            logger.debug(f"Full DeepSeek response: length={len(content)} | preview={content[:200]}...")
 
             parsed = self._parse_structured_response(content, total_duration)
             parsed["long_pauses"] = long_pauses
@@ -505,10 +491,8 @@ class TopicExtractor:
 
         except Exception as error:
             logger.exception(
-                format_log(
-                    "Не удалось проанализировать транскрипт",
-                    ошибка=str(error),
-                )
+                f"Failed to analyze transcript: error={error}",
+                error=str(error)
             )
             return {"main_topics": [], "topic_timestamps": []}
 
@@ -583,7 +567,7 @@ class TopicExtractor:
 
         timeout = httpx.Timeout(self.config.timeout, connect=10.0)
 
-        logger.debug(f"Fireworks API запрос: url={url} | model={self.config.model} | params={list(params.keys())}")
+        logger.debug(f"Fireworks API request: url={url} | model={self.config.model} | params={list(params.keys())}")
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             try:
@@ -616,10 +600,10 @@ class TopicExtractor:
                 if e.response is not None:
                     try:
                         error_data = e.response.json()
-                        logger.error(f"❌ Ошибка Fireworks API: {error_data}")
+                        logger.error(f"Fireworks API error: data={error_data}", error_data=error_data)
                     except Exception:
                         error_text = e.response.text
-                        logger.error(f"❌ Ошибка Fireworks API: {error_text[:1000]}")
+                        logger.error(f"Fireworks API error: text={error_text[:1000]}", error_text=error_text[:1000])
                 raise
 
     def _detect_long_pauses(self, segments: list[dict], min_gap_minutes: float = 8.0) -> list[dict]:
@@ -853,12 +837,10 @@ class TopicExtractor:
                         )
                     else:
                         logger.debug(
-                            format_log(
-                                "Метка пропущена: вне допустимого диапазона",
-                                тема=topic.strip(),
-                                позиция_минут=round(total_seconds / 60, 1),
-                                допустимый_диапазон=f"0-{round(total_duration / 60, 1)}",
-                            )
+                            f"Timestamp skipped (out of range): topic={topic.strip()} | position={total_seconds / 60:.1f}min | range=0-{total_duration / 60:.1f}min",
+                            topic=topic.strip(),
+                            position_min=round(total_seconds / 60, 1),
+                            valid_range=f"0-{round(total_duration / 60, 1)}"
                         )
 
         # Если не нашли топики через секции, пробуем парсить все строки с временными метками
@@ -891,7 +873,7 @@ class TopicExtractor:
             topic_timestamps = self._parse_simple_timestamps(text, total_duration)
 
         if main_topics_section_found and not main_topics:
-            logger.debug("Секция основных тем найдена, но темы не извлечены. Поиск темы в начале ответа")
+            logger.debug("Main topics section found but topics not extracted. Searching for topic at response start")
             for i, line in enumerate(lines):
                 if "ОСНОВНЫЕ ТЕМЫ" in line.upper() or "ОСНОВНЫЕ ТЕМЫ ПАРЫ" in line.upper():
                     for j in range(i + 1, min(i + 5, len(lines))):
@@ -922,7 +904,7 @@ class TopicExtractor:
                 processed_main_topics.append(topic)
 
         if processed_main_topics:
-            logger.info(f"🧭 Основная тема: {processed_main_topics[0]}")
+            logger.info(f"Main topic: {processed_main_topics[0]}")
         if not processed_main_topics and main_topics_section_found:
             logger.warning(
                 f"⚠️ Секция основных тем найдена, но не удалось извлечь тему. Первые строки ответа:\n{chr(10).join(lines[:10])}"
@@ -1120,12 +1102,10 @@ class TopicExtractor:
 
             if start >= end:
                 logger.warning(
-                    format_log(
-                        "Тема пропущена из-за некорректных временных меток",
-                        тема=topic,
-                        начало_секунд=round(start, 1),
-                        конец_секунд=round(end, 1),
-                    )
+                    f"Topic skipped (invalid timestamps): topic={topic} | start={start:.1f}s | end={end:.1f}s",
+                    topic=topic,
+                    start_sec=round(start, 1),
+                    end_sec=round(end, 1)
                 )
                 continue
 

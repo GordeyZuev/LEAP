@@ -296,20 +296,20 @@ class TemplateRenderer:
         if hasattr(recording, "topic_timestamps") and recording.topic_timestamps:
             # Use topic_timestamps directly (list of dicts with topic, start, end)
             topics_for_description = recording.topic_timestamps
-            logger.info(f"[TemplateRenderer] Using {len(topics_for_description)} detailed topics from topic_timestamps")
+            logger.debug(f"[TemplateRenderer] Using {len(topics_for_description)} detailed topics from topic_timestamps")
         elif hasattr(recording, "main_topics") and recording.main_topics:
             # Fallback to main_topics if topic_timestamps not available (list of strings)
             topics_for_description = recording.main_topics
-            logger.info(f"[TemplateRenderer] Using main_topics fallback: {len(topics_for_description)} topics")
+            logger.debug(f"[TemplateRenderer] Using main_topics fallback: {len(topics_for_description)} topics")
 
         # Format topics for description
         if topics_for_description:
             if topics_display:
-                logger.info(
+                logger.debug(
                     f"[TemplateRenderer] Formatting {len(topics_for_description)} topics with config: {topics_display}"
                 )
                 context["topics"] = TemplateRenderer._format_topics_list(topics_for_description, topics_display)
-                logger.info(f"[TemplateRenderer] Formatted topics length: {len(context['topics'])} chars")
+                logger.debug(f"[TemplateRenderer] Formatted topics length: {len(context['topics'])} chars")
             # Default formatting (handle both dict and string topics)
             elif topics_for_description and isinstance(topics_for_description[0], dict):
                 context["topics"] = "\n".join(

@@ -78,7 +78,12 @@ class ZoomAPI:
             params["meeting_id"] = meeting_id
 
         try:
-            logger.info(f"Запрос записей: from={from_date}, to={to_date}, meeting_id={meeting_id}")
+            logger.info(
+                f"Fetching recordings: from={from_date} | to={to_date} | meeting_id={meeting_id}",
+                from_date=from_date,
+                to_date=to_date,
+                meeting_id=meeting_id
+            )
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     "https://api.zoom.us/v2/users/me/recordings",
@@ -88,7 +93,7 @@ class ZoomAPI:
 
                 if response.status_code == 200:
                     data = response.json()
-                    logger.info(f"Получено записей: {len(data.get('meetings', []))}")
+                    logger.info(f"Fetched recordings: count={len(data.get('meetings', []))}", count=len(data.get("meetings", [])))
                     # Логируем сырые данные от Zoom API
                     import json
 
@@ -97,20 +102,37 @@ class ZoomAPI:
                     )
                     return data
                 account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
-                logger.error(f"API error for account {account}: {response.status_code} - {response.text}")
+                logger.error(
+                    f"API error: account={account} | status={response.status_code}",
+                    account=account,
+                    status_code=response.status_code,
+                    response_preview=response.text[:200]
+                )
                 raise ZoomResponseError(f"Ошибка API: {response.status_code} - {response.text}")
 
         except httpx.RequestError as e:
             error_type = type(e).__name__
             account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
-            logger.error(f"Network error for account {account} ({error_type}): {e}", exc_info=True)
+            logger.error(
+                f"Network error: account={account} | error_type={error_type}",
+                account=account,
+                error_type=error_type,
+                error=str(e),
+                exc_info=True
+            )
             raise ZoomRequestError(f"Ошибка сетевого запроса: {e}") from e
         except ZoomAPIError:
             raise
         except Exception as e:
             error_type = type(e).__name__
             account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
-            logger.error(f"Unexpected error for account {account} ({error_type}): {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error: account={account} | error_type={error_type}",
+                account=account,
+                error_type=error_type,
+                error=str(e),
+                exc_info=True
+            )
             raise ZoomAPIError(f"Неожиданная ошибка: {e}") from e
 
     async def get_recording_details(self, meeting_id: str, include_download_token: bool = True) -> dict[str, Any]:
@@ -143,9 +165,11 @@ class ZoomAPI:
                     return data
                 account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
                 logger.error(
-                    f"API error for account {account} "
-                    f"getting recording {meeting_id}: "
-                    f"{response.status_code} - {response.text}"
+                    f"API error getting recording: account={account} | meeting_id={meeting_id} | status={response.status_code}",
+                    account=account,
+                    meeting_id=meeting_id,
+                    status_code=response.status_code,
+                    response_preview=response.text[:200]
                 )
                 raise ZoomResponseError(f"Ошибка API: {response.status_code} - {response.text}")
 
@@ -153,8 +177,12 @@ class ZoomAPI:
             error_type = type(e).__name__
             account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
             logger.error(
-                f"Network error for account {account} getting recording {meeting_id} ({error_type}): {e}",
-                exc_info=True,
+                f"Network error getting recording: account={account} | meeting_id={meeting_id} | error_type={error_type}",
+                account=account,
+                meeting_id=meeting_id,
+                error_type=error_type,
+                error=str(e),
+                exc_info=True
             )
             raise ZoomRequestError(f"Ошибка сетевого запроса: {e}") from e
         except ZoomAPIError:
@@ -163,7 +191,11 @@ class ZoomAPI:
             error_type = type(e).__name__
             account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
             logger.error(
-                f"Unexpected error for account {account} getting recording {meeting_id} ({error_type}): {e}",
-                exc_info=True,
+                f"Unexpected error getting recording: account={account} | meeting_id={meeting_id} | error_type={error_type}",
+                account=account,
+                meeting_id=meeting_id,
+                error_type=error_type,
+                error=str(e),
+                exc_info=True
             )
             raise ZoomAPIError(f"Неожиданная ошибка: {e}") from e

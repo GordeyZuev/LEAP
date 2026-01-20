@@ -3,10 +3,16 @@
 import asyncio
 from datetime import datetime
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
 from api.celery_app import celery_app
+from api.dependencies import get_async_session_maker
+from api.repositories.auth_repos import RefreshTokenRepository
+from api.repositories.config_repos import UserConfigRepository
+from api.repositories.recording_repos import RecordingRepository
 from config.settings import get_settings
-from database.config import DatabaseConfig
-from database.manager import DatabaseManager
+from database.models import RecordingModel
 from logger import get_logger
 
 logger = get_logger()
@@ -25,16 +31,13 @@ def cleanup_expired_tokens_task():
     Runs daily (configured in Celery Beat).
     """
     try:
-        from api.repositories.auth_repos import RefreshTokenRepository
-
         logger.info("Starting cleanup of expired refresh tokens...")
 
         # Start async cleanup
         async def cleanup():
-            db_config = DatabaseConfig.from_env()
-            db_manager = DatabaseManager(db_config)
+            session_maker = get_async_session_maker()
 
-            async with db_manager.async_session() as session:
+            async with session_maker() as session:
                 token_repo = RefreshTokenRepository(session)
                 return await token_repo.delete_expired()
 
@@ -75,24 +78,16 @@ def auto_expire_recordings_task():
     Runs daily at 3:30 UTC (configured in Celery Beat).
     """
     try:
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
-
-        from api.repositories.config_repos import UserConfigRepository
-        from api.repositories.recording_repos import RecordingAsyncRepository
-        from database.models import RecordingModel
-
         logger.info("Starting auto-expire of recordings...")
 
         async def expire():
-            db_config = DatabaseConfig.from_env()
-            db_manager = DatabaseManager(db_config)
+            session_maker = get_async_session_maker()
 
             expired_count = 0
             errors = []
 
             # Find active recordings where expire_at passed
-            async with db_manager.async_session() as session:
+            async with session_maker() as session:
                 query = (
                     select(RecordingModel)
                     .where(
@@ -110,8 +105,8 @@ def auto_expire_recordings_task():
             # Process each in separate transaction
             for recording in recordings:
                 try:
-                    async with db_manager.async_session() as tx_session:
-                        recording_repo = RecordingAsyncRepository(tx_session)
+                    async with session_maker() as tx_session:
+                        recording_repo = RecordingRepository(tx_session)
                         user_config_repo = UserConfigRepository(tx_session)
 
                         # Refetch recording
@@ -180,20 +175,19 @@ def cleanup_recording_files_task():
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
 
-        from api.repositories.recording_repos import RecordingAsyncRepository
+        from api.repositories.recording_repos import RecordingRepository
         from database.models import RecordingModel
 
         logger.info("Starting cleanup of recording files...")
 
         async def cleanup():
-            db_config = DatabaseConfig.from_env()
-            db_manager = DatabaseManager(db_config)
+            session_maker = get_async_session_maker()
 
             cleaned_count = 0
             errors = []
 
             # Get all soft deleted recordings with owner
-            async with db_manager.async_session() as session:
+            async with session_maker() as session:
                 query = (
                     select(RecordingModel)
                     .where(RecordingModel.delete_state == "soft")
@@ -221,23 +215,18 @@ def cleanup_recording_files_task():
                         )
                         continue
 
-                    async with db_manager.async_session() as tx_session:
-                        recording_repo = RecordingAsyncRepository(tx_session)
+                    async with session_maker() as tx_session:
+                        recording_repo = RecordingRepository(tx_session)
                         rec = await tx_session.get(RecordingModel, recording.id)
                         if not rec:
                             continue
 
                         # CRITICAL: Re-check state after refetch (race condition protection)
                         if rec.delete_state != "soft":
-                            logger.debug(
-                                f"Skipping recording {rec.id}: state changed to {rec.delete_state}"
-                            )
+                            logger.debug(f"Skipping recording {rec.id}: state changed to {rec.delete_state}")
                             continue
 
-                        logger.debug(
-                            f"Cleaning files for recording {rec.id} "
-                            f"(soft_deleted_at={rec.soft_deleted_at})"
-                        )
+                        logger.debug(f"Cleaning files for recording {rec.id} (soft_deleted_at={rec.soft_deleted_at})")
 
                         # Cleanup files (has internal state check)
                         freed_bytes = await recording_repo.cleanup_recording_files(rec)
@@ -298,22 +287,16 @@ def hard_delete_recordings_task():
     Runs daily at 5:00 UTC (configured in Celery Beat).
     """
     try:
-        from sqlalchemy import select
-
-        from api.repositories.recording_repos import RecordingAsyncRepository
-        from database.models import RecordingModel
-
         logger.info("Starting hard delete of recordings...")
 
         async def cleanup():
-            db_config = DatabaseConfig.from_env()
-            db_manager = DatabaseManager(db_config)
+            session_maker = get_async_session_maker()
 
             deleted_count = 0
             errors = []
 
             # Find recordings where hard_delete_at passed
-            async with db_manager.async_session() as session:
+            async with session_maker() as session:
                 query = select(RecordingModel).where(
                     RecordingModel.hard_delete_at.isnot(None),
                     RecordingModel.hard_delete_at < datetime.utcnow(),
@@ -326,8 +309,8 @@ def hard_delete_recordings_task():
             # Delete each in separate transaction
             for recording in recordings:
                 try:
-                    async with db_manager.async_session() as tx_session:
-                        recording_repo = RecordingAsyncRepository(tx_session)
+                    async with session_maker() as tx_session:
+                        recording_repo = RecordingRepository(tx_session)
 
                         # Refetch recording
                         rec = await tx_session.get(RecordingModel, recording.id)

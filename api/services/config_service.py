@@ -1,4 +1,4 @@
-"""Helper for user configurations and credentials"""
+"""Service for user configurations and credentials"""
 
 from typing import Any
 
@@ -13,12 +13,12 @@ from models.zoom_auth import ZoomOAuthCredentials, ZoomServerToServerCredentials
 logger = get_logger()
 
 
-class ConfigHelper:
-    """User configuration and credentials helper"""
+class ConfigService:
+    """Service for user configuration and credentials"""
 
     def __init__(self, session: AsyncSession, user_id: int):
         """
-        Инициализация helper.
+        Initialize config service.
 
         Args:
             session: Database session

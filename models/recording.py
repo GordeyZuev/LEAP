@@ -808,22 +808,3 @@ class MeetingRecording:
         self.transcription_dir = None
         self.topic_timestamps = None
         self.main_topics = None
-
-    @staticmethod
-    def format_duration(minutes: int) -> str:
-        """
-        Форматирование длительности в читаемый вид.
-
-        Args:
-            minutes: Длительность в минутах
-
-        Returns:
-            Отформатированная строка
-        """
-        if minutes < 60:
-            return f"{minutes} мин"
-        hours = minutes // 60
-        remaining_minutes = minutes % 60
-        if remaining_minutes == 0:
-            return f"{hours} ч"
-        return f"{hours} ч {remaining_minutes} мин"

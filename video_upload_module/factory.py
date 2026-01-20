@@ -7,7 +7,7 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.helpers.config_helper import ConfigHelper
+from api.services.config_service import ConfigService
 from logger import get_logger
 
 from .config_factory import VKConfig, YouTubeConfig
@@ -38,7 +38,7 @@ class UploaderFactory:
         Raises:
             ValueError: If credentials not found
         """
-        config_helper = ConfigHelper(session, user_id)
+        config_helper = ConfigService(session, user_id)
 
         if credential_id:
             creds = await config_helper.cred_service.get_credentials_by_id(credential_id)
@@ -87,7 +87,7 @@ class UploaderFactory:
         Raises:
             ValueError: If credentials not found
         """
-        config_helper = ConfigHelper(session, user_id)
+        config_helper = ConfigService(session, user_id)
 
         if credential_id:
             creds = await config_helper.cred_service.get_credentials_by_id(credential_id)

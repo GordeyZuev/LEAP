@@ -89,7 +89,7 @@ class SubtitleGenerator:
                             end_time = timedelta(hours=end_h, minutes=end_m, seconds=end_s)
 
                     except Exception as e:
-                        logger.warning(f"⚠️ Ошибка парсинга строки {line_num} в файле {file_path}: {line[:50]}... - {e}")
+                        logger.warning(f"Error parsing line {line_num} in file {file_path}: {line[:50]}... - {e}")
                         continue
 
                     if text.strip():
@@ -113,7 +113,7 @@ class SubtitleGenerator:
         total_lines = 0
         parsed_lines = 0
 
-        logger.info(f"📖 Парсинг файла words: {file_path}")
+        logger.info(f"Parsing words file: path={file_path}", path=file_path)
 
         with Path(file_path).open(encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
@@ -146,23 +146,38 @@ class SubtitleGenerator:
                             )
                             parsed_lines += 1
                     except (ValueError, IndexError) as e:
-                        logger.warning(f"⚠️ Ошибка парсинга строки {line_num} в файле {file_path}: {line[:50]}... - {e}")
+                        logger.warning(
+                            f"⚠️ Error parsing line: line_num={line_num} | file={file_path} | preview={line[:50]}...",
+                            line_num=line_num,
+                            file=file_path,
+                            error=str(e)
+                        )
                         continue
                 # Логируем только первые несколько нераспознанных строк, чтобы не засорять лог
                 elif line_num <= 5:
                     logger.debug(
-                        f"Строка не соответствует формату: line_num={line_num} | preview={line[:50]}... | file={file_path}"
+                        f"Line doesn't match format: line_num={line_num} | preview={line[:50]}... | file={file_path}",
+                        line_num=line_num,
+                        file=file_path
                     )
 
-        logger.info(f"📊 Парсинг завершен: обработано {total_lines} строк, распарсено {parsed_lines} слов")
+        logger.info(
+            f"📊 Parsing completed: processed={total_lines} lines | parsed={parsed_lines} words",
+            processed_lines=total_lines,
+            parsed_words=parsed_lines
+        )
 
         if not words:
             raise ValueError(f"Не удалось извлечь слова из файла {file_path}. Файл пуст или имеет неверный формат.")
 
-        logger.info(f"🔄 Группировка {len(words)} слов в субтитры...")
+        logger.info(f"Grouping words into subtitles: words={len(words)}", words=len(words))
         # Группируем слова в субтитры
         entries = self._group_words_into_subtitles(words)
-        logger.info(f"✅ Создано {len(entries)} субтитров из {len(words)} слов")
+        logger.info(
+            f"Created subtitles: entries={len(entries)} | words={len(words)}",
+            entries=len(entries),
+            words=len(words)
+        )
 
         return entries
 
@@ -385,12 +400,12 @@ class SubtitleGenerator:
         if trans_path.is_dir():
             segments_path = trans_path / "segments.txt"
             if segments_path.exists():
-                logger.info(f"📝 Используем segments.txt: {segments_path}")
+                logger.info(f"Using segments.txt: path={segments_path}", path=str(segments_path))
                 entries = self.parse_transcription_file(str(segments_path))
             else:
                 raise FileNotFoundError(f"В папке нет segments.txt: {transcription_path}")
         elif trans_path.name == "segments.txt":
-            logger.info(f"📝 Используем segments.txt: {transcription_path}")
+            logger.info(f"Using segments.txt: path={transcription_path}", path=transcription_path)
             entries = self.parse_transcription_file(transcription_path)
         else:
             raise FileNotFoundError(f"Ожидается segments.txt или папка с segments.txt, получено: {transcription_path}")
