@@ -169,8 +169,8 @@ class YouTubeUploader(BaseUploader):
                 "status": status,
             }
 
-            # Use 10MB chunks for resumable uploads
-            media = MediaFileUpload(video_path, chunksize=10 * 1024 * 1024, resumable=True, mimetype="video/*")
+            # Use 25MB chunks for resumable uploads
+            media = MediaFileUpload(video_path, chunksize=25 * 1024 * 1024, resumable=True, mimetype="video/*")
 
             logger.info(f"Uploading video to YouTube: {title}")
 
@@ -198,7 +198,7 @@ class YouTubeUploader(BaseUploader):
 
                 if playlist_id:
                     try:
-                        await asyncio.sleep(10)
+                        await asyncio.sleep(6)
 
                         from .playlist_manager import YouTubePlaylistManager
 
@@ -222,7 +222,7 @@ class YouTubeUploader(BaseUploader):
                         thumbnail_manager = YouTubeThumbnailManager(
                             self.service, self.config, self.credentials, self.credential_provider
                         )
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(3)
                         success = await thumbnail_manager.set_thumbnail(video_id, thumbnail_path)
                         if success:
                             result.metadata["thumbnail_set"] = True

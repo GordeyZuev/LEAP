@@ -181,7 +181,7 @@ class VKUploader(BaseUploader):
                         from .thumbnail_manager import VKThumbnailManager
 
                         thumbnail_manager = VKThumbnailManager(self.config)
-                        await asyncio.sleep(3)
+                        await asyncio.sleep(2)
                         success = await thumbnail_manager.set_video_thumbnail(video_id, owner_id, thumbnail_path)
                         if success:
                             result.metadata["thumbnail_set"] = True
@@ -277,37 +277,63 @@ class VKUploader(BaseUploader):
     async def _upload_video_file(
         self, upload_url: str, video_path: str, progress=None, task_id=None
     ) -> dict[str, Any] | None:
-        """Upload video file."""
+        """
+        Upload video file to VK with streaming and proper timeout handling.
+
+        VK API doesn't support chunked uploads, so we use streaming to avoid
+        loading entire file into memory for large videos (1-3 GB).
+        """
+        video_file = None
         try:
-            with Path(video_path).open("rb") as video_file:
-                files = {"video_file": video_file}
+            file_size = Path(video_path).stat().st_size
+            logger.info(f"Uploading video file: {Path(video_path).name} ({file_size / (1024**2):.1f} MB)")
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(upload_url, data=files) as response:
-                        if response.status == 200:
-                            result_data = await response.json()
-                            if "error" in result_data:
-                                logger.error(f"VK Upload Error: {result_data['error']}")
-                                return None
+            # File must stay open for aiohttp.FormData streaming
+            video_file = Path(video_path).open("rb")  # noqa: SIM115
 
-                            if progress and task_id is not None:
-                                try:
-                                    if task_id in progress.task_ids:
-                                        progress.update(task_id, completed=100, total=100)
-                                except Exception as e:
-                                    logger.warning(f"Ignored exception: {e}")
+            # Dynamic timeout based on file size: 10 min base + 2 min per GB
+            timeout_seconds = 600 + (file_size // (1024**3)) * 120
+            timeout = aiohttp.ClientTimeout(total=timeout_seconds, sock_read=300)
 
-                            return result_data
-                        logger.error(f"HTTP Upload Error: {response.status}")
-                        return None
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # Use FormData for streaming upload
+                form = aiohttp.FormData()
+                form.add_field("video_file", video_file, filename=Path(video_path).name)
+
+                async with session.post(upload_url, data=form) as response:
+                    if response.status == 200:
+                        result_data = await response.json()
+
+                        if "error" in result_data:
+                            logger.error(f"VK Upload Error: {result_data['error']}")
+                            return None
+
+                        if progress and task_id is not None:
+                            try:
+                                if task_id in progress.task_ids:
+                                    progress.update(task_id, completed=100, total=100)
+                            except Exception as e:
+                                logger.warning(f"Progress update failed: {e}")
+
+                        logger.info(f"Video uploaded successfully: video_id={result_data.get('video_id')}")
+                        return result_data
+
+                    error_text = await response.text()
+                    logger.error(f"VK upload failed: HTTP {response.status}, {error_text[:200]}")
+                    return None
+
+        except TimeoutError:
+            logger.error(f"Upload timeout after {timeout_seconds}s for file {Path(video_path).name}")
+            return None
         except Exception as e:
             logger.error(f"File upload error: {e}")
+            return None
+        finally:
             if video_file:
                 try:
                     video_file.close()
-                except Exception as e:
-                    logger.warning(f"Ignored exception: {e}")
-            return None
+                except Exception:  # noqa: S110
+                    pass
 
     @requires_valid_vk_token(max_retries=1)
     async def _make_request(self, method: str, params: dict[str, Any]) -> dict[str, Any] | None:
