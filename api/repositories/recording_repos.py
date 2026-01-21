@@ -29,7 +29,7 @@ class RecordingRepository:
         self.session = session
 
     async def get_by_id(
-        self, recording_id: int, user_id: int, include_deleted: bool = False
+        self, recording_id: int, user_id: str, include_deleted: bool = False
     ) -> RecordingModel | None:
         """
         Get recording by ID with user ownership check.
@@ -63,7 +63,7 @@ class RecordingRepository:
         return result.scalar_one_or_none()
 
     async def get_by_ids(
-        self, recording_ids: list[int], user_id: int, include_deleted: bool = False
+        self, recording_ids: list[int], user_id: str, include_deleted: bool = False
     ) -> dict[int, RecordingModel]:
         """
         Get multiple recordings by IDs (batch load to avoid N+1).
@@ -103,7 +103,7 @@ class RecordingRepository:
 
     async def list_by_user(
         self,
-        user_id: int,
+        user_id: str,
         status: ProcessingStatus | None = None,
         input_source_id: int | None = None,
         include_deleted: bool = False,
@@ -151,7 +151,7 @@ class RecordingRepository:
 
     async def create(
         self,
-        user_id: int,
+        user_id: str,
         input_source_id: int | None,
         display_name: str,
         start_time: datetime,
@@ -433,7 +433,7 @@ class RecordingRepository:
         logger.info(f"Created upload result for recording {recording.id} to {target_type}")
         return output
 
-    async def count_by_user(self, user_id: int, status: ProcessingStatus | None = None) -> int:
+    async def count_by_user(self, user_id: str, status: ProcessingStatus | None = None) -> int:
         """
         Count number of recordings for user.
         """
@@ -447,7 +447,7 @@ class RecordingRepository:
 
     async def find_by_source_key(
         self,
-        user_id: int,
+        user_id: str,
         source_type: SourceType,
         source_key: str,
         start_time: datetime,
@@ -477,7 +477,7 @@ class RecordingRepository:
 
     async def create_or_update(
         self,
-        user_id: int,
+        user_id: str,
         input_source_id: int | None,
         display_name: str,
         start_time: datetime,

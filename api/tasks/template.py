@@ -28,7 +28,7 @@ settings = get_settings()
 def rematch_recordings_task(
     self,
     template_id: int,
-    user_id: int,
+    user_id: str,
     only_unmapped: bool = True,
 ) -> dict:
     """
@@ -86,7 +86,7 @@ def rematch_recordings_task(
         raise self.retry(exc=exc)
 
 
-async def _async_rematch_recordings(task_self, template_id: int, user_id: int, only_unmapped: bool) -> dict:
+async def _async_rematch_recordings(task_self, template_id: int, user_id: str, only_unmapped: bool) -> dict:
     """
     Async функция для re-match recordings.
 

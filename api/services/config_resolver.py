@@ -34,7 +34,7 @@ class ConfigResolver:
     async def resolve_processing_config(
         self,
         recording: RecordingModel,
-        user_id: int,
+        user_id: str,
     ) -> dict[str, Any]:
         """
         Resolve processing configuration with hierarchy.
@@ -77,7 +77,7 @@ class ConfigResolver:
     async def get_base_config_for_edit(
         self,
         recording: RecordingModel,
-        user_id: int,
+        user_id: str,
     ) -> dict[str, Any]:
         """
         Get current resolved configuration for editing.
@@ -126,7 +126,7 @@ class ConfigResolver:
     async def resolve_output_config(
         self,
         recording: RecordingModel,
-        user_id: int,
+        user_id: str,
     ) -> dict[str, Any]:
         """
         Resolve output configuration (preset_ids for platforms).
@@ -162,7 +162,7 @@ class ConfigResolver:
     async def resolve_metadata_config(
         self,
         recording: RecordingModel,
-        user_id: int,
+        user_id: str,
     ) -> dict[str, Any]:
         """
         Resolve metadata configuration (title, description, tags templates).
@@ -198,7 +198,7 @@ class ConfigResolver:
     async def resolve_upload_metadata(
         self,
         recording: RecordingModel,
-        user_id: int,
+        user_id: str,
         preset_id: int,
     ) -> dict[str, Any]:
         """
@@ -305,7 +305,7 @@ class ConfigResolver:
             logger.debug("[Metadata Resolution] Final metadata does NOT have description_template")
         return final_metadata
 
-    async def _get_user_config(self, user_id: int) -> dict[str, Any]:
+    async def _get_user_config(self, user_id: str) -> dict[str, Any]:
         """Get user configuration or return empty dict."""
         try:
             return await self.user_config_repo.get_effective_config(user_id)

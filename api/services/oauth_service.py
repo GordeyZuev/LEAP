@@ -23,7 +23,7 @@ class OAuthService:
 
     async def get_authorization_url(
         self,
-        user_id: int,
+        user_id: str,
         ip_address: str | None = None,
     ) -> dict[str, Any]:
         """

@@ -100,7 +100,7 @@ class UserSubscriptionRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_by_user_id(self, user_id: int) -> UserSubscriptionInDB | None:
+    async def get_by_user_id(self, user_id: str) -> UserSubscriptionInDB | None:
         """Получить подписку пользователя."""
         result = await self.session.execute(
             select(UserSubscriptionModel)
@@ -140,7 +140,7 @@ class UserSubscriptionRepository:
         db_subscription = result.scalars().first()
         return UserSubscriptionInDB.model_validate(db_subscription)
 
-    async def update(self, user_id: int, subscription_data: UserSubscriptionUpdate) -> UserSubscriptionInDB | None:
+    async def update(self, user_id: str, subscription_data: UserSubscriptionUpdate) -> UserSubscriptionInDB | None:
         """Обновить подписку пользователя."""
         result = await self.session.execute(
             select(UserSubscriptionModel)
@@ -174,7 +174,7 @@ class UserSubscriptionRepository:
 
         return UserSubscriptionInDB.model_validate(db_subscription)
 
-    async def delete(self, user_id: int) -> bool:
+    async def delete(self, user_id: str) -> bool:
         """Удалить подписку пользователя."""
         result = await self.session.execute(
             select(UserSubscriptionModel).where(UserSubscriptionModel.user_id == user_id)
@@ -189,7 +189,7 @@ class UserSubscriptionRepository:
 
     async def _log_plan_change(
         self,
-        user_id: int,
+        user_id: str,
         old_plan_id: int,
         new_plan_id: int,
         changed_by: int | None = None,
@@ -214,7 +214,7 @@ class QuotaUsageRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_by_user_and_period(self, user_id: int, period: int) -> QuotaUsageInDB | None:
+    async def get_by_user_and_period(self, user_id: str, period: int) -> QuotaUsageInDB | None:
         """Получить использование квот за период."""
         result = await self.session.execute(
             select(QuotaUsageModel).where(QuotaUsageModel.user_id == user_id, QuotaUsageModel.period == period)
@@ -224,12 +224,12 @@ class QuotaUsageRepository:
             return None
         return QuotaUsageInDB.model_validate(db_usage)
 
-    async def get_current_period(self, user_id: int) -> QuotaUsageInDB | None:
+    async def get_current_period(self, user_id: str) -> QuotaUsageInDB | None:
         """Получить использование за текущий период."""
         current_period = int(datetime.now().strftime("%Y%m"))
         return await self.get_by_user_and_period(user_id, current_period)
 
-    async def get_history(self, user_id: int, limit: int = 12) -> list[QuotaUsageInDB]:
+    async def get_history(self, user_id: str, limit: int = 12) -> list[QuotaUsageInDB]:
         """Получить историю использования."""
         result = await self.session.execute(
             select(QuotaUsageModel)
@@ -248,7 +248,7 @@ class QuotaUsageRepository:
         await self.session.refresh(usage)
         return QuotaUsageInDB.model_validate(usage)
 
-    async def update(self, user_id: int, period: int, usage_data: QuotaUsageUpdate) -> QuotaUsageInDB | None:
+    async def update(self, user_id: str, period: int, usage_data: QuotaUsageUpdate) -> QuotaUsageInDB | None:
         """Обновить использование."""
         result = await self.session.execute(
             select(QuotaUsageModel).where(QuotaUsageModel.user_id == user_id, QuotaUsageModel.period == period)
@@ -266,7 +266,7 @@ class QuotaUsageRepository:
         await self.session.refresh(db_usage)
         return QuotaUsageInDB.model_validate(db_usage)
 
-    async def increment_recordings(self, user_id: int, period: int, count: int = 1) -> QuotaUsageInDB:
+    async def increment_recordings(self, user_id: str, period: int, count: int = 1) -> QuotaUsageInDB:
         """Увеличить счетчик записей (upsert)."""
         result = await self.session.execute(
             select(QuotaUsageModel).where(QuotaUsageModel.user_id == user_id, QuotaUsageModel.period == period)
@@ -284,7 +284,7 @@ class QuotaUsageRepository:
         await self.session.refresh(db_usage)
         return QuotaUsageInDB.model_validate(db_usage)
 
-    async def increment_storage(self, user_id: int, period: int, bytes_added: int) -> QuotaUsageInDB:
+    async def increment_storage(self, user_id: str, period: int, bytes_added: int) -> QuotaUsageInDB:
         """Увеличить счетчик хранилища."""
         result = await self.session.execute(
             select(QuotaUsageModel).where(QuotaUsageModel.user_id == user_id, QuotaUsageModel.period == period)
@@ -302,7 +302,7 @@ class QuotaUsageRepository:
         await self.session.refresh(db_usage)
         return QuotaUsageInDB.model_validate(db_usage)
 
-    async def set_concurrent_tasks(self, user_id: int, period: int, count: int) -> QuotaUsageInDB:
+    async def set_concurrent_tasks(self, user_id: str, period: int, count: int) -> QuotaUsageInDB:
         """Установить счетчик одновременных задач."""
         result = await self.session.execute(
             select(QuotaUsageModel).where(QuotaUsageModel.user_id == user_id, QuotaUsageModel.period == period)

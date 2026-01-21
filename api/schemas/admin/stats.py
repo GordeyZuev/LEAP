@@ -19,7 +19,7 @@ class AdminOverviewStats(BaseModel):
 class UserQuotaDetails(BaseModel):
     """Детальная информация о квотах пользователя."""
 
-    user_id: int
+    user_id: str
     email: str
     plan_name: str
     recordings_used: int

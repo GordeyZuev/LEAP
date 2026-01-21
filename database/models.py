@@ -38,8 +38,8 @@ class RecordingModel(Base):
     __tablename__ = "recordings"
 
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    user_id: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     input_source_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("input_sources.id", ondelete="SET NULL"), nullable=True, index=True
@@ -157,8 +157,8 @@ class SourceMetadataModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"), unique=True)
-    user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    user_id: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     input_source_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("input_sources.id", ondelete="SET NULL"), nullable=True, index=True
@@ -190,8 +190,8 @@ class OutputTargetModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"))
-    user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    user_id: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     preset_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("output_presets.id", ondelete="SET NULL"), nullable=True, index=True
@@ -227,8 +227,8 @@ class ProcessingStageModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"))
-    user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    user_id: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     stage_type: Mapped[str] = mapped_column(Enum(ProcessingStageType, name="processingstagetype"))
     status: Mapped[str] = mapped_column(

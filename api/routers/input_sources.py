@@ -32,7 +32,7 @@ async def _sync_single_source(
     from_date: str,
     to_date: str | None,
     session: AsyncSession,
-    user_id: int,
+    user_id: str,
 ) -> dict:
     """
     Синхронизация одного источника (внутренняя функция для DRY).

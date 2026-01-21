@@ -24,7 +24,7 @@ class UserRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_by_id(self, user_id: int) -> UserInDB | None:
+    async def get_by_id(self, user_id: str) -> UserInDB | None:
         """Получить пользователя по ID."""
         result = await self.session.execute(select(UserModel).where(UserModel.id == user_id))
         db_user = result.scalars().first()
@@ -52,7 +52,7 @@ class UserRepository:
         await self.session.refresh(user)
         return UserInDB.model_validate(user)
 
-    async def update(self, user_id: int, user_data: UserUpdate) -> UserInDB | None:
+    async def update(self, user_id: str, user_data: UserUpdate) -> UserInDB | None:
         """Обновить пользователя."""
         result = await self.session.execute(select(UserModel).where(UserModel.id == user_id))
         db_user = result.scalars().first()
@@ -110,7 +110,7 @@ class RefreshTokenRepository:
             return RefreshTokenInDB.model_validate(db_token)
         return None
 
-    async def revoke_all_by_user(self, user_id: int) -> int:
+    async def revoke_all_by_user(self, user_id: str) -> int:
         """Отозвать все refresh токены пользователя."""
         from sqlalchemy import update
 
@@ -153,7 +153,7 @@ class UserCredentialRepository:
         return UserCredentialInDB.model_validate(credential)
 
     async def get_by_platform(
-        self, user_id: int, platform: str, account_name: str | None = None
+        self, user_id: str, platform: str, account_name: str | None = None
     ) -> UserCredentialInDB | None:
         """
         Получить учетные данные пользователя для платформы.
@@ -192,7 +192,7 @@ class UserCredentialRepository:
             return None
         return UserCredentialInDB.model_validate(db_credential)
 
-    async def list_by_platform(self, user_id: int, platform: str) -> list[UserCredentialInDB]:
+    async def list_by_platform(self, user_id: str, platform: str) -> list[UserCredentialInDB]:
         """Получить все учетные данные пользователя для платформы."""
         result = await self.session.execute(
             select(UserCredentialModel).where(
@@ -230,7 +230,7 @@ class UserCredentialRepository:
             return True
         return False
 
-    async def find_by_user(self, user_id: int) -> list[UserCredentialInDB]:
+    async def find_by_user(self, user_id: str) -> list[UserCredentialInDB]:
         """Получить все учетные данные пользователя."""
         result = await self.session.execute(select(UserCredentialModel).where(UserCredentialModel.user_id == user_id))
         db_credentials = result.scalars().all()

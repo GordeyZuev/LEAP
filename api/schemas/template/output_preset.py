@@ -61,7 +61,7 @@ class OutputPresetResponse(OutputPresetBase):
     model_config = ORM_MODEL_CONFIG
 
     id: int
-    user_id: int
+    user_id: str
     credential_id: int
     is_active: bool
     created_at: datetime

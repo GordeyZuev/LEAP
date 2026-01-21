@@ -36,7 +36,7 @@ settings = get_settings()
 def upload_recording_to_platform(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     platform: str,
     preset_id: int | None = None,
     credential_id: int | None = None,
@@ -141,7 +141,7 @@ def upload_recording_to_platform(
 
 async def _async_upload_recording(
     recording_id: int,
-    user_id: int,
+    user_id: str,
     platform: str,
     preset_id: int | None = None,
     credential_id: int | None = None,
@@ -490,7 +490,7 @@ async def _async_upload_recording(
 def batch_upload_recordings(
     self,
     recording_ids: list[int],
-    user_id: int,
+    user_id: str,
     platforms: list[str],
     preset_ids: dict[str, int] | None = None,
 ) -> dict:

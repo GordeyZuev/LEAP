@@ -93,7 +93,7 @@ class InputSourceResponse(BaseModel):
     model_config = ORM_MODEL_CONFIG
 
     id: int
-    user_id: int
+    user_id: str
     name: str
     description: str | None
     source_type: str

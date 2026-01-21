@@ -113,7 +113,7 @@ class RecordingTemplateResponse(RecordingTemplateBase):
     model_config = ORM_MODEL_CONFIG
 
     id: int
-    user_id: int
+    user_id: str
     is_draft: bool
     is_active: bool
     used_count: int

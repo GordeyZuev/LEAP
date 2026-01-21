@@ -16,7 +16,7 @@ class UserQuotaBase(BaseModel):
 class UserQuotaCreate(UserQuotaBase):
     """Схема для создания квот."""
 
-    user_id: int
+    user_id: str
 
 
 class UserQuotaUpdate(BaseModel):
@@ -35,7 +35,7 @@ class UserQuotaInDB(UserQuotaBase):
     """Схема квот в БД."""
 
     id: int
-    user_id: int
+    user_id: str
     current_recordings_count: int = 0
     current_storage_gb: float = 0.0
     current_tasks_count: int = 0

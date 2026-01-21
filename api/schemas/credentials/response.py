@@ -17,7 +17,7 @@ class CredentialResponse(BaseModel):
 class CredentialStatusResponse(BaseModel):
     """Статус credentials пользователя."""
 
-    user_id: int
+    user_id: str
     available_platforms: list[str]
     credentials_status: dict[str, bool]
 

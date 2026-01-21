@@ -17,7 +17,7 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     """Ответ с информацией о пользователе."""
 
-    id: int = Field(..., description="ID пользователя")
+    id: str = Field(..., description="ID пользователя")
     email: EmailStr = Field(..., description="Email")
     full_name: str | None = Field(None, description="Полное имя")
     is_active: bool = Field(..., description="Активен ли аккаунт")
@@ -33,7 +33,7 @@ class UserResponse(BaseModel):
 class UserMeResponse(BaseModel):
     """Ответ с базовой информацией о текущем пользователе."""
 
-    id: int = Field(..., description="ID пользователя")
+    id: str = Field(..., description="ID пользователя")
     email: EmailStr = Field(..., description="Email")
     full_name: str | None = Field(None, description="Полное имя")
     timezone: str = Field(..., description="Часовой пояс")

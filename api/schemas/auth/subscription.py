@@ -113,7 +113,7 @@ class UserSubscriptionBase(BaseModel):
 class UserSubscriptionCreate(UserSubscriptionBase):
     """Схема для создания подписки."""
 
-    user_id: int = Field(..., description="ID пользователя")
+    user_id: str = Field(..., description="ID пользователя")
 
     # Custom quotas (optional overrides)
     custom_max_recordings_per_month: int | None = Field(None, ge=0)
@@ -131,7 +131,7 @@ class UserSubscriptionCreate(UserSubscriptionBase):
     expires_at: datetime | None = None
 
     # Audit
-    created_by: int | None = None
+    created_by: str | None = None
     notes: str | None = None
 
 
@@ -155,7 +155,7 @@ class UserSubscriptionUpdate(BaseModel):
     expires_at: datetime | None = None
 
     # Audit
-    modified_by: int | None = None
+    modified_by: str | None = None
     notes: str | None = None
 
 
@@ -163,7 +163,7 @@ class UserSubscriptionInDB(UserSubscriptionBase):
     """Схема подписки в БД."""
 
     id: int
-    user_id: int
+    user_id: str
 
     custom_max_recordings_per_month: int | None
     custom_max_storage_gb: int | None
@@ -177,8 +177,8 @@ class UserSubscriptionInDB(UserSubscriptionBase):
     starts_at: datetime
     expires_at: datetime | None
 
-    created_by: int | None
-    modified_by: int | None
+    created_by: str | None
+    modified_by: str | None
     notes: str | None
 
     created_at: datetime
@@ -192,7 +192,7 @@ class UserSubscriptionResponse(BaseModel):
     """Схема ответа с подпиской пользователя."""
 
     id: int
-    user_id: int
+    user_id: str
     plan: SubscriptionPlanResponse
 
     # Custom quotas (if set)
@@ -227,7 +227,7 @@ class UserSubscriptionResponse(BaseModel):
 class QuotaUsageBase(BaseModel):
     """Базовая схема использования квот."""
 
-    user_id: int
+    user_id: str
     period: int  # YYYYMM
 
 

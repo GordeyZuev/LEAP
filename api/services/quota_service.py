@@ -31,7 +31,7 @@ class QuotaService:
     # EFFECTIVE QUOTAS (with custom overrides)
     # ========================================
 
-    async def get_effective_quotas(self, user_id: int) -> dict[str, int | None]:
+    async def get_effective_quotas(self, user_id: str) -> dict[str, int | None]:
         """
         Получить эффективные квоты пользователя (с учетом custom overrides).
 
@@ -77,7 +77,7 @@ class QuotaService:
     # QUOTA CHECKS
     # ========================================
 
-    async def check_recordings_quota(self, user_id: int) -> tuple[bool, str | None]:
+    async def check_recordings_quota(self, user_id: str) -> tuple[bool, str | None]:
         """
         Проверить квоту на создание записи.
 
@@ -116,7 +116,7 @@ class QuotaService:
 
         return True, None
 
-    async def check_storage_quota(self, user_id: int, bytes_to_add: int) -> tuple[bool, str | None]:
+    async def check_storage_quota(self, user_id: str, bytes_to_add: int) -> tuple[bool, str | None]:
         """
         Проверить квоту на хранилище.
 
@@ -141,7 +141,7 @@ class QuotaService:
 
         return True, None
 
-    async def check_concurrent_tasks_quota(self, user_id: int) -> tuple[bool, str | None]:
+    async def check_concurrent_tasks_quota(self, user_id: str) -> tuple[bool, str | None]:
         """
         Проверить квоту на одновременные задачи.
 
@@ -165,7 +165,7 @@ class QuotaService:
 
         return True, None
 
-    async def check_automation_jobs_quota(self, user_id: int) -> tuple[bool, str | None]:
+    async def check_automation_jobs_quota(self, user_id: str) -> tuple[bool, str | None]:
         """
         Проверить квоту на automation jobs.
 
@@ -193,22 +193,22 @@ class QuotaService:
     # USAGE TRACKING
     # ========================================
 
-    async def track_recording_created(self, user_id: int) -> None:
+    async def track_recording_created(self, user_id: str) -> None:
         """Записать создание новой записи."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.increment_recordings(user_id, current_period, count=1)
 
-    async def track_storage_added(self, user_id: int, bytes_added: int) -> None:
+    async def track_storage_added(self, user_id: str, bytes_added: int) -> None:
         """Записать добавление данных в хранилище."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.increment_storage(user_id, current_period, bytes_added)
 
-    async def track_storage_removed(self, user_id: int, bytes_removed: int) -> None:
+    async def track_storage_removed(self, user_id: str, bytes_removed: int) -> None:
         """Записать удаление данных из хранилища."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.increment_storage(user_id, current_period, -bytes_removed)
 
-    async def set_concurrent_tasks_count(self, user_id: int, count: int) -> None:
+    async def set_concurrent_tasks_count(self, user_id: str, count: int) -> None:
         """Установить текущее количество одновременных задач."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.set_concurrent_tasks(user_id, current_period, count)
@@ -217,7 +217,7 @@ class QuotaService:
     # QUOTA STATUS
     # ========================================
 
-    async def get_quota_status(self, user_id: int) -> QuotaStatusResponse:
+    async def get_quota_status(self, user_id: str) -> QuotaStatusResponse:
         """
         Получить полный статус квот пользователя.
 

@@ -27,11 +27,11 @@ class UserConfigRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_by_user_id(self, user_id: int) -> UserConfigModel | None:
+    async def get_by_user_id(self, user_id: str) -> UserConfigModel | None:
         result = await self.session.execute(select(UserConfigModel).where(UserConfigModel.user_id == user_id))
         return result.scalars().first()
 
-    async def get_effective_config(self, user_id: int) -> dict:
+    async def get_effective_config(self, user_id: str) -> dict:
         """
         Get user config merged with defaults.
 
@@ -57,7 +57,7 @@ class UserConfigRepository:
         # Merge: defaults as base, user overrides on top
         return deep_merge(DEFAULT_USER_CONFIG, user_config_model.config_data)
 
-    async def create(self, user_id: int, config_data: dict) -> UserConfigModel:
+    async def create(self, user_id: str, config_data: dict) -> UserConfigModel:
         config = UserConfigModel(user_id=user_id, config_data=config_data)
         self.session.add(config)
         await self.session.flush()

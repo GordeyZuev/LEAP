@@ -50,7 +50,8 @@ class UserUpdate(BaseModel):
 class UserInDB(UserBase):
     """Схема пользователя в БД."""
 
-    id: int
+    id: str
+    user_slug: int
     hashed_password: str
     timezone: str = "UTC"
     is_active: bool = True
@@ -75,7 +76,7 @@ class UserInDB(UserBase):
 class UserResponse(BaseModel):
     """Схема ответа с пользователем."""
 
-    id: int
+    id: str
     email: EmailStr
     full_name: str | None
     timezone: str

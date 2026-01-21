@@ -132,7 +132,7 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
 
 
 async def save_oauth_credentials(
-    user_id: int,
+    user_id: str,
     platform: str,
     token_data: dict,
     config: OAuthPlatformConfig,

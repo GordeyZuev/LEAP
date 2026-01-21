@@ -84,7 +84,7 @@ class BaseConfigResponse(BaseConfigBase):
     model_config = ORM_MODEL_CONFIG
 
     id: int
-    user_id: int | None
+    user_id: str | None
     is_active: bool
     is_global: bool = Field(False, description="Глобальная конфигурация")
     created_at: datetime

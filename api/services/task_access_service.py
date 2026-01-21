@@ -61,7 +61,7 @@ class TaskAccessService:
         return None
 
     @staticmethod
-    def validate_task_access(task_id: str, user_id: int) -> AsyncResult:
+    def validate_task_access(task_id: str, user_id: str) -> AsyncResult:
         """
         Проверить доступ пользователя к задаче.
 

@@ -21,7 +21,7 @@ class ServiceContext:
     """
 
     session: AsyncSession
-    user_id: int
+    user_id: str
 
     def __post_init__(self):
         """Инициализация config_helper."""
@@ -40,7 +40,7 @@ class ServiceContext:
         return self._config_helper
 
     @classmethod
-    def create(cls, session: AsyncSession, user_id: int) -> "ServiceContext":
+    def create(cls, session: AsyncSession, user_id: str) -> "ServiceContext":
         """
         Factory method для создания контекста.
 

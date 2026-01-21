@@ -30,7 +30,7 @@ class CredentialService:
         self.encryption = get_encryption()
 
     async def get_decrypted_credentials(
-        self, user_id: int, platform: str, account_name: str | None = None, raise_if_not_found: bool = True
+        self, user_id: str, platform: str, account_name: str | None = None, raise_if_not_found: bool = True
     ) -> dict[str, Any] | None:
         """
         Получить расшифрованные учетные данные для платформы.
@@ -73,7 +73,7 @@ class CredentialService:
             logger.error(f"Failed to decrypt credentials for platform '{platform}': {e}")
             raise ValueError(f"Failed to decrypt credentials: {e}") from e
 
-    async def get_zoom_credentials(self, user_id: int, account_name: str | None = None) -> dict[str, str]:
+    async def get_zoom_credentials(self, user_id: str, account_name: str | None = None) -> dict[str, str]:
         """
         Получить учетные данные Zoom.
 
@@ -128,7 +128,7 @@ class CredentialService:
             logger.error(f"Failed to decrypt credential {credential_id}: {e}")
             raise ValueError(f"Failed to decrypt credential: {e}") from e
 
-    async def get_youtube_credentials(self, user_id: int) -> dict[str, Any]:
+    async def get_youtube_credentials(self, user_id: str) -> dict[str, Any]:
         """
         Получить учетные данные YouTube (OAuth bundle).
 
@@ -152,7 +152,7 @@ class CredentialService:
 
         return creds
 
-    async def get_vk_credentials(self, user_id: int) -> dict[str, Any]:
+    async def get_vk_credentials(self, user_id: str) -> dict[str, Any]:
         """
         Получить учетные данные VK.
 
@@ -174,7 +174,7 @@ class CredentialService:
 
         return creds
 
-    async def get_api_key_credentials(self, user_id: int, platform: str) -> str:
+    async def get_api_key_credentials(self, user_id: str, platform: str) -> str:
         """
         Получить API ключ для сервисов (fireworks, deepseek, openai).
 
@@ -198,7 +198,7 @@ class CredentialService:
 
         return api_key
 
-    async def validate_credentials(self, user_id: int, platform: str) -> bool:
+    async def validate_credentials(self, user_id: str, platform: str) -> bool:
         """
         Проверить существование и валидность credentials.
 
@@ -215,7 +215,7 @@ class CredentialService:
         except ValueError:
             return False
 
-    async def list_available_platforms(self, user_id: int) -> list[str]:
+    async def list_available_platforms(self, user_id: str) -> list[str]:
         """
         Получить список доступных платформ для пользователя.
 
@@ -228,7 +228,7 @@ class CredentialService:
         credentials = await self.repo.find_by_user(user_id)
         return [cred.platform for cred in credentials if cred.is_active]
 
-    async def update_last_used(self, user_id: int, platform: str) -> None:
+    async def update_last_used(self, user_id: str, platform: str) -> None:
         """
         Обновить время последнего использования credentials.
 

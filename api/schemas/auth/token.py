@@ -14,7 +14,7 @@ class RefreshTokenBase(BaseModel):
 class RefreshTokenCreate(RefreshTokenBase):
     """Схема для создания refresh токена."""
 
-    user_id: int
+    user_id: str
     expires_at: datetime
 
 
@@ -22,7 +22,7 @@ class RefreshTokenInDB(RefreshTokenBase):
     """Схема refresh токена в БД."""
 
     id: int
-    user_id: int
+    user_id: str
     expires_at: datetime
     is_revoked: bool = False
     created_at: datetime

@@ -14,7 +14,7 @@ class AutomationJobRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, job_data: dict, user_id: int) -> AutomationJobModel:
+    async def create(self, job_data: dict, user_id: str) -> AutomationJobModel:
         """Create new automation job."""
         now = datetime.utcnow()
         job = AutomationJobModel(**job_data, user_id=user_id, created_at=now, updated_at=now)
@@ -23,7 +23,7 @@ class AutomationJobRepository:
         await self.session.refresh(job)
         return job
 
-    async def get_by_id(self, job_id: int, user_id: int) -> AutomationJobModel | None:
+    async def get_by_id(self, job_id: int, user_id: str) -> AutomationJobModel | None:
         """Get automation job by ID (with user ownership check)."""
         stmt = select(AutomationJobModel).where(
             and_(AutomationJobModel.id == job_id, AutomationJobModel.user_id == user_id)
@@ -31,7 +31,7 @@ class AutomationJobRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_user_jobs(self, user_id: int, active_only: bool = False) -> list[AutomationJobModel]:
+    async def get_user_jobs(self, user_id: str, active_only: bool = False) -> list[AutomationJobModel]:
         """Get all jobs for user."""
         stmt = select(AutomationJobModel).where(AutomationJobModel.user_id == user_id)
         if active_only:
@@ -40,7 +40,7 @@ class AutomationJobRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def count_user_jobs(self, user_id: int) -> int:
+    async def count_user_jobs(self, user_id: str) -> int:
         """Count total jobs for user."""
         stmt = select(func.count(AutomationJobModel.id)).where(AutomationJobModel.user_id == user_id)
         result = await self.session.execute(stmt)

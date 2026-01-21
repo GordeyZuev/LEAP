@@ -65,7 +65,7 @@ class ResourceAccessValidator:
     async def validate_credential_access(
         self,
         credential_id: int,
-        user_id: int,
+        user_id: str,
         error_detail: str | None = None,
     ) -> None:
         """
@@ -102,7 +102,7 @@ class ResourceAccessValidator:
     async def validate_source_access(
         self,
         source_id: int,
-        user_id: int,
+        user_id: str,
         error_detail: str | None = None,
     ) -> None:
         """
@@ -130,7 +130,7 @@ class ResourceAccessValidator:
     async def validate_preset_access(
         self,
         preset_id: int,
-        user_id: int,
+        user_id: str,
         error_detail: str | None = None,
     ) -> None:
         """
@@ -158,7 +158,7 @@ class ResourceAccessValidator:
     async def validate_credential_for_update(
         self,
         credential_id: int | None,
-        user_id: int,
+        user_id: str,
         resource_name: str = "resource",
     ) -> None:
         """

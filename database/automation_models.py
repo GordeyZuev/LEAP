@@ -15,7 +15,7 @@ class AutomationJobModel(Base):
     __tablename__ = "automation_jobs"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)

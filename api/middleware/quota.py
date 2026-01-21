@@ -43,7 +43,7 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 return quota_type
         return None
 
-    async def _check_quotas(self, request: Request, user_id: int, quota_type: str):
+    async def _check_quotas(self, request: Request, user_id: str, quota_type: str):
         """Проверить квоты пользователя."""
         # Получаем сессию БД
         session: AsyncSession = request.state.db_session
@@ -66,20 +66,20 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 )
 
 
-async def check_storage_quota(session: AsyncSession, user_id: int, required_bytes: int) -> bool:
+async def check_storage_quota(session: AsyncSession, user_id: str, required_bytes: int) -> bool:
     """Проверить квоту хранилища."""
     quota_service = QuotaService(session)
     allowed, _ = await quota_service.check_storage_quota(user_id, required_bytes)
     return allowed
 
 
-async def increment_recordings_quota(session: AsyncSession, user_id: int):
+async def increment_recordings_quota(session: AsyncSession, user_id: str):
     """Увеличить счетчик записей."""
     quota_service = QuotaService(session)
     await quota_service.track_recording_created(user_id)
 
 
-async def increment_tasks_quota(session: AsyncSession, user_id: int, count: int = 1):
+async def increment_tasks_quota(session: AsyncSession, user_id: str, count: int = 1):
     """Увеличить счетчик задач."""
     from datetime import datetime
 
@@ -90,7 +90,7 @@ async def increment_tasks_quota(session: AsyncSession, user_id: int, count: int 
     await quota_service.set_concurrent_tasks_count(user_id, current_count + count)
 
 
-async def decrement_tasks_quota(session: AsyncSession, user_id: int, count: int = 1):
+async def decrement_tasks_quota(session: AsyncSession, user_id: str, count: int = 1):
     """Уменьшить счетчик задач."""
     from datetime import datetime
 

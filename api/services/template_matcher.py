@@ -19,7 +19,7 @@ class TemplateMatcher:
     async def find_matching_template(
         self,
         recording: MeetingRecording,
-        user_id: int,
+        user_id: str,
     ) -> RecordingTemplateModel | None:
         """Найти подходящий шаблон для записи."""
         templates = await self.repo.find_active_by_user(user_id)

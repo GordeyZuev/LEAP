@@ -29,6 +29,7 @@ redis>=5.0.0
 bcrypt>=5.0.0
 cryptography>=42.0.0
 PyJWT>=2.8.0
+python-ulid>=2.2.0
 
 # Logging & Config
 click>=8.0.0

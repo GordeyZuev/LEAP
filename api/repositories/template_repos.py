@@ -27,14 +27,14 @@ class BaseConfigRepository:
         )
         return list(result.scalars().all())
 
-    async def find_by_user(self, user_id: int) -> list[BaseConfigModel]:
+    async def find_by_user(self, user_id: str) -> list[BaseConfigModel]:
         """Получение конфигураций пользователя."""
         result = await self.session.execute(
             select(BaseConfigModel).where(BaseConfigModel.user_id == user_id, BaseConfigModel.is_active)
         )
         return list(result.scalars().all())
 
-    async def find_by_id(self, config_id: int, user_id: int | None = None) -> BaseConfigModel | None:
+    async def find_by_id(self, config_id: int, user_id: str | None = None) -> BaseConfigModel | None:
         """Получение конфигурации по ID с проверкой прав."""
         query = select(BaseConfigModel).where(BaseConfigModel.id == config_id)
         if user_id is not None:
@@ -45,7 +45,7 @@ class BaseConfigRepository:
 
     async def create(
         self,
-        user_id: int | None,
+        user_id: str | None,
         name: str,
         config_data: dict[str, Any],
         description: str | None = None,
@@ -81,19 +81,19 @@ class InputSourceRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def find_by_user(self, user_id: int) -> list[InputSourceModel]:
+    async def find_by_user(self, user_id: str) -> list[InputSourceModel]:
         """Получение всех источников пользователя."""
         result = await self.session.execute(select(InputSourceModel).where(InputSourceModel.user_id == user_id))
         return list(result.scalars().all())
 
-    async def find_by_id(self, source_id: int, user_id: int) -> InputSourceModel | None:
+    async def find_by_id(self, source_id: int, user_id: str) -> InputSourceModel | None:
         """Получение источника по ID с проверкой прав."""
         result = await self.session.execute(
             select(InputSourceModel).where(InputSourceModel.id == source_id, InputSourceModel.user_id == user_id)
         )
         return result.scalar_one_or_none()
 
-    async def find_active_by_user(self, user_id: int) -> list[InputSourceModel]:
+    async def find_active_by_user(self, user_id: str) -> list[InputSourceModel]:
         """Получение активных источников пользователя."""
         result = await self.session.execute(
             select(InputSourceModel).where(InputSourceModel.user_id == user_id, InputSourceModel.is_active)
@@ -102,7 +102,7 @@ class InputSourceRepository:
 
     async def find_duplicate(
         self,
-        user_id: int,
+        user_id: str,
         name: str,
         source_type: str,
         credential_id: int | None,
@@ -131,7 +131,7 @@ class InputSourceRepository:
 
     async def create(
         self,
-        user_id: int,
+        user_id: str,
         name: str,
         source_type: str,
         credential_id: int | None = None,
@@ -175,19 +175,19 @@ class OutputPresetRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def find_by_user(self, user_id: int) -> list[OutputPresetModel]:
+    async def find_by_user(self, user_id: str) -> list[OutputPresetModel]:
         """Получение всех пресетов пользователя."""
         result = await self.session.execute(select(OutputPresetModel).where(OutputPresetModel.user_id == user_id))
         return list(result.scalars().all())
 
-    async def find_by_id(self, preset_id: int, user_id: int) -> OutputPresetModel | None:
+    async def find_by_id(self, preset_id: int, user_id: str) -> OutputPresetModel | None:
         """Получение пресета по ID с проверкой прав."""
         result = await self.session.execute(
             select(OutputPresetModel).where(OutputPresetModel.id == preset_id, OutputPresetModel.user_id == user_id)
         )
         return result.scalar_one_or_none()
 
-    async def find_by_ids(self, preset_ids: list[int], user_id: int) -> list[OutputPresetModel]:
+    async def find_by_ids(self, preset_ids: list[int], user_id: str) -> list[OutputPresetModel]:
         """Get multiple presets by IDs (batch load to avoid N+1)."""
         if not preset_ids:
             return []
@@ -200,14 +200,14 @@ class OutputPresetRepository:
         )
         return list(result.scalars().all())
 
-    async def find_active_by_user(self, user_id: int) -> list[OutputPresetModel]:
+    async def find_active_by_user(self, user_id: str) -> list[OutputPresetModel]:
         """Получение активных пресетов пользователя."""
         result = await self.session.execute(
             select(OutputPresetModel).where(OutputPresetModel.user_id == user_id, OutputPresetModel.is_active)
         )
         return list(result.scalars().all())
 
-    async def find_by_platform(self, user_id: int, platform: str) -> list[OutputPresetModel]:
+    async def find_by_platform(self, user_id: str, platform: str) -> list[OutputPresetModel]:
         """Получение пресетов по платформе."""
         result = await self.session.execute(
             select(OutputPresetModel).where(
@@ -220,7 +220,7 @@ class OutputPresetRepository:
 
     async def create(
         self,
-        user_id: int,
+        user_id: str,
         name: str,
         platform: str,
         credential_id: int,
@@ -258,7 +258,7 @@ class RecordingTemplateRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def find_by_user(self, user_id: int, include_drafts: bool = False) -> list[RecordingTemplateModel]:
+    async def find_by_user(self, user_id: str, include_drafts: bool = False) -> list[RecordingTemplateModel]:
         """Получение всех шаблонов пользователя."""
         query = select(RecordingTemplateModel).where(RecordingTemplateModel.user_id == user_id)
         if not include_drafts:
@@ -266,7 +266,7 @@ class RecordingTemplateRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def find_by_id(self, template_id: int, user_id: int) -> RecordingTemplateModel | None:
+    async def find_by_id(self, template_id: int, user_id: str) -> RecordingTemplateModel | None:
         """Получение шаблона по ID с проверкой прав."""
         result = await self.session.execute(
             select(RecordingTemplateModel).where(
@@ -275,7 +275,7 @@ class RecordingTemplateRepository:
         )
         return result.scalar_one_or_none()
 
-    async def find_active_by_user(self, user_id: int) -> list[RecordingTemplateModel]:
+    async def find_active_by_user(self, user_id: str) -> list[RecordingTemplateModel]:
         """Получение активных шаблонов пользователя, отсортированных по created_at ASC (first-match strategy)."""
         result = await self.session.execute(
             select(RecordingTemplateModel)
@@ -290,7 +290,7 @@ class RecordingTemplateRepository:
 
     async def create(
         self,
-        user_id: int,
+        user_id: str,
         name: str,
         matching_rules: dict[str, Any] | None = None,
         processing_config: dict[str, Any] | None = None,

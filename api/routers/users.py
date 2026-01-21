@@ -216,11 +216,8 @@ async def update_profile(
                 detail="Email already in use by another user",
             )
 
-    # Update only fields that were passed
-    user_update = UserUpdate(
-        email=profile_data.email,
-        full_name=profile_data.full_name,
-    )
+    # Update only fields that were passed (exclude_unset)
+    user_update = UserUpdate(**profile_data.model_dump(exclude_unset=True))
 
     updated_user = await user_repo.update(current_user.id, user_update)
     if not updated_user:

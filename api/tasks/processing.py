@@ -39,7 +39,7 @@ settings = get_settings()
 def download_recording_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     force: bool = False,
     manual_override: dict | None = None,
 ) -> dict:
@@ -81,7 +81,7 @@ def download_recording_task(
 async def _async_download_recording(
     task_self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     force: bool,
     manual_override: dict | None = None,
 ) -> dict:
@@ -197,7 +197,7 @@ async def _async_download_recording(
 def trim_video_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     manual_override: dict | None = None,
 ) -> dict:
     """
@@ -243,7 +243,7 @@ def trim_video_task(
 async def _async_process_video(
     task_self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     manual_override: dict | None = None,
 ) -> dict:
     """Async function for processing video (template-driven)."""
@@ -383,7 +383,7 @@ async def _async_process_video(
 def transcribe_recording_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     manual_override: dict | None = None,
 ) -> dict:
     """
@@ -431,7 +431,7 @@ def transcribe_recording_task(
 async def _async_transcribe_recording(
     task_self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     manual_override: dict | None = None,
 ) -> dict:
     """
@@ -620,7 +620,7 @@ async def _async_transcribe_recording(
 def _launch_uploads_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     platforms: list[str],
     preset_map: dict[str, int],
     metadata_override: dict | None = None,
@@ -684,7 +684,7 @@ def _launch_uploads_task(
 def process_recording_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     manual_override: dict | None = None,
 ) -> dict:
     """
@@ -865,7 +865,7 @@ def process_recording_task(
 def extract_topics_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     granularity: str = "long",
     version_id: str | None = None,
 ) -> dict:
@@ -909,7 +909,7 @@ def extract_topics_task(
 
 
 async def _async_extract_topics(
-    task_self, recording_id: int, user_id: int, granularity: str, version_id: str | None
+    task_self, recording_id: int, user_id: str, granularity: str, version_id: str | None
 ) -> dict:
     """
     Async function for extracting topics with automatic model selection.
@@ -1053,7 +1053,7 @@ async def _async_extract_topics(
 def generate_subtitles_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     formats: list[str] | None = None,
 ) -> dict:
     """
@@ -1088,7 +1088,7 @@ def generate_subtitles_task(
         raise self.retry(exc=exc)
 
 
-async def _async_generate_subtitles(task_self, recording_id: int, user_id: int, formats: list[str]) -> dict:
+async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, formats: list[str]) -> dict:
     """Async function for generating subtitles."""
     session_maker = get_async_session_maker()
 
@@ -1146,7 +1146,7 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: int, 
 def batch_transcribe_recording_task(
     self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     batch_id: str,
     poll_interval: float = 10.0,
     max_wait_time: float = 3600.0,
@@ -1211,7 +1211,7 @@ def batch_transcribe_recording_task(
 async def _async_poll_batch_transcription(
     task_self,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     batch_id: str,
     poll_interval: float,
     max_wait_time: float,

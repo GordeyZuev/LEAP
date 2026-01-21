@@ -10,11 +10,13 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Numeric,
+    Sequence,
     String,
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
+from ulid import ULID
 
 from database.models import Base
 
@@ -24,7 +26,8 @@ class UserModel(Base):
 
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id = Column(String(26), primary_key=True, default=lambda: str(ULID()))
+    user_slug = Column(Integer, Sequence("user_slug_seq"), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
@@ -67,7 +70,7 @@ class UserCredentialModel(Base):
     __tablename__ = "user_credentials"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     platform = Column(String(50), nullable=False)
     account_name = Column(String(255), nullable=True)
     encrypted_data = Column(Text, nullable=False)
@@ -127,7 +130,7 @@ class UserSubscriptionModel(Base):
     __tablename__ = "user_subscriptions"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="RESTRICT"), nullable=False, index=True)
 
     # Custom quotas (override plan defaults, NULL = use from plan)
@@ -146,8 +149,8 @@ class UserSubscriptionModel(Base):
     expires_at = Column(DateTime, nullable=True)
 
     # Audit
-    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    modified_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    modified_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -167,7 +170,7 @@ class QuotaUsageModel(Base):
     __tablename__ = "quota_usage"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     period = Column(Integer, nullable=False, index=True)  # YYYYMM format
 
     # Usage counters
@@ -198,9 +201,9 @@ class QuotaChangeHistoryModel(Base):
     __tablename__ = "quota_change_history"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    changed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    changed_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     change_type = Column(String(50), nullable=False, index=True)
 
     # What changed
@@ -221,7 +224,7 @@ class RefreshTokenModel(Base):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     token = Column(String(500), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     is_revoked = Column(Boolean, default=False, nullable=False)

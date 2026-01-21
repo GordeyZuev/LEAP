@@ -16,7 +16,7 @@ logger = get_logger()
 class ConfigService:
     """Service for user configuration and credentials"""
 
-    def __init__(self, session: AsyncSession, user_id: int):
+    def __init__(self, session: AsyncSession, user_id: str):
         """
         Initialize config service.
 

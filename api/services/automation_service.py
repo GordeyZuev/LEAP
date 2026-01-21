@@ -11,7 +11,7 @@ from api.services.quota_service import QuotaService
 class AutomationService:
     """Service for managing automation jobs with business logic."""
 
-    def __init__(self, session: AsyncSession, user_id: int):
+    def __init__(self, session: AsyncSession, user_id: str):
         self.session = session
         self.user_id = user_id
         self.job_repo = AutomationJobRepository(session)

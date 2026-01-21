@@ -43,7 +43,7 @@
 **Effort:** 2-3 days
 
 - [ ] ID-based file naming (no display_name in paths)
-- [ ] User ID migration to UUID
+- [x] User ID migration to UUID/ULID - **COMPLETED**
 - [ ] Fix OutputTarget queries (add user_id filter)
 - [ ] Composite indexes for performance
 

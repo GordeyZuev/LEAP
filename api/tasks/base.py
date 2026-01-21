@@ -31,7 +31,7 @@ class BaseTask(Task):
 
     Usage:
         @celery_app.task(bind=True, base=ProcessingTask)
-        def my_task(self, recording_id: int, user_id: int):
+        def my_task(self, recording_id: int, user_id: str):
             self.update_progress(user_id, 50, "Processing...")
             result = self.run_async(async_function(recording_id))
             return self.build_result(user_id, result=result)
@@ -65,7 +65,7 @@ class BaseTask(Task):
 
     def update_progress(
         self,
-        user_id: int,
+        user_id: str,
         progress: int,
         status: str,
         step: str | None = None,
@@ -93,7 +93,7 @@ class BaseTask(Task):
 
         self.update_state(state="PROCESSING", meta=meta)
 
-    def build_result(self, user_id: int, status: str = "completed", **data) -> dict:
+    def build_result(self, user_id: str, status: str = "completed", **data) -> dict:
         """
         Build standardized task result with user_id.
 

@@ -18,6 +18,17 @@
 
 ## 📂 Directory Structure
 
+### User ID Architecture
+
+**Database**: Users table uses **ULID (26-character string)** as primary key
+- Example: `01ARZ3NDEKTSV4RRFFQ69G5FAV`
+- Benefits: Security (unpredictable), scalability, no enumeration attacks
+
+**File System**: Uses **user_slug (6-digit integer)** for readable paths
+- Example: `user_000001`, `user_000002`
+- Mapping: `users.user_slug` auto-increments from sequence
+- Benefits: Shorter paths, easier debugging, human-readable
+
 ```
 storage/                             # Root (configurable: local path or S3 bucket)
 │
@@ -29,8 +40,8 @@ storage/                             # Root (configurable: local path or S3 buck
 │       └── ...                      # Total: 22 files (~5MB)
 │
 ├── users/                           # User-specific storage
-│   └── {user_id}/                   # Integer ID (UUID migration later)
-│       └── recordings/
+│   └── user_{slug}/                 # 6-digit padded: user_000001, user_000002, etc.
+│       └── recordings/              # All recordings for this user
 │           └── {recording_id}/      # All files for one recording
 │               │
 │               ├── source.mp4       # Original video from Zoom/URL

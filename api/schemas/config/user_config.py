@@ -89,7 +89,7 @@ class UserConfigData(BaseModel):
 
 class UserConfigResponse(BaseModel):
     id: int
-    user_id: int
+    user_id: str
     config_data: UserConfigData
     created_at: datetime
     updated_at: datetime

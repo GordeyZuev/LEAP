@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 async def get_allow_skipped_flag(
     session: AsyncSession,
-    user_id: int,
+    user_id: str,
     template_id: int | None = None,
     explicit_value: bool | None = None,
 ) -> bool:
@@ -72,7 +72,7 @@ async def get_allow_skipped_flag(
 
 async def get_user_processing_config(
     session: AsyncSession,
-    user_id: int,
+    user_id: str,
 ) -> dict[str, Any]:
     """
     Get user's processing configuration.
@@ -98,7 +98,7 @@ async def get_user_processing_config(
 async def resolve_full_config(
     session: AsyncSession,
     recording_id: int,
-    user_id: int,
+    user_id: str,
     manual_override: dict[str, Any] | None = None,
     include_output_config: bool = False,
 ) -> tuple[dict[str, Any], RecordingModel] | tuple[dict[str, Any], dict[str, Any], RecordingModel]:

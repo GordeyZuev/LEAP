@@ -31,7 +31,7 @@ settings = get_settings()
     max_retries=settings.celery.automation_max_retries,
     default_retry_delay=settings.celery.automation_retry_delay,
 )
-def run_automation_job_task(self, job_id: int, user_id: int):
+def run_automation_job_task(self, job_id: int, user_id: str):
     """
     Execute automation job:
     1. Sync source recordings
@@ -163,7 +163,7 @@ def run_automation_job_task(self, job_id: int, user_id: int):
     max_retries=settings.celery.automation_max_retries,
     default_retry_delay=settings.celery.automation_retry_delay,
 )
-def dry_run_automation_job_task(self, job_id: int, user_id: int):
+def dry_run_automation_job_task(self, job_id: int, user_id: str):
     """
     Preview what the job would do without executing.
     Returns estimated counts without actually processing.

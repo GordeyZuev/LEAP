@@ -15,7 +15,7 @@ class UserCredentialBase(BaseModel):
 class UserCredentialCreate(UserCredentialBase):
     """Схема для создания учетных данных."""
 
-    user_id: int
+    user_id: str
     encrypted_data: str = Field(..., description="Зашифрованные данные")
 
 
@@ -30,7 +30,7 @@ class UserCredentialInDB(UserCredentialBase):
     """Схема учетных данных в БД."""
 
     id: int
-    user_id: int
+    user_id: str
     encrypted_data: str
     is_active: bool = True
     created_at: datetime

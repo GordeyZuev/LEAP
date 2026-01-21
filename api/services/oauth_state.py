@@ -20,7 +20,7 @@ class OAuthStateManager:
 
     async def create_state(
         self,
-        user_id: int,
+        user_id: str,
         platform: str,
         ip_address: str | None = None,
         code_verifier: str | None = None,
