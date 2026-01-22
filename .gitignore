@@ -73,6 +73,7 @@ media/*
 thumbnails/*
 transcriptions/*
 video/*
+storage/*
 
 # Logs
 logs/

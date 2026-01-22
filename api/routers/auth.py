@@ -30,9 +30,9 @@ from api.schemas.auth import (
     UserUpdate,
 )
 from config.settings import DEFAULT_USER_CONFIG, get_settings
+from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 from utils.thumbnail_manager import get_thumbnail_manager
-from utils.user_paths import get_path_manager
 
 logger = get_logger()
 settings = get_settings()
@@ -93,8 +93,17 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
         await config_repo.create(user_id=user.id, config_data=DEFAULT_USER_CONFIG)
 
     # Создать директории пользователя
-    path_manager = get_path_manager()
-    path_manager.ensure_user_directories(user.id)
+    # TODO(S3): Replace with backend operations when S3 support added
+    # For now: direct directory creation (LOCAL only)
+    storage_builder = StoragePathBuilder()
+    user_root = storage_builder.user_root(user.user_slug)
+    user_root.mkdir(parents=True, exist_ok=True)
+
+    # Создать thumbnails директорию для пользовательских превью
+    user_thumbnails = storage_builder.user_thumbnails_dir(user.user_slug)
+    user_thumbnails.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Created user directories: {user_root}")
 
     # Инициализировать thumbnails (создать пустую папку)
     thumbnail_manager = get_thumbnail_manager()

@@ -104,8 +104,7 @@ class TemplateMetadataConfig(BaseModel):
         None,
         description="Общий путь к thumbnail для всех платформ (если не указан платформо-специфичный)",
         examples=[
-            "media/templates/thumbnails/applied_python.png",
-            "thumbnails/ml_course.png",
+            "storage/shared/thumbnails/applied_python.png"
         ],
     )
 

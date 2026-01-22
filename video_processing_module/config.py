@@ -12,8 +12,8 @@ class ProcessingConfig:
     min_silence_duration: float = 2.0
     padding_before: float = 5.0
     padding_after: float = 5.0
-    input_dir: str = "media/video/unprocessed"
-    temp_dir: str = "media/video/temp_processing"
+    input_dir: str = "storage/temp"
+    temp_dir: str = "storage/temp"
     video_codec: str = "copy"
     audio_codec: str = "copy"
     video_bitrate: str = "original"

@@ -1,8 +1,16 @@
     # 📁 Storage Structure - Final Design
 
-**Version:** 2.0  
-**Date:** 2026-01-16  
+**Version:** 2.1  
+**Date:** 2026-01-22  
 **Status:** Approved for implementation
+
+**Changes in v2.1:**
+- ✅ Removed `assets/` directory (all metadata in DB)
+- ✅ Removed `temp/` directory (unused, system temp used instead)
+- ✅ Single `topics.json` with internal versioning (not topics_v1, v2...)
+- ✅ Added `user_{slug}/thumbnails/` for user-uploaded thumbnails
+- ✅ Added `STORAGE_TYPE` configuration (LOCAL/S3)
+- ✅ Added storage quota parameters
 
 ---
 
@@ -39,32 +47,26 @@ storage/                             # Root (configurable: local path or S3 buck
 │       ├── big_data.png
 │       └── ...                      # Total: 22 files (~5MB)
 │
-├── users/                           # User-specific storage
-│   └── user_{slug}/                 # 6-digit padded: user_000001, user_000002, etc.
-│       └── recordings/              # All recordings for this user
-│           └── {recording_id}/      # All files for one recording
-│               │
-│               ├── source.mp4       # Original video from Zoom/URL
-│               ├── video.mp4        # Processed/trimmed video
-│               ├── audio.mp3        # Extracted audio for transcription
-│               │
-│               ├── transcription/   # All transcription-related files
-│               │   ├── master.json          # Full transcription with words
-│               │   ├── topics_v1.json       # Topics extraction (versioned)
-│               │   ├── topics_v2.json       # Updated topics (if re-extracted)
-│               │   ├── subtitles.srt        # Subtitles (SRT format)
-│               │   └── subtitles.vtt        # Subtitles (VTT format)
-│               │
-│               └── assets/          # Recording-specific assets
-│                   ├── custom_thumbnail.png  # User-uploaded thumbnail
-│                   └── metadata.json         # Additional metadata
-│
-└── temp/                            # Temporary processing files
-    └── {user_id}/
-        └── {job_id}/                # UUID for each processing job
-            ├── processing.mp4       # Temp file during FFmpeg
-            ├── download.mp4         # Temp during download
-            └── audio_extract.wav    # Temp during extraction
+└── users/                           # User-specific storage
+    └── user_{slug}/                 # 6-digit padded: user_000001, user_000002, etc.
+        │
+        ├── recordings/              # All recordings for this user
+        │   └── {recording_id}/      # All files for one recording
+        │       │
+        │       ├── source.mp4       # Original video from Zoom/URL
+        │       ├── video.mp4        # Processed/trimmed video
+        │       ├── audio.mp3        # Extracted audio for transcription
+        │       │
+        │       └── transcriptions/  # All transcription-related files
+        │           ├── master.json          # Full transcription with words & segments
+        │           ├── topics.json          # Topics with versioning (v1, v2, v3...)
+        │           ├── subtitles.srt        # Subtitles (SRT format)
+        │           └── subtitles.vtt        # Subtitles (VTT format)
+        │
+        └── thumbnails/              # User-uploaded custom thumbnails
+            ├── custom_thumbnail_1.png
+            ├── custom_thumbnail_2.png
+            └── ...
 ```
 
 ---
@@ -123,13 +125,13 @@ shared/
 - No encoding issues (no display_name in filename)
 - Clear purpose: `source` = what we got, `video` = what we processed
 
-### 5. Why `temp/{user_id}/{job_id}/`?
+### 5. Why no `temp/` directory?
 
-**Advantages:**
-- Isolated per job (parallel processing safe)
-- Easy cleanup: delete by job_id
-- User-level isolation maintained
-- UUID job_id = no collisions
+**Reasoning:**
+- Temporary files handled in system temp directories (`/tmp`, OS-managed)
+- No need for persistent temp storage in our structure
+- FFmpeg and processing tools work directly with source/destination paths
+- Cleaner structure, no orphaned temp files
 
 ---
 
@@ -144,12 +146,12 @@ shared/
 
 ### Transcription Files
 - `master.json` - Full transcription (words + segments + metadata)
-- `topics_v{N}.json` - Topics extraction (versioned, N = 1, 2, 3...)
+- `topics.json` - Topics extraction with internal versioning (v1, v2, v3...)
 - `subtitles.{format}` - Subtitles (srt, vtt, etc)
 
-### Assets
-- `custom_thumbnail.png` - User-uploaded thumbnail
-- `metadata.json` - Additional metadata (tags, notes, etc)
+### User Thumbnails
+- User-uploaded custom thumbnails stored in `users/{user_slug}/thumbnails/`
+- All metadata (tags, notes, etc.) stored in database
 
 ---
 
@@ -162,9 +164,8 @@ shared/
 | `source.mp4` | Until expired | Original for re-processing |
 | `video.mp4` | Until expired | For uploads/re-uploads |
 | `audio.mp3` | Until expired | For re-transcription |
-| `transcription/*` | Until expired | For API responses |
-| `assets/*` | Until expired | User data |
-| `temp/*` | 24 hours | Auto-cleanup |
+| `transcriptions/*` | Until expired | For API responses |
+| `thumbnails/*` | Until deleted | User custom thumbnails |
 
 ### Expired Status Cleanup
 
@@ -177,17 +178,40 @@ shared/
 
 ---
 
-## 🌐 S3 Compatibility
+## 🌐 Storage Backend Selection
 
-### Local Path
-```python
-Path("storage/users/5/recordings/142/source.mp4")
+### Configuration (.env)
+
+```env
+# Storage type: LOCAL or S3
+STORAGE_TYPE=LOCAL
+
+# LOCAL storage settings
+STORAGE_LOCAL_PATH=storage/
+STORAGE_LOCAL_MAX_SIZE_GB=1000        # Max storage quota (optional)
+
+# S3 storage settings
+STORAGE_S3_BUCKET=my-bucket
+STORAGE_S3_PREFIX=storage/
+STORAGE_S3_REGION=us-east-1
+STORAGE_S3_MAX_SIZE_GB=5000           # Max bucket usage (optional)
+STORAGE_S3_ACCESS_KEY_ID=...          # AWS credentials
+STORAGE_S3_SECRET_ACCESS_KEY=...
 ```
 
-### S3 Path (identical structure!)
+### Path Compatibility
+
+#### Local Path
 ```python
-s3://my-bucket/storage/users/5/recordings/142/source.mp4
+Path("storage/users/user_000005/recordings/142/source.mp4")
 ```
+
+#### S3 Path (identical structure!)
+```python
+s3://my-bucket/storage/users/user_000005/recordings/142/source.mp4
+```
+
+**Structure is 100% identical after the prefix!**
 
 ### Implementation
 
@@ -212,10 +236,17 @@ class StorageBackend(ABC):
 
 # storage/backends/local.py
 class LocalStorageBackend(StorageBackend):
-    def __init__(self, base_path: str = "storage"):
+    def __init__(self, base_path: str = "storage", max_size_gb: int | None = None):
         self.base = Path(base_path)
+        self.max_size_gb = max_size_gb
     
     async def save(self, path: str, content: bytes) -> str:
+        # Check quota if configured
+        if self.max_size_gb:
+            current_size = self._get_total_size()
+            if current_size + len(content) > self.max_size_gb * (1024**3):
+                raise StorageQuotaExceededError()
+        
         full_path = self.base / path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_bytes(content)
@@ -223,15 +254,95 @@ class LocalStorageBackend(StorageBackend):
 
 # storage/backends/s3.py
 class S3StorageBackend(StorageBackend):
-    def __init__(self, bucket: str, prefix: str = "storage"):
+    def __init__(
+        self,
+        bucket: str,
+        prefix: str = "storage",
+        region: str = "us-east-1",
+        max_size_gb: int | None = None,
+    ):
         self.bucket = bucket
         self.prefix = prefix
+        self.region = region
+        self.max_size_gb = max_size_gb
     
     async def save(self, path: str, content: bytes) -> str:
         s3_key = f"{self.prefix}/{path}"
-        await s3.put_object(Bucket=self.bucket, Key=s3_key, Body=content)
+        await s3.put_object(
+            Bucket=self.bucket,
+            Key=s3_key,
+            Body=content,
+            ServerSideEncryption='AES256',  # Enable encryption
+        )
         return f"s3://{self.bucket}/{s3_key}"
+
+# storage/factory.py
+def create_storage_backend() -> StorageBackend:
+    """Create storage backend based on STORAGE_TYPE environment variable"""
+    storage_type = os.getenv("STORAGE_TYPE", "LOCAL").upper()
+    
+    if storage_type == "LOCAL":
+        return LocalStorageBackend(
+            base_path=os.getenv("STORAGE_LOCAL_PATH", "storage"),
+            max_size_gb=int(os.getenv("STORAGE_LOCAL_MAX_SIZE_GB", 0)) or None,
+        )
+    elif storage_type == "S3":
+        return S3StorageBackend(
+            bucket=os.getenv("STORAGE_S3_BUCKET"),
+            prefix=os.getenv("STORAGE_S3_PREFIX", "storage"),
+            region=os.getenv("STORAGE_S3_REGION", "us-east-1"),
+            max_size_gb=int(os.getenv("STORAGE_S3_MAX_SIZE_GB", 0)) or None,
+        )
+    else:
+        raise ValueError(f"Unknown storage type: {storage_type}")
 ```
+
+---
+
+## 📝 Topics.json Versioning
+
+Instead of separate files (`topics_v1.json`, `topics_v2.json`), we use a **single `topics.json` file with internal versioning**:
+
+```json
+{
+  "recording_id": 74,
+  "active_version": "v4",
+  "versions": [
+    {
+      "id": "v1",
+      "model": "deepseek",
+      "granularity": "long",
+      "created_at": "2026-01-13T22:40:16.733544",
+      "is_active": false,
+      "main_topics": ["Topic 1", "Topic 2"],
+      "topic_timestamps": [
+        {"topic": "Introduction", "start": 0.0, "end": 120.0}
+      ],
+      "pauses": [],
+      "_metadata": {"model": "deepseek", "config": {...}}
+    },
+    {
+      "id": "v4",
+      "model": "deepseek",
+      "granularity": "long",
+      "created_at": "2026-01-13T23:17:57.731738",
+      "is_active": true,
+      "main_topics": ["Updated Topic 1"],
+      "topic_timestamps": [
+        {"topic": "Intro", "start": 0.0, "end": 106.0}
+      ],
+      "_metadata": {...}
+    }
+  ]
+}
+```
+
+**Benefits:**
+- ✅ Single file to manage (no topics_v1, topics_v2, etc.)
+- ✅ Easy to switch between versions (update `active_version`)
+- ✅ Full history preserved in one place
+- ✅ Atomic updates (no race conditions)
+- ✅ Already implemented in `transcription_module/manager.py`!
 
 ---
 
@@ -256,12 +367,11 @@ builder.recording_video(user_id=5, recording_id=142)
 builder.transcription_master(user_id=5, recording_id=142)
 # → "storage/users/5/recordings/142/transcription/master.json"
 
-builder.transcription_topics(user_id=5, recording_id=142, version=2)
-# → "storage/users/5/recordings/142/transcription/topics_v2.json"
+builder.transcription_topics(user_id=5, recording_id=142)
+# → "storage/users/5/recordings/142/transcriptions/topics.json"
 
-# Temp files
-builder.temp_file(user_id=5, job_id="uuid-123", filename="processing.mp4")
-# → "storage/temp/5/uuid-123/processing.mp4"
+builder.user_thumbnail(user_id=5, filename="custom_thumbnail_1.png")
+# → "storage/users/5/thumbnails/custom_thumbnail_1.png"
 
 # Helpers
 builder.delete_recording_files(user_id=5, recording_id=142)
@@ -309,9 +419,9 @@ storage/
                 ├── source.mp4       # From unprocessed
                 ├── video.mp4        # From processed
                 ├── audio.mp3        # From audio/processed
-                └── transcription/
+                └── transcriptions/
                     ├── master.json
-                    └── topics_v1.json
+                    └── topics.json  # Versioned internally!
 ```
 
 ### Migration Script
@@ -343,23 +453,45 @@ $ du -sh storage/
 | Size Calculation | Walk all dirs | Single directory walk |
 | Encoding Issues | Cyrillic in filenames | Only IDs in paths |
 | Quota Tracking | Manual calculation | Automatic on save/delete |
+| Topics Storage | Multiple files (topics_v1, v2...) | Single topics.json with versioning |
+| Temp Files | temp/ directory (unused) | System temp (cleaner) |
+| Metadata | metadata.json in assets/ | All in database |
+| Storage Backend | Hardcoded local | Switchable LOCAL/S3 |
 
 ---
 
 ## 🚀 Implementation Checklist
 
-- [ ] Create `storage/path_builder.py`
-- [ ] Create `storage/backends/base.py`
-- [ ] Create `storage/backends/local.py`
-- [ ] Create `storage/backends/s3.py` (ФАЗА 5)
-- [ ] Create migration script
-- [ ] Update all file operations to use `StoragePathBuilder`
+### Phase 1: Configuration
+- [ ] Add `STORAGE_TYPE` to `.env.example`
+- [ ] Update `config/settings.py` with StorageSettings
+- [ ] Add validation for storage configuration
+
+### Phase 2: Storage Backends
+- [ ] Create `storage/` module directory
+- [ ] Create `storage/backends/base.py` (abstract StorageBackend)
+- [ ] Create `storage/backends/local.py` (LocalStorageBackend)
+- [ ] Create `storage/backends/s3.py` (S3StorageBackend - PHASE 5)
+- [ ] Create `storage/factory.py` (backend factory)
+
+### Phase 3: Path Builder
+- [ ] Create `storage/path_builder.py` (StoragePathBuilder)
+- [ ] Add methods for all path types (recordings, thumbnails, etc.)
+- [ ] Integrate with storage backends
+
+### Phase 4: Migration
+- [ ] Create migration script `scripts/migrate_to_new_structure.py`
+- [ ] Test migration on dev environment
+- [ ] Update `utils/user_paths.py` to use new structure
+- [ ] Update all file operations to use StoragePathBuilder
 - [ ] Update database paths
-- [ ] Test on dev environment
+
+### Phase 5: Deployment
 - [ ] Run migration on production
-- [ ] Verify all files migrated
-- [ ] Delete old `media/` directory
-- [ ] Update documentation
+- [ ] Verify all files migrated correctly
+- [ ] Monitor for 24h
+- [ ] Archive old `media/` directory
+- [ ] Update all documentation
 
 ---
 

@@ -226,15 +226,19 @@ class VideoProcessor:
             return []
 
     async def process_video_with_audio_detection(
-        self, video_path: str, title: str, start_time: str | None = None
+        self,
+        video_path: str,
+        title: str,
+        start_time: str | None = None,
+        output_path: str | None = None,
     ) -> tuple[bool, str | None]:
         """Обработка видео с автоматической обрезкой по звуку.
 
         Args:
             video_path: Путь к исходному видео файлу
-            title: Название видео
-            start_time: Дата начала записи в формате Zoom API (например, "2025-11-25T18:00:15Z")
-                       Используется для создания уникального имени файла
+            title: Название видео (используется только для логов)
+            start_time: Дата начала записи (используется только для логов)
+            output_path: Явный путь для сохранения обработанного видео (опционально)
         """
         try:
             logger.info(f"Processing video with sound detection: title={title}", title=title)
@@ -280,24 +284,29 @@ class VideoProcessor:
                 padding_after=self.config.padding_after
             )
 
-            safe_title = sanitize_filename(title)
+            # Use explicit output_path if provided, otherwise generate from title
+            if output_path:
+                output_path = Path(output_path)
+            else:
+                # Legacy: generate filename from title
+                safe_title = sanitize_filename(title)
 
-            # Добавляем дату и время в имя файла для уникальности
-            date_suffix = ""
-            if start_time:
-                try:
-                    normalized_time = normalize_datetime_string(start_time)
-                    date_obj = datetime.fromisoformat(normalized_time)
-                    date_suffix = f"_{date_obj.strftime('%y-%m-%d_%H-%M')}"
-                except Exception as e:
-                    logger.warning(
-                        f"Error parsing date for filename: date={start_time}",
-                        date=start_time,
-                        error=str(e)
-                    )
+                # Добавляем дату и время в имя файла для уникальности
+                date_suffix = ""
+                if start_time:
+                    try:
+                        normalized_time = normalize_datetime_string(start_time)
+                        date_obj = datetime.fromisoformat(normalized_time)
+                        date_suffix = f"_{date_obj.strftime('%y-%m-%d_%H-%M')}"
+                    except Exception as e:
+                        logger.warning(
+                            f"Error parsing date for filename: date={start_time}",
+                            date=start_time,
+                            error=str(e)
+                        )
 
-            output_filename = f"{safe_title}{date_suffix}_processed.mp4"
-            output_path = Path(self.config.output_dir) / output_filename
+                output_filename = f"{safe_title}{date_suffix}_processed.mp4"
+                output_path = Path(self.config.output_dir) / output_filename
 
             output_path.parent.mkdir(parents=True, exist_ok=True)
             logger.info("Starting FFmpeg for trimming...")

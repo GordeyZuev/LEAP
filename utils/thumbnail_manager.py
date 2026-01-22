@@ -13,41 +13,41 @@ class ThumbnailManager:
 
     def __init__(self, base_media_dir: str = "media"):
         """
-        Инициализация менеджера thumbnails.
+        Thumbnail manager initialization.
 
         Args:
-            base_media_dir: Базовая директория для медиа файлов
+            base_media_dir: Base directory for media files
         """
         self.base_media_dir = Path(base_media_dir)
         self.templates_dir = self.base_media_dir / "templates" / "thumbnails"
 
     def get_user_thumbnails_dir(self, user_id: int) -> Path:
-        """Получить директорию thumbnails пользователя."""
+        """Get user thumbnails directory."""
         return self.base_media_dir / f"user_{user_id}" / "thumbnails"
 
     def get_global_templates_dir(self) -> Path:
-        """Получить директорию глобальных template thumbnails."""
+        """Get global template thumbnails directory."""
         return self.templates_dir
 
     def ensure_user_thumbnails_dir(self, user_id: int) -> None:
-        """Создать директорию thumbnails для пользователя."""
+        """Create user thumbnails directory."""
         user_thumbs_dir = self.get_user_thumbnails_dir(user_id)
         user_thumbs_dir.mkdir(parents=True, exist_ok=True)
 
     def initialize_user_thumbnails(self, user_id: int, copy_templates: bool = True) -> None:
         """
-        Инициализировать thumbnails для нового пользователя.
+        Initialize thumbnails for a new user.
 
         Args:
-            user_id: ID пользователя
-            copy_templates: Копировать ли глобальные templates в папку пользователя
+            user_id: User ID
+            copy_templates: Copy global templates to user folder
         """
         user_thumbs_dir = self.get_user_thumbnails_dir(user_id)
 
-        # Создать директорию
+        # Create directory
         self.ensure_user_thumbnails_dir(user_id)
 
-        # Копировать templates если нужно
+        # Copy templates if needed
         if copy_templates and self.templates_dir.exists():
             copied_count = 0
             for template_file in self.templates_dir.glob("*.png"):
@@ -60,9 +60,9 @@ class ThumbnailManager:
                     except Exception as e:
                         logger.warning(f"Failed to copy template {template_file.name}: {e}")
 
-            logger.info(f"Initialized thumbnails for user {user_id}: {copied_count} templates copied")
+            logger.info(f"Initialized thumbnails for user {user_id}: {copied_count} templates copied.")
         else:
-            logger.info(f"Created empty thumbnails directory for user {user_id}")
+            logger.info(f"Created empty thumbnails directory for user {user_id}.")
 
     def get_thumbnail_path(
         self,
@@ -71,26 +71,26 @@ class ThumbnailManager:
         fallback_to_template: bool = True,
     ) -> Path | None:
         """
-        Получить путь к thumbnail (сначала проверяется у пользователя, потом в templates).
+        Get path to thumbnail (first check user, then templates).
 
         Args:
-            user_id: ID пользователя
-            thumbnail_name: Имя файла thumbnail (например, "ml_extra.png")
-            fallback_to_template: Искать ли в глобальных templates если не найдено у пользователя
+            user_id: User ID
+            thumbnail_name: Thumbnail file name (e.g. "ml_extra.png")
+            fallback_to_template: Search in global templates if not found in user folder
 
         Returns:
-            Path к thumbnail или None если не найден
+            Path to thumbnail or None if not found
         """
-        # Нормализовать имя файла (убрать префиксы путей если есть)
+        # Normalize file name (remove path prefixes if any)
         thumbnail_name = Path(thumbnail_name).name
 
-        # 1. Проверить у пользователя
+        # 1. Check user folder
         user_thumbnail = self.get_user_thumbnails_dir(user_id) / thumbnail_name
         if user_thumbnail.exists():
             logger.debug(f"Found user thumbnail: {user_thumbnail}")
             return user_thumbnail
 
-        # 2. Fallback на глобальные templates
+        # 2. Fallback to global templates
         if fallback_to_template:
             template_thumbnail = self.templates_dir / thumbnail_name
             if template_thumbnail.exists():
@@ -102,13 +102,13 @@ class ThumbnailManager:
 
     def list_user_thumbnails(self, user_id: int) -> list[Path]:
         """
-        Получить список всех thumbnails пользователя.
+        Get list of all user thumbnails.
 
         Args:
-            user_id: ID пользователя
+            user_id: User ID
 
         Returns:
-            Список путей к thumbnails
+            List of thumbnail paths
         """
         user_thumbs_dir = self.get_user_thumbnails_dir(user_id)
 
@@ -119,10 +119,10 @@ class ThumbnailManager:
 
     def list_template_thumbnails(self) -> list[Path]:
         """
-        Получить список всех глобальных template thumbnails.
+        Get list of all global template thumbnails.
 
         Returns:
-            Список путей к templates
+            List of template paths
         """
         if not self.templates_dir.exists():
             return []
@@ -136,37 +136,37 @@ class ThumbnailManager:
         thumbnail_name: str | None = None,
     ) -> Path:
         """
-        Загрузить пользовательский thumbnail.
+        Upload user thumbnail.
 
         Args:
-            user_id: ID пользователя
-            source_path: Путь к исходному файлу
-            thumbnail_name: Имя для сохранения (если None - использовать оригинальное)
+            user_id: User ID
+            source_path: Path to source file
+            thumbnail_name: Name to save (if None - use original)
 
         Returns:
-            Path к сохраненному thumbnail
+            Path to saved thumbnail
 
         Raises:
-            FileNotFoundError: Если исходный файл не найден
-            ValueError: Если формат не поддерживается
+            FileNotFoundError: If source file not found
+            ValueError: If format not supported
         """
         source_path = Path(source_path)
 
         if not source_path.exists():
             raise FileNotFoundError(f"Source thumbnail not found: {source_path}")
 
-        # Проверить формат
+        # Check format
         if source_path.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
             raise ValueError(f"Unsupported thumbnail format: {source_path.suffix}")
 
-        # Определить имя файла
+        # Define file name
         if thumbnail_name is None:
             thumbnail_name = source_path.name
 
-        # Убедиться что директория существует
+        # Ensure directory exists
         self.ensure_user_thumbnails_dir(user_id)
 
-        # Сохранить файл
+        # Save file
         target_path = self.get_user_thumbnails_dir(user_id) / thumbnail_name
         shutil.copy2(source_path, target_path)
 
@@ -175,14 +175,14 @@ class ThumbnailManager:
 
     def delete_user_thumbnail(self, user_id: int, thumbnail_name: str) -> bool:
         """
-        Удалить пользовательский thumbnail.
+        Delete user thumbnail.
 
         Args:
-            user_id: ID пользователя
-            thumbnail_name: Имя файла thumbnail
+            user_id: User ID
+            thumbnail_name: Thumbnail file name
 
         Returns:
-            True если удален успешно, False если не найден
+            True if deleted successfully, False if not found
         """
         thumbnail_name = Path(thumbnail_name).name
         thumbnail_path = self.get_user_thumbnails_dir(user_id) / thumbnail_name
@@ -201,13 +201,13 @@ class ThumbnailManager:
 
     def get_thumbnail_info(self, thumbnail_path: Path) -> dict:
         """
-        Получить информацию о thumbnail (размер и дата изменения).
+        Get thumbnail information (size and modification date).
 
         Args:
-            thumbnail_path: Путь к thumbnail
+            thumbnail_path: Path to thumbnail
 
         Returns:
-            Словарь с информацией (size_bytes, size_kb, modified_at)
+            Dictionary with information (size_bytes, size_kb, modified_at)
         """
         if not thumbnail_path.exists():
             return {
@@ -225,12 +225,12 @@ class ThumbnailManager:
         }
 
 
-# Глобальный экземпляр
+# Global instance
 _thumbnail_manager: ThumbnailManager | None = None
 
 
 def get_thumbnail_manager(base_media_dir: str = "media") -> ThumbnailManager:
-    """Получить глобальный экземпляр менеджера thumbnails."""
+    """Get global thumbnail manager instance."""
     global _thumbnail_manager
     if _thumbnail_manager is None:
         _thumbnail_manager = ThumbnailManager(base_media_dir)

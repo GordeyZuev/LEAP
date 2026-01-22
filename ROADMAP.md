@@ -1,11 +1,28 @@
 # Technical Roadmap
 
-**Last Updated:** 19 января 2026  
+**Last Updated:** 22 января 2026  
 **Status:** Active Development
+
+**Version:** v0.9.4 - Storage Structure Migration Complete
 
 ---
 
 ## ✅ Completed (January 2026)
+
+### v0.9.4 - Storage Structure Migration (January 22, 2026)
+- ✅ **ID-based file naming** - No display_name in paths (no Cyrillic!)
+- ✅ **Clean architecture** - `file_storage/` (code) + `storage/` (data separation)
+- ✅ **StoragePathBuilder** - Single source of truth for all paths
+- ✅ **S3-ready backends** - Abstract storage interface (LOCAL implemented)
+- ✅ **Legacy code removal** - Deleted UserPathManager, TranscriptionService
+- ✅ **user_slug required** - TranscriptionManager no optional parameters
+- ✅ **Documentation** - CHANGELOG.md, STORAGE_STRUCTURE_IMPLEMENTED.md
+
+**Impact:**
+- Removed: 2 files (~6000 bytes of legacy code)
+- Modified: 14 files (11 code + 3 docs)
+- Created: 10 files (file_storage/ module + docs)
+- Architecture: Clean separation of concerns
 
 ### Unified Configuration System
 - ✅ Single source of truth: `config/settings.py`
@@ -39,13 +56,14 @@
 - [ ] File rotation
 
 ### PHASE 2: Security & File Naming
-**Priority:** CRITICAL  
-**Effort:** 2-3 days
+**Priority:** ~~CRITICAL~~ → **COMPLETED v0.9.4** ✅  
+**Effort:** 2-3 days → **DONE**
 
-- [ ] ID-based file naming (no display_name in paths)
+- [x] ID-based file naming (no display_name in paths) - **COMPLETED v0.9.4**
+- [x] Storage structure migration - **COMPLETED v0.9.4**
 - [x] User ID migration to UUID/ULID - **COMPLETED**
-- [ ] Fix OutputTarget queries (add user_id filter)
-- [ ] Composite indexes for performance
+- [ ] Fix OutputTarget queries (add user_id filter) - **TODO**
+- [ ] Composite indexes for performance - **TODO**
 
 ### PHASE 3: File Lifecycle Management
 **Priority:** HIGH  
@@ -69,12 +87,17 @@
 - [ ] Migration to new structure
 
 ### PHASE 5: Storage Abstraction
-**Effort:** 2-3 days
+**Status:** 🚧 50% Complete (v0.9.4)  
+**Effort:** 2-3 days → **1-2 days remaining**
 
-- [ ] Abstract storage interface (LocalStorage + S3)
-- [ ] S3 backend with presigned URLs
-- [ ] Migration script to S3
-- [ ] Quota integration
+- [x] Abstract storage interface (LocalStorage + S3) - **COMPLETED v0.9.4**
+- [x] LocalStorageBackend implementation - **COMPLETED v0.9.4**
+- [x] StoragePathBuilder (single source of truth) - **COMPLETED v0.9.4**
+- [ ] S3StorageBackend implementation - **TODO** (2-3 hours)
+- [ ] Integrate backends into code (replace Path operations) - **TODO**
+- [ ] S3 backend with presigned URLs - **TODO**
+- [ ] Migration script to S3 - **TODO**
+- [ ] Quota integration - **TODO**
 
 ### PHASE 6: Architecture Cleanup
 **Effort:** 2-3 days

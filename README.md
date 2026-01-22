@@ -9,7 +9,7 @@
 
 **LEAP** — это multi-tenant платформа с полным `REST API` для автоматизации end-to-end обработки образовательного видеоконтента — от загрузки до публикации с AI-транскрибацией, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.9.3` (Dev Status)  
+**Версия:** `v0.9.4` (Production Ready)  
 **Tech:** `Python 3.11+` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek)
 
 ---
@@ -337,7 +337,7 @@ make docker-up && make init-db && make api
 ```
 Database:    user_id filtering + indexes
 Service:     ServiceContext + ConfigHelper
-File System: media/user_{user_id}/ isolation
+File System: storage/users/user_{slug}/ isolation (ID-based naming)
 ```
 
 ### Security
@@ -358,10 +358,12 @@ File System: media/user_{user_id}/ isolation
 ```
 api/                 ← FastAPI endpoints, JWT auth, validation
 database/            ← SQLAlchemy models, Alembic migrations
+file_storage/        ← Storage abstraction (paths, backends: LOCAL/S3)
 *_module/            ← Processing modules (video, transcription, upload)
 api/services/        ← Business logic layer
 api/repositories/    ← Data access layer (Repository pattern)
 api/tasks/           ← Celery background tasks
+storage/             ← User media files (ID-based structure)
 ```
 
 **Design Patterns:**
@@ -421,7 +423,7 @@ TRANSCRIBED → UPLOADING → READY
 
 ---
 
-## 🆕 Version: v0.9.3 (January 2026)
+## 🆕 Version: v0.9.4 (January 2026)
 
 **Status:** Production-ready multi-tenant SaaS
 
@@ -431,9 +433,16 @@ TRANSCRIBED → UPLOADING → READY
 - 21 database migrations (auto-init)
 - 3 OAuth platforms (YouTube, VK, Zoom)
 - 2 AI models (Whisper, DeepSeek)
-- 20 documentation guides
+- 20+ documentation guides
 
-**Latest Features (January 2026):**
+**v0.9.4 - Storage Structure Migration (January 2026):**
+- ✅ ID-based file naming (no Cyrillic in paths)
+- ✅ Clean architecture: `file_storage/` (code) + `storage/` (data)
+- ✅ S3-ready storage abstraction
+- ✅ Complete legacy code removal
+- ✅ TranscriptionManager with user_slug (required)
+
+**Previous Features:**
 - ✅ Celery Chains для параллелизма (0.08s orchestrator overhead)
 - ✅ Graceful credential error handling
 - ✅ DB optimization (N+1 eliminated, eager loading, bulk ops)
@@ -461,5 +470,6 @@ TRANSCRIBED → UPLOADING → READY
 
 ---
 
-**Version:** `v0.9.3` (January 2026) • **Status:** Dev Status  
-**Documentation:** [docs/INDEX.md](docs/INDEX.md) • 20 comprehensive guides
+**Version:** `v0.9.4` (January 2026) • **Status:** Production Ready  
+**Documentation:** [docs/INDEX.md](docs/INDEX.md) • 20+ comprehensive guides  
+**Changelog:** [docs/CHANGELOG.md](docs/CHANGELOG.md) • [STORAGE_STRUCTURE_IMPLEMENTED.md](STORAGE_STRUCTURE_IMPLEMENTED.md)

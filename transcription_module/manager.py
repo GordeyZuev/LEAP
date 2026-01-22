@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,33 +16,36 @@ class TranscriptionManager:
     def __init__(self):
         """Initialize transcription manager."""
 
-    def get_dir(self, recording_id: int, user_id: int | None = None) -> Path:
+    def get_dir(self, recording_id: int, user_slug: int) -> Path:
         """
-        Получить путь к папке транскрибации для записи.
+        Get transcription directory for recording.
 
         Args:
-            recording_id: ID записи
-            user_id: ID пользователя (обязательно для multi-tenancy)
+            recording_id: Recording ID
+            user_slug: User slug (6-digit integer from users.user_slug)
 
         Returns:
-            Путь к директории транскрипции
+            Path to transcriptions directory
+
+        Raises:
+            ValueError: If user_slug is None
         """
-        if user_id is None:
-            raise ValueError("user_id is required for transcription directory")
+        if user_slug is None:
+            raise ValueError(
+                "user_slug is required. "
+                "Get it from recording.owner.user_slug or user.user_slug"
+            )
 
-        # Используем UserPathManager для изоляции по пользователям
-        from utils.user_paths import get_path_manager
+        storage_builder = StoragePathBuilder()
+        return storage_builder.transcription_dir(user_slug, recording_id)
 
-        path_manager = get_path_manager()
-        return path_manager.get_transcription_dir(user_id, recording_id)
+    def has_master(self, recording_id: int, user_slug: int) -> bool:
+        """Check if master.json exists."""
+        return (self.get_dir(recording_id, user_slug) / "master.json").exists()
 
-    def has_master(self, recording_id: int, user_id: int | None = None) -> bool:
-        """Проверить наличие master.json."""
-        return (self.get_dir(recording_id, user_id) / "master.json").exists()
-
-    def has_topics(self, recording_id: int, user_id: int | None = None) -> bool:
-        """Проверить наличие topics.json."""
-        return (self.get_dir(recording_id, user_id) / "topics.json").exists()
+    def has_topics(self, recording_id: int, user_slug: int) -> bool:
+        """Check if topics.json exists."""
+        return (self.get_dir(recording_id, user_slug) / "topics.json").exists()
 
     def save_master(
         self,
@@ -52,7 +56,7 @@ class TranscriptionManager:
         model: str = "fireworks",
         duration: float = 0.0,
         usage_metadata: dict | None = None,
-        user_id: int | None = None,
+        user_slug: int | None = None,
         **meta,
     ) -> str:
         """
@@ -72,7 +76,7 @@ class TranscriptionManager:
         Returns:
             Путь к созданному master.json
         """
-        dir_path = self.get_dir(recording_id, user_id)
+        dir_path = self.get_dir(recording_id, user_slug)
         dir_path.mkdir(parents=True, exist_ok=True)
 
         # Подсчитываем статистику
@@ -105,7 +109,7 @@ class TranscriptionManager:
         )
         return str(master_path)
 
-    def load_master(self, recording_id: int, user_id: int | None = None) -> dict:
+    def load_master(self, recording_id: int, user_slug: int) -> dict:
         """
         Загрузить master.json.
 
@@ -119,7 +123,7 @@ class TranscriptionManager:
         Raises:
             FileNotFoundError: Если master.json не найден
         """
-        master_path = self.get_dir(recording_id, user_id) / "master.json"
+        master_path = self.get_dir(recording_id, user_slug) / "master.json"
         if not master_path.exists():
             raise FileNotFoundError(f"master.json not found for recording {recording_id}: {master_path}")
 
@@ -137,7 +141,7 @@ class TranscriptionManager:
         pauses: list[dict] | None = None,
         is_active: bool = True,
         usage_metadata: dict | None = None,
-        user_id: int | None = None,
+        user_slug: int | None = None,
         **meta,
     ) -> str:
         """
@@ -159,7 +163,7 @@ class TranscriptionManager:
         Returns:
             Путь к topics.json
         """
-        topics_path = self.get_dir(recording_id, user_id) / "topics.json"
+        topics_path = self.get_dir(recording_id, user_slug) / "topics.json"
 
         # Загружаем существующий topics.json или создаём новый
         if topics_path.exists():
@@ -206,7 +210,7 @@ class TranscriptionManager:
         )
         return str(topics_path)
 
-    def load_topics(self, recording_id: int, user_id: int | None = None) -> dict:
+    def load_topics(self, recording_id: int, user_slug: int) -> dict:
         """
         Загрузить topics.json.
 
@@ -220,14 +224,14 @@ class TranscriptionManager:
         Raises:
             FileNotFoundError: Если topics.json не найден
         """
-        topics_path = self.get_dir(recording_id, user_id) / "topics.json"
+        topics_path = self.get_dir(recording_id, user_slug) / "topics.json"
         if not topics_path.exists():
             raise FileNotFoundError(f"topics.json not found for recording {recording_id}: {topics_path}")
 
         with topics_path.open(encoding="utf-8") as f:
             return json.load(f)
 
-    def get_active_topics(self, recording_id: int, user_id: int | None = None) -> dict | None:
+    def get_active_topics(self, recording_id: int, user_slug: int) -> dict | None:
         """
         Получить активную версию топиков.
 
@@ -239,7 +243,7 @@ class TranscriptionManager:
             Данные активной версии топиков или None
         """
         try:
-            topics_data = self.load_topics(recording_id, user_id)
+            topics_data = self.load_topics(recording_id, user_slug)
             active_version_id = topics_data.get("active_version")
 
             if not active_version_id:
@@ -253,20 +257,20 @@ class TranscriptionManager:
         except FileNotFoundError:
             return None
 
-    def generate_cache_files(self, recording_id: int, user_id: int | None = None) -> dict[str, str]:
+    def generate_cache_files(self, recording_id: int, user_slug: int) -> dict[str, str]:
         """
         Генерировать кэш-файлы из master.json.
 
         Args:
             recording_id: ID записи
-            user_id: ID пользователя (для multi-tenancy)
+            user_slug: User slug (6-digit integer)
 
         Returns:
             Словарь с путями к созданным файлам
         """
-        master = self.load_master(recording_id, user_id)
-        cache_dir = self.get_dir(recording_id, user_id) / "cache"
-        cache_dir.mkdir(exist_ok=True)
+        master = self.load_master(recording_id, user_slug)
+        cache_dir = self.get_dir(recording_id, user_slug) / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
         files = {}
 
@@ -288,7 +292,7 @@ class TranscriptionManager:
         logger.info(f"✅ Generated cache files for recording {recording_id}: {list(files.keys())}")
         return files
 
-    def ensure_segments_txt(self, recording_id: int, user_id: int | None = None) -> Path:
+    def ensure_segments_txt(self, recording_id: int, user_slug: int) -> Path:
         """
         Гарантировать наличие segments.txt (генерируем если нет).
 
@@ -299,16 +303,16 @@ class TranscriptionManager:
         Returns:
             Путь к segments.txt
         """
-        segments_path = self.get_dir(recording_id, user_id) / "cache" / "segments.txt"
+        segments_path = self.get_dir(recording_id, user_slug) / "cache" / "segments.txt"
 
         if not segments_path.exists():
-            master = self.load_master(recording_id, user_id)
+            master = self.load_master(recording_id, user_slug)
             segments_path.parent.mkdir(parents=True, exist_ok=True)
             self._generate_segments_txt(master["segments"], segments_path)
 
         return segments_path
 
-    def generate_subtitles(self, recording_id: int, formats: list[str], user_id: int | None = None) -> dict[str, str]:
+    def generate_subtitles(self, recording_id: int, formats: list[str], user_slug: int) -> dict[str, str]:
         """
         Генерировать субтитры из master.json.
 
@@ -323,8 +327,8 @@ class TranscriptionManager:
         from subtitle_module import SubtitleGenerator
 
         # Гарантируем наличие segments.txt
-        segments_path = self.ensure_segments_txt(recording_id, user_id)
-        cache_dir = self.get_dir(recording_id, user_id) / "cache"
+        segments_path = self.ensure_segments_txt(recording_id, user_slug)
+        cache_dir = self.get_dir(recording_id, user_slug) / "cache"
 
         generator = SubtitleGenerator()
         result = generator.generate_from_transcription(
@@ -336,7 +340,7 @@ class TranscriptionManager:
         logger.info(f"✅ Generated subtitles for recording {recording_id}: formats={formats}")
         return result
 
-    def generate_version_id(self, recording_id: int, user_id: int | None = None) -> str:
+    def generate_version_id(self, recording_id: int, user_slug: int) -> str:
         """
         Генерировать ID для новой версии топиков.
 
@@ -348,7 +352,7 @@ class TranscriptionManager:
             ID версии (например, "v1", "v2")
         """
         try:
-            topics_data = self.load_topics(recording_id, user_id)
+            topics_data = self.load_topics(recording_id, user_slug)
             version_count = len(topics_data.get("versions", []))
             return f"v{version_count + 1}"
         except FileNotFoundError:

@@ -690,11 +690,14 @@ async def get_recording(
                 "size_mb": None,
             }
 
+    # Get user_slug for transcription paths
+    user_slug = recording.owner.user_slug
+
     # Transcription (hide _metadata and model from user)
     transcription_data = None
-    if transcription_manager.has_master(recording_id, user_id=ctx.user_id):
+    if transcription_manager.has_master(recording_id, user_slug):
         try:
-            master = transcription_manager.load_master(recording_id, user_id=ctx.user_id)
+            master = transcription_manager.load_master(recording_id, user_slug)
             transcription_data = {
                 "exists": True,
                 "created_at": master.get("created_at"),
@@ -702,12 +705,12 @@ async def get_recording(
                 # Hide model from user (exists in _metadata for admin)
                 "stats": master.get("stats"),
                 "files": {
-                    "master": str(transcription_manager.get_dir(recording_id, user_id=ctx.user_id) / "master.json"),
+                    "master": str(transcription_manager.get_dir(recording_id, user_slug) / "master.json"),
                     "segments_txt": str(
-                        transcription_manager.get_dir(recording_id, user_id=ctx.user_id) / "cache" / "segments.txt"
+                        transcription_manager.get_dir(recording_id, user_slug) / "cache" / "segments.txt"
                     ),
                     "words_txt": str(
-                        transcription_manager.get_dir(recording_id, user_id=ctx.user_id) / "cache" / "words.txt"
+                        transcription_manager.get_dir(recording_id, user_slug) / "cache" / "words.txt"
                     ),
                 },
             }
@@ -719,9 +722,9 @@ async def get_recording(
 
     # Topics (all versions) - hide _metadata from user
     topics_data = None
-    if transcription_manager.has_topics(recording_id, user_id=ctx.user_id):
+    if transcription_manager.has_topics(recording_id, user_slug):
         try:
-            topics_file = transcription_manager.load_topics(recording_id, user_id=ctx.user_id)
+            topics_file = transcription_manager.load_topics(recording_id, user_slug)
 
             # Clean versions from administrative metadata
             versions_clean = []
@@ -742,7 +745,7 @@ async def get_recording(
 
     # Subtitles
     subtitles = {}
-    cache_dir = transcription_manager.get_dir(recording_id, user_id=ctx.user_id) / "cache"
+    cache_dir = transcription_manager.get_dir(recording_id, user_slug) / "cache"
     for fmt in ["srt", "vtt"]:
         subtitle_path = cache_dir / f"subtitles.{fmt}"
         subtitles[fmt] = {
@@ -824,36 +827,49 @@ async def add_local_recording(
     Returns:
         Created recording
     """
-    # Create directory for user
-    user_dir = Path(f"media/user_{ctx.user_id}/video/unprocessed")
-    user_dir.mkdir(parents=True, exist_ok=True)
+    import shutil
 
-    # Save file
+    from file_storage.path_builder import StoragePathBuilder
+
+    storage_builder = StoragePathBuilder()
     filename = file.filename or "uploaded_video.mp4"
-    file_path = user_dir / filename
+
+    # TODO(S3): Replace with backend.save() when S3 support added
+    # For now: direct file operations (LOCAL only)
+
+    # Save to temp directory first
+    temp_path = storage_builder.create_temp_file(suffix=".mp4")
 
     try:
         # Save file in chunks for large files
         total_size = 0
-        with file_path.open("wb") as f:
+        with temp_path.open("wb") as f:
             while chunk := await file.read(1024 * 1024):  # Read 1MB at a time
                 f.write(chunk)
                 total_size += len(chunk)
 
-        logger.info(f"Saved uploaded file: {file_path} ({total_size} bytes, filename: {filename})")
+        logger.info(f"Saved uploaded file to temp: {temp_path} ({total_size} bytes, filename: {filename})")
 
         # Check if file really saved
-        if not file_path.exists():
+        if not temp_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to save uploaded file",
             )
 
-        actual_size = file_path.stat().st_size
+        actual_size = temp_path.stat().st_size
         if actual_size != total_size:
             logger.warning(f"File size mismatch: expected {total_size}, got {actual_size}")
 
-        logger.info(f"File verified: {file_path} exists with size {actual_size} bytes")
+        logger.info(f"File verified: {temp_path} exists with size {actual_size} bytes")
+
+        # Get user to access user_slug
+        from sqlalchemy import select
+
+        from database.auth_models import UserModel
+
+        user_result = await ctx.session.execute(select(UserModel).where(UserModel.id == ctx.user_id))
+        user = user_result.scalar_one()
 
         # Create recording in DB
         recording_repo = RecordingRepository(ctx.session)
@@ -878,23 +894,35 @@ async def add_local_recording(
             source_metadata={"uploaded_via_api": True, "original_filename": filename},
             user_config=user_config,
             status=ProcessingStatus.DOWNLOADED,
-            local_video_path=str(file_path),
+            local_video_path="",  # Will update after moving file
             video_file_size=actual_size,
         )
 
+        await ctx.session.flush()  # Get recording.id
+
+        # Move to final location: storage/users/user_XXXXXX/recordings/{id}/source.mp4
+        final_path = storage_builder.recording_source(user.user_slug, created_recording.id)
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(temp_path), str(final_path))
+
+        # Update path in DB
+        created_recording.local_video_path = str(final_path)
+
         await ctx.session.commit()
+
+        logger.info(f"Moved uploaded file to: {final_path}")
 
         return {
             "success": True,
             "recording_id": created_recording.id,
             "display_name": created_recording.display_name,
-            "local_video_path": str(file_path),
+            "local_video_path": str(final_path),
         }
 
     except Exception as e:
         logger.error(f"Failed to upload file: {e}", exc_info=True)
-        if file_path.exists():
-            file_path.unlink()
+        if temp_path.exists():
+            temp_path.unlink()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload file: {e!s}",
@@ -1610,7 +1638,8 @@ async def extract_topics(
     from transcription_module.manager import get_transcription_manager
 
     transcription_manager = get_transcription_manager()
-    if not transcription_manager.has_master(recording_id, user_id=ctx.user_id):
+    user_slug = recording.owner.user_slug
+    if not transcription_manager.has_master(recording_id, user_slug):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No transcription found. Please run /transcribe first.",
@@ -1678,7 +1707,8 @@ async def generate_subtitles(
     from transcription_module.manager import get_transcription_manager
 
     transcription_manager = get_transcription_manager()
-    if not transcription_manager.has_master(recording_id, user_id=ctx.user_id):
+    user_slug = recording.owner.user_slug
+    if not transcription_manager.has_master(recording_id, user_slug):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No transcription found. Please run /transcribe first.",

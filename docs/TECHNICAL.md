@@ -2,8 +2,8 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.3 (January 2026)  
-**Status:** 🚧 Development
+**Version:** v0.9.4 (January 2026)  
+**Status:** ✅ Production Ready
 
 ---
 
@@ -79,6 +79,12 @@ ZoomUploader/
 │   ├── template_models.py    # Templates, Sources, Presets
 │   ├── automation_models.py  # Automation jobs
 │   └── config.py             # Database configuration
+├── file_storage/             # Storage abstraction layer (NEW v2.0)
+│   ├── path_builder.py       # StoragePathBuilder (single source of truth)
+│   ├── factory.py            # Backend factory (LOCAL/S3)
+│   └── backends/             # Storage backends
+│       ├── base.py           # StorageBackend interface
+│       └── local.py          # LocalStorageBackend
 ├── *_module/                 # Processing modules
 │   ├── video_download_module/
 │   ├── video_processing_module/
@@ -86,10 +92,14 @@ ZoomUploader/
 │   ├── deepseek_module/
 │   ├── subtitle_module/
 │   └── video_upload_module/
-├── alembic/                  # Database migrations (19)
+├── storage/                  # User media files (ID-based, NEW v2.0)
+│   ├── shared/thumbnails/    # Global thumbnails
+│   ├── temp/                 # Temporary processing files
+│   └── users/user_XXXXXX/    # User-isolated storage
+├── alembic/                  # Database migrations (21)
 ├── config/                   # Configuration files
 ├── utils/                    # Utilities
-└── docs/                     # Documentation (14 guides)
+└── docs/                     # Documentation (20+ guides)
 ```
 
 ---

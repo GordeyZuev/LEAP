@@ -16,11 +16,11 @@ from api.services.config_utils import resolve_full_config
 from api.tasks.base import ProcessingTask
 from config.settings import get_settings
 from deepseek_module import DeepSeekConfig, TopicExtractor
+from file_storage.path_builder import StoragePathBuilder
 from fireworks_module import FireworksConfig, FireworksTranscriptionService
 from logger import get_logger
 from models import MeetingRecording, ProcessingStageType, ProcessingStatus
 from transcription_module.manager import TranscriptionManager, get_transcription_manager
-from utils.formatting import sanitize_filename
 from video_download_module.downloader import ZoomDownloader
 from video_processing_module.config import ProcessingConfig
 from video_processing_module.video_processor import VideoProcessor
@@ -128,9 +128,12 @@ async def _async_download_recording(
             step="download",
         )
 
-        # Create downloader
-        user_download_dir = f"media/user_{user_id}/video/unprocessed"
-        downloader = ZoomDownloader(download_dir=user_download_dir)
+        # Get user_slug for path generation
+        user_slug = recording.owner.user_slug
+
+        # Create downloader with StoragePathBuilder
+        storage_builder = StoragePathBuilder()
+        downloader = ZoomDownloader(user_slug=user_slug, storage_builder=storage_builder)
 
         # Convert to MeetingRecording
         meeting_id = recording.source.source_key if recording.source else str(recording.id)
@@ -278,24 +281,32 @@ async def _async_process_video(
 
         task_self.update_progress(user_id, 20, "Analyzing video...", step="process")
 
-        # Create processor with ProcessingConfig
-        user_processed_dir = f"media/user_{user_id}/video/processed"
+        # Get user_slug and generate paths
+        user_slug = recording.owner.user_slug
+        storage_builder = StoragePathBuilder()
+
+        # Use temp directory for processing
+        temp_dir = str(storage_builder.temp_dir())
         config = ProcessingConfig(
             silence_threshold=silence_threshold,
             min_silence_duration=min_silence_duration,
             padding_before=padding_before,
             padding_after=padding_after,
-            output_dir=user_processed_dir,
+            output_dir=temp_dir,  # Use temp dir for intermediate files
         )
         processor = VideoProcessor(config)
 
         task_self.update_progress(user_id, 40, "Processing with FFmpeg...", step="process")
 
+        # Generate output path (ID-based: video.mp4)
+        output_video_path = str(storage_builder.recording_video(user_slug, recording_id))
+
         # Process video with audio detection
         success, processed_path = await processor.process_video_with_audio_detection(
             video_path=recording.local_video_path,
-            title=recording.display_name,
+            title=recording.display_name,  # Only for logs
             start_time=recording.start_time.isoformat(),
+            output_path=output_video_path,  # Explicit output path
         )
 
         # Ensure processed_path is a string (not Path object)
@@ -305,23 +316,13 @@ async def _async_process_video(
         if success and processed_path:
             task_self.update_progress(user_id, 60, "Extracting audio from processed video...", step="extract_audio")
 
-            # Extract audio from processed video
-            audio_dir = f"media/user_{user_id}/audio/processed"
-            Path(audio_dir).mkdir(parents=True, exist_ok=True)
+            # Generate ID-based audio path (no display_name!)
+            audio_path = str(storage_builder.recording_audio(user_slug, recording_id))
+            Path(audio_path).parent.mkdir(parents=True, exist_ok=True)
 
-            # Generate filename as in old implementation
-            safe_title = sanitize_filename(recording.display_name)
-            date_suffix = ""
-            try:
-                date_obj = recording.start_time
-                date_suffix = f"_{date_obj.strftime('%y-%m-%d_%H-%M')}"
-            except Exception as e:
-                logger.warning(f"⚠️ Error formatting date for audio: {e}")
-
-            audio_filename = f"{safe_title}{date_suffix}_processed.mp3"
-            audio_path = str(Path(audio_dir) / audio_filename)
-
-            logger.info(f"🎵 Extracting audio from processed video: {recording.display_name}")
+            logger.info(
+                f"🎵 Extracting audio from processed video: id={recording_id}, title={recording.display_name}"
+            )
 
             # FFmpeg command for extracting audio (64k, 16kHz, mono)
             extract_cmd = [
@@ -472,28 +473,13 @@ async def _async_transcribe_recording(
         # Priority: processed audio > processed video > original video
         audio_path = None
 
-        # 1. Use saved audio file path
+        # Use saved audio file path
         if recording.processed_audio_path:
             audio_path = Path(recording.processed_audio_path)
-            if audio_path.exists():
-                audio_files = [audio_path]
-            else:
-                audio_files = []
+            if not audio_path.exists():
+                raise ValueError(f"Audio file not found: {audio_path}")
         else:
-            # Fallback: search in directory (for old records without processed_audio_path)
-            audio_dir = (
-                Path(recording.transcription_dir).parent.parent / "audio" / "processed"
-                if recording.transcription_dir
-                else None
-            )
-            audio_files = []
-            if audio_dir and audio_dir.exists():
-                for ext in ("*.mp3", "*.wav", "*.m4a"):
-                    audio_files = sorted(audio_dir.glob(ext))
-                    if audio_files:
-                        audio_path = str(audio_files[0])
-                        logger.info(f"🎵 Use processed audio: {audio_path}")
-                        break
+            audio_path = None
 
         # 2. Fallback on processed or original video
         if not audio_path:
@@ -530,7 +516,8 @@ async def _async_transcribe_recording(
 
         # Save only master.json (WITHOUT topics.json)
         transcription_manager = get_transcription_manager()
-        transcription_dir = transcription_manager.get_dir(recording_id, user_id)
+        user_slug = recording.owner.user_slug
+        transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
 
         # Prepare data for admin
         words = transcription_result.get("words", [])
@@ -572,12 +559,12 @@ async def _async_transcribe_recording(
             model="fireworks",
             duration=duration,
             usage_metadata=usage_metadata,
-            user_id=user_id,
+            user_slug=user_slug,
             raw_response=transcription_result,
         )
 
         # Generate cache files (segments.txt, words.txt)
-        transcription_manager.generate_cache_files(recording_id, user_id=user_id)
+        transcription_manager.generate_cache_files(recording_id, user_slug)
 
         task_self.update_progress(user_id, 90, "Updating database...", step="transcribe")
 
@@ -927,15 +914,18 @@ async def _async_extract_topics(
         if not recording:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
 
+        # Get user_slug for path generation
+        user_slug = recording.owner.user_slug
+
         # Check presence of transcription
         transcription_manager = get_transcription_manager()
-        if not transcription_manager.has_master(recording_id, user_id=user_id):
+        if not transcription_manager.has_master(recording_id, user_slug):
             raise ValueError(f"Transcription not found for recording {recording_id}. Please run transcription first.")
 
         task_self.update_progress(user_id, 20, "Loading transcription...", step="extract_topics")
 
         # Ensure presence of segments.txt
-        segments_path = transcription_manager.ensure_segments_txt(recording_id, user_id=user_id)
+        segments_path = transcription_manager.ensure_segments_txt(recording_id, user_slug)
 
         # Try extracting topics with fallback strategy
         topics_result = None
@@ -1001,6 +991,9 @@ async def _async_extract_topics(
             },
             # Here you can add usage from API response, if available
         }
+
+        # Get user_slug for path generation
+        user_slug = recording.owner.user_slug
 
         # Save in topics.json
         transcription_manager.add_topics_version(
@@ -1099,9 +1092,12 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         if not recording:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
 
+        # Get user_slug for path generation
+        user_slug = recording.owner.user_slug
+
         # Check presence of transcription
         transcription_manager = get_transcription_manager()
-        if not transcription_manager.has_master(recording_id, user_id=user_id):
+        if not transcription_manager.has_master(recording_id, user_slug):
             raise ValueError(f"Transcription not found for recording {recording_id}. Please run transcription first.")
 
         task_self.update_progress(user_id, 40, "Generating subtitles...", step="generate_subtitles")
@@ -1110,7 +1106,7 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         subtitle_paths = transcription_manager.generate_subtitles(
             recording_id=recording_id,
             formats=formats,
-            user_id=user_id,
+            user_slug=user_slug,
         )
 
         task_self.update_progress(user_id, 90, "Saving results...", step="generate_subtitles")
@@ -1276,6 +1272,9 @@ async def _async_poll_batch_transcription(
 
                 task_self.update_progress(user_id, 90, "Saving transcription...", step="batch_transcribe")
 
+                # Get user_slug for path generation
+                user_slug = recording.owner.user_slug
+
                 # Save master.json
                 words = transcription_result.get("words", [])
                 segments = transcription_result.get("segments", [])
@@ -1291,11 +1290,11 @@ async def _async_poll_batch_transcription(
                 transcription_manager.save_master(
                     recording_id=recording_id,
                     master_data=master_data,
-                    user_id=user_id,
+                    user_slug=user_slug,
                 )
 
                 # Update recording in DB
-                recording.transcription_path = transcription_manager.get_dir(recording_id, user_id=user_id)
+                recording.transcription_path = transcription_manager.get_dir(recording_id, user_slug)
                 recording.mark_stage_completed(
                     ProcessingStageType.TRANSCRIBE,
                     meta={

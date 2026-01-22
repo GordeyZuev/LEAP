@@ -5,20 +5,27 @@ from urllib.parse import quote
 
 import httpx
 
+from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 from models import MeetingRecording, ProcessingStatus
-from utils.formatting import normalize_datetime_string
 
 logger = get_logger()
 
 
 class ZoomDownloader:
-    """Zoom file downloader"""
+    """Zoom file downloader with ID-based path generation"""
 
-    def __init__(self, download_dir: str = "media/video/unprocessed"):
-        self.download_dir = Path(download_dir)
-        self.download_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Downloader initialized: {self.download_dir}")
+    def __init__(self, user_slug: int, storage_builder: StoragePathBuilder | None = None):
+        """
+        Initialize downloader.
+
+        Args:
+            user_slug: User slug (6-digit integer)
+            storage_builder: Storage path builder (creates default if None)
+        """
+        self.user_slug = user_slug
+        self.storage = storage_builder or StoragePathBuilder()
+        logger.debug(f"Downloader initialized: user_slug={user_slug}")
 
     def _encode_download_url(self, url: str) -> str:
         """Correct URL encoding for downloading according to Zoom documentation."""
@@ -29,23 +36,6 @@ class ZoomDownloader:
             return double_encoded
         return url
 
-    def _get_filename(self, recording: MeetingRecording) -> str:
-        display_name = recording.display_name.strip() if recording.display_name else ""
-        safe_name = "".join(c for c in display_name if c.isalnum() or c in (" ", "-", "_", "(", ")")).strip()
-        if len(safe_name) > 60:
-            safe_name = safe_name[:60].rstrip()
-        if recording.start_time and recording.start_time.strip():
-            try:
-                normalized_time = normalize_datetime_string(recording.start_time)
-                date_obj = datetime.fromisoformat(normalized_time)
-                formatted_date = date_obj.strftime("%d.%m.%Y")
-            except Exception as e:
-                logger.debug(f"Error parsing date in _get_filename '{recording.start_time}': {e}")
-                formatted_date = "unknown_date"
-        else:
-            formatted_date = "unknown_date"
-
-        return f"{safe_name} ({formatted_date}).mp4"
 
     async def download_file(
         self,
@@ -303,17 +293,25 @@ class ZoomDownloader:
         recording: MeetingRecording,
         force_download: bool = False,
     ) -> bool:
-        """Download one recording (one MP4)."""
-        logger.debug(f"Starting download of recording: {recording.display_name}")
+        """
+        Download one recording to ID-based path.
+
+        Files are saved as: storage/users/user_XXXXXX/recordings/{id}/source.mp4
+        No display_name in path to avoid encoding issues!
+        """
+        logger.debug(f"Starting download of recording ID {recording.db_id}: {recording.display_name}")
 
         if not recording.video_file_download_url:
-            logger.error(f"No video link for {recording.display_name}")
+            logger.error(f"No video link for recording {recording.db_id}: {recording.display_name}")
             recording.mark_failure(
                 reason="No video link",
                 rollback_to_status=ProcessingStatus.INITIALIZED,
                 failed_at_stage="downloading",
             )
             return False
+
+        # Generate ID-based path (no display_name!)
+        final_path = self.storage.recording_source(self.user_slug, recording.db_id)
 
         # Skip if already downloaded and file exists (if force=False)
         if (
@@ -322,18 +320,20 @@ class ZoomDownloader:
             and recording.local_video_path
             and Path(recording.local_video_path).exists()
         ):
-            logger.info(f"⏭️ Recording already downloaded, skipping: {recording.display_name}")
+            logger.info(f"⏭️ Recording {recording.db_id} already downloaded, skipping: {recording.display_name}")
             return False
 
         recording.update_status(ProcessingStatus.DOWNLOADING)
-
-        base_filename = self._get_filename(recording)
-        final_path = self.download_dir / base_filename
 
         fresh_download_token = recording.download_access_token if recording.download_access_token else None
         oauth_token = None
 
         total_size = recording.video_file_size or 0
+
+        logger.info(
+            f"📥 Downloading to ID-based path: {final_path} "
+            f"(recording_id={recording.db_id}, title={recording.display_name})"
+        )
 
         success = await self.download_file(
             recording.video_file_download_url,
@@ -353,7 +353,7 @@ class ZoomDownloader:
                 rollback_to_status=ProcessingStatus.INITIALIZED,
                 failed_at_stage="downloading",
             )
-            logger.error(f"❌ Error downloading recording {recording.display_name}")
+            logger.error(f"❌ Error downloading recording {recording.db_id}: {recording.display_name}")
             return False
 
         try:
@@ -362,7 +362,8 @@ class ZoomDownloader:
             recording.local_video_path = str(final_path)
         recording.update_status(ProcessingStatus.DOWNLOADED)
         recording.downloaded_at = datetime.now()
-        logger.debug(
-            f"Recording successfully downloaded: recording={recording.display_name} | recording_id={recording.db_id} | path={recording.local_video_path}"
+        logger.info(
+            f"✅ Recording downloaded successfully: id={recording.db_id} | "
+            f"title={recording.display_name} | path={recording.local_video_path}"
         )
         return True

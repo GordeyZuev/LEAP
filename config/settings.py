@@ -282,19 +282,28 @@ class StorageSettings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Base directories
-    media_root: str = Field(default="media", description="Root media directory")
-    log_dir: str = Field(default="logs", description="Log directory")
+    # Storage backend type
+    type: Literal["LOCAL", "S3"] = Field(default="LOCAL", description="Storage backend type")
 
-    # Video directories
-    video_input_dir: str = Field(default="media/video/unprocessed", description="Input video directory")
-    video_output_dir: str = Field(default="media/video/processed", description="Processed video directory")
-    video_temp_dir: str = Field(default="media/video/temp_processing", description="Temporary processing directory")
+    # LOCAL storage settings
+    local_path: str = Field(default="storage", description="Local storage root path")
+    local_max_size_gb: int | None = Field(default=None, ge=1, description="Max local storage size (GB)")
+
+    # S3 storage settings
+    s3_bucket: str | None = Field(default=None, description="S3 bucket name")
+    s3_prefix: str = Field(default="storage", description="S3 key prefix")
+    s3_region: str = Field(default="us-east-1", description="S3 region")
+    s3_max_size_gb: int | None = Field(default=None, ge=1, description="Max S3 storage size (GB)")
+    s3_access_key_id: str | None = Field(default=None, description="AWS access key ID")
+    s3_secret_access_key: str | None = Field(default=None, description="AWS secret access key")
+    s3_endpoint_url: str | None = Field(default=None, description="Custom S3 endpoint (for S3-compatible services)")
+
+    log_dir: str = Field(default="logs", description="Log directory")
 
     # Thumbnails
     thumbnail_dir: str = Field(default="thumbnails", description="Thumbnail directory")
     template_thumbnail_dir: str = Field(
-        default="media/templates/thumbnails", description="Template thumbnail directory"
+        default="storage/shared/thumbnails", description="Template thumbnail directory"
     )
 
     # Max file sizes
@@ -309,7 +318,28 @@ class StorageSettings(BaseSettings):
         default=["jpg", "jpeg", "png", "gif"], description="Supported image formats"
     )
 
-    @field_validator("media_root", "log_dir", "video_input_dir", "video_output_dir", "video_temp_dir")
+    @model_validator(mode="after")
+    def validate_storage_config(self) -> "StorageSettings":
+        """Validate storage configuration based on type"""
+        if self.type == "S3":
+            if not self.s3_bucket:
+                raise ValueError("STORAGE_S3_BUCKET is required when STORAGE_TYPE=S3")
+            if not self.s3_access_key_id or not self.s3_secret_access_key:
+                warnings.warn(
+                    "S3 credentials not provided. Will attempt to use IAM role or environment credentials.",
+                    stacklevel=2,
+                )
+        elif self.type == "LOCAL":
+            # Ensure local storage directory exists
+            local_path = Path(self.local_path)
+            if not local_path.exists():
+                try:
+                    local_path.mkdir(parents=True, exist_ok=True)
+                except Exception as e:
+                    warnings.warn(f"Could not create storage directory {self.local_path}: {e}", stacklevel=2)
+        return self
+
+    @field_validator("log_dir")
     @classmethod
     def ensure_directory_exists(cls, v: str) -> str:
         """Ensure directory exists or can be created"""
