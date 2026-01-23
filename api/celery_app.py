@@ -46,14 +46,26 @@ celery_app.conf.update(
     beat_dburi=database_url,  # Database URI for celery-sqlalchemy-scheduler
 )
 
-# Настройка очередей
+# Task routing: Separate by execution requirements
 celery_app.conf.task_routes = {
-    "api.tasks.processing.*": {"queue": "processing"},
-    "api.tasks.upload.*": {"queue": "upload"},
-    "api.tasks.automation.*": {"queue": "automation"},
-    "api.tasks.maintenance.*": {"queue": "maintenance"},
-    "api.tasks.sync.*": {"queue": "processing"},  # Sync tasks use processing queue
-    "api.tasks.template.*": {"queue": "processing"},  # Template tasks use processing queue
+    # CPU-bound: Video processing (prefork pool, low concurrency)
+    # Uses asyncio.run() for DB access, but main work is CPU-intensive
+    "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
+
+    # I/O-bound: All other tasks (threads pool, safe for asyncio)
+    # These tasks spend most time waiting for I/O (network, disk)
+    "api.tasks.processing.download_recording": {"queue": "async_operations"},
+    "api.tasks.processing.transcribe_recording": {"queue": "async_operations"},
+    "api.tasks.processing.extract_topics": {"queue": "async_operations"},
+    "api.tasks.processing.generate_subtitles": {"queue": "async_operations"},
+    "api.tasks.processing.batch_transcribe_recording": {"queue": "async_operations"},
+    "api.tasks.processing.process_recording": {"queue": "async_operations"},
+    "api.tasks.processing.launch_uploads": {"queue": "async_operations"},
+    "api.tasks.upload.*": {"queue": "async_operations"},
+    "api.tasks.template.*": {"queue": "async_operations"},
+    "api.tasks.sync.*": {"queue": "async_operations"},
+    "automation.*": {"queue": "async_operations"},
+    "maintenance.*": {"queue": "async_operations"},
 }
 
 # Приоритеты очередей

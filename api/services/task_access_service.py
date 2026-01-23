@@ -22,7 +22,7 @@ class TaskAccessService:
     """
 
     @staticmethod
-    def _extract_user_id_from_task(task: AsyncResult) -> int | None:
+    def _extract_user_id_from_task(task: AsyncResult) -> str | None:
         """
         Извлечь user_id из задачи.
 
@@ -41,13 +41,13 @@ class TaskAccessService:
         if task.info and isinstance(task.info, dict):
             user_id = task.info.get("user_id")
             if user_id:
-                return int(user_id)
+                return str(user_id)
 
         # 2. Проверяем result (для SUCCESS задач)
         if task.state == "SUCCESS" and task.result and isinstance(task.result, dict):
             user_id = task.result.get("user_id")
             if user_id:
-                return int(user_id)
+                return str(user_id)
 
         # 3. Проверяем kwargs (если задача сохраняет аргументы)
         # Примечание: для этого нужно включить task_send_sent_event=True в Celery

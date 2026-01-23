@@ -58,17 +58,8 @@ def rematch_recordings_task(
 
         self.update_progress(user_id, 10, "Loading template...", step="rematch")
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            # Python 3.13+: get_event_loop() raises RuntimeError if no loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        result = loop.run_until_complete(_async_rematch_recordings(self, template_id, user_id, only_unmapped))
+        # Use run_async for proper event loop isolation
+        result = self.run_async(_async_rematch_recordings(self, template_id, user_id, only_unmapped))
 
         logger.info(
             f"[Task {self.request.id}] Re-match completed: "

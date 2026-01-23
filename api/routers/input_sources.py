@@ -307,14 +307,23 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
         # Prepare comparison strings
         display_name_compare = display_name.strip() if case_sensitive else display_name.lower().strip()
 
+        logger.debug(
+            f"Checking template '{template.name}' (id={template.id}) for recording '{display_name}' "
+            f"(source_id={source_id}, case_sensitive={case_sensitive})"
+        )
+
         # 1. Check source_id filter (required if specified)
         template_source_ids = matching_rules.get("source_ids", [])
         if template_source_ids and source_id not in template_source_ids:
+            logger.debug(
+                f"Template '{template.name}': source_id {source_id} not in {template_source_ids} - SKIP"
+            )
             continue
 
         # 2. Check exclude_keywords (negative matching)
         exclude_keywords = matching_rules.get("exclude_keywords", [])
         if exclude_keywords:
+            logger.debug(f"Template '{template.name}': checking {len(exclude_keywords)} exclude_keywords: {exclude_keywords}")
             excluded = False
             for keyword in exclude_keywords:
                 if not isinstance(keyword, str):
@@ -323,12 +332,14 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
                 if keyword_compare in display_name_compare:
                     logger.debug(
                         f"Recording '{display_name}' excluded from template '{template.name}' "
-                        f"by exclude_keyword '{keyword}'"
+                        f"by exclude_keyword '{keyword}' (found '{keyword_compare}' in '{display_name_compare}')"
                     )
                     excluded = True
                     break
             if excluded:
                 continue
+        else:
+            logger.debug(f"Template '{template.name}': no exclude_keywords to check")
 
         # 3. Check exclude_patterns (negative matching)
         exclude_patterns = matching_rules.get("exclude_patterns", [])
@@ -354,6 +365,7 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
         # 4. Check exact matches (positive matching)
         exact_matches = matching_rules.get("exact_matches", [])
         if exact_matches:
+            logger.debug(f"Template '{template.name}': checking {len(exact_matches)} exact_matches")
             for exact in exact_matches:
                 if not isinstance(exact, str):
                     continue
@@ -361,10 +373,13 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
                 if exact_compare == display_name_compare:
                     logger.debug(f"Recording '{display_name}' matched template '{template.name}' by exact match")
                     return template
+        else:
+            logger.debug(f"Template '{template.name}': no exact_matches to check")
 
         # 5. Check keywords (positive matching)
         keywords = matching_rules.get("keywords", [])
         if keywords:
+            logger.debug(f"Template '{template.name}': checking {len(keywords)} keywords")
             for keyword in keywords:
                 if not isinstance(keyword, str):
                     continue
@@ -374,24 +389,38 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
                         f"Recording '{display_name}' matched template '{template.name}' by keyword '{keyword}'"
                     )
                     return template
+        else:
+            logger.debug(f"Template '{template.name}': no keywords to check")
 
         # 6. Check regex patterns (positive matching)
         patterns = matching_rules.get("patterns", [])
         if patterns:
+            logger.debug(f"Template '{template.name}': checking {len(patterns)} patterns")
             for pattern in patterns:
                 if not isinstance(pattern, str):
+                    logger.debug(f"Template '{template.name}': pattern is not string, skipping")
                     continue
                 try:
                     flags = 0 if case_sensitive else re.IGNORECASE
+                    logger.debug(
+                        f"Template '{template.name}': testing pattern '{pattern}' against '{display_name}' "
+                        f"(case_sensitive={case_sensitive}, flags={flags})"
+                    )
                     if re.search(pattern, display_name, flags):
                         logger.debug(
                             f"Recording '{display_name}' matched template '{template.name}' by pattern '{pattern}'"
                         )
                         return template
+                    else:
+                        logger.debug(f"Template '{template.name}': pattern '{pattern}' did not match")
                 except re.error as e:
                     logger.warning(f"Invalid regex pattern '{pattern}' in template '{template.name}': {e}")
+        else:
+            logger.debug(f"Template '{template.name}': no patterns to check")
 
-    logger.debug(f"Recording '{display_name}' did not match any template")
+    logger.debug(
+        f"Recording '{display_name}' (source_id={source_id}) did not match any of {len(templates)} templates"
+    )
     return None
 
 

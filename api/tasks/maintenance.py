@@ -41,17 +41,8 @@ def cleanup_expired_tokens_task():
                 token_repo = RefreshTokenRepository(session)
                 return await token_repo.delete_expired()
 
-        # Execute async function
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        deleted_count = loop.run_until_complete(cleanup())
+        # Use asyncio.run() for proper event loop isolation
+        deleted_count = asyncio.run(cleanup())
 
         logger.info(f"Cleanup completed: {deleted_count} expired tokens deleted")
 
@@ -130,16 +121,8 @@ def auto_expire_recordings_task():
             return expired_count, errors
 
         # Execute async function
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        expired_count, errors = loop.run_until_complete(expire())
+        # Use asyncio.run() for proper event loop isolation
+        expired_count, errors = asyncio.run(expire())
 
         if errors:
             logger.warning(f"Auto-expire completed with {len(errors)} errors")
@@ -245,16 +228,8 @@ def cleanup_recording_files_task():
             return cleaned_count, errors
 
         # Execute async function
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        cleaned_count, errors = loop.run_until_complete(cleanup())
+        # Use asyncio.run() for proper event loop isolation
+        cleaned_count, errors = asyncio.run(cleanup())
 
         if errors:
             logger.warning(f"Files cleanup completed with {len(errors)} errors")
@@ -337,16 +312,8 @@ def hard_delete_recordings_task():
             return deleted_count, errors
 
         # Execute async function
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        deleted_count, errors = loop.run_until_complete(cleanup())
+        # Use asyncio.run() for proper event loop isolation
+        deleted_count, errors = asyncio.run(cleanup())
 
         if errors:
             logger.warning(f"Hard delete completed with {len(errors)} errors")

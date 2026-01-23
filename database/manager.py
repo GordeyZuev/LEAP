@@ -653,13 +653,10 @@ class DatabaseManager:
         return recording
 
     async def reset_recordings(self, keep_uploaded: bool = True) -> dict:
-        """Сброс всех записей к статусу INITIALIZED (кроме загруженных).
+        """Reset all recordings to status INITIALIZED (except uploaded).
 
         Args:
-            keep_uploaded: Если True, не сбрасывать записи со статусом UPLOADED
-
-        Returns:
-            Словарь с результатами сброса
+            keep_uploaded: If True, do not reset recordings with status UPLOADED
         """
         reset_count = 0
         by_status = {}
@@ -754,13 +751,13 @@ class DatabaseManager:
                     db_recording.processed_audio_path = None
                     db_recording.downloaded_at = None
 
-                    # Сбрасываем транскрипцию и темы
+                    # Reset transcription and topics
                     db_recording.transcription_dir = None
                     db_recording.transcription_info = None
                     db_recording.topic_timestamps = None
                     db_recording.main_topics = None
 
-                    # Сбрасываем статусы таргетов
+                    # Reset target statuses
                     for target in db_recording.outputs:
                         target.status = TargetStatus.NOT_UPLOADED
                         target.target_meta = None
@@ -772,7 +769,7 @@ class DatabaseManager:
 
                 await session.commit()
                 logger.info(
-                    f"Сброшено записей: count={reset_count} | by_status={by_status} | keep_uploaded={keep_uploaded}"
+                    f"Reset recordings: count={reset_count} | by_status={by_status} | keep_uploaded={keep_uploaded}"
                 )
 
                 return {
@@ -792,7 +789,7 @@ class DatabaseManager:
     # ==================== User Management ====================
 
     async def get_user_by_id(self, user_id: int):
-        """Получить пользователя по ID."""
+        """Get user by ID."""
         async with self.async_session() as session:
             from database.auth_models import UserModel
 
@@ -800,7 +797,7 @@ class DatabaseManager:
             return result.scalars().first()
 
     async def get_user_by_email(self, email: str):
-        """Получить пользователя по email."""
+        """Get user by email."""
         async with self.async_session() as session:
             from database.auth_models import UserModel
 
@@ -808,7 +805,7 @@ class DatabaseManager:
             return result.scalars().first()
 
     async def create_user(self, email: str, hashed_password: str, full_name: str | None = None):
-        """Создать нового пользователя."""
+        """Create new user."""
         async with self.async_session() as session:
             from database.auth_models import UserModel
 
@@ -819,7 +816,7 @@ class DatabaseManager:
             return user
 
     async def update_user(self, user_id: int, updates: dict):
-        """Обновить пользователя."""
+        """Update user."""
         async with self.async_session() as session:
             from database.auth_models import UserModel
 
@@ -838,7 +835,7 @@ class DatabaseManager:
     # ==================== Refresh Tokens ====================
 
     async def create_refresh_token(self, user_id: int, token: str, expires_at: datetime):
-        """Создать refresh токен."""
+        """Create refresh token."""
         async with self.async_session() as session:
             from database.auth_models import RefreshTokenModel
 
@@ -849,7 +846,7 @@ class DatabaseManager:
             return refresh_token
 
     async def get_refresh_token(self, token: str):
-        """Получить refresh токен."""
+        """Get refresh token."""
         async with self.async_session() as session:
             from database.auth_models import RefreshTokenModel
 

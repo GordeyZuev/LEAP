@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from logger import get_logger
-from utils.formatting import normalize_datetime_string, sanitize_filename
 
 from .audio_detector import AudioDetector
 from .config import ProcessingConfig
@@ -83,6 +82,100 @@ class VideoProcessor:
 
         except Exception as e:
             raise RuntimeError(f"Error getting video information: {e}") from e
+
+    async def extract_audio_full(self, video_path: str, output_audio_path: str) -> bool:
+        """
+        Extract full audio from video in MP3 format.
+
+        Format: 64k bitrate, 16kHz sample rate, mono (optimized for transcription).
+        """
+        try:
+            cmd = [
+                "ffmpeg",
+                "-i", video_path,
+                "-vn",
+                "-acodec", "libmp3lame",
+                "-ab", "64k",
+                "-ar", "16000",
+                "-ac", "1",
+                "-y",
+                output_audio_path,
+            ]
+
+            logger.info(f"Extracting audio: {video_path} -> {output_audio_path}")
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+
+            await process.wait()
+
+            if process.returncode != 0:
+                stderr_output = await process.stderr.read()
+                logger.error(f"Audio extraction failed: {stderr_output.decode()[:500]}")
+                return False
+
+            if Path(output_audio_path).exists():
+                file_size = Path(output_audio_path).stat().st_size
+                logger.info(f"Audio extracted: {output_audio_path} ({file_size / 1024:.1f} KB)")
+                return True
+
+            logger.error(f"Audio file not created: {output_audio_path}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Exception during audio extraction: {e}")
+            return False
+
+    async def trim_audio(
+        self, input_audio_path: str, output_audio_path: str, start_time: float, end_time: float
+    ) -> bool:
+        """
+        Trim audio file using stream copy (no re-encoding, instant).
+
+        Args:
+            input_audio_path: Path to full audio file
+            output_audio_path: Path to save trimmed audio
+            start_time: Start time in seconds
+            end_time: End time in seconds
+        """
+        try:
+            duration = end_time - start_time
+
+            cmd = [
+                "ffmpeg",
+                "-ss", str(start_time),
+                "-t", str(duration),
+                "-i", input_audio_path,
+                "-c", "copy",
+                "-y",
+                output_audio_path,
+            ]
+
+            logger.info(f"Trimming audio: {start_time:.1f}s - {end_time:.1f}s")
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+
+            await process.wait()
+
+            if process.returncode != 0:
+                stderr_output = await process.stderr.read()
+                logger.error(f"Audio trimming failed: {stderr_output.decode()[:500]}")
+                return False
+
+            if Path(output_audio_path).exists():
+                file_size = Path(output_audio_path).stat().st_size
+                logger.info(f"Audio trimmed: {output_audio_path} ({file_size / 1024:.1f} KB)")
+                return True
+
+            logger.error(f"Trimmed audio not created: {output_audio_path}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Exception during audio trimming: {e}")
+            return False
 
     async def trim_video(self, input_path: str, output_path: str, start_time: float, end_time: float) -> bool:
         """Trim video by time."""
@@ -175,7 +268,11 @@ class VideoProcessor:
             return False
 
         except Exception as e:
-            logger.info(f"Error processing segment: title={segment.title} | error={e}", title=segment.title, error=str(e))
+            logger.info(
+                f"Error processing segment: title={segment.title} | error={e}",
+                title=segment.title,
+                error=str(e)
+            )
             return False
 
     async def process_video(
@@ -188,8 +285,15 @@ class VideoProcessor:
 
             logger.info(f"Processing video: title={title}", title=title)
             logger.info(f"   Duration: {duration / 60:.1f} min", duration_min=duration / 60)
-            logger.info(f"   Size: {video_info['size'] / 1024 / 1024:.1f} MB", size_mb=video_info["size"] / 1024 / 1024)
-            logger.info(f"   Resolution: {video_info['width']}x{video_info['height']}", width=video_info["width"], height=video_info["height"])
+            logger.info(
+                f"   Size: {video_info['size'] / 1024 / 1024:.1f} MB",
+                size_mb=video_info["size"] / 1024 / 1024
+            )
+            logger.info(
+                f"   Resolution: {video_info['width']}x{video_info['height']}",
+                width=video_info["width"],
+                height=video_info["height"]
+            )
 
             if custom_segments:
                 segments = self.segment_processor.create_segments_from_timestamps(custom_segments, title)
@@ -225,103 +329,6 @@ class VideoProcessor:
             logger.info(f"Error processing video: title={title} | error={e}", title=title, error=str(e))
             return []
 
-    async def process_video_with_audio_detection(
-        self,
-        video_path: str,
-        title: str,
-        start_time: str | None = None,
-        output_path: str | None = None,
-    ) -> tuple[bool, str | None]:
-        """Обработка видео с автоматической обрезкой по звуку.
-
-        Args:
-            video_path: Путь к исходному видео файлу
-            title: Название видео (используется только для логов)
-            start_time: Дата начала записи (используется только для логов)
-            output_path: Явный путь для сохранения обработанного видео (опционально)
-        """
-        try:
-            logger.info(f"Processing video with sound detection: title={title}", title=title)
-
-            if not Path(video_path).exists():
-                logger.error(f"File not found: path={video_path}", path=video_path)
-                return False, None
-
-            logger.info(f"Detecting sound: title={title}", title=title)
-            first_sound, last_sound = await self.audio_detector.detect_audio_boundaries(video_path)
-
-            if first_sound is None and last_sound is None:
-                logger.warning(f"Failed to detect sound boundaries: title={title}", title=title)
-                return False, None
-
-            if first_sound is None:
-                logger.warning(f"Failed to detect sound start: title={title}", title=title)
-                return False, None
-
-            # Если звук есть на всем протяжении видео, не обрезаем и используем исходный файл
-            if last_sound is None and first_sound == 0.0:
-                logger.info("Sound throughout entire video, skipping trim and using original file")
-                return True, str(Path(video_path).resolve())
-
-            if last_sound is None:
-                logger.warning(f"Failed to detect sound end: title={title}", title=title)
-                return False, None
-
-            logger.info(
-                f"Detected sound boundaries: start={first_sound:.1f}s | end={last_sound:.1f}s",
-                start=first_sound,
-                end=last_sound
-            )
-
-            start_time_trim = max(0, first_sound - self.config.padding_before)
-            end_time = last_sound + self.config.padding_after
-
-            logger.info(
-                f"Trimming: start={start_time_trim:.1f}s | end={end_time:.1f}s | padding=-{self.config.padding_before}s/+{self.config.padding_after}s",
-                start=start_time_trim,
-                end=end_time,
-                padding_before=self.config.padding_before,
-                padding_after=self.config.padding_after
-            )
-
-            # Use explicit output_path if provided, otherwise generate from title
-            if output_path:
-                output_path = Path(output_path)
-            else:
-                # Legacy: generate filename from title
-                safe_title = sanitize_filename(title)
-
-                # Добавляем дату и время в имя файла для уникальности
-                date_suffix = ""
-                if start_time:
-                    try:
-                        normalized_time = normalize_datetime_string(start_time)
-                        date_obj = datetime.fromisoformat(normalized_time)
-                        date_suffix = f"_{date_obj.strftime('%y-%m-%d_%H-%M')}"
-                    except Exception as e:
-                        logger.warning(
-                            f"Error parsing date for filename: date={start_time}",
-                            date=start_time,
-                            error=str(e)
-                        )
-
-                output_filename = f"{safe_title}{date_suffix}_processed.mp4"
-                output_path = Path(self.config.output_dir) / output_filename
-
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.info("Starting FFmpeg for trimming...")
-            success = await self.trim_video(video_path, output_path, start_time_trim, end_time)
-
-            if success:
-                logger.info(f"Video processed: path={output_path}", path=str(output_path))
-                return True, str(output_path)
-            logger.error(f"Error trimming video: title={title}", title=title)
-            return False, None
-
-        except Exception as e:
-            logger.error(f"Exception during video processing: title={title} | error={e}", title=title, error=str(e))
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            return False, None
 
     async def batch_process(self, video_files: list[str]) -> dict[str, list[VideoSegment]]:
         """Batch processing multiple videos."""

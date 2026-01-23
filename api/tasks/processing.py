@@ -1,7 +1,7 @@
 """Celery tasks for processing recordings with multi-tenancy support."""
 
 import asyncio
-import subprocess
+import shutil
 import time
 from pathlib import Path
 
@@ -249,7 +249,15 @@ async def _async_process_video(
     user_id: str,
     manual_override: dict | None = None,
 ) -> dict:
-    """Async function for processing video (template-driven)."""
+    """
+    Async function for processing video (template-driven).
+
+    Optimized workflow:
+    1. Extract full audio from original video (MP3)
+    2. Analyze audio file for silence (faster than video analysis)
+    3. Trim video based on detected boundaries
+    4. Trim audio to match video (stream copy - instant)
+    """
     from api.services.config_utils import resolve_full_config
 
     session_maker = get_async_session_maker()
@@ -279,99 +287,133 @@ async def _async_process_video(
         if not Path(recording.local_video_path).exists():
             raise ValueError(f"Video file not found: {recording.local_video_path}")
 
-        task_self.update_progress(user_id, 20, "Analyzing video...", step="process")
-
         # Get user_slug and generate paths
         user_slug = recording.owner.user_slug
         storage_builder = StoragePathBuilder()
 
-        # Use temp directory for processing
+        # Setup processor
         temp_dir = str(storage_builder.temp_dir())
         config = ProcessingConfig(
             silence_threshold=silence_threshold,
             min_silence_duration=min_silence_duration,
             padding_before=padding_before,
             padding_after=padding_after,
-            output_dir=temp_dir,  # Use temp dir for intermediate files
+            output_dir=temp_dir,
         )
         processor = VideoProcessor(config)
 
-        task_self.update_progress(user_id, 40, "Processing with FFmpeg...", step="process")
+        # Step 1: Extract full audio from original video
+        task_self.update_progress(user_id, 20, "Extracting audio from original video...", step="extract_audio")
 
-        # Generate output path (ID-based: video.mp4)
-        output_video_path = str(storage_builder.recording_video(user_slug, recording_id))
+        temp_audio_path = Path(temp_dir) / f"{recording_id}_full_audio.mp3"
+        temp_audio_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Process video with audio detection
-        success, processed_path = await processor.process_video_with_audio_detection(
-            video_path=recording.local_video_path,
-            title=recording.display_name,  # Only for logs
-            start_time=recording.start_time.isoformat(),
-            output_path=output_video_path,  # Explicit output path
+        logger.info(f"Extracting full audio: id={recording_id}")
+
+        success = await processor.extract_audio_full(
+            recording.local_video_path,
+            str(temp_audio_path)
         )
 
-        # Ensure processed_path is a string (not Path object)
-        if processed_path:
-            processed_path = str(processed_path)
+        if not success:
+            raise Exception("Failed to extract audio from video")
 
-        if success and processed_path:
-            task_self.update_progress(user_id, 60, "Extracting audio from processed video...", step="extract_audio")
+        # Step 2: Analyze audio file (faster than video)
+        task_self.update_progress(user_id, 40, "Analyzing audio for silence...", step="analyze")
 
-            # Generate ID-based audio path (no display_name!)
-            audio_path = str(storage_builder.recording_audio(user_slug, recording_id))
-            Path(audio_path).parent.mkdir(parents=True, exist_ok=True)
+        first_sound, last_sound = await processor.audio_detector.detect_audio_boundaries_from_file(
+            str(temp_audio_path)
+        )
 
-            logger.info(
-                f"🎵 Extracting audio from processed video: id={recording_id}, title={recording.display_name}"
+        if first_sound is None:
+            if temp_audio_path.exists():
+                temp_audio_path.unlink()
+            raise Exception("Failed to detect audio start")
+
+        output_video_path = str(storage_builder.recording_video(user_slug, recording_id))
+        final_audio_path = str(storage_builder.recording_audio(user_slug, recording_id))
+        Path(output_video_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(final_audio_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Sound throughout entire video - skip trimming, reference original
+        if last_sound is None and first_sound == 0.0:
+            logger.info("Sound throughout entire video, skipping trim")
+            task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
+
+            output_video_path = recording.local_video_path
+            logger.info(f"Processed video path references original: {output_video_path}")
+
+            if Path(final_audio_path).exists():
+                Path(final_audio_path).unlink()
+            shutil.move(str(temp_audio_path), final_audio_path)
+            logger.info(f"Full audio saved: {final_audio_path}")
+
+        else:
+            # Normal case: trim video and audio
+            if last_sound is None:
+                if temp_audio_path.exists():
+                    temp_audio_path.unlink()
+                raise Exception("Failed to detect audio end")
+
+            start_trim = max(0, first_sound - padding_before)
+            end_trim = last_sound + padding_after
+
+            logger.info(f"Audio boundaries detected: {start_trim:.1f}s - {end_trim:.1f}s")
+
+            # Step 3: Trim video
+            task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
+
+            success = await processor.trim_video(
+                recording.local_video_path,
+                output_video_path,
+                start_trim,
+                end_trim
             )
 
-            # FFmpeg command for extracting audio (64k, 16kHz, mono)
-            extract_cmd = [
-                "ffmpeg",
-                "-i",
-                processed_path,
-                "-vn",  # without video
-                "-acodec",
-                "libmp3lame",
-                "-ab",
-                "64k",
-                "-ar",
-                "16000",
-                "-ac",
-                "1",  # mono
-                "-y",  # overwrite if exists
-                audio_path,
-            ]
+            if not success:
+                if temp_audio_path.exists():
+                    temp_audio_path.unlink()
+                raise Exception("Failed to trim video")
 
-            try:
-                extract_process = await asyncio.create_subprocess_exec(
-                    *extract_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                _stdout, stderr = await extract_process.communicate()
+            # Step 4: Trim audio (stream copy - instant)
+            task_self.update_progress(user_id, 80, "Trimming audio...", step="trim_audio")
 
-                if extract_process.returncode == 0 and Path(audio_path).exists():
-                    recording.processed_audio_path = str(audio_path)
-                    logger.info(f"✅ Audio extracted: {audio_path}")
-                else:
-                    logger.warning(f"⚠️ Failed to extract audio: {stderr.decode()}")
-            except Exception as e:
-                logger.warning(f"⚠️ Error extracting audio: {e}")
+            success = await processor.trim_audio(
+                str(temp_audio_path),
+                final_audio_path,
+                start_trim,
+                end_trim
+            )
 
-            task_self.update_progress(user_id, 90, "Updating database...", step="process")
+            if not success:
+                if temp_audio_path.exists():
+                    temp_audio_path.unlink()
+                raise Exception("Failed to trim audio")
 
-            recording.processed_video_path = processed_path
-            recording.status = ProcessingStatus.PROCESSED
-            # VIDEO_PROCESSING - this is part of general ProcessingStatus.PROCESSED, not detailed
-            await recording_repo.update(recording)
-            await session.commit()
+            if temp_audio_path.exists():
+                temp_audio_path.unlink()
+                logger.info(f"Temp audio cleaned: {temp_audio_path}")
 
-            return {
-                "success": True,
-                "processed_video_path": processed_path,
-                "audio_path": audio_path if Path(audio_path).exists() else None,
-            }
-        raise Exception("Processing failed")
+        # Step 5: Update database
+        task_self.update_progress(user_id, 90, "Updating database...", step="process")
+
+        recording.processed_video_path = output_video_path
+        recording.processed_audio_path = final_audio_path
+        recording.status = ProcessingStatus.PROCESSED
+
+        await recording_repo.update(recording)
+        await session.commit()
+
+        logger.info(
+            f"✅ Processing complete: id={recording_id}, "
+            f"video={output_video_path}, audio={final_audio_path}"
+        )
+
+        return {
+            "success": True,
+            "processed_video_path": output_video_path,
+            "audio_path": final_audio_path,
+        }
 
 
 @celery_app.task(

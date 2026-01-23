@@ -41,10 +41,14 @@ class BaseTask(Task):
         """
         Run async coroutine in Celery worker with proper event loop management.
 
-        Handles event loop lifecycle in Celery workers where:
-        - Worker may reuse processes across tasks
-        - Previous loops may be closed
-        - Python 3.10+ requires explicit loop management
+        Uses asyncio.run() which creates a completely fresh event loop for each task.
+        This is the recommended approach for running async code in sync context.
+
+        Benefits:
+        - Creates new event loop + sets it as current + closes it automatically
+        - Cleans up async generators and other resources
+        - Safe for asyncpg connection pools (each run gets fresh loop)
+        - No issues with "event loop already running" or "future attached to different loop"
 
         Args:
             coro: Async coroutine to run
@@ -52,16 +56,12 @@ class BaseTask(Task):
         Returns:
             Result of coroutine execution
         """
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        return loop.run_until_complete(coro)
+        # asyncio.run() handles everything:
+        # 1. Creates new event loop
+        # 2. Runs coroutine to completion
+        # 3. Closes event loop and cleans up resources
+        # This is perfect for Celery tasks where each task should be isolated
+        return asyncio.run(coro)
 
     def update_progress(
         self,

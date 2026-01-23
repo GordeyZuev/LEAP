@@ -11,6 +11,7 @@ from api.schemas.template import (
     RecordingTemplateResponse,
     RecordingTemplateUpdate,
 )
+from api.schemas.template.operations import RematchTaskResponse
 from database.auth_models import UserModel
 from logger import get_logger
 from models.recording import ProcessingStatus
@@ -508,7 +509,7 @@ async def rematch_template_recordings(
     only_unmapped: bool = Query(True, description="Only unmapped (SKIPPED) recordings. False = check all recordings."),
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),
-) -> dict:
+) -> RematchTaskResponse:
     """
     Manually start re-match recordings for template.
 
@@ -561,8 +562,6 @@ async def rematch_template_recordings(
     )
 
     logger.info(f"Queued manual re-match task {task.id} for template {template_id} (only_unmapped={only_unmapped})")
-
-    from api.schemas.template.operations import RematchTaskResponse
 
     return RematchTaskResponse(
         message="Re-match task queued successfully",

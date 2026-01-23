@@ -70,6 +70,56 @@ class AudioDetector:
             logger.error(f"Error detecting audio: {e}")
             return None, None
 
+    async def detect_audio_boundaries_from_file(self, audio_path: str) -> tuple[float | None, float | None]:
+        """
+        Analyze audio file for silence detection (faster than video analysis).
+
+        Uses single-threaded ffmpeg processing optimized for audio files.
+        """
+        try:
+            logger.info(f"🔍 Analyzing audio file: {audio_path}")
+
+            audio_file = Path(audio_path)
+            if not audio_file.exists():
+                logger.error(f"Audio file not found: {audio_path}")
+                return None, None
+
+            cmd = [
+                "ffmpeg",
+                "-threads", "1",
+                "-i", audio_path,
+                "-af", f"silencedetect=noise={self.silence_threshold}dB:d={self.min_silence_duration}",
+                "-f", "null",
+                "-",
+            ]
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+
+            _stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"Error detecting audio from file: {error_msg}")
+                return None, None
+
+            silence_periods = self._parse_silence_detection(stderr.decode())
+
+            if not silence_periods:
+                logger.info("Sound detected throughout audio file")
+                return 0.0, None
+
+            first_sound = self._find_first_sound(silence_periods)
+            last_sound = await self._find_last_sound_from_audio(silence_periods, audio_path)
+
+            logger.info(f"🎵 Audio boundaries: {first_sound:.1f}s - {last_sound:.1f}s")
+            return first_sound, last_sound
+
+        except Exception as e:
+            logger.error(f"Error detecting audio boundaries from file: {e}")
+            return None, None
+
     def _parse_silence_detection(self, ffmpeg_output: str) -> list[tuple[float, float]]:
         """Parsing ffmpeg output to extract silence periods."""
         silence_periods = []
@@ -114,6 +164,22 @@ class AudioDetector:
             return duration
         return silence_periods[-1][0]
 
+    async def _find_last_sound_from_audio(
+        self, silence_periods: list[tuple[float, float]], audio_path: str
+    ) -> float | None:
+        """Finding the time of the last sound in audio file."""
+        if not silence_periods:
+            return None
+
+        duration = await self._get_audio_duration(audio_path)
+        if duration is None:
+            return None
+
+        last_silence_end = silence_periods[-1][1]
+        if last_silence_end < duration - 0.1:
+            return duration
+        return silence_periods[-1][0]
+
     async def _get_video_duration(self, video_path: str) -> float | None:
         """Getting video duration."""
         try:
@@ -131,6 +197,26 @@ class AudioDetector:
 
         except Exception as e:
             logger.error(f"Error getting video duration: {e}")
+
+        return None
+
+    async def _get_audio_duration(self, audio_path: str) -> float | None:
+        """Getting audio file duration."""
+        try:
+            cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", audio_path]
+
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, _stderr = await process.communicate()
+
+            if process.returncode == 0:
+                data = json.loads(stdout.decode())
+                return float(data["format"]["duration"])
+
+        except Exception as e:
+            logger.error(f"Error getting audio duration: {e}")
 
         return None
 

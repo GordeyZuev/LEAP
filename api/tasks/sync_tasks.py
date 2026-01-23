@@ -44,17 +44,8 @@ def sync_single_source_task(
 
         self.update_progress(user_id, 10, f"Syncing source {source_id}...", step="sync")
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            # Python 3.13+: get_event_loop() raises RuntimeError if no loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        result = loop.run_until_complete(_async_sync_single_source(self, source_id, user_id, from_date, to_date))
+        # Use run_async for proper event loop isolation
+        result = self.run_async(_async_sync_single_source(self, source_id, user_id, from_date, to_date))
         return self.build_result(user_id=user_id, **result)
 
     except Exception as e:
@@ -98,17 +89,8 @@ def bulk_sync_sources_task(
             step="batch_sync",
         )
 
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            # Python 3.13+: get_event_loop() raises RuntimeError if no loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        result = loop.run_until_complete(_async_batch_sync_sources(self, source_ids, user_id, from_date, to_date))
+        # Use run_async for proper event loop isolation
+        result = self.run_async(_async_batch_sync_sources(self, source_ids, user_id, from_date, to_date))
         return self.build_result(user_id=user_id, **result)
 
     except Exception as e:

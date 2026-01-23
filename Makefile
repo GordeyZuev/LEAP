@@ -23,35 +23,77 @@ api:
 api-prod:
 	uv run uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
 
-# Celery: Запуск worker (все очереди)
-.PHONY: celery
-celery:
-	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=8
+# ==================== Production Workers (Optimized) ====================
 
-# Celery: Запуск worker только для processing
-.PHONY: celery-processing
-celery-processing:
-	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --loglevel=info -Q processing --concurrency=2
+# CPU-bound: Video trimming only (prefork, 3 workers)
+.PHONY: celery-cpu
+celery-cpu:
+	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker \
+		--loglevel=info -Q processing_cpu \
+		--pool=prefork --concurrency=3 \
+		--max-tasks-per-child=20
 
-# Celery: Запуск worker только для upload
-.PHONY: celery-upload
-celery-upload:
-	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --loglevel=info -Q upload --concurrency=2
+# Maintenance: Periodic cleanup tasks (prefork, 1 worker)
+.PHONY: celery-maintenance
+celery-maintenance:
+	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker \
+		--loglevel=info -Q maintenance \
+		--pool=prefork --concurrency=1
 
-# Celery: Запуск Flower (мониторинг)
+# Async: ALL async operations - processing, upload, template, sync, automation (threads, 20 workers)
+# IMPORTANT: Uses threads pool for asyncio compatibility (gevent causes InterfaceError)
+.PHONY: celery-async
+celery-async:
+	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker \
+		--loglevel=info -Q async_operations \
+		--pool=threads --concurrency=20
+
+# Beat: Task scheduler (single process)
+.PHONY: celery-beat
+celery-beat:
+	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app beat \
+		--loglevel=info \
+		--scheduler celery_sqlalchemy_scheduler.schedulers:DatabaseScheduler
+
+# ==================== Development ====================
+
+# Dev: Single worker for all queues (local development)
+.PHONY: celery-dev
+celery-dev:
+	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --beat \
+		--loglevel=info \
+		--queues=processing_cpu,async_operations,maintenance \
+		--pool=prefork --concurrency=4
+
+# All-in-One: Start all production workers in background
+.PHONY: celery-all
+celery-all:
+	@echo "🚀 Starting Redis..."
+	@brew services start redis
+	@sleep 2
+	@echo "🚀 Starting all Celery workers in background..."
+	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker -Q processing_cpu --pool=prefork --concurrency=3 --max-tasks-per-child=20 --loglevel=info --logfile=logs/celery-cpu.log --detach --pidfile=logs/celery-cpu.pid
+	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker -Q async_operations --pool=threads --concurrency=20 --loglevel=info --logfile=logs/celery-async.log --detach --pidfile=logs/celery-async.pid
+	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker -Q maintenance --pool=prefork --concurrency=1 --loglevel=info --logfile=logs/celery-maintenance.log --detach --pidfile=logs/celery-maintenance.pid
+	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app beat --loglevel=info --logfile=logs/celery-beat.log --detach --pidfile=logs/celery-beat.pid --scheduler celery_sqlalchemy_scheduler.schedulers:DatabaseScheduler
+	@echo "✅ All workers started! Check logs/ folder for output"
+	@echo "📊 Use 'make celery-stop' to stop all workers"
+	@echo "📊 Use 'make celery-status' to check workers"
+
+# Stop all Celery workers
+.PHONY: celery-stop
+celery-stop:
+	@echo "🛑 Stopping all Celery workers..."
+	@-pkill -9 -f "celery.*api.celery_app" 2>/dev/null || true
+	@-rm -f logs/celery-*.pid 2>/dev/null || true
+	@echo "✅ All workers stopped"
+
+# ==================== Monitoring ====================
+
+# Flower: Web UI for monitoring Celery
 .PHONY: flower
 flower:
 	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app flower --port=5555
-
-# Celery Beat: Запуск scheduler (для automation jobs)
-.PHONY: celery-beat
-celery-beat:
-	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app beat --loglevel=info --scheduler celery_sqlalchemy_scheduler.schedulers:DatabaseScheduler
-
-# Celery: Запуск worker + beat вместе (dev mode)
-.PHONY: celery-dev
-celery-dev:
-	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker --beat --loglevel=info --queues=processing,upload,automation --concurrency=8
 
 # Celery: Проверить активные tasks
 .PHONY: celery-status
@@ -146,13 +188,22 @@ help:
 	@echo "  make lint-fix       - Авто-исправления (ruff check --fix)"
 	@echo "  make format         - Форматирование (ruff format)"
 	@echo ""
-	@echo "🚀 Production API:"
+	@echo "🚀 API & Workers:"
 	@echo "  make api            - Запуск FastAPI (dev режим)"
 	@echo "  make api-prod       - Запуск FastAPI (production)"
-	@echo "  make celery         - Запуск Celery worker"
-	@echo "  make celery-beat    - Запуск Celery Beat (automation scheduler)"
-	@echo "  make celery-dev     - Запуск worker + beat вместе (dev)"
-	@echo "  make flower         - Запуск Flower (мониторинг)"
+	@echo "  make celery-dev     - Запуск Celery worker + beat (dev, все очереди)"
+	@echo "  make celery-all     - 🔥 Запуск ВСЕХ воркеров + Redis (фон)"
+	@echo "  make celery-stop    - 🛑 Остановить все воркеры"
+	@echo "  make celery-status  - 📊 Статус воркеров"
+	@echo ""
+	@echo "🔧 Production Workers (специализированные):"
+	@echo "  make celery-cpu     - CPU воркер (video trimming, prefork, 3 workers)"
+	@echo "  make celery-async   - Async воркер (ALL async I/O ops, threads, 20) 🔥"
+	@echo "  make celery-maintenance - Maintenance воркер (cleanup, prefork, 1)"
+	@echo "  make celery-beat    - Beat scheduler (periodic tasks)"
+	@echo "  make flower         - Flower UI (мониторинг Celery)"
+	@echo ""
+	@echo "🐳 Docker:"
 	@echo "  make docker-up      - Запуск PostgreSQL + Redis"
 	@echo "  make docker-down    - Остановка сервисов"
 	@echo ""
