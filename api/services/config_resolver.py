@@ -208,7 +208,7 @@ class ConfigResolver:
 
         Logic (deep merge):
         1. preset.preset_metadata (platform defaults: privacy, embeddable, topics_display)
-        2. template.metadata_config (content-specific: title_template, playlist_id, thumbnail_path + overrides)
+        2. template.metadata_config (content-specific: title_template, playlist_id, thumbnail_name + overrides)
         3. recording.processing_preferences.metadata_config (manual override - highest priority)
 
         Args:
@@ -253,7 +253,7 @@ class ConfigResolver:
                 #   "vk": {...},       # Platform-specific overrides
                 #   "common": {...},   # Common fields for all platforms
                 #   "title_template": "...",  # Common fields (backward compatibility)
-                #   "thumbnail_path": "...",  # Common thumbnail for all platforms
+                #   "thumbnail_name": "...",  # Common thumbnail for all platforms
                 #   ...                # Other top-level fields
                 # }
 

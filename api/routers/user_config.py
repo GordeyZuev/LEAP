@@ -1,3 +1,5 @@
+import copy
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,12 +24,18 @@ async def get_user_config(
     Get user config with automatic merge of new default fields.
 
     Uses UserConfigRepository.get_effective_config() to ensure backward compatibility.
+    If user has no config in DB (shouldn't happen after registration), creates it lazily.
     """
     repo = UserConfigRepository(session)
     config_model = await repo.get_by_user_id(current_user.id)
 
     if not config_model:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User config not found")
+        # Shouldn't happen if registration works correctly, but handle gracefully
+        effective_config = await repo.get_effective_config(current_user.id)
+        config_model = await repo.create(current_user.id, effective_config)
+        await session.commit()
+        logger.warning(f"Config was missing for user {current_user.id}, created lazily")
+        return config_model
 
     # Get effective config (merged with defaults from code)
     effective_config = await repo.get_effective_config(current_user.id)
@@ -44,23 +52,29 @@ async def update_user_config(
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),
 ):
+    """
+    Update user config with partial data.
+
+    Requires existing config (should be created during registration).
+    """
     repo = UserConfigRepository(session)
     config = await repo.get_by_user_id(current_user.id)
 
     if not config:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User config not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User config not found. This indicates a data integrity issue.",
+        )
 
-    current_config = config.config_data
+    # deep_merge will handle deep copying
     update_dict = update_data.model_dump(exclude_unset=True)
+    merged_config = deep_merge(config.config_data, update_dict)
 
-    merged_config = deep_merge(current_config, update_dict)
-
-    updated_config = await repo.update(config, merged_config)
+    config = await repo.update(config, merged_config)
     await session.commit()
 
     logger.info(f"User config updated: user_id={current_user.id}")
-
-    return updated_config
+    return config
 
 
 @router.post("/reset", response_model=UserConfigResponse)
@@ -68,15 +82,23 @@ async def reset_user_config(
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),
 ):
+    """
+    Reset user config to default values.
+
+    Requires existing config (should be created during registration).
+    """
     repo = UserConfigRepository(session)
     config = await repo.get_by_user_id(current_user.id)
 
     if not config:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User config not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User config not found. This indicates a data integrity issue.",
+        )
 
-    updated_config = await repo.update(config, DEFAULT_USER_CONFIG.copy())
+    # Deep copy to avoid mutating the global DEFAULT_USER_CONFIG
+    config = await repo.update(config, copy.deepcopy(DEFAULT_USER_CONFIG))
     await session.commit()
 
     logger.info(f"User config reset to defaults: user_id={current_user.id}")
-
-    return updated_config
+    return config

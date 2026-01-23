@@ -13,13 +13,18 @@ def deep_merge(base: dict, override: dict) -> dict:
 
     Base values are used as defaults, override values take precedence.
     Nested dicts are merged recursively.
+
+    Creates a deep copy to avoid mutating original dicts.
     """
-    result = base.copy()
+    import copy
+
+    result = copy.deepcopy(base)
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = deep_merge(result[key], value)
         else:
-            result[key] = value
+            # Deep copy the value to avoid reference issues
+            result[key] = copy.deepcopy(value)
     return result
 
 
@@ -46,15 +51,17 @@ class UserConfigRepository:
             user_id: User ID
 
         Returns:
-            Merged configuration dict
+            Merged configuration dict (deep copy)
         """
+        import copy
+
         user_config_model = await self.get_by_user_id(user_id)
 
         if not user_config_model:
-            # User has no config yet, return defaults
-            return DEFAULT_USER_CONFIG.copy()
+            # User has no config yet, return deep copy of defaults
+            return copy.deepcopy(DEFAULT_USER_CONFIG)
 
-        # Merge: defaults as base, user overrides on top
+        # Merge: defaults as base, user overrides on top (deep_merge does deep copy)
         return deep_merge(DEFAULT_USER_CONFIG, user_config_model.config_data)
 
     async def create(self, user_id: str, config_data: dict) -> UserConfigModel:

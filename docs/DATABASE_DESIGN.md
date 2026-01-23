@@ -414,6 +414,7 @@ CREATE INDEX idx_recordings_failed ON recordings(failed, user_id) WHERE failed =
 ```
 
 **Processing Status (FSM):**
+- `PENDING_SOURCE` → (awaiting source processing) → `INITIALIZED` or `SKIPPED`
 - `INITIALIZED` → `DOWNLOADING` → `DOWNLOADED`
 - `PROCESSING` → `PROCESSED`
 - `TRANSCRIBING` → `TRANSCRIBED`
@@ -699,8 +700,8 @@ CREATE INDEX idx_output_presets_platform ON output_presets(platform, is_active);
   "description_template": "{topics}\\n\\nДлительность: {duration}",
   "topics_display": {
     "format": "numbered_list",  // numbered_list, bullet_list, dash_list, comma_separated, inline
-    "max_count": 10,
-    "min_length": 5,
+    "max_count": 999,
+    "min_length": 0,
     "show_timestamps": true
   },
   "youtube": {

@@ -272,7 +272,7 @@ POST /api/v1/recordings/123/upload/vk
 # VK supports thumbnail upload
 await vk_uploader.set_thumbnail(
     video_id=456239730,
-    thumbnail_path="media/user_6/thumbnails/lecture.png"
+    thumbnail_name="lecture.png"  # Filename only, API resolves to user's directory
 )
 ```
 

@@ -211,7 +211,6 @@ def upgrade() -> None:
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text, nullable=True),
         sa.Column("matching_rules", postgresql.JSONB, nullable=True),
-        sa.Column("priority", sa.Integer, default=0, nullable=False),
         sa.Column("processing_config", postgresql.JSONB, nullable=True),
         sa.Column("metadata_config", postgresql.JSONB, nullable=True),
         sa.Column("output_config", postgresql.JSONB, nullable=True),

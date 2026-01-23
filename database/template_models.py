@@ -91,7 +91,6 @@ class RecordingTemplateModel(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     matching_rules = Column(JSONB, nullable=True)
-    priority = Column(Integer, default=0, nullable=False)
     processing_config = Column(JSONB, nullable=True)
     metadata_config = Column(JSONB, nullable=True)
     output_config = Column(JSONB, nullable=True)

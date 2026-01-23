@@ -7,7 +7,7 @@ class ThumbnailInfo(BaseModel):
     """Информация о thumbnail."""
 
     name: str = Field(..., description="Имя файла")
-    path: str = Field(..., description="Путь к файлу")
+    url: str = Field(..., description="URL для получения файла через API")
     is_template: bool = Field(..., description="Является ли глобальным template")
     size_bytes: int = Field(default=0, description="Размер в байтах")
     size_kb: float = Field(default=0.0, description="Размер в KB")
@@ -17,8 +17,10 @@ class ThumbnailInfo(BaseModel):
 class ThumbnailListResponse(BaseModel):
     """Список thumbnails пользователя."""
 
-    user_thumbnails: list[ThumbnailInfo] = Field(default_factory=list, description="Пользовательские thumbnails")
-    template_thumbnails: list[ThumbnailInfo] = Field(default_factory=list, description="Глобальные template thumbnails")
+    thumbnails: list[ThumbnailInfo] = Field(
+        default_factory=list,
+        description="Thumbnails пользователя (включая копии шаблонов, полученные при регистрации)"
+    )
 
 
 class ThumbnailUploadResponse(BaseModel):

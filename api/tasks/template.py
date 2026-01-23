@@ -128,10 +128,10 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
         query = select(RecordingModel).where(RecordingModel.user_id == user_id)
 
         if only_unmapped:
-            # Only unmapped (SKIPPED) recordings
+            # Only unmapped (SKIPPED/PENDING_SOURCE) recordings
             query = query.where(
                 RecordingModel.is_mapped == False,  # noqa: E712
-                RecordingModel.status == ProcessingStatus.SKIPPED,
+                RecordingModel.status.in_([ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]),
             )
 
         query = query.order_by(RecordingModel.created_at.desc())
@@ -168,14 +168,20 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
                     old_status = recording.status
                     recording.is_mapped = True
                     recording.template_id = template.id
-                    recording.status = ProcessingStatus.INITIALIZED
+
+                    # Keep PENDING_SOURCE status if source is still processing
+                    if old_status != ProcessingStatus.PENDING_SOURCE:
+                        recording.status = ProcessingStatus.INITIALIZED
+                        new_status = ProcessingStatus.INITIALIZED
+                    else:
+                        new_status = ProcessingStatus.PENDING_SOURCE
 
                     updated_count += 1
                     updated_recording_ids.append(recording.id)
 
                     logger.info(
                         f"[Re-match] Updated recording {recording.id} '{recording.display_name}': "
-                        f"{old_status} → INITIALIZED (template={template.id})"
+                        f"{old_status} → {new_status} (template={template.id})"
                     )
 
             # Update progress

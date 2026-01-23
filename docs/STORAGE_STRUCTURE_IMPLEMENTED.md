@@ -35,12 +35,14 @@ storage/
 
 ### 2. All Code Updated
 
-**Files Using StoragePathBuilder (7 total):**
+**Files Using StoragePathBuilder (8 total):**
 - `video_download_module/downloader.py` - Downloads to `source.mp4`
 - `api/tasks/processing.py` - Processing to `video.mp4`, `audio.mp3`
 - `api/routers/recordings.py` - File uploads and metadata
 - `api/routers/auth.py` - User directory creation
 - `transcription_module/manager.py` - All transcription paths
+- `utils/thumbnail_manager.py` - ⭐ **NEW:** User and shared thumbnails
+- `api/routers/thumbnails.py` - Thumbnail API endpoints
 - `file_storage/__init__.py` - Module exports (code)
 
 **Removed:**
@@ -73,6 +75,44 @@ storage/users/user_000006/recordings/74/transcriptions/master.json
 ```
 
 ## API Changes
+
+### ThumbnailManager Methods
+
+**All methods now use `user_slug` instead of `user_id`:**
+
+```python
+from utils.thumbnail_manager import get_thumbnail_manager
+
+manager = get_thumbnail_manager()
+
+# OLD (removed):
+manager.list_user_thumbnails(user.id)  # ❌ Deprecated
+
+# NEW (required):
+manager.list_user_thumbnails(user.user_slug)  # ✅ Only way
+manager.get_user_thumbnails_dir(user.user_slug)
+manager.get_thumbnail_path(user.user_slug, "thumbnail.png")
+manager.delete_user_thumbnail(user.user_slug, "thumbnail.png")
+```
+
+**Supported image formats:** `.png`, `.jpg`, `.jpeg`
+
+All listing methods (`list_user_thumbnails()`, `list_template_thumbnails()`) now find all supported formats, not just PNG.
+
+**Paths returned:**
+```python
+# Shared templates:
+manager.get_global_templates_dir()
+# → storage/shared/thumbnails
+
+# User thumbnails:
+manager.get_user_thumbnails_dir(1)
+# → storage/users/user_000001/thumbnails
+
+# Template thumbnail:
+manager.get_thumbnail_path(1, "hse_ai.png", fallback_to_template=True)
+# → storage/shared/thumbnails/hse_ai.png
+```
 
 ### TranscriptionManager Methods
 
@@ -153,7 +193,8 @@ builder.cleanup_temp(max_age_hours=24)  # Returns count of deleted files
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| StoragePathBuilder | ✅ Complete | Used in 7 files |
+| StoragePathBuilder | ✅ Complete | Used in 8 files |
+| ThumbnailManager | ✅ Complete | Uses StoragePathBuilder |
 | StorageBackend | 🚧 Prepared | For S3 (not integrated) |
 | LOCAL support | ✅ Complete | Direct Path operations |
 | S3 support | 📋 Planned | Needs backend integration |

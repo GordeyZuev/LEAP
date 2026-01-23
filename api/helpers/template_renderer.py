@@ -145,9 +145,9 @@ class TemplateRenderer:
         Example config:
             {
                 "enabled": true,
-                "max_count": 10,
-                "min_length": 5,
-                "max_length": 100,
+                "max_count": 999,  # Default: show all topics (999 = effectively unlimited)
+                "min_length": 0,   # Default: no filtering (0 = show all)
+                "max_length": 999,
                 "format": "numbered_list",  # numbered_list, bullet_list, dash_list, comma_separated, inline
                 "separator": "\n",
                 "prefix": "Темы:",
@@ -178,13 +178,13 @@ class TemplateRenderer:
         min_length = 0 if min_length is None else min_length
 
         max_length = config.get("max_length")
-        max_length = 1000 if max_length is None else max_length
+        max_length = 999 if max_length is None else max_length
 
         filtered_topics = [t for t in normalized_topics if min_length <= len(t.get("topic", "")) <= max_length]
 
-        # Limit count (None = unlimited)
-        max_count = config.get("max_count", 10)
-        if max_count is not None:
+        # Limit count (default = 999, effectively unlimited for most cases)
+        max_count = config.get("max_count") or 999
+        if max_count > 0:
             filtered_topics = filtered_topics[:max_count]
 
         if not filtered_topics:

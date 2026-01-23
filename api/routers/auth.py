@@ -29,7 +29,7 @@ from api.schemas.auth import (
     UserSubscriptionCreate,
     UserUpdate,
 )
-from config.settings import DEFAULT_USER_CONFIG, get_settings
+from config.settings import get_settings
 from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 from utils.thumbnail_manager import get_thumbnail_manager
@@ -43,17 +43,17 @@ router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(request: RegisterRequest, session: AsyncSession = Depends(get_db_session)):
     """
-    Регистрация нового пользователя.
+    Register new user.
 
     Args:
-        request: Данные для регистрации
+        request: Registration data
         session: Database session
 
     Returns:
-        Информация о созданном пользователе
+        Information about created user
 
     Raises:
-        HTTPException: Если email уже существует
+        HTTPException: If email already exists
     """
     user_repo = UserRepository(session)
     subscription_repo = UserSubscriptionRepository(session)
@@ -77,7 +77,7 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
 
     user = await user_repo.create(user_data=user_create, hashed_password=hashed_password)
 
-    # Создать подписку на Free план
+    # Create free subscription
     free_plan = await plan_repo.get_by_name("free")
     if not free_plan:
         logger.error("Free plan not found in database! User registered without subscription.")
@@ -88,26 +88,27 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
         )
         await subscription_repo.create(subscription_create)
 
-    existing_config = await config_repo.get_by_user_id(user.id)
-    if not existing_config:
-        await config_repo.create(user_id=user.id, config_data=DEFAULT_USER_CONFIG)
+    # Create user config with default settings
+    default_config = await config_repo.get_effective_config(user.id)
+    await config_repo.create(user_id=user.id, config_data=default_config)
+    logger.info(f"Created default config for user: user_id={user.id}")
 
-    # Создать директории пользователя
+    # Create user directories
     # TODO(S3): Replace with backend operations when S3 support added
     # For now: direct directory creation (LOCAL only)
     storage_builder = StoragePathBuilder()
     user_root = storage_builder.user_root(user.user_slug)
     user_root.mkdir(parents=True, exist_ok=True)
 
-    # Создать thumbnails директорию для пользовательских превью
+    # Create thumbnails directory for user thumbnails
     user_thumbnails = storage_builder.user_thumbnails_dir(user.user_slug)
     user_thumbnails.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Created user directories: {user_root}")
 
-    # Инициализировать thumbnails (создать пустую папку)
+    # Initialize thumbnails (copy all shared templates)
     thumbnail_manager = get_thumbnail_manager()
-    thumbnail_manager.initialize_user_thumbnails(user.id, copy_templates=False)
+    thumbnail_manager.initialize_user_thumbnails(user.user_slug, copy_templates=True)
 
     await session.commit()
 
@@ -119,17 +120,17 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
 @router.post("/login", response_model=TokenPair)
 async def login(request: LoginRequest, session: AsyncSession = Depends(get_db_session)):
     """
-    Вход в систему.
+    Login to the system.
 
     Args:
-        request: Данные для входа
+        request: Login data
         session: Database session
 
     Returns:
-        Access и refresh токены
+        Access and refresh tokens
 
     Raises:
-        HTTPException: Если учетные данные неверны
+        HTTPException: If credentials are incorrect
     """
     user_repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
@@ -180,17 +181,17 @@ async def login(request: LoginRequest, session: AsyncSession = Depends(get_db_se
 @router.post("/refresh", response_model=TokenPair)
 async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = Depends(get_db_session)):
     """
-    Обновление access токена с помощью refresh токена.
+    Refresh access token using refresh token.
 
     Args:
-        request: Refresh токен
+        request: Refresh token
         session: Database session
 
     Returns:
-        Новые access и refresh токены
+        New access and refresh tokens
 
     Raises:
-        HTTPException: Если токен невалиден
+        HTTPException: If token is invalid
     """
     user_repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
@@ -249,14 +250,14 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
 @router.post("/logout", response_model=LogoutResponse)
 async def logout(request: RefreshTokenRequest, session: AsyncSession = Depends(get_db_session)) -> LogoutResponse:
     """
-    Выход из системы (отзыв refresh токена).
+    Logout from the system (revoke refresh token).
 
     Args:
-        request: Refresh токен
+        request: Refresh token
         session: Database session
 
     Returns:
-        Подтверждение выхода
+        Confirmation of logout
     """
     token_repo = RefreshTokenRepository(session)
     await token_repo.revoke(request.refresh_token)
@@ -269,18 +270,18 @@ async def logout_all(
     request: RefreshTokenRequest, session: AsyncSession = Depends(get_db_session)
 ) -> LogoutAllResponse:
     """
-    Выход из всех устройств (отзыв всех refresh токенов пользователя).
+    Logout from all devices (revoke all refresh tokens for the user).
 
     Args:
-        request: Любой валидный refresh токен пользователя
+        request: Any valid refresh token for the user
         session: Database session
 
     Returns:
-        Количество отозванных токенов
+        Number of revoked tokens
     """
     token_repo = RefreshTokenRepository(session)
 
-    # Получаем user_id из токена
+    # Get user_id from token
     payload = JWTHelper.verify_token(request.refresh_token, token_type="refresh")
     if not payload:
         raise HTTPException(
@@ -295,7 +296,7 @@ async def logout_all(
             detail="Invalid token payload",
         )
 
-    # Отзываем все токены пользователя
+    # Revoke all tokens for the user
     count = await token_repo.revoke_all_by_user(user_id)
 
     logger.info(f"User {user_id} logged out from all devices ({count} tokens revoked)")

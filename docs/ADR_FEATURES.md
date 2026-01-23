@@ -610,6 +610,7 @@ FAILED → retry → continue from failed stage
 **Allowed Transitions:**
 ```python
 ALLOWED_TRANSITIONS = {
+    "PENDING_SOURCE": ["INITIALIZED", "SKIPPED"],  # After source processing completes
     "INITIALIZED": ["DOWNLOADING", "FAILED", "SKIPPED"],
     "DOWNLOADING": ["DOWNLOADED", "FAILED"],
     "DOWNLOADED": ["PROCESSING", "FAILED"],

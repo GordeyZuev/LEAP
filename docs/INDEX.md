@@ -58,6 +58,7 @@
 ### 🔒 Security
 
 - [security/ARCHITECTURE_DECISION.md](security/ARCHITECTURE_DECISION.md) - Security architecture
+- [THUMBNAILS_SECURITY.md](THUMBNAILS_SECURITY.md) - Thumbnail API security & validation
 - [security/MULTI_TENANCY_FIXES.md](security/MULTI_TENANCY_FIXES.md) - Multi-tenancy security
 - [security/TASK_MIGRATION_GUIDE.md](security/TASK_MIGRATION_GUIDE.md) - Task isolation
 

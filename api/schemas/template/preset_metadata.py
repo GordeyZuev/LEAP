@@ -28,8 +28,8 @@ class TopicsDisplayConfig(BaseModel):
 
     enabled: bool = Field(True, description="Включить отображение тем")
     format: TopicsDisplayFormat = Field(TopicsDisplayFormat.NUMBERED_LIST, description="Формат списка")
-    max_count: int | None = Field(None, ge=1, le=100, description="Максимальное количество тем (None = все)")
-    min_length: int | None = Field(None, ge=0, le=500, description="Минимальная длина темы в символах")
+    max_count: int | None = Field(None, ge=1, le=999, description="Максимальное количество тем (None = default из base config)")
+    min_length: int | None = Field(None, ge=0, le=500, description="Минимальная длина темы в символах (0 = без фильтрации)")
     max_length: int | None = Field(None, ge=10, le=1000, description="Максимальная длина темы в символах")
     prefix: str | None = Field(None, max_length=200, description="Префикс перед списком тем")
     separator: str = Field("\n", max_length=10, description="Разделитель между темами")
@@ -94,7 +94,11 @@ class YouTubePresetMetadata(BaseModel):
     # Platform organization
     playlist_id: str | None = Field(None, description="ID плейлиста YouTube для автозагрузки видео")
     tags: list[str] | None = Field(None, max_length=500, description="Теги видео (макс 500)")
-    thumbnail_path: str | None = Field(None, description="Путь к файлу thumbnail (обложка видео)")
+    thumbnail_name: str | None = Field(
+        None,
+        description="Имя файла thumbnail (например, 'python_base.png'). API автоматически найдет файл в директории пользователя.",
+        examples=["python_base.png", "ml_extra.png", "hse_ai.jpg"],
+    )
 
     # Scheduling
     publish_at: str | None = Field(None, description="ISO 8601 дата/время публикации (для отложенной публикации)")
@@ -166,7 +170,11 @@ class VKPresetMetadata(BaseModel):
     # Group settings (optional - может быть в template)
     group_id: int | None = Field(None, gt=0, description="ID группы VK (можно задать в template metadata_config)")
     album_id: str | None = Field(None, description="ID альбома VK")
-    thumbnail_path: str | None = Field(None, description="Путь к файлу thumbnail (обложка видео)")
+    thumbnail_name: str | None = Field(
+        None,
+        description="Имя файла thumbnail (например, 'applied_python.png'). API автоматически найдет файл в директории пользователя.",
+        examples=["applied_python.png", "ml_extra.png", "hse_ai.jpg"],
+    )
 
     # Topics display
     topics_display: TopicsDisplayConfig | None = Field(None, description="Настройки отображения тем в description")

@@ -25,8 +25,14 @@
 **Состоит из:**
 - **Matching Rules** - правила сопоставления (keywords, patterns, exact matches)
 - **Processing Config** - настройки обработки (transcription, video processing)
-- **Metadata Config** - настройки метаданных (title_template, description_template)
+- **Metadata Config** - настройки метаданных (title_template, description_template, **thumbnail_name**)
 - **Output Config** - настройки загрузки (preset_ids, auto_upload)
+
+**⚠️ Note about `thumbnail_name`:**
+- Use **filename only** (e.g., `"ml_extra.png"`), not full path
+- Each user gets their own copies of all shared templates at registration
+- Users can upload custom thumbnails and use them in templates
+- See [THUMBNAILS_SECURITY.md](THUMBNAILS_SECURITY.md) for details
 
 ### Как это работает
 
@@ -607,7 +613,7 @@ GET /templates/{id}/stats
     "category_id": "27",
     "topics_display": {
       "format": "numbered_list",
-      "max_count": 10
+      "max_count": 999
     }
   }
 }
@@ -623,18 +629,18 @@ GET /templates/{id}/stats
   "metadata_config": {
     "title_template": "МО | {themes}",
     "description_template": "Лекция по машинному обучению\n\n{topics}",
-    "thumbnail_path": "media/templates/thumbnails/ml_course.png",  // Common thumbnail for all platforms
+    "thumbnail_name": "ml_course.png",  // Common thumbnail for all platforms
     "tags": ["ML", "AI", "Education"],
     "youtube": {
       "playlist_id": "PLxxx",
       "privacy": "unlisted",  // Override preset
-      "thumbnail_path": "media/templates/thumbnails/youtube_ml.png"  // Platform-specific thumbnail (optional)
+      "thumbnail_name": "youtube_ml.png"  // Platform-specific thumbnail (filename only, optional)
     },
     "vk": {
       "group_id": -123456,
       "album_id": 63,
       "no_comments": false
-      // If vk.thumbnail_path is not set, uses common thumbnail_path
+      // If vk.thumbnail_name is not set, uses common thumbnail_name
     }
   }
 }
@@ -685,15 +691,15 @@ final = {"privacy": "private", "category_id": 27, "playlist_id": "PLxxx"}
 Вы можете задать общий `thumbnail_path` для всех платформ или платформо-специфичный.
 
 **Иерархия (приоритет от высшего к низшему):**
-1. **Platform-specific** (`youtube.thumbnail_path` или `vk.thumbnail_path`) - наивысший приоритет
-2. **Common** (`thumbnail_path` в корне `metadata_config`) - используется если platform-specific не задан
+1. **Platform-specific** (`youtube.thumbnail_name` или `vk.thumbnail_name`) - наивысший приоритет
+2. **Common** (`thumbnail_name` в корне `metadata_config`) - используется если platform-specific не задан
 3. **Preset default** - используется если ни один из вышеперечисленных не задан
 
 **Пример 1: Общий thumbnail для всех платформ**
 ```json
 {
   "metadata_config": {
-    "thumbnail_path": "media/templates/thumbnails/ml_course.png",
+    "thumbnail_name": "ml_course.png",
     "youtube": {
       "playlist_id": "PLxxx"
     },
@@ -709,14 +715,14 @@ final = {"privacy": "private", "category_id": 27, "playlist_id": "PLxxx"}
 ```json
 {
   "metadata_config": {
-    "thumbnail_path": "media/templates/thumbnails/default.png",
+    "thumbnail_name": "default.png",
     "youtube": {
       "playlist_id": "PLxxx",
-      "thumbnail_path": "media/templates/thumbnails/youtube_specific.png"
+      "thumbnail_name": "youtube_specific.png"
     },
     "vk": {
       "album_id": "56"
-      // vk.thumbnail_path не задан - будет использован общий default.png
+      // vk.thumbnail_name не задан - будет использован общий default.png
     }
   }
 }
@@ -729,11 +735,11 @@ final = {"privacy": "private", "category_id": 27, "playlist_id": "PLxxx"}
   "metadata_config": {
     "youtube": {
       "playlist_id": "PLxxx",
-      "thumbnail_path": "media/templates/thumbnails/youtube_only.png"
+      "thumbnail_name": "youtube_only.png"
     },
     "vk": {
       "album_id": "56",
-      "thumbnail_path": "media/templates/thumbnails/vk_only.png"
+      "thumbnail_name": "vk_only.png"
     }
   }
 }

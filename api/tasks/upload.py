@@ -19,6 +19,7 @@ from config.settings import get_settings
 from database.template_models import OutputPresetModel
 from logger import get_logger
 from models.recording import TargetStatus
+from utils.thumbnail_manager import get_thumbnail_manager
 from video_upload_module.platforms.youtube.token_handler import TokenRefreshError
 from video_upload_module.uploader_factory import create_uploader_from_db
 
@@ -395,22 +396,30 @@ async def _async_upload_recording(
                 if "publish_at" in preset_metadata:
                     upload_params["publish_at"] = preset_metadata["publish_at"]
 
-                # Check for thumbnail_path in multiple locations (platform-specific has priority)
-                thumbnail_path_str = preset_metadata.get("youtube", {}).get("thumbnail_path") or preset_metadata.get(
-                    "thumbnail_path"
+                # Check for thumbnail_name in multiple locations (platform-specific has priority)
+                thumbnail_filename = preset_metadata.get("youtube", {}).get("thumbnail_name") or preset_metadata.get(
+                    "thumbnail_name"
                 )
                 logger.debug(
-                    f"[Upload YouTube] Thumbnail lookup: youtube-specific={preset_metadata.get('youtube', {}).get('thumbnail_path')}, common={preset_metadata.get('thumbnail_path')}"
+                    f"[Upload YouTube] Thumbnail lookup: youtube-specific={preset_metadata.get('youtube', {}).get('thumbnail_name')}, common={preset_metadata.get('thumbnail_name')}"
                 )
-                if thumbnail_path_str:
-                    thumbnail_path = Path(thumbnail_path_str)
-                    if thumbnail_path.exists():
-                        upload_params["thumbnail_path"] = str(thumbnail_path)
-                        logger.debug(f"[Upload YouTube] Using thumbnail: {thumbnail_path}")
+                if thumbnail_filename:
+                    # Resolve thumbnail filename to actual path using ThumbnailManager
+                    thumbnail_manager = get_thumbnail_manager()
+                    user_slug = recording.owner.user_slug
+                    resolved_path = thumbnail_manager.get_thumbnail_path(
+                        user_slug=user_slug,
+                        thumbnail_name=thumbnail_filename,
+                        fallback_to_template=True,
+                    )
+
+                    if resolved_path and resolved_path.exists():
+                        upload_params["thumbnail_path"] = str(resolved_path)
+                        logger.debug(f"[Upload YouTube] Using thumbnail: {resolved_path} (resolved from '{thumbnail_filename}')")
                     else:
-                        logger.warning(f"[Upload YouTube] Thumbnail not found: {thumbnail_path}")
+                        logger.warning(f"[Upload YouTube] Thumbnail not found: '{thumbnail_filename}' for user_slug {user_slug}")
                 else:
-                    logger.warning("[Upload YouTube] No thumbnail_path found in metadata")
+                    logger.debug("[Upload YouTube] No thumbnail_name found in metadata")
 
                 # Additional YouTube params
                 for key in ["made_for_kids", "embeddable", "license", "public_stats_viewable"]:
@@ -427,18 +436,26 @@ async def _async_upload_recording(
                     logger.warning("[Upload VK] No album_id found in metadata")
 
                 # Thumbnail - check both top-level and nested 'vk' key (platform-specific has priority)
-                thumbnail_path_str = preset_metadata.get("vk", {}).get("thumbnail_path") or preset_metadata.get(
-                    "thumbnail_path"
+                thumbnail_filename = preset_metadata.get("vk", {}).get("thumbnail_name") or preset_metadata.get(
+                    "thumbnail_name"
                 )
-                if thumbnail_path_str:
-                    thumbnail_path = Path(thumbnail_path_str)
-                    if thumbnail_path.exists():
-                        upload_params["thumbnail_path"] = str(thumbnail_path)
-                        logger.debug(f"[Upload VK] Using thumbnail: {thumbnail_path}")
+                if thumbnail_filename:
+                    # Resolve thumbnail filename to actual path using ThumbnailManager
+                    thumbnail_manager = get_thumbnail_manager()
+                    user_slug = recording.owner.user_slug
+                    resolved_path = thumbnail_manager.get_thumbnail_path(
+                        user_slug=user_slug,
+                        thumbnail_name=thumbnail_filename,
+                        fallback_to_template=True,
+                    )
+
+                    if resolved_path and resolved_path.exists():
+                        upload_params["thumbnail_path"] = str(resolved_path)
+                        logger.debug(f"[Upload VK] Using thumbnail: {resolved_path} (resolved from '{thumbnail_filename}')")
                     else:
-                        logger.warning(f"[Upload VK] Thumbnail not found: {thumbnail_path}")
+                        logger.warning(f"[Upload VK] Thumbnail not found: '{thumbnail_filename}' for user_slug {user_slug}")
                 else:
-                    logger.warning("[Upload VK] No thumbnail_path found in metadata")
+                    logger.debug("[Upload VK] No thumbnail_name found in metadata")
 
                 # VK privacy and other settings (including group_id for group uploads)
                 for key in ["group_id", "privacy_view", "privacy_comment", "no_comments", "repeat", "wallpost"]:

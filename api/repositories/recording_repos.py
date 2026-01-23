@@ -521,19 +521,39 @@ class RecordingRepository:
                 existing.duration = duration
                 existing.video_file_size = kwargs.get("video_file_size", existing.video_file_size)
 
-                # Update is_mapped if passed
+                # Check if Zoom is still processing
+                zoom_processing_incomplete = kwargs.get("zoom_processing_incomplete", False)
+
+                # Update is_mapped and template_id (but don't change status if PENDING_SOURCE)
                 if "is_mapped" in kwargs:
                     old_is_mapped = existing.is_mapped
                     existing.is_mapped = kwargs["is_mapped"]
 
-                    # If is_mapped changed, update status
-                    if old_is_mapped != existing.is_mapped and existing.status in [
+                    # Update status only if not PENDING_SOURCE and in initial states
+                    if existing.status != ProcessingStatus.PENDING_SOURCE and existing.status in [
                         ProcessingStatus.INITIALIZED,
                         ProcessingStatus.SKIPPED,
                     ]:
-                        existing.status = (
-                            ProcessingStatus.INITIALIZED if existing.is_mapped else ProcessingStatus.SKIPPED
-                        )
+                        # Check if this is resync from PENDING_SOURCE (Zoom finished processing)
+                        if old_is_mapped != existing.is_mapped:
+                            existing.status = (
+                                ProcessingStatus.INITIALIZED if existing.is_mapped else ProcessingStatus.SKIPPED
+                            )
+
+                # Handle status transition from PENDING_SOURCE when Zoom finishes processing
+                if existing.status == ProcessingStatus.PENDING_SOURCE and not zoom_processing_incomplete:
+                    # Zoom finished processing - recheck blank and update status
+                    is_blank = kwargs.get("blank_record", False)
+                    if is_blank:
+                        existing.status = ProcessingStatus.SKIPPED
+                    elif existing.is_mapped:
+                        existing.status = ProcessingStatus.INITIALIZED
+                    else:
+                        existing.status = ProcessingStatus.SKIPPED
+                    logger.info(
+                        f"Recording {existing.id} processing completed on Zoom side: "
+                        f"PENDING_SOURCE → {existing.status}"
+                    )
 
                 # Update template_id if passed
                 if "template_id" in kwargs:
@@ -561,7 +581,18 @@ class RecordingRepository:
             return existing, False
         # Create new recording
         is_mapped = kwargs.get("is_mapped", False)
-        status = ProcessingStatus.INITIALIZED if is_mapped else ProcessingStatus.SKIPPED
+        is_blank = kwargs.get("blank_record", False)
+        zoom_processing_incomplete = kwargs.get("zoom_processing_incomplete", False)
+
+        # Determine initial status based on Zoom processing state
+        if zoom_processing_incomplete:
+            status = ProcessingStatus.PENDING_SOURCE
+        elif is_blank:
+            status = ProcessingStatus.SKIPPED
+        elif is_mapped:
+            status = ProcessingStatus.INITIALIZED
+        else:
+            status = ProcessingStatus.SKIPPED
 
         # Get retention settings
         retention = user_config.get("retention", {}) if user_config else {}

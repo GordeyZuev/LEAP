@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] - 2026-01-23
+
+### 🔧 Fixed
+
+- **ThumbnailManager Storage Migration** - Completed migration to new storage structure
+  - `ThumbnailManager` now uses `StoragePathBuilder` for all path operations
+  - Fixed `/api/v1/thumbnails` endpoint returning old `media/` paths
+  - All thumbnail paths now use new structure: `storage/shared/thumbnails/` and `storage/users/user_XXXXXX/thumbnails/`
+  - Breaking change: All `ThumbnailManager` methods now require `user_slug` instead of `user_id`
+  - Updated API endpoints: `api/routers/thumbnails.py` and `api/routers/auth.py`
+  
+- **ThumbnailManager Multi-Format Support** - Fixed listing methods to find all image formats
+  - `list_user_thumbnails()` now finds `.png`, `.jpg`, and `.jpeg` files (was only `.png`)
+  - `list_template_thumbnails()` now finds `.png`, `.jpg`, and `.jpeg` files (was only `.png`)
+  - `initialize_user_thumbnails()` now copies all image formats from templates (was only `.png`)
+  - Fixes issue where API returned empty arrays when user had only JPG/JPEG thumbnails
+
+### 🔒 Security
+
+- **Thumbnail API Security Improvements** - No filesystem path disclosure
+  - **Breaking change:** API now returns `url` instead of `path` in responses
+  - Changed: `{"path": "storage/users/..."}` → `{"url": "/api/v1/thumbnails/file.jpg"}`
+  - Benefits: No information disclosure, better encapsulation, user enumeration prevented
+  - Centralized format validation with `SUPPORTED_IMAGE_FORMATS` constant
+  - Documentation: `docs/THUMBNAILS_SECURITY.md`
+
+### 🗑️ Removed
+
+- **Thumbnail API Simplification** - Removed `template_thumbnails` from response
+  - **Breaking change:** Removed `include_templates` query parameter from GET `/api/v1/thumbnails`
+  - **Breaking change:** Response schema changed from `{user_thumbnails, template_thumbnails}` to `{thumbnails}`
+  - Rationale: Users get template copies at registration, no need to show shared templates separately
+  - Simpler and clearer API - one array instead of two
+
+### 📝 Changed
+
+- **Templates & Presets: Thumbnail Path Format** - Filename-only approach
+  - **Breaking change:** `thumbnail_path` now stores only filename, not full path
+  - Old: `"thumbnail_path": "/data/thumbnails/default.jpg"` ❌
+  - New: `"thumbnail_path": "ml_extra.png"` ✅
+  - API automatically resolves filename to user's thumbnail directory
+  - Updated schemas: `metadata_config.py`, `preset_metadata.py`
+  - Updated upload logic: `api/tasks/upload.py` now uses `ThumbnailManager` for resolution
+  - See `docs/THUMBNAILS_SECURITY.md` for usage examples
+
+- **User Registration: Thumbnail Templates** - Each user gets own copies
+  - At registration, all 22 shared templates are copied to user's directory
+  - Users can modify, rename, or delete their copies independently
+  - No naming conflicts - each user has their own namespace
+  - Backward compatible: fallback to shared templates for old users
+
 ## [0.9.4] - 2026-01-22
 
 ### 🚀 MAJOR REFACTORING: Storage Structure Migration

@@ -42,9 +42,9 @@ class UploadConfig(BaseModel):
 
 class TopicsDisplayConfig(BaseModel):
     enabled: bool = True
-    max_count: int = 10
-    min_length: int = 5
-    max_length: int = 100
+    max_count: int = 999
+    min_length: int = 0
+    max_length: int = 999
     display_location: str = "description"
     format: str = "numbered_list"
     separator: str = "\n"
@@ -57,7 +57,7 @@ class MetadataConfig(BaseModel):
     description_template: str = "Запись от {date}"
     date_format: str = "DD.MM.YYYY"
     tags: list[str] = Field(default_factory=list)
-    thumbnail_path: str | None = None
+    thumbnail_name: str | None = None
     category: str | None = None
     topics_display: TopicsDisplayConfig = Field(default_factory=TopicsDisplayConfig)
 

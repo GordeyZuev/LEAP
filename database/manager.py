@@ -674,9 +674,9 @@ class DatabaseManager:
                 )
                 db_recordings = result.scalars().unique().all()
 
-                # Удаляем файлы и сбрасываем записи
+                # Delete files and reset recordings
                 for db_recording in db_recordings:
-                    # Если нужно оставить загруженные записи – проверяем наличие uploaded таргетов
+                    # If we need to keep uploaded recordings – check for uploaded targets
                     if keep_uploaded:
                         uploaded_exists = any(
                             _normalize_enum(t.status, TargetStatus) == TargetStatus.UPLOADED
@@ -685,34 +685,34 @@ class DatabaseManager:
                         if uploaded_exists:
                             continue
 
-                    # Удаляем физические файлы
+                    # Delete physical files
                     if db_recording.local_video_path and Path(db_recording.local_video_path).exists():
                         try:
                             Path(db_recording.local_video_path).unlink()
                             logger.debug(
-                                f"Удален файл: path={db_recording.local_video_path} | recording_id={db_recording.id}"
+                                f"Deleted video file: path={db_recording.local_video_path} | recording_id={db_recording.id}"
                             )
                         except Exception as e:
                             logger.warning(
-                                f"Не удалось удалить файл: path={db_recording.local_video_path} | recording_id={db_recording.id} | error={e}"
+                                f"Failed to delete video file: path={db_recording.local_video_path} | recording_id={db_recording.id} | error={e}"
                             )
 
                     if db_recording.processed_video_path and Path(db_recording.processed_video_path).exists():
                         try:
                             Path(db_recording.processed_video_path).unlink()
                             logger.debug(
-                                f"Удален файл: path={db_recording.processed_video_path} | recording_id={db_recording.id}"
+                                f"Deleted video file: path={db_recording.processed_video_path} | recording_id={db_recording.id}"
                             )
                         except Exception as e:
                             logger.warning(
-                                f"Не удалось удалить файл: path={db_recording.processed_video_path} | recording_id={db_recording.id} | error={e}"
+                                f"Failed to delete video file: path={db_recording.processed_video_path} | recording_id={db_recording.id} | error={e}"
                             )
 
                     if db_recording.processed_audio_path and Path(db_recording.processed_audio_path).exists():
                         try:
                             Path(db_recording.processed_audio_path).unlink()
                             logger.debug(
-                                f"Удален аудио файл: path={db_recording.processed_audio_path} | recording_id={db_recording.id}"
+                                f"Deleted audio file: path={db_recording.processed_audio_path} | recording_id={db_recording.id}"
                             )
                         except Exception as e:
                             logger.warning(
@@ -723,21 +723,28 @@ class DatabaseManager:
                         try:
                             shutil.rmtree(db_recording.transcription_dir)
                             logger.debug(
-                                f"Удалена папка транскрипции: path={db_recording.transcription_dir} | recording_id={db_recording.id}"
+                                f"Deleted transcription folder: path={db_recording.transcription_dir} | recording_id={db_recording.id}"
                             )
                         except Exception as e:
                             logger.warning(
-                                f"Не удалось удалить папку транскрипции: path={db_recording.transcription_dir} | recording_id={db_recording.id} | error={e}"
+                                f"Failed to delete transcription folder: path={db_recording.transcription_dir} | recording_id={db_recording.id} | error={e}"
                             )
 
-                    # Подсчитываем по статусам
+                    # Count by status
                     old_status = (
                         db_recording.status.value if hasattr(db_recording.status, "value") else str(db_recording.status)
                     )
                     by_status[old_status] = by_status.get(old_status, 0) + 1
 
-                    # Сбрасываем запись
-                    if db_recording.is_mapped:
+                    # Check if source is still processing on Zoom side
+                    if db_recording.source and db_recording.source.meta:
+                        zoom_processing_incomplete = db_recording.source.meta.get("zoom_processing_incomplete", False)
+                    else:
+                        zoom_processing_incomplete = False
+
+                    if zoom_processing_incomplete:
+                        db_recording.status = ProcessingStatus.PENDING_SOURCE
+                    elif db_recording.is_mapped:
                         db_recording.status = ProcessingStatus.INITIALIZED
                     else:
                         db_recording.status = ProcessingStatus.SKIPPED

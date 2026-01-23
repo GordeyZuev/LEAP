@@ -18,7 +18,11 @@ class VKMetadataConfig(BaseModel):
 
     album_id: str | None = Field(None, description="ID альбома VK")
     group_id: int | None = Field(None, gt=0, description="ID группы VK для публикации")
-    thumbnail_path: str | None = Field(None, description="Путь к thumbnail для VK")
+    thumbnail_name: str | None = Field(
+        None,
+        description="Имя файла thumbnail для VK (например, 'ml_extra.png'). API автоматически найдет файл в директории пользователя.",
+        examples=["ml_extra.png", "hse_ai.jpg", "custom_thumbnail.png"],
+    )
     title_template: str | None = Field(None, max_length=500, description="VK-специфичный шаблон заголовка")
     description_template: str | None = Field(
         None, max_length=5000, description="VK-специфичный шаблон описания"
@@ -32,7 +36,11 @@ class YouTubeMetadataConfig(BaseModel):
 
     privacy: str | None = Field(None, description="Privacy status (public, unlisted, private)")
     playlist_id: str | None = Field(None, description="ID плейлиста YouTube")
-    thumbnail_path: str | None = Field(None, description="Путь к thumbnail для YouTube")
+    thumbnail_name: str | None = Field(
+        None,
+        description="Имя файла thumbnail для YouTube (например, 'python_base.png'). API автоматически найдет файл в директории пользователя.",
+        examples=["python_base.png", "hse_ai.jpg", "custom_thumbnail.png"],
+    )
     title_template: str | None = Field(None, max_length=500, description="YouTube-специфичный шаблон заголовка")
     description_template: str | None = Field(
         None, max_length=5000, description="YouTube-специфичный шаблон описания"
@@ -49,17 +57,23 @@ class TemplateMetadataConfig(BaseModel):
     Content-specific metadata для Recording Template.
 
     Структура:
-    - vk: VK-специфичные настройки (album_id, thumbnail_path)
-    - youtube: YouTube-специфичные настройки (privacy, playlist_id, thumbnail_path)
+    - vk: VK-специфичные настройки (album_id, thumbnail_name)
+    - youtube: YouTube-специфичные настройки (privacy, playlist_id, thumbnail_name)
     - title_template: общий шаблон заголовка (для всех платформ)
     - description_template: общий шаблон описания (для всех платформ)
     - topics_display: общие настройки отображения тем
-    - thumbnail_path: общий путь к thumbnail (используется если не задан платформо-специфичный)
+    - thumbnail_name: имя файла thumbnail (используется если не задан платформо-специфичный)
 
-    Иерархия thumbnail_path:
-    1. Если задан vk.thumbnail_path или youtube.thumbnail_path - используется он
-    2. Иначе используется общий thumbnail_path
+    Иерархия thumbnail_name:
+    1. Если задан vk.thumbnail_name или youtube.thumbnail_name - используется он
+    2. Иначе используется общий thumbnail_name
     3. Иначе используется thumbnail из preset
+
+    Формат: только имя файла (например, "ml_extra.png")
+    API автоматически ищет файл в директории пользователя:
+    - storage/users/user_XXXXXX/thumbnails/
+
+    Note: Каждый пользователь получает копии всех шаблонов при регистрации.
 
     Переменные в templates:
     - {display_name}, {themes}, {topic}, {topics}, {topics_list}
@@ -100,11 +114,13 @@ class TemplateMetadataConfig(BaseModel):
         description="Настройки отображения тем в description (для всех платформ)",
     )
 
-    thumbnail_path: str | None = Field(
+    thumbnail_name: str | None = Field(
         None,
-        description="Общий путь к thumbnail для всех платформ (если не указан платформо-специфичный)",
+        description="Имя файла thumbnail для всех платформ (если не указан платформо-специфичный). API автоматически найдет файл в директории пользователя.",
         examples=[
-            "storage/shared/thumbnails/applied_python.png"
+            "applied_python.png",
+            "ml_extra.png",
+            "hse_ai.jpg"
         ],
     )
 

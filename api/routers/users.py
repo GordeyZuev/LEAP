@@ -145,10 +145,16 @@ async def get_my_quota_history(
         - GET /api/v1/users/me/quota/history?limit=6 - last 6 months
         - GET /api/v1/users/me/quota/history?period=202601 - only January 2026
     """
+    from utils.date_utils import InvalidPeriodError, validate_period
+
     quota_service = QuotaService(session)
 
     # If specific period is specified
     if period:
+        try:
+            period = validate_period(period)
+        except InvalidPeriodError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         usage = await quota_service.usage_repo.get_by_user_and_period(current_user.id, period)
         if not usage:
             # Return empty list if period not found

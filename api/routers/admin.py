@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -217,8 +217,15 @@ async def get_quota_stats(
     Returns:
         AdminQuotaStats: Статистика использования квот
     """
+    from utils.date_utils import InvalidPeriodError, validate_period
+
     if not period:
         period = int(datetime.now().strftime("%Y%m"))
+    else:
+        try:
+            period = validate_period(period)
+        except InvalidPeriodError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     # Total usage for period
     result = await session.execute(

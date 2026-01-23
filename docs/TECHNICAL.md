@@ -66,10 +66,10 @@ JWT • OAuth 2.0 • Fernet Encryption • PBKDF2
 ```
 ZoomUploader/
 ├── api/                      # FastAPI application
-│   ├── routers/              # API endpoints (15 routers)
+│   ├── routers/              # API endpoints
 │   ├── services/             # Business logic layer
 │   ├── repositories/         # Data access layer
-│   ├── schemas/              # Pydantic models (185+)
+│   ├── schemas/              # Pydantic models
 │   ├── core/                 # Core utilities (context, security)
 │   ├── helpers/              # Helper classes
 │   └── tasks/                # Celery tasks
@@ -96,10 +96,10 @@ ZoomUploader/
 │   ├── shared/thumbnails/    # Global thumbnails
 │   ├── temp/                 # Temporary processing files
 │   └── users/user_XXXXXX/    # User-isolated storage
-├── alembic/                  # Database migrations (21)
+├── alembic/                  # Database migrations
 ├── config/                   # Configuration files
 ├── utils/                    # Utilities
-└── docs/                     # Documentation (20+ guides)
+└── docs/                     # Documentation
 ```
 
 ---
@@ -111,7 +111,7 @@ ZoomUploader/
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Client Layer                          │
-│              REST API (89 endpoints) + JWT Auth              │
+│                  REST API + JWT Auth                         │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -139,7 +139,7 @@ ZoomUploader/
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                      Data Layer                              │
-│              PostgreSQL (16 tables, 21 migrations)           │
+│                      PostgreSQL                              │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -389,10 +389,10 @@ platforms = await cred_service.list_available_platforms(user_id)
 **Purpose:** REST API endpoints, аутентификация, валидация
 
 **Key Components:**
-- `routers/` - 14 routers (89 endpoints)
+- `routers/` - API endpoints
 - `services/` - Business logic
 - `repositories/` - Data access
-- `schemas/` - Pydantic models (185+)
+- `schemas/` - Pydantic models
 - `core/` - Auth, security, context
 
 **Features:**
@@ -601,7 +601,7 @@ video_upload_module/
 
 **ORM:** SQLAlchemy 2.0 (async)
 
-**Migrations:** Alembic (21 migrations, auto-init)
+**Migrations:** Alembic (auto-init)
 
 **Performance Optimizations (Jan 2026):**
 - `func.count()` вместо загрузки всех записей
@@ -615,9 +615,7 @@ video_upload_module/
 
 ## Database Design
 
-**Database:** PostgreSQL 12+ with SQLAlchemy 2.0 (async)  
-**Tables:** 16 (multi-tenant architecture)  
-**Migrations:** 21 (auto-init on first run)
+**Database:** PostgreSQL 12+ with SQLAlchemy 2.0 (async)
 
 **Key Features:**
 - Multi-tenant isolation via `user_id` filtering
@@ -626,10 +624,10 @@ video_upload_module/
 - Composite indexes for performance
 
 **Table Categories:**
-- Authentication & Users (4 tables)
-- Subscriptions & Quotas (4 tables)
-- Processing (4 tables)
-- Automation (2 tables)
+- Authentication & Users
+- Subscriptions & Quotas
+- Processing
+- Automation
 
 **Full Details:** [DATABASE_DESIGN.md](DATABASE_DESIGN.md)
 
@@ -728,31 +726,28 @@ final = {
 
 ## REST API
 
-### API Statistics
+### API Endpoints
 
-**89 endpoints** across 14 routers:
-
-| Category | Count | Description |
-|----------|-------|-------------|
-| 🔐 **Authentication** | 5 | Register, Login, Refresh, Logout, Profile |
-| 👤 **User Management** | 6 | Profile, Config, Password, Account |
-| 👔 **Admin** | 3 | Stats, Users, Quotas |
-| 🎥 **Recordings** | 25 | CRUD, Pipeline, Batch operations |
-| 📋 **Templates** | 9 | CRUD, Matching, Re-match |
-| 🔑 **Credentials** | 6 | CRUD, Platform management |
-| 🔌 **OAuth** | 7 | YouTube, VK, Zoom flows |
-| 🤖 **Automation** | 6 | Jobs, Scheduling, Celery Beat |
+| Category | Description |
+|----------|-------------|
+| 🔐 **Authentication** | Register, Login, Refresh, Logout, Profile |
+| 👤 **User Management** | Profile, Config, Password, Account |
+| 👔 **Admin** | Stats, Users, Quotas |
+| 🎥 **Recordings** | CRUD, Pipeline, Batch operations |
+| 📋 **Templates** | CRUD, Matching, Re-match |
+| 🔑 **Credentials** | CRUD, Platform management |
+| 🔌 **OAuth** | YouTube, VK, Zoom flows |
+| 🤖 **Automation** | Jobs, Scheduling, Celery Beat |
 | 📊 **Tasks** | 2 | Async task monitoring |
 | 📥 **Input Sources** | 7 | Zoom sources, Sync |
 | 📤 **Output Presets** | 5 | Upload presets |
-| 🖼️ **Thumbnails** | 4 | Upload, Management |
-| 💚 **Health** | 1 | System status |
-| 🔧 **User Config** | 3 | User-specific settings |
-| **TOTAL** | **89** | **100% Production Ready** |
+| 🖼️ **Thumbnails** | Upload, Management |
+| 💚 **Health** | System status |
+| 🔧 **User Config** | User-specific settings |
 
 ### Pydantic Schemas
 
-**185+ models** with full type safety:
+**Complete type safety:**
 
 - Request/Response models для всех endpoints
 - Nested typing (templates, presets, configs)
@@ -811,6 +806,39 @@ POST /api/v1/oauth/vk/token/submit  # Implicit Flow
 GET /api/v1/oauth/zoom/authorize
 GET /api/v1/oauth/zoom/callback
 ```
+
+#### Thumbnails
+
+```bash
+# List user thumbnails
+GET /api/v1/thumbnails
+# Response: {"thumbnails": [...]}
+
+# Upload new thumbnail
+POST /api/v1/thumbnails
+# Body: multipart/form-data (file + optional custom_filename)
+# Returns: 201 Created or 409 Conflict
+
+# Update/create thumbnail
+PUT /api/v1/thumbnails/{filename}
+# Body: multipart/form-data (file)
+# Idempotent operation
+
+# Get thumbnail file
+GET /api/v1/thumbnails/{filename}
+# Returns: image file (png/jpg/jpeg)
+
+# Delete thumbnail
+DELETE /api/v1/thumbnails/{filename}
+# Returns: 204 No Content
+```
+
+**Note:** 
+- Each user gets copies of all shared templates (22 files) at registration
+- Users can upload, modify, or delete any thumbnails in their directory
+- In templates/presets, use filename only: `"thumbnail_name": "ml_extra.png"`
+- API automatically resolves to: `storage/users/user_XXXXXX/thumbnails/ml_extra.png`
+- Security: API returns URLs (`/api/v1/thumbnails/file.jpg`), not filesystem paths
 
 ### API Documentation
 
@@ -1214,18 +1242,18 @@ psql -U postgres -d zoom_manager
 
 ## Quick Reference
 
-**API Endpoints:** 89 (production-ready)  
-**Database Tables:** 16 (multi-tenant)  
-**Migrations:** 21 (auto-init)  
-**Pydantic Models:** 185+ (fully typed)  
-**Processing Modules:** 7 (video, transcription, upload)  
-**OAuth Platforms:** 3 (YouTube, VK, Zoom)  
-**AI Models:** 2 (Whisper, DeepSeek)
-
 **Technology Stack:**  
 Python 3.11+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Celery • FFmpeg
 
-**Documentation:** 14 comprehensive guides
+**Features:**
+- Production-ready REST API
+- Multi-tenant database with auto-migrations
+- Complete type safety with Pydantic
+- Processing modules (video, transcription, upload)
+- OAuth platforms (YouTube, VK, Zoom)
+- AI models (Whisper, DeepSeek)
+
+**Documentation:** Comprehensive guides available in `/docs`
 
 ---
 

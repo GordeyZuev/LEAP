@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -24,6 +25,10 @@ class ZoomRequestError(ZoomAPIError):
 
 class ZoomResponseError(ZoomAPIError):
     """Ошибка ответа API."""
+
+
+class ZoomRecordingProcessingError(ZoomAPIError):
+    """Запись ещё обрабатывается на стороне Zoom (код 3301)."""
 
 
 class ZoomAPI:
@@ -157,21 +162,44 @@ class ZoomAPI:
                 if response.status_code == 200:
                     data = response.json()
                     # Логируем сырые данные от Zoom API
-                    import json
-
                     logger.debug(
                         f"Сырые данные от Zoom API (get_recording_details для meeting_id={meeting_id}):\n{json.dumps(data, indent=2, ensure_ascii=False)}"
                     )
                     return data
+
+                # Handle error response
                 account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
+
+                # Try to parse error details from response
+                error_code = None
+                error_message = None
+                try:
+                    error_data = response.json()
+                    error_code = error_data.get("code")
+                    error_message = error_data.get("message", response.text)
+                except Exception:
+                    error_message = response.text
+
+                # Special handling for code 3301 - recording still processing on Zoom side
+                if error_code == 3301:
+                    logger.info(
+                        f"Recording still processing on Zoom side: account={account} | meeting_id={meeting_id} | message={error_message}",
+                        account=account,
+                        meeting_id=meeting_id,
+                        zoom_code=error_code
+                    )
+                    raise ZoomRecordingProcessingError(f"Запись ещё обрабатывается: {error_message}")
+
+                # Log other errors as ERROR
                 logger.error(
-                    f"API error getting recording: account={account} | meeting_id={meeting_id} | status={response.status_code}",
+                    f"API error getting recording: account={account} | meeting_id={meeting_id} | status={response.status_code} | zoom_code={error_code}",
                     account=account,
                     meeting_id=meeting_id,
                     status_code=response.status_code,
-                    response_preview=response.text[:200]
+                    zoom_code=error_code,
+                    response_preview=error_message[:200] if error_message else response.text[:200]
                 )
-                raise ZoomResponseError(f"Ошибка API: {response.status_code} - {response.text}")
+                raise ZoomResponseError(f"Ошибка API: {response.status_code} - {error_message}")
 
         except httpx.RequestError as e:
             error_type = type(e).__name__

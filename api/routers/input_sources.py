@@ -17,7 +17,7 @@ from api.schemas.template import (
     InputSourceResponse,
     InputSourceUpdate,
 )
-from api.zoom_api import ZoomAPI
+from api.zoom_api import ZoomAPI, ZoomRecordingProcessingError
 from database.auth_models import UserModel
 from logger import get_logger
 from models.recording import SourceType
@@ -137,10 +137,20 @@ async def _sync_single_source(
                     # Получаем download_access_token
                     download_access_token = None
                     meeting_details = None
+                    zoom_processing_incomplete = False
+
                     try:
                         meeting_details = await zoom_api.get_recording_details(meeting_id, include_download_token=True)
                         download_access_token = meeting_details.get("download_access_token")
+                    except ZoomRecordingProcessingError:
+                        # Запись ещё обрабатывается на стороне Zoom - это нормально
+                        logger.info(
+                            f"Recording '{display_name}' (meeting_id={meeting_id}) is still being processed by Zoom. "
+                            f"Will be available for download later."
+                        )
+                        zoom_processing_incomplete = True
                     except Exception as e:
+                        # Другие ошибки (например, запись удалена)
                         logger.warning(f"Failed to get download_access_token for meeting {meeting_id}: {e}")
 
                     # Метаданные
@@ -164,26 +174,37 @@ async def _sync_single_source(
                         "recording_type": video_file.get("recording_type") if video_file else None,
                         "delete_time": meeting.get("delete_time"),
                         "auto_delete_date": meeting.get("auto_delete_date"),
+                        "zoom_processing_incomplete": zoom_processing_incomplete,  # Флаг: запись ещё обрабатывается Zoom
                         "zoom_api_meeting": meeting,
                         "zoom_api_details": meeting_details if meeting_details else {},
                     }
 
-                    # Determine if this is a blank record (too short or too small)
+                    # Determine status and blank_record based on Zoom processing state
                     min_duration_minutes = 20
                     min_file_size_bytes = 25 * 1024 * 1024  # 25 MB
-
                     video_file_size = video_file.get("file_size") if video_file else 0
-                    is_blank = (duration < min_duration_minutes) or (video_file_size < min_file_size_bytes)
-
-                    if is_blank:
-                        logger.info(
-                            f"Recording '{display_name}' marked as blank: "
-                            f"duration={duration}min (min={min_duration_minutes}), "
-                            f"size={video_file_size} bytes (min={min_file_size_bytes})"
-                        )
 
                     # Template matching
                     matched_template = _find_matching_template(display_name, source_id, templates)
+                    is_mapped = matched_template is not None
+
+                    # Determine blank_record and log reasoning
+                    if zoom_processing_incomplete:
+                        # Zoom still processing - can't determine if blank yet
+                        is_blank = False
+                        logger.info(
+                            f"Recording '{display_name}' awaiting Zoom processing: "
+                            f"status will be PENDING_SOURCE until processing completes"
+                        )
+                    else:
+                        # Check if blank based on duration/size
+                        is_blank = (duration < min_duration_minutes) or (video_file_size < min_file_size_bytes)
+                        if is_blank:
+                            logger.info(
+                                f"Recording '{display_name}' marked as blank: "
+                                f"duration={duration}min (min={min_duration_minutes}), "
+                                f"size={video_file_size} bytes (min={min_file_size_bytes})"
+                            )
 
                     # Create or update
                     _recording, is_new = await recording_repo.create_or_update(
@@ -197,9 +218,10 @@ async def _sync_single_source(
                         source_metadata=source_metadata,
                         user_config=user_config,
                         video_file_size=video_file.get("file_size") if video_file else None,
-                        is_mapped=matched_template is not None,
+                        is_mapped=is_mapped,
                         template_id=matched_template.id if matched_template else None,
                         blank_record=is_blank,
+                        zoom_processing_incomplete=zoom_processing_incomplete,
                     )
 
                     if is_new:
@@ -255,71 +277,119 @@ async def _sync_single_source(
 
 def _find_matching_template(display_name: str, source_id: int, templates: list):
     """
-    Найти первый подходящий template (first_match strategy).
+    Find first matching template (first-match strategy by created_at ASC).
 
-    Matching rules проверяются в следующем порядке:
-    - exact_matches: точное совпадение названия
-    - keywords: наличие ключевого слова в названии
-    - patterns: regex паттерны
-    - source_id: опционально (если указан в matching_rules, проверяется)
+    Matching order for each template:
+    1. source_ids filter (required if specified)
+    2. exclude_keywords - SKIP template if any match
+    3. exclude_patterns - SKIP template if any match
+    4. exact_matches - RETURN template if any match
+    5. keywords - RETURN template if any match
+    6. patterns - RETURN template if any match
 
     Args:
-        display_name: Название записи
-        source_id: ID источника записи
-        templates: Список активных шаблонов (отсортированы по created_at ASC)
+        display_name: Recording name
+        source_id: Input source ID
+        templates: Active templates sorted by created_at ASC
 
     Returns:
-        RecordingTemplateModel | None: Первый matched template или None
-
-    Note: Поле priority НЕ используется (simple first_match).
-    Порядок определяется created_at ASC (старые templates проверяются первыми).
+        First matched template or None
     """
     import re
 
     if not templates:
         return None
 
-    display_name_lower = display_name.lower().strip()
-
     for template in templates:
         matching_rules = template.matching_rules or {}
+        case_sensitive = matching_rules.get("case_sensitive", False)
 
-        # Check source_id filter first (if specified)
+        # Prepare comparison strings
+        display_name_compare = display_name.strip() if case_sensitive else display_name.lower().strip()
+
+        # 1. Check source_id filter (required if specified)
         template_source_ids = matching_rules.get("source_ids", [])
         if template_source_ids and source_id not in template_source_ids:
             continue
 
-        # Check exact matches
+        # 2. Check exclude_keywords (negative matching)
+        exclude_keywords = matching_rules.get("exclude_keywords", [])
+        if exclude_keywords:
+            excluded = False
+            for keyword in exclude_keywords:
+                if not isinstance(keyword, str):
+                    continue
+                keyword_compare = keyword.strip() if case_sensitive else keyword.lower().strip()
+                if keyword_compare in display_name_compare:
+                    logger.debug(
+                        f"Recording '{display_name}' excluded from template '{template.name}' "
+                        f"by exclude_keyword '{keyword}'"
+                    )
+                    excluded = True
+                    break
+            if excluded:
+                continue
+
+        # 3. Check exclude_patterns (negative matching)
+        exclude_patterns = matching_rules.get("exclude_patterns", [])
+        if exclude_patterns:
+            excluded = False
+            for pattern in exclude_patterns:
+                if not isinstance(pattern, str):
+                    continue
+                try:
+                    flags = 0 if case_sensitive else re.IGNORECASE
+                    if re.search(pattern, display_name, flags):
+                        logger.debug(
+                            f"Recording '{display_name}' excluded from template '{template.name}' "
+                            f"by exclude_pattern '{pattern}'"
+                        )
+                        excluded = True
+                        break
+                except re.error as e:
+                    logger.warning(f"Invalid exclude_pattern '{pattern}' in template '{template.name}': {e}")
+            if excluded:
+                continue
+
+        # 4. Check exact matches (positive matching)
         exact_matches = matching_rules.get("exact_matches", [])
         if exact_matches:
             for exact in exact_matches:
-                if isinstance(exact, str) and exact.lower() == display_name_lower:
+                if not isinstance(exact, str):
+                    continue
+                exact_compare = exact.strip() if case_sensitive else exact.lower().strip()
+                if exact_compare == display_name_compare:
                     logger.debug(f"Recording '{display_name}' matched template '{template.name}' by exact match")
                     return template
 
-        # Check keywords
+        # 5. Check keywords (positive matching)
         keywords = matching_rules.get("keywords", [])
         if keywords:
             for keyword in keywords:
-                if isinstance(keyword, str) and keyword.lower() in display_name_lower:
+                if not isinstance(keyword, str):
+                    continue
+                keyword_compare = keyword.strip() if case_sensitive else keyword.lower().strip()
+                if keyword_compare in display_name_compare:
                     logger.debug(
                         f"Recording '{display_name}' matched template '{template.name}' by keyword '{keyword}'"
                     )
                     return template
 
-        # Check regex patterns
+        # 6. Check regex patterns (positive matching)
         patterns = matching_rules.get("patterns", [])
         if patterns:
             for pattern in patterns:
-                if isinstance(pattern, str):
-                    try:
-                        if re.search(pattern, display_name, re.IGNORECASE):
-                            logger.debug(
-                                f"Recording '{display_name}' matched template '{template.name}' by pattern '{pattern}'"
-                            )
-                            return template
-                    except re.error as e:
-                        logger.warning(f"Invalid regex pattern '{pattern}' in template '{template.name}': {e}")
+                if not isinstance(pattern, str):
+                    continue
+                try:
+                    flags = 0 if case_sensitive else re.IGNORECASE
+                    if re.search(pattern, display_name, flags):
+                        logger.debug(
+                            f"Recording '{display_name}' matched template '{template.name}' by pattern '{pattern}'"
+                        )
+                        return template
+                except re.error as e:
+                    logger.warning(f"Invalid regex pattern '{pattern}' in template '{template.name}': {e}")
 
     logger.debug(f"Recording '{display_name}' did not match any template")
     return None
@@ -354,18 +424,26 @@ async def create_source(
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),
 ):
-    """Create new input source."""
+    """
+    Create new input source.
+
+    Security:
+        - Validates credential ownership before creation
+    """
+    from api.services.resource_access_validator import ResourceAccessValidator
+
     repo = InputSourceRepository(session)
 
     source_type = data.platform.upper()
 
+    # Validate credential ownership
     if data.credential_id:
-        cred_repo = UserCredentialRepository(session)
-        credential = await cred_repo.get_by_id(data.credential_id)
-        if not credential or credential.user_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=f"Credential {data.credential_id} not found"
-            )
+        validator = ResourceAccessValidator(session)
+        await validator.validate_credential_access(
+            data.credential_id,
+            current_user.id,
+            error_detail=f"Cannot create source: credential {data.credential_id} not found or access denied",
+        )
 
     # Проверка на дубликаты
     duplicate = await repo.find_duplicate(

@@ -146,7 +146,7 @@
 
 ### Enterprise-Ready Features
 
-**⚡ 89 REST API Endpoints**
+**⚡ Comprehensive REST API**
 - Полноценный `CRUD` для всех сущностей
 - `JWT` аутентификация + `RBAC`
 - `OpenAPI` документация (`Swagger`, `ReDoc`)
@@ -176,22 +176,6 @@
 - `DeepSeek` для извлечения тем
 - Автоматическая генерация таймкодов
 - Генерация субтитров (`SRT`, `VTT`)
-
----
-
-## 📈 Key Metrics
-
-```
-📊 API Endpoints:        89 (full production coverage)
-🗄️  Database Tables:      16 (multi-tenant architecture)
-🗃️  Database Migrations:  21 (auto-init on first run)
-🔌 Platform Integrations: 3 (Zoom, YouTube, VK)
-🤖 AI Models:            2 (Whisper, DeepSeek)
-🔒 Security Features:    JWT + OAuth2 + RBAC + Fernet Encryption
-⚡ Processing Pipeline:  6 stages, fully automated
-📦 Subscription Plans:   4 (Free/Plus/Pro/Enterprise)
-👥 Multi-Tenancy:        Full data isolation
-```
 
 ---
 
@@ -235,7 +219,7 @@
 - Audit logs и usage tracking
 
 **Production-Ready**
-- 89 REST API endpoints с `OpenAPI` docs
+- Comprehensive REST API с `OpenAPI` docs
 - Health checks и monitoring (`Flower`)
 - Automatic retry mechanisms
 - Error handling и graceful degradation
@@ -312,14 +296,14 @@ make docker-up && make init-db && make api
 
 ## 🌐 REST API
 
-**89 production-ready endpoints** with full OpenAPI documentation:
+**Production-ready endpoints** with full OpenAPI documentation:
 
-- 🔐 Authentication (6) - JWT + OAuth 2.0
-- 👤 Users (6) - Profile, config, quotas
-- 🎥 Recordings (16) - Full processing pipeline
-- 📋 Templates (8) - Automation rules
-- 🔌 OAuth (6) - YouTube, VK, Zoom
-- 🤖 Automation (6) - Scheduled jobs
+- 🔐 Authentication - JWT + OAuth 2.0
+- 👤 Users - Profile, config, quotas
+- 🎥 Recordings - Full processing pipeline
+- 📋 Templates - Automation rules
+- 🔌 OAuth - YouTube, VK, Zoom
+- 🤖 Automation - Scheduled jobs
 - And more...
 
 **Documentation:**
@@ -426,14 +410,6 @@ TRANSCRIBED → UPLOADING → READY
 ## 🆕 Version: v0.9.4 (January 2026)
 
 **Status:** Production-ready multi-tenant SaaS
-
-**Key Metrics:**
-- 89 REST API endpoints (100% typed)
-- 16 database tables (multi-tenant)
-- 21 database migrations (auto-init)
-- 3 OAuth platforms (YouTube, VK, Zoom)
-- 2 AI models (Whisper, DeepSeek)
-- 20+ documentation guides
 
 **v0.9.4 - Storage Structure Migration (January 2026):**
 - ✅ ID-based file naming (no Cyrillic in paths)

@@ -212,15 +212,21 @@ async def _query_recordings_by_filters(
 
     # Date filters
     if filters.from_date:
-        from utils.date_utils import parse_from_date_to_datetime
+        from utils.date_utils import InvalidDateFormatError, parse_from_date_to_datetime
 
-        from_dt = parse_from_date_to_datetime(filters.from_date)
+        try:
+            from_dt = parse_from_date_to_datetime(filters.from_date)
+        except InvalidDateFormatError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         query = query.where(RecordingModel.start_time >= from_dt)
 
     if filters.to_date:
-        from utils.date_utils import parse_to_date_to_datetime
+        from utils.date_utils import InvalidDateFormatError, parse_to_date_to_datetime
 
-        to_dt = parse_to_date_to_datetime(filters.to_date)
+        try:
+            to_dt = parse_to_date_to_datetime(filters.to_date)
+        except InvalidDateFormatError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         query = query.where(RecordingModel.start_time <= to_dt)
 
     # Sorting
@@ -254,6 +260,7 @@ async def _execute_dry_run_single(
     Returns:
         Information about steps that will be executed
     """
+    from api.repositories.template_repos import OutputPresetRepository
     from api.services.config_resolver import ConfigResolver
 
     recording_repo = RecordingRepository(ctx.session)
@@ -294,7 +301,15 @@ async def _execute_dry_run_single(
     # Upload step
     auto_upload = output_config.get("auto_upload", False)
     if auto_upload:
-        platforms = output_config.get("platforms", [])
+        # Get platforms from preset_ids
+        platforms = []
+        preset_ids = output_config.get("preset_ids", [])
+
+        if preset_ids:
+            preset_repo = OutputPresetRepository(ctx.session)
+            presets = await preset_repo.find_by_ids(preset_ids, ctx.user_id)
+            platforms = [preset.platform for preset in presets if preset.is_active]
+
         steps.append({"name": "upload", "enabled": True, "platforms": platforms})
     else:
         steps.append({"name": "upload", "enabled": False, "skip_reason": "auto_upload is false"})
@@ -431,15 +446,21 @@ async def list_recordings(
 
     # Filter by date
     if from_date:
-        from utils.date_utils import parse_from_date_to_datetime
+        from utils.date_utils import InvalidDateFormatError, parse_from_date_to_datetime
 
-        from_dt = parse_from_date_to_datetime(from_date)
+        try:
+            from_dt = parse_from_date_to_datetime(from_date)
+        except InvalidDateFormatError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         recordings = [r for r in recordings if r.start_time >= from_dt]
 
     if to_date:
-        from utils.date_utils import parse_to_date_to_datetime
+        from utils.date_utils import InvalidDateFormatError, parse_to_date_to_datetime
 
-        to_dt = parse_to_date_to_datetime(to_date)
+        try:
+            to_dt = parse_to_date_to_datetime(to_date)
+        except InvalidDateFormatError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         recordings = [r for r in recordings if r.start_time <= to_dt]
 
     # Filter by substring in display_name
@@ -812,7 +833,6 @@ async def get_recording(
 async def add_local_recording(
     file: UploadFile = File(...),
     display_name: str = Query(..., description="Recording name"),
-    meeting_id: str | None = Query(None, description="Meeting ID (optional)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
     """
@@ -821,7 +841,6 @@ async def add_local_recording(
     Args:
         file: Video file
         display_name: Recording name
-        meeting_id: Meeting ID (optional)
         ctx: Service context
 
     Returns:
@@ -876,8 +895,8 @@ async def add_local_recording(
 
         from models.recording import SourceType
 
-        # Use meeting_id or generate unique key
-        source_key = meeting_id or f"local_{ctx.user_id}_{datetime.now().timestamp()}"
+        # Generate unique source key for local recording
+        source_key = f"local_{ctx.user_id}_{datetime.now().timestamp()}"
 
         # Get user config for retention settings (merged with defaults)
         user_config_repo = UserConfigRepository(ctx.session)
@@ -1239,7 +1258,7 @@ async def bulk_process_recordings(
     )
 
 
-@router.post("/{recording_id}/process", response_model=RecordingOperationResponse)
+@router.post("/{recording_id}/process", response_model=RecordingOperationResponse | DryRunResponse)
 async def process_recording(
     recording_id: int,
     config: ConfigOverrideRequest = ConfigOverrideRequest(),
@@ -2258,8 +2277,18 @@ async def reset_recording(
     recording.failed = False
     recording.failed_reason = None
 
-    # Set status based on is_mapped
-    recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
+    # Set status based on source processing state and is_mapped
+    if recording.source and recording.source.meta:
+        zoom_processing_incomplete = recording.source.meta.get("zoom_processing_incomplete", False)
+    else:
+        zoom_processing_incomplete = False
+
+    if zoom_processing_incomplete:
+        recording.status = ProcessingStatus.PENDING_SOURCE
+    elif recording.is_mapped:
+        recording.status = ProcessingStatus.INITIALIZED
+    else:
+        recording.status = ProcessingStatus.SKIPPED
 
     # Update expire_at from user config (merged with defaults)
     user_config_repo = UserConfigRepository(ctx.session)

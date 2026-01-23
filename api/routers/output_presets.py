@@ -58,7 +58,22 @@ async def create_preset(
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),
 ):
-    """Create new output preset."""
+    """
+    Create new output preset.
+
+    Security:
+        - Validates credential ownership before creation
+    """
+    from api.services.resource_access_validator import ResourceAccessValidator
+
+    # Validate credential ownership
+    validator = ResourceAccessValidator(session)
+    await validator.validate_credential_access(
+        data.credential_id,
+        current_user.id,
+        error_detail=f"Cannot create preset: credential {data.credential_id} not found or access denied",
+    )
+
     repo = OutputPresetRepository(session)
     preset = await repo.create(
         user_id=current_user.id,

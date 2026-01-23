@@ -13,7 +13,7 @@
         "privacy_comment": 0,
         "no_comments": false,
         "wallpost": false,
-        "thumbnail_path": "thumbnails/time_series.png",
+        "thumbnail_name": "time_series.png",
         "title_template": "Временные ряды | {topic} ({date})",
         "description_template": "Лекция по курсу Анализ временных рядов\n\n{summary}\n\n{topics_list}\n\nЗаписано: {date}\n\nP.S. Сформировано автоматически, возможны неточности.",
         "topics_display": {
@@ -21,8 +21,8 @@
           "format": "numbered_list",
           "prefix": "Темы лекции:",
           "separator": "\n",
-          "max_count": 10,
-          "min_length": 5
+          "max_count": 999,
+          "min_length": 0
         }
       }
     },

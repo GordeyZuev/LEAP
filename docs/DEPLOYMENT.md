@@ -339,11 +339,14 @@ tail -f /var/log/postgresql/postgresql-15-main.log | grep "duration:"
 ### Disk Full
 
 ```bash
-# Clean old recordings
-find /app/media/user_*/videos -name "*.mp4" -mtime +30 -delete
+# Clean old temp files
+find /app/storage/temp -name "*" -mtime +1 -delete
 
-# Clean thumbnails
-find /app/media/user_*/thumbnails -mtime +90 -delete
+# Clean old recordings (if needed)
+find /app/storage/users/user_*/recordings/*/video.mp4 -mtime +30 -delete
+
+# Clean old thumbnails (users manage their own, be careful)
+find /app/storage/users/user_*/thumbnails -mtime +90 -delete
 ```
 
 ---

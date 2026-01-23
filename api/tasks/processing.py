@@ -979,7 +979,7 @@ async def _async_extract_topics(
 
         # Generate version_id if not specified
         if not version_id:
-            version_id = transcription_manager.generate_version_id(recording_id, user_id=user_id)
+            version_id = transcription_manager.generate_version_id(recording_id, user_slug)
 
         # Collect metadata for admin
         usage_metadata = {
@@ -992,9 +992,6 @@ async def _async_extract_topics(
             # Here you can add usage from API response, if available
         }
 
-        # Get user_slug for path generation
-        user_slug = recording.owner.user_slug
-
         # Save in topics.json
         transcription_manager.add_topics_version(
             recording_id=recording_id,
@@ -1006,7 +1003,7 @@ async def _async_extract_topics(
             pauses=topics_result.get("long_pauses", []),
             is_active=True,
             usage_metadata=usage_metadata,
-            user_id=user_id,
+            user_slug=user_slug,
         )
 
         # Update recording in DB (active version)

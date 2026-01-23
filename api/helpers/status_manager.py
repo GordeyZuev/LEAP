@@ -40,6 +40,7 @@ def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
     if not recording.processing_stages:
         # Базовый workflow без детальных этапов
         if current_status in [
+            ProcessingStatus.PENDING_SOURCE,
             ProcessingStatus.INITIALIZED,
             ProcessingStatus.DOWNLOADING,
             ProcessingStatus.DOWNLOADED,
@@ -105,26 +106,22 @@ def should_allow_download(recording: RecordingModel, allow_skipped: bool = False
     Проверить, можно ли запустить загрузку recording из источника.
 
     Загрузка разрешена, если:
-    1. Recording в статусе INITIALIZED (не SKIPPED, если не разрешено явно)
+    1. Recording в статусе INITIALIZED (не SKIPPED/PENDING_SOURCE, если не разрешено явно)
     2. Не в процессе загрузки (DOWNLOADING)
 
     Args:
         recording: RecordingModel
-        allow_skipped: Разрешить загрузку SKIPPED записей (из конфига/query param)
+        allow_skipped: Разрешить загрузку SKIPPED/PENDING_SOURCE записей (из конфига/query param)
 
     Returns:
         True если загрузка разрешена
     """
-    # Проверяем статус SKIPPED
-    if recording.status == ProcessingStatus.SKIPPED and not allow_skipped:
-        return False
+    # PENDING_SOURCE блокируется как SKIPPED - источник еще не готов
+    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+        return allow_skipped
 
-    # Разрешаем загрузку только из INITIALIZED или SKIPPED (если allow_skipped=True)
-    if recording.status == ProcessingStatus.INITIALIZED:
-        return True
-
-    # Разрешаем SKIPPED только если allow_skipped=True
-    return recording.status == ProcessingStatus.SKIPPED and allow_skipped
+    # Разрешаем загрузку из INITIALIZED
+    return recording.status == ProcessingStatus.INITIALIZED
 
 
 def should_allow_processing(recording: RecordingModel, allow_skipped: bool = False) -> bool:
@@ -133,25 +130,21 @@ def should_allow_processing(recording: RecordingModel, allow_skipped: bool = Fal
 
     Обработка разрешена, если:
     1. Recording в статусе DOWNLOADED (уже загружено)
-    2. Не SKIPPED (если не разрешено явно)
+    2. Не SKIPPED/PENDING_SOURCE (если не разрешено явно)
 
     Args:
         recording: RecordingModel
-        allow_skipped: Разрешить обработку SKIPPED записей (из конфига/query param)
+        allow_skipped: Разрешить обработку SKIPPED/PENDING_SOURCE записей (из конфига/query param)
 
     Returns:
         True если обработка разрешена
     """
-    # Проверяем статус SKIPPED
-    if recording.status == ProcessingStatus.SKIPPED and not allow_skipped:
-        return False
+    # PENDING_SOURCE блокируется как SKIPPED
+    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+        return allow_skipped
 
     # Разрешаем обработку из DOWNLOADED или PROCESSED (повторная обработка)
-    if recording.status in [ProcessingStatus.DOWNLOADED, ProcessingStatus.PROCESSED]:
-        return True
-
-    # Если SKIPPED и allow_skipped=True, разрешаем
-    return bool(recording.status == ProcessingStatus.SKIPPED and allow_skipped)
+    return recording.status in [ProcessingStatus.DOWNLOADED, ProcessingStatus.PROCESSED]
 
 
 def should_allow_transcription(recording: RecordingModel, allow_skipped: bool = False) -> bool:
@@ -160,27 +153,26 @@ def should_allow_transcription(recording: RecordingModel, allow_skipped: bool = 
 
     Транскрипция разрешена, если:
     1. Recording в статусе PROCESSED (базовая обработка завершена)
-    2. Не SKIPPED (если не разрешено явно)
+    2. Не SKIPPED/PENDING_SOURCE (если не разрешено явно)
     3. Нет активных processing_stages (IN_PROGRESS)
     4. TRANSCRIBE stage либо отсутствует, либо в статусе PENDING или FAILED
 
     Args:
         recording: RecordingModel
-        allow_skipped: Разрешить транскрипцию SKIPPED записей (из конфига/query param)
+        allow_skipped: Разрешить транскрипцию SKIPPED/PENDING_SOURCE записей (из конфига/query param)
 
     Returns:
         True если транскрипция разрешена
     """
-    # Проверяем статус SKIPPED
-    if recording.status == ProcessingStatus.SKIPPED and not allow_skipped:
-        return False
+    # PENDING_SOURCE блокируется как SKIPPED
+    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+        return allow_skipped
 
     # Проверка базового статуса
     if recording.status not in [
         ProcessingStatus.PROCESSED,
         ProcessingStatus.TRANSCRIBED,
         ProcessingStatus.PREPARING,
-        ProcessingStatus.SKIPPED,  # Разрешаем если allow_skipped=True
     ]:
         return False
 
@@ -219,21 +211,21 @@ def should_allow_upload(recording: RecordingModel, target_type: str, allow_skipp
     Проверить, можно ли запустить загрузку на платформу.
 
     Загрузка разрешена, если:
-    1. Recording не в статусе SKIPPED (если не разрешено явно)
+    1. Recording не в статусе SKIPPED/PENDING_SOURCE (если не разрешено явно)
     2. Все processing_stages завершены (COMPLETED) или нет stages
     3. Target для этой платформы либо отсутствует, либо NOT_UPLOADED или FAILED
 
     Args:
         recording: RecordingModel
         target_type: Тип платформы (TargetType value)
-        allow_skipped: Разрешить загрузку SKIPPED записей (из конфига/query param)
+        allow_skipped: Разрешить загрузку SKIPPED/PENDING_SOURCE записей (из конфига/query param)
 
     Returns:
         True если загрузка разрешена
     """
-    # Проверяем статус SKIPPED
-    if recording.status == ProcessingStatus.SKIPPED and not allow_skipped:
-        return False
+    # PENDING_SOURCE блокируется как SKIPPED
+    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+        return allow_skipped
 
     # Проверяем, что все stages завершены (если есть)
     if recording.processing_stages:

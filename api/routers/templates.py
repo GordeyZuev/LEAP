@@ -445,11 +445,11 @@ async def preview_template_match(
     # Build query for checking
     query = select(RecordingModel).where(RecordingModel.user_id == current_user.id)
 
-    # Filter by unmapped/SKIPPED
+    # Filter by unmapped/SKIPPED/PENDING_SOURCE
     if only_skipped:
         query = query.where(
             RecordingModel.is_mapped == False,  # noqa: E712
-            RecordingModel.status == ProcessingStatus.SKIPPED,
+            RecordingModel.status.in_([ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]),
         )
     else:
         query = query.where(RecordingModel.is_mapped == False)  # noqa: E712

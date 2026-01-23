@@ -12,7 +12,7 @@
           "enabled": true,
           "format": "numbered_list",
           "max_count": 10,
-          "min_length": 5,
+          "min_length": 0,
           "prefix": "Темы лекции:",
           "separator": "\n"
         },
@@ -51,7 +51,7 @@
         "tags": ["запись"],
         "category_id": 27,
         "privacy": "unlisted",
-        "thumbnail_path": "/data/thumbnails/default_youtube.jpg",
+        "thumbnail_name": "hse_ai.jpg",
         "embeddable": true
       }
     },
@@ -80,6 +80,7 @@
           "enabled": true,
           "format": "bullet_list",
           "max_count": 5,
+          "min_length": 0,
           "prefix": "📚 Темы:",
           "separator": "\n"
         },
