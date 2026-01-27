@@ -21,13 +21,13 @@ class RecordingFilters(BaseModel):
     is_mapped: bool | None = Field(None, description="Filter by presence of mapping to template")
     failed: bool | None = Field(None, description="Filter by presence of error")
     exclude_blank: bool = Field(True, description="Exclude blank records (too short/small)")
+    include_deleted: bool = Field(False, description="Include deleted recordings (default: False - hides deleted)")
 
     search: str | None = Field(None, description="Search substring in display_name (case-insensitive)")
 
     # Dates (for backward compatibility)
     from_date: str | None = Field(None, description="Filter by start date (ISO 8601)")
     to_date: str | None = Field(None, description="Filter by end date (ISO 8601)")
-    source_type: str | None = Field(None, description="Filter by source type")
 
     # Sorting
     order_by: str = Field("created_at", description="Field to sort by (created_at, updated_at, id)")
@@ -37,9 +37,12 @@ class RecordingFilters(BaseModel):
         json_schema_extra = {
             "example": {
                 "template_id": 5,
+                "source_id": 10,
                 "status": ["INITIALIZED", "FAILED"],
                 "is_mapped": True,
+                "failed": False,
                 "exclude_blank": True,
+                "include_deleted": False,
                 "search": "lecture",
                 "from_date": "2024-01-01",
                 "to_date": "2024-12-31",

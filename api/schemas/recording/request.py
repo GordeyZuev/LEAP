@@ -165,11 +165,14 @@ class BulkDownloadRequest(BulkOperationRequest):
     """Bulk скачивание записей из Zoom."""
 
     force: bool = Field(False, description="Пересохранить если уже скачано")
-    allow_skipped: bool = Field(False, description="Разрешить загрузку SKIPPED записей")
 
     class Config:
         json_schema_extra = {
-            "example": {"filters": {"source_id": 10, "status": ["PENDING"]}, "force": False, "allow_skipped": False}
+            "example": {
+                "filters": {"source_id": 10, "status": ["PENDING"], "from_date": "2024-01-01", "to_date": "2024-12-31"},
+                "force": False,
+                "limit": 50,
+            }
         }
 
 
@@ -183,7 +186,14 @@ class BulkTrimRequest(BulkOperationRequest):
 
     class Config:
         json_schema_extra = {
-            "example": {"recording_ids": [1, 2, 3], "silence_threshold": -35.0, "min_silence_duration": 3.0}
+            "example": {
+                "filters": {"status": ["DOWNLOADED"], "template_id": 5, "from_date": "2024-12-01", "to_date": "2024-12-31"},
+                "silence_threshold": -35.0,
+                "min_silence_duration": 2.0,
+                "padding_before": 5.0,
+                "padding_after": 5.0,
+                "limit": 50,
+            }
         }
 
 
@@ -197,8 +207,15 @@ class BulkTranscribeRequest(BulkOperationRequest):
     class Config:
         json_schema_extra = {
             "example": {
-                "filters": {"template_id": 5, "status": ["DOWNLOADED", "PROCESSED"]},
+                "filters": {
+                    "status": ["PROCESSED", "TRIMMED"],
+                    "is_mapped": True,
+                    "from_date": "2024-12-01",
+                    "to_date": "2024-12-31",
+                },
                 "use_batch_api": True,
+                "poll_interval": 10.0,
+                "max_wait_time": 3600.0,
                 "limit": 100,
             }
         }
@@ -212,7 +229,12 @@ class BulkTopicsRequest(BulkOperationRequest):
 
     class Config:
         json_schema_extra = {
-            "example": {"filters": {"status": ["TRANSCRIBED"], "template_id": 5}, "granularity": "long", "limit": 50}
+            "example": {
+                "filters": {"status": ["TRANSCRIBED"], "template_id": 5},
+                "granularity": "long",
+                "version_id": None,
+                "limit": 50,
+            }
         }
 
 
@@ -222,7 +244,13 @@ class BulkSubtitlesRequest(BulkOperationRequest):
     formats: list[str] = Field(default=["srt", "vtt"], description="Форматы субтитров для генерации")
 
     class Config:
-        json_schema_extra = {"example": {"recording_ids": [1, 2, 3], "formats": ["srt", "vtt"]}}
+        json_schema_extra = {
+            "example": {
+                "filters": {"status": ["TRANSCRIBED"], "template_id": 5},
+                "formats": ["srt", "vtt"],
+                "limit": 50,
+            }
+        }
 
 
 class BulkUploadRequest(BulkOperationRequest):
@@ -234,8 +262,15 @@ class BulkUploadRequest(BulkOperationRequest):
     class Config:
         json_schema_extra = {
             "example": {
-                "filters": {"status": ["TOPICS_EXTRACTED"], "is_mapped": True},
+                "filters": {
+                    "status": ["TOPICS_EXTRACTED"],
+                    "is_mapped": True,
+                    "template_id": 5,
+                    "from_date": "2024-12-01",
+                    "to_date": "2024-12-31",
+                },
                 "platforms": ["youtube", "vk"],
+                "preset_id": None,
                 "limit": 30,
             }
         }
@@ -251,8 +286,26 @@ class BulkProcessRequest(BulkOperationRequest):
     class Config:
         json_schema_extra = {
             "example": {
-                "filters": {"template_id": 5, "status": ["INITIALIZED", "FAILED"], "is_mapped": True},
-                "output_config": {"auto_upload": True, "platforms": ["youtube"]},
+                "filters": {
+                    "template_id": 5,
+                    "status": ["INITIALIZED", "FAILED"],
+                    "is_mapped": True,
+                    "from_date": "2024-01-01",
+                    "to_date": "2024-12-31",
+                },
+                "processing_config": {
+                    "transcription": {
+                        "enable_transcription": True,
+                        "language": "ru",
+                        "enable_topics": True,
+                        "granularity": "long",
+                    }
+                },
+                "metadata_config": {
+                    "title_template": "{themes}",
+                    "youtube": {"playlist_id": "PLxxx", "privacy": "unlisted"},
+                },
+                "output_config": {"auto_upload": True, "platforms": ["youtube"], "preset_ids": {"youtube": 10}},
                 "limit": 50,
             }
         }
@@ -265,6 +318,6 @@ class BulkDeleteRequest(BulkOperationRequest):
         json_schema_extra = {
             "examples": [
                 {"recording_ids": [1, 2, 3, 4, 5]},
-                {"filters": {"status": ["FAILED"], "from_date": "2024-01-01"}, "limit": 50},
+                {"filters": {"status": ["FAILED"], "from_date": "2024-01-01", "to_date": "2024-12-31"}, "limit": 50},
             ]
         }

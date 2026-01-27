@@ -87,6 +87,26 @@ class ConfigOverrideRequest(BaseModel):
     metadata_config: dict | None = None
     output_config: dict | None = None
 
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "processing_config": {
+                    "transcription": {
+                        "enable_transcription": True,
+                        "language": "ru",
+                        "granularity": "short",
+                        "enable_topics": True,
+                    }
+                },
+                "metadata_config": {
+                    "title_template": "{themes}",
+                    "youtube": {"playlist_id": "PLxxx", "privacy": "unlisted"},
+                    "vk": {"album_id": "63"},
+                },
+                "output_config": {"auto_upload": True, "platforms": ["youtube"], "preset_ids": {"youtube": 10}},
+            }
+        }
+
 
 def _build_override_from_flexible(config: ConfigOverrideRequest) -> dict:
     """
@@ -168,6 +188,10 @@ async def _query_recordings_by_filters(
     from database.models import RecordingModel
 
     query = select(RecordingModel.id).where(RecordingModel.user_id == ctx.user_id)
+
+    # Apply deleted filter (default: exclude deleted)
+    if not filters.include_deleted:
+        query = query.where(RecordingModel.deleted == False)  # noqa: E712
 
     # Apply filters
     if filters.template_id:
@@ -395,9 +419,11 @@ async def _execute_dry_run_bulk(
 @router.get("", response_model=RecordingListResponse)
 async def list_recordings(
     search: str | None = Query(None, description="Search substring in display_name (case-insensitive)"),
-    status_filter: str | None = Query(None, description="Filter by status"),
+    template_id: int | None = Query(None, description="Filter by template ID"),
+    source_id: int | None = Query(None, description="Filter by source ID"),
+    status: list[str] = Query(default=[], description="Filter by statuses (repeat param for multiple: ?status=A&status=B)"),
     failed: bool | None = Query(None, description="Only failed recordings"),
-    mapped: bool | None = Query(None, description="Filter by is_mapped (true/false/null=all)"),
+    is_mapped: bool | None = Query(None, description="Filter by is_mapped (true/false/null=all)"),
     include_blank: bool = Query(False, description="Include blank records (short/small)"),
     include_deleted: bool = Query(False, description="Include deleted recordings"),
     from_date: str | None = Query(None, description="Filter: start_time >= from_date (YYYY-MM-DD)"),
@@ -411,9 +437,12 @@ async def list_recordings(
 
     Args:
         search: Search substring in display_name (case-insensitive)
-        status_filter: Filter by status (INITIALIZED, DOWNLOADED, PROCESSED, etc.)
+        template_id: Filter by template ID
+        source_id: Filter by source ID
+        status: Filter by statuses (repeat param for multiple: ?status=A&status=B)
+            Special value "FAILED" = recording.failed=true
         failed: Only failed recordings
-        mapped: Filter by is_mapped (true - only mapped, false - only unmapped, null - all)
+        is_mapped: Filter by is_mapped (true - only mapped, false - only unmapped, null - all)
         include_blank: Include blank records (default: False - hides blank records)
         include_deleted: Include deleted recordings (default: False - hides deleted)
         from_date: Filter by start date (YYYY-MM-DD)
@@ -431,14 +460,35 @@ async def list_recordings(
     recordings = await recording_repo.list_by_user(ctx.user_id, include_deleted=include_deleted)
 
     # Apply filters
-    if status_filter:
-        recordings = [r for r in recordings if r.status.value == status_filter]
+    if template_id is not None:
+        recordings = [r for r in recordings if r.template_id == template_id]
+
+    if source_id is not None:
+        recordings = [r for r in recordings if r.input_source_id == source_id]
+
+    if status:
+        # Support multiple statuses + special "FAILED" pseudo-status
+        has_failed = "FAILED" in status
+        other_statuses = [s for s in status if s != "FAILED"]
+        
+        if has_failed and other_statuses:
+            # Match if status in list OR failed=true
+            recordings = [
+                r for r in recordings 
+                if r.status.value in other_statuses or r.failed
+            ]
+        elif has_failed:
+            # Only failed
+            recordings = [r for r in recordings if r.failed]
+        else:
+            # Regular statuses
+            recordings = [r for r in recordings if r.status.value in other_statuses]
 
     if failed is not None:
         recordings = [r for r in recordings if r.failed == failed]
 
-    if mapped is not None:
-        recordings = [r for r in recordings if r.is_mapped == mapped]
+    if is_mapped is not None:
+        recordings = [r for r in recordings if r.is_mapped == is_mapped]
 
     # Filter blank_record (default: hide blank records)
     if not include_blank:
@@ -946,6 +996,110 @@ async def add_local_recording(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload file: {e!s}",
         )
+
+
+# ============================================================================
+# Metadata Endpoints
+# ============================================================================
+
+
+class StatusInfo(BaseModel):
+    """Information about processing status."""
+
+    value: str
+    label: str
+    description: str
+
+
+@router.get("/statuses", response_model=list[StatusInfo])
+async def get_available_statuses():
+    """
+    Get list of all available processing statuses for filtering.
+
+    This endpoint provides a list of statuses that can be used in the `status` filter
+    parameter for GET /recordings and bulk operations.
+
+    Returns:
+        List of status info with value, label and description
+    """
+    statuses = [
+        StatusInfo(
+            value="PENDING_SOURCE",
+            label="Pending Source",
+            description="Pending processing on source (Zoom)",
+        ),
+        StatusInfo(
+            value="INITIALIZED",
+            label="Initialized",
+            description="Initialized (loaded from source)",
+        ),
+        StatusInfo(
+            value="DOWNLOADING",
+            label="Downloading",
+            description="In progress of downloading",
+        ),
+        StatusInfo(
+            value="DOWNLOADED",
+            label="Downloaded",
+            description="Downloaded from source",
+        ),
+        StatusInfo(
+            value="PROCESSING",
+            label="Processing",
+            description="In progress of video processing",
+        ),
+        StatusInfo(
+            value="PROCESSED",
+            label="Processed",
+            description="Video processed (trimmed)",
+        ),
+        StatusInfo(
+            value="PREPARING",
+            label="Preparing",
+            description="Preparation (transcription, topics, subtitles)",
+        ),
+        StatusInfo(
+            value="TRANSCRIBING",
+            label="Transcribing",
+            description="In progress of transcription",
+        ),
+        StatusInfo(
+            value="TRANSCRIBED",
+            label="Transcribed",
+            description="Transcribed (all stages completed)",
+        ),
+        StatusInfo(
+            value="UPLOADING",
+            label="Uploading",
+            description="In progress of uploading to platforms",
+        ),
+        StatusInfo(
+            value="UPLOADED",
+            label="Uploaded",
+            description="Uploaded to platforms",
+        ),
+        StatusInfo(
+            value="READY",
+            label="Ready",
+            description="Ready (all stages completed)",
+        ),
+        StatusInfo(
+            value="SKIPPED",
+            label="Skipped",
+            description="Skipped (blank or too short)",
+        ),
+        StatusInfo(
+            value="EXPIRED",
+            label="Expired",
+            description="Expired (retention period ended)",
+        ),
+        StatusInfo(
+            value="FAILED",
+            label="Failed",
+            description="Failed (pseudo-status: recording.failed = true)",
+        ),
+    ]
+    return statuses
 
 
 # ============================================================================
@@ -2562,6 +2716,7 @@ async def bulk_generate_subtitles(
             task = generate_subtitles_task.delay(
                 recording_id=recording_id,
                 user_id=ctx.user_id,
+                formats=data.formats,
             )
 
             tasks.append(
