@@ -17,59 +17,6 @@ from logger import format_log, get_logger
 logger = get_logger(__name__)
 
 
-async def get_allow_skipped_flag(
-    session: AsyncSession,
-    user_id: str,
-    template_id: int | None = None,
-    explicit_value: bool | None = None,
-) -> bool:
-    """
-    Get allow_skipped flag from configuration hierarchy.
-
-    Priority (highest to lowest):
-    1. Explicit parameter (explicit_value)
-    2. Template.processing_config.allow_skipped
-    3. User config.processing.allow_skipped
-    4. Default: False
-
-    Args:
-        session: DB session
-        user_id: User ID
-        template_id: Template ID (optional)
-        explicit_value: Explicit value from query param
-
-    Returns:
-        bool - allow processing of SKIPPED recordings
-    """
-    # 1. Explicit parameter has highest priority
-    if explicit_value is not None:
-        return explicit_value
-
-    # 2. Check template (if specified)
-    if template_id is not None:
-        template_repo = RecordingTemplateRepository(session)
-        template = await template_repo.find_by_id(template_id, user_id)
-        if template and template.processing_config:
-            allow_skipped = template.processing_config.get("allow_skipped")
-            if allow_skipped is not None:
-                return bool(allow_skipped)
-
-    # 3. Check user config
-    try:
-        user_config_repo = UserConfigRepository(session)
-        user_config_model = await user_config_repo.get_by_user_id(user_id)
-        if user_config_model:
-            processing_config = user_config_model.config_data.get("processing", {})
-            allow_skipped = processing_config.get("allow_skipped")
-            if allow_skipped is not None:
-                return bool(allow_skipped)
-    except Exception as e:
-        logger.debug(format_log("Could not get user config", error=str(e)))
-
-    # 4. Default: False (disallow SKIPPED processing)
-    return False
-
-
 async def get_user_processing_config(
     session: AsyncSession,
     user_id: str,

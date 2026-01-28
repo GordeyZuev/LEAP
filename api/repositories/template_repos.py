@@ -288,6 +288,15 @@ class RecordingTemplateRepository:
         )
         return list(result.scalars().all())
 
+    async def find_by_ids(self, template_ids: list[int], user_id: str) -> list[RecordingTemplateModel]:
+        """Get templates by IDs for user, sorted by created_at ASC."""
+        result = await self.session.execute(
+            select(RecordingTemplateModel)
+            .where(RecordingTemplateModel.user_id == user_id, RecordingTemplateModel.id.in_(template_ids))
+            .order_by(RecordingTemplateModel.created_at.asc())
+        )
+        return list(result.scalars().all())
+
     async def create(
         self,
         user_id: str,

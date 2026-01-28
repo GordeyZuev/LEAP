@@ -211,8 +211,9 @@ class YouTubeUploader(BaseUploader):
                             logger.info(f"Video added to playlist: {playlist_id}")
                         else:
                             result.metadata["playlist_error"] = "Failed to add to playlist"
+                            logger.warning(f"Failed to add video to playlist {playlist_id}")
                     except Exception as e:
-                        logger.error(f"Playlist addition error: {e}")
+                        logger.error(f"Playlist addition error: {e}", exc_info=True)
                         result.metadata["playlist_error"] = str(e)
 
                 if thumbnail_path and Path(thumbnail_path).exists():
@@ -228,8 +229,9 @@ class YouTubeUploader(BaseUploader):
                             result.metadata["thumbnail_set"] = True
                         else:
                             result.metadata["thumbnail_error"] = "Failed to set thumbnail"
+                            logger.warning(f"Failed to set thumbnail for video {video_id}")
                     except Exception as e:
-                        logger.warning(f"Failed to set thumbnail: {e}")
+                        logger.warning(f"Failed to set thumbnail: {e}", exc_info=True)
                         result.metadata["thumbnail_error"] = str(e)
 
                 return result

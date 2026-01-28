@@ -1,5 +1,115 @@
 # Change Log
 
+## 2026-01-28: Fixed YouTube Upload Duplication on Retry
+
+### Problem
+При ошибке в post-upload операциях (добавление в плейлист или установка превью) после успешной загрузки видео на YouTube:
+- Система получала `video_id` от YouTube
+- При ошибке в playlist/thumbnail операции возвращался `None`
+- Celery видел ошибку "Upload failed: Unknown error" и делал retry
+- Retry создавал **новое** видео на YouTube вместо использования уже загруженного
+
+Результат: два частично загруженных видео на YouTube для одной записи.
+
+### Solution
+**1. Проверка на дубликаты при retry:**
+- Перед загрузкой проверяем статус `output_target`
+- Если `video_id` существует и статус `UPLOADED` → пропускаем загрузку и возвращаем существующий результат
+
+**2. Немедленное сохранение результата:**
+- `video_id` сохраняется в БД сразу после успешной загрузки видео
+- Commit происходит до любых post-upload операций (playlist/thumbnail)
+- Метаданные об ошибках playlist/thumbnail сохраняются в `target_meta`
+
+**3. Защита от перезаписи статуса:**
+- В exception handler проверка: если статус уже `UPLOADED` → не перезаписываем на `FAILED`
+- Предотвращает потерю информации о загруженном видео при ошибках после commit
+
+**4. Улучшена обработка ошибок в YouTube uploader:**
+- Ошибки playlist/thumbnail не прерывают возврат результата
+- Всегда возвращается `UploadResult` после успешной загрузки видео
+- Ошибки логируются в `result.metadata` для отладки
+
+### Impact
+- ✅ Устранено дублирование загрузок на YouTube при retry
+- ✅ Информация о загруженном видео сохраняется даже при последующих ошибках
+- ✅ Post-upload операции (playlist/thumbnail) больше не блокируют успешное завершение задачи
+- ✅ Улучшена отладка: метаданные об ошибках сохраняются в БД
+
+### Files Modified
+- `api/tasks/upload.py`: Добавлена проверка на дубликаты, изменен порядок сохранения, улучшена обработка исключений, удалены лишние комментарии
+- `video_upload_module/platforms/youtube/uploader.py`: Улучшена обработка ошибок playlist/thumbnail, добавлено логирование
+
+---
+
+## 2026-01-27: Automation System Refactor
+
+### Changes
+**Removed `allow_skipped` feature:**
+- Removed from sync_config, function signatures, and validation logic
+- SKIPPED recordings are no longer re-processable (simplified flow)
+
+**Template-based source collection:**
+- Removed single `source_id` from automation jobs
+- Sources now extracted from templates' `matching_rules.source_ids`
+- If any template has no source_ids → sync ALL active sources
+
+**Processing config as override:**
+- Changed `processing_config` from structured config to flexible dict (nullable)
+- Acts as `manual_override` in automation context (highest priority)
+- Allows overriding template settings per automation job
+
+**Automation filters:**
+- Added `AutomationFilters` schema (status, exclude_blank)
+- Default: status=["INITIALIZED"], exclude_blank=true
+- Filter by start_time within sync_days window (fixed window)
+
+**Template validation:**
+- Validates templates exist, are active, and not draft on job create/update
+- Templates must be non-empty list
+
+**Sync config simplified:**
+- Removed server_default from `sync_config` column (no database-level defaults)
+- Application layer provides defaults via Pydantic schema (SyncConfig with sync_days=2)
+
+**Source collection logic fixed:**
+- If template has no matching_rules → sync ALL sources
+- If matching_rules exists but source_ids is None/empty → sync ALL sources  
+- If source_ids specified → sync only those sources
+
+### Impact
+- Simplified automation logic (removed allow_skipped complexity)
+- More flexible: multiple sources per job, override configs
+- Better filtering: status + date range + blank exclusion
+- Consistent with bulk operations design
+
+### Files Modified
+**Database:**
+- `database/automation_models.py`: Removed source_id, added filters, changed processing_config, removed sync_config server_default
+- `alembic/versions/006_refactor_automation_jobs.py`: New migration (all changes in one migration)
+
+**Schemas:**
+- `api/schemas/automation/filters.py`: NEW - AutomationFilters
+- `api/schemas/automation/job.py`: Updated create/update/response schemas
+
+**Services:**
+- `api/services/automation_service.py`: Added validate_templates method
+- `api/services/config_utils.py`: Removed get_allow_skipped_flag
+
+**Tasks:**
+- `api/tasks/automation.py`: Complete rewrite - source collection, filtering, template matching
+
+**Repositories:**
+- `api/repositories/template_repos.py`: Added find_by_ids method
+
+**Helpers:**
+- `api/helpers/status_manager.py`: Removed allow_skipped from should_allow_* functions
+
+**Routers:**
+- `api/routers/recordings.py`: Removed allow_skipped query params (4 endpoints)
+
+---
+
 ## 2026-01-24: Fixed Asyncio + Celery Compatibility & Documentation Consolidation
 
 ### Problem

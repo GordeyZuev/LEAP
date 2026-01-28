@@ -20,14 +20,12 @@ class AutomationJobModel(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
 
-    source_id = Column(Integer, ForeignKey("input_sources.id", ondelete="CASCADE"), nullable=False, index=True)
     template_ids = Column(ARRAY(Integer), nullable=False, server_default="{}")
 
     schedule = Column(JSONB, nullable=False)
-    sync_config = Column(JSONB, nullable=False, server_default='{"sync_days": 2, "allow_skipped": false}')
-    processing_config = Column(
-        JSONB, nullable=False, server_default='{"auto_process": true, "auto_upload": true, "max_parallel": 3}'
-    )
+    sync_config = Column(JSONB, nullable=False)
+    filters = Column(JSONB, nullable=True)
+    processing_config = Column(JSONB, nullable=True)
 
     is_active = Column(Boolean, default=True, nullable=False)
     last_run_at = Column(DateTime(timezone=True), nullable=True)
@@ -38,7 +36,6 @@ class AutomationJobModel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     user = relationship("UserModel", back_populates="automation_jobs")
-    source = relationship("InputSourceModel")
 
     def __repr__(self):
         return f"<AutomationJob(id={self.id}, user_id={self.user_id}, name='{self.name}', active={self.is_active})>"

@@ -470,11 +470,11 @@ async def list_recordings(
         # Support multiple statuses + special "FAILED" pseudo-status
         has_failed = "FAILED" in status
         other_statuses = [s for s in status if s != "FAILED"]
-        
+
         if has_failed and other_statuses:
             # Match if status in list OR failed=true
             recordings = [
-                r for r in recordings 
+                r for r in recordings
                 if r.status.value in other_statuses or r.failed
             ]
         elif has_failed:
@@ -1022,16 +1022,16 @@ async def get_available_statuses():
     Returns:
         List of status info with value, label and description
     """
-    statuses = [
+    return [
         StatusInfo(
             value="PENDING_SOURCE",
             label="Pending Source",
-            description="Pending processing on source (Zoom)",
+            description="Source still processing on platform",
         ),
         StatusInfo(
             value="INITIALIZED",
             label="Initialized",
-            description="Initialized (loaded from source)",
+            description="Synced from source, awaiting processing",
         ),
         StatusInfo(
             value="DOWNLOADING",
@@ -1099,7 +1099,6 @@ async def get_available_statuses():
             description="Failed (pseudo-status: recording.failed = true)",
         ),
     ]
-    return statuses
 
 
 # ============================================================================
@@ -1111,7 +1110,6 @@ async def get_available_statuses():
 async def download_recording(
     recording_id: int,
     force: bool = Query(False, description="Re-download if already downloaded"),
-    allow_skipped: bool | None = Query(None, description="Allow processing SKIPPED recordings (default: from config)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
     """
@@ -1120,7 +1118,6 @@ async def download_recording(
     Args:
         recording_id: Recording ID
         force: Re-download if already downloaded
-        allow_skipped: Allow processing SKIPPED recordings (if None - taken from config)
         ctx: Service context
 
     Returns:
@@ -1130,12 +1127,9 @@ async def download_recording(
         This is an async operation. Use GET /api/v1/tasks/{task_id}
         to check status of execution.
 
-        By default SKIPPED recordings are not downloaded. To download them you need to:
-        - Explicitly pass allow_skipped=true in query parameter, OR
-        - Set allow_skipped=true in user_config.processing
+        SKIPPED and PENDING_SOURCE recordings cannot be downloaded.
     """
     from api.helpers.status_manager import should_allow_download
-    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.processing import download_recording_task
 
     recording_repo = RecordingRepository(ctx.session)
@@ -1147,15 +1141,11 @@ async def download_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    # Get allow_skipped flag from config/parameter
-    allow_skipped_resolved = await get_allow_skipped_flag(ctx.session, ctx.user_id, explicit_value=allow_skipped)
-
-    # Check if we can download (considering SKIPPED status)
-    if not should_allow_download(recording, allow_skipped=allow_skipped_resolved):
+    # Check if we can download
+    if not should_allow_download(recording):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Download not allowed for recording with status {recording.status.value}. "
-            f"SKIPPED recordings require allow_skipped=true.",
+            detail=f"Download not allowed for recording with status {recording.status.value}.",
         )
 
     # Check if we have download_url in source metadata
@@ -1203,7 +1193,6 @@ async def download_recording(
 async def trim_recording(
     recording_id: int,
     config: TrimVideoRequest = TrimVideoRequest(),
-    allow_skipped: bool | None = Query(None, description="Allow processing SKIPPED recordings (default: from config)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
     """
@@ -1212,7 +1201,6 @@ async def trim_recording(
     Args:
         recording_id: Recording ID
         config: Processing configuration
-        allow_skipped: Allow processing SKIPPED recordings (if None - taken from config)
         ctx: Service context
 
     Returns:
@@ -1222,12 +1210,9 @@ async def trim_recording(
         This is an async operation. Use GET /api/v1/tasks/{task_id}
         to check the status of execution.
 
-        By default, SKIPPED recordings are not processed. To process them, you need to:
-        - Explicitly pass allow_skipped=true in the query parameter, OR
-        - Set allow_skipped=true in user_config.processing
+        SKIPPED and PENDING_SOURCE recordings cannot be processed.
     """
     from api.helpers.status_manager import should_allow_processing
-    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.processing import trim_video_task
 
     recording_repo = RecordingRepository(ctx.session)
@@ -1239,15 +1224,11 @@ async def trim_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    # Get allow_skipped flag from config/parameter
-    allow_skipped_resolved = await get_allow_skipped_flag(ctx.session, ctx.user_id, explicit_value=allow_skipped)
-
-    # Check if we can process (considering SKIPPED status)
-    if not should_allow_processing(recording, allow_skipped=allow_skipped_resolved):
+    # Check if we can process
+    if not should_allow_processing(recording):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Processing not allowed for recording with status {recording.status.value}. "
-            f"SKIPPED recordings require allow_skipped=true.",
+            detail=f"Processing not allowed for recording with status {recording.status.value}.",
         )
 
     # Check if original video is present
@@ -1530,7 +1511,6 @@ async def transcribe_recording(
         to check status of execution and get results.
     """
     from api.helpers.status_manager import should_allow_transcription
-    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.processing import batch_transcribe_recording_task, transcribe_recording_task
 
     # Get recording from DB
@@ -1542,16 +1522,12 @@ async def transcribe_recording(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found or you don't have access"
         )
 
-    # Get allow_skipped flag from config (for transcription you can add query param if needed)
-    allow_skipped_resolved = await get_allow_skipped_flag(ctx.session, ctx.user_id)
-
-    # Check if transcription can be started (using FSM logic)
-    if not should_allow_transcription(recording, allow_skipped=allow_skipped_resolved):
+    # Check if transcription can be started
+    if not should_allow_transcription(recording):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Transcription cannot be started. Current status: {recording.status.value}. "
-            f"Transcription is already completed or in progress. "
-            f"SKIPPED recordings require allow_skipped=true in config.",
+            f"Transcription is already completed or in progress.",
         )
 
     # Check if file for processing exists
@@ -1667,7 +1643,6 @@ async def upload_recording(
     recording_id: int,
     platform: str,
     preset_id: int | None = None,
-    allow_skipped: bool | None = Query(None, description="Allow upload of SKIPPED recordings (default: from config)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
     """
@@ -1677,7 +1652,6 @@ async def upload_recording(
         recording_id: Recording ID
         platform: Platform (youtube, vk)
         preset_id: ID output preset (optional)
-        allow_skipped: Allow upload of SKIPPED recordings (if None - from config)
         ctx: Service context
 
     Returns:
@@ -1687,13 +1661,9 @@ async def upload_recording(
         This is an async operation. Use GET /api/v1/tasks/{task_id}
         to check status of execution and get results.
 
-        By default SKIPPED recordings are not uploaded. To upload them you need to:
-        - Explicitly pass allow_skipped=true in query parameter, OR
-        - Set allow_skipped=true in user_config.processing, OR
-        - Set allow_skipped=true in template.output_config
+        SKIPPED and PENDING_SOURCE recordings cannot be uploaded.
     """
     from api.helpers.status_manager import should_allow_upload
-    from api.services.config_utils import get_allow_skipped_flag
     from api.tasks.upload import upload_recording_to_platform
     from models.recording import TargetType
 
@@ -1706,10 +1676,7 @@ async def upload_recording(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found or you don't have access"
         )
 
-    # Get allow_skipped flag from config/parameter
-    allow_skipped_resolved = await get_allow_skipped_flag(ctx.session, ctx.user_id, explicit_value=allow_skipped)
-
-    # Check if upload can be started to this platform (using FSM logic)
+    # Check if upload can be started to this platform
     try:
         target_type_enum = TargetType[platform.upper()]
     except KeyError:
@@ -1718,12 +1685,11 @@ async def upload_recording(
             detail=f"Invalid platform: {platform}. Supported: youtube, vk, etc.",
         )
 
-    if not should_allow_upload(recording, target_type_enum.value, allow_skipped=allow_skipped_resolved):
+    if not should_allow_upload(recording, target_type_enum.value):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Upload to {platform} cannot be started. Current status: {recording.status.value}. "
-            f"Either upload is already completed/in progress, or recording is not ready for upload. "
-            f"SKIPPED recordings require allow_skipped=true.",
+            f"Either upload is already completed/in progress, or recording is not ready for upload.",
         )
 
     # Check if processed video exists

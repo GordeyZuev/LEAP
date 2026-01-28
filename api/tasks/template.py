@@ -1,6 +1,5 @@
 """Celery tasks для работы с templates."""
 
-import asyncio
 
 from sqlalchemy import select
 

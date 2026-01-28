@@ -1,11 +1,11 @@
 """Schemas for automation jobs."""
 
+from .filters import AutomationFilters
 from .job import (
     AutomationJobCreate,
     AutomationJobResponse,
     AutomationJobUpdate,
     DryRunResult,
-    ProcessingConfig,
     SyncConfig,
 )
 from .operations import TriggerJobResponse
@@ -19,13 +19,13 @@ from .schedule import (
 )
 
 __all__ = [
+    "AutomationFilters",
     "AutomationJobCreate",
     "AutomationJobResponse",
     "AutomationJobUpdate",
     "CronSchedule",
     "DryRunResult",
     "HoursSchedule",
-    "ProcessingConfig",
     "Schedule",
     "ScheduleType",
     "SyncConfig",

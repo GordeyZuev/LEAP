@@ -19,33 +19,32 @@ def _is_celery_worker() -> bool:
     # Check environment variable
     if os.getenv("CELERY_WORKER") == "true":
         return True
-    
+
     # Check if celery worker command is in sys.argv
     if len(sys.argv) > 0:
         argv_str = " ".join(sys.argv)
         if "celery" in argv_str and "worker" in argv_str:
             return True
-    
+
     return False
 
 
 def get_async_engine():
     """Получение async engine для SQLAlchemy.
-    
+
     Uses NullPool in Celery workers to avoid event loop issues with asyncpg.
     In Celery workers with threads pool, each task may run in a different thread
     with a different event loop, so we can't reuse connection pools.
-    
+
     Note: NO @lru_cache for Celery workers - engine must be created fresh
     for each asyncio.run() call to avoid event loop issues.
-    """    
+    """
     if _is_celery_worker():
         # NullPool: no connection pooling, create new connection for each request
         # No caching - fresh engine for each asyncio.run() call
         return create_async_engine(settings.database.url, echo=False, poolclass=NullPool)
-    else:
-        # Normal pooling for FastAPI (web server) - cached
-        return _get_cached_engine()
+    # Normal pooling for FastAPI (web server) - cached
+    return _get_cached_engine()
 
 
 @lru_cache

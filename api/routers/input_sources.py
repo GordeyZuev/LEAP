@@ -411,8 +411,7 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
                             f"Recording '{display_name}' matched template '{template.name}' by pattern '{pattern}'"
                         )
                         return template
-                    else:
-                        logger.debug(f"Template '{template.name}': pattern '{pattern}' did not match")
+                    logger.debug(f"Template '{template.name}': pattern '{pattern}' did not match")
                 except re.error as e:
                     logger.warning(f"Invalid regex pattern '{pattern}' in template '{template.name}': {e}")
         else:
