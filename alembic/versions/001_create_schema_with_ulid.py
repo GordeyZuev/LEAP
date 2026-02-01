@@ -377,23 +377,10 @@ def upgrade() -> None:
     )
     op.create_index("ix_processing_stages_user_id", "processing_stages", ["user_id"])
 
-    # Create celery_beat_tables for Celery Beat schedule
-    op.create_table(
-        "celery_schedule",
-        sa.Column("id", sa.Integer, sa.Identity(), primary_key=True),
-        sa.Column("name", sa.String(200), unique=True, nullable=False),
-        sa.Column("task", sa.String(200), nullable=False),
-        sa.Column("args", postgresql.JSONB, default="[]"),
-        sa.Column("kwargs", postgresql.JSONB, default="{}"),
-        sa.Column("enabled", sa.Boolean, default=True),
-        sa.Column("last_run_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("total_run_count", sa.Integer, default=0),
-        sa.Column("date_changed", sa.DateTime(timezone=True), default=sa.func.now(), onupdate=sa.func.now()),
-    )
+    # Note: Celery Beat tables are created in migration 008
 
 
 def downgrade() -> None:
-    op.drop_table("celery_schedule")
     op.drop_table("processing_stages")
     op.drop_table("output_targets")
     op.drop_table("source_metadata")

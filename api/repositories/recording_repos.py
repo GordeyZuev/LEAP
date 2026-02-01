@@ -129,6 +129,7 @@ class RecordingRepository:
             .options(
                 selectinload(RecordingModel.source).selectinload(SourceMetadataModel.input_source),
                 selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
+                selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
             )
             .where(RecordingModel.user_id == user_id)
@@ -274,7 +275,8 @@ class RecordingRepository:
         recording.transcription_info = transcription_info
         recording.topic_timestamps = topic_timestamps
         recording.main_topics = main_topics
-        recording.status = ProcessingStatus.TRANSCRIBED
+        # Note: Status should be updated via mark_stage_completed() + update_aggregate_status()
+        # Do not set status directly here
         recording.updated_at = datetime.utcnow()
 
         await self.session.flush()
@@ -333,14 +335,23 @@ class RecordingRepository:
         output_target: OutputTargetModel,
     ) -> None:
         """
-        Mark output_target as uploading.
+        Mark output_target as uploading and update aggregate status.
         """
+        from api.helpers.status_manager import update_aggregate_status
+
         output_target.status = TargetStatus.UPLOADING
         output_target.failed = False
         output_target.updated_at = datetime.utcnow()
         await self.session.flush()
 
-        logger.debug(f"Marked output_target {output_target.id} as UPLOADING")
+        # Refresh recording to ensure outputs are loaded
+        recording = output_target.recording
+        await self.session.refresh(recording, ["outputs"])
+
+        # Update aggregate recording status (PROCESSED → UPLOADING)
+        update_aggregate_status(recording)
+
+        logger.debug(f"Marked output_target {output_target.id} as UPLOADING, recording {recording.id} status: {recording.status}")
 
     async def mark_output_failed(
         self,
@@ -348,12 +359,14 @@ class RecordingRepository:
         error_message: str,
     ) -> None:
         """
-        Mark output_target as failed.
+        Mark output_target as failed and update aggregate status.
 
         Args:
             output_target: Output target
             error_message: Error message
         """
+        from api.helpers.status_manager import update_aggregate_status
+
         output_target.status = TargetStatus.FAILED
         output_target.failed = True
         output_target.failed_at = datetime.utcnow()
@@ -362,7 +375,14 @@ class RecordingRepository:
         output_target.updated_at = datetime.utcnow()
         await self.session.flush()
 
-        logger.warning(f"Marked output_target {output_target.id} as FAILED: {error_message[:100]}")
+        # Refresh recording to ensure outputs are loaded
+        recording = output_target.recording
+        await self.session.refresh(recording, ["outputs"])
+
+        # Update aggregate recording status (may revert from UPLOADING to PROCESSED)
+        update_aggregate_status(recording)
+
+        logger.warning(f"Marked output_target {output_target.id} as FAILED: {error_message[:100]}, recording {recording.id} status: {recording.status}")
 
     async def save_upload_result(
         self,
@@ -374,7 +394,7 @@ class RecordingRepository:
         target_meta: dict[str, Any] | None = None,
     ) -> OutputTargetModel:
         """
-        Save upload results.
+        Save upload results and update aggregate status.
 
         Args:
             recording: Recording
@@ -387,6 +407,8 @@ class RecordingRepository:
         Returns:
             OutputTarget
         """
+        from api.helpers.status_manager import update_aggregate_status
+
         # Check if there is already output for this target_type (explicit DB query)
         stmt = select(OutputTargetModel).where(
             OutputTargetModel.recording_id == recording.id,
@@ -411,26 +433,35 @@ class RecordingRepository:
             await self.session.flush()
 
             logger.info(f"Updated upload result for recording {recording.id} to {target_type}")
-            return existing_output
-        # Create new
-        output = OutputTargetModel(
-            recording_id=recording.id,
-            user_id=recording.user_id,
-            preset_id=preset_id,
-            target_type=target_type,
-            status=TargetStatus.UPLOADED,
-            target_meta={
-                "video_id": video_id,
-                "video_url": video_url,
-                **(target_meta or {}),
-            },
-            uploaded_at=datetime.utcnow(),
-        )
+            output = existing_output
+        else:
+            # Create new
+            output = OutputTargetModel(
+                recording_id=recording.id,
+                user_id=recording.user_id,
+                preset_id=preset_id,
+                target_type=target_type,
+                status=TargetStatus.UPLOADED,
+                target_meta={
+                    "video_id": video_id,
+                    "video_url": video_url,
+                    **(target_meta or {}),
+                },
+                uploaded_at=datetime.utcnow(),
+            )
 
-        self.session.add(output)
-        await self.session.flush()
+            self.session.add(output)
+            await self.session.flush()
 
-        logger.info(f"Created upload result for recording {recording.id} to {target_type}")
+            logger.info(f"Created upload result for recording {recording.id} to {target_type}")
+
+        # Refresh recording to ensure outputs are loaded
+        await self.session.refresh(recording, ["outputs"])
+
+        # Update aggregate recording status (UPLOADING → READY or PROCESSED → READY)
+        update_aggregate_status(recording)
+        logger.info(f"Updated recording {recording.id} aggregate status to {recording.status}")
+
         return output
 
     async def count_by_user(self, user_id: str, status: ProcessingStatus | None = None) -> int:

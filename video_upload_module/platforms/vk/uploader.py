@@ -176,6 +176,12 @@ class VKUploader(BaseUploader):
                 result = self._create_result(video_id=video_id, video_url=video_url, title=title, platform="vk")
                 result.metadata["owner_id"] = owner_id
 
+                # Если передан album_id, значит видео добавлено в альбом
+                if album_id:
+                    result.metadata["album_id"] = album_id
+                    result.metadata["added_to_album"] = True
+                    logger.info(f"Video added to album: {album_id}")
+
                 if thumbnail_path and Path(thumbnail_path).exists():
                     try:
                         from .thumbnail_manager import VKThumbnailManager

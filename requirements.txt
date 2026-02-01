@@ -24,6 +24,9 @@ greenlet>=3.2.4
 # Task queue
 celery>=5.6.1
 redis>=5.0.0
+celery-sqlalchemy-scheduler>=0.3.0
+croniter>=2.0.1
+pytz>=2024.1
 
 # Security
 bcrypt>=5.0.0

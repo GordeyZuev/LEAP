@@ -249,7 +249,7 @@ class FireworksTranscriptionService:
                     seg_end = seg_dict.get("end") or seg_dict.get("end_time") or seg_dict.get("offset_end")
                     duration = float(seg_end) - float(seg_start) if seg_start and seg_end else 0.0
 
-                    logger.info(
+                    logger.debug(
                         f"   [{i + 1}] '{seg_text[:50]}...': start={seg_start}, end={seg_end}, duration={duration:.3f}s"
                     )
 

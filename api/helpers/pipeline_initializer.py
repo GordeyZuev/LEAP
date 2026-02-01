@@ -1,6 +1,6 @@
-"""Helper для автоматической инициализации pipeline из конфигурации.
+"""Helper for automatic pipeline initialization from configuration.
 
-Создает processing_stages и output_targets на основе:
+Creates processing_stages and output_targets based on:
 - RecordingTemplate.processing_config
 - RecordingTemplate.output_config
 - User config (unified_config)
@@ -20,18 +20,23 @@ async def initialize_processing_stages_from_config(
     processing_config: dict[str, Any],
 ) -> list[ProcessingStageModel]:
     """
-    Создать processing_stages на основе конфигурации.
+    Create processing_stages based on configuration.
 
     Args:
         session: DB session
         recording: Recording model
-        processing_config: Конфигурация обработки из template/user_config
+        processing_config: Processing config from template/user_config
 
     Returns:
-        Список созданных ProcessingStageModel
+        List of created ProcessingStageModel
 
     Example processing_config:
         {
+            "trimming": {
+                "enable_trimming": True,
+                "silence_threshold": -40.0,
+                ...
+            },
             "transcription": {
                 "enable_transcription": True,
                 "provider": "fireworks",
@@ -43,11 +48,26 @@ async def initialize_processing_stages_from_config(
     """
     stages_to_create = []
 
-    # Проверяем настройки транскрипции
+    # Check trimming settings
+    trimming_config = processing_config.get("trimming", {})
+    if trimming_config.get("enable_trimming", True):
+        stages_to_create.append(
+            ProcessingStageModel(
+                recording_id=recording.id,
+                user_id=recording.user_id,
+                stage_type=ProcessingStageType.TRIM,
+                status=ProcessingStageStatus.PENDING,
+                stage_meta={
+                    "silence_threshold": trimming_config.get("silence_threshold", -40.0),
+                    "min_silence_duration": trimming_config.get("min_silence_duration", 2.0),
+                },
+            )
+        )
+
+    # Check transcription settings
     transcription_config = processing_config.get("transcription", {})
 
     if transcription_config.get("enable_transcription", False):
-        # Создаем этап транскрипции (provider всегда fireworks)
         stages_to_create.append(
             ProcessingStageModel(
                 recording_id=recording.id,
@@ -58,7 +78,6 @@ async def initialize_processing_stages_from_config(
             )
         )
 
-        # Если включено извлечение топиков
         if transcription_config.get("enable_topics", False):
             stages_to_create.append(
                 ProcessingStageModel(
@@ -70,7 +89,6 @@ async def initialize_processing_stages_from_config(
                 )
             )
 
-        # Если включена генерация субтитров
         if transcription_config.get("enable_subtitles", False):
             stages_to_create.append(
                 ProcessingStageModel(
@@ -82,11 +100,9 @@ async def initialize_processing_stages_from_config(
                 )
             )
 
-    # Добавляем stages в сессию
     for stage in stages_to_create:
         session.add(stage)
 
-    # Flush чтобы получить ID
     await session.flush()
 
     return stages_to_create
@@ -169,28 +185,41 @@ async def ensure_processing_stages(
     processing_config: dict[str, Any],
 ) -> list[ProcessingStageModel]:
     """
-    Убедиться, что processing_stages существуют (создать только отсутствующие).
+    Ensure processing_stages exist (create only missing ones).
 
     Args:
         session: DB session
         recording: Recording model
-        processing_config: Конфигурация обработки
+        processing_config: Processing configuration
 
     Returns:
-        Список всех processing_stages (существующие + созданные)
+        List of all processing_stages (existing + created)
     """
-    # Получаем существующие stage types
     existing_stage_types = {stage.stage_type for stage in recording.processing_stages}
 
-    # Определяем какие stages нужны
-    transcription_config = processing_config.get("transcription", {})
     required_stages = []
+
+    # Check trimming settings
+    trimming_config = processing_config.get("trimming", {})
+    if trimming_config.get("enable_trimming", True):
+        required_stages.append(
+            (
+                ProcessingStageType.TRIM,
+                {
+                    "silence_threshold": trimming_config.get("silence_threshold", -40.0),
+                    "min_silence_duration": trimming_config.get("min_silence_duration", 2.0),
+                },
+            )
+        )
+
+    # Check transcription settings
+    transcription_config = processing_config.get("transcription", {})
 
     if transcription_config.get("enable_transcription", False):
         required_stages.append(
             (
                 ProcessingStageType.TRANSCRIBE,
-                {"provider": "fireworks"},  # Provider always fireworks
+                {"provider": "fireworks"},
             )
         )
 
@@ -205,7 +234,6 @@ async def ensure_processing_stages(
         if transcription_config.get("enable_subtitles", False):
             required_stages.append((ProcessingStageType.GENERATE_SUBTITLES, {}))
 
-    # Создаем только недостающие stages
     new_stages = []
     for stage_type, meta in required_stages:
         if stage_type not in existing_stage_types:

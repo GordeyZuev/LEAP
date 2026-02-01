@@ -684,8 +684,8 @@ CREATE INDEX idx_output_presets_platform ON output_presets(platform, is_active);
     "granularity": "long",
     "enable_subtitles": true
   },
-  "video": {
-    "enable_processing": true,
+  "trimming": {
+    "enable_trimming": true,
     "silence_threshold": -40.0,
     "min_silence_duration": 2.0
   }

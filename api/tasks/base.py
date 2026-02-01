@@ -12,7 +12,7 @@ from typing import TypeVar
 
 from celery import Task
 
-from logger import get_logger
+from logger import format_task_context, get_logger
 
 logger = get_logger()
 
@@ -115,38 +115,143 @@ class BaseTask(Task):
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Log task failure with user_id."""
         user_id = kwargs.get("user_id", "unknown")
-        logger.error(f"Task {task_id} for user {user_id} failed: {exc!r}")
+        ctx = format_task_context(task_id=task_id, user_id=user_id)
+        logger.error(f"{ctx} | Task failed: {exc!r}")
 
     def on_retry(self, exc, task_id, args, kwargs, einfo):
         """Log task retry with user_id."""
         user_id = kwargs.get("user_id", "unknown")
-        logger.warning(f"Task {task_id} for user {user_id} retrying: {exc}")
+        ctx = format_task_context(task_id=task_id, user_id=user_id)
+        logger.warning(f"{ctx} | Task retrying: {exc}")
 
     def on_success(self, retval, task_id, args, kwargs):
         """Log task success with user_id."""
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
-        logger.info(f"Task {task_id} for user {user_id} completed successfully")
+        ctx = format_task_context(task_id=task_id, user_id=user_id)
+        logger.info(f"{ctx} | Task completed")
 
 
 class ProcessingTask(BaseTask):
     """Base class for processing tasks (download, trim, transcribe, etc.)."""
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
-        """Log processing task failure."""
+        """Handle processing task failure with status rollback."""
         recording_id = args[0] if len(args) > 0 else kwargs.get("recording_id", "unknown")
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
-        logger.error(f"Processing task {task_id} failed: user={user_id}, recording={recording_id}, error={exc!r}")
+        ctx = format_task_context(task_id=task_id, recording_id=recording_id, user_id=user_id)
+
+        # Skip failure handling for orchestrator task
+        task_name = self.name.split(".")[-1] if self.name else "unknown"
+        if task_name == "run_recording":
+            logger.error(f"{ctx} | Pipeline orchestration failed: {exc!r}")
+            return
+
+        # Determine task type and stage
+        from models.recording import ProcessingStageType
+
+        stage_map = {
+            "download_recording": ("download", None),
+            "trim_video": ("trim", ProcessingStageType.TRIM),
+            "transcribe_recording": ("transcribe", ProcessingStageType.TRANSCRIBE),
+            "extract_topics": ("topics", ProcessingStageType.EXTRACT_TOPICS),
+            "generate_subtitles": ("subtitles", ProcessingStageType.GENERATE_SUBTITLES),
+        }
+
+        failed_at_stage, stage_type = stage_map.get(task_name, (None, None))
+
+        if failed_at_stage:
+            # Run async failure handling
+            asyncio.run(self._handle_failure_async(recording_id, user_id, failed_at_stage, stage_type, exc))
+            logger.error(f"{ctx} | Processing failed at {failed_at_stage}: {exc!r}")
+        else:
+            logger.error(f"{ctx} | Processing failed: {exc!r}")
+
+    async def _handle_failure_async(
+        self, recording_id: int, user_id: str, failed_at_stage: str, stage_type, exc: Exception
+    ):
+        """
+        Async failure handling with status rollback and stage updates.
+
+        Loads recording from DB, applies appropriate failure handling,
+        and persists changes.
+        """
+        from api.dependencies import get_async_session_maker
+        from api.helpers import failure_handler
+        from api.repositories.recording_repos import RecordingRepository
+        from api.services.config_utils import resolve_full_config
+
+        session_maker = get_async_session_maker()
+
+        async with session_maker() as session:
+            repo = RecordingRepository(session)
+            recording = await repo.find_by_id(user_id, recording_id)
+
+            if not recording:
+                logger.warning(f"Recording {recording_id} not found during failure handling")
+                return
+
+            error_msg = str(exc)
+
+            # Route to appropriate handler
+            if failed_at_stage == "download":
+                await failure_handler.handle_download_failure(recording, error_msg)
+
+            elif failed_at_stage == "trim":
+                await failure_handler.handle_trim_failure(recording, error_msg)
+
+            elif failed_at_stage in ["transcribe", "topics", "subtitles"]:
+                # Get allow_errors config
+                full_config, _ = await resolve_full_config(session, recording_id, user_id, manual_override=None)
+                transcription_config = full_config.get("transcription", {})
+                allow_errors = transcription_config.get("allow_errors", False)
+
+                await failure_handler.handle_transcribe_failure(recording, stage_type, error_msg, allow_errors)
+
+            # Persist changes
+            await repo.update(recording)
+            await session.commit()
 
 
 class UploadTask(BaseTask):
     """Base class for upload tasks."""
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
-        """Log upload task failure."""
+        """Handle upload failure: mark output as FAILED, recalculate status."""
         # Args: (recording_id, user_id, platform, ...)
+        recording_id = args[0] if len(args) > 0 else kwargs.get("recording_id", "unknown")
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
         platform = args[2] if len(args) > 2 else kwargs.get("platform", "unknown")
-        logger.error("Upload task {} failed: user={}, platform={}, error={}", task_id, user_id, platform, str(exc))
+        ctx = format_task_context(task_id=task_id, recording_id=recording_id, user_id=user_id, platform=platform)
+
+        # Run async failure handling
+        asyncio.run(self._handle_upload_failure_async(recording_id, user_id, platform, exc))
+
+        logger.error(f"{ctx} | Upload failed: {exc}")
+
+    async def _handle_upload_failure_async(
+        self, recording_id: int, user_id: str, platform: str, exc: Exception
+    ):
+        """Mark output target as FAILED and recalculate recording status."""
+        from api.dependencies import get_async_session_maker
+        from api.helpers import failure_handler
+        from api.repositories.recording_repos import RecordingRepository
+
+        session_maker = get_async_session_maker()
+
+        async with session_maker() as session:
+            repo = RecordingRepository(session)
+            recording = await repo.find_by_id(user_id, recording_id)
+
+            if not recording:
+                logger.warning(f"Recording {recording_id} not found during upload failure handling")
+                return
+
+            error_msg = str(exc)
+            await failure_handler.handle_upload_failure(recording, platform, error_msg)
+
+            # Persist changes
+            await repo.update(recording)
+            await session.commit()
 
 
 class SyncTask(BaseTask):
@@ -157,7 +262,8 @@ class SyncTask(BaseTask):
         # Args: (source_id or source_ids, user_id, ...)
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
         source_ids = args[0] if len(args) > 0 else kwargs.get("source_ids", kwargs.get("source_id", "unknown"))
-        logger.error(f"Sync task {task_id} failed: user={user_id}, sources={source_ids}, error={exc!r}")
+        ctx = format_task_context(task_id=task_id, user_id=user_id)
+        logger.error(f"{ctx} | Sync failed: sources={source_ids} | error={exc!r}")
 
 
 class TemplateTask(BaseTask):
@@ -168,7 +274,8 @@ class TemplateTask(BaseTask):
         # Args: (template_id, user_id, ...)
         template_id = args[0] if len(args) > 0 else kwargs.get("template_id", "unknown")
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
-        logger.error(f"Template task {task_id} failed: user={user_id}, template={template_id}, error={exc!r}")
+        ctx = format_task_context(task_id=task_id, user_id=user_id, template_id=template_id)
+        logger.error(f"{ctx} | Template task failed: {exc!r}")
 
 
 class AutomationTask(BaseTask):
@@ -179,4 +286,5 @@ class AutomationTask(BaseTask):
         # Args: (job_id, user_id, ...)
         job_id = args[0] if len(args) > 0 else kwargs.get("job_id", "unknown")
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
-        logger.error(f"Automation task {task_id} failed: user={user_id}, job={job_id}, error={exc!r}")
+        ctx = format_task_context(task_id=task_id, user_id=user_id, job_id=job_id)
+        logger.error(f"{ctx} | Automation failed: {exc!r}")

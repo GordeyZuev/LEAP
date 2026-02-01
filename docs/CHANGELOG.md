@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### ✨ Added
+
+- **Bulk Dry-Run: Start Time Field** - Added `start_time` to bulk dry-run response
+  - `/api/v1/recordings/bulk/run?dry_run=true` now includes `start_time` field for each recording
+  - Format: ISO 8601 datetime string (e.g., `"2026-01-27T10:30:00"`)
+  - Helps identify recordings by their conference start time in bulk operations
+  - Updated documentation: `docs/BULK_OPERATIONS_GUIDE.md`
+
 ## [0.9.4] - 2026-01-23
 
 ### 🔧 Fixed

@@ -10,7 +10,7 @@ from api.routers.input_sources import _find_matching_template
 from api.tasks.base import TemplateTask
 from config.settings import get_settings
 from database.models import RecordingModel
-from logger import get_logger
+from logger import format_task_context, get_logger
 from models.recording import ProcessingStatus
 
 logger = get_logger()
@@ -50,19 +50,18 @@ def rematch_recordings_task(
         - recordings: list of IDs of updated recordings
     """
     try:
-        logger.info(
-            f"[Task {self.request.id}] Starting re-match for template {template_id}, "
-            f"user {user_id}, only_unmapped={only_unmapped}"
-        )
+        ctx = format_task_context(task_id=self.request.id, user_id=user_id, template_id=template_id)
+        logger.info(f"{ctx} | Starting re-match: only_unmapped={only_unmapped}")
 
         self.update_progress(user_id, 10, "Loading template...", step="rematch")
 
         # Use run_async for proper event loop isolation
         result = self.run_async(_async_rematch_recordings(self, template_id, user_id, only_unmapped))
 
+        ctx = format_task_context(task_id=self.request.id, user_id=user_id, template_id=template_id)
         logger.info(
-            f"[Task {self.request.id}] Re-match completed: "
-            f"checked={result['checked']}, matched={result['matched']}, updated={result['updated']}"
+            f"{ctx} | Re-match completed: checked={result['checked']} | "
+            f"matched={result['matched']} | updated={result['updated']}"
         )
 
         return self.build_result(
@@ -72,7 +71,8 @@ def rematch_recordings_task(
         )
 
     except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error in re-match: {exc!r}", exc_info=True)
+        ctx = format_task_context(task_id=self.request.id, user_id=user_id, template_id=template_id)
+        logger.error(f"{ctx} | Error in re-match: {exc!r}", exc_info=True)
         raise self.retry(exc=exc)
 
 

@@ -208,13 +208,16 @@ class YouTubeUploader(BaseUploader):
                         success = await playlist_manager.add_video_to_playlist(playlist_id, video_id)
                         if success:
                             result.metadata["playlist_id"] = playlist_id
+                            result.metadata["added_to_playlist"] = True
                             logger.info(f"Video added to playlist: {playlist_id}")
                         else:
                             result.metadata["playlist_error"] = "Failed to add to playlist"
+                            result.metadata["added_to_playlist"] = False
                             logger.warning(f"Failed to add video to playlist {playlist_id}")
                     except Exception as e:
                         logger.error(f"Playlist addition error: {e}", exc_info=True)
                         result.metadata["playlist_error"] = str(e)
+                        result.metadata["added_to_playlist"] = False
 
                 if thumbnail_path and Path(thumbnail_path).exists():
                     try:

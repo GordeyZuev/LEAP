@@ -42,6 +42,12 @@ class TranscriptionProcessingConfig(BaseModel):
     enable_transcription: bool = Field(True, description="Включить транскрибацию")
     prompt: str | None = Field(None, description="Промпт для улучшения качества транскрибации")
     language: str | None = Field(None, description="Язык аудио (ru, en, ...)", examples=["ru", "en"])
+    allow_errors: bool = Field(
+        False,
+        description="Позволить продолжить обработку при ошибке транскрибации. "
+        "Если True - зависимые этапы будут пропущены (topics, subtitles). "
+        "Если False - обработка прервется и статус откатится на DOWNLOADED.",
+    )
 
     # Topics
     enable_topics: bool = Field(True, description="Включить извлечение тем")

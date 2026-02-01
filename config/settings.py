@@ -636,8 +636,8 @@ class Settings(BaseSettings):
 # Default user configuration
 # This is the base configuration for all users, can be overridden per-user in DB
 DEFAULT_USER_CONFIG = {
-    "processing": {
-        "enable_processing": True,
+    "trimming": {
+        "enable_trimming": True,
         "audio_detection": True,
         "silence_threshold": -40.0,
         "min_silence_duration": 2.0,

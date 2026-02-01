@@ -3,8 +3,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-class ProcessingConfig(BaseModel):
-    enable_processing: bool = True
+class TrimmingConfig(BaseModel):
+    enable_trimming: bool = True
     audio_detection: bool = True
     silence_threshold: float = -40.0
     min_silence_duration: float = 2.0
@@ -18,6 +18,7 @@ class TranscriptionConfig(BaseModel):
     language: str = "ru"
     prompt: str = ""
     temperature: float = 0.0
+    allow_errors: bool = False  # Allow continuation if transcription fails
     enable_topics: bool = True
     granularity: str = "long"  # "short" или "long" - уровень детализации извлечения тем
     enable_subtitles: bool = True
@@ -78,7 +79,7 @@ class PlatformSettings(BaseModel):
 
 
 class UserConfigData(BaseModel):
-    processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
+    trimming: TrimmingConfig = Field(default_factory=TrimmingConfig)
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     download: DownloadConfig = Field(default_factory=DownloadConfig)
     upload: UploadConfig = Field(default_factory=UploadConfig)
@@ -99,7 +100,7 @@ class UserConfigResponse(BaseModel):
 
 
 class UserConfigUpdate(BaseModel):
-    processing: ProcessingConfig | None = None
+    trimming: TrimmingConfig | None = None
     transcription: TranscriptionConfig | None = None
     download: DownloadConfig | None = None
     upload: UploadConfig | None = None

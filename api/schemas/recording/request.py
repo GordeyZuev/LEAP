@@ -230,7 +230,7 @@ class BulkTopicsRequest(BulkOperationRequest):
     class Config:
         json_schema_extra = {
             "example": {
-                "filters": {"status": ["TRANSCRIBED"], "template_id": 5},
+                "filters": {"status": ["PROCESSED"], "template_id": 5},
                 "granularity": "long",
                 "version_id": None,
                 "limit": 50,
@@ -246,7 +246,7 @@ class BulkSubtitlesRequest(BulkOperationRequest):
     class Config:
         json_schema_extra = {
             "example": {
-                "filters": {"status": ["TRANSCRIBED"], "template_id": 5},
+                "filters": {"status": ["PROCESSED"], "template_id": 5},
                 "formats": ["srt", "vtt"],
                 "limit": 50,
             }
@@ -276,12 +276,12 @@ class BulkUploadRequest(BulkOperationRequest):
         }
 
 
-class BulkProcessRequest(BulkOperationRequest):
-    """Bulk полный пайплайн обработки (download → trim → transcribe → topics → upload)."""
+class BulkRunRequest(BulkOperationRequest):
+    """Bulk full pipeline run (download → trim → transcribe → topics → upload)."""
 
-    processing_config: dict | None = Field(None, description="Override processing config для всех записей")
-    metadata_config: dict | None = Field(None, description="Override metadata config для всех записей")
-    output_config: dict | None = Field(None, description="Override output config для всех записей")
+    processing_config: dict | None = Field(None, description="Override processing config for all recordings")
+    metadata_config: dict | None = Field(None, description="Override metadata config for all recordings")
+    output_config: dict | None = Field(None, description="Override output config for all recordings")
 
     class Config:
         json_schema_extra = {

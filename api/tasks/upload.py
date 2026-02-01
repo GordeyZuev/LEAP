@@ -17,7 +17,7 @@ from api.shared.exceptions import CredentialError, ResourceNotFoundError
 from api.tasks.base import UploadTask
 from config.settings import get_settings
 from database.template_models import OutputPresetModel
-from logger import get_logger
+from logger import format_task_context, get_logger
 from models.recording import TargetStatus
 from utils.thumbnail_manager import get_thumbnail_manager
 from video_upload_module.platforms.youtube.token_handler import TokenRefreshError
@@ -58,10 +58,10 @@ def upload_recording_to_platform(
         Dictionary with upload results
     """
     try:
-        logger.info(
-            f"[Task {self.request.id}] Uploading recording {recording_id} "
-            f"for user {user_id} to {platform}, metadata_override={bool(metadata_override)}"
+        ctx = format_task_context(
+            task_id=self.request.id, recording_id=recording_id, user_id=user_id, platform=platform
         )
+        logger.info(f"{ctx} | Uploading | metadata_override={bool(metadata_override)}")
 
         result = self.run_async(
             _async_upload_recording(
@@ -83,14 +83,17 @@ def upload_recording_to_platform(
         )
 
     except SoftTimeLimitExceeded:
-        logger.error(f"[Task {self.request.id}] Soft time limit exceeded")
+        ctx = format_task_context(
+            task_id=self.request.id, recording_id=recording_id, user_id=user_id, platform=platform
+        )
+        logger.error(f"{ctx} | Soft time limit exceeded")
         raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
 
     except TokenRefreshError as exc:
-        logger.error(
-            f"[Task {self.request.id}] Token refresh failed for {exc.platform}. "
-            f"User {user_id} needs to re-authenticate."
+        ctx = format_task_context(
+            task_id=self.request.id, recording_id=recording_id, user_id=user_id, platform=exc.platform
         )
+        logger.error(f"{ctx} | Token refresh failed - re-authentication needed")
         return self.build_result(
             user_id=user_id,
             status="failed",
@@ -101,10 +104,10 @@ def upload_recording_to_platform(
         )
 
     except CredentialError as exc:
-        logger.error(
-            f"[Task {self.request.id}] Credential error for {platform}: {exc.reason}. "
-            f"User {user_id} needs to re-authenticate."
+        ctx = format_task_context(
+            task_id=self.request.id, recording_id=recording_id, user_id=user_id, platform=platform
         )
+        logger.error(f"{ctx} | Credential error: {exc.reason}")
         return self.build_result(
             user_id=user_id,
             status="failed",
@@ -115,9 +118,10 @@ def upload_recording_to_platform(
         )
 
     except ResourceNotFoundError as exc:
-        logger.error(
-            f"[Task {self.request.id}] Resource not found: {exc.resource_type} {exc.resource_id}."
+        ctx = format_task_context(
+            task_id=self.request.id, recording_id=recording_id, user_id=user_id, platform=platform
         )
+        logger.error(f"{ctx} | Resource not found: {exc.resource_type} {exc.resource_id}")
         return self.build_result(
             user_id=user_id,
             status="failed",
@@ -129,14 +133,10 @@ def upload_recording_to_platform(
         )
 
     except Exception as exc:
-        logger.error(
-            "[Task {}] Unexpected error uploading to {}: {}: {}",
-            self.request.id,
-            platform,
-            type(exc).__name__,
-            str(exc),
-            exc_info=True,
+        ctx = format_task_context(
+            task_id=self.request.id, recording_id=recording_id, user_id=user_id, platform=platform
         )
+        logger.error(f"{ctx} | Unexpected error: {type(exc).__name__}: {exc}", exc_info=True)
         raise self.retry(exc=exc)
 
 
@@ -195,20 +195,23 @@ async def _async_upload_recording(
             preset_id=preset_id,
         )
 
-        if output_target.video_id and output_target.status == TargetStatus.UPLOADED:
-            logger.warning(
-                f"[Upload] Recording {recording_id} already uploaded to {platform} "
-                f"(video_id: {output_target.video_id}). Skipping duplicate upload."
-            )
-            return {
-                "success": True,
-                "video_id": output_target.video_id,
-                "video_url": output_target.video_url,
-                "skipped": True,
-                "reason": "Already uploaded",
-            }
+        if output_target.status == TargetStatus.UPLOADED and output_target.target_meta:
+            video_id = output_target.target_meta.get("video_id")
+            video_url = output_target.target_meta.get("video_url")
+            if video_id:
+                logger.warning(
+                    f"[Upload] Recording {recording_id} already uploaded to {platform} "
+                    f"(video_id: {video_id}). Skipping duplicate upload."
+                )
+                return {
+                    "success": True,
+                    "video_id": video_id,
+                    "video_url": video_url,
+                    "skipped": True,
+                    "reason": "Already uploaded",
+                }
 
-        await recording_repo.mark_output_uploading(output_target)
+        # Check video file exists BEFORE marking as uploading
         if not recording.processed_video_path:
             raise ResourceNotFoundError("processed video", recording_id)
 
@@ -440,6 +443,11 @@ async def _async_upload_recording(
                     if key in preset_metadata:
                         upload_params[key] = preset_metadata[key]
 
+            # Mark output as UPLOADING RIGHT BEFORE actual upload starts
+            logger.info(f"[Upload {platform}] Marking recording {recording_id} as UPLOADING")
+            await recording_repo.mark_output_uploading(output_target)
+            await session.commit()
+
             upload_result = await uploader.upload_video(**upload_params)
 
             if not upload_result or upload_result.error_message:
@@ -457,10 +465,17 @@ async def _async_upload_recording(
                 target_meta={
                     "platform": platform,
                     "uploaded_by_task": True,
-                    "playlist_error": upload_result.metadata.get("playlist_error"),
-                    "thumbnail_error": upload_result.metadata.get("thumbnail_error"),
-                    "playlist_id": upload_result.metadata.get("playlist_id"),
+                    # Thumbnail metadata
                     "thumbnail_set": upload_result.metadata.get("thumbnail_set"),
+                    "thumbnail_error": upload_result.metadata.get("thumbnail_error"),
+                    # YouTube playlist metadata
+                    "playlist_id": upload_result.metadata.get("playlist_id"),
+                    "added_to_playlist": upload_result.metadata.get("added_to_playlist"),
+                    "playlist_error": upload_result.metadata.get("playlist_error"),
+                    # VK album metadata
+                    "album_id": upload_result.metadata.get("album_id"),
+                    "added_to_album": upload_result.metadata.get("added_to_album"),
+                    "owner_id": upload_result.metadata.get("owner_id"),
                 },
             )
 
@@ -498,10 +513,8 @@ def batch_upload_recordings(
     Batch uploading recordings to platforms.
     """
     try:
-        logger.info(
-            f"[Task {self.request.id}] Batch uploading {len(recording_ids)} recordings "
-            f"for user {user_id} to {platforms}"
-        )
+        ctx = format_task_context(task_id=self.request.id, user_id=user_id)
+        logger.info(f"{ctx} | Batch upload: {len(recording_ids)} recordings | platforms={platforms}")
 
         results = []
         for recording_id in recording_ids:
@@ -531,5 +544,6 @@ def batch_upload_recordings(
         )
 
     except Exception as exc:
-        logger.error("[Task {}] Error in batch upload: {}", self.request.id, str(exc), exc_info=True)
+        ctx = format_task_context(task_id=self.request.id, user_id=user_id)
+        logger.error(f"{ctx} | Error in batch upload: {exc}", exc_info=True)
         raise

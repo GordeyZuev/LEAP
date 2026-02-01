@@ -673,9 +673,22 @@ download_task.s()
 ### Processing Status Flow
 
 ```
-INITIALIZED → DOWNLOADING → DOWNLOADED → PROCESSING → PROCESSED →
-TRANSCRIBING → TRANSCRIBED → UPLOADING → UPLOADED
+INITIALIZED → DOWNLOADING → DOWNLOADED → 
+PROCESSING → PROCESSED → UPLOADING → READY
 ```
+
+**Status Details:**
+- `PROCESSING` — any processing stage (transcribe, extract topics, generate subtitles) is IN_PROGRESS
+- `PROCESSED` — all processing stages completed or skipped, ready for upload
+- `UPLOADING` — at least one platform upload is in progress
+- `READY` — all platform uploads completed successfully
+
+**Processing Stages:**
+- `TRANSCRIBE` — audio transcription via Fireworks AI (Whisper)
+- `EXTRACT_TOPICS` — topic extraction via DeepSeek
+- `GENERATE_SUBTITLES` — subtitle generation (SRT/VTT)
+
+Each stage has status: `PENDING` → `IN_PROGRESS` → `COMPLETED` (or `FAILED`/`SKIPPED`)
 
 **Special statuses:**
 - `SKIPPED` - Пропущено (не matched к template или user choice)
@@ -1257,6 +1270,6 @@ Python 3.11+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 
 ---
 
-**Version:** v0.9.3 (January 2026)  
+**Version:** v0.9.4 (January 2026)  
 **Status:** Development  
 **License:** Business Source License 1.1

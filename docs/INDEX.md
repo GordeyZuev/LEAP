@@ -28,6 +28,7 @@
 
 **Templates & Automation:**
 - [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
+- [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) - Scheduled automation jobs & Celery Beat 🆕
 - [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Batch processing API
 
 **OAuth & Credentials:**

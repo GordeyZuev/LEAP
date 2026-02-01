@@ -1,9 +1,11 @@
-"""Helper для автоматического обновления агрегированного статуса recording.
+"""Helper for automatic update of aggregated recording status.
 
-Главный статус (ProcessingStatus) вычисляется на основе:
-- processing_stages (детальные этапы)
-- outputs (targets для загрузки)
+Main status (ProcessingStatus) is computed based on:
+- processing_stages (detailed stages)
+- outputs (upload targets)
 """
+
+from datetime import UTC
 
 from database.models import RecordingModel
 from models.recording import (
@@ -15,18 +17,16 @@ from models.recording import (
 
 def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
     """
-    Вычислить агрегированный статус recording из processing_stages и outputs.
+    Compute aggregated recording status from processing_stages and outputs.
 
-    Логика:
-    1. Если нет stages → статус из текущего workflow (INITIALIZED, DOWNLOADED, PROCESSED)
-    2. Если есть stages:
-       - Все PENDING → PROCESSED (ожидают запуска)
-       - Хотя бы один IN_PROGRESS → PREPARING (или TRANSCRIBING для legacy)
-       - Все COMPLETED → TRANSCRIBED
-    3. Если есть outputs и все stages COMPLETED:
-       - Хотя бы один UPLOADING → UPLOADING
-       - Все UPLOADED → READY
-       - Иначе → TRANSCRIBED (ожидают загрузки)
+    Priority logic:
+    1. EXPIRED - if deleted and retention expired
+    2. SKIPPED, PENDING_SOURCE - special statuses
+    3. PROCESSING - any stage IN_PROGRESS (takes priority over base statuses)
+    4. Base statuses (INITIALIZED, DOWNLOADING, DOWNLOADED)
+    5. PROCESSED - all active stages COMPLETED or SKIPPED
+    6. UPLOADING - any output UPLOADING
+    7. READY - all outputs UPLOADED
 
     Args:
         recording: RecordingModel
@@ -34,67 +34,90 @@ def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
     Returns:
         ProcessingStatus
     """
+    from datetime import datetime
+
     current_status = recording.status
 
-    # Если нет processing_stages, возвращаем текущий статус или базовый workflow
-    if not recording.processing_stages:
-        # Базовый workflow без детальных этапов
-        if current_status in [
-            ProcessingStatus.PENDING_SOURCE,
-            ProcessingStatus.INITIALIZED,
-            ProcessingStatus.DOWNLOADING,
-            ProcessingStatus.DOWNLOADED,
-            ProcessingStatus.PROCESSING,
-            ProcessingStatus.PROCESSED,
-        ]:
-            return current_status
+    # 1. Check EXPIRED first (terminal state)
+    if recording.deleted and recording.deletion_reason == "expired":
+        return ProcessingStatus.EXPIRED
+
+    # Also check expire_at timestamp
+    if recording.expire_at and recording.expire_at <= datetime.now(UTC):
+        return ProcessingStatus.EXPIRED
+
+    # 2. Check special statuses
+    if current_status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+        return current_status
+
+    # 3. Check for IN_PROGRESS stages first (takes priority over base statuses like DOWNLOADED)
+    if recording.processing_stages:
+        if any(s.status == ProcessingStageStatus.IN_PROGRESS for s in recording.processing_stages):
+            return ProcessingStatus.PROCESSING
+
+    # 4. Base statuses (no stages dependency)
+    if current_status in [
+        ProcessingStatus.INITIALIZED,
+        ProcessingStatus.DOWNLOADING,
+        ProcessingStatus.DOWNLOADED,
+    ]:
+        return current_status
+
+    # 5. Check processing_stages for completion
+    if recording.processing_stages:
+        # 5.1. All stages COMPLETED or SKIPPED → PROCESSED
+        # Filter out SKIPPED stages when checking completion
+        active_stages = [s for s in recording.processing_stages if s.status != ProcessingStageStatus.SKIPPED]
+        if active_stages and all(s.status == ProcessingStageStatus.COMPLETED for s in active_stages):
+            # All active stages done, check outputs
+            if recording.outputs:
+                output_statuses = [output.status for output in recording.outputs]
+                if any(status == TargetStatus.UPLOADING for status in output_statuses):
+                    return ProcessingStatus.UPLOADING
+                if all(status == TargetStatus.UPLOADED for status in output_statuses):
+                    return ProcessingStatus.READY
+            return ProcessingStatus.PROCESSED
+
+        # 5.2. All stages PENDING or SKIPPED → PROCESSED (ready to start)
+        if all(
+            s.status in [ProcessingStageStatus.PENDING, ProcessingStageStatus.SKIPPED]
+            for s in recording.processing_stages
+        ):
+            return ProcessingStatus.PROCESSED
+
+    # 6. Check outputs for upload status
+    if recording.outputs:
+        output_statuses = [output.status for output in recording.outputs]
+
+        # 6.1. At least one UPLOADING → UPLOADING
+        if any(status == TargetStatus.UPLOADING for status in output_statuses):
+            return ProcessingStatus.UPLOADING
+
+        # 6.2. All UPLOADED → READY
+        if all(status == TargetStatus.UPLOADED for status in output_statuses):
+            return ProcessingStatus.READY
+
+        # 6.3. Partial upload (some UPLOADED, some FAILED) → UPLOADED
+        uploaded_count = sum(1 for status in output_statuses if status == TargetStatus.UPLOADED)
+        if uploaded_count > 0 and uploaded_count < len(output_statuses):
+            return ProcessingStatus.UPLOADED
+
+        # 6.4. Mixed or NOT_UPLOADED → PROCESSED (ready to upload)
         return ProcessingStatus.PROCESSED
 
-    # Анализируем processing_stages
-    stages = recording.processing_stages
-    stage_statuses = [stage.status for stage in stages]
-
-    # Все этапы в ожидании
-    if all(status == ProcessingStageStatus.PENDING for status in stage_statuses):
-        return ProcessingStatus.PROCESSED  # Готово к запуску обработки
-
-    # Хотя бы один этап в процессе
-    if any(status == ProcessingStageStatus.IN_PROGRESS for status in stage_statuses):
-        return ProcessingStatus.PREPARING
-
-    # Все этапы завершены
-    if all(status == ProcessingStageStatus.COMPLETED for status in stage_statuses):
-        # Проверяем outputs
-        if recording.outputs:
-            output_statuses = [output.status for output in recording.outputs]
-
-            # Хотя бы один в процессе загрузки
-            if any(status == TargetStatus.UPLOADING for status in output_statuses):
-                return ProcessingStatus.UPLOADING
-
-            # Все загружены
-            if all(status == TargetStatus.UPLOADED for status in output_statuses):
-                return ProcessingStatus.READY
-
-            # Есть незагруженные
-            return ProcessingStatus.TRANSCRIBED  # Готово к загрузке
-
-        # Нет outputs → просто транскрибировано
-        return ProcessingStatus.TRANSCRIBED
-
-    # Смешанные статусы (частично завершено)
-    return ProcessingStatus.PREPARING
+    # Default: PROCESSED (processing complete, no uploads configured)
+    return ProcessingStatus.PROCESSED
 
 
 def update_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
     """
-    Обновить агрегированный статус recording.
+    Update aggregated recording status.
 
     Args:
         recording: RecordingModel
 
     Returns:
-        Новый ProcessingStatus
+        New ProcessingStatus
     """
     new_status = compute_aggregate_status(recording)
     recording.status = new_status
@@ -103,82 +126,69 @@ def update_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
 
 def should_allow_download(recording: RecordingModel) -> bool:
     """
-    Проверить, можно ли запустить загрузку recording из источника.
+    Check if recording download from source can be started.
 
-    Загрузка разрешена, если:
-    1. Recording в статусе INITIALIZED
-    2. Не в процессе загрузки (DOWNLOADING)
+    Download is allowed if:
+    1. Recording in INITIALIZED status
+    2. Not in download process (DOWNLOADING)
 
     Args:
         recording: RecordingModel
 
     Returns:
-        True если загрузка разрешена
+        True if download is allowed
     """
-    # PENDING_SOURCE и SKIPPED блокируются
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
         return False
 
-    # Разрешаем загрузку из INITIALIZED
     return recording.status == ProcessingStatus.INITIALIZED
 
 
-def should_allow_processing(recording: RecordingModel) -> bool:
+def should_allow_run(recording: RecordingModel) -> bool:
     """
-    Проверить, можно ли запустить обработку (process) recording.
+    Check if recording processing (run) can be started.
 
-    Обработка разрешена, если:
-    1. Recording в статусе DOWNLOADED (уже загружено)
-    2. Не SKIPPED/PENDING_SOURCE
+    Processing is allowed if:
+    1. Recording in DOWNLOADED status (already downloaded)
+    2. Not SKIPPED/PENDING_SOURCE
 
     Args:
         recording: RecordingModel
 
     Returns:
-        True если обработка разрешена
+        True if processing is allowed
     """
-    # PENDING_SOURCE и SKIPPED блокируются
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
         return False
 
-    # Разрешаем обработку из DOWNLOADED или PROCESSED (повторная обработка)
     return recording.status in [ProcessingStatus.DOWNLOADED, ProcessingStatus.PROCESSED]
 
 
 def should_allow_transcription(recording: RecordingModel) -> bool:
     """
-    Проверить, можно ли запустить транскрипцию для recording.
+    Check if transcription can be started for recording.
 
-    Транскрипция разрешена, если:
-    1. Recording в статусе PROCESSED (базовая обработка завершена)
-    2. Не SKIPPED/PENDING_SOURCE
-    3. Нет активных processing_stages (IN_PROGRESS)
-    4. TRANSCRIBE stage либо отсутствует, либо в статусе PENDING или FAILED
+    Transcription is allowed if:
+    1. Recording in PROCESSED status (basic processing complete)
+    2. Not SKIPPED/PENDING_SOURCE
+    3. No active processing_stages (IN_PROGRESS)
+    4. TRANSCRIBE stage either absent or in PENDING or FAILED status
 
     Args:
         recording: RecordingModel
 
     Returns:
-        True если транскрипция разрешена
+        True if transcription is allowed
     """
-    # PENDING_SOURCE и SKIPPED блокируются
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
         return False
 
-    # Проверка базового статуса
-    if recording.status not in [
-        ProcessingStatus.PROCESSED,
-        ProcessingStatus.TRANSCRIBED,
-        ProcessingStatus.PREPARING,
-    ]:
+    if recording.status != ProcessingStatus.PROCESSED:
         return False
 
-    # Проверяем processing_stages
     if not recording.processing_stages:
-        # Нет stages - можно создать
         return True
 
-    # Ищем TRANSCRIBE stage
     from models.recording import ProcessingStageType
 
     transcribe_stage = None
@@ -187,16 +197,12 @@ def should_allow_transcription(recording: RecordingModel) -> bool:
             transcribe_stage = stage
             break
 
-        # Запрещаем если какой-то этап в процессе
         if stage.status == ProcessingStageStatus.IN_PROGRESS:
             return False
 
-    # Если нет TRANSCRIBE stage - можно создать
     if transcribe_stage is None:
         return True
 
-    # Если TRANSCRIBE stage существует - проверяем его статус
-    # Можно перезапустить только если PENDING или FAILED
     return transcribe_stage.status in [
         ProcessingStageStatus.PENDING,
         ProcessingStageStatus.FAILED,
@@ -205,41 +211,50 @@ def should_allow_transcription(recording: RecordingModel) -> bool:
 
 def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:
     """
-    Проверить, можно ли запустить загрузку на платформу.
+    Check if upload to platform can be started.
 
-    Загрузка разрешена, если:
-    1. Recording не в статусе SKIPPED/PENDING_SOURCE
-    2. Все processing_stages завершены (COMPLETED) или нет stages
-    3. Target для этой платформы либо отсутствует, либо NOT_UPLOADED или FAILED
+    Upload is allowed if:
+    1. Recording not failed and not deleted
+    2. Recording not in SKIPPED/PENDING_SOURCE/EXPIRED status
+    3. Recording in status >= DOWNLOADED
+    4. All processing_stages completed (COMPLETED or SKIPPED) or no stages
+    5. Target for this platform either absent or NOT_UPLOADED or FAILED
 
     Args:
         recording: RecordingModel
-        target_type: Тип платформы (TargetType value)
+        target_type: Platform type (TargetType value)
 
     Returns:
-        True если загрузка разрешена
+        True if upload is allowed
     """
-    # PENDING_SOURCE и SKIPPED блокируются
-    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+    if recording.failed or recording.deleted:
         return False
 
-    # Проверяем, что все stages завершены (если есть)
-    if recording.processing_stages:
-        all_completed = all(stage.status == ProcessingStageStatus.COMPLETED for stage in recording.processing_stages)
-        if not all_completed:
-            return False
+    if recording.status in [
+        ProcessingStatus.SKIPPED,
+        ProcessingStatus.PENDING_SOURCE,
+        ProcessingStatus.EXPIRED,
+    ]:
+        return False
 
-    # Ищем target для этой платформы
+    if recording.status in [ProcessingStatus.INITIALIZED, ProcessingStatus.DOWNLOADING]:
+        return False
+
+    if recording.processing_stages:
+        # Filter out SKIPPED stages
+        active_stages = [s for s in recording.processing_stages if s.status != ProcessingStageStatus.SKIPPED]
+        if active_stages:
+            all_completed = all(stage.status == ProcessingStageStatus.COMPLETED for stage in active_stages)
+            if not all_completed:
+                return False
+
     target = None
     for output in recording.outputs:
         if output.target_type == target_type:
             target = output
             break
 
-    # Если нет target - можно создать
     if target is None:
         return True
 
-    # Если target существует - проверяем его статус
-    # Разрешаем загрузку только если NOT_UPLOADED или FAILED
     return target.status in [TargetStatus.NOT_UPLOADED, TargetStatus.FAILED]

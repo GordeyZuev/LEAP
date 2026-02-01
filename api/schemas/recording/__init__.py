@@ -12,7 +12,7 @@ from .operations import (
 )
 from .request import (
     BulkDownloadRequest,
-    BulkProcessRequest,
+    BulkRunRequest,
     BulkSubtitlesRequest,
     BulkTopicsRequest,
     BulkTranscribeRequest,
@@ -27,7 +27,7 @@ from .response import (
 __all__ = [
     # Request schemas
     "BulkDownloadRequest",
-    "BulkProcessRequest",
+    "BulkRunRequest",
     "BulkSubtitlesRequest",
     "BulkTopicsRequest",
     "BulkTranscribeRequest",

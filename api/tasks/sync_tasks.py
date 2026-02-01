@@ -6,7 +6,7 @@ from api.dependencies import get_async_session_maker
 from api.repositories.template_repos import InputSourceRepository
 from api.tasks.base import SyncTask
 from config.settings import get_settings
-from logger import get_logger
+from logger import format_task_context, get_logger
 
 logger = get_logger()
 settings = get_settings()
@@ -39,7 +39,8 @@ def sync_single_source_task(
         Result of syncing
     """
     try:
-        logger.info(f"[Task {self.request.id}] Syncing source {source_id} for user {user_id}")
+        ctx = format_task_context(task_id=self.request.id, user_id=user_id, source_id=source_id)
+        logger.info(f"{ctx} | Syncing source")
 
         self.update_progress(user_id, 10, f"Syncing source {source_id}...", step="sync")
 
@@ -79,7 +80,8 @@ def bulk_sync_sources_task(
         Results of syncing all sources
     """
     try:
-        logger.info(f"[Task {self.request.id}] Batch syncing {len(source_ids)} sources for user {user_id}")
+        ctx = format_task_context(task_id=self.request.id, user_id=user_id)
+        logger.info(f"{ctx} | Batch syncing {len(source_ids)} sources")
 
         self.update_progress(
             user_id,

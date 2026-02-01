@@ -13,14 +13,14 @@ load_dotenv()
 def http_filter(record):
     """Filter out verbose HTTP logs from third-party libraries."""
     # Filter httpx/httpcore INFO logs but keep WARNING/ERROR
+
     if record["name"].startswith(("httpx", "httpcore", "hpack")):
         return record["level"].no >= 30  # Only WARNING and above
     return True
 
 
 def setup_logger(log_level: str | None = None, log_file: str | None = None) -> None:
-    """Настройка логгера."""
-    # Уровень для консоли берется из env
+    """Setup logger."""
     if log_level is None:
         console_level = os.getenv("LOG_LEVEL", "INFO")
     else:
@@ -46,7 +46,7 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
         "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {extra[module]: <25} | {name}:{function}:{line} - {message}"
     )
 
-    # Консольный handler - уровень из env
+    # Console handler - level from env
     logger.add(
         sys.stderr,
         format=console_format,
@@ -55,7 +55,7 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
         filter=http_filter,  # Filter out verbose HTTP logs
     )
 
-    # Файловый handler - всегда INFO
+    # File handler - INFO level only
     if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,27 +82,92 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
             compression="zip",
         )
 
-    # Suppress noisy third-party loggers at stdlib logging level
+    # Suppress noisy third-party loggers at stdlib logging level (httpx uses standard logging, not loguru)
     # (httpx uses standard logging, not loguru)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def get_logger(module_name: str | None = None):
-    """Получение настроенного логгера."""
+    """Get configured logger."""
     if module_name:
         return logger.bind(module=module_name)
     return logger
 
 
 def format_log(message: str, **details: Any) -> str:
-    """Формирование единообразного текста лог-сообщения."""
+    """Format unified log message text."""
     if not details:
         return message
     serialized_details: list[str] = []
     for key, value in details.items():
         serialized_details.append(f"{key}={value}")
     return f"{message} | " + " | ".join(serialized_details)
+
+
+def short_task_id(task_id: str) -> str:
+    """
+    Get short task ID (first 8 characters) for logging.
+    Full task_id can be recovered from Celery logs if needed.
+
+    Args:
+        task_id: Full UUID task ID
+
+    Returns:
+        First 8 characters of task_id
+    """
+    return task_id[:8] if task_id else "unknown"
+
+
+def short_user_id(user_id: str) -> str:
+    """
+    Get short user ID (first 8 characters) for logging.
+
+    Args:
+        user_id: Full ULID user ID
+
+    Returns:
+        First 8 characters of user_id
+    """
+    return user_id[:8] if user_id else "unknown"
+
+
+def format_task_context(
+    task_id: str | None = None,
+    recording_id: int | None = None,
+    user_id: str | None = None,
+    platform: str | None = None,
+    **extra,
+) -> str:
+    """
+    Format unified task context with | separators for better readability.
+
+    Args:
+        task_id: Task UUID (will be shortened)
+        recording_id: Recording ID
+        user_id: User ULID (will be shortened)
+        platform: Platform name (youtube, vk, etc.)
+        **extra: Additional context fields
+
+    Returns:
+        Formatted context string like: "Task:abc12345 | Rec:123 | User:01KFHA26"
+    """
+    parts = []
+
+    if task_id:
+        parts.append(f"Task:{short_task_id(task_id)}")
+    if recording_id is not None:
+        parts.append(f"Rec:{recording_id}")
+    if user_id:
+        parts.append(f"User:{short_user_id(user_id)}")
+    if platform:
+        parts.append(f"Platform:{platform}")
+
+    # Add extra fields
+    for key, value in extra.items():
+        parts.append(f"{key}:{value}")
+
+    return " | ".join(parts) if parts else ""
 
 
 setup_logger()

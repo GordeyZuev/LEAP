@@ -1,8 +1,8 @@
 from .user_config import (
     DownloadConfig,
     MetadataConfig,
-    ProcessingConfig,
     TranscriptionConfig,
+    TrimmingConfig,
     UploadConfig,
     UserConfigData,
     UserConfigResponse,
@@ -12,8 +12,8 @@ from .user_config import (
 __all__ = [
     "DownloadConfig",
     "MetadataConfig",
-    "ProcessingConfig",
     "TranscriptionConfig",
+    "TrimmingConfig",
     "UploadConfig",
     "UserConfigData",
     "UserConfigResponse",

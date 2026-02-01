@@ -20,16 +20,13 @@ class ProcessingStatus(Enum):
     INITIALIZED = "INITIALIZED"  # Initialized (loaded from Zoom API)
     DOWNLOADING = "DOWNLOADING"  # In progress of downloading (runtime)
     DOWNLOADED = "DOWNLOADED"  # Downloaded
-    PROCESSING = "PROCESSING"  # In progress of processing (runtime)
-    PROCESSED = "PROCESSED"  # Processed
-    PREPARING = "PREPARING"  # Preparation (transcription, topics, subtitles) - runtime
-    TRANSCRIBING = "TRANSCRIBING"  # In progress of transcription (runtime)
-    TRANSCRIBED = "TRANSCRIBED"  # Transcribed (all stages completed)
+    PROCESSING = "PROCESSING"  # In progress of any processing stage (aggregate for stages IN_PROGRESS)
+    PROCESSED = "PROCESSED"  # All processing stages completed or skipped (aggregate)
     UPLOADING = "UPLOADING"  # In progress of uploading (runtime)
     UPLOADED = "UPLOADED"  # Uploaded to API
     READY = "READY"  # Ready (all stages completed, including upload)
     SKIPPED = "SKIPPED"  # Skipped
-    EXPIRED = "EXPIRED"  # Expired (deleted)
+    EXPIRED = "EXPIRED"  # Expired (retention policy applied)
     # FAILED removed - using recording.failed (boolean) + failed_reason
 
 
@@ -63,8 +60,9 @@ class TargetStatus(Enum):
 
 
 class ProcessingStageType(Enum):
-    """Types of transcription pipeline stages (detail for ProcessingStatus.TRANSCRIBING/TRANSCRIBED)."""
+    """Types of processing pipeline stages (detail for ProcessingStatus.PROCESSING/PROCESSED)."""
 
+    TRIM = "TRIM"  # Video trimming (silence removal)
     TRANSCRIBE = "TRANSCRIBE"  # Transcription
     EXTRACT_TOPICS = "EXTRACT_TOPICS"  # Extraction of topics
     GENERATE_SUBTITLES = "GENERATE_SUBTITLES"  # Generation of subtitles
@@ -78,8 +76,7 @@ class ProcessingStageStatus(Enum):
     IN_PROGRESS = "IN_PROGRESS"  # In progress
     COMPLETED = "COMPLETED"  # Completed successfully
     FAILED = "FAILED"  # Failed
-    # Future values (need to add to DB through migration):
-    # SKIPPED = "SKIPPED"  # Skipped
+    SKIPPED = "SKIPPED"  # Skipped (disabled in config)
 
 
 class OutputTarget:
@@ -157,10 +154,7 @@ class ProcessingStage:
 
     def mark_skipped(self):
         """Mark stage as skipped (FSM: transition to SKIPPED)."""
-        # TODO: Add SKIPPED to DB through migration
-        # self.status = ProcessingStageStatus.SKIPPED
-        # For now, use PENDING
-        self.status = ProcessingStageStatus.PENDING
+        self.status = ProcessingStageStatus.SKIPPED
 
     def can_retry(self, max_retries: int = 2) -> bool:
         """Check if stage can be retried (FSM: check transitions)."""
@@ -379,12 +373,8 @@ class MeetingRecording:
             elif self.status == ProcessingStatus.PROCESSING:
                 rollback_to_status = ProcessingStatus.DOWNLOADED
             elif self.status == ProcessingStatus.UPLOADING:
-                # Rollback to TRANSCRIBED if exists, otherwise PROCESSED
-                transcription_stage = self.get_stage(ProcessingStageType.TRANSCRIBE)
-                if transcription_stage and transcription_stage.status == ProcessingStageStatus.COMPLETED:
-                    rollback_to_status = ProcessingStatus.TRANSCRIBED
-                else:
-                    rollback_to_status = ProcessingStatus.PROCESSED
+                # Rollback to PROCESSED
+                rollback_to_status = ProcessingStatus.PROCESSED
             else:
                 # If status is not in progress, leave as is
                 rollback_to_status = self.status
@@ -439,11 +429,13 @@ class MeetingRecording:
         Check if recording is ready for upload.
 
         Recording is ready if:
-        - Status PROCESSED or TRANSCRIBED
+        - Status PROCESSED
         - Processed video exists
+
+        Note: Use should_allow_upload() from status_manager for complete validation.
         """
         return (
-            self.status in [ProcessingStatus.PROCESSED, ProcessingStatus.TRANSCRIBED]
+            self.status == ProcessingStatus.PROCESSED
             and self.processed_video_path is not None
         )
 
@@ -483,14 +475,13 @@ class MeetingRecording:
         """Mark stage as completed (FSM: successful transition)."""
         stage = self.ensure_stage(stage_type)
         stage.mark_completed(meta=meta)
-        # Update aggregated status
-        self._update_aggregate_status()
+        # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
     def mark_stage_in_progress(self, stage_type: ProcessingStageType) -> None:
         """Mark stage as in progress (FSM: transition to IN_PROGRESS)."""
         stage = self.ensure_stage(stage_type)
         stage.mark_in_progress()
-        self._update_aggregate_status()
+        # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
     def mark_stage_failed(
         self,
@@ -525,7 +516,7 @@ class MeetingRecording:
         """Mark stage as skipped (FSM: transition to SKIPPED)."""
         stage = self.ensure_stage(stage_type)
         stage.mark_skipped()
-        self._update_aggregate_status()
+        # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
     def can_retry_stage(self, stage_type: ProcessingStageType, max_retries: int = 2) -> bool:
         """Check if stage can be retried."""
@@ -543,7 +534,7 @@ class MeetingRecording:
         # Reset overall failed flag when retrying
         if self.failed_at_stage == stage_type.value:
             self.failed = False
-        self._update_aggregate_status()
+        # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
     def _get_previous_status_for_stage(self, stage_type: ProcessingStageType) -> ProcessingStatus | None:
         """
@@ -555,94 +546,26 @@ class MeetingRecording:
         Returns:
             Previous status for rollback
         """
-        # Mapping of stages to previous statuses
+        # All processing stages rollback to PROCESSED (or DOWNLOADED if no stages completed)
         stage_to_previous_status = {
+            ProcessingStageType.TRIM: ProcessingStatus.DOWNLOADED,
             ProcessingStageType.TRANSCRIBE: ProcessingStatus.PROCESSED,
-            ProcessingStageType.EXTRACT_TOPICS: ProcessingStatus.PROCESSED,  # Can be TRANSCRIBED if transcription exists
-            ProcessingStageType.GENERATE_SUBTITLES: ProcessingStatus.PROCESSED,  # Similarly
+            ProcessingStageType.EXTRACT_TOPICS: ProcessingStatus.PROCESSED,
+            ProcessingStageType.GENERATE_SUBTITLES: ProcessingStatus.PROCESSED,
         }
 
-        previous = stage_to_previous_status.get(stage_type)
-        if previous:
-            return previous
-
-        # If transcription is completed, then topics/subtitles are rolled back to TRANSCRIBED
-        transcription_stage = self.get_stage(ProcessingStageType.TRANSCRIBE)
-        if (
-            transcription_stage
-            and transcription_stage.status == ProcessingStageStatus.COMPLETED
-            and stage_type in [ProcessingStageType.EXTRACT_TOPICS, ProcessingStageType.GENERATE_SUBTITLES]
-        ):
-            return ProcessingStatus.TRANSCRIBED
-
-        return ProcessingStatus.PROCESSED
+        return stage_to_previous_status.get(stage_type, ProcessingStatus.PROCESSED)
 
     def _update_aggregate_status(self) -> None:
         """
-        Update aggregated ProcessingStatus based on stages (FSM calculation).
+        DEPRECATED: Use status_manager.update_aggregate_status() instead.
 
-        Logic:
-        - If there are stages in progress -> corresponding status
-        - If all stages are completed -> TRANSCRIBED
-        - Takes into account dependencies between stages
+        This method is kept for backward compatibility but should not be used.
+        All status updates should go through status_manager.compute_aggregate_status()
+        and status_manager.update_aggregate_status() for unified status logic.
         """
-        # Main stages (do not depend on processing stages)
-        if self.status in [
-            ProcessingStatus.INITIALIZED,
-            ProcessingStatus.DOWNLOADING,
-            ProcessingStatus.DOWNLOADED,
-            ProcessingStatus.PROCESSING,
-        ]:
-            # These statuses do not depend on stages, leave as is
-            return
-
-        # Check stages after PROCESSED
-        transcription_stage = self.get_stage(ProcessingStageType.TRANSCRIBE)
-        topic_stage = self.get_stage(ProcessingStageType.EXTRACT_TOPICS)
-        subtitle_stage = self.get_stage(ProcessingStageType.GENERATE_SUBTITLES)
-
-        # If status is PROCESSED, but there is a completed transcription - update status
-        if self.status == ProcessingStatus.PROCESSED:
-            if transcription_stage and transcription_stage.status == ProcessingStageStatus.COMPLETED:
-                # Transcription is completed, update status
-                self.status = ProcessingStatus.TRANSCRIBED
-                return
-            # If transcription is in progress, update status
-            if transcription_stage and transcription_stage.status == ProcessingStageStatus.IN_PROGRESS:
-                self.status = ProcessingStatus.TRANSCRIBING
-                return
-            # If there are no transcription stages, leave PROCESSED
-            return
-
-        # If there is at least one stage
-        if transcription_stage or topic_stage or subtitle_stage:
-            # If transcription is in progress
-            if transcription_stage and transcription_stage.status == ProcessingStageStatus.IN_PROGRESS:
-                self.status = ProcessingStatus.TRANSCRIBING
-                return
-
-            # If transcription is completed
-            if transcription_stage and transcription_stage.status == ProcessingStageStatus.COMPLETED:
-                # Check other stages
-                topic_in_progress = topic_stage and topic_stage.status == ProcessingStageStatus.IN_PROGRESS
-                subtitle_in_progress = subtitle_stage and subtitle_stage.status == ProcessingStageStatus.IN_PROGRESS
-
-                if topic_in_progress or subtitle_in_progress:
-                    # There are stages in progress, but transcription is completed
-                    self.status = ProcessingStatus.TRANSCRIBED
-                    return
-
-                # All stages are completed
-                topic_done = not topic_stage or topic_stage.status == ProcessingStageStatus.COMPLETED
-                subtitle_done = not subtitle_stage or subtitle_stage.status == ProcessingStageStatus.COMPLETED
-
-                if topic_done and subtitle_done:
-                    self.status = ProcessingStatus.TRANSCRIBED
-                    return
-
-        # Upload (does not depend on stages)
-        if self.status in [ProcessingStatus.UPLOADING, ProcessingStatus.UPLOADED]:
-            return
+        # This method is deprecated - use status_manager.update_aggregate_status() instead
+        return
 
     def get_primary_audio_path(self) -> str | None:
         """Get path to primary audio file."""

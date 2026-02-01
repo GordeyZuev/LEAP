@@ -3,8 +3,10 @@
 import asyncio
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 
+from celery import chain, group
 from celery.exceptions import SoftTimeLimitExceeded
 
 from api.celery_app import celery_app
@@ -19,7 +21,8 @@ from deepseek_module import DeepSeekConfig, TopicExtractor
 from file_storage.path_builder import StoragePathBuilder
 from fireworks_module import FireworksConfig, FireworksTranscriptionService
 from logger import get_logger
-from models import MeetingRecording, ProcessingStageType, ProcessingStatus
+from models import MeetingRecording, ProcessingStageType, ProcessingStatus, recording as models
+from models.recording import ProcessingStageStatus
 from transcription_module.manager import TranscriptionManager, get_transcription_manager
 from video_download_module.downloader import ZoomDownloader
 from video_processing_module.config import ProcessingConfig
@@ -86,10 +89,20 @@ async def _async_download_recording(
     manual_override: dict | None = None,
 ) -> dict:
     """Async function for downloading (template-driven)."""
+    from api.helpers.failure_reset import reset_recording_failure, should_reset_on_retry
+
     async_session_maker = get_async_session_maker()
     async with async_session_maker() as session:
         # Resolve config
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
+
+        recording_repo = RecordingRepository(session)
+
+        # Reset failure flags if retrying after download failure
+        if should_reset_on_retry(recording, "download"):
+            reset_recording_failure(recording, "download")
+            await recording_repo.update(recording)
+            await session.commit()
 
         download_config = full_config.get("download", {})
 
@@ -101,8 +114,6 @@ async def _async_download_recording(
             f"Download config for recording {recording_id}: "
             f"max_file_size_mb={max_file_size_mb}, retry_attempts={retry_attempts}"
         )
-
-        recording_repo = RecordingRepository(session)
 
         # Check download_url
         download_url = None
@@ -170,7 +181,14 @@ async def _async_download_recording(
         )
         meeting_recording.db_id = recording.id
 
-        task_self.update_progress(user_id, 50, "Saving video file...", step="download")
+        task_self.update_progress(user_id, 40, "Starting download...", step="download")
+
+        # Set DOWNLOADING status BEFORE actual download starts
+        recording.status = ProcessingStatus.DOWNLOADING
+        await recording_repo.update(recording)
+        await session.commit()
+
+        task_self.update_progress(user_id, 50, "Downloading video file...", step="download")
 
         # Download
         success = await downloader.download_recording(meeting_recording, force_download=force)
@@ -250,7 +268,7 @@ async def _async_process_video(
     manual_override: dict | None = None,
 ) -> dict:
     """
-    Async function for processing video (template-driven).
+    Async function for trimming video (template-driven).
 
     Optimized workflow:
     1. Extract full audio from original video (MP3)
@@ -258,24 +276,31 @@ async def _async_process_video(
     3. Trim video based on detected boundaries
     4. Trim audio to match video (stream copy - instant)
     """
+    from api.helpers.failure_reset import reset_recording_failure, should_reset_on_retry
     from api.services.config_utils import resolve_full_config
 
     session_maker = get_async_session_maker()
 
     async with session_maker() as session:
-        # Resolve config from hierarchy
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
 
-        processing_config = full_config.get("processing", {})
+        recording_repo = RecordingRepository(session)
 
-        # Extract processing parameters
-        silence_threshold = processing_config.get("silence_threshold", -40.0)
-        min_silence_duration = processing_config.get("min_silence_duration", 2.0)
-        padding_before = processing_config.get("padding_before", 5.0)
-        padding_after = processing_config.get("padding_after", 5.0)
+        # Reset failure flags if retrying after trim failure
+        if should_reset_on_retry(recording, "trim"):
+            reset_recording_failure(recording, "trim")
+            await recording_repo.update(recording)
+            await session.commit()
+
+        trimming_config = full_config.get("trimming", {})
+
+        silence_threshold = trimming_config.get("silence_threshold", -40.0)
+        min_silence_duration = trimming_config.get("min_silence_duration", 2.0)
+        padding_before = trimming_config.get("padding_before", 5.0)
+        padding_after = trimming_config.get("padding_after", 5.0)
 
         logger.debug(
-            f"Processing config for recording {recording_id}: "
+            f"Trimming config for recording {recording_id}: "
             f"silence_threshold={silence_threshold}, min_silence_duration={min_silence_duration}"
         )
 
@@ -287,11 +312,9 @@ async def _async_process_video(
         if not Path(recording.local_video_path).exists():
             raise ValueError(f"Video file not found: {recording.local_video_path}")
 
-        # Get user_slug and generate paths
         user_slug = recording.owner.user_slug
         storage_builder = StoragePathBuilder()
 
-        # Setup processor
         temp_dir = str(storage_builder.temp_dir())
         config = ProcessingConfig(
             silence_threshold=silence_threshold,
@@ -301,6 +324,21 @@ async def _async_process_video(
             output_dir=temp_dir,
         )
         processor = VideoProcessor(config)
+
+        task_self.update_progress(user_id, 15, "Starting video trimming...", step="trim")
+
+        # Mark TRIM stage as IN_PROGRESS
+
+        trim_stage = None
+        for stage in recording.processing_stages:
+            if stage.stage_type == ProcessingStageType.TRIM:
+                trim_stage = stage
+                break
+
+        if trim_stage:
+            trim_stage.status = models.recording.ProcessingStageStatus.IN_PROGRESS
+            update_aggregate_status(recording)
+            await session.commit()
 
         # Step 1: Extract full audio from original video
         task_self.update_progress(user_id, 20, "Extracting audio from original video...", step="extract_audio")
@@ -395,17 +433,22 @@ async def _async_process_video(
                 logger.info(f"Temp audio cleaned: {temp_audio_path}")
 
         # Step 5: Update database
-        task_self.update_progress(user_id, 90, "Updating database...", step="process")
+        task_self.update_progress(user_id, 90, "Updating database...", step="trim")
 
         recording.processed_video_path = output_video_path
         recording.processed_audio_path = final_audio_path
-        recording.status = ProcessingStatus.PROCESSED
+
+        # Mark TRIM stage as COMPLETED
+        if trim_stage:
+            trim_stage.status = models.recording.ProcessingStageStatus.COMPLETED
+            trim_stage.completed_at = datetime.utcnow()
+            update_aggregate_status(recording)
 
         await recording_repo.update(recording)
         await session.commit()
 
         logger.info(
-            f"✅ Processing complete: id={recording_id}, "
+            f"✅ Trimming complete: id={recording_id}, "
             f"video={output_video_path}, audio={final_audio_path}"
         )
 
@@ -500,6 +543,18 @@ async def _async_transcribe_recording(
 
         transcription_config = full_config.get("transcription", {})
 
+        recording_repo = RecordingRepository(session)
+
+        # Check if retrying after failure
+        transcribe_stage = next(
+            (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.TRANSCRIBE), None
+        )
+        if transcribe_stage and transcribe_stage.status == ProcessingStageStatus.FAILED:
+            logger.info(
+                f"Retrying transcription after failure for recording {recording_id} "
+                f"(attempt {transcribe_stage.retry_count + 1})"
+            )
+
         # Extract transcription parameters
         language = transcription_config.get("language", "ru")
         user_prompt = transcription_config.get("prompt", "")
@@ -509,8 +564,6 @@ async def _async_transcribe_recording(
             f"Transcription config for recording {recording_id}: "
             f"language={language}, has_prompt={bool(user_prompt)}, temperature={temperature}"
         )
-
-        recording_repo = RecordingRepository(session)
 
         # Priority: processed audio > processed video > original video
         audio_path = None
@@ -540,6 +593,14 @@ async def _async_transcribe_recording(
         # Load ADMIN credentials (only Fireworks)
         fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
         fireworks_service = FireworksTranscriptionService(fireworks_config)
+
+        task_self.update_progress(user_id, 25, "Starting transcription...", step="transcribe")
+
+        # Mark TRANSCRIBE stage as IN_PROGRESS BEFORE actual transcription
+        recording.mark_stage_in_progress(ProcessingStageType.TRANSCRIBE)
+        update_aggregate_status(recording)  # Will set ProcessingStatus.TRANSCRIBING
+        await recording_repo.update(recording)
+        await session.commit()
 
         task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
 
@@ -706,11 +767,11 @@ def _launch_uploads_task(
 @celery_app.task(
     bind=True,
     base=ProcessingTask,
-    name="api.tasks.processing.process_recording",
+    name="api.tasks.processing.run_recording",
     max_retries=settings.celery.processing_max_retries,
     default_retry_delay=settings.celery.processing_retry_delay,
 )
-def process_recording_task(
+def run_recording_task(
     self,
     recording_id: int,
     user_id: str,
@@ -734,8 +795,6 @@ def process_recording_task(
     """
     try:
         logger.info(f"[Task {self.request.id}] Orchestrating pipeline for recording {recording_id}, user {user_id}")
-
-        from celery import chain
 
         from api.dependencies import get_async_session_maker
         from api.services.config_utils import resolve_full_config
@@ -786,11 +845,11 @@ def process_recording_task(
             )
 
         # Extract config flags
-        processing = full_config.get("processing", {})
+        trimming = full_config.get("trimming", {})
         transcription = full_config.get("transcription", {})
 
         download_enabled = True
-        process_enabled = processing.get("enable_processing", True)
+        trim_enabled = trimming.get("enable_trimming", True)
         transcribe_enabled = transcription.get("enable_transcription", True)
         extract_topics_enabled = transcription.get("enable_topics", True)
         generate_subs_enabled = transcription.get("enable_subtitles", True)
@@ -803,27 +862,43 @@ def process_recording_task(
 
         logger.info(
             f"[Task {self.request.id}] Pipeline config: download={download_enabled}, "
-            f"process={process_enabled}, transcribe={transcribe_enabled}, "
+            f"trim={trim_enabled}, transcribe={transcribe_enabled}, "
             f"topics={extract_topics_enabled}, subs={generate_subs_enabled}, upload={upload_enabled}"
         )
 
         # Build task chain based on enabled steps
         task_chain = []
 
+        # Sequential tasks (must run in order)
         if download_enabled:
             task_chain.append(download_recording_task.si(recording_id, user_id, False, manual_override))
 
-        if process_enabled:
+        if trim_enabled:
             task_chain.append(trim_video_task.si(recording_id, user_id, manual_override))
 
         if transcribe_enabled:
             task_chain.append(transcribe_recording_task.si(recording_id, user_id, manual_override))
 
+        # Parallel tasks after transcription (both depend on transcribe, but not on each other)
+        parallel_after_transcribe = []
         if extract_topics_enabled:
-            task_chain.append(extract_topics_task.si(recording_id, user_id, granularity, None))
+            parallel_after_transcribe.append(extract_topics_task.si(recording_id, user_id, granularity, None))
 
         if generate_subs_enabled:
-            task_chain.append(generate_subtitles_task.si(recording_id, user_id, subtitle_formats))
+            parallel_after_transcribe.append(generate_subtitles_task.si(recording_id, user_id, subtitle_formats))
+
+        # Add parallel group to chain if there are tasks
+        if parallel_after_transcribe:
+            if len(parallel_after_transcribe) > 1:
+                # Multiple tasks - run in parallel
+                task_chain.append(group(*parallel_after_transcribe))
+                logger.info(
+                    f"[Task {self.request.id}] Added parallel group: {len(parallel_after_transcribe)} tasks "
+                    f"(topics + subtitles)"
+                )
+            else:
+                # Single task - just append normally
+                task_chain.append(parallel_after_transcribe[0])
 
         if not task_chain:
             logger.warning(f"[Task {self.request.id}] No processing steps enabled for recording {recording_id}")
@@ -968,6 +1043,16 @@ async def _async_extract_topics(
 
         # Ensure presence of segments.txt
         segments_path = transcription_manager.ensure_segments_txt(recording_id, user_slug)
+
+        task_self.update_progress(user_id, 30, "Starting topic extraction...", step="extract_topics")
+
+        # Mark EXTRACT_TOPICS stage as IN_PROGRESS BEFORE extraction
+        from api.helpers.status_manager import update_aggregate_status
+
+        recording.mark_stage_in_progress(ProcessingStageType.EXTRACT_TOPICS)
+        update_aggregate_status(recording)
+        await recording_repo.update(recording)
+        await session.commit()
 
         # Try extracting topics with fallback strategy
         topics_result = None
@@ -1138,6 +1223,16 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         transcription_manager = get_transcription_manager()
         if not transcription_manager.has_master(recording_id, user_slug):
             raise ValueError(f"Transcription not found for recording {recording_id}. Please run transcription first.")
+
+        task_self.update_progress(user_id, 30, "Starting subtitle generation...", step="generate_subtitles")
+
+        # Mark GENERATE_SUBTITLES stage as IN_PROGRESS BEFORE generation
+        from api.helpers.status_manager import update_aggregate_status
+
+        recording.mark_stage_in_progress(ProcessingStageType.GENERATE_SUBTITLES)
+        update_aggregate_status(recording)
+        await recording_repo.update(recording)
+        await session.commit()
 
         task_self.update_progress(user_id, 40, "Generating subtitles...", step="generate_subtitles")
 

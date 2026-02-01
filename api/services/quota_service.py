@@ -49,7 +49,14 @@ class QuotaService:
             # No subscription - return default Free plan limits
             free_plan = await self.plan_repo.get_by_name("free")
             if not free_plan:
-                raise ValueError("Free plan not found in database")
+                # Free plan not found - return unlimited quotas (dev mode)
+                return {
+                    "max_recordings_per_month": None,
+                    "max_storage_gb": None,
+                    "max_concurrent_tasks": None,
+                    "max_automation_jobs": None,
+                    "min_automation_interval_hours": None,
+                }
             return {
                 "max_recordings_per_month": free_plan.included_recordings_per_month,
                 "max_storage_gb": free_plan.included_storage_gb,

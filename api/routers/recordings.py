@@ -25,7 +25,7 @@ from api.schemas.recording.operations import (
 from api.schemas.recording.request import (
     BulkDeleteRequest,
     BulkDownloadRequest,
-    BulkProcessRequest,
+    BulkRunRequest,
     BulkSubtitlesRequest,
     BulkTopicsRequest,
     BulkTranscribeRequest,
@@ -35,6 +35,7 @@ from api.schemas.recording.request import (
 from api.schemas.recording.response import (
     OutputTargetResponse,
     PresetInfo,
+    ProcessingStageResponse,
     RecordingListItem,
     RecordingListResponse,
     RecordingResponse,
@@ -63,7 +64,7 @@ class DetailedRecordingResponse(RecordingResponse):
     transcription: dict | None = None
     topics: dict | None = None
     subtitles: dict | None = None
-    processing_stages: list[dict] | None = None
+    processing_stages_detailed: list[dict] | None = None
     uploads: dict | None = None
 
 
@@ -308,7 +309,8 @@ async def _execute_dry_run_single(
         steps.append({"name": "download", "enabled": False, "skip_reason": "Already downloaded"})
 
     # Trim step
-    if processing_config.get("enable_processing", True):
+    trimming_config = processing_config.get("trimming", {})
+    if trimming_config.get("enable_trimming", True):
         steps.append({"name": "trim", "enabled": True})
     else:
         steps.append({"name": "trim", "enabled": False, "skip_reason": "Disabled in config"})
@@ -400,6 +402,7 @@ async def _execute_dry_run_bulk(
                 "will_be_processed": True,
                 "display_name": recording.display_name,
                 "current_status": recording.status.value,
+                "start_time": recording.start_time.isoformat(),
             }
         )
 
@@ -556,6 +559,20 @@ async def list_recordings(
                 error=output.failed_reason if output.failed else None,
             )
 
+        # Processing stages
+        processing_stages = [
+            ProcessingStageResponse(
+                stage_type=stage.stage_type.value,
+                status=stage.status.value,
+                failed=stage.failed,
+                failed_at=stage.failed_at,
+                failed_reason=stage.failed_reason,
+                retry_count=stage.retry_count,
+                completed_at=stage.completed_at,
+            )
+            for stage in r.processing_stages
+        ]
+
         items.append(
             RecordingListItem(
                 id=r.id,
@@ -570,6 +587,7 @@ async def list_recordings(
                 template_name=r.template.name if r.template else None,
                 source=source_info,
                 uploads=uploads,
+                processing_stages=processing_stages,
                 deleted=r.deleted,
                 deleted_at=r.deleted_at,
                 delete_state=r.delete_state,
@@ -648,6 +666,20 @@ async def get_recording(
                 error=output.failed_reason if output.failed else None,
             )
 
+        # Processing stages
+        processing_stages = [
+            ProcessingStageResponse(
+                stage_type=stage.stage_type.value,
+                status=stage.status.value,
+                failed=stage.failed,
+                failed_at=stage.failed_at,
+                failed_reason=stage.failed_reason,
+                retry_count=stage.retry_count,
+                completed_at=stage.completed_at,
+            )
+            for stage in recording.processing_stages
+        ]
+
         return RecordingListItem(
             id=recording.id,
             display_name=recording.display_name,
@@ -661,6 +693,7 @@ async def get_recording(
             template_name=recording.template.name if recording.template else None,
             source=source_info,
             uploads=uploads,
+            processing_stages=processing_stages,
             deleted=recording.deleted,
             deleted_at=recording.deleted_at,
             delete_state=recording.delete_state,
@@ -710,6 +743,18 @@ async def get_recording(
                 preset=(PresetInfo(id=output.preset.id, name=output.preset.name) if output.preset else None),
             )
             for output in recording.outputs
+        ],
+        "processing_stages": [
+            ProcessingStageResponse(
+                stage_type=stage.stage_type.value,
+                status=stage.status.value,
+                failed=stage.failed,
+                failed_at=stage.failed_at,
+                failed_reason=stage.failed_reason,
+                retry_count=stage.retry_count,
+                completed_at=stage.completed_at,
+            )
+            for stage in recording.processing_stages
         ],
         "failed": recording.failed,
         "failed_at": recording.failed_at,
@@ -825,10 +870,10 @@ async def get_recording(
             "size_kb": round(subtitle_path.stat().st_size / 1024, 2) if subtitle_path.exists() else None,
         }
 
-    # Processing stages
-    processing_stages = None
+    # Processing stages detailed (with metadata and timestamps)
+    processing_stages_detailed = None
     if hasattr(recording, "processing_stages") and recording.processing_stages:
-        processing_stages = [
+        processing_stages_detailed = [
             {
                 "type": stage.stage_type.value if hasattr(stage.stage_type, "value") else str(stage.stage_type),
                 "status": stage.status.value if hasattr(stage.status, "value") else str(stage.status),
@@ -874,7 +919,7 @@ async def get_recording(
         transcription=transcription_data,
         topics=topics_data,
         subtitles=subtitles,
-        processing_stages=processing_stages,
+        processing_stages_detailed=processing_stages_detailed,
         uploads=uploads if uploads else None,
     )
 
@@ -1051,22 +1096,7 @@ async def get_available_statuses():
         StatusInfo(
             value="PROCESSED",
             label="Processed",
-            description="Video processed (trimmed)",
-        ),
-        StatusInfo(
-            value="PREPARING",
-            label="Preparing",
-            description="Preparation (transcription, topics, subtitles)",
-        ),
-        StatusInfo(
-            value="TRANSCRIBING",
-            label="Transcribing",
-            description="In progress of transcription",
-        ),
-        StatusInfo(
-            value="TRANSCRIBED",
-            label="Transcribed",
-            description="Transcribed (all stages completed)",
+            description="All processing stages completed or skipped",
         ),
         StatusInfo(
             value="UPLOADING",
@@ -1273,25 +1303,25 @@ async def trim_recording(
     }
 
 
-@router.post("/bulk/process")
-async def bulk_process_recordings(
-    data: BulkProcessRequest,
-    dry_run: bool = Query(False, description="Dry-run: show which recordings will be processed"),
+@router.post("/bulk/run")
+async def bulk_run_recordings(
+    data: BulkRunRequest,
+    dry_run: bool = Query(False, description="Dry-run: show which recordings will be run"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse | BulkProcessDryRunResponse:
     """
-    Bulk processing of multiple recordings (async tasks) - full pipeline.
+    Bulk run of multiple recordings (async tasks) - full pipeline.
 
     Supports two modes of selection:
     1. Explicit list of recording_ids
     2. Automatic selection by filters (template_id, status, is_mapped, etc.)
 
     Dry-run mode:
-    - dry_run=true: Show which recordings will be processed without actual execution
-    - Useful for checking filters before bulk processing
+    - dry_run=true: Show which recordings will be run without actual execution
+    - Useful for checking filters before bulk run
 
     Args:
-        data: BulkProcessRequest with recording_ids or filters + configuration override
+        data: BulkRunRequest with recording_ids or filters + configuration override
         dry_run: Dry-run mode (only checking, without execution)
         ctx: Service context
 
@@ -1299,15 +1329,14 @@ async def bulk_process_recordings(
         List of task_id for each recording or dry-run information
 
     Note:
-        Each recording is processed in a separate task.
+        Each recording is run in a separate task.
         Use GET /api/v1/tasks/{task_id} to check the status of each task.
     """
 
-    # Handle dry-run mode
     if dry_run:
         return await _execute_dry_run_bulk(data.recording_ids, data.filters, data.limit, ctx)
 
-    from api.tasks.processing import process_recording_task
+    from api.tasks.processing import run_recording_task
 
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
@@ -1354,7 +1383,7 @@ async def bulk_process_recordings(
                 continue
 
             # Start task for this recording (template-driven + manual override)
-            task = process_recording_task.delay(
+            task = run_recording_task.delay(
                 recording_id=recording_id,
                 user_id=ctx.user_id,
                 manual_override=manual_override if manual_override else None,
@@ -1393,24 +1422,24 @@ async def bulk_process_recordings(
     )
 
 
-@router.post("/{recording_id}/process", response_model=RecordingOperationResponse | DryRunResponse)
-async def process_recording(
+@router.post("/{recording_id}/run", response_model=RecordingOperationResponse | DryRunResponse)
+async def run_recording(
     recording_id: int,
     config: ConfigOverrideRequest = ConfigOverrideRequest(),
     dry_run: bool = Query(False, description="Dry-run: show what will be done without actual execution"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse | DryRunResponse:
     """
-    Full processing pipeline (async task): download → trim → transcribe → topics → upload.
+    Full pipeline run (async task): download → trim → transcribe → topics → upload.
 
     Supports flexible config overrides:
-    - processing_config: Override processing settings (transcription, silence detection, etc.)
+    - processing_config: Override processing settings (transcription, trimming, etc.)
     - metadata_config: Override metadata (title, description, playlists, albums, etc.)
     - output_config: Override output settings (preset_ids, auto_upload, etc.)
 
     Dry-run mode:
     - dry_run=true: Show which steps will be done without actual execution
-    - Useful for checking configuration before actual processing
+    - Useful for checking configuration before actual run
 
     Args:
         recording_id: Recording ID
@@ -1438,11 +1467,10 @@ async def process_recording(
         This is an async operation, performing all steps sequentially.
         Use GET /api/v1/tasks/{task_id} to check progress.
     """
-    # Handle dry-run mode
     if dry_run:
         return await _execute_dry_run_single(recording_id, config, ctx)
 
-    from api.tasks.processing import process_recording_task
+    from api.tasks.processing import run_recording_task
 
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -1453,17 +1481,16 @@ async def process_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    # Build manual override from flexible config
     manual_override = _build_override_from_flexible(config)
 
-    task = process_recording_task.delay(
+    task = run_recording_task.delay(
         recording_id=recording_id,
         user_id=ctx.user_id,
         manual_override=manual_override,
     )
 
     logger.info(
-        f"Process recording task {task.id} created for recording {recording_id}, user {ctx.user_id}, "
+        f"Run recording task {task.id} created for recording {recording_id}, user {ctx.user_id}, "
         f"overrides: {list(manual_override.keys())}"
     )
 
@@ -1472,7 +1499,7 @@ async def process_recording(
         "task_id": task.id,
         "recording_id": recording_id,
         "status": "queued",
-        "message": "Processing task has been queued",
+        "message": "Run task has been queued",
         "check_status_url": f"/api/v1/tasks/{task.id}",
         "config_overrides": manual_override if manual_override else None,
     }
@@ -2223,12 +2250,16 @@ async def update_recording_config(
 
     # Save overrides to recording.processing_preferences
     recording.processing_preferences = new_preferences if new_preferences else None
+
+    # Sync stages with updated config
+    from api.helpers.stage_sync import sync_stages_with_config
+
+    effective_config = await config_resolver.resolve_processing_config(recording, ctx.user_id)
+    await sync_stages_with_config(recording, effective_config)
+
     await ctx.session.commit()
 
     logger.info(f"Updated manual config for recording {recording_id}")
-
-    # Get effective config after update
-    effective_config = await config_resolver.resolve_processing_config(recording, ctx.user_id)
 
     from api.schemas.recording.operations import ConfigUpdateResponse
 

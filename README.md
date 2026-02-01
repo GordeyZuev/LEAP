@@ -365,9 +365,14 @@ storage/             ← User media files (ID-based structure)
 **Status Flow:**
 ```
 INITIALIZED → DOWNLOADING → DOWNLOADED → 
-PROCESSING → PROCESSED → PREPARING → 
-TRANSCRIBED → UPLOADING → READY
+PROCESSING → PROCESSED → UPLOADING → READY
 ```
+
+**Status Details:**
+- `PROCESSING` — любая стадия обработки (transcribe, topics, subtitles) в процессе
+- `PROCESSED` — все стадии завершены, готово к загрузке
+- `UPLOADING` — загрузка на платформы (YouTube/VK) в процессе
+- `READY` — все загрузки завершены
 
 **Special Statuses:**
 - `SKIPPED` — пропущено (config-driven)
@@ -411,12 +416,22 @@ TRANSCRIBED → UPLOADING → READY
 
 **Status:** Production-ready multi-tenant SaaS
 
-**v0.9.4 - Storage Structure Migration (January 2026):**
+**v0.9.4 - Storage Structure Migration + Bugfixes (January 2026):**
+
+**Storage Structure:**
 - ✅ ID-based file naming (no Cyrillic in paths)
 - ✅ Clean architecture: `file_storage/` (code) + `storage/` (data)
 - ✅ S3-ready storage abstraction
 - ✅ Complete legacy code removal
 - ✅ TranscriptionManager with user_slug (required)
+
+**Critical Bugfixes (January 30):**
+- 🐛 Fixed processing status not updating during transcription
+  - Added missing `mark_stage_in_progress()` and `mark_stage_failed()` methods
+  - Reordered priority logic in `compute_aggregate_status()`
+- 🐛 Fixed upload status not updating (PROCESSED → UPLOADING → READY)
+  - Added status updates to all upload repository methods
+  - Status now correctly reflects upload state in real-time
 
 **Previous Features:**
 - ✅ Celery Chains для параллелизма (0.08s orchestrator overhead)

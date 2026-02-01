@@ -1,6 +1,6 @@
 """Typed schemas for various configuration types
 
-Эти схемы используются для валидации config_data в BaseConfigModel.
+These schemas are used for validation of config_data in BaseConfigModel.
 """
 
 from typing import Any, Literal
@@ -8,31 +8,31 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
-class ProcessingConfigData(BaseModel):
-    """Конфигурация для обработки видео."""
+class TrimmingConfigData(BaseModel):
+    """Configuration for video trimming."""
 
-    # Обнаружение звука
-    enable_processing: bool = Field(True, description="Включить обработку видео")
-    audio_detection: bool = Field(True, description="Использовать детекцию звука")
-    silence_threshold: float = Field(-40.0, ge=-60.0, le=0.0, description="Порог тишины в дБ")
-    min_silence_duration: float = Field(2.0, ge=0.1, description="Минимальная длительность тишины (сек)")
-    padding_before: float = Field(5.0, ge=0.0, description="Отступ до звука (сек)")
-    padding_after: float = Field(5.0, ge=0.0, description="Отступ после звука (сек)")
+    # Audio detection
+    enable_trimming: bool = Field(True, description="Enable video trimming")
+    audio_detection: bool = Field(True, description="Use audio detection")
+    silence_threshold: float = Field(-40.0, ge=-60.0, le=0.0, description="Silence threshold in dB")
+    min_silence_duration: float = Field(2.0, ge=0.1, description="Minimum silence duration (sec)")
+    padding_before: float = Field(5.0, ge=0.0, description="Padding before audio (sec)")
+    padding_after: float = Field(5.0, ge=0.0, description="Padding after audio (sec)")
 
-    # Обрезка
-    remove_intro: bool = Field(False, description="Удалять вступление")
-    remove_outro: bool = Field(False, description="Удалять заключение")
-    intro_duration: float = Field(30.0, ge=0.0, description="Длительность вступления (сек)")
-    outro_duration: float = Field(30.0, ge=0.0, description="Длительность заключения (сек)")
+    # Trimming
+    remove_intro: bool = Field(False, description="Remove intro")
+    remove_outro: bool = Field(False, description="Remove outro")
+    intro_duration: float = Field(30.0, ge=0.0, description="Intro duration (sec)")
+    outro_duration: float = Field(30.0, ge=0.0, description="Outro duration (sec)")
 
-    # Системные настройки (не изменяются пользователем)
-    video_codec: str = Field("copy", description="Видео кодек")
-    audio_codec: str = Field("copy", description="Аудио кодек")
-    video_bitrate: str = Field("original", description="Битрейт видео")
-    audio_bitrate: str = Field("original", description="Битрейт аудио")
-    resolution: str = Field("original", description="Разрешение")
-    fps: int = Field(0, ge=0, description="FPS (0 = не изменять)")
-    output_format: str = Field("mp4", description="Формат выходного файла")
+    # System settings (not changed by user)
+    video_codec: str = Field("copy", description="Video codec")
+    audio_codec: str = Field("copy", description="Audio codec")
+    video_bitrate: str = Field("original", description="Video bitrate")
+    audio_bitrate: str = Field("original", description="Audio bitrate")
+    resolution: str = Field("original", description="Resolution")
+    fps: int = Field(0, ge=0, description="FPS (0 = no change)")
+    output_format: str = Field("mp4", description="Output file format")
 
 
 class TranscriptionConfigData(BaseModel):
@@ -137,9 +137,9 @@ class YandexDiskSyncConfigData(BaseModel):
             raise ValueError("Either folder_path or folder_url must be specified")
 
 
-# Маппинг типов конфигов на схемы
+# Config type to schema mapping
 CONFIG_TYPE_SCHEMAS: dict[str, type[BaseModel]] = {
-    "processing": ProcessingConfigData,
+    "trimming": TrimmingConfigData,
     "transcription": TranscriptionConfigData,
     "upload": UploadConfigData,
     "video_mapping": VideoMappingConfigData,

@@ -3,14 +3,14 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from api.schemas.common.pagination import PaginatedResponse
-from models import ProcessingStatus, SourceType, TargetStatus, TargetType
+from models import ProcessingStageStatus, ProcessingStatus, SourceType, TargetStatus, TargetType
 
 
 class SourceResponse(BaseModel):
-    """Источник записи."""
+    """Recording source metadata."""
 
     source_type: SourceType
     source_key: str
@@ -25,7 +25,7 @@ class PresetInfo(BaseModel):
 
 
 class OutputTargetResponse(BaseModel):
-    """Целевая платформа."""
+    """Output target platform configuration."""
 
     id: int
     target_type: TargetType
@@ -40,7 +40,7 @@ class OutputTargetResponse(BaseModel):
 
 
 class ProcessingStageResponse(BaseModel):
-    """Этап обработки."""
+    """Processing stage status."""
 
     stage_type: str
     status: str
@@ -68,7 +68,56 @@ class UploadInfo(BaseModel):
     error: str | None = None
 
 
-class RecordingListItem(BaseModel):
+class ReadyToUploadMixin(BaseModel):
+    """Mixin for computing ready_to_upload field."""
+
+    status: ProcessingStatus
+    failed: bool
+    deleted: bool
+    processing_stages: list[ProcessingStageResponse]
+
+    @computed_field
+    @property
+    def ready_to_upload(self) -> bool:
+        """Check if recording is ready to upload to platforms.
+
+        Returns True when:
+        - All active processing_stages are COMPLETED (ignores SKIPPED stages)
+        - Status is DOWNLOADED or later (PROCESSING, PROCESSED, UPLOADING, etc.)
+        - Not failed
+        - Not deleted
+
+        Note: This is a general readiness indicator. Server-side validation
+        (should_allow_upload) performs additional checks for specific platforms.
+        """
+        if self.failed or self.deleted:
+            return False
+
+        if self.status not in [
+            ProcessingStatus.DOWNLOADED,
+            ProcessingStatus.PROCESSING,
+            ProcessingStatus.PROCESSED,
+            ProcessingStatus.UPLOADING,
+            ProcessingStatus.READY,
+        ]:
+            return False
+
+        if self.processing_stages:
+            active_stages = [
+                s for s in self.processing_stages if s.status != ProcessingStageStatus.SKIPPED.value
+            ]
+
+            if active_stages:
+                all_completed = all(
+                    stage.status == ProcessingStageStatus.COMPLETED.value for stage in active_stages
+                )
+                if not all_completed:
+                    return False
+
+        return True
+
+
+class RecordingListItem(ReadyToUploadMixin):
     """Recording item for list view (optimized for UI table)."""
 
     id: int
@@ -83,6 +132,7 @@ class RecordingListItem(BaseModel):
     template_name: str | None = None
     source: SourceInfo | None = None
     uploads: dict[str, UploadInfo] = Field(default_factory=dict)
+    processing_stages: list[ProcessingStageResponse] = Field(default_factory=list)
     deleted: bool = False
     deleted_at: datetime | None = None
     delete_state: str = "active"
@@ -94,7 +144,7 @@ class RecordingListItem(BaseModel):
     updated_at: datetime
 
 
-class RecordingResponse(BaseModel):
+class RecordingResponse(ReadyToUploadMixin):
     """Full recording response with all details."""
 
     id: int
@@ -123,6 +173,33 @@ class RecordingResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
+    @property
+    def upload_summary(self) -> dict[str, Any] | None:
+        """
+        Compute upload summary for partial uploads.
+
+        Returns summary when there are uploads (completed or failed):
+        - total: total number of outputs
+        - uploaded: successfully uploaded count
+        - failed: failed upload count
+        - partial: True if some uploaded and some failed
+
+        Returns None if no outputs or all NOT_UPLOADED.
+        """
+        if not self.outputs:
+            return None
+
+        total = len(self.outputs)
+        uploaded = sum(1 for o in self.outputs if o.status == TargetStatus.UPLOADED)
+        failed = sum(1 for o in self.outputs if o.status == TargetStatus.FAILED)
+
+        # Only return summary if there are actual uploads (completed or failed)
+        if uploaded == 0 and failed == 0:
+            return None
+
+        return {"total": total, "uploaded": uploaded, "failed": failed, "partial": 0 < uploaded < total}
+
     class Config:
         from_attributes = True
 
@@ -133,10 +210,10 @@ class RecordingListResponse(PaginatedResponse):
     items: list[RecordingListItem]
 
 
-class ProcessRecordingResponse(BaseModel):
-    """Ответ на запрос обработки."""
+class RunRecordingResponse(BaseModel):
+    """Response for run request."""
 
     message: str
     recording_id: int
     status: ProcessingStatus
-    estimated_time: int | None = Field(None, description="Оценка времени в секундах")
+    estimated_time: int | None = Field(None, description="Estimated time in seconds")

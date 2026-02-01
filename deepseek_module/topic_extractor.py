@@ -92,29 +92,15 @@ class TopicExtractor:
         if not segments or len(segments) == 0:
             raise ValueError("Сегменты обязательны для извлечения тем")
 
-        logger.info(
-            f"Extracting topics from transcript: segments={len(segments)}",
-            segments=len(segments)
-        )
-        if recording_topic:
-            logger.info(
-                f"Using recording context: topic={recording_topic}",
-                recording_topic=recording_topic
-            )
-
         total_duration = segments[-1].get("end", 0) if segments else 0
         duration_minutes = total_duration / 60
-        logger.info(
-            f"Video duration calculated: duration={duration_minutes:.1f} min",
-            duration_min=round(duration_minutes, 1)
-        )
-
         min_topics, max_topics = self._calculate_topic_range(duration_minutes, granularity=granularity)
+
+        # Unified topics extraction start log
+        context_info = f" | topic={recording_topic}" if recording_topic else ""
         logger.info(
-            f"Topic range calculated: min={min_topics} | max={max_topics} | duration={duration_minutes:.1f} min",
-            min_topics=min_topics,
-            max_topics=max_topics,
-            duration_min=round(duration_minutes, 1)
+            f"Extracting topics: segments={len(segments)} | duration={duration_minutes:.1f}min | "
+            f"range={min_topics}-{max_topics}{context_info}"
         )
 
         transcript_with_timestamps = self._format_transcript_with_timestamps(segments)

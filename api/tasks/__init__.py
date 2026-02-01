@@ -11,7 +11,7 @@ from .processing import (
     download_recording_task,
     extract_topics_task,
     generate_subtitles_task,
-    process_recording_task,
+    run_recording_task,
     transcribe_recording_task,
     trim_video_task,
 )

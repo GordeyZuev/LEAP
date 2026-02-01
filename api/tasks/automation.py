@@ -1,26 +1,20 @@
 """Celery tasks for automation jobs."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from api.auth.encryption import get_encryption
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron
-from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.automation_repos import AutomationJobRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
 from api.tasks.base import AutomationTask
-from api.tasks.processing import process_recording_task
-from api.zoom_api import ZoomAPI
+from api.tasks.processing import run_recording_task
 from config.settings import get_settings
-from database.config import DatabaseConfig
-from database.manager import DatabaseManager
 from database.models import RecordingModel
 from logger import get_logger
 from models.recording import ProcessingStatus
-from utils import get_recordings_by_date_range
 
 logger = get_logger()
 settings = get_settings()
@@ -104,50 +98,35 @@ def run_automation_job_task(self, job_id: int, user_id: str):
                     logger.warning(f"Job {job_id}: No sources to sync")
                     return {"status": "error", "error": "No sources to sync"}
 
-                # Step 4: Sync recordings from all sources
+                # Step 4: Sync recordings from all sources using existing _sync_single_source
                 sync_config = job.sync_config
                 days = sync_config.get("sync_days", 2)
                 to_date = datetime.now().strftime("%Y-%m-%d")
                 from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-                cred_repo = UserCredentialRepository(session)
-                encryption = get_encryption()
+                from api.routers.input_sources import _sync_single_source
 
                 synced_count = 0
                 for source in sources_to_sync:
                     try:
-                        credential = await cred_repo.get_by_id(source.credential_id)
-                        if not credential:
-                            logger.warning(f"Job {job_id}: Credential not found for source {source.id}")
-                            continue
+                        result = await _sync_single_source(
+                            source_id=source.id,
+                            from_date=from_date,
+                            to_date=to_date,
+                            session=session,
+                            user_id=user_id,
+                        )
 
-                        # Decrypt credentials
-                        creds_data = encryption.decrypt_credentials(credential.encrypted_data)
-
-                        # Fetch recordings from source
-                        all_recordings = []
-                        for account, config in creds_data.items():
-                            try:
-                                api = ZoomAPI(config)
-                                recordings = await get_recordings_by_date_range(
-                                    api, start_date=from_date, end_date=to_date, filter_video_only=False
-                                )
-                                if recordings:
-                                    for rec in recordings:
-                                        rec.account = account
-                                        rec.user_id = user_id
-                                    all_recordings.extend(recordings)
-                            except Exception as e:
-                                logger.error(f"Job {job_id}: Failed to fetch from {account}: {e}")
-                                continue
-
-                        # Save to database
-                        if all_recordings:
-                            db_config = DatabaseConfig.from_env()
-                            db_manager = DatabaseManager(db_config)
-                            count = await db_manager.save_recordings(all_recordings)
-                            synced_count += count
-                            logger.info(f"Job {job_id}: Synced {count} recordings from source {source.id}")
+                        if result["status"] == "success":
+                            synced_count += result["recordings_saved"]
+                            logger.info(
+                                f"Job {job_id}: Synced source {source.id} - "
+                                f"found={result['recordings_found']}, "
+                                f"saved={result['recordings_saved']}, "
+                                f"updated={result['recordings_updated']}"
+                            )
+                        else:
+                            logger.error(f"Job {job_id}: Failed to sync source {source.id}: {result.get('error')}")
 
                     except Exception as e:
                         logger.error(f"Job {job_id}: Failed to sync source {source.id}: {e}")
@@ -161,8 +140,9 @@ def run_automation_job_task(self, job_id: int, user_id: str):
                 exclude_blank = filters.get("exclude_blank", True)
 
                 # Calculate date range from sync_days
-                from_datetime = datetime.now() - timedelta(days=days)
-                to_datetime = datetime.now()
+                # Use UTC to match timezone-aware start_time in DB
+                from_datetime = datetime.now(UTC) - timedelta(days=days)
+                to_datetime = datetime.now(UTC)
 
                 query = select(RecordingModel).where(
                     RecordingModel.user_id == user_id,
@@ -184,7 +164,8 @@ def run_automation_job_task(self, job_id: int, user_id: str):
 
                 logger.info(
                     f"Job {job_id}: Found {len(recordings_to_process)} recordings to process "
-                    f"(status={status_filter}, exclude_blank={exclude_blank})"
+                    f"(status={status_filter}, exclude_blank={exclude_blank}, "
+                    f"date_range={from_datetime.isoformat()} to {to_datetime.isoformat()})"
                 )
 
                 # Step 6: Match and process recordings
@@ -208,8 +189,8 @@ def run_automation_job_task(self, job_id: int, user_id: str):
                         recording.template_id = matched_template.id
                         recording.is_mapped = True
 
-                        # Start processing task with automation processing_config as manual_override
-                        task = process_recording_task.delay(
+                        # Start run task with automation processing_config as manual_override
+                        task = run_recording_task.delay(
                             recording_id=recording.id,
                             user_id=user_id,
                             manual_override=job.processing_config,
@@ -328,8 +309,9 @@ def dry_run_automation_job_task(self, job_id: int, user_id: str):
                 status_filter = filters.get("status", ["INITIALIZED"])
                 exclude_blank = filters.get("exclude_blank", True)
 
-                from_datetime = datetime.now() - timedelta(days=days)
-                to_datetime = datetime.now()
+                # Use UTC to match timezone-aware start_time in DB
+                from_datetime = datetime.now(UTC) - timedelta(days=days)
+                to_datetime = datetime.now(UTC)
 
                 query = select(RecordingModel).where(
                     RecordingModel.user_id == user_id,
@@ -340,6 +322,7 @@ def dry_run_automation_job_task(self, job_id: int, user_id: str):
                 if status_filter:
                     query = query.where(RecordingModel.status.in_(status_filter))
 
+                # Apply exclude_blank filter
                 if exclude_blank:
                     query = query.where(~RecordingModel.blank_record)
 

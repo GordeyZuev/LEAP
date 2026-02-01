@@ -114,6 +114,29 @@ class RecordingModel(Base):
         lazy="selectin",
     )
 
+    def mark_stage_in_progress(self, stage_type: ProcessingStageType) -> None:
+        """Mark stage as in progress."""
+        # Find or create stage
+        stage = None
+        for s in self.processing_stages:
+            if s.stage_type == stage_type:
+                stage = s
+                break
+
+        if stage is None:
+            # Create new stage
+            stage = ProcessingStageModel(
+                recording_id=self.id,
+                user_id=self.user_id,
+                stage_type=stage_type,
+                status=ProcessingStageStatus.IN_PROGRESS,
+            )
+            self.processing_stages.append(stage)
+        else:
+            # Update existing
+            stage.status = ProcessingStageStatus.IN_PROGRESS
+            stage.failed = False
+
     def mark_stage_completed(self, stage_type: ProcessingStageType, meta: dict[str, Any] | None = None) -> None:
         """Пометить этап как завершенный."""
         # Найти или создать этап
@@ -141,6 +164,34 @@ class RecordingModel(Base):
             stage.failed = False
             if meta:
                 stage.stage_meta = {**(stage.stage_meta or {}), **meta}
+
+    def mark_stage_failed(self, stage_type: ProcessingStageType, reason: str) -> None:
+        """Mark stage as failed."""
+        # Find or create stage
+        stage = None
+        for s in self.processing_stages:
+            if s.stage_type == stage_type:
+                stage = s
+                break
+
+        if stage is None:
+            # Create new stage
+            stage = ProcessingStageModel(
+                recording_id=self.id,
+                user_id=self.user_id,
+                stage_type=stage_type,
+                status=ProcessingStageStatus.FAILED,
+                failed=True,
+                failed_at=datetime.utcnow(),
+                failed_reason=reason,
+            )
+            self.processing_stages.append(stage)
+        else:
+            # Update existing
+            stage.status = ProcessingStageStatus.FAILED
+            stage.failed = True
+            stage.failed_at = datetime.utcnow()
+            stage.failed_reason = reason
 
     def __repr__(self) -> str:
         return f"<Recording(id={self.id}, display_name='{self.display_name}', status={self.status})>"
@@ -219,7 +270,7 @@ class OutputTargetModel(Base):
 
 
 class ProcessingStageModel(Base):
-    """Этап обработки записи (FSM модель)."""
+    """Processing stage model (FSM)."""
 
     __tablename__ = "processing_stages"
 
@@ -237,6 +288,7 @@ class ProcessingStageModel(Base):
     failed: Mapped[bool] = mapped_column(Boolean, default=False)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
+    skip_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     stage_meta: Mapped[Any | None] = mapped_column(JSONB)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

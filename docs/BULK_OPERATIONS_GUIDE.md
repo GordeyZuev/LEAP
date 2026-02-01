@@ -521,12 +521,37 @@ POST /api/v1/recordings/bulk/process?dry_run=true
 **Response:**
 ```json
 {
-  "dry_run": true,
   "matched_count": 42,
-  "recording_ids": [1, 2, 3, 4, 5, ...],
-  "limit_applied": 50
+  "skipped_count": 0,
+  "total": 42,
+  "recordings": [
+    {
+      "recording_id": 1,
+      "will_be_processed": true,
+      "display_name": "Lecture 1",
+      "current_status": "INITIALIZED",
+      "start_time": "2026-01-27T10:30:00"
+    },
+    {
+      "recording_id": 2,
+      "will_be_processed": false,
+      "skip_reason": "Blank record (too short or too small)"
+    }
+  ]
 }
 ```
+
+**Поля ответа:**
+- `matched_count` - количество записей, которые будут обработаны
+- `skipped_count` - количество пропущенных записей (blank records, не найденные)
+- `total` - общее количество записей в выборке
+- `recordings` - детальная информация по каждой записи:
+  - `recording_id` - ID записи
+  - `will_be_processed` - будет ли обработана (true/false)
+  - `display_name` - название записи (если будет обработана)
+  - `current_status` - текущий статус записи (если будет обработана)
+  - `start_time` - время начала конференции в ISO 8601 формате (если будет обработана)
+  - `skip_reason` - причина пропуска (если не будет обработана)
 
 **Используйте dry-run когда:**
 - ✅ Проверить сколько записей попадет под фильтры
