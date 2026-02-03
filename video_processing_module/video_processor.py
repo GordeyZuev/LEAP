@@ -1,6 +1,5 @@
 import asyncio
 import json
-import shutil
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -256,49 +255,3 @@ class VideoProcessor:
         except Exception as e:
             logger.error(f"Video processing failed: {title} - {e}")
             return []
-
-
-    async def batch_process(self, video_files: list[str]) -> dict[str, list[VideoSegment]]:
-        """Process multiple videos in batch."""
-        results = {}
-
-        for video_path in video_files:
-            if not Path(video_path).exists():
-                logger.error(f"File not found: {video_path}")
-                continue
-
-            title = Path(video_path).stem
-            segments = await self.process_video(video_path, title)
-            results[video_path] = segments
-
-        return results
-
-    def cleanup_temp_files(self):
-        """Remove temporary files if configured."""
-        if not self.config.keep_temp_files:
-            temp_dir = Path(self.config.temp_dir)
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
-                logger.info(f"Cleaned temp files: {temp_dir}")
-
-    def get_processing_statistics(self, results: dict[str, list[VideoSegment]]) -> dict[str, Any]:
-        """Calculate processing statistics from results."""
-        total_videos = len(results)
-        total_segments = sum(len(segments) for segments in results.values())
-        processed_segments = sum(len([s for s in segments if s.processed]) for segments in results.values())
-
-        total_duration = sum(
-            segment.duration
-            for segments in results.values()
-            for segment in segments
-            if segment.processed
-        )
-
-        return {
-            "total_videos": total_videos,
-            "total_segments": total_segments,
-            "processed_segments": processed_segments,
-            "success_rate": (processed_segments / total_segments * 100) if total_segments > 0 else 0,
-            "total_processed_duration": total_duration,
-            "total_processed_duration_formatted": f"{total_duration / 60:.1f} minutes",
-        }

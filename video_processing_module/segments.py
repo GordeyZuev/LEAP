@@ -34,25 +34,6 @@ class VideoSegment:
         if self.duration != (self.end_time - self.start_time):
             self.duration = self.end_time - self.start_time
 
-    def format_duration(self) -> str:
-        """Format duration as MM:SS."""
-        minutes = int(self.duration // 60)
-        seconds = int(self.duration % 60)
-        return f"{minutes:02d}:{seconds:02d}"
-
-    def to_dict(self) -> dict:
-        """Serialize segment to dictionary."""
-        return {
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "duration": self.duration,
-            "title": self.title,
-            "description": self.description,
-            "output_path": self.output_path,
-            "processed": self.processed,
-            "processing_time": self.processing_time.isoformat() if self.processing_time else None,
-        }
-
 
 class SegmentProcessor:
     """Creates video segments based on duration or timestamps."""
@@ -118,17 +99,3 @@ class SegmentProcessor:
             segments.append(segment)
 
         return segments
-
-    def create_single_segment(self, start_time: float, end_time: float, title: str) -> VideoSegment:
-        """Create single segment from start/end times."""
-        output_filename = f"{title}.{self.config.output_format}"
-        output_path = Path(self.config.output_dir) / output_filename
-
-        return VideoSegment(
-            start_time=start_time,
-            end_time=end_time,
-            duration=end_time - start_time,
-            title=title,
-            description=f"Processed segment {title}",
-            output_path=output_path,
-        )

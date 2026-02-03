@@ -1,6 +1,6 @@
 """Automation job repository"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,7 @@ class AutomationJobRepository:
 
     async def create(self, job_data: dict, user_id: str) -> AutomationJobModel:
         """Create new automation job."""
-        now = datetime.now(datetime.UTC)
+        now = datetime.now(UTC)
         job = AutomationJobModel(**job_data, user_id=user_id, created_at=now, updated_at=now)
         self.session.add(job)
         await self.session.commit()
@@ -57,7 +57,7 @@ class AutomationJobRepository:
         for key, value in updates.items():
             if value is not None and hasattr(job, key):
                 setattr(job, key, value)
-        job.updated_at = datetime.now(datetime.UTC)
+        job.updated_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(job)
         return job
@@ -69,7 +69,7 @@ class AutomationJobRepository:
 
     async def mark_run(self, job: AutomationJobModel, next_run_at: datetime) -> None:
         """Mark job as run and update stats."""
-        job.last_run_at = datetime.now(datetime.UTC)
+        job.last_run_at = datetime.now(UTC)
         job.next_run_at = next_run_at
         job.run_count += 1
         await self.session.commit()

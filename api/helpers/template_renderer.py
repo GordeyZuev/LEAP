@@ -1,7 +1,7 @@
 """Template renderer for upload metadata"""
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 class TemplateRenderer:

@@ -1,7 +1,5 @@
 """Storage path builder for consistent path generation"""
 
-import shutil
-import time
 import uuid
 from pathlib import Path
 
@@ -67,29 +65,6 @@ class StoragePathBuilder:
     def transcription_topics(self, user_slug: int, recording_id: int) -> Path:
         return self.transcription_dir(user_slug, recording_id) / "topics.json"
 
-    def transcription_subtitles(self, user_slug: int, recording_id: int, file_format: str) -> Path:
-        """Get subtitles path: .../transcriptions/subtitles.{format}"""
-        return self.transcription_dir(user_slug, recording_id) / f"subtitles.{file_format}"
-
-    def delete_recording_files(self, user_slug: int, recording_id: int) -> None:
-        """Delete entire recording directory"""
-        recording_dir = self.recording_root(user_slug, recording_id)
-        if recording_dir.exists():
-            shutil.rmtree(recording_dir)
-            logger.info(f"Deleted recording directory: {recording_dir}")
-
-    def get_recording_size(self, user_slug: int, recording_id: int) -> int:
-        """Get total recording size in bytes"""
-        recording_dir = self.recording_root(user_slug, recording_id)
-        if not recording_dir.exists():
-            return 0
-
-        return sum(
-            file_path.stat().st_size
-            for file_path in recording_dir.rglob("*")
-            if file_path.is_file() and self._can_access_file(file_path)
-        )
-
     def _can_access_file(self, file_path: Path) -> bool:
         """Check if file is accessible for stat operations"""
         try:
@@ -97,28 +72,6 @@ class StoragePathBuilder:
             return True
         except (OSError, FileNotFoundError):
             return False
-
-    def cleanup_temp(self, max_age_hours: int = 24) -> int:
-        """Delete temp files older than max_age_hours"""
-        temp_dir = self.temp_dir()
-        if not temp_dir.exists():
-            return 0
-
-        cutoff_time = time.time() - (max_age_hours * 3600)
-        deleted = 0
-
-        for file_path in temp_dir.iterdir():
-            if file_path.is_file() and self._is_file_old(file_path, cutoff_time):
-                try:
-                    file_path.unlink()
-                    deleted += 1
-                except (OSError, FileNotFoundError):
-                    continue
-
-        if deleted > 0:
-            logger.info(f"Cleaned up {deleted} temp files (>{max_age_hours}h)")
-
-        return deleted
 
     def _is_file_old(self, file_path: Path, cutoff_time: float) -> bool:
         """Check if file is older than cutoff time"""

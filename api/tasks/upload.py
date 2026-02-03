@@ -325,8 +325,8 @@ async def _async_upload_recording(
             logger.debug(f"[Upload {platform}] title_template: {title_template[:100]}...")
             logger.debug(f"[Upload {platform}] description_template: {description_template[:200]}...")
 
-            title = TemplateRenderer.render(title_template, template_context, topics_display)
-            description = TemplateRenderer.render(description_template, template_context, topics_display)
+            title = TemplateRenderer.render(title_template, template_context)
+            description = TemplateRenderer.render(description_template, template_context)
 
             logger.debug(f"[Upload {platform}] Rendered title: {title[:100] if title else 'EMPTY'}")
             logger.debug(f"[Upload {platform}] Rendered description length: {len(description)} chars")
@@ -340,7 +340,7 @@ async def _async_upload_recording(
             if not description:
                 logger.warning(f"[Upload {platform}] Description is empty, using fallback")
                 fallback_desc = TemplateRenderer.render(
-                    "Uploaded on {record_time:date}", template_context, topics_display
+                    "Uploaded on {record_time:date}", template_context
                 )
                 description = fallback_desc or "Uploaded"
                 if recording.main_topics:

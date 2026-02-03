@@ -1,6 +1,6 @@
 """OAuth endpoints for YouTube and VK"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -64,7 +64,7 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
             "params": {"access_token": access_token, "v": "5.131"},
             "extract": lambda data: (
                 f"vk_{data['response'][0].get('id')}"
-                if "response" in data and data["response"]
+                if data.get("response")
                 else "oauth_auto"
             ),
         },
@@ -97,7 +97,7 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
 def _build_oauth_credentials(platform: str, token_data: dict, config: OAuthPlatformConfig) -> dict:
     """Build platform-specific credential structure."""
     expires_in = token_data.get("expires_in", 3600 if platform != "vk_video" else 86400)
-    expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
     expiry_str = expiry.isoformat() + "Z"
 
     if platform == "youtube":

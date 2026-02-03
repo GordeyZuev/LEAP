@@ -38,7 +38,6 @@ class UserUpdate(BaseModel):
     timezone: str | None = None
     is_active: bool | None = None
     is_verified: bool | None = None
-    is_superuser: bool | None = None
     role: str | None = None
     can_transcribe: bool | None = None
     can_process_video: bool | None = None
@@ -56,7 +55,6 @@ class UserInDB(UserBase):
     timezone: str = "UTC"
     is_active: bool = True
     is_verified: bool = False
-    is_superuser: bool = False
     role: str = "user"
     can_transcribe: bool = True
     can_process_video: bool = True
@@ -81,7 +79,6 @@ class UserResponse(BaseModel):
     timezone: str
     is_active: bool
     is_verified: bool
-    is_superuser: bool
     role: str
     can_transcribe: bool
     can_process_video: bool

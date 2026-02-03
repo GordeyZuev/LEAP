@@ -623,31 +623,3 @@ class FireworksTranscriptionService:
                 "words": [],
                 "language": self.config.language,
             }
-
-    async def wait_for_batch_completion(
-        self,
-        batch_id: str,
-        poll_interval: float = 10.0,
-        max_wait_time: float = 3600.0,
-    ) -> dict[str, Any]:
-        """Wait for batch completion with polling (raises TimeoutError if exceeded)."""
-        start_time = time.time()
-        attempt = 0
-
-        logger.info(f"Batch | Waiting: {batch_id} | interval={poll_interval}s")
-
-        while True:
-            attempt += 1
-            elapsed = time.time() - start_time
-
-            if elapsed > max_wait_time:
-                raise TimeoutError(f"Batch {batch_id} timeout after {max_wait_time}s ({attempt} attempts)")
-
-            status_response = await self.check_batch_status(batch_id)
-            status = status_response.get("status", "unknown")
-
-            if status == "completed":
-                logger.info(f"Batch | Completed: {batch_id} | {elapsed:.1f}s | {attempt} attempts")
-                return await self.get_batch_result(batch_id)
-
-            await asyncio.sleep(poll_interval)

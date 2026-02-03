@@ -65,7 +65,6 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=error_msg or "Concurrent tasks quota exceeded"
                 )
 
-
 async def check_storage_quota(session: AsyncSession, user_id: str, required_bytes: int) -> bool:
     """Check storage quota."""
     quota_service = QuotaService(session)
@@ -100,3 +99,4 @@ async def decrement_tasks_quota(session: AsyncSession, user_id: str, count: int 
     current_count = usage.concurrent_tasks_count if usage else 0
     new_count = max(0, current_count - count)
     await quota_service.set_concurrent_tasks_count(user_id, new_count)
+

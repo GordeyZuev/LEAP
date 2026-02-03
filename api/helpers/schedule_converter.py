@@ -43,12 +43,3 @@ def schedule_to_cron(schedule: dict) -> tuple[str, str]:
 
     obj = schedule_map[schedule_type](**schedule)
     return obj.to_cron(), obj.human_readable()
-
-
-def validate_cron_expression(expression: str) -> bool:
-    """Validate cron expression syntax."""
-    try:
-        croniter(expression)
-        return True
-    except (ValueError, KeyError):
-        return False

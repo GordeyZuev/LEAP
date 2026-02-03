@@ -512,10 +512,6 @@ class MeetingRecording:
         }
         return stage_rollback_map.get(stage_type, ProcessingStatus.PROCESSED)
 
-    def _update_aggregate_status(self) -> None:
-        """DEPRECATED: Use status_manager.update_aggregate_status() instead"""
-        return
-
     def get_primary_audio_path(self) -> str | None:
         """Get path to primary audio file."""
         if self.processed_audio_path:
@@ -655,13 +651,3 @@ class MeetingRecording:
             progress["outputs"] = self.targets_summary()
 
         return progress
-
-    def reset_to_initial_state(self) -> None:
-        """Reset recording to initial state"""
-        self.local_video_path = None
-        self.processed_video_path = None
-        self.processed_audio_path = None
-        self.downloaded_at = None
-        self.transcription_dir = None
-        self.topic_timestamps = None
-        self.main_topics = None

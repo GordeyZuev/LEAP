@@ -1,6 +1,6 @@
 """Authentication and user management endpoints"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -157,7 +157,7 @@ async def login(request: LoginRequest, session: AsyncSession = Depends(get_db_se
     access_token = JWTHelper.create_access_token({"user_id": user.id, "email": user.email})
     refresh_token = JWTHelper.create_refresh_token({"user_id": user.id})
 
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.security.jwt_refresh_token_expire_days)
+    expires_at = datetime.now(UTC) + timedelta(days=settings.security.jwt_refresh_token_expire_days)
 
     token_create = RefreshTokenCreate(
         user_id=user.id,
@@ -166,7 +166,7 @@ async def login(request: LoginRequest, session: AsyncSession = Depends(get_db_se
     )
     await token_repo.create(token_data=token_create)
 
-    user_update = UserUpdate(last_login_at=datetime.now(timezone.utc))
+    user_update = UserUpdate(last_login_at=datetime.now(UTC))
     await user_repo.update(user.id, user_update)
 
     logger.info(f"User logged in: {user.email} (ID: {user.id})")
@@ -229,7 +229,7 @@ async def refresh_token(request: RefreshTokenRequest, session: AsyncSession = De
 
     await token_repo.revoke(request.refresh_token)
 
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.security.jwt_refresh_token_expire_days)
+    expires_at = datetime.now(UTC) + timedelta(days=settings.security.jwt_refresh_token_expire_days)
 
     token_create = RefreshTokenCreate(
         user_id=user.id,

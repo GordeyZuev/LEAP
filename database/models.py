@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
@@ -76,9 +76,9 @@ class RecordingModel(Base):
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
     failed_at_stage: Mapped[str | None] = mapped_column(String(50))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
     owner: Mapped["UserModel"] = relationship("UserModel", back_populates="recordings", lazy="selectin")
@@ -139,7 +139,7 @@ class RecordingModel(Base):
         """Mark stage as completed."""
         stage = self._get_or_create_stage(stage_type)
         stage.status = ProcessingStageStatus.COMPLETED
-        stage.completed_at = datetime.now(timezone.utc)
+        stage.completed_at = datetime.now(UTC)
         stage.failed = False
         if meta:
             stage.stage_meta = {**(stage.stage_meta or {}), **meta}
@@ -149,7 +149,7 @@ class RecordingModel(Base):
         stage = self._get_or_create_stage(stage_type)
         stage.status = ProcessingStageStatus.FAILED
         stage.failed = True
-        stage.failed_at = datetime.now(timezone.utc)
+        stage.failed_at = datetime.now(UTC)
         stage.failed_reason = reason
 
     def __repr__(self) -> str:
@@ -215,9 +215,9 @@ class OutputTargetModel(Base):
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
     recording: Mapped[RecordingModel] = relationship("RecordingModel", back_populates="outputs", lazy="selectin")
@@ -251,9 +251,9 @@ class ProcessingStageModel(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     stage_meta: Mapped[Any | None] = mapped_column(JSONB)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
     recording: Mapped["RecordingModel"] = relationship(

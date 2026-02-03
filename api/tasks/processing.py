@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from celery import chain, group
@@ -94,18 +94,19 @@ async def _refresh_download_token_if_needed(
 
     Returns fresh token or None if refresh failed.
     """
-    from api.repositories.subscription_repos import SubscriptionRepository
-    from api.services.credential_service import get_credentials_for_subscription
+    from api.auth.encryption import get_encryption
+    from api.repositories.auth_repos import UserCredentialRepository
+    from api.repositories.template_repos import InputSourceRepository
     from api.zoom_api import ZoomAPI
+    from models.zoom_auth import create_zoom_credentials
 
     current_token = (
         recording.source.meta.get("download_access_token") if recording.source and recording.source.meta else None
     )
 
-    # Calculate token age
     token_age_days = None
-    if recording.source and recording.source.updated_at:
-        token_age_days = (datetime.now() - recording.source.updated_at).days
+    if recording.updated_at:
+        token_age_days = (datetime.now(UTC) - recording.updated_at).days
 
     # Refresh if: old (>1 day), missing, or force
     if not (force or not current_token or (token_age_days and token_age_days > 1)):
@@ -117,15 +118,31 @@ async def _refresh_download_token_if_needed(
     )
 
     try:
-        subscription_repo = SubscriptionRepository(session)
-        subscription = await subscription_repo.get_by_id(recording.source.subscription_id)
-
-        if not subscription:
-            logger.warning(f"[Task {task_id}] Subscription not found for recording {recording.id}")
+        # Get input source
+        if not recording.source or not recording.source.input_source_id:
+            logger.warning(f"[Task {task_id}] No input source for recording {recording.id}")
             return current_token
 
-        credentials = await get_credentials_for_subscription(session, subscription, user_id)
-        zoom_api = ZoomAPI(credentials)
+        source_repo = InputSourceRepository(session)
+        source = await source_repo.find_by_id(recording.source.input_source_id, user_id)
+
+        if not source or not source.credential_id:
+            logger.warning(f"[Task {task_id}] Source not found or no credential for recording {recording.id}")
+            return current_token
+
+        # Get credentials
+        cred_repo = UserCredentialRepository(session)
+        credential = await cred_repo.get_by_id(source.credential_id)
+
+        if not credential:
+            logger.warning(f"[Task {task_id}] Credential {source.credential_id} not found")
+            return current_token
+
+        # Decrypt credentials
+        encryption = get_encryption()
+        credentials_dict = encryption.decrypt_credentials(credential.encrypted_data)
+        zoom_config = create_zoom_credentials(credentials_dict)
+        zoom_api = ZoomAPI(zoom_config)
 
         # Get fresh token from Zoom API
         meeting_details = await zoom_api.get_recording_details(meeting_id, include_download_token=True)
@@ -137,7 +154,7 @@ async def _refresh_download_token_if_needed(
             # Update in source.meta for future use
             if recording.source and recording.source.meta:
                 recording.source.meta["download_access_token"] = fresh_token
-                recording.source.updated_at = datetime.now()
+                recording.updated_at = datetime.now(UTC)
                 await session.commit()
 
             return fresh_token
@@ -512,7 +529,7 @@ async def _async_process_video(
         # Mark TRIM stage as COMPLETED
         if trim_stage:
             trim_stage.status = models.recording.ProcessingStageStatus.COMPLETED
-            trim_stage.completed_at = datetime.now(timezone.utc)
+            trim_stage.completed_at = datetime.now(UTC)
             update_aggregate_status(recording)
 
         await recording_repo.update(recording)

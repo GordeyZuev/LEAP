@@ -12,34 +12,9 @@ from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import RecordingTemplateRepository
 from api.services.config_resolver import ConfigResolver
 from database.models import RecordingModel
-from logger import format_log, get_logger
+from logger import get_logger
 
 logger = get_logger(__name__)
-
-
-async def get_user_processing_config(
-    session: AsyncSession,
-    user_id: str,
-) -> dict[str, Any]:
-    """
-    Get user's processing configuration.
-
-    Args:
-        session: DB session
-        user_id: User ID
-
-    Returns:
-        dict with processing configuration
-    """
-    try:
-        user_config_repo = UserConfigRepository(session)
-        user_config_model = await user_config_repo.get_by_user_id(user_id)
-        if user_config_model:
-            return user_config_model.config_data.get("processing", {})
-    except Exception as e:
-        logger.warning(format_log("Could not get user processing config", error=str(e)))
-
-    return {}
 
 
 async def resolve_full_config(

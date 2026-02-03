@@ -222,7 +222,7 @@ FIREWORKS_API_KEY=your-key
 # Run migrations
 alembic upgrade head
 
-# Create superuser
+# Create admin user
 python -m utils.create_test_user --email admin@example.com --is-admin
 ```
 

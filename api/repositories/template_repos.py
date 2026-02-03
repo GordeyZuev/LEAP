@@ -1,6 +1,6 @@
 """Template, config, source and preset repositories"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -19,29 +19,6 @@ class BaseConfigRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
-
-    async def find_global(self) -> list[BaseConfigModel]:
-        """Get all global configurations."""
-        result = await self.session.execute(
-            select(BaseConfigModel).where(BaseConfigModel.user_id.is_(None), BaseConfigModel.is_active)
-        )
-        return list(result.scalars().all())
-
-    async def find_by_user(self, user_id: str) -> list[BaseConfigModel]:
-        """Get configurations for user."""
-        result = await self.session.execute(
-            select(BaseConfigModel).where(BaseConfigModel.user_id == user_id, BaseConfigModel.is_active)
-        )
-        return list(result.scalars().all())
-
-    async def find_by_id(self, config_id: int, user_id: str | None = None) -> BaseConfigModel | None:
-        """Get configuration by ID with permission check."""
-        query = select(BaseConfigModel).where(BaseConfigModel.id == config_id)
-        if user_id is not None:
-            # User can only see their own configurations or global configurations
-            query = query.where((BaseConfigModel.user_id == user_id) | (BaseConfigModel.user_id.is_(None)))
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
 
     async def create(
         self,
@@ -65,7 +42,7 @@ class BaseConfigRepository:
 
     async def update(self, config: BaseConfigModel) -> BaseConfigModel:
         """Update configuration."""
-        config.updated_at = datetime.now(datetime.UTC)
+        config.updated_at = datetime.now(UTC)
         await self.session.flush()
         return config
 
@@ -80,11 +57,6 @@ class InputSourceRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
-
-    async def find_by_user(self, user_id: str) -> list[InputSourceModel]:
-        """Get all sources for user."""
-        result = await self.session.execute(select(InputSourceModel).where(InputSourceModel.user_id == user_id))
-        return list(result.scalars().all())
 
     async def find_by_id(self, source_id: int, user_id: str) -> InputSourceModel | None:
         """Get source by ID with permission check."""
@@ -153,13 +125,13 @@ class InputSourceRepository:
 
     async def update(self, source: InputSourceModel) -> InputSourceModel:
         """Update source."""
-        source.updated_at = datetime.now(datetime.UTC)
+        source.updated_at = datetime.now(UTC)
         await self.session.flush()
         return source
 
     async def update_last_sync(self, source: InputSourceModel) -> InputSourceModel:
         """Update time of last synchronization."""
-        source.last_sync_at = datetime.now(datetime.UTC)
+        source.last_sync_at = datetime.now(UTC)
         await self.session.flush()
         return source
 
@@ -174,11 +146,6 @@ class OutputPresetRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
-
-    async def find_by_user(self, user_id: str) -> list[OutputPresetModel]:
-        """Get all presets for user."""
-        result = await self.session.execute(select(OutputPresetModel).where(OutputPresetModel.user_id == user_id))
-        return list(result.scalars().all())
 
     async def find_by_id(self, preset_id: int, user_id: str) -> OutputPresetModel | None:
         """Get preset by ID with permission check."""
@@ -242,7 +209,7 @@ class OutputPresetRepository:
 
     async def update(self, preset: OutputPresetModel) -> OutputPresetModel:
         """Update preset."""
-        preset.updated_at = datetime.now(datetime.UTC)
+        preset.updated_at = datetime.now(UTC)
         await self.session.flush()
         return preset
 
@@ -257,14 +224,6 @@ class RecordingTemplateRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
-
-    async def find_by_user(self, user_id: str, include_drafts: bool = False) -> list[RecordingTemplateModel]:
-        """Get all templates for user."""
-        query = select(RecordingTemplateModel).where(RecordingTemplateModel.user_id == user_id)
-        if not include_drafts:
-            query = query.where(~RecordingTemplateModel.is_draft)
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
 
     async def find_by_id(self, template_id: int, user_id: str) -> RecordingTemplateModel | None:
         """Get template by ID with permission check."""
@@ -325,14 +284,14 @@ class RecordingTemplateRepository:
 
     async def update(self, template: RecordingTemplateModel) -> RecordingTemplateModel:
         """Update template."""
-        template.updated_at = datetime.now(datetime.UTC)
+        template.updated_at = datetime.now(UTC)
         await self.session.flush()
         return template
 
     async def increment_usage(self, template: RecordingTemplateModel) -> RecordingTemplateModel:
         """Increment usage counter."""
         template.used_count += 1
-        template.last_used_at = datetime.now(datetime.UTC)
+        template.last_used_at = datetime.now(UTC)
         await self.session.flush()
         return template
 

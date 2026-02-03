@@ -14,51 +14,6 @@ class AudioDetector:
         self.silence_threshold = silence_threshold
         self.min_silence_duration = min_silence_duration
 
-    async def detect_audio_boundaries(self, video_path: str) -> tuple[float | None, float | None]:
-        """Determine audio boundaries in video."""
-        try:
-            if not await self._validate_video_file(video_path):
-                logger.error(f"Video file corrupted or inaccessible: {video_path}")
-                return None, None
-
-            cmd = [
-                "ffmpeg",
-                "-i",
-                video_path,
-                "-af",
-                f"silencedetect=noise={self.silence_threshold}dB:d={self.min_silence_duration}",
-                "-f",
-                "null",
-                "-",
-            ]
-
-            process = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-
-            _stdout, stderr = await process.communicate()
-
-            if process.returncode != 0:
-                error_msg = stderr.decode()
-                logger.error(f"FFmpeg audio detection failed: {error_msg}")
-                return None, None
-
-            silence_periods = self._parse_silence_detection(stderr.decode())
-
-            if not silence_periods:
-                return 0.0, None
-
-            first_sound = self._find_first_sound(silence_periods)
-            duration = await self._get_duration(video_path)
-            last_sound = self._find_last_sound(silence_periods, duration)
-
-            logger.info(f"Audio boundaries: {first_sound:.1f}s - {last_sound:.1f}s")
-            return first_sound, last_sound
-
-        except Exception as e:
-            logger.error(f"Error detecting audio: {e}")
-            return None, None
-
     async def detect_audio_boundaries_from_file(self, audio_path: str) -> tuple[float | None, float | None]:
         """Analyze audio file for silence detection (faster than video analysis)."""
         try:

@@ -1,11 +1,11 @@
 """Async recording repository with multi-tenancy"""
 
 import shutil
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -182,13 +182,13 @@ class RecordingRepository:
             Created recording
         """
         # Get retention settings
-        retention = user_config.get("retention", {}) if user_config else {}
+        retention = user_config.get("retention", {}) if isinstance(user_config, dict) else {}
         auto_expire_days = retention.get("auto_expire_days", 90)
 
         # Set expire_at (can be overridden by Zoom API deleted_at via kwargs)
         expire_at = kwargs.get("expire_at")
         if expire_at is None and auto_expire_days:
-            expire_at = datetime.now(datetime.UTC) + timedelta(days=auto_expire_days)
+            expire_at = datetime.now(UTC) + timedelta(days=auto_expire_days)
 
         recording = RecordingModel(
             user_id=user_id,
@@ -244,45 +244,12 @@ class RecordingRepository:
             if hasattr(recording, field):
                 setattr(recording, field, value)
 
-        recording.updated_at = datetime.now(datetime.UTC)
+        recording.updated_at = datetime.now(UTC)
         await self.session.flush()
 
         logger.debug(f"Updated recording {recording.id}")
         return recording
 
-    async def save_transcription_result(
-        self,
-        recording: RecordingModel,
-        transcription_dir: str,
-        transcription_info: dict[str, Any],
-        topic_timestamps: list[dict[str, Any]],
-        main_topics: list[str],
-    ) -> RecordingModel:
-        """
-        Save transcription results.
-
-        Args:
-            recording: Recording
-            transcription_dir: Directory with transcription
-            transcription_info: Transcription info
-            topic_timestamps: Topic timestamps
-            main_topics: Main topics
-
-        Returns:
-            Updated recording
-        """
-        recording.transcription_dir = transcription_dir
-        recording.transcription_info = transcription_info
-        recording.topic_timestamps = topic_timestamps
-        recording.main_topics = main_topics
-        # Note: Status should be updated via mark_stage_completed() + update_aggregate_status()
-        # Do not set status directly here
-        recording.updated_at = datetime.now(datetime.UTC)
-
-        await self.session.flush()
-
-        logger.info(f"Saved transcription results for recording {recording.id}")
-        return recording
 
     async def get_or_create_output_target(
         self,
@@ -341,7 +308,7 @@ class RecordingRepository:
 
         output_target.status = TargetStatus.UPLOADING
         output_target.failed = False
-        output_target.updated_at = datetime.now(datetime.UTC)
+        output_target.updated_at = datetime.now(UTC)
         await self.session.flush()
 
         # Refresh recording to ensure outputs are loaded
@@ -369,10 +336,10 @@ class RecordingRepository:
 
         output_target.status = TargetStatus.FAILED
         output_target.failed = True
-        output_target.failed_at = datetime.now(datetime.UTC)
+        output_target.failed_at = datetime.now(UTC)
         output_target.failed_reason = error_message[:1000]  # Length limit
         output_target.retry_count += 1
-        output_target.updated_at = datetime.now(datetime.UTC)
+        output_target.updated_at = datetime.now(UTC)
         await self.session.flush()
 
         # Refresh recording to ensure outputs are loaded
@@ -427,9 +394,9 @@ class RecordingRepository:
                 "video_url": video_url,
                 **(target_meta or {}),
             }
-            existing_output.uploaded_at = datetime.now(datetime.UTC)
+            existing_output.uploaded_at = datetime.now(UTC)
             existing_output.failed = False
-            existing_output.updated_at = datetime.now(datetime.UTC)
+            existing_output.updated_at = datetime.now(UTC)
             await self.session.flush()
 
             logger.info(f"Updated upload result for recording {recording.id} to {target_type}")
@@ -447,7 +414,7 @@ class RecordingRepository:
                     "video_url": video_url,
                     **(target_meta or {}),
                 },
-                uploaded_at=datetime.now(datetime.UTC),
+                uploaded_at=datetime.now(UTC),
             )
 
             self.session.add(output)
@@ -463,18 +430,6 @@ class RecordingRepository:
         logger.info(f"Updated recording {recording.id} aggregate status to {recording.status}")
 
         return output
-
-    async def count_by_user(self, user_id: str, status: ProcessingStatus | None = None) -> int:
-        """
-        Count number of recordings for user.
-        """
-        query = select(func.count(RecordingModel.id)).where(RecordingModel.user_id == user_id)
-
-        if status:
-            query = query.where(RecordingModel.status == status)
-
-        result = await self.session.execute(query)
-        return result.scalar() or 0
 
     async def find_by_source_key(
         self,
@@ -596,12 +551,12 @@ class RecordingRepository:
 
                 # Update source metadata
                 if existing.source:
-                    existing_meta = existing.source.meta or {}
+                    existing_meta = existing.source.meta if isinstance(existing.source.meta, dict) else {}
                     merged_meta = dict(existing_meta)
                     merged_meta.update(source_metadata or {})
                     existing.source.meta = merged_meta
 
-                existing.updated_at = datetime.now(datetime.UTC)
+                existing.updated_at = datetime.now(UTC)
 
                 logger.info(f"Updated existing recording {existing.id} for user {user_id} (status={existing.status})")
 
@@ -626,13 +581,13 @@ class RecordingRepository:
             status = ProcessingStatus.SKIPPED
 
         # Get retention settings
-        retention = user_config.get("retention", {}) if user_config else {}
+        retention = user_config.get("retention", {}) if isinstance(user_config, dict) else {}
         auto_expire_days = retention.get("auto_expire_days", 90)
 
         # Set expire_at (can be overridden by Zoom API deleted_at via kwargs)
         expire_at = kwargs.get("expire_at")
         if expire_at is None and auto_expire_days:
-            expire_at = datetime.now(datetime.UTC) + timedelta(days=auto_expire_days)
+            expire_at = datetime.now(UTC) + timedelta(days=auto_expire_days)
 
         recording = RecordingModel(
             user_id=user_id,
@@ -681,7 +636,7 @@ class RecordingRepository:
             recording: Recording to soft delete
             user_config: User configuration containing retention settings
         """
-        now = datetime.now(datetime.UTC)
+        now = datetime.now(UTC)
         recording.deleted = True
         recording.delete_state = "soft"
         recording.deletion_reason = "manual"
@@ -713,7 +668,7 @@ class RecordingRepository:
             recording: Recording to expire
             user_config: User configuration containing retention settings
         """
-        now = datetime.now(datetime.UTC)
+        now = datetime.now(UTC)
         recording.deleted = True
         recording.delete_state = "soft"
         recording.deletion_reason = "expired"
@@ -763,9 +718,9 @@ class RecordingRepository:
         retention = user_config.get("retention", {})
         auto_expire_days = retention.get("auto_expire_days", 90)
         if auto_expire_days:
-            recording.expire_at = datetime.now(datetime.UTC) + timedelta(days=auto_expire_days)
+            recording.expire_at = datetime.now(UTC) + timedelta(days=auto_expire_days)
 
-        recording.updated_at = datetime.now(datetime.UTC)
+        recording.updated_at = datetime.now(UTC)
 
         await self.session.flush()
 
@@ -831,7 +786,7 @@ class RecordingRepository:
 
         # Update state (soft_deleted_at already set, just change state)
         recording.delete_state = "hard"
-        recording.updated_at = datetime.now(datetime.UTC)
+        recording.updated_at = datetime.now(UTC)
 
         return total_bytes
 

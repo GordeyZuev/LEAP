@@ -1,6 +1,6 @@
 """Database models for recording automation"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -32,8 +32,8 @@ class AutomationJobModel(Base):
     next_run_at = Column(DateTime(timezone=True), nullable=True)
     run_count = Column(Integer, default=0, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
 
     user = relationship("UserModel", back_populates="automation_jobs")
 

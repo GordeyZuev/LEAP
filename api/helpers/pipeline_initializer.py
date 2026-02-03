@@ -11,7 +11,7 @@ from models.recording import ProcessingStageStatus, ProcessingStageType, TargetS
 
 
 def _build_stages_from_config(
-    recording: RecordingModel, processing_config: dict[str, Any]
+    processing_config: dict[str, Any]
 ) -> list[tuple[ProcessingStageType, dict]]:
     """Build list of required stages from processing config."""
     stages = []
@@ -57,7 +57,7 @@ async def initialize_processing_stages_from_config(
             status=ProcessingStageStatus.PENDING,
             stage_meta=meta,
         )
-        for stage_type, meta in _build_stages_from_config(recording, processing_config)
+        for stage_type, meta in _build_stages_from_config(processing_config)
     ]
 
     for stage in stages_to_create:
@@ -117,7 +117,7 @@ async def ensure_processing_stages(
 ) -> list[ProcessingStageModel]:
     """Ensure processing_stages exist (create only missing ones)."""
     existing_stage_types = {stage.stage_type for stage in recording.processing_stages}
-    required_stages = _build_stages_from_config(recording, processing_config)
+    required_stages = _build_stages_from_config(processing_config)
 
     new_stages = []
     for stage_type, meta in required_stages:

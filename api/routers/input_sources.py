@@ -27,8 +27,11 @@ router = APIRouter(prefix="/api/v1/sources", tags=["Input Sources"])
 logger = get_logger()
 
 
-def _get_best_video_file(recording_files: list) -> dict | None:
+def _get_best_video_file(recording_files: list | None) -> dict | None:
     """Select best video file from recording files (prefer shared_screen_with_speaker_view)."""
+    if not recording_files:
+        return None
+
     for file in recording_files:
         if file.get("file_type") == "MP4" and file.get("recording_type") == "shared_screen_with_speaker_view":
             return file
@@ -152,7 +155,7 @@ async def _sync_single_source(
             zoom_config = create_zoom_credentials(credentials)
             zoom_api = ZoomAPI(zoom_config)
             recordings_data = await zoom_api.get_recordings(from_date=from_date, to_date=to_date)
-            meetings = recordings_data.get("meetings", [])
+            meetings = recordings_data.get("meetings") or []
 
             logger.info(f"Found {len(meetings)} recordings from Zoom source {source_id}")
 
@@ -182,7 +185,7 @@ async def _sync_single_source(
                         start_time_str = start_time_str[:-1] + "+00:00"
                     start_time = datetime.fromisoformat(start_time_str)
 
-                    video_file = _get_best_video_file(meeting.get("recording_files", []))
+                    video_file = _get_best_video_file(meeting.get("recording_files") or [])
                     (
                         meeting_details,
                         download_access_token,
@@ -279,9 +282,12 @@ def _check_source_filter(source_id: int, template_source_ids: list) -> bool:
     return not template_source_ids or source_id in template_source_ids
 
 
-def _check_exclude_items(items: list, display_name: str, case_sensitive: bool, use_regex: bool = False) -> bool:
+def _check_exclude_items(items: list | None, display_name: str, case_sensitive: bool, use_regex: bool = False) -> bool:
     """Check if any exclude item matches (keywords or patterns)."""
     import re
+
+    if not items:
+        return False
 
     for item in items:
         if not isinstance(item, str):
@@ -304,10 +310,13 @@ def _check_exclude_items(items: list, display_name: str, case_sensitive: bool, u
 
 
 def _check_match_items(
-    items: list, display_name: str, case_sensitive: bool, exact: bool = False, use_regex: bool = False
+    items: list | None, display_name: str, case_sensitive: bool, exact: bool = False, use_regex: bool = False
 ) -> bool:
     """Check if any match item matches (exact/keywords/patterns)."""
     import re
+
+    if not items:
+        return False
 
     display_compare = _normalize_string(display_name, case_sensitive)
 
@@ -343,26 +352,26 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
         matching_rules = template.matching_rules or {}
         case_sensitive = matching_rules.get("case_sensitive", False)
 
-        if not _check_source_filter(source_id, matching_rules.get("source_ids", [])):
+        if not _check_source_filter(source_id, matching_rules.get("source_ids") or []):
             continue
 
-        if _check_exclude_items(matching_rules.get("exclude_keywords", []), display_name, case_sensitive):
+        if _check_exclude_items(matching_rules.get("exclude_keywords"), display_name, case_sensitive):
             continue
 
         if _check_exclude_items(
-            matching_rules.get("exclude_patterns", []), display_name, case_sensitive, use_regex=True
+            matching_rules.get("exclude_patterns"), display_name, case_sensitive, use_regex=True
         ):
             continue
 
-        if _check_match_items(matching_rules.get("exact_matches", []), display_name, case_sensitive, exact=True):
+        if _check_match_items(matching_rules.get("exact_matches"), display_name, case_sensitive, exact=True):
             logger.info(f"Recording '{display_name}' matched template '{template.name}' (exact)")
             return template
 
-        if _check_match_items(matching_rules.get("keywords", []), display_name, case_sensitive):
+        if _check_match_items(matching_rules.get("keywords"), display_name, case_sensitive):
             logger.info(f"Recording '{display_name}' matched template '{template.name}' (keyword)")
             return template
 
-        if _check_match_items(matching_rules.get("patterns", []), display_name, case_sensitive, use_regex=True):
+        if _check_match_items(matching_rules.get("patterns"), display_name, case_sensitive, use_regex=True):
             logger.info(f"Recording '{display_name}' matched template '{template.name}' (pattern)")
             return template
 

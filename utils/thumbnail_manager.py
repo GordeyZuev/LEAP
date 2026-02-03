@@ -131,23 +131,6 @@ class ThumbnailManager:
 
         return sorted(thumbnails)
 
-    def list_template_thumbnails(self) -> list[Path]:
-        """
-        Get list of all global template thumbnails.
-
-        Returns:
-            List of template paths
-        """
-        templates_dir = self.get_global_templates_dir()
-        if not templates_dir.exists():
-            return []
-
-        thumbnails = []
-        for ext in SUPPORTED_IMAGE_FORMATS:
-            thumbnails.extend(templates_dir.glob(f"*{ext}"))
-
-        return sorted(thumbnails)
-
     def upload_user_thumbnail(
         self,
         user_slug: int,

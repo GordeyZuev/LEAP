@@ -1,6 +1,6 @@
 """Security utilities: password hashing, JWT tokens"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
@@ -45,7 +45,7 @@ class JWTHelper:
         if expires_delta is None:
             expires_delta = timedelta(minutes=settings.security.jwt_access_token_expire_minutes)
 
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
 
         to_encode = subject.copy()
         to_encode.update({"exp": expire, "type": "access"})
@@ -60,7 +60,7 @@ class JWTHelper:
         if expires_delta is None:
             expires_delta = timedelta(days=settings.security.jwt_refresh_token_expire_days)
 
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
 
         to_encode = subject.copy()
         to_encode.update({"exp": expire, "type": "refresh"})

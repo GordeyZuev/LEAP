@@ -1,6 +1,6 @@
 """Database models for templates, configs, sources and presets"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
@@ -21,8 +21,8 @@ class BaseConfigModel(Base):
     config_type = Column(String(50), nullable=True, index=True)
     config_data = Column(JSONB, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
 
     def __repr__(self):
         scope = "global" if self.user_id is None else f"user_{self.user_id}"
@@ -47,9 +47,9 @@ class InputSourceModel(Base):
     credential_id = Column(Integer, ForeignKey("user_credentials.id", ondelete="SET NULL"), nullable=True)
     config = Column(JSONB, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    last_sync_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_sync_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     credential = relationship("UserCredentialModel", foreign_keys=[credential_id])
 
     def __repr__(self):
@@ -69,8 +69,8 @@ class OutputPresetModel(Base):
     credential_id = Column(Integer, ForeignKey("user_credentials.id", ondelete="CASCADE"), nullable=False)
     preset_metadata = Column(JSONB, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     credential = relationship("UserCredentialModel", foreign_keys=[credential_id])
 
     def __repr__(self):
@@ -93,9 +93,9 @@ class RecordingTemplateModel(Base):
     is_draft = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     used_count = Column(Integer, default=0, nullable=False)
-    last_used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
 
     def __repr__(self):
         draft_status = " (draft)" if self.is_draft else ""

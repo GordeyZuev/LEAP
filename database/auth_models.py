@@ -1,6 +1,6 @@
 """Database models for authentication and multi-tenancy"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -33,7 +33,6 @@ class UserModel(Base):
     full_name = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
-    is_superuser = Column(Boolean, default=False, nullable=False)
     role = Column(String(50), default="user", nullable=False)
     can_transcribe = Column(Boolean, default=True, nullable=False)
     can_process_video = Column(Boolean, default=True, nullable=False)
@@ -44,9 +43,9 @@ class UserModel(Base):
     can_manage_credentials = Column(Boolean, default=True, nullable=False)
     can_export_data = Column(Boolean, default=True, nullable=False)
     timezone = Column(String(50), default="UTC", nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    last_login_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
     credentials = relationship("UserCredentialModel", back_populates="user", cascade="all, delete-orphan")
     recordings = relationship("RecordingModel", back_populates="owner", cascade="all, delete-orphan")
     subscription = relationship(
@@ -75,9 +74,9 @@ class UserCredentialModel(Base):
     account_name = Column(String(255), nullable=True)
     encrypted_data = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
     user = relationship("UserModel", back_populates="credentials")
 
     def __repr__(self):
@@ -105,8 +104,8 @@ class SubscriptionPlanModel(Base):
     overage_unit_type = Column(String(50), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     sort_order = Column(Integer, default=0, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     subscriptions = relationship("UserSubscriptionModel", back_populates="plan")
 
     def __repr__(self):
@@ -128,13 +127,13 @@ class UserSubscriptionModel(Base):
     custom_min_automation_interval_hours = Column(Integer, nullable=True)
     pay_as_you_go_enabled = Column(Boolean, default=False, nullable=False)
     pay_as_you_go_monthly_limit = Column(Numeric(10, 2), nullable=True)
-    starts_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    expires_at = Column(DateTime, nullable=True)
+    starts_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     modified_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     user = relationship("UserModel", back_populates="subscription", foreign_keys=[user_id])
     plan = relationship("SubscriptionPlanModel", back_populates="subscriptions")
 
@@ -155,8 +154,8 @@ class QuotaUsageModel(Base):
     concurrent_tasks_count = Column(Integer, default=0, nullable=False)
     overage_recordings_count = Column(Integer, default=0, nullable=False)
     overage_cost = Column(Numeric(10, 2), default=0, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
     user = relationship("UserModel", back_populates="quota_usage")
 
     def __repr__(self):
@@ -179,7 +178,7 @@ class QuotaChangeHistoryModel(Base):
     new_plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True)
     changes = Column(JSONB, nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True)
 
     def __repr__(self):
         return f"<QuotaChangeHistory(id={self.id}, user_id={self.user_id}, type='{self.change_type}')>"
@@ -193,9 +192,9 @@ class RefreshTokenModel(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     token = Column(String(500), unique=True, nullable=False, index=True)
-    expires_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
     is_revoked = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
     def __repr__(self):
         return f"<RefreshToken(id={self.id}, user_id={self.user_id}, revoked={self.is_revoked})>"

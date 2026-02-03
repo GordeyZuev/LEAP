@@ -89,82 +89,6 @@ class SubtitleGenerator:
 
         return entries
 
-    def parse_words_file(self, file_path: str) -> list[SubtitleEntry]:
-        """Parse transcription file with individual words and group them into subtitles"""
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Transcription file not found: {file_path}")
-
-        words = []
-        with path.open(encoding="utf-8") as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-
-                try:
-                    parsed = self._parse_timestamp_line(line)
-                    if parsed:
-                        start_time, end_time, text = parsed
-                        if text.strip():
-                            words.append({"start": start_time, "end": end_time, "text": text.strip()})
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Error parsing line {line_num}: {line[:50]} - {e}")
-
-        if not words:
-            raise ValueError(f"No words extracted from {file_path}")
-
-        logger.info(f"Parsed {len(words)} words from {file_path}")
-        return self._group_words_into_subtitles(words)
-
-    def _group_words_into_subtitles(
-        self,
-        words: list[dict],
-        max_duration_seconds: float | None = None,
-        pause_threshold_seconds: float | None = None,
-    ) -> list[SubtitleEntry]:
-        """Group words into subtitles based on duration and pauses between words"""
-        if not words:
-            return []
-
-        max_duration = max_duration_seconds or self.MAX_SUBTITLE_DURATION
-        pause_threshold = pause_threshold_seconds or self.PAUSE_THRESHOLD
-
-        entries = []
-        current_group = []
-        current_start = None
-
-        for word in words:
-            word_start = word["start"]
-            word_end = word["end"]
-
-            if current_start is None:
-                current_start = word_start
-
-            should_start_new = False
-
-            if current_group:
-                pause_duration = (word_start - current_group[-1]["end"]).total_seconds()
-                if pause_duration > pause_threshold:
-                    should_start_new = True
-
-            if not should_start_new and (word_end - current_start).total_seconds() > max_duration:
-                should_start_new = True
-
-            if should_start_new and current_group:
-                text = " ".join(w["text"] for w in current_group)
-                entries.append(SubtitleEntry(current_start, current_group[-1]["end"], text))
-                current_group = [word]
-                current_start = word_start
-            else:
-                current_group.append(word)
-
-        if current_group:
-            text = " ".join(w["text"] for w in current_group)
-            entries.append(SubtitleEntry(current_start, current_group[-1]["end"], text))
-
-        return entries
-
     def _format_timedelta(self, td: timedelta, separator: str = ",") -> str:
         """Format timedelta as HH:MM:SS{separator}mmm"""
         total_seconds = int(td.total_seconds())
@@ -192,7 +116,7 @@ class SubtitleGenerator:
         for word in words:
             word_length = len(word)
             space_needed = 1 if current_line else 0
-            
+
             if current_length + word_length + space_needed > self.max_chars_per_line:
                 if current_line:
                     lines.append(" ".join(current_line))
@@ -217,7 +141,7 @@ class SubtitleGenerator:
                 start_str = self._format_timedelta_srt(entry.start_time)
                 end_str = self._format_timedelta_srt(entry.end_time)
                 f.write(f"{start_str} --> {end_str}\n")
-                
+
                 for line in self._split_text(entry.text):
                     f.write(f"{line}\n")
                 f.write("\n")
@@ -233,7 +157,7 @@ class SubtitleGenerator:
                 start_str = self._format_timedelta_vtt(entry.start_time)
                 end_str = self._format_timedelta_vtt(entry.end_time)
                 f.write(f"{start_str} --> {end_str}\n")
-                
+
                 for line in self._split_text(entry.text):
                     f.write(f"{line}\n")
                 f.write("\n")

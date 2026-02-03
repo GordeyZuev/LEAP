@@ -22,7 +22,6 @@ class UserResponse(BaseModel):
     full_name: str | None = Field(None, description="Full name")
     is_active: bool = Field(..., description="Is account active")
     is_verified: bool = Field(..., description="Is email verified")
-    is_superuser: bool = Field(..., description="Is superuser")
     created_at: datetime = Field(..., description="Creation date")
     last_login_at: datetime | None = Field(None, description="Last login")
 

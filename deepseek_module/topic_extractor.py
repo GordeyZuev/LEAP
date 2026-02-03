@@ -883,32 +883,6 @@ class TopicExtractor:
         """Parse simple timestamp format as fallback."""
         return self._parse_all_timestamps(text.split("\n"), total_duration)
 
-    def _filter_and_merge_topics(
-        self, timestamps: list[dict], total_duration: float, min_topics: int = 10, max_topics: int = 30
-    ) -> list[dict]:
-        """Filter and merge topics to match target range."""
-        if not timestamps:
-            return []
-
-        duration_minutes = total_duration / 60
-        min_spacing = max(180, min(300, duration_minutes * 60 * 0.04))
-        sorted_timestamps = sorted(timestamps, key=lambda x: x.get("start", 0))
-
-        if len(sorted_timestamps) <= max_topics:
-            return self._merge_close_topics(sorted_timestamps, min_spacing)
-
-        # Sample topics to reach max_topics
-        step = len(sorted_timestamps) / max_topics
-        filtered = [sorted_timestamps[int(i * step)] for i in range(max_topics) if int(i * step) < len(sorted_timestamps)]
-
-        merged = self._merge_close_topics(filtered, min_spacing)
-
-        # Add more topics if needed
-        if len(merged) < min_topics:
-            merged = self._add_missing_topics(merged, sorted_timestamps, min_topics, min_spacing)
-
-        return merged
-
     def _merge_close_topics(self, timestamps: list[dict], min_spacing: float) -> list[dict]:
         """Merge topics that are too close together."""
         merged = []

@@ -123,13 +123,6 @@ def should_allow_download(recording: RecordingModel) -> bool:
     return recording.status == ProcessingStatus.INITIALIZED
 
 
-def should_allow_run(recording: RecordingModel) -> bool:
-    """Check if recording processing can be started (DOWNLOADED or PROCESSED status)."""
-    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
-        return False
-    return recording.status in [ProcessingStatus.DOWNLOADED, ProcessingStatus.PROCESSED]
-
-
 def should_allow_transcription(recording: RecordingModel) -> bool:
     """Check if transcription can be started (PROCESSED status, no IN_PROGRESS stages)."""
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:

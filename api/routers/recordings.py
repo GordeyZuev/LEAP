@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -166,23 +166,7 @@ async def _resolve_recording_ids(
     limit: int,
     ctx: ServiceContext,
 ) -> list[int]:
-    """
-    Universal resolver for all bulk operations.
-
-    Returns list of recording_ids from explicit list OR from filters.
-
-    Args:
-        recording_ids: Explicit list of IDs (priority)
-        filters: Filters for automatic selection
-        limit: Maximum number of records
-        ctx: Service context
-
-    Returns:
-        List of recording IDs
-
-    Raises:
-        ValueError: If neither recording_ids nor filters are specified
-    """
+    """Universal resolver: returns recording IDs from explicit list or filters."""
     if recording_ids:
         return recording_ids
 
@@ -197,30 +181,16 @@ async def _query_recordings_by_filters(
     limit: int,
     ctx: ServiceContext,
 ) -> list[int]:
-    """
-    Build query by filters and return list of IDs.
-
-    Reused in all bulk/* endpoints.
-
-    Args:
-        filters: Filters for selection
-        limit: Maximum number of records
-        ctx: Service context
-
-    Returns:
-        List of recording IDs
-    """
+    """Build query by filters and return list of recording IDs."""
     from sqlalchemy import select
 
     from database.models import RecordingModel
 
     query = select(RecordingModel.id).where(RecordingModel.user_id == ctx.user_id)
 
-    # Apply deleted filter (default: exclude deleted)
     if not filters.include_deleted:
         query = query.where(RecordingModel.deleted == False)  # noqa: E712
 
-    # Apply filters
     if filters.template_id:
         query = query.where(RecordingModel.template_id == filters.template_id)
 
@@ -228,12 +198,10 @@ async def _query_recordings_by_filters(
         query = query.where(RecordingModel.input_source_id == filters.source_id)
 
     if filters.status:
-        # Handling special case "FAILED" through recording.failed
         has_failed = "FAILED" in filters.status
         other_statuses = [s for s in filters.status if s != "FAILED"]
 
         if has_failed and other_statuses:
-            # Combination: (status IN [...] OR failed=true)
             from sqlalchemy import or_
 
             query = query.where(
@@ -243,10 +211,8 @@ async def _query_recordings_by_filters(
                 )
             )
         elif has_failed:
-            # Only failed
             query = query.where(RecordingModel.failed == True)  # noqa: E712
         else:
-            # Regular statuses
             query = query.where(RecordingModel.status.in_(other_statuses))
 
     if filters.is_mapped is not None:
@@ -280,7 +246,6 @@ async def _query_recordings_by_filters(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         query = query.where(RecordingModel.start_time <= to_dt)
 
-    # Sorting
     order_column = getattr(RecordingModel, filters.order_by, RecordingModel.created_at)
     if filters.order == "desc":
         query = query.order_by(order_column.desc())
@@ -293,24 +258,60 @@ async def _query_recordings_by_filters(
     return [row[0] for row in result.all()]
 
 
+def _build_source_info(recording) -> SourceInfo | None:
+    """Build SourceInfo from recording.source."""
+    if not recording.source:
+        return None
+    return SourceInfo(
+        type=recording.source.source_type,
+        name=recording.source.input_source.name if recording.source.input_source else None,
+        input_source_id=recording.source.input_source_id,
+    )
+
+
+def _build_uploads_dict(outputs) -> dict:
+    """Build uploads dictionary from recording outputs."""
+    uploads = {}
+    for output in outputs:
+        platform = output.target_type.value.lower()
+        url = None
+        if output.target_meta:
+            url = (
+                output.target_meta.get("video_url")
+                or output.target_meta.get("target_link")
+                or output.target_meta.get("url")
+            )
+        uploads[platform] = UploadInfo(
+            status=output.status.value.lower(),
+            url=url,
+            uploaded_at=output.uploaded_at,
+            error=output.failed_reason if output.failed else None,
+        )
+    return uploads
+
+
+def _build_processing_stages(stages) -> list[ProcessingStageResponse]:
+    """Build processing stages list from recording stages."""
+    return [
+        ProcessingStageResponse(
+            stage_type=stage.stage_type.value,
+            status=stage.status.value,
+            failed=stage.failed,
+            failed_at=stage.failed_at,
+            failed_reason=stage.failed_reason,
+            retry_count=stage.retry_count,
+            completed_at=stage.completed_at,
+        )
+        for stage in stages
+    ]
+
+
 async def _execute_dry_run_single(
     recording_id: int,
     config_override: ConfigOverrideRequest | None,
     ctx: ServiceContext,
 ) -> dict:
-    """
-    Dry-run for single process endpoint.
-
-    Shows what will be executed without actual execution.
-
-    Args:
-        recording_id: ID recording
-        config_override: Override configuration
-        ctx: Service context
-
-    Returns:
-        Information about steps that will be executed
-    """
+    """Dry-run for single process: shows execution plan without running."""
     from api.repositories.template_repos import OutputPresetRepository
     from api.services.config_utils import resolve_full_config
 
@@ -320,10 +321,8 @@ async def _execute_dry_run_single(
     if not recording:
         raise HTTPException(404, "Recording not found")
 
-    # Build manual override from request
     manual_override = _build_override_from_flexible(config_override) if config_override else None
 
-    # Resolve config with overrides (same as actual run)
     full_config, output_config, recording = await resolve_full_config(
         ctx.session,
         recording_id,
@@ -332,31 +331,25 @@ async def _execute_dry_run_single(
         include_output_config=True,
     )
 
-    # Define steps based on resolved config
     steps = []
 
-    # Download
     if not recording.local_video_path:
         steps.append({"name": "download", "enabled": True})
     else:
         steps.append({"name": "download", "enabled": False, "skip_reason": "Already downloaded"})
 
-    # Trim
     if full_config.get("trimming", {}).get("enable_trimming", True):
         steps.append({"name": "trim", "enabled": True})
     else:
         steps.append({"name": "trim", "enabled": False, "skip_reason": "Disabled in config"})
 
-    # Transcribe
     if full_config.get("transcription", {}).get("enable_transcription", True):
         steps.append({"name": "transcribe", "enabled": True})
     else:
         steps.append({"name": "transcribe", "enabled": False})
 
-    # Topics
     steps.append({"name": "topics", "enabled": True})
 
-    # Upload
     auto_upload = output_config.get("auto_upload", False)
     if auto_upload:
         platforms = []
@@ -371,16 +364,13 @@ async def _execute_dry_run_single(
     else:
         steps.append({"name": "upload", "enabled": False, "skip_reason": "auto_upload is false"})
 
-    # Build config_sources info
     config_sources = {}
 
-    # Fetch template info if needed (once for both runtime and bound)
     if (config_override and config_override.template_id) or recording.template_id:
         from api.repositories.template_repos import RecordingTemplateRepository
 
         template_repo = RecordingTemplateRepository(ctx.session)
 
-        # Runtime template info (from config_override)
         if config_override and config_override.template_id:
             runtime_template = await template_repo.find_by_id(config_override.template_id, ctx.user_id)
 
@@ -391,7 +381,6 @@ async def _execute_dry_run_single(
                     "will_be_bound": config_override.bind_template,
                 }
 
-        # Bound template info (from recording.template_id)
         if recording.template_id:
             bound_template = await template_repo.find_by_id(recording.template_id, ctx.user_id)
 
@@ -401,7 +390,6 @@ async def _execute_dry_run_single(
                     "name": bound_template.name,
                 }
 
-    # Manual overrides info
     if config_override:
         has_overrides = any(
             [
@@ -426,20 +414,7 @@ async def _execute_dry_run_bulk(
     limit: int,
     ctx: ServiceContext,
 ) -> BulkProcessDryRunResponse:
-    """
-    Dry-run for bulk process endpoint.
-
-    Shows which recordings will be processed with checking blank_record.
-
-    Args:
-        recording_ids: Explicit list of IDs
-        filters: Filters for selection
-        limit: Maximum number
-        ctx: Service context
-
-    Returns:
-        BulkProcessDryRunResponse with detailed information about recordings
-    """
+    """Dry-run for bulk process: shows which recordings will be processed and which skipped."""
     resolved_ids = await _resolve_recording_ids(recording_ids, filters, limit, ctx)
 
     recording_repo = RecordingRepository(ctx.session)
@@ -512,11 +487,8 @@ async def list_recordings(
 ):
     """Get paginated list of recordings with filtering and search."""
     recording_repo = RecordingRepository(ctx.session)
-
-    # Get all recordings for user
     recordings = await recording_repo.list_by_user(ctx.user_id, include_deleted=include_deleted)
 
-    # Apply filters
     if template_id is not None:
         recordings = [r for r in recordings if r.template_id == template_id]
 
@@ -524,21 +496,17 @@ async def list_recordings(
         recordings = [r for r in recordings if r.input_source_id == source_id]
 
     if status:
-        # Support multiple statuses + special "FAILED" pseudo-status
         has_failed = "FAILED" in status
         other_statuses = [s for s in status if s != "FAILED"]
 
         if has_failed and other_statuses:
-            # Match if status in list OR failed=true
             recordings = [
                 r for r in recordings
                 if r.status.value in other_statuses or r.failed
             ]
         elif has_failed:
-            # Only failed
             recordings = [r for r in recordings if r.failed]
         else:
-            # Regular statuses
             recordings = [r for r in recordings if r.status.value in other_statuses]
 
     if failed is not None:
@@ -547,11 +515,9 @@ async def list_recordings(
     if is_mapped is not None:
         recordings = [r for r in recordings if r.is_mapped == is_mapped]
 
-    # Filter blank_record (default: hide blank records)
     if not include_blank:
         recordings = [r for r in recordings if not r.blank_record]
 
-    # Filter by date
     if from_date:
         from utils.date_utils import InvalidDateFormatError, parse_from_date_to_datetime
 
@@ -570,63 +536,18 @@ async def list_recordings(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         recordings = [r for r in recordings if r.start_time <= to_dt]
 
-    # Filter by substring in display_name
     if search:
         search_lower = search.lower()
         recordings = [r for r in recordings if search_lower in r.display_name.lower()]
 
-    # Pagination
     total = len(recordings)
     start = (page - 1) * per_page
     end = start + per_page
     paginated_recordings = recordings[start:end]
-
-    # Calculate total pages
     total_pages = (total + per_page - 1) // per_page if total > 0 else 1
 
     items = []
     for r in paginated_recordings:
-        source_info = None
-        if r.source:
-            source_info = SourceInfo(
-                type=r.source.source_type,
-                name=r.source.input_source.name if r.source.input_source else None,
-                input_source_id=r.source.input_source_id,
-            )
-
-        uploads = {}
-        for output in r.outputs:
-            platform = output.target_type.value.lower()
-
-            url = None
-            if output.target_meta:
-                url = (
-                    output.target_meta.get("video_url")
-                    or output.target_meta.get("target_link")
-                    or output.target_meta.get("url")
-                )
-
-            uploads[platform] = UploadInfo(
-                status=output.status.value.lower(),
-                url=url,
-                uploaded_at=output.uploaded_at,
-                error=output.failed_reason if output.failed else None,
-            )
-
-        # Processing stages
-        processing_stages = [
-            ProcessingStageResponse(
-                stage_type=stage.stage_type.value,
-                status=stage.status.value,
-                failed=stage.failed,
-                failed_at=stage.failed_at,
-                failed_reason=stage.failed_reason,
-                retry_count=stage.retry_count,
-                completed_at=stage.completed_at,
-            )
-            for stage in r.processing_stages
-        ]
-
         items.append(
             RecordingListItem(
                 id=r.id,
@@ -639,9 +560,9 @@ async def list_recordings(
                 is_mapped=r.is_mapped,
                 template_id=r.template_id,
                 template_name=r.template.name if r.template else None,
-                source=source_info,
-                uploads=uploads,
-                processing_stages=processing_stages,
+                source=_build_source_info(r),
+                uploads=_build_uploads_dict(r.outputs),
+                processing_stages=_build_processing_stages(r.processing_stages),
                 deleted=r.deleted,
                 deleted_at=r.deleted_at,
                 delete_state=r.delete_state,
@@ -669,17 +590,7 @@ async def get_recording(
     detailed: bool = Query(False, description="Include detailed information (files, transcription, topics, uploads)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingListItem | DetailedRecordingResponse:
-    """Get recording by ID (use detailed=true for full information).
-    With detailed=true: Returns full details with files, transcription, topics
-
-    Args:
-        recording_id: Recording ID
-        detailed: If True, includes detailed information about files, transcription, topics, subtitles and uploads
-        ctx: Service context
-
-    Returns:
-        RecordingListItem (default) or DetailedRecordingResponse (detailed=true)
-    """
+    """Get recording by ID with optional detailed information."""
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id, include_deleted=True)
 
@@ -690,47 +601,6 @@ async def get_recording(
         )
 
     if not detailed:
-        source_info = None
-        if recording.source:
-            source_info = SourceInfo(
-                type=recording.source.source_type,
-                name=recording.source.input_source.name if recording.source.input_source else None,
-                input_source_id=recording.source.input_source_id,
-            )
-
-        uploads = {}
-        for output in recording.outputs:
-            platform = output.target_type.value.lower()
-
-            url = None
-            if output.target_meta:
-                url = (
-                    output.target_meta.get("video_url")
-                    or output.target_meta.get("target_link")
-                    or output.target_meta.get("url")
-                )
-
-            uploads[platform] = UploadInfo(
-                status=output.status.value.lower(),
-                url=url,
-                uploaded_at=output.uploaded_at,
-                error=output.failed_reason if output.failed else None,
-            )
-
-        # Processing stages
-        processing_stages = [
-            ProcessingStageResponse(
-                stage_type=stage.stage_type.value,
-                status=stage.status.value,
-                failed=stage.failed,
-                failed_at=stage.failed_at,
-                failed_reason=stage.failed_reason,
-                retry_count=stage.retry_count,
-                completed_at=stage.completed_at,
-            )
-            for stage in recording.processing_stages
-        ]
-
         return RecordingListItem(
             id=recording.id,
             display_name=recording.display_name,
@@ -742,9 +612,9 @@ async def get_recording(
             is_mapped=recording.is_mapped,
             template_id=recording.template_id,
             template_name=recording.template.name if recording.template else None,
-            source=source_info,
-            uploads=uploads,
-            processing_stages=processing_stages,
+            source=_build_source_info(recording),
+            uploads=_build_uploads_dict(recording.outputs),
+            processing_stages=_build_processing_stages(recording.processing_stages),
             deleted=recording.deleted,
             deleted_at=recording.deleted_at,
             delete_state=recording.delete_state,
@@ -981,17 +851,7 @@ async def add_local_recording(
     display_name: str = Query(..., description="Recording name"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Add local video.
-
-    Args:
-        file: Video file
-        display_name: Recording name
-        ctx: Service context
-
-    Returns:
-        Created recording
-    """
+    """Upload and create local video recording."""
     import shutil
 
     from file_storage.path_builder import StoragePathBuilder
@@ -1006,16 +866,12 @@ async def add_local_recording(
     temp_path = storage_builder.create_temp_file(suffix=".mp4")
 
     try:
-        # Save file in chunks for large files
         total_size = 0
         with temp_path.open("wb") as f:
-            while chunk := await file.read(1024 * 1024):  # Read 1MB at a time
+            while chunk := await file.read(1024 * 1024):
                 f.write(chunk)
                 total_size += len(chunk)
 
-        logger.info(f"Saved uploaded file to temp: {temp_path} ({total_size} bytes, filename: {filename})")
-
-        # Check if file really saved
         if not temp_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1025,8 +881,6 @@ async def add_local_recording(
         actual_size = temp_path.stat().st_size
         if actual_size != total_size:
             logger.warning(f"File size mismatch: expected {total_size}, got {actual_size}")
-
-        logger.info(f"File verified: {temp_path} exists with size {actual_size} bytes")
 
         # Get user to access user_slug
         from sqlalchemy import select
@@ -1065,17 +919,12 @@ async def add_local_recording(
 
         await ctx.session.flush()  # Get recording.id
 
-        # Move to final location: storage/users/user_XXXXXX/recordings/{id}/source.mp4
         final_path = storage_builder.recording_source(user.user_slug, created_recording.id)
         final_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(temp_path), str(final_path))
 
-        # Update path in DB
         created_recording.local_video_path = str(final_path)
-
         await ctx.session.commit()
-
-        logger.info(f"Moved uploaded file to: {final_path}")
 
         return {
             "success": True,
@@ -1193,23 +1042,7 @@ async def download_recording(
     force: bool = Query(False, description="Re-download if already downloaded"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Download recording from Zoom (async task).
-
-    Args:
-        recording_id: Recording ID
-        force: Re-download if already downloaded
-        ctx: Service context
-
-    Returns:
-        Task ID for checking status
-
-    Note:
-        This is an async operation. Use GET /api/v1/tasks/{task_id}
-        to check status of execution.
-
-        SKIPPED and PENDING_SOURCE recordings cannot be downloaded.
-    """
+    """Download recording from Zoom (async task)."""
     from api.helpers.status_manager import should_allow_download
     from api.tasks.processing import download_recording_task
 
@@ -1276,23 +1109,7 @@ async def trim_recording(
     config: TrimVideoRequest = TrimVideoRequest(),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Trim video (FFmpeg - remove silence) - async task.
-
-    Args:
-        recording_id: Recording ID
-        config: Processing configuration
-        ctx: Service context
-
-    Returns:
-        Task ID for checking status of execution
-
-    Note:
-        This is an async operation. Use GET /api/v1/tasks/{task_id}
-        to check the status of execution.
-
-        SKIPPED and PENDING_SOURCE recordings cannot be processed.
-    """
+    """Trim video using FFmpeg to remove silence (async task)."""
     from api.helpers.status_manager import should_allow_processing
     from api.tasks.processing import trim_video_task
 
@@ -1360,29 +1177,7 @@ async def bulk_run_recordings(
     dry_run: bool = Query(False, description="Dry-run: show which recordings will be run"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse | BulkProcessDryRunResponse:
-    """
-    Bulk run of multiple recordings (async tasks) - full pipeline.
-
-    Supports two modes of selection:
-    1. Explicit list of recording_ids
-    2. Automatic selection by filters (template_id, status, is_mapped, etc.)
-
-    Dry-run mode:
-    - dry_run=true: Show which recordings will be run without actual execution
-    - Useful for checking filters before bulk run
-
-    Args:
-        data: BulkRunRequest with recording_ids or filters + configuration override
-        dry_run: Dry-run mode (only checking, without execution)
-        ctx: Service context
-
-    Returns:
-        List of task_id for each recording or dry-run information
-
-    Note:
-        Each recording is run in a separate task.
-        Use GET /api/v1/tasks/{task_id} to check the status of each task.
-    """
+    """Bulk run full pipeline on multiple recordings (async tasks)."""
 
     if dry_run:
         return await _execute_dry_run_bulk(data.recording_ids, data.filters, data.limit, ctx)
@@ -1470,8 +1265,6 @@ async def bulk_run_recordings(
                 }
             )
 
-            logger.info(f"Batch task {task.id} created for recording {recording_id}, user {ctx.user_id}")
-
         except Exception as e:
             logger.error(f"Failed to create task for recording {recording_id}: {e}")
             tasks.append(
@@ -1506,65 +1299,7 @@ async def run_recording(
     dry_run: bool = Query(False, description="Dry-run: show what will be done without actual execution"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse | DryRunResponse:
-    """
-    Full pipeline run (async task): download → trim → transcribe → topics → upload.
-
-    Supports flexible config overrides:
-    - template_id: Use template config for this run (runtime-only by default)
-    - bind_template: If true with template_id, permanently bind template to recording
-    - processing_config: Override processing settings (transcription, trimming, etc.)
-    - metadata_config: Override metadata (title, description, playlists, albums, etc.)
-    - output_config: Override output settings (preset_ids, auto_upload, etc.)
-
-    Dry-run mode:
-    - dry_run=true: Show which steps will be done without actual execution
-    - Useful for checking configuration before actual run
-
-    Args:
-        recording_id: Recording ID
-        config: Flexible overrides for configuration (optional)
-        dry_run: Dry-run mode (only checking, without execution)
-        ctx: Service context
-
-    Returns:
-        Task ID for checking status of execution
-
-    Example:
-        ```json
-        {
-          "template_id": 5,
-          "bind_template": False,
-          "processing_config": {
-            "transcription": {
-              "enable_transcription": true,
-              "language": "ru",
-              "granularity": "short",
-              "enable_topics": true
-            }
-          },
-          "metadata_config": {
-            "title_template": "{themes}",
-            "youtube": {
-              "playlist_id": "PLxxx",
-              "privacy": "unlisted"
-            },
-            "vk": {
-              "album_id": "123456",
-              "group_id": 123456,
-              "privacy_view": 0
-            }
-          },
-          "output_config": {
-            "preset_ids": [10],
-            "auto_upload": true
-          }
-        }
-        ```
-
-    Note:
-        This is an async operation, performing all steps sequentially.
-        Use GET /api/v1/tasks/{task_id} to check progress.
-    """
+    """Run full pipeline: download → trim → transcribe → topics → upload (async task)."""
     if dry_run:
         return await _execute_dry_run_single(recording_id, config, ctx)
 
@@ -1635,32 +1370,7 @@ async def transcribe_recording(
     use_batch_api: bool = Query(False, description="Use Batch API (cheaper, but requires polling)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Transcribe recording (async task) with ADMIN credentials.
-
-    ⚠️ IMPORTANT: Creates only master.json (words, segments).
-    For topic extraction, use separate endpoint /topics.
-
-    Args:
-        recording_id: Recording ID
-        use_batch_api: Use Batch API (cheaper ~50%, but longer waiting)
-        ctx: Service context with user_id and session
-
-    Returns:
-        Task ID for checking status of execution
-
-    Note:
-        Uses ADMIN credentials for transcription through Fireworks API.
-
-        Batch API (use_batch_api=true):
-        - Cheaper ~50% than synchronous API
-        - Requires polling to get result
-        - Waiting time: usually several minutes
-        - Documentation: https://docs.fireworks.ai/api-reference/create-batch-request
-
-        This is an async operation. Use GET /api/v1/tasks/{task_id}
-        to check status of execution and get results.
-    """
+    """Transcribe recording using Fireworks API (async task). Use /topics endpoint for topic extraction."""
     from api.helpers.status_manager import should_allow_transcription
     from api.tasks.processing import batch_transcribe_recording_task, transcribe_recording_task
 
@@ -1797,24 +1507,7 @@ async def upload_recording(
     preset_id: int | None = None,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Upload recording to platform (async task) with user credentials.
-
-    Args:
-        recording_id: Recording ID
-        platform: Platform (youtube, vk)
-        preset_id: ID output preset (optional)
-        ctx: Service context
-
-    Returns:
-        Task ID for checking status of execution
-
-    Note:
-        This is an async operation. Use GET /api/v1/tasks/{task_id}
-        to check status of execution and get results.
-
-        SKIPPED and PENDING_SOURCE recordings cannot be uploaded.
-    """
+    """Upload recording to specified platform (async task)."""
     from api.helpers.status_manager import should_allow_upload
     from api.tasks.upload import upload_recording_to_platform
     from models.recording import TargetType
@@ -1892,27 +1585,7 @@ async def extract_topics(
     version_id: str | None = Query(None, description="Version ID (optional)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Extract topics from existing transcription (async task).
-
-    ⚠️ IMPORTANT: Requires existing transcription. Run /transcribe first.
-    ✨ Can be run multiple times with different settings to create different versions.
-
-    Args:
-        recording_id: Recording ID
-        granularity: Extraction mode ('short' - large topics | 'long' - detailed)
-        version_id: Version ID (if not specified, generated automatically)
-        ctx: Service context
-
-    Returns:
-        Task ID for checking status of execution
-
-    Note:
-        Topic extraction model is selected automatically (with retries and fallbacks).
-        Uses ADMIN credentials for topic extraction.
-        This is an async operation. Use GET /api/v1/tasks/{task_id}
-        to check status of execution.
-    """
+    """Extract topics from existing transcription (async task). Requires /transcribe first."""
     from api.tasks.processing import extract_topics_task
 
     # Get recording from DB
@@ -1965,23 +1638,7 @@ async def generate_subtitles(
     formats: list[str] = Query(["srt", "vtt"], description="Formats: 'srt', 'vtt'"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Generate subtitles from transcription (async task).
-
-    ⚠️ IMPORTANT: Requires transcription. Run /transcribe first.
-
-    Args:
-        recording_id: ID recording
-        formats: List of subtitle formats ['srt', 'vtt']
-        ctx: Service context
-
-    Returns:
-        Task ID for checking status
-
-    Note:
-        This is an async operation. Use GET /api/v1/tasks/{task_id}
-        to check the status of execution.
-    """
+    """Generate subtitles from transcription (async task). Requires /transcribe first."""
     from api.tasks.processing import generate_subtitles_task
 
     # Get recording from DB
@@ -2031,31 +1688,7 @@ async def bulk_transcribe_recordings(
     data: BulkTranscribeRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
-    """
-    Bulk transcription of multiple recordings (async tasks).
-
-    Supports two modes of selection:
-    1. Explicit list of recording_ids
-    2. Automatic selection by filters (template_id, status, is_mapped, etc.)
-
-    ⚠️ IMPORTANT: Uses ADMIN credentials for transcription.
-    Creates only master.json for each recording.
-    For topic extraction, use /topics after transcription.
-    Support for Fireworks Batch API:
-    - use_batch_api=true: Cheaper, but longer (polling every 10 seconds)
-    - use_batch_api=false: Regular sync API (default)
-
-    Args:
-        data: Bulk transcription request (recording_ids or filters + parameters)
-        ctx: Service context
-
-    Returns:
-        List of task_id for each recording
-
-    Note:
-        Each recording is transcribed in a separate task.
-        Use GET /api/v1/tasks/{task_id} to check the status of each task.
-    """
+    """Bulk transcription of multiple recordings (async tasks)."""
     from api.tasks.processing import batch_transcribe_recording_task, transcribe_recording_task
 
     # Resolve recording IDs
@@ -2146,11 +1779,6 @@ async def bulk_transcribe_recordings(
 
             tasks.append(task_info)
 
-            logger.info(
-                f"Bulk transcribe task {task.id} created for recording {recording_id}, "
-                f"user {ctx.user_id}, mode={task_info['mode']}"
-            )
-
         except Exception as e:
             logger.error(f"Failed to create transcribe task for recording {recording_id}: {e}")
             tasks.append(
@@ -2181,21 +1809,7 @@ async def retry_failed_uploads(
     platforms: list[str] | None = None,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RetryUploadResponse:
-    """
-    Retry upload for failed output_targets.
-
-    If platforms are not specified: retry all with status=FAILED
-    If platforms are specified: retry only these platforms
-    Uses actual preset_id from output_target
-
-    Args:
-        recording_id: ID recording
-        platforms: List of platforms for retry (optional)
-        ctx: Service context
-
-    Returns:
-        List of tasks for retry upload
-    """
+    """Retry upload for failed output targets."""
     from api.tasks.upload import upload_recording_to_platform
 
     recording_repo = RecordingRepository(ctx.session)
@@ -2270,26 +1884,7 @@ async def get_recording_config(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
 ):
-    """
-    Get current resolved configuration for editing recording.
-
-    Returns:
-    - processing_config: resolved config (user + template if exists)
-    - output_config: preset_ids for platforms
-    - metadata_config: metadata templates (title, description, tags)
-    - has_manual_override: bool - if there is a saved manual config
-    - template_name: name of template if attached
-
-    NOTE: Metadata (title, description, tags) is configured in output_preset.preset_metadata,
-    not in recording config.
-
-    Args:
-        recording_id: ID recording
-        ctx: Service context
-
-    Returns:
-        Resolved configuration for editing
-    """
+    """Get current resolved configuration for recording."""
     from api.schemas.recording.operations import RecordingConfigResponse
     from api.services.config_resolver import ConfigResolver
 
@@ -2323,28 +1918,7 @@ async def update_recording_config(
     output_config: dict | None = None,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> dict:
-    """
-    Save user overrides in recording.processing_preferences.
-
-    Logic:
-    1. Get current resolved config (base from template)
-    2. Apply changes from request
-    3. Save only overrides in recording.processing_preferences
-
-    Now this recording will use template config + user overrides.
-
-    NOTE: Metadata (title, description, tags) is configured in output_preset.preset_metadata,
-    not here.
-
-    Args:
-        recording_id: Recording ID
-        processing_config: Configuration of processing (optional)
-        output_config: Configuration of output presets (optional)
-        ctx: Service context
-
-    Returns:
-        Updated configuration
-    """
+    """Save user configuration overrides in recording.processing_preferences."""
     from api.services.config_resolver import ConfigResolver
 
     recording_repo = RecordingRepository(ctx.session)
@@ -2403,19 +1977,7 @@ async def reset_to_template(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> ConfigSaveResponse:
-    """
-    Reset user settings and return to template.
-
-    Clears recording.processing_preferences, after which the recording will
-    use only the configuration from the template.
-
-    Args:
-        recording_id: ID recording
-        ctx: Service context
-
-    Returns:
-        Updated configuration
-    """
+    """Reset user config overrides and return to template configuration."""
     from api.services.config_resolver import ConfigResolver
 
     recording_repo = RecordingRepository(ctx.session)
@@ -2449,36 +2011,7 @@ async def reset_recording(
     delete_files: bool = Query(True, description="Delete all files (video, audio, transcription)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> ResetRecordingResponse:
-    """
-    Reset recording to initial state.
-
-    What does:
-    - Deletes all processed files (video, audio, transcription, subtitles)
-    - Clears metadata (topics, transcription_info)
-    - Deletes output_targets
-    - Deletes processing_stages
-    - Returns status to INITIALIZED (if is_mapped) or SKIPPED (if not)
-    - Clears failed flag and failed_reason
-    - Updates expire_at from user config
-
-    Note: RESET only works for active recordings. Deleted recordings must be restored first.
-
-    Optional:
-    - local_video_path (downloaded video) - if delete_files=False
-    - template_id, is_mapped
-    - processing_preferences (manual config)
-
-    Args:
-        recording_id: Recording ID
-        delete_files: Delete all files (default: True)
-        ctx: Service context
-
-    Returns:
-        Result of reset operation
-
-    Raises:
-        HTTPException 400: If recording is deleted
-    """
+    """Reset recording to initial state, optionally deleting all processed files."""
     from pathlib import Path
 
     from sqlalchemy import delete
@@ -2574,7 +2107,7 @@ async def reset_recording(
     retention = user_config.get("retention", {})
     auto_expire_days = retention.get("auto_expire_days", 90)
     if auto_expire_days:
-        recording.expire_at = datetime.now(timezone.utc) + timedelta(days=auto_expire_days)
+        recording.expire_at = datetime.now(UTC) + timedelta(days=auto_expire_days)
 
     # Delete output_targets
     await ctx.session.execute(delete(OutputTargetModel).where(OutputTargetModel.recording_id == recording_id))
@@ -2612,24 +2145,7 @@ async def bind_template_to_recording(
     reset_preferences: bool = Query(False, description="Reset processing preferences to use template config"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Bind template to recording.
-
-    Sets recording.template_id and is_mapped=true.
-    Optionally resets processing_preferences to allow template config to take effect.
-
-    Args:
-        recording_id: Recording ID
-        template_id: Template ID to bind
-        reset_preferences: If true, clear processing_preferences (default: false)
-        ctx: Service context
-
-    Returns:
-        Result of bind operation
-
-    Raises:
-        HTTPException 404: Recording or template not found
-    """
+    """Bind template to recording."""
     from api.repositories.template_repos import RecordingTemplateRepository
 
     recording_repo = RecordingRepository(ctx.session)
@@ -2677,22 +2193,7 @@ async def unbind_template_from_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """
-    Unbind template from recording.
-
-    Clears recording.template_id and sets is_mapped=false.
-    Processing preferences are preserved.
-
-    Args:
-        recording_id: Recording ID
-        ctx: Service context
-
-    Returns:
-        Result of unbind operation
-
-    Raises:
-        HTTPException 404: Recording not found
-    """
+    """Unbind template from recording."""
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
@@ -2727,11 +2228,7 @@ async def bulk_download_recordings(
     data: BulkDownloadRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
-    """
-    Bulk download recordings from Zoom.
-
-    Supports recording_ids or filters for automatic selection.
-    """
+    """Bulk download recordings from Zoom."""
     from api.tasks.processing import download_recording_task
 
     # Resolve recording IDs
@@ -2783,8 +2280,6 @@ async def bulk_download_recordings(
                 }
             )
 
-            logger.info(f"Bulk download task {task.id} for recording {recording_id}, user {ctx.user_id}")
-
         except Exception as e:
             logger.error(f"Failed to queue download for recording {recording_id}: {e}")
             tasks.append(
@@ -2810,11 +2305,7 @@ async def bulk_trim_recordings(
     data: BulkTrimRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
-    """
-    Bulk processing video - removing silence (FFmpeg).
-
-    Supports recording_ids or filters for automatic selection.
-    """
+    """Bulk trim recordings to remove silence using FFmpeg."""
     from api.tasks.processing import trim_video_task
 
     # Resolve recording IDs
@@ -2873,11 +2364,7 @@ async def bulk_extract_topics(
     data: BulkTopicsRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
-    """
-    Bulk extraction topics from transcriptions.
-
-    Supports recording_ids or filters for automatic selection.
-    """
+    """Bulk extract topics from transcriptions."""
     from api.tasks.processing import extract_topics_task
 
     # Resolve recording IDs
@@ -2927,11 +2414,7 @@ async def bulk_generate_subtitles(
     data: BulkSubtitlesRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
-    """
-    Bulk generation subtitles.
-
-    Supports recording_ids or filters for automatic selection.
-    """
+    """Bulk generate subtitles from transcriptions."""
     from api.tasks.processing import generate_subtitles_task
 
     # Resolve recording IDs
@@ -2980,11 +2463,7 @@ async def bulk_upload_recordings(
     data: BulkUploadRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
-    """
-    Bulk upload recordings to platforms.
-
-    Supports recording_ids or filters for automatic selection.
-    """
+    """Bulk upload recordings to platforms."""
     from api.tasks.upload import upload_recording_to_platform
 
     # Resolve recording IDs
@@ -3063,21 +2542,7 @@ async def delete_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> DeleteRecordingResponse:
-    """
-    Soft delete recording - mark as deleted.
-
-    Files will be cleaned up after user's soft_delete_days.
-    Recording will be completely removed from DB after hard_delete_days.
-
-    Recording will be excluded from default listings but can be restored (before files cleanup).
-
-    Args:
-        recording_id: Recording ID
-        ctx: Service context
-
-    Returns:
-        Deletion confirmation with hard delete date
-    """
+    """Soft delete recording (can be restored before hard deletion)."""
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
@@ -3119,20 +2584,7 @@ async def bulk_delete_recordings(
     data: BulkDeleteRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> BulkDeleteResponse:
-    """
-    Bulk soft delete recordings - mark as deleted.
-
-    Files cleanup and hard delete scheduled based on user's retention settings.
-
-    Supports recording_ids or filters for automatic selection.
-
-    Args:
-        data: Bulk delete request with recording_ids or filters
-        ctx: Service context
-
-    Returns:
-        Statistics about deleted recordings
-    """
+    """Bulk soft delete recordings."""
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
@@ -3225,21 +2677,7 @@ async def restore_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RestoreRecordingResponse:
-    """
-    Restore soft deleted recording (only if files still present).
-
-    Sets new expire_at based on user's auto_expire_days setting.
-
-    Args:
-        recording_id: Recording ID
-        ctx: Service context
-
-    Returns:
-        Restore confirmation with new expire date
-
-    Raises:
-        HTTPException 400: If files already deleted (delete_state == "hard")
-    """
+    """Restore soft deleted recording (only if files still present)."""
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id, include_deleted=True)
 
@@ -3267,6 +2705,6 @@ async def restore_recording(
     return RestoreRecordingResponse(
         message="Recording restored successfully",
         recording_id=recording.id,
-        restored_at=datetime.now(timezone.utc),
+        restored_at=datetime.now(UTC),
         expire_at=recording.expire_at,
     )
