@@ -30,12 +30,10 @@ class BaseConfigModel(Base):
 
 
 class InputSourceModel(Base):
-    """Источник данных для синхронизации записей."""
+    """Input source for recording synchronization."""
 
     __tablename__ = "input_sources"
     __table_args__ = (
-        # Уникальное ограничение: один пользователь не может иметь несколько источников
-        # с одинаковым именем, типом и credential_id
         UniqueConstraint(
             "user_id", "name", "source_type", "credential_id", name="uq_input_sources_user_name_type_credential"
         ),
@@ -43,8 +41,6 @@ class InputSourceModel(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-
-    # Основные поля
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     source_type = Column(String(50), nullable=False)
@@ -61,7 +57,7 @@ class InputSourceModel(Base):
 
 
 class OutputPresetModel(Base):
-    """Пресет для выгрузки на платформу."""
+    """Output preset for platform uploads."""
 
     __tablename__ = "output_presets"
 
@@ -82,7 +78,7 @@ class OutputPresetModel(Base):
 
 
 class RecordingTemplateModel(Base):
-    """Шаблон для автоматической обработки записей."""
+    """Template for automatic recording processing."""
 
     __tablename__ = "recording_templates"
 

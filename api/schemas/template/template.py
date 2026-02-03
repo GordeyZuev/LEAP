@@ -4,34 +4,27 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG
+from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 
 from .matching_rules import MatchingRules
 from .metadata_config import TemplateMetadataConfig
 from .output_config import TemplateOutputConfig
 from .processing_config import TemplateProcessingConfig
 
-# ============================================================================
-# Recording Template Schemas (Fully Typed)
-# ============================================================================
-
 
 class RecordingTemplateBase(BaseModel):
-    """Базовая схема для шаблона с полной типизацией."""
-
     model_config = BASE_MODEL_CONFIG
 
-    name: str = Field(..., min_length=3, max_length=255, description="Название шаблона")
-    description: str | None = Field(None, max_length=1000, description="Описание шаблона")
+    name: str = Field(..., min_length=3, max_length=255, description="Template name")
+    description: str | None = Field(None, max_length=1000, description="Template description")
 
-    # Типизированные конфигурации
     matching_rules: MatchingRules | None = Field(
         None,
-        description="Правила сопоставления recordings с template",
+        description="Recording matching rules",
     )
     processing_config: TemplateProcessingConfig | None = Field(
         None,
-        description="Настройки обработки: transcription, topics, subtitles",
+        description="Processing settings: transcription, topics, subtitles",
     )
     metadata_config: TemplateMetadataConfig | None = Field(
         None,
@@ -39,34 +32,24 @@ class RecordingTemplateBase(BaseModel):
     )
     output_config: TemplateOutputConfig | None = Field(
         None,
-        description="Output настройки: preset_ids, auto_upload",
+        description="Output settings: preset_ids, auto_upload",
     )
 
     @field_validator("name", mode="before")
     @classmethod
     def strip_name(cls, v: str) -> str:
-        """Очистка названия от пробелов."""
-        if isinstance(v, str):
-            v = v.strip()
-            if not v:
-                raise ValueError("Название не может быть пустым")
-        return v
+        return strip_and_validate_name(v)
 
 
 class RecordingTemplateCreate(RecordingTemplateBase):
-    """Схема для создания шаблона (полностью типизированная)."""
-
-    is_draft: bool = Field(False, description="Черновик (не применяется автоматически)")
+    is_draft: bool = Field(False, description="Draft (not applied automatically)")
 
     @model_validator(mode="after")
     def validate_template(self) -> "RecordingTemplateCreate":
-        """Кросс-валидация template."""
-        # Если не draft, должны быть matching_rules
         if not self.is_draft:
             if not self.matching_rules:
-                raise ValueError("Non-draft template требует matching_rules")
+                raise ValueError("Non-draft template requires matching_rules")
 
-            # Проверим что есть хоть одно правило
             rules = self.matching_rules
             has_rule = (
                 (rules.exact_matches and len(rules.exact_matches) > 0)
@@ -77,25 +60,21 @@ class RecordingTemplateCreate(RecordingTemplateBase):
 
             if not has_rule:
                 raise ValueError(
-                    "matching_rules должны содержать хоть одно правило (exact_matches, keywords, patterns или source_ids)"
+                    "matching_rules must contain at least one rule (exact_matches, keywords, patterns or source_ids)"
                 )
 
-        # Если есть output_config с auto_upload=True, нужен processing_config
         if self.output_config and self.output_config.auto_upload:
             if not self.processing_config:
-                raise ValueError("auto_upload=True требует processing_config")
+                raise ValueError("auto_upload=True requires processing_config")
 
-        # Если есть metadata_config с title_template, должен быть output_config
         if self.metadata_config and self.metadata_config.title_template:
             if not self.output_config:
-                raise ValueError("title_template требует output_config с preset_ids")
+                raise ValueError("title_template requires output_config with preset_ids")
 
         return self
 
 
 class RecordingTemplateUpdate(BaseModel):
-    """Схема для обновления шаблона (полностью типизированная)."""
-
     name: str | None = Field(None, min_length=3, max_length=255)
     description: str | None = Field(None, max_length=1000)
     matching_rules: MatchingRules | None = None
@@ -107,9 +86,6 @@ class RecordingTemplateUpdate(BaseModel):
 
 
 class RecordingTemplateResponse(RecordingTemplateBase):
-    """Схема ответа для шаблона."""
-
-    # ORM модель - используем специальную конфигурацию
     model_config = ORM_MODEL_CONFIG
 
     id: int
@@ -123,9 +99,6 @@ class RecordingTemplateResponse(RecordingTemplateBase):
 
 
 class RecordingTemplateListResponse(BaseModel):
-    """Схема для списка шаблонов."""
-
-    # ORM модель - используем специальную конфигурацию
     model_config = ORM_MODEL_CONFIG
 
     id: int

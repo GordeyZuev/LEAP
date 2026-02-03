@@ -1,26 +1,26 @@
-"""Pydantic схемы для квот пользователей."""
+"""Pydantic schemas for user quotas."""
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserQuotaBase(BaseModel):
-    """Базовая схема квот."""
+    """Base schema for quotas."""
 
-    max_recordings_per_month: int = Field(100, ge=0, description="Макс. записей в месяц")
-    max_storage_gb: int = Field(50, ge=0, description="Макс. место на диске (GB)")
-    max_concurrent_tasks: int = Field(3, ge=1, description="Макс. одновременных задач")
+    max_recordings_per_month: int = Field(100, ge=0, description="Max recordings per month")
+    max_storage_gb: int = Field(50, ge=0, description="Max storage on disk (GB)")
+    max_concurrent_tasks: int = Field(3, ge=1, description="Max concurrent tasks")
 
 
 class UserQuotaCreate(UserQuotaBase):
-    """Схема для создания квот."""
+    """Schema for creating quotas."""
 
     user_id: str
 
 
 class UserQuotaUpdate(BaseModel):
-    """Схема для обновления квот."""
+    """Schema for updating quotas."""
 
     max_recordings_per_month: int | None = Field(None, ge=0)
     max_storage_gb: int | None = Field(None, ge=0)
@@ -32,7 +32,7 @@ class UserQuotaUpdate(BaseModel):
 
 
 class UserQuotaInDB(UserQuotaBase):
-    """Схема квот в БД."""
+    """Schema of quotas in DB."""
 
     id: int
     user_id: str
@@ -43,12 +43,11 @@ class UserQuotaInDB(UserQuotaBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserQuotaResponse(BaseModel):
-    """Схема ответа с квотами."""
+    """Schema of response with quotas."""
 
     max_recordings_per_month: int
     max_storage_gb: int
@@ -58,5 +57,4 @@ class UserQuotaResponse(BaseModel):
     current_tasks_count: int
     quota_reset_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

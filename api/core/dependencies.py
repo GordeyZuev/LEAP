@@ -14,15 +14,8 @@ def get_service_context(
     current_user: UserModel = Depends(get_current_active_user),
 ) -> ServiceContext:
     """
-    Получение ServiceContext для текущего пользователя.
+    Get ServiceContext for the current user.
 
-    Централизует доступ к session, user_id и config_helper.
-
-    Args:
-        session: Database session
-        current_user: Текущий аутентифицированный пользователь
-
-    Returns:
-        ServiceContext для использования в сервисах
+    Centralizes access to session, user_id and config_helper.
     """
     return ServiceContext.create(session=session, user_id=current_user.id)

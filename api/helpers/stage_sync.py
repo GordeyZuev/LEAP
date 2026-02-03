@@ -8,15 +8,7 @@ async def sync_stages_with_config(
     recording: RecordingModel,
     processing_config: dict,
 ) -> None:
-    """
-    Mark disabled stages as SKIPPED based on config.
-
-    Only syncs PENDING stages (already started stages are not affected).
-
-    Args:
-        recording: RecordingModel with processing_stages
-        processing_config: Resolved processing config dict
-    """
+    """Mark disabled stages as SKIPPED based on config (only PENDING stages)."""
     if not recording.processing_stages:
         return
 

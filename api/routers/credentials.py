@@ -35,26 +35,14 @@ async def list_credentials(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Получить список учетных данных пользователя.
-
-    Args:
-        platform: Фильтр по платформе (опционально)
-        include_data: Включить расшифрованные credentials в ответ
-        current_user: Текущий пользователь
-        session: Database session
-
-    Returns:
-        Список учетных данных
-    """
+    """Get user's credentials, optionally filtered by platform."""
     cred_repo = UserCredentialRepository(session)
 
-    if platform:
-        # Если указана платформа - возвращаем только для нее
-        credentials = await cred_repo.list_by_platform(current_user.id, platform)
-    else:
-        # Иначе - все credentials пользователя
-        credentials = await cred_repo.find_by_user(current_user.id)
+    credentials = (
+        await cred_repo.list_by_platform(current_user.id, platform)
+        if platform
+        else await cred_repo.find_by_user(current_user.id)
+    )
 
     result = []
     encryption = get_encryption() if include_data else None
@@ -70,11 +58,9 @@ async def list_credentials(
 
         if include_data and encryption:
             try:
-                decrypted_data = encryption.decrypt_credentials(cred.encrypted_data)
-                response.credentials = decrypted_data
+                response.credentials = encryption.decrypt_credentials(cred.encrypted_data)
             except Exception as e:
                 logger.error(f"Failed to decrypt credentials for id={cred.id}: {e}")
-                # Продолжаем со следующим credential
 
         result.append(response)
 
@@ -111,21 +97,7 @@ async def get_credential_by_id(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Получить конкретный credential по ID.
-
-    Args:
-        credential_id: ID credential
-        include_data: Включить расшифрованные данные в ответ
-        current_user: Текущий пользователь
-        session: Database session
-
-    Returns:
-        Credential
-
-    Raises:
-        HTTPException: Если credential не найден
-    """
+    """Get specific credential by ID with optional decryption."""
     cred_repo = UserCredentialRepository(session)
     credential = await cred_repo.get_by_id(credential_id)
 
@@ -180,43 +152,64 @@ def _validate_credentials(platform: str, credentials: dict[str, Any]) -> None:
         ) from e
 
 
+def _extract_account_name(platform: str, credentials: dict, explicit_name: str | None) -> str | None:
+    """Extract or generate account name from credentials."""
+    if explicit_name:
+        return explicit_name
+
+    if "account" in credentials:
+        return credentials["account"]
+
+    if platform == "vk" and "group_id" in credentials:
+        return f"group_{credentials['group_id']}"
+
+    return None
+
+
+def _check_duplicate_credentials(
+    platform: str, credentials: dict, existing_cred_data: dict, cred_id: int, account: str
+) -> None:
+    """Check if credentials are duplicates based on platform-specific key fields."""
+    if platform == "zoom":
+        if (
+            existing_cred_data.get("account_id") == credentials.get("account_id")
+            and existing_cred_data.get("client_id") == credentials.get("client_id")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Credentials with same account_id and client_id already exist "
+                    f"(credential_id: {cred_id}, account: {account})"
+                ),
+            )
+    elif platform == "youtube":
+        existing_client_id = existing_cred_data.get("client_secrets", {}).get("installed", {}).get("client_id")
+        new_client_id = credentials.get("client_secrets", {}).get("installed", {}).get("client_id")
+        if existing_client_id and existing_client_id == new_client_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Credentials with same client_id already exist (credential_id: {cred_id})",
+            )
+    elif platform == "vk":
+        if existing_cred_data.get("access_token") == credentials.get("access_token"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Credentials with same access_token already exist (credential_id: {cred_id})",
+            )
+
+
 @router.post("/", response_model=CredentialResponse, status_code=status.HTTP_201_CREATED)
 async def create_credentials(
     request: CredentialCreateRequest,
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Создать учетные данные для платформы.
-
-    Args:
-        request: Данные для создания
-        current_user: Текущий пользователь
-        session: Database session
-
-    Returns:
-        Созданные учетные данные
-
-    Raises:
-        HTTPException: Если учетные данные уже существуют или невалидны
-    """
-    # Validate credentials structure
+    """Create new platform credentials with validation and duplicate checking."""
     _validate_credentials(request.platform, request.credentials)
 
     cred_repo = UserCredentialRepository(session)
+    account_name = _extract_account_name(request.platform, request.credentials, request.account_name)
 
-    # Извлекаем account_name из credentials если не указан явно
-    account_name = request.account_name
-    if not account_name:
-        # Для Zoom и других платформ пытаемся взять из поля "account"
-        if "account" in request.credentials:
-            account_name = request.credentials["account"]
-            logger.info(f"Auto-extracted account_name from credentials: {account_name}")
-        # Для VK можно использовать другую логику
-        elif request.platform == "vk" and "group_id" in request.credentials:
-            account_name = f"group_{request.credentials['group_id']}"
-
-    # Проверяем существование по (platform, account_name)
     if account_name:
         existing = await cred_repo.get_by_platform(current_user.id, request.platform, account_name)
         if existing:
@@ -225,7 +218,6 @@ async def create_credentials(
                 detail=f"Credentials for platform '{request.platform}' with account '{account_name}' already exist",
             )
 
-    # Проверяем на дубликаты по содержимому credentials
     encryption = get_encryption()
     try:
         encrypted_data = encryption.encrypt_credentials(request.credentials)
@@ -236,39 +228,21 @@ async def create_credentials(
             detail="Failed to encrypt credentials",
         )
 
-    # Проверяем что такие же credentials не существуют
     all_platform_creds = await cred_repo.list_by_platform(current_user.id, request.platform)
     for existing_cred in all_platform_creds:
         try:
             existing_decrypted = encryption.decrypt_credentials(existing_cred.encrypted_data)
-            # Сравниваем ключевые поля
-            if request.platform == "zoom":
-                if existing_decrypted.get("account_id") == request.credentials.get(
-                    "account_id"
-                ) and existing_decrypted.get("client_id") == request.credentials.get("client_id"):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Credentials with same account_id and client_id already exist "
-                        f"(credential_id: {existing_cred.id}, account: {existing_cred.account_name})",
-                    )
-            elif request.platform == "youtube":
-                existing_client_id = existing_decrypted.get("client_secrets", {}).get("installed", {}).get("client_id")
-                new_client_id = request.credentials.get("client_secrets", {}).get("installed", {}).get("client_id")
-                if existing_client_id and existing_client_id == new_client_id:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Credentials with same client_id already exist (credential_id: {existing_cred.id})",
-                    )
-            elif request.platform == "vk":
-                if existing_decrypted.get("access_token") == request.credentials.get("access_token"):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Credentials with same access_token already exist (credential_id: {existing_cred.id})",
-                    )
+            _check_duplicate_credentials(
+                request.platform,
+                request.credentials,
+                existing_decrypted,
+                existing_cred.id,
+                existing_cred.account_name,
+            )
+        except HTTPException:
+            raise
         except Exception as e:
-            # Если не можем расшифровать - пропускаем
             logger.warning(f"Failed to decrypt existing credential {existing_cred.id}: {e}")
-            continue
 
     cred_create = UserCredentialCreate(
         user_id=current_user.id,
@@ -278,8 +252,10 @@ async def create_credentials(
     )
     credential = await cred_repo.create(credential_data=cred_create)
 
-    account_log = f" | account={account_name}" if account_name else ""
-    logger.info(f"User credentials created: user_id={current_user.id} | platform={request.platform}{account_log}")
+    logger.info(
+        f"User credentials created: user_id={current_user.id} | platform={request.platform}"
+        f"{' | account=' + account_name if account_name else ''}"
+    )
 
     return CredentialResponse(
         id=credential.id,
@@ -297,23 +273,7 @@ async def update_credentials(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Обновить учетные данные.
-
-    Используется PATCH для частичного обновления (только encrypted_data).
-
-    Args:
-        credential_id: ID credential
-        request: Новые данные
-        current_user: Текущий пользователь
-        session: Database session
-
-    Returns:
-        Обновленные учетные данные
-
-    Raises:
-        HTTPException: Если учетные данные не найдены
-    """
+    """Update existing credential data (PATCH - partial update)."""
     cred_repo = UserCredentialRepository(session)
 
     credential = await cred_repo.get_by_id(credential_id)
@@ -353,20 +313,7 @@ async def delete_credentials(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Удалить учетные данные.
-
-    Args:
-        credential_id: ID credential
-        current_user: Текущий пользователь
-        session: Database session
-
-    Returns:
-        Подтверждение удаления
-
-    Raises:
-        HTTPException: Если учетные данные не найдены
-    """
+    """Delete platform credentials by ID."""
     cred_repo = UserCredentialRepository(session)
 
     credential = await cred_repo.get_by_id(credential_id)

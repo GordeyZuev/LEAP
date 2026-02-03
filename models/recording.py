@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, TypeVar
 
@@ -103,7 +103,7 @@ class OutputTarget:
         if meta:
             self.target_meta.update(meta)
         self.status = TargetStatus.UPLOADED
-        self.uploaded_at = datetime.utcnow()
+        self.uploaded_at = datetime.now(UTC)
 
 
 class ProcessingStage:
@@ -133,22 +133,20 @@ class ProcessingStage:
         """Mark stage as completed (FSM: transition to COMPLETED)."""
         self.status = ProcessingStageStatus.COMPLETED
         self.failed = False
-        self.completed_at = datetime.utcnow()
+        self.completed_at = datetime.now(UTC)
         if meta:
             self.stage_meta.update(meta)
 
     def mark_in_progress(self):
         """Mark stage as in progress (FSM: transition to IN_PROGRESS)."""
         self.status = ProcessingStageStatus.IN_PROGRESS
-        # Reset failed when new start
-        if self.failed:
-            self.failed = False
+        self.failed = False  # Reset failed on new start
 
     def mark_failed(self, reason: str):
         """Mark stage as failed (FSM: transition to FAILED)."""
         self.status = ProcessingStageStatus.FAILED
         self.failed = True
-        self.failed_at = datetime.utcnow()
+        self.failed_at = datetime.now(UTC)
         self.failed_reason = reason
         self.retry_count += 1
 
@@ -335,21 +333,20 @@ class MeetingRecording:
 
         Args:
             new_status: New status
-            failed: Flag of error (if True, status is rolled back)
-            failed_reason: Reason of error
-            failed_at_stage: Stage, on which the error occurred
+            failed: Error flag (if True, status is rolled back)
+            failed_reason: Error reason
+            failed_at_stage: Stage where error occurred
         """
         self.status = new_status
         if failed:
             self.failed = True
-            self.failed_at = datetime.utcnow()
+            self.failed_at = datetime.now(UTC)
             if failed_reason:
                 self.failed_reason = failed_reason
             if failed_at_stage:
                 self.failed_at_stage = failed_at_stage
         else:
-            # Reset failed when successful transition
-            self.failed = False
+            self.failed = False  # Reset on successful transition
 
     def mark_failure(
         self,
@@ -358,31 +355,25 @@ class MeetingRecording:
         failed_at_stage: str | None = None,
     ) -> None:
         """
-        Mark recording as failed with rollback of status (ADR-015).
+        Mark recording as failed with status rollback (ADR-015).
 
         Args:
-            reason: Reason of error
-            rollback_to_status: Status for rollback (if None, determined automatically)
-            failed_at_stage: Stage, on which the error occurred
+            reason: Error reason
+            rollback_to_status: Rollback status (auto-determined if None)
+            failed_at_stage: Stage where error occurred
         """
-        # Determine status for rollback
         if rollback_to_status is None:
-            # Automatic determination of previous status
-            if self.status == ProcessingStatus.DOWNLOADING:
-                rollback_to_status = ProcessingStatus.INITIALIZED
-            elif self.status == ProcessingStatus.PROCESSING:
-                rollback_to_status = ProcessingStatus.DOWNLOADED
-            elif self.status == ProcessingStatus.UPLOADING:
-                # Rollback to PROCESSED
-                rollback_to_status = ProcessingStatus.PROCESSED
-            else:
-                # If status is not in progress, leave as is
-                rollback_to_status = self.status
+            # Auto-determine previous status
+            rollback_map = {
+                ProcessingStatus.DOWNLOADING: ProcessingStatus.INITIALIZED,
+                ProcessingStatus.PROCESSING: ProcessingStatus.DOWNLOADED,
+                ProcessingStatus.UPLOADING: ProcessingStatus.PROCESSED,
+            }
+            rollback_to_status = rollback_map.get(self.status, self.status)
 
-        # Rollback status and set FSM fields
         self.status = rollback_to_status
         self.failed = True
-        self.failed_at = datetime.utcnow()
+        self.failed_at = datetime.now(UTC)
         self.failed_reason = reason
         if failed_at_stage:
             self.failed_at_stage = failed_at_stage
@@ -397,75 +388,51 @@ class MeetingRecording:
 
     def is_processed(self) -> bool:
         """Check if recording is processed"""
-        return self.status in [ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADED]
+        return self.status in (ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADED)
 
     def is_failed(self) -> bool:
-        """
-        Check if processing is failed (FSM: check failed flag).
-
-        According to ADR-015, errors are processed through failed=true flag,
-        not through status FAILED. When an error occurs, the status is rolled back to the previous stage.
-        """
+        """Check if processing failed (ADR-015: uses failed flag, not status)"""
         return self.failed
 
     def is_long_enough(self, min_duration_minutes: int = 30) -> bool:
-        """Check if recording is long enough"""
+        """Check if recording duration meets minimum requirement"""
         return self.duration >= min_duration_minutes
 
     def is_downloaded(self) -> bool:
         """Check if recording is downloaded"""
-        return self.status in [
+        return self.status in (
             ProcessingStatus.DOWNLOADED,
             ProcessingStatus.PROCESSED,
             ProcessingStatus.UPLOADED,
-        ]
+        )
 
     def is_ready_for_processing(self) -> bool:
         """Check if recording is ready for processing"""
         return self.status == ProcessingStatus.DOWNLOADED and self.local_video_path is not None
 
     def is_ready_for_upload(self) -> bool:
-        """
-        Check if recording is ready for upload.
+        """Check if recording is ready for upload (use status_manager.should_allow_upload for full validation)"""
+        return self.status == ProcessingStatus.PROCESSED and self.processed_video_path is not None
 
-        Recording is ready if:
-        - Status PROCESSED
-        - Processed video exists
-
-        Note: Use should_allow_upload() from status_manager for complete validation.
-        """
-        return (
-            self.status == ProcessingStatus.PROCESSED
-            and self.processed_video_path is not None
-        )
-
-    # Working with targets
     def get_target(self, target_type: TargetType) -> OutputTarget | None:
-        for target in self.output_targets:
-            if target.target_type == target_type:
-                return target
-        return None
+        """Get output target by type"""
+        return next((t for t in self.output_targets if t.target_type == target_type), None)
 
     def ensure_target(self, target_type: TargetType) -> OutputTarget:
-        existing = self.get_target(target_type)
-        if existing:
+        """Get or create output target"""
+        if existing := self.get_target(target_type):
             return existing
         new_target = OutputTarget(target_type=target_type)
         self.output_targets.append(new_target)
         return new_target
 
-    # Working with processing stages (FSM)
     def get_stage(self, stage_type: ProcessingStageType) -> ProcessingStage | None:
-        """Get processing stage by type."""
-        for stage in self.processing_stages:
-            if stage.stage_type == stage_type:
-                return stage
-        return None
+        """Get processing stage by type"""
+        return next((s for s in self.processing_stages if s.stage_type == stage_type), None)
 
     def ensure_stage(self, stage_type: ProcessingStageType) -> ProcessingStage:
-        """Create or get processing stage."""
-        existing = self.get_stage(stage_type)
-        if existing:
+        """Get or create processing stage"""
+        if existing := self.get_stage(stage_type):
             return existing
         new_stage = ProcessingStage(stage_type=stage_type)
         self.processing_stages.append(new_stage)
@@ -493,22 +460,21 @@ class MeetingRecording:
         Mark stage as failed (FSM: transition to FAILED with rollback).
 
         Args:
-            stage_type: Type of stage
-            reason: Reason of error
-            rollback_to_status: Status for rollback (if None, determined automatically)
+            stage_type: Stage type
+            reason: Error reason
+            rollback_to_status: Rollback status (auto-determined if None)
         """
         stage = self.ensure_stage(stage_type)
         stage.mark_failed(reason)
 
-        # Rollback aggregated status
-        if rollback_to_status is None:
-            rollback_to_status = self._get_previous_status_for_stage(stage_type)
+        # Rollback aggregate status
+        rollback_to_status = rollback_to_status or self._get_previous_status_for_stage(stage_type)
         if rollback_to_status:
             self.status = rollback_to_status
 
         # Set FSM fields
         self.failed = True
-        self.failed_at = datetime.utcnow()
+        self.failed_at = datetime.now(UTC)
         self.failed_reason = reason
         self.failed_at_stage = stage_type.value
 
@@ -536,35 +502,18 @@ class MeetingRecording:
             self.failed = False
         # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
-    def _get_previous_status_for_stage(self, stage_type: ProcessingStageType) -> ProcessingStatus | None:
-        """
-        Get previous status for rollback when stage fails (FSM logic).
-
-        Args:
-            stage_type: Type of stage, on which the error occurred
-
-        Returns:
-            Previous status for rollback
-        """
-        # All processing stages rollback to PROCESSED (or DOWNLOADED if no stages completed)
-        stage_to_previous_status = {
+    def _get_previous_status_for_stage(self, stage_type: ProcessingStageType) -> ProcessingStatus:
+        """Get previous status for rollback when stage fails"""
+        stage_rollback_map = {
             ProcessingStageType.TRIM: ProcessingStatus.DOWNLOADED,
             ProcessingStageType.TRANSCRIBE: ProcessingStatus.PROCESSED,
             ProcessingStageType.EXTRACT_TOPICS: ProcessingStatus.PROCESSED,
             ProcessingStageType.GENERATE_SUBTITLES: ProcessingStatus.PROCESSED,
         }
-
-        return stage_to_previous_status.get(stage_type, ProcessingStatus.PROCESSED)
+        return stage_rollback_map.get(stage_type, ProcessingStatus.PROCESSED)
 
     def _update_aggregate_status(self) -> None:
-        """
-        DEPRECATED: Use status_manager.update_aggregate_status() instead.
-
-        This method is kept for backward compatibility but should not be used.
-        All status updates should go through status_manager.compute_aggregate_status()
-        and status_manager.update_aggregate_status() for unified status logic.
-        """
-        # This method is deprecated - use status_manager.update_aggregate_status() instead
+        """DEPRECATED: Use status_manager.update_aggregate_status() instead"""
         return
 
     def get_primary_audio_path(self) -> str | None:
@@ -628,21 +577,18 @@ class MeetingRecording:
 
     @property
     def timezone(self) -> str:
-        """Timezone of meeting."""
-        value = self.get_zoom_metadata("timezone")
-        return value if value else "UTC"
+        """Timezone of meeting"""
+        return self.get_zoom_metadata("timezone") or "UTC"
 
     @property
     def total_size(self) -> int:
-        """Total size of all recording files in bytes."""
-        value = self.get_zoom_metadata("total_size")
-        return value if value is not None else 0
+        """Total size of all recording files in bytes"""
+        return self.get_zoom_metadata("total_size") or 0
 
     @property
     def recording_count(self) -> int:
-        """Number of recording files."""
-        value = self.get_zoom_metadata("recording_count")
-        return value if value is not None else 0
+        """Number of recording files"""
+        return self.get_zoom_metadata("recording_count") or 0
 
     @property
     def auto_delete_date(self) -> str | None:
@@ -651,7 +597,7 @@ class MeetingRecording:
 
     @property
     def zoom_api_response(self) -> dict[str, Any] | None:
-        """Full response from Zoom API (get_recordings)."""
+        """Full response from Zoom API (get_recordings)"""
         if not self.source_metadata:
             return None
         response = self.source_metadata.get("zoom_api_response")
@@ -659,24 +605,18 @@ class MeetingRecording:
 
     @property
     def zoom_api_details(self) -> dict[str, Any] | None:
-        """Full detailed response from Zoom API (get_recording_details)."""
+        """Full detailed response from Zoom API (get_recording_details)"""
         if not self.source_metadata:
             return None
         details = self.source_metadata.get("zoom_api_details")
         return details if isinstance(details, dict) else None
 
     def get_all_recording_files(self) -> list[dict[str, Any]]:
-        """
-        Get all recording files from zoom_api_response.
-
-        Returns:
-            List of all recording_files from full API response (including MP4, CHAT, TRANSCRIPT)
-        """
-        response = self.zoom_api_response
-        if isinstance(response, dict):
-            files = response.get("recording_files", [])
-            return files if isinstance(files, list) else []
-        return []
+        """Get all recording files from Zoom API response (MP4, CHAT, TRANSCRIPT)"""
+        if not (response := self.zoom_api_response):
+            return []
+        files = response.get("recording_files", [])
+        return files if isinstance(files, list) else []
 
     def targets_summary(self) -> dict[str, Any]:
         summary = {}
@@ -688,35 +628,29 @@ class MeetingRecording:
         return summary
 
     def get_processing_progress(self) -> dict[str, Any]:
-        """
-        Get information about processing progress.
-
-        Returns:
-            Dictionary with information about progress
-        """
+        """Get processing progress information"""
         progress = {
             "status": self.status.value,
             "downloaded": self.is_downloaded(),
             "processed": self.is_processed(),
         }
 
-        # Add paths to files if they exist
-        if self.local_video_path:
-            progress["local_file"] = self.local_video_path
-        if self.processed_video_path:
-            progress["processed_file"] = self.processed_video_path
-        if self.processed_audio_path:
-            progress["processed_audio_path"] = self.processed_audio_path
-        if self.transcription_dir:
-            progress["transcription_dir"] = self.transcription_dir
+        # Add file paths if they exist
+        file_paths = {
+            "local_file": self.local_video_path,
+            "processed_file": self.processed_video_path,
+            "processed_audio_path": self.processed_audio_path,
+            "transcription_dir": self.transcription_dir,
+        }
+        progress.update({k: v for k, v in file_paths.items() if v})
 
-        # Add information about transcription
+        # Add transcription info
         if self.topic_timestamps:
             progress["topics_count"] = len(self.topic_timestamps)
         if self.main_topics:
             progress["main_topics"] = self.main_topics
 
-        # Add information about targets
+        # Add output targets
         if self.output_targets:
             progress["outputs"] = self.targets_summary()
 

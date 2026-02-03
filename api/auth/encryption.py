@@ -14,29 +14,23 @@ settings = get_settings()
 
 
 class CredentialEncryption:
-    """Шифрование учетных данных пользователей."""
+    """Encryption of user credentials."""
 
     def __init__(self):
-        """Инициализация шифрования."""
-        # Используем encryption_key если задан, иначе JWT secret
+        """Initialization of encryption."""
+        # Use encryption_key if set, otherwise use JWT secret key
         encryption_key = settings.security.encryption_key or settings.security.jwt_secret_key
         self._fernet = self._create_fernet(encryption_key)
 
     def _create_fernet(self, secret: str) -> Fernet:
         """
-        Создание Fernet инстанса из секретного ключа.
-
-        Args:
-            secret: Секретный ключ
-
-        Returns:
-            Fernet инстанс
+        Creation of Fernet instance from secret key.
         """
-        # Генерируем ключ из секрета с помощью PBKDF2HMAC
+        # Generate key from secret using PBKDF2HMAC
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
-            salt=b"zoom_publishing_salt",  # В production использовать случайный salt
+            salt=b"zoom_publishing_salt",  # In production use random salt
             iterations=100000,
             backend=default_backend(),
         )
@@ -45,13 +39,7 @@ class CredentialEncryption:
 
     def encrypt_credentials(self, credentials: dict) -> str:
         """
-        Шифрование учетных данных.
-
-        Args:
-            credentials: Словарь с учетными данными
-
-        Returns:
-            Зашифрованная строка
+        Encryption of user credentials.
         """
         json_data = json.dumps(credentials)
         encrypted = self._fernet.encrypt(json_data.encode())
@@ -59,28 +47,19 @@ class CredentialEncryption:
 
     def decrypt_credentials(self, encrypted_data: str) -> dict:
         """
-        Расшифровка учетных данных.
-
-        Args:
-            encrypted_data: Зашифрованная строка
-
-        Returns:
-            Словарь с учетными данными
+        Decryption of user credentials.
         """
         decrypted = self._fernet.decrypt(encrypted_data.encode())
         return json.loads(decrypted.decode())
 
 
-# Singleton инстанс
+# Singleton instance
 _encryption = None
 
 
 def get_encryption() -> CredentialEncryption:
     """
-    Получить singleton инстанс шифрования.
-
-    Returns:
-        CredentialEncryption инстанс
+    Get singleton instance of encryption.
     """
     global _encryption
     if _encryption is None:

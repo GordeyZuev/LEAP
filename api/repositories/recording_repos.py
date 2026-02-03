@@ -188,7 +188,7 @@ class RecordingRepository:
         # Set expire_at (can be overridden by Zoom API deleted_at via kwargs)
         expire_at = kwargs.get("expire_at")
         if expire_at is None and auto_expire_days:
-            expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
+            expire_at = datetime.now(datetime.UTC) + timedelta(days=auto_expire_days)
 
         recording = RecordingModel(
             user_id=user_id,
@@ -244,7 +244,7 @@ class RecordingRepository:
             if hasattr(recording, field):
                 setattr(recording, field, value)
 
-        recording.updated_at = datetime.utcnow()
+        recording.updated_at = datetime.now(datetime.UTC)
         await self.session.flush()
 
         logger.debug(f"Updated recording {recording.id}")
@@ -277,7 +277,7 @@ class RecordingRepository:
         recording.main_topics = main_topics
         # Note: Status should be updated via mark_stage_completed() + update_aggregate_status()
         # Do not set status directly here
-        recording.updated_at = datetime.utcnow()
+        recording.updated_at = datetime.now(datetime.UTC)
 
         await self.session.flush()
 
@@ -341,7 +341,7 @@ class RecordingRepository:
 
         output_target.status = TargetStatus.UPLOADING
         output_target.failed = False
-        output_target.updated_at = datetime.utcnow()
+        output_target.updated_at = datetime.now(datetime.UTC)
         await self.session.flush()
 
         # Refresh recording to ensure outputs are loaded
@@ -369,10 +369,10 @@ class RecordingRepository:
 
         output_target.status = TargetStatus.FAILED
         output_target.failed = True
-        output_target.failed_at = datetime.utcnow()
+        output_target.failed_at = datetime.now(datetime.UTC)
         output_target.failed_reason = error_message[:1000]  # Length limit
         output_target.retry_count += 1
-        output_target.updated_at = datetime.utcnow()
+        output_target.updated_at = datetime.now(datetime.UTC)
         await self.session.flush()
 
         # Refresh recording to ensure outputs are loaded
@@ -427,9 +427,9 @@ class RecordingRepository:
                 "video_url": video_url,
                 **(target_meta or {}),
             }
-            existing_output.uploaded_at = datetime.utcnow()
+            existing_output.uploaded_at = datetime.now(datetime.UTC)
             existing_output.failed = False
-            existing_output.updated_at = datetime.utcnow()
+            existing_output.updated_at = datetime.now(datetime.UTC)
             await self.session.flush()
 
             logger.info(f"Updated upload result for recording {recording.id} to {target_type}")
@@ -447,7 +447,7 @@ class RecordingRepository:
                     "video_url": video_url,
                     **(target_meta or {}),
                 },
-                uploaded_at=datetime.utcnow(),
+                uploaded_at=datetime.now(datetime.UTC),
             )
 
             self.session.add(output)
@@ -601,7 +601,7 @@ class RecordingRepository:
                     merged_meta.update(source_metadata or {})
                     existing.source.meta = merged_meta
 
-                existing.updated_at = datetime.utcnow()
+                existing.updated_at = datetime.now(datetime.UTC)
 
                 logger.info(f"Updated existing recording {existing.id} for user {user_id} (status={existing.status})")
 
@@ -632,7 +632,7 @@ class RecordingRepository:
         # Set expire_at (can be overridden by Zoom API deleted_at via kwargs)
         expire_at = kwargs.get("expire_at")
         if expire_at is None and auto_expire_days:
-            expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
+            expire_at = datetime.now(datetime.UTC) + timedelta(days=auto_expire_days)
 
         recording = RecordingModel(
             user_id=user_id,
@@ -681,7 +681,7 @@ class RecordingRepository:
             recording: Recording to soft delete
             user_config: User configuration containing retention settings
         """
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
         recording.deleted = True
         recording.delete_state = "soft"
         recording.deletion_reason = "manual"
@@ -713,7 +713,7 @@ class RecordingRepository:
             recording: Recording to expire
             user_config: User configuration containing retention settings
         """
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
         recording.deleted = True
         recording.delete_state = "soft"
         recording.deletion_reason = "expired"
@@ -763,9 +763,9 @@ class RecordingRepository:
         retention = user_config.get("retention", {})
         auto_expire_days = retention.get("auto_expire_days", 90)
         if auto_expire_days:
-            recording.expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
+            recording.expire_at = datetime.now(datetime.UTC) + timedelta(days=auto_expire_days)
 
-        recording.updated_at = datetime.utcnow()
+        recording.updated_at = datetime.now(datetime.UTC)
 
         await self.session.flush()
 
@@ -831,7 +831,7 @@ class RecordingRepository:
 
         # Update state (soft_deleted_at already set, just change state)
         recording.delete_state = "hard"
-        recording.updated_at = datetime.utcnow()
+        recording.updated_at = datetime.now(datetime.UTC)
 
         return total_bytes
 

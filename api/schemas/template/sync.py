@@ -2,11 +2,13 @@
 
 from pydantic import BaseModel
 
+from api.schemas.common import BASE_MODEL_CONFIG
+
 
 class SyncSourceResponse(BaseModel):
-    """Результат синхронизации источника."""
+    model_config = BASE_MODEL_CONFIG
 
-    status: str  # "success" | "error"
+    status: str
     recordings_found: int | None = None
     recordings_saved: int | None = None
     recordings_updated: int | None = None
@@ -14,7 +16,7 @@ class SyncSourceResponse(BaseModel):
 
 
 class SyncTaskResponse(BaseModel):
-    """Результат постановки sync в очередь."""
+    model_config = BASE_MODEL_CONFIG
 
     task_id: str
     status: str

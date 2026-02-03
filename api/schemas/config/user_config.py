@@ -1,15 +1,16 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class TrimmingConfig(BaseModel):
     enable_trimming: bool = True
     audio_detection: bool = True
-    silence_threshold: float = -40.0
-    min_silence_duration: float = 2.0
-    padding_before: float = 5.0
-    padding_after: float = 5.0
+    silence_threshold: float = Field(default=-40.0, le=0.0, ge=-100.0)
+    min_silence_duration: float = Field(default=2.0, ge=0.0)
+    padding_before: float = Field(default=5.0, ge=0.0)
+    padding_after: float = Field(default=5.0, ge=0.0)
 
 
 class TranscriptionConfig(BaseModel):
@@ -17,10 +18,10 @@ class TranscriptionConfig(BaseModel):
     provider: str = "fireworks"
     language: str = "ru"
     prompt: str = ""
-    temperature: float = 0.0
-    allow_errors: bool = False  # Allow continuation if transcription fails
+    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
+    allow_errors: bool = False
     enable_topics: bool = True
-    granularity: str = "long"  # "short" или "long" - уровень детализации извлечения тем
+    granularity: Literal["short", "long"] = "long"
     enable_subtitles: bool = True
     enable_translation: bool = False
     translation_language: str = "en"
@@ -28,10 +29,10 @@ class TranscriptionConfig(BaseModel):
 
 class DownloadConfig(BaseModel):
     auto_download: bool = False
-    max_file_size_mb: int = 5000
-    quality: str = "high"
-    retry_attempts: int = 3
-    retry_delay: int = 5
+    max_file_size_mb: int = Field(default=5000, gt=0)
+    quality: Literal["high", "medium", "low"] = "high"
+    retry_attempts: int = Field(default=3, ge=0, le=10)
+    retry_delay: int = Field(default=5, ge=0)
 
 
 class UploadConfig(BaseModel):
@@ -43,19 +44,25 @@ class UploadConfig(BaseModel):
 
 class TopicsDisplayConfig(BaseModel):
     enabled: bool = True
-    max_count: int = 999
-    min_length: int = 0
-    max_length: int = 999
-    display_location: str = "description"
-    format: str = "numbered_list"
+    max_count: int = Field(default=999, ge=1)
+    min_length: int = Field(default=0, ge=0)
+    max_length: int = Field(default=999, ge=1)
+    display_location: Literal["description", "comment", "both"] = "description"
+    format: Literal["numbered_list", "bullet_list", "plain"] = "numbered_list"
     separator: str = "\n"
-    prefix: str = "Темы:"
+    prefix: str = "Topics:"
     include_timestamps: bool = False
+
+    @model_validator(mode="after")
+    def validate_length_range(self):
+        if self.max_length < self.min_length:
+            raise ValueError("max_length must be >= min_length")
+        return self
 
 
 class MetadataConfig(BaseModel):
     title_template: str = "{display_name} | {topic} ({date})"
-    description_template: str = "Запись от {date}"
+    description_template: str = "Recording from {date}"
     date_format: str = "DD.MM.YYYY"
     tags: list[str] = Field(default_factory=list)
     thumbnail_name: str | None = None
@@ -64,14 +71,20 @@ class MetadataConfig(BaseModel):
 
 
 class RetentionConfig(BaseModel):
-    soft_delete_days: int = 3
-    hard_delete_days: int = 30
-    auto_expire_days: int = 90
+    soft_delete_days: int = Field(default=3, ge=1)
+    hard_delete_days: int = Field(default=30, ge=1)
+    auto_expire_days: int = Field(default=90, ge=1)
+
+    @model_validator(mode="after")
+    def validate_retention_logic(self):
+        if self.hard_delete_days < self.soft_delete_days:
+            raise ValueError("hard_delete_days must be >= soft_delete_days")
+        return self
 
 
 class PlatformSettings(BaseModel):
     enabled: bool = False
-    default_privacy: str = "unlisted"
+    default_privacy: Literal["public", "unlisted", "private"] = "unlisted"
     default_language: str = "ru"
     privacy_comment: str | None = None
     no_comments: bool | None = None
@@ -89,14 +102,13 @@ class UserConfigData(BaseModel):
 
 
 class UserConfigResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: str
     config_data: UserConfigData
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class UserConfigUpdate(BaseModel):

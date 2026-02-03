@@ -1,7 +1,4 @@
-"""Universal token error handler for YouTube and VK with automatic retry.
-
-Simple decorator that catches auth errors and refreshes tokens automatically.
-"""
+"""Token error handler with automatic refresh for YouTube and VK."""
 
 import functools
 from collections.abc import Callable
@@ -18,7 +15,7 @@ T = TypeVar("T")
 
 
 class TokenRefreshError(Exception):
-    """Raised when token cannot be refreshed (YouTube or VK)."""
+    """Raised when token refresh fails."""
 
     def __init__(self, platform: str, message: str, original_error: Exception | None = None):
         super().__init__(f"[{platform}] {message}")
@@ -26,12 +23,11 @@ class TokenRefreshError(Exception):
         self.original_error = original_error
 
 
-# Backward compatibility
 YouTubeTokenError = TokenRefreshError
 
 
 def is_youtube_auth_error(error: Exception) -> bool:
-    """Check if error is YouTube authentication error (401/403)."""
+    """Check if error is YouTube auth error (401/403)."""
     try:
         from googleapiclient.errors import HttpError
 
@@ -43,23 +39,20 @@ def is_youtube_auth_error(error: Exception) -> bool:
 
 
 def is_vk_auth_error(response_data: dict) -> bool:
-    """Check if VK response contains authentication error (codes 5, 28)."""
+    """Check if VK response contains auth error (codes 5, 28)."""
     if not isinstance(response_data, dict):
         return False
 
     error_info = response_data.get("error")
     if error_info and isinstance(error_info, dict):
         error_code = error_info.get("error_code")
-        return error_code in (5, 28)  # Invalid token or expired
+        return error_code in (5, 28)
 
     return False
 
 
 def requires_valid_token(max_retries: int = 1):
-    """Decorator for YouTube: catches 401/403 errors and refreshes token.
-
-    Requires: self.credentials, self.credential_provider, self.service
-    """
+    """Decorator that catches YouTube auth errors and refreshes token."""
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         async def wrapper(self, *args: Any, **kwargs: Any) -> T:
@@ -120,10 +113,7 @@ def requires_valid_token(max_retries: int = 1):
 
 
 def requires_valid_vk_token(max_retries: int = 1):
-    """Decorator for VK: catches error_code 5/28 and refreshes token.
-
-    Requires: self.config.access_token, self.credential_provider
-    """
+    """Decorator that catches VK auth errors and refreshes token."""
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         async def wrapper(self, *args: Any, **kwargs: Any) -> T:

@@ -40,47 +40,34 @@ from .template import (
 )
 
 __all__ = [
-    # Base configs
     "BaseConfigCreate",
     "BaseConfigResponse",
     "BaseConfigUpdate",
     "BatchSyncResponse",
-    # ===== OPERATIONS =====
     "BulkDeleteResponse",
     "BulkSyncRequest",
     "GoogleDriveSourceConfig",
-    # ===== INPUT SOURCES (typed) =====
     "InputSourceCreate",
     "InputSourceResponse",
     "InputSourceUpdate",
     "LocalFileSourceConfig",
-    # ===== NESTED TYPED MODELS =====
-    # Matching Rules
     "MatchingRules",
-    # ===== OUTPUT PRESETS (typed) =====
     "OutputPresetCreate",
     "OutputPresetResponse",
     "OutputPresetUpdate",
-    # ===== RECORDING TEMPLATES (typed) =====
     "RecordingTemplateCreate",
     "RecordingTemplateListResponse",
     "RecordingTemplateResponse",
     "RecordingTemplateUpdate",
     "RematchTaskResponse",
-    # Source Config (typed)
     "SourceConfig",
     "SourceSyncResult",
     "SyncSourceResponse",
     "SyncTaskResponse",
-    # Metadata Config
     "TemplateMetadataConfig",
-    # Output Config
     "TemplateOutputConfig",
-    # Processing Config
     "TemplateProcessingConfig",
-    # ===== COMPONENTS =====
     "TopicsDisplayConfig",
-    # ===== ENUMS =====
     "TopicsDisplayFormat",
     "TranscriptionProcessingConfig",
     "VKMetadataConfig",
@@ -89,7 +76,6 @@ __all__ = [
     "YandexDiskSourceConfig",
     "YouTubeLicense",
     "YouTubeMetadataConfig",
-    # Preset Metadata (typed)
     "YouTubePresetMetadata",
     "YouTubePrivacy",
     "ZoomSourceConfig",

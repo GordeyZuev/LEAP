@@ -8,15 +8,13 @@ from logger import get_logger
 
 logger = get_logger()
 
-# Supported image formats for thumbnails
 SUPPORTED_IMAGE_FORMATS = (".png", ".jpg", ".jpeg")
 
 
 class ThumbnailManager:
     """Thumbnail manager (global templates + user-specific)"""
 
-    def __init__(self):
-        """Thumbnail manager initialization."""
+    def __init__(self) -> None:
         self.storage = get_path_builder()
 
     def get_user_thumbnails_dir(self, user_slug: int) -> Path:
@@ -52,21 +50,17 @@ class ThumbnailManager:
 
     def initialize_user_thumbnails(self, user_slug: int, copy_templates: bool = True) -> None:
         """
-        Initialize thumbnails for a new user.
+        Initialize thumbnails for new user.
 
-        Recommended: set copy_templates=True to give each user their own copies
-        of shared templates. Users can then modify or delete them as needed.
+        Copies global template thumbnails to user directory, allowing independent modifications.
 
         Args:
             user_slug: User slug
-            copy_templates: Copy global templates to user folder (recommended: True)
+            copy_templates: Copy global templates to user folder
         """
         user_thumbs_dir = self.get_user_thumbnails_dir(user_slug)
-
-        # Create directory
         self.ensure_user_thumbnails_dir(user_slug)
 
-        # Copy templates if needed
         templates_dir = self.get_global_templates_dir()
         if copy_templates and templates_dir.exists():
             copied_count = 0
@@ -79,11 +73,11 @@ class ThumbnailManager:
                             shutil.copy2(template_file, target_file)
                             copied_count += 1
                         except Exception as e:
-                            logger.warning(f"Failed to copy template {template_file.name}: {e}")
+                            logger.warning(f"Copy failed for {template_file.name}: {e}")
 
-            logger.info(f"Initialized thumbnails for user_slug {user_slug}: {copied_count} templates copied.")
+            logger.info(f"Initialized user {user_slug}: copied {copied_count} templates")
         else:
-            logger.info(f"Created empty thumbnails directory for user_slug {user_slug}.")
+            logger.info(f"Created empty thumbnails dir for user {user_slug}")
 
     def get_thumbnail_path(
         self,
@@ -92,37 +86,28 @@ class ThumbnailManager:
         fallback_to_template: bool = True,
     ) -> Path | None:
         """
-        Get path to thumbnail (first check user, then optionally templates).
-
-        Note: New users get their own copies of templates at registration,
-        so fallback is mainly for backward compatibility.
+        Get thumbnail path, checking user folder first then templates.
 
         Args:
             user_slug: User slug
             thumbnail_name: Thumbnail file name (e.g. "ml_extra.png")
-            fallback_to_template: Search in shared templates if not found in user folder
-                                 (for backward compatibility with old users)
+            fallback_to_template: Fallback to shared templates if not found
 
         Returns:
             Path to thumbnail or None if not found
         """
-        # Normalize file name (remove path prefixes if any)
         thumbnail_name = Path(thumbnail_name).name
 
-        # 1. Check user folder
         user_thumbnail = self.get_user_thumbnails_dir(user_slug) / thumbnail_name
         if user_thumbnail.exists():
-            logger.debug(f"Found user thumbnail: {user_thumbnail}")
             return user_thumbnail
 
-        # 2. Fallback to global templates
         if fallback_to_template:
             template_thumbnail = self.storage.shared_thumbnail(thumbnail_name)
             if template_thumbnail.exists():
-                logger.debug(f"Using template thumbnail: {template_thumbnail}")
                 return template_thumbnail
 
-        logger.warning(f"Thumbnail not found: {thumbnail_name} for user_slug {user_slug}")
+        logger.warning(f"Thumbnail not found: {thumbnail_name} for user {user_slug}")
         return None
 
     def list_user_thumbnails(self, user_slug: int) -> list[Path]:
@@ -170,12 +155,12 @@ class ThumbnailManager:
         thumbnail_name: str | None = None,
     ) -> Path:
         """
-        Upload user thumbnail.
+        Upload user thumbnail from source file.
 
         Args:
             user_slug: User slug
             source_path: Path to source file
-            thumbnail_name: Name to save (if None - use original)
+            thumbnail_name: Target filename (uses original if None)
 
         Returns:
             Path to saved thumbnail
@@ -187,63 +172,47 @@ class ThumbnailManager:
         source_path = Path(source_path)
 
         if not source_path.exists():
-            raise FileNotFoundError(f"Source thumbnail not found: {source_path}")
+            raise FileNotFoundError(f"Source not found: {source_path}")
 
-        # Check format
         if source_path.suffix.lower() not in SUPPORTED_IMAGE_FORMATS:
             supported = ", ".join(SUPPORTED_IMAGE_FORMATS)
-            raise ValueError(f"Unsupported thumbnail format: {source_path.suffix}. Supported: {supported}")
+            raise ValueError(f"Unsupported format: {source_path.suffix}. Supported: {supported}")
 
-        # Define file name
         if thumbnail_name is None:
             thumbnail_name = source_path.name
 
-        # Ensure directory exists
         self.ensure_user_thumbnails_dir(user_slug)
 
-        # Save file
         target_path = self.get_user_thumbnails_dir(user_slug) / thumbnail_name
         shutil.copy2(source_path, target_path)
 
-        logger.info(f"Uploaded thumbnail for user_slug {user_slug}: {thumbnail_name}")
+        logger.info(f"Uploaded thumbnail for user {user_slug}: {thumbnail_name}")
         return target_path
 
     def delete_user_thumbnail(self, user_slug: int, thumbnail_name: str) -> bool:
         """
         Delete user thumbnail.
 
-        Args:
-            user_slug: User slug
-            thumbnail_name: Thumbnail file name
-
         Returns:
-            True if deleted successfully, False if not found
+            True if deleted, False if not found
         """
         thumbnail_name = Path(thumbnail_name).name
         thumbnail_path = self.get_user_thumbnails_dir(user_slug) / thumbnail_name
 
         if not thumbnail_path.exists():
-            logger.warning(f"Thumbnail not found for deletion: {thumbnail_path}")
+            logger.warning(f"Thumbnail not found: {thumbnail_path}")
             return False
 
         try:
             thumbnail_path.unlink()
-            logger.info(f"Deleted thumbnail for user_slug {user_slug}: {thumbnail_name}")
+            logger.info(f"Deleted thumbnail for user {user_slug}: {thumbnail_name}")
             return True
         except Exception as e:
-            logger.error(f"Failed to delete thumbnail {thumbnail_path}: {e}")
+            logger.error(f"Delete failed for {thumbnail_path}: {e}")
             return False
 
-    def get_thumbnail_info(self, thumbnail_path: Path) -> dict:
-        """
-        Get thumbnail information (size and modification date).
-
-        Args:
-            thumbnail_path: Path to thumbnail
-
-        Returns:
-            Dictionary with information (size_bytes, size_kb, modified_at)
-        """
+    def get_thumbnail_info(self, thumbnail_path: Path) -> dict[str, int | float]:
+        """Get thumbnail file metadata."""
         if not thumbnail_path.exists():
             return {
                 "size_bytes": 0,

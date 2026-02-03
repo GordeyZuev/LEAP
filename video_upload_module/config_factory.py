@@ -1,16 +1,9 @@
-"""
-Minimal config factory for video upload module.
-
-All configuration now comes from database (user_credentials table).
-These classes are kept for internal video_upload_module structure only.
-"""
+"""Config classes for video upload module."""
 
 from pydantic import BaseModel, Field
 
 
 class YouTubeConfig(BaseModel):
-    """YouTube upload configuration"""
-
     enabled: bool = True
     default_privacy: str = "unlisted"
     default_language: str = "ru"
@@ -25,8 +18,6 @@ class YouTubeConfig(BaseModel):
 
 
 class VKConfig(BaseModel):
-    """VK upload configuration"""
-
     enabled: bool = True
     group_id: int | None = None
     access_token: str = ""
@@ -38,18 +29,14 @@ class VKConfig(BaseModel):
 
 
 class YouTubeUploadConfig(YouTubeConfig):
-    """YouTube upload config (alias for compatibility)"""
-
+    pass
 
 
 class VKUploadConfig(VKConfig):
-    """VK upload config (alias for compatibility)"""
-
+    pass
 
 
 class UploadConfig(BaseModel):
-    """Generic upload configuration"""
-
     platform: str = Field(description="Platform name (youtube, vk)")
     enabled: bool = True
 

@@ -20,17 +20,7 @@ async def get_current_user(
     session: AsyncSession = Depends(get_db_session),
 ) -> UserInDB:
     """
-    Получить текущего пользователя из JWT токена.
-
-    Args:
-        credentials: HTTP Bearer токен
-        session: Database session
-
-    Returns:
-        UserInDB: Текущий пользователь
-
-    Raises:
-        HTTPException: Если токен невалиден или пользователь не найден
+    Get current user from JWT token.
     """
     token = credentials.credentials
 
@@ -72,16 +62,7 @@ async def get_current_active_user(
     current_user: UserInDB = Depends(get_current_user),
 ) -> UserInDB:
     """
-    Получить текущего активного пользователя.
-
-    Args:
-        current_user: Текущий пользователь
-
-    Returns:
-        UserInDB: Активный пользователь
-
-    Raises:
-        HTTPException: Если пользователь неактивен
+    Get current active user.
     """
     if not current_user.is_active:
         raise HTTPException(
@@ -95,16 +76,7 @@ async def get_current_superuser(
     current_user: UserInDB = Depends(get_current_user),
 ) -> UserInDB:
     """
-    Получить текущего суперпользователя.
-
-    Args:
-        current_user: Текущий пользователь
-
-    Returns:
-        UserInDB: Суперпользователь
-
-    Raises:
-        HTTPException: Если пользователь не является суперпользователем
+    Get current superuser.
     """
     if not current_user.is_superuser:
         raise HTTPException(
@@ -119,17 +91,7 @@ async def check_user_quotas(
     session: AsyncSession = Depends(get_db_session),
 ) -> UserInDB:
     """
-    Проверить квоты пользователя (новая система подписок).
-
-    Args:
-        current_user: Текущий пользователь
-        session: Database session
-
-    Returns:
-        UserInDB: Пользователь
-
-    Raises:
-        HTTPException: Если квоты исчерпаны
+    Check user quotas (new subscription system).
     """
     from api.services.quota_service import QuotaService
 

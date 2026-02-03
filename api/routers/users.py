@@ -50,19 +50,7 @@ router = APIRouter(prefix="/api/v1/users", tags=["User Management"])
 async def get_me(
     current_user: UserInDB = Depends(get_current_user),
 ):
-    """
-    Get basic information about the current user.
-
-    For information about quotas, use GET /api/v1/users/me/quota
-
-    Requires authentication via JWT token.
-
-    Args:
-        current_user: Current user (from JWT token)
-
-    Returns:
-        Basic information about the user
-    """
+    """Get current user profile (use /me/quota for quota information)."""
     return UserMeResponse(
         id=current_user.id,
         email=current_user.email,
@@ -81,28 +69,7 @@ async def get_my_quota(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Get current quota status of the user.
-
-    Includes:
-    - Information about subscription and plan
-    - Effective quotas (with custom overrides)
-    - Current usage for period
-    - Available resources (available/limit)
-    - Pay-as-you-go status and overage cost
-
-    Requires authentication via JWT token.
-
-    Args:
-        current_user: Current user (from JWT token)
-        session: Database session
-
-    Returns:
-        QuotaStatusResponse: Full quota status
-
-    Raises:
-        HTTPException: If subscription not found
-    """
+    """Get current quota status with usage, limits, and pay-as-you-go info."""
     quota_service = QuotaService(session)
 
     try:
@@ -120,31 +87,9 @@ async def get_my_quota_history(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
     limit: int = Query(12, ge=1, le=24, description="Number of periods (max 24)"),
-    period: int | None = Query(
-        None,
-        description="Specific period (YYYYMM), if None - last N periods",
-    ),
+    period: int | None = Query(None, description="Specific period (YYYYMM), if None - last N periods"),
 ):
-    """
-    Get history of quota usage.
-
-    By default returns last 12 periods.
-    Can request specific period or set limit.
-
-    Args:
-        current_user: Current user (from JWT token)
-        session: Database session
-        limit: Number of periods to return (default 12, max 24)
-        period: Specific period (YYYYMM), optional
-
-    Returns:
-        list[QuotaUsageResponse]: History of quota usage
-
-    Examples:
-        - GET /api/v1/users/me/quota/history - last 12 months
-        - GET /api/v1/users/me/quota/history?limit=6 - last 6 months
-        - GET /api/v1/users/me/quota/history?period=202601 - only January 2026
-    """
+    """Get quota usage history (default: last 12 periods, or specific period)."""
     from utils.date_utils import InvalidPeriodError, validate_period
 
     quota_service = QuotaService(session)
@@ -193,24 +138,7 @@ async def update_profile(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """
-    Update profile of the current user.
-
-    User can update:
-    - full_name - full name
-    - email - email address
-
-    Args:
-        profile_data: Data for updating
-        current_user: Current user (from JWT token)
-        session: Database session
-
-    Returns:
-        Updated information about the user
-
-    Raises:
-        HTTPException: If email is already used by another user
-    """
+    """Update current user profile (full_name, email)."""
     user_repo = UserRepository(session)
 
     # Check that email is not used by another user
@@ -243,20 +171,7 @@ async def change_password(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> PasswordChangeResponse:
-    """
-    Change password of the current user.
-
-    Args:
-        password_data: Current and new password
-        current_user: Current user (from JWT token)
-        session: Database session
-
-    Returns:
-        Confirmation of password change
-
-    Raises:
-        HTTPException: If current password is incorrect
-    """
+    """Change password and revoke all active sessions."""
     # Check current password
     if not PasswordHelper.verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
@@ -308,27 +223,9 @@ async def delete_account(
     session: AsyncSession = Depends(get_db_session),
 ) -> AccountDeleteResponse:
     """
-    Delete account of the current user.
+    Permanently delete account and all associated data (IRREVERSIBLE).
 
-    ⚠️ WARNING: This action is irreversible!
-
-    Will be deleted:
-    - User profile
-    - All recordings
-    - All credentials
-    - All presets and templates
-    - All tokens
-
-    Args:
-        delete_data: Password and confirmation of deletion
-        current_user: Текущий пользователь (из JWT токена)
-        session: Database session
-
-    Returns:
-        Confirmation of deletion
-
-    Raises:
-        HTTPException: If password is incorrect or confirmation failed
+    Deletes: profile, recordings, credentials, templates, presets, tokens.
     """
     # Check password
     if not PasswordHelper.verify_password(delete_data.password, current_user.hashed_password):

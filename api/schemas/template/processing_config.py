@@ -6,56 +6,44 @@ from pydantic import BaseModel, Field
 
 from api.schemas.common import BASE_MODEL_CONFIG
 
-# ============================================================================
-# Processing Config (плоская структура как в реальных данных)
-# ============================================================================
-
 
 class TemplateProcessingConfig(BaseModel):
-    """
-    Processing configuration для template.
-
-    Все настройки обработки в одном объекте transcription (историческая структура).
-    """
+    """Processing configuration for template. All settings in transcription object (historical structure)."""
 
     model_config = BASE_MODEL_CONFIG
 
     transcription: "TranscriptionProcessingConfig" = Field(
         ...,
-        description="Настройки обработки: транскрибация, топики, субтитры",
+        description="Processing settings: transcription, topics, subtitles",
     )
 
 
 class TranscriptionProcessingConfig(BaseModel):
     """
-    Объединенные настройки обработки (плоская структура).
+    Combined processing settings (flat structure).
 
-    Содержит настройки для:
-    - Транскрибации (enable_transcription, prompt, language)
-    - Извлечения тем (enable_topics, granularity)
-    - Субтитров (enable_subtitles)
+    Contains settings for:
+    - Transcription (enable_transcription, prompt, language)
+    - Topics extraction (enable_topics, granularity)
+    - Subtitles (enable_subtitles)
     """
 
     model_config = BASE_MODEL_CONFIG
 
-    # Transcription
-    enable_transcription: bool = Field(True, description="Включить транскрибацию")
-    prompt: str | None = Field(None, description="Промпт для улучшения качества транскрибации")
-    language: str | None = Field(None, description="Язык аудио (ru, en, ...)", examples=["ru", "en"])
+    enable_transcription: bool = Field(True, description="Enable transcription")
+    prompt: str | None = Field(None, description="Prompt to improve transcription quality")
+    language: str | None = Field(None, description="Audio language (ru, en, ...)", examples=["ru", "en"])
     allow_errors: bool = Field(
         False,
-        description="Позволить продолжить обработку при ошибке транскрибации. "
-        "Если True - зависимые этапы будут пропущены (topics, subtitles). "
-        "Если False - обработка прервется и статус откатится на DOWNLOADED.",
+        description="Allow processing to continue on transcription error. "
+        "If True - dependent stages will be skipped (topics, subtitles). "
+        "If False - processing will stop and status will rollback to DOWNLOADED.",
     )
 
-    # Topics
-    enable_topics: bool = Field(True, description="Включить извлечение тем")
-    granularity: Literal["short", "long"] = Field("long", description="Детализация тем: short или long")
+    enable_topics: bool = Field(True, description="Enable topics extraction")
+    granularity: Literal["short", "long"] = Field("long", description="Topics granularity: short or long")
 
-    # Subtitles
-    enable_subtitles: bool = Field(True, description="Включить генерацию субтитров")
+    enable_subtitles: bool = Field(True, description="Enable subtitles generation")
 
 
-# Обновляем forward reference
 TemplateProcessingConfig.model_rebuild()

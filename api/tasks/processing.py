@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from celery import chain, group
@@ -81,6 +81,75 @@ def download_recording_task(
         raise self.retry(exc=exc)
 
 
+async def _refresh_download_token_if_needed(
+    session,
+    recording,
+    user_id: str,
+    meeting_id: str,
+    force: bool,
+    task_id: str,
+) -> str | None:
+    """
+    Refresh download_access_token if needed (old/missing/force).
+
+    Returns fresh token or None if refresh failed.
+    """
+    from api.repositories.subscription_repos import SubscriptionRepository
+    from api.services.credential_service import get_credentials_for_subscription
+    from api.zoom_api import ZoomAPI
+
+    current_token = (
+        recording.source.meta.get("download_access_token") if recording.source and recording.source.meta else None
+    )
+
+    # Calculate token age
+    token_age_days = None
+    if recording.source and recording.source.updated_at:
+        token_age_days = (datetime.now() - recording.source.updated_at).days
+
+    # Refresh if: old (>1 day), missing, or force
+    if not (force or not current_token or (token_age_days and token_age_days > 1)):
+        return current_token
+
+    logger.info(
+        f"[Task {task_id}] Refreshing download_access_token for recording {recording.id} "
+        f"(age={token_age_days} days, force={force}, has_token={bool(current_token)})"
+    )
+
+    try:
+        subscription_repo = SubscriptionRepository(session)
+        subscription = await subscription_repo.get_by_id(recording.source.subscription_id)
+
+        if not subscription:
+            logger.warning(f"[Task {task_id}] Subscription not found for recording {recording.id}")
+            return current_token
+
+        credentials = await get_credentials_for_subscription(session, subscription, user_id)
+        zoom_api = ZoomAPI(credentials)
+
+        # Get fresh token from Zoom API
+        meeting_details = await zoom_api.get_recording_details(meeting_id, include_download_token=True)
+        fresh_token = meeting_details.get("download_access_token")
+
+        if fresh_token:
+            logger.info(f"[Task {task_id}] Successfully refreshed download_access_token (length={len(fresh_token)})")
+
+            # Update in source.meta for future use
+            if recording.source and recording.source.meta:
+                recording.source.meta["download_access_token"] = fresh_token
+                recording.source.updated_at = datetime.now()
+                await session.commit()
+
+            return fresh_token
+
+        logger.warning(f"[Task {task_id}] No fresh token received, using existing")
+        return current_token
+
+    except Exception as e:
+        logger.warning(f"[Task {task_id}] Error refreshing token: {e}. Using existing")
+        return current_token
+
+
 async def _async_download_recording(
     task_self,
     recording_id: int,
@@ -149,14 +218,16 @@ async def _async_download_recording(
         # Convert to MeetingRecording
         meeting_id = recording.source.source_key if recording.source else str(recording.id)
         file_size = recording.source.meta.get("file_size", 0) if recording.source and recording.source.meta else 0
-        download_access_token = (
-            recording.source.meta.get("download_access_token") if recording.source and recording.source.meta else None
-        )
         passcode = (
             recording.source.meta.get("recording_play_passcode") if recording.source and recording.source.meta else None
         )
         password = recording.source.meta.get("password") if recording.source and recording.source.meta else None
         account = recording.source.meta.get("account") if recording.source and recording.source.meta else None
+
+        # Refresh download_access_token if needed (for old/skipped recordings)
+        download_access_token = await _refresh_download_token_if_needed(
+            session, recording, user_id, meeting_id, force, task_self.request.id
+        )
 
         meeting_recording = MeetingRecording(
             {
@@ -441,7 +512,7 @@ async def _async_process_video(
         # Mark TRIM stage as COMPLETED
         if trim_stage:
             trim_stage.status = models.recording.ProcessingStageStatus.COMPLETED
-            trim_stage.completed_at = datetime.utcnow()
+            trim_stage.completed_at = datetime.now(timezone.utc)
             update_aggregate_status(recording)
 
         await recording_repo.update(recording)

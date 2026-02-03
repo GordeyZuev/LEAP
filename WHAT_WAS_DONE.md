@@ -1,5 +1,262 @@
 # Change Log
 
+## 2026-02-03: Template Schemas Optimization (DRY, KISS, YAGNI)
+
+### Changes
+
+**Optimized `api/schemas/template/` following INSTRUCTIONS.md principles:**
+
+1. **DRY - Removed code duplication:**
+   - Created `strip_and_validate_name` validator in `common/validators.py`
+   - Replaced 5 duplicate implementations across config.py, input_source.py (x2), output_preset.py, template.py
+
+2. **KISS - Simplified code:**
+   - Removed 50+ lines of excessive docstrings that duplicated Field descriptions
+   - Removed 30+ lines of visual noise (comment separators like `# ======`)
+   - Standardized English descriptions (previously mixed RU/EN)
+
+3. **Consistency:**
+   - Added `model_config = BASE_MODEL_CONFIG` to operations.py and sync.py
+   - Cleaned __init__.py - alphabetically sorted exports, removed visual noise
+
+4. **Code quality:**
+   - All changes pass `ruff check`
+   - All imports work correctly
+   - Reduced total lines by ~150 while maintaining functionality
+
+### Modified Files
+- `api/schemas/common/validators.py` - added `strip_and_validate_name`
+- `api/schemas/common/__init__.py` - exported new validator
+- `api/schemas/template/*.py` (13 files) - optimized per above changes
+
+## 2026-02-03: Repository Optimization & Pydantic 2.0 Modernization
+
+### Changes
+
+**1. Repository Optimization:**
+- **Replaced deprecated `datetime.utcnow()` with `datetime.now(datetime.UTC)`** across all repositories
+- **Fixed critical SQLAlchemy syntax bug** in `RefreshTokenRepository.revoke_all_by_user` (incorrect `not` operator)
+- **Optimized token validation** - moved expiration/revoked checks to SQL WHERE clause
+- **Optimized `update_last_used`** - replaced SELECT+UPDATE with direct UPDATE statement
+
+**2. Pydantic 2.0 Modernization (`user_config.py`):**
+- **Migrated to Pydantic 2.0 syntax** - `class Config` → `model_config = ConfigDict()`
+- **Added `Literal` types** for enum-like fields (granularity, quality, privacy, display_location, format)
+- **Added Field constraints** - range validation for numeric fields (temperature, threshold, retry_attempts, etc.)
+- **Added cross-field validation** via `@model_validator`:
+  - `TopicsDisplayConfig`: validates `max_length >= min_length`
+  - `RetentionConfig`: validates `hard_delete_days >= soft_delete_days`
+- **Replaced Russian defaults** with English ("Темы:" → "Topics:", "Запись от" → "Recording from")
+
+**3. Code Standards:**
+- **Standardized docstrings** - translated Russian comments to English per INSTRUCTIONS.md
+
+### Modified Files
+- `api/repositories/auth_repos.py` - datetime fixes, SQL optimization, added `is_revoked` check to `get_by_token`
+- `api/repositories/automation_repos.py` - datetime fixes
+- `api/repositories/recording_repos.py` - datetime fixes (30+ occurrences)
+- `api/repositories/subscription_repos.py` - datetime fixes
+- `api/repositories/template_repos.py` - datetime fixes
+- `api/schemas/common/validators.py` - English docstrings, removed duplicate line
+- `api/schemas/config/user_config.py` - Pydantic 2.0 migration, Literal types, model validators, Field constraints
+
+## 2026-02-03: Enhanced dry_run + Template Bind/Unbind Endpoints
+
+### Problem
+1. `dry_run` не показывал источники конфигурации (откуда берутся настройки)
+2. Не было явных эндпоинтов для bind/unbind template к recording
+
+### Solution
+
+**1. Расширен dry_run response:**
+- Добавлено поле `config_sources` с информацией о том, откуда берется конфигурация:
+  - `runtime_template` - если используется template из запроса (с флагом `will_be_bound`)
+  - `bound_template` - если recording уже привязан к template
+  - `has_manual_overrides` - есть ли явные переопределения в запросе
+
+**2. Новые эндпоинты для управления template binding:**
+- `POST /recordings/{id}/template/{template_id}?reset_preferences=false` - привязать template
+- `DELETE /recordings/{id}/template` - отвязать template
+
+### Modified Files
+- `api/schemas/recording/operations.py` - добавлено `config_sources` в `DryRunResponse`, добавлены схемы `TemplateBindResponse`, `TemplateUnbindResponse`
+- `api/routers/recordings.py` - обновлен `_execute_dry_run_single` для сбора config_sources, добавлены эндпоинты `bind_template_to_recording` и `unbind_template_from_recording`
+
+### Usage Examples
+
+**dry_run с runtime template:**
+```bash
+POST /recordings/100/run?dry_run=true
+{"template_id": 15}
+
+# Response:
+{
+  "dry_run": true,
+  "recording_id": 100,
+  "steps": [...],
+  "config_sources": {
+    "runtime_template": {
+      "id": 15,
+      "name": "LLM - СПБ",
+      "will_be_bound": false
+    },
+    "has_manual_overrides": false
+  }
+}
+```
+
+**Bind template к recording:**
+```bash
+# Простая привязка (без сброса preferences)
+POST /recordings/100/template/15
+
+# С сбросом preferences (template config получит приоритет)
+POST /recordings/100/template/15?reset_preferences=true
+```
+
+**Unbind template:**
+```bash
+DELETE /recordings/100/template
+```
+
+---
+
+## 2026-02-03: Fixed download_access_token Expiration (401 Error)
+
+### Problem
+При попытке скачать старую запись (recording 83, синхронизированную 3 дня назад) получали ошибку **401 Unauthorized**:
+```
+17:24:14 | INFO  | ✅ Using download_access_token (length: 372)
+17:24:14 | ERROR | ❌ HTTP error during download: 401
+17:34:14 | retry → 401 (тот же устаревший токен)
+17:35:03 | bulk_sync обновил токен
+17:44:15 | retry → ✅ SUCCESS (свежий токен)
+```
+
+**Анализ логов показал:**
+- Bearer токен **работает корректно** (успешные скачивания 01.02 и 03.02)
+- Проблема в **устаревшем токене** из `recording.source.meta`
+- После bulk_sync (обновление токена) скачивание прошло успешно
+
+**Root Cause:** `download_access_token` хранится в `source.meta` и может устаревать (TTL=7 дней), особенно для:
+- Старых записей (>1 день)
+- Записей со статусом SKIPPED
+- Записей, которые давно не синхронизировались
+
+### Solution
+Добавлена **автоматическая проверка и обновление токена** перед скачиванием в `api/tasks/processing.py`:
+
+**Когда обновляется токен:**
+1. `force=True` - принудительное скачивание
+2. Токен отсутствует (`download_access_token` is None)
+3. Токен старый (`source.updated_at` > 1 день назад)
+
+**Логика:**
+```python
+# Calculate token age
+token_age_days = (datetime.now() - recording.source.updated_at).days
+
+# Refresh if needed
+if force or not download_access_token or (token_age_days and token_age_days > 1):
+    # Get subscription and credentials
+    subscription = await subscription_repo.get_by_id(recording.source.subscription_id)
+    credentials = await get_credentials_for_subscription(session, subscription, user_id)
+    zoom_api = ZoomAPI(credentials)
+    
+    # Request fresh token
+    meeting_details = await zoom_api.get_recording_details(meeting_id, include_download_token=True)
+    fresh_token = meeting_details.get("download_access_token")
+    
+    # Update in source.meta
+    recording.source.meta["download_access_token"] = fresh_token
+    recording.source.updated_at = datetime.now()
+    await session.commit()
+```
+
+**Benefits:**
+- ✅ **Надежность** - свежий токен для каждого скачивания старых записей
+- ✅ **Автоматизм** - работает прозрачно, не требует manual sync
+- ✅ **Resilience** - fallback на старый токен если обновление не удалось
+- ✅ **Доказано логами** - решает реальную проблему, подтвержденную в 17:24-17:44
+
+**Files Changed:**
+- `api/tasks/processing.py` - добавлена логика обновления `download_access_token`
+
+---
+
+## 2026-02-03: Runtime Template Override & Fixed dry_run
+
+### Problem
+1. Нет возможности использовать template конфигурацию без постоянной привязки к записи
+2. `dry_run` игнорирует config overrides - показывает текущую конфигурацию вместо планируемой
+
+### Solution
+Добавлены параметры `template_id` и `bind_template` в `/run` и `/bulk/run` endpoints с гибридным поведением:
+
+**Параметр `bind_template` (boolean, default=false):**
+- `false` (по умолчанию) - runtime-only режим: конфигурация template используется для текущего запуска, но НЕ сохраняется в БД
+- `true` - permanent binding: конфигурация используется + сохраняется `recording.template_id` и `is_mapped=true` в БД
+
+**Runtime-only (по умолчанию):**
+```bash
+POST /recordings/100/run
+{"template_id": 15}
+# или явно: {"template_id": 15, "bind_template": false}
+```
+- ✅ Использует конфигурацию template #15
+- ✅ НЕ сохраняет привязку в БД (`recording.template_id` остается как было)
+- ✅ Идеально для экспериментов и разовых запусков
+
+**С постоянной привязкой:**
+```bash
+POST /recordings/100/run
+{"template_id": 15, "bind_template": true}
+```
+- ✅ Использует конфигурацию template #15
+- ✅ СОХРАНЯЕТ `recording.template_id = 15` в БД
+- ✅ Устанавливает `is_mapped = true`
+- ✅ Если status был SKIPPED → меняет на INITIALIZED
+
+**С дополнительными overrides:**
+```bash
+POST /recordings/100/run
+{
+  "template_id": 15,
+  "output_config": {"auto_upload": true}
+}
+```
+- ✅ Template #15 как база + точечные изменения
+
+### Config Resolution Hierarchy
+1. user_config (база)
+2. recording.template_id (если привязан в БД)
+3. **runtime template_id** (NEW - из запроса)
+4. recording.processing_preferences
+5. request overrides (processing_config, metadata_config, output_config)
+
+### Key Features
+- **3 типа конфигов:** processing_config, metadata_config, output_config - все поддерживаются
+- **Исправлен dry_run:** теперь использует resolve_full_config с overrides → показывает точную планируемую конфигурацию
+- **Bulk операции:** работает для массовых запусков
+- **Транзакционная безопасность:** template binding происходит ПОСЛЕ успешного создания задачи
+
+### Files Modified
+- `api/routers/recordings.py` - добавлены template_id и bind_template в ConfigOverrideRequest, обновлен dry_run, добавлена логика binding
+- `api/schemas/recording/request.py` - добавлены поля в BulkRunRequest
+- `api/services/config_utils.py` - поддержка runtime_template_id в resolve_full_config
+
+### Usage Example
+```bash
+# Запуск с template #15 без привязки
+curl -X POST 'http://localhost:8000/api/v1/recordings/100/run' \
+  -H 'Authorization: Bearer TOKEN' \
+  -d '{"template_id": 15}'
+
+# Результат: template применён, recording.template_id остался None
+```
+
+---
+
 ## 2026-02-01: Comprehensive Error Handling & Retry Mechanism
 
 ### Overview

@@ -94,14 +94,10 @@ class DeepSeekConfig(BaseSettings):
     @model_validator(mode="after")
     def validate_config(self) -> DeepSeekConfig:
         """Validate field dependencies."""
-        if self.top_k is not None or self.reasoning_effort is not None:
-            base = (self.base_url or "").lower()
-            if "fireworks.ai" not in base:
-                logger.warning(
-                    "⚠️ Fireworks-specific parameters (top_k, reasoning_effort) set, "
-                    "but base_url doesn't point to Fireworks. These parameters may not work."
-                )
-
+        if (self.top_k is not None or self.reasoning_effort is not None) and "fireworks.ai" not in self.base_url.lower():
+            logger.warning(
+                "⚠️ Fireworks-specific parameters set without Fireworks endpoint. May not work."
+            )
         return self
 
     @classmethod
@@ -177,13 +173,5 @@ class DeepSeekConfig(BaseSettings):
 
         if self.seed is not None:
             params["seed"] = self.seed
-        elif (self.top_k is not None or self.reasoning_effort is not None) and not use_fireworks_extras:
-            base = (self.base_url or "").lower()
-            if "fireworks.ai" in base:
-                logger.debug(
-                    "⚠️ Fireworks-специфичные параметры (top_k, reasoning_effort) "
-                    "не передаются, так как OpenAI клиент их не поддерживает. "
-                    "Используются только стандартные параметры OpenAI API."
-                )
 
         return params

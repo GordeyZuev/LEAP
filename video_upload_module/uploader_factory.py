@@ -1,4 +1,4 @@
-"""Factory for creating platform uploaders with database credentials."""
+"""Factory functions for creating uploaders with database credentials."""
 
 from typing import Any
 
@@ -21,26 +21,10 @@ async def create_youtube_uploader_from_db(
     session: AsyncSession,
     youtube_config: YouTubeUploadConfig | None = None,
 ) -> YouTubeUploader:
-    """
-    Create YouTubeUploader instance using credentials from database.
-
-    Args:
-        credential_id: Database credential ID
-        session: Database session
-        youtube_config: Optional YouTube config (will use defaults if not provided)
-
-    Returns:
-        YouTubeUploader instance configured with database credentials
-    """
-    # Create default config if not provided
+    """Create YouTubeUploader with database credentials."""
     if not youtube_config:
-        youtube_config = YouTubeUploadConfig(
-            enabled=True,
-            client_secrets_file="",  # Not used with DB credentials
-            credentials_file="",  # Not used with DB credentials
-        )
+        youtube_config = YouTubeUploadConfig(enabled=True, client_secrets_file="", credentials_file="")
 
-    # Create credential provider
     encryption = get_encryption()
     repo = UserCredentialRepository(session)
 
@@ -50,7 +34,6 @@ async def create_youtube_uploader_from_db(
         credential_repository=repo,
     )
 
-    # Create uploader with credential provider
     uploader = YouTubeUploader(config=youtube_config, credential_provider=credential_provider)
 
     logger.info(f"Created YouTubeUploader with DB credential ID: {credential_id}")
@@ -62,18 +45,7 @@ async def create_vk_uploader_from_db(
     session: AsyncSession,
     vk_config: VKUploadConfig | None = None,
 ) -> VKUploader:
-    """
-    Create VKUploader instance using credentials from database with credential_provider pattern.
-
-    Args:
-        credential_id: Database credential ID
-        session: Database session
-        vk_config: Optional VK config (will use defaults if not provided)
-
-    Returns:
-        VKUploader instance configured with database credentials
-    """
-    # Create credential provider
+    """Create VKUploader with database credentials."""
     encryption = get_encryption()
     repo = UserCredentialRepository(session)
 
@@ -83,11 +55,9 @@ async def create_vk_uploader_from_db(
         credential_repository=repo,
     )
 
-    # Create default config if not provided
     if not vk_config:
         vk_config = VKUploadConfig(enabled=True)
 
-    # Create uploader with credential provider
     uploader = VKUploader(config=vk_config, credential_provider=credential_provider)
 
     logger.info(f"Created VKUploader with DB credential ID: {credential_id}")
@@ -100,21 +70,7 @@ async def create_uploader_from_db(
     session: AsyncSession,
     config: Any | None = None,
 ) -> YouTubeUploader | VKUploader:
-    """
-    Create platform uploader from database credentials.
-
-    Args:
-        platform: Platform name ('youtube' or 'vk_video')
-        credential_id: Database credential ID
-        session: Database session
-        config: Optional platform config
-
-    Returns:
-        Platform uploader instance
-
-    Raises:
-        ValueError: If platform is not supported
-    """
+    """Create platform uploader with database credentials."""
     if platform == "youtube":
         return await create_youtube_uploader_from_db(credential_id, session, config)
     if platform in ("vk", "vk_video"):

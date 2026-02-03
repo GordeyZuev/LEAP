@@ -84,11 +84,7 @@ class VKUploader(BaseUploader):
             return False
 
     async def _authenticate_legacy(self) -> bool:
-        """
-        Legacy authentication mode (file-based only).
-
-        Note: Interactive CLI setup has been removed. Use OAuth 2.0 flow via API instead.
-        """
+        """Legacy file-based authentication mode."""
         if not self.config.access_token:
             logger.error(
                 "VK access_token not found. Use OAuth 2.0 flow via API (GET /oauth/vk/authorize) to obtain credentials."
@@ -110,8 +106,8 @@ class VKUploader(BaseUploader):
                             error_code = error_info.get("error_code")
                             error_msg = error_info.get("error_msg", "Unknown error")
 
-                            # Ошибки токена - это ожидаемая ситуация, не ERROR
-                            if error_code in (5, 28):  # Invalid token or expired
+                            # Token errors are expected, not critical
+                            if error_code in (5, 28):
                                 logger.warning(f"VK token invalid or expired: {error_msg}")
                             else:
                                 logger.error(f"VK API Error [{error_code}]: {error_msg}")
@@ -136,17 +132,7 @@ class VKUploader(BaseUploader):
         task_id=None,
         **kwargs,
     ) -> UploadResult | None:
-        """
-        Upload video to VK.
-
-        Supported kwargs:
-            - group_id: int - Group ID for uploading to group
-            - privacy_view: int - Privacy settings for viewing (0-3)
-            - privacy_comment: int - Privacy settings for comments (0-3)
-            - no_comments: bool - Disable comments
-            - repeat: bool - Enable repeat
-            - wallpost: bool - Publish to wall after upload
-        """
+        """Upload video to VK with metadata and optional thumbnail."""
 
         if not self._authenticated:
             if not await self.authenticate():
@@ -176,7 +162,7 @@ class VKUploader(BaseUploader):
                 result = self._create_result(video_id=video_id, video_url=video_url, title=title, platform="vk")
                 result.metadata["owner_id"] = owner_id
 
-                # Если передан album_id, значит видео добавлено в альбом
+                # If album_id provided, video was added to album
                 if album_id:
                     result.metadata["album_id"] = album_id
                     result.metadata["added_to_album"] = True
@@ -212,7 +198,7 @@ class VKUploader(BaseUploader):
             return None
 
         params = {
-            "videos": video_id,  # Формат: owner_id_video_id
+            "videos": video_id,
             "extended": 1,
         }
 
@@ -283,12 +269,7 @@ class VKUploader(BaseUploader):
     async def _upload_video_file(
         self, upload_url: str, video_path: str, progress=None, task_id=None
     ) -> dict[str, Any] | None:
-        """
-        Upload video file to VK with streaming and proper timeout handling.
-
-        VK API doesn't support chunked uploads, so we use streaming to avoid
-        loading entire file into memory for large videos (1-3 GB).
-        """
+        """Upload video file to VK using streaming for large files."""
         video_file = None
         try:
             file_size = Path(video_path).stat().st_size

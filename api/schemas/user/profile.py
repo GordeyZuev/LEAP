@@ -1,75 +1,78 @@
 """User profile management schemas"""
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserProfileUpdate(BaseModel):
-    """Схема для обновления профиля пользователя.
+    """Schema for updating user profile.
 
-    Пользователь может обновить только свое имя и email.
-    Остальные поля (permissions, role) могут менять только админы.
+    User can only update their name and email.
+    Other fields (permissions, role) can only be changed by admins.
     """
 
-    full_name: str | None = Field(None, max_length=255, description="Полное имя пользователя")
-    email: EmailStr | None = Field(None, description="Email пользователя")
+    full_name: str | None = Field(None, max_length=255, description="Full name of user")
+    email: EmailStr | None = Field(None, description="Email of user")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
-                "full_name": "Иван Петров",
+                "full_name": "John Doe",
                 "email": "ivan.petrov@example.com",
             }
         }
+    )
 
 
 class ChangePasswordRequest(BaseModel):
-    """Схема для смены пароля."""
+    """Schema for changing password."""
 
-    current_password: str = Field(..., min_length=1, description="Текущий пароль")
-    new_password: str = Field(..., min_length=8, max_length=100, description="Новый пароль")
+    current_password: str = Field(..., min_length=1, description="Current password")
+    new_password: str = Field(..., min_length=8, max_length=100, description="New password")
 
     @field_validator("new_password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        """Валидация нового пароля."""
+        """Validation of new password."""
         if len(v) < 8:
-            raise ValueError("Пароль должен быть не менее 8 символов")
+            raise ValueError("Password must be at least 8 characters")
         if not any(char.isdigit() for char in v):
-            raise ValueError("Пароль должен содержать хотя бы одну цифру")
+            raise ValueError("Password must contain at least one digit")
         if not any(char.isupper() for char in v):
-            raise ValueError("Пароль должен содержать хотя бы одну заглавную букву")
+            raise ValueError("Password must contain at least one uppercase letter")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "current_password": "OldPassword123",
                 "new_password": "NewSecurePassword123",
             }
         }
+    )
 
 
 class DeleteAccountRequest(BaseModel):
-    """Схема для подтверждения удаления аккаунта."""
+    """Schema for confirmation of account deletion."""
 
-    password: str = Field(..., description="Пароль для подтверждения")
+    password: str = Field(..., description="Password for confirmation")
     confirmation: str = Field(
         ...,
-        description="Пользователь должен ввести 'DELETE' для подтверждения",
+        description="User must enter 'DELETE' for confirmation",
     )
 
     @field_validator("confirmation")
     @classmethod
     def validate_confirmation(cls, v: str) -> str:
-        """Проверка, что пользователь действительно хочет удалить аккаунт."""
+        """Check that user really wants to delete account."""
         if v != "DELETE":
-            raise ValueError("Для подтверждения удаления введите 'DELETE'")
+            raise ValueError("For confirmation of deletion enter 'DELETE'")
         return v
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "password": "MyPassword123",
                 "confirmation": "DELETE",
             }
         }
+    )

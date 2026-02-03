@@ -1,47 +1,45 @@
-"""Authentication response schemas"""
+"""Authentication response schemas."""
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class TokenResponse(BaseModel):
-    """Ответ с токенами."""
+    """Response with tokens."""
 
-    access_token: str = Field(..., description="Access токен")
-    refresh_token: str = Field(..., description="Refresh токен")
-    token_type: str = Field(default="bearer", description="Тип токена")
-    expires_in: int = Field(..., description="Время жизни access токена в секундах")
+    access_token: str = Field(..., description="Access token")
+    refresh_token: str = Field(..., description="Refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+    expires_in: int = Field(..., description="Lifetime of access token in seconds")
 
 
 class UserResponse(BaseModel):
-    """Ответ с информацией о пользователе."""
+    """Response with information about user."""
 
-    id: str = Field(..., description="ID пользователя")
+    id: str = Field(..., description="User ID")
     email: EmailStr = Field(..., description="Email")
-    full_name: str | None = Field(None, description="Полное имя")
-    is_active: bool = Field(..., description="Активен ли аккаунт")
-    is_verified: bool = Field(..., description="Подтвержден ли email")
-    is_superuser: bool = Field(..., description="Суперпользователь")
-    created_at: datetime = Field(..., description="Дата создания")
-    last_login_at: datetime | None = Field(None, description="Последний вход")
+    full_name: str | None = Field(None, description="Full name")
+    is_active: bool = Field(..., description="Is account active")
+    is_verified: bool = Field(..., description="Is email verified")
+    is_superuser: bool = Field(..., description="Is superuser")
+    created_at: datetime = Field(..., description="Creation date")
+    last_login_at: datetime | None = Field(None, description="Last login")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserMeResponse(BaseModel):
-    """Ответ с базовой информацией о текущем пользователе."""
+    """Response with basic information about current user."""
 
-    id: str = Field(..., description="ID пользователя")
+    id: str = Field(..., description="User ID")
     email: EmailStr = Field(..., description="Email")
-    full_name: str | None = Field(None, description="Полное имя")
-    timezone: str = Field(..., description="Часовой пояс")
-    role: str = Field(..., description="Роль пользователя")
-    is_active: bool = Field(..., description="Активен ли аккаунт")
-    is_verified: bool = Field(..., description="Подтвержден ли email")
-    created_at: datetime = Field(..., description="Дата создания")
-    last_login_at: datetime | None = Field(None, description="Последний вход")
+    full_name: str | None = Field(None, description="Full name")
+    timezone: str = Field(..., description="Timezone")
+    role: str = Field(..., description="User role")
+    is_active: bool = Field(..., description="Is account active")
+    is_verified: bool = Field(..., description="Is email verified")
+    created_at: datetime = Field(..., description="Creation date")
+    last_login_at: datetime | None = Field(None, description="Last login")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -13,6 +13,18 @@ from .config import DeepSeekConfig
 
 logger = get_logger(__name__)
 
+# Constants
+MIN_PAUSE_MINUTES = 8.0
+MIN_TOPIC_DURATION_SECONDS = 60
+NOISE_WINDOW_MINUTES = 15
+TIMESTAMP_PATTERN = r"\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*[-–—]?\s*(.+)"
+TIMESTAMP_PATTERN_MS = r"\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)"
+NOISE_PATTERNS = [r"редактор субтитров", r"корректор", r"продолжение следует"]
+FIREWORKS_MAX_TOKENS_NON_STREAM = 4096
+MAIN_TOPIC_MIN_WORDS = 2
+MAIN_TOPIC_MAX_WORDS = 4
+MAIN_TOPIC_MIN_LENGTH = 3
+
 
 class TopicExtractor:
     """Extract topics from transcription using MapReduce approach"""
@@ -89,7 +101,7 @@ class TopicExtractor:
                 ]  # Паузы >=8 минут между сегментами
             }
         """
-        if not segments or len(segments) == 0:
+        if not segments:
             raise ValueError("Сегменты обязательны для извлечения тем")
 
         total_duration = segments[-1].get("end", 0) if segments else 0
@@ -165,11 +177,62 @@ class TopicExtractor:
 
         logger.info(f"Reading segments from file: {segments_file_path}")
 
+        segments = self._parse_segments_from_file(segments_path)
+
+        if not segments:
+            raise ValueError(f"Не удалось извлечь сегменты из файла {segments_file_path}")
+
+        logger.info(f"Read {len(segments)} segments from file {segments_file_path}")
+
+        return await self.extract_topics(
+            segments=segments,
+            recording_topic=recording_topic,
+            granularity=granularity,
+        )
+
+    def _format_transcript_with_timestamps(self, segments: list[dict]) -> str:
+        """Format transcript with timestamps, filtering noise."""
+        exclude_from, exclude_to = self._detect_noise_window(segments)
+        segments_text = []
+
+        for seg in segments:
+            start = seg.get("start", 0)
+            text = seg.get("text", "").strip()
+            if not text:
+                continue
+
+            # Skip noise segments and segments in noise window
+            if any(re.search(pat, text.lower()) for pat in NOISE_PATTERNS):
+                continue
+            if exclude_from is not None and exclude_from <= start <= exclude_to:
+                continue
+
+            time_str = self._format_time(start)
+            segments_text.append(f"{time_str} {text}")
+
+        return "\n".join(segments_text)
+
+    def _detect_noise_window(self, segments: list[dict]) -> tuple[float | None, float | None]:
+        """Detect long noise window in segments."""
+        noise_times = [
+            float(seg.get("start", 0))
+            for seg in segments
+            if (text := (seg.get("text") or "").strip().lower())
+            and any(re.search(pat, text) for pat in NOISE_PATTERNS)
+        ]
+
+        if noise_times:
+            first_noise, last_noise = min(noise_times), max(noise_times)
+            if (last_noise - first_noise) >= NOISE_WINDOW_MINUTES * 60:
+                return first_noise, last_noise
+
+        return None, None
+
+    def _parse_segments_from_file(self, segments_path: Path) -> list[dict]:
+        """Parse segments from file with timestamps."""
         segments = []
         timestamp_pattern = re.compile(r"\[(\d{2}):(\d{2}):(\d{2})\s*-\s*(\d{2}):(\d{2}):(\d{2})\]\s*(.+)")
-        timestamp_pattern_ms = re.compile(
-            r"\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)"
-        )
+        timestamp_pattern_ms = re.compile(TIMESTAMP_PATTERN_MS)
 
         with segments_path.open(encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
@@ -195,85 +258,16 @@ class TopicExtractor:
                             end_seconds = end_h * 3600 + end_m * 60 + end_s
 
                         if text:
-                            segments.append(
-                                {
-                                    "start": float(start_seconds),
-                                    "end": float(end_seconds),
-                                    "text": text,
-                                }
-                            )
+                            segments.append({
+                                "start": float(start_seconds),
+                                "end": float(end_seconds),
+                                "text": text,
+                            })
                     except (ValueError, IndexError) as e:
-                        logger.warning(
-                            f"⚠️ Ошибка парсинга строки {line_num} в файле {segments_file_path}: {line[:50]}... - {e}"
-                        )
+                        logger.warning(f"⚠️ Parse error at line {line_num}: {line[:50]}... - {e}")
                         continue
 
-        if not segments:
-            raise ValueError(f"Не удалось извлечь сегменты из файла {segments_file_path}")
-
-        logger.info(f"Read {len(segments)} segments from file {segments_file_path}")
-
-        return await self.extract_topics(
-            segments=segments,
-            recording_topic=recording_topic,
-            granularity=granularity,
-        )
-
-    def _format_transcript_with_timestamps(self, segments: list[dict]) -> str:
-        """
-        Форматирование транскрипции с временными метками.
-
-        Args:
-            segments: Список сегментов с временными метками
-
-        Returns:
-            Отформатированная транскрипция
-        """
-        segments_text = []
-        noise_patterns = [
-            r"редактор субтитров",
-            r"корректор",
-            r"продолжение следует",
-        ]
-        # Оцениваем, есть ли длинное окно шума (15+ минут подряд)
-        noise_times = []
-        for seg in segments:
-            text0 = (seg.get("text") or "").strip().lower()
-            if text0 and any(re.search(pat, text0) for pat in noise_patterns):
-                try:
-                    noise_times.append(float(seg.get("start", 0)))
-                except Exception as e:
-                    logger.debug(f"Failed to parse noise segment start time: {e}")
-        exclude_from = None
-        exclude_to = None
-        if noise_times:
-            first_noise = min(noise_times)
-            last_noise = max(noise_times)
-            if (last_noise - first_noise) >= 15 * 60:
-                exclude_from, exclude_to = first_noise, last_noise
-
-        for seg in segments:
-            start = seg.get("start", 0)
-            text = seg.get("text", "").strip()
-            if text:
-                lowered = text.lower()
-                # Пропускаем шумовые строки
-                if any(re.search(pat, lowered) for pat in noise_patterns):
-                    continue
-                # Пропускаем всё, что попало в длинное окно шума
-                if exclude_from is not None and exclude_to is not None:
-                    try:
-                        if exclude_from <= float(start) <= exclude_to:
-                            continue
-                    except Exception as e:
-                        logger.debug(f"Failed to check segment time range: {e}")
-                hours = int(start // 3600)
-                minutes = int((start % 3600) // 60)
-                seconds = int(start % 60)
-                time_str = f"[{hours:02d}:{minutes:02d}:{seconds:02d}]"
-                segments_text.append(f"{time_str} {text}")
-
-        return "\n".join(segments_text)
+        return segments
 
     def _calculate_topic_range(self, duration_minutes: float, granularity: str = "long") -> tuple[int, int]:
         """
@@ -345,7 +339,7 @@ class TopicExtractor:
         else:  # granularity == "long"
             min_spacing_minutes = max(4, min(6, total_duration / 60 * 0.05))
 
-        long_pauses = self._detect_long_pauses(segments or [], min_gap_minutes=8)
+        long_pauses = self._detect_long_pauses(segments or [], min_gap_minutes=MIN_PAUSE_MINUTES)
         pauses_instruction = ""
         if long_pauses:
             pauses_lines = [
@@ -518,14 +512,13 @@ class TopicExtractor:
         if self.config.top_k != 1 and self.config.top_p is not None:
             params["top_p"] = self.config.top_p
 
-        # Fireworks API: для всех моделей запросы с max_tokens > 4096 требуют stream=true
-        # Для не-потоковых запросов ограничиваем max_tokens до 4096
-        if params.get("max_tokens", 0) > 4096:
+        # Fireworks non-stream requests require max_tokens <= 4096
+        if params.get("max_tokens", 0) > FIREWORKS_MAX_TOKENS_NON_STREAM:
             logger.warning(
-                f"⚠️ max_tokens={params.get('max_tokens')} превышает лимит Fireworks для не-потоковых запросов (4096). "
-                f"Уменьшаем до 4096. Для большего значения требуется stream=true."
+                f"⚠️ max_tokens={params.get('max_tokens')} exceeds Fireworks limit ({FIREWORKS_MAX_TOKENS_NON_STREAM}). "
+                f"Reducing to {FIREWORKS_MAX_TOKENS_NON_STREAM}."
             )
-            params["max_tokens"] = 4096
+            params["max_tokens"] = FIREWORKS_MAX_TOKENS_NON_STREAM
 
         # Фильтруем None значения, чтобы не передавать их в API
         params = {k: v for k, v in params.items() if v is not None}
@@ -560,37 +553,43 @@ class TopicExtractor:
                 response = await client.post(url, json=payload, headers=headers)
 
                 if response.status_code != 200:
-                    error_text = response.text
-                    try:
-                        error_data = response.json()
-                        error_text = str(error_data)
-                    except Exception as e:
-                        logger.debug(f"Failed to parse error response as JSON: {e}")
-
-                    logger.error(
-                        f"❌ Ошибка Fireworks API (status {response.status_code}):\n"
-                        f"URL: {url}\n"
-                        f"Payload keys: {list(payload.keys())}\n"
-                        f"Payload params: {params}\n"
-                        f"Response: {error_text[:2000]}"
-                    )
+                    self._log_api_error(response, url, payload, params)
                     response.raise_for_status()
 
                 data = response.json()
 
                 if "choices" not in data or not data["choices"]:
-                    raise ValueError(f"Неожиданный формат ответа от Fireworks API: {data}")
+                    raise ValueError(f"Invalid Fireworks API response format: {data}")
 
                 return data["choices"][0]["message"]["content"].strip()
             except httpx.HTTPStatusError as e:
                 if e.response is not None:
-                    try:
-                        error_data = e.response.json()
-                        logger.error(f"Fireworks API error: data={error_data}", error_data=error_data)
-                    except Exception:
-                        error_text = e.response.text
-                        logger.error(f"Fireworks API error: text={error_text[:1000]}", error_text=error_text[:1000])
+                    self._log_http_error(e.response)
                 raise
+
+    def _log_api_error(self, response: httpx.Response, url: str, payload: dict, params: dict) -> None:
+        """Log Fireworks API error response."""
+        try:
+            error_text = str(response.json())
+        except Exception:
+            error_text = response.text
+
+        logger.error(
+            f"❌ Fireworks API error (status {response.status_code}):\n"
+            f"URL: {url}\n"
+            f"Payload keys: {list(payload.keys())}\n"
+            f"Params: {params}\n"
+            f"Response: {error_text[:2000]}"
+        )
+
+    def _log_http_error(self, response: httpx.Response) -> None:
+        """Log HTTP error details."""
+        try:
+            error_data = response.json()
+            logger.error(f"Fireworks API error: data={error_data}", error_data=error_data)
+        except Exception:
+            error_text = response.text
+            logger.error(f"Fireworks API error: text={error_text[:1000]}", error_text=error_text[:1000])
 
     def _detect_long_pauses(self, segments: list[dict], min_gap_minutes: float = 8.0) -> list[dict]:
         """
@@ -632,11 +631,10 @@ class TopicExtractor:
 
     @staticmethod
     def _format_time(seconds: float) -> str:
-        """Форматирование секунд в HH:MM:SS"""
+        """Format seconds to HH:MM:SS."""
         total_seconds = int(seconds)
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
-        secs = total_seconds % 60
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, secs = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def _parse_structured_response(self, text: str, total_duration: float) -> dict[str, Any]:
@@ -668,60 +666,10 @@ class TopicExtractor:
         in_detailed_topics = False
         main_topics_section_found = False
 
-        timestamp_pattern = r"\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*[-–—]?\s*(.+)"
-
-        # Сначала ищем основную тему в начале ответа (до секции детализированных топиков)
-        found_main_topic_before_section = False
-        for i, line in enumerate(lines):
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-
-            if "ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ" in line_stripped.upper() or "ТОПИКИ С ТАЙМКОДАМИ" in line_stripped.upper():
-                # Look for topic in previous 10 lines
-                for j in range(max(0, i - 10), i):
-                    candidate = lines[j].strip()
-                    if candidate and not candidate.startswith("##") and not candidate.startswith("#"):
-                        if (
-                            "выведи" in candidate.lower()
-                            or "тема" in candidate.lower()
-                            or "пример" in candidate.lower()
-                        ):
-                            continue
-                        if re.match(timestamp_pattern, candidate):
-                            continue
-                        topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", candidate).strip()
-                        topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
-                        if topic_candidate:
-                            words = topic_candidate.split()
-                            # Основная тема должна быть короткой (2-4 слова)
-                            if 2 <= len(words) <= 4:
-                                main_topics.append(topic_candidate)
-                                found_main_topic_before_section = True
-                                break
-                break
-
-        # Если не нашли тему перед секцией, проверяем первые строки ответа
-        if not found_main_topic_before_section:
-            for _, line in enumerate(lines[:10]):
-                line_stripped = line.strip()
-                if not line_stripped or line_stripped.startswith(("##", "#")):
-                    continue
-                if re.match(timestamp_pattern, line_stripped):
-                    break
-                if (
-                    "выведи" in line_stripped.lower()
-                    or "тема" in line_stripped.lower()
-                    or "пример" in line_stripped.lower()
-                ):
-                    continue
-                topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", line_stripped).strip()
-                topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
-                if topic_candidate:
-                    words = topic_candidate.split()
-                    if 2 <= len(words) <= 4:
-                        main_topics.append(topic_candidate)
-                        break
+        # Try to find main topic before detailed topics section
+        main_topic = self._find_main_topic_before_section(lines)
+        if main_topic:
+            main_topics.append(main_topic)
 
         for i, line in enumerate(lines):
             line = line.strip()
@@ -756,21 +704,13 @@ class TopicExtractor:
                 continue
 
             # Timestamp indicates detailed topic
-            timestamp_match = re.match(timestamp_pattern, line)
+            timestamp_match = re.match(TIMESTAMP_PATTERN, line)
             if timestamp_match:
                 in_detailed_topics = True
                 in_main_topics = False
                 # Парсим топик сразу
                 hours_str, minutes_str, seconds_str, topic = timestamp_match.groups()
-                if seconds_str is None:
-                    hours = 0
-                    minutes = int(hours_str)
-                    seconds = int(minutes_str)
-                else:
-                    hours = int(hours_str)
-                    minutes = int(minutes_str)
-                    seconds = int(seconds_str)
-                total_seconds = hours * 3600 + minutes * 60 + seconds
+                total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str)
                 if 0 <= total_seconds <= total_duration:
                     topic_timestamps.append(
                         {
@@ -799,20 +739,10 @@ class TopicExtractor:
                     main_topics.append(topic)
 
             elif in_detailed_topics:
-                match = re.match(timestamp_pattern, line)
+                match = re.match(TIMESTAMP_PATTERN, line)
                 if match:
                     hours_str, minutes_str, seconds_str, topic = match.groups()
-
-                    if seconds_str is None:
-                        hours = 0
-                        minutes = int(hours_str)
-                        seconds = int(minutes_str)
-                    else:
-                        hours = int(hours_str)
-                        minutes = int(minutes_str)
-                        seconds = int(seconds_str)
-
-                    total_seconds = hours * 3600 + minutes * 60 + seconds
+                    total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str)
 
                     if 0 <= total_seconds <= total_duration:
                         topic_timestamps.append(
@@ -829,185 +759,160 @@ class TopicExtractor:
                             valid_range=f"0-{round(total_duration / 60, 1)}"
                         )
 
-        # Если не нашли топики через секции, пробуем парсить все строки с временными метками
+        # Fallback: parse all lines with timestamps
         if not topic_timestamps:
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                match = re.match(timestamp_pattern, line)
-                if match:
-                    hours_str, minutes_str, seconds_str, topic = match.groups()
-                    if seconds_str is None:
-                        hours = 0
-                        minutes = int(hours_str)
-                        seconds = int(minutes_str)
-                    else:
-                        hours = int(hours_str)
-                        minutes = int(minutes_str)
-                        seconds = int(seconds_str)
-                    total_seconds = hours * 3600 + minutes * 60 + seconds
-                    if 0 <= total_seconds <= total_duration:
-                        topic_timestamps.append(
-                            {
-                                "topic": topic.strip(),
-                                "start": float(total_seconds),
-                            }
-                        )
+            topic_timestamps = self._parse_all_timestamps(lines, total_duration)
 
         if not topic_timestamps and not main_topics:
             topic_timestamps = self._parse_simple_timestamps(text, total_duration)
 
         if main_topics_section_found and not main_topics:
-            logger.debug("Main topics section found but topics not extracted. Searching for topic at response start")
-            for i, line in enumerate(lines):
-                if "ОСНОВНЫЕ ТЕМЫ" in line.upper() or "ОСНОВНЫЕ ТЕМЫ ПАРЫ" in line.upper():
-                    for j in range(i + 1, min(i + 5, len(lines))):
-                        candidate = lines[j].strip()
-                        if candidate and not candidate.startswith("##") and not candidate.startswith("#"):
-                            topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", candidate).strip()
-                            topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
-                            if (
-                                topic_candidate
-                                and len(topic_candidate) > 3
-                                and "выведи" not in topic_candidate.lower()
-                                and "тема" not in topic_candidate.lower()
-                                and "пример" not in topic_candidate.lower()
-                            ):
-                                words = topic_candidate.split()
-                                if 2 <= len(words) <= 4:
-                                    main_topics.append(topic_candidate)
-                                    break
-                    break
+            logger.debug("Main topics section found but not extracted. Fallback search.")
+            main_topic = self._find_topic_after_section_header(lines)
+            if main_topic:
+                main_topics.append(main_topic)
 
-        processed_main_topics = []
-        for topic in main_topics[:1]:
-            topic = " ".join(topic.split())
-            if topic and len(topic) > 3:
-                words = topic.split()
-                if len(words) > 7:
-                    topic = " ".join(words[:7]) + "..."
-                processed_main_topics.append(topic)
+        processed_main_topics = self._process_main_topics(main_topics)
 
         if processed_main_topics:
             logger.info(f"Main topic: {processed_main_topics[0]}")
-        if not processed_main_topics and main_topics_section_found:
-            logger.warning(
-                f"⚠️ Секция основных тем найдена, но не удалось извлечь тему. Первые строки ответа:\n{chr(10).join(lines[:10])}"
-            )
+        elif main_topics_section_found:
+            logger.warning(f"⚠️ Main topics section found but extraction failed. First lines:\n{chr(10).join(lines[:10])}")
 
         return {
             "main_topics": processed_main_topics,
             "topic_timestamps": topic_timestamps,
         }
 
-    def _parse_simple_timestamps(self, text: str, total_duration: float) -> list[dict]:
-        """
-        Парсинг простого формата временных меток (fallback).
+    @staticmethod
+    def _process_main_topics(main_topics: list[str]) -> list[str]:
+        """Process and normalize main topics."""
+        processed = []
+        for topic in main_topics[:1]:
+            topic = " ".join(topic.split())
+            if topic and len(topic) > MAIN_TOPIC_MIN_LENGTH:
+                words = topic.split()
+                if len(words) > 7:
+                    topic = " ".join(words[:7]) + "..."
+                processed.append(topic)
+        return processed
 
-        Формат: [HH:MM:SS] - [Название] или [HH:MM:SS] [Название]
-
-        Args:
-            text: Текст ответа
-            total_duration: Общая длительность видео
-
-        Returns:
-            Список временных меток
-        """
-        timestamps = []
-        lines = text.split("\n")
-
-        # Паттерн для [HH:MM:SS] - [Название] или [HH:MM:SS] [Название]
-        pattern = r"\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*[-–—]?\s*(.+)"
-
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith("#"):
+    def _find_main_topic_before_section(self, lines: list[str]) -> str | None:
+        """Find main topic before detailed topics section."""
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            if not line_stripped:
                 continue
 
-            match = re.match(pattern, line)
+            if "ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ" in line_stripped.upper() or "ТОПИКИ С ТАЙМКОДАМИ" in line_stripped.upper():
+                # Look for topic in previous 10 lines
+                for j in range(max(0, i - 10), i):
+                    candidate = lines[j].strip()
+                    if not candidate or candidate.startswith(("##", "#")):
+                        continue
+                    if any(word in candidate.lower() for word in ["выведи", "тема", "пример"]):
+                        continue
+                    if re.match(TIMESTAMP_PATTERN, candidate):
+                        continue
+
+                    topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", candidate).strip()
+                    topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
+                    if topic_candidate and MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS:
+                        return topic_candidate
+                break
+
+        # Check first 10 lines if not found before section
+        for line in lines[:10]:
+            line_stripped = line.strip()
+            if not line_stripped or line_stripped.startswith(("##", "#")):
+                continue
+            if re.match(TIMESTAMP_PATTERN, line_stripped):
+                break
+            if any(word in line_stripped.lower() for word in ["выведи", "тема", "пример"]):
+                continue
+
+            topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", line_stripped).strip()
+            topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
+            if topic_candidate and MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS:
+                return topic_candidate
+
+        return None
+
+    def _find_topic_after_section_header(self, lines: list[str]) -> str | None:
+        """Find main topic after section header."""
+        for i, line in enumerate(lines):
+            if "ОСНОВНЫЕ ТЕМЫ" in line.upper() or "ОСНОВНЫЕ ТЕМЫ ПАРЫ" in line.upper():
+                for j in range(i + 1, min(i + 5, len(lines))):
+                    candidate = lines[j].strip()
+                    if not candidate or candidate.startswith(("##", "#")):
+                        continue
+
+                    topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", candidate).strip()
+                    topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
+
+                    if (topic_candidate and len(topic_candidate) > MAIN_TOPIC_MIN_LENGTH and
+                        not any(word in topic_candidate.lower() for word in ["выведи", "тема", "пример"]) and
+                        MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS):
+                        return topic_candidate
+                break
+        return None
+
+    @staticmethod
+    def _parse_timestamp_to_seconds(hours_str: str, minutes_str: str, seconds_str: str | None) -> int:
+        """Convert timestamp components to total seconds."""
+        if seconds_str is None:
+            return int(hours_str) * 60 + int(minutes_str)
+        return int(hours_str) * 3600 + int(minutes_str) * 60 + int(seconds_str)
+
+    def _parse_all_timestamps(self, lines: list[str], total_duration: float) -> list[dict]:
+        """Parse all lines with timestamps as fallback."""
+        timestamps = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            match = re.match(TIMESTAMP_PATTERN, line)
             if match:
                 hours_str, minutes_str, seconds_str, topic = match.groups()
-
-                if seconds_str is None:
-                    hours = 0
-                    minutes = int(hours_str)
-                    seconds = int(minutes_str)
-                else:
-                    hours = int(hours_str)
-                    minutes = int(minutes_str)
-                    seconds = int(seconds_str)
-
-                total_seconds = hours * 3600 + minutes * 60 + seconds
-
+                total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str)
                 if 0 <= total_seconds <= total_duration:
-                    timestamps.append(
-                        {
-                            "topic": topic.strip(),
-                            "start": float(total_seconds),
-                        }
-                    )
-
+                    timestamps.append({"topic": topic.strip(), "start": float(total_seconds)})
         return timestamps
+
+    def _parse_simple_timestamps(self, text: str, total_duration: float) -> list[dict]:
+        """Parse simple timestamp format as fallback."""
+        return self._parse_all_timestamps(text.split("\n"), total_duration)
 
     def _filter_and_merge_topics(
         self, timestamps: list[dict], total_duration: float, min_topics: int = 10, max_topics: int = 30
     ) -> list[dict]:
-        """
-        Фильтрация и объединение топиков для получения нужного диапазона.
-
-        Объединяет близкие по времени топики и ограничивает общее количество.
-
-        Args:
-            timestamps: Список всех топиков с start
-            total_duration: Общая длительность видео в секундах
-            min_topics: Минимальное количество топиков
-            max_topics: Максимальное количество топиков
-
-        Returns:
-            Отфильтрованный список топиков
-        """
+        """Filter and merge topics to match target range."""
         if not timestamps:
             return []
 
         duration_minutes = total_duration / 60
         min_spacing = max(180, min(300, duration_minutes * 60 * 0.04))
-
         sorted_timestamps = sorted(timestamps, key=lambda x: x.get("start", 0))
 
         if len(sorted_timestamps) <= max_topics:
-            merged = []
+            return self._merge_close_topics(sorted_timestamps, min_spacing)
 
-            for ts in sorted_timestamps:
-                start = ts.get("start", 0)
-                topic = ts.get("topic", "").strip()
+        # Sample topics to reach max_topics
+        step = len(sorted_timestamps) / max_topics
+        filtered = [sorted_timestamps[int(i * step)] for i in range(max_topics) if int(i * step) < len(sorted_timestamps)]
 
-                if not topic:
-                    continue
+        merged = self._merge_close_topics(filtered, min_spacing)
 
-                if merged and (start - merged[-1].get("start", 0)) < min_spacing:
-                    prev_topic = merged[-1].get("topic", "")
-                    if len(topic) > len(prev_topic):
-                        merged[-1]["topic"] = topic
-                    if start < merged[-1].get("start", 0):
-                        merged[-1]["start"] = start
-                else:
-                    merged.append(ts)
+        # Add more topics if needed
+        if len(merged) < min_topics:
+            merged = self._add_missing_topics(merged, sorted_timestamps, min_topics, min_spacing)
 
-            return merged
+        return merged
 
-        target_count = max_topics
-        step = len(sorted_timestamps) / target_count
-
-        filtered = []
-        for i in range(target_count):
-            idx = int(i * step)
-            if idx < len(sorted_timestamps):
-                filtered.append(sorted_timestamps[idx])
-
+    def _merge_close_topics(self, timestamps: list[dict], min_spacing: float) -> list[dict]:
+        """Merge topics that are too close together."""
         merged = []
-
-        for ts in filtered:
+        for ts in timestamps:
             start = ts.get("start", 0)
             topic = ts.get("topic", "").strip()
 
@@ -1023,51 +928,38 @@ class TopicExtractor:
             else:
                 merged.append(ts)
 
-        if len(merged) < min_topics:
-            additional_step = len(sorted_timestamps) / (min_topics - len(merged))
-            added_indices = set()
-
-            for i in range(min_topics - len(merged)):
-                idx = int(i * additional_step)
-                if idx < len(sorted_timestamps):
-                    if idx not in added_indices:
-                        ts = sorted_timestamps[idx]
-                        start = ts.get("start", 0)
-                        topic = ts.get("topic", "").strip()
-
-                        if topic:
-                            too_close = False
-                            for existing in merged:
-                                if abs(start - existing.get("start", 0)) < min_spacing:
-                                    too_close = True
-                                    break
-
-                            if not too_close:
-                                merged.append(ts)
-                                added_indices.add(idx)
-
-            # Сортируем по времени
-            merged = sorted(merged, key=lambda x: x.get("start", 0))
-
         return merged
 
+    def _add_missing_topics(
+        self, merged: list[dict], all_timestamps: list[dict], min_topics: int, min_spacing: float
+    ) -> list[dict]:
+        """Add more topics to reach minimum count."""
+        additional_step = len(all_timestamps) / (min_topics - len(merged))
+        added_indices = set()
+
+        for i in range(min_topics - len(merged)):
+            idx = int(i * additional_step)
+            if idx >= len(all_timestamps) or idx in added_indices:
+                continue
+
+            ts = all_timestamps[idx]
+            start = ts.get("start", 0)
+            topic = ts.get("topic", "").strip()
+
+            if topic and not any(abs(start - existing.get("start", 0)) < min_spacing for existing in merged):
+                merged.append(ts)
+                added_indices.add(idx)
+
+        return sorted(merged, key=lambda x: x.get("start", 0))
+
     def _add_end_timestamps(self, timestamps: list[dict], total_duration: float) -> list[dict]:
-        """
-        Добавление временных меток end для каждой темы.
-
-        Args:
-            timestamps: Список тем с start
-            total_duration: Общая длительность видео
-
-        Returns:
-            Список тем с start и end
-        """
+        """Add end timestamps to topics."""
         if not timestamps:
             return []
 
         sorted_timestamps = sorted(timestamps, key=lambda x: x.get("start", 0))
-
         result = []
+
         for i, ts in enumerate(sorted_timestamps):
             start = ts.get("start", 0)
             topic = ts.get("topic", "").strip()
@@ -1075,14 +967,14 @@ class TopicExtractor:
             if not topic:
                 continue
 
+            # Calculate end time
             if i < len(sorted_timestamps) - 1:
                 end = sorted_timestamps[i + 1].get("start", 0)
+                # Ensure minimum duration
+                if end - start < MIN_TOPIC_DURATION_SECONDS:
+                    end = min(start + MIN_TOPIC_DURATION_SECONDS, sorted_timestamps[i + 1].get("start", 0))
             else:
                 end = total_duration
-
-            # Гарантируем минимальную длительность
-            if end - start < 60 and i < len(sorted_timestamps) - 1:
-                end = min(start + 60, sorted_timestamps[i + 1].get("start", 0))
 
             end = min(end, total_duration)
 
@@ -1095,12 +987,6 @@ class TopicExtractor:
                 )
                 continue
 
-            result.append(
-                {
-                    "topic": topic,
-                    "start": start,
-                    "end": end,
-                }
-            )
+            result.append({"topic": topic, "start": start, "end": end})
 
         return result

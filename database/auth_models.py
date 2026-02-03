@@ -65,7 +65,7 @@ class UserModel(Base):
 
 
 class UserCredentialModel(Base):
-    """Модель для хранения учетных данных пользователя к внешним сервисам."""
+    """User credentials for external services."""
 
     __tablename__ = "user_credentials"
 
@@ -86,7 +86,7 @@ class UserCredentialModel(Base):
 
 
 class SubscriptionPlanModel(Base):
-    """Модель тарифного плана."""
+    """Subscription plan with quotas and pricing."""
 
     __tablename__ = "subscription_plans"
 
@@ -94,30 +94,19 @@ class SubscriptionPlanModel(Base):
     name = Column(String(50), unique=True, nullable=False, index=True)
     display_name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-
-    # Included quotas (NULL = unlimited)
     included_recordings_per_month = Column(Integer, nullable=True)
     included_storage_gb = Column(Integer, nullable=True)
     max_concurrent_tasks = Column(Integer, nullable=True)
     max_automation_jobs = Column(Integer, nullable=True)
     min_automation_interval_hours = Column(Integer, nullable=True)
-
-    # Subscription pricing
     price_monthly = Column(Numeric(10, 2), default=0, nullable=False)
     price_yearly = Column(Numeric(10, 2), default=0, nullable=False)
-
-    # Pay-as-you-go pricing (for future)
     overage_price_per_unit = Column(Numeric(10, 4), nullable=True)
     overage_unit_type = Column(String(50), nullable=True)
-
-    # Metadata
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     sort_order = Column(Integer, default=0, nullable=False)
-
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    # Relationships
     subscriptions = relationship("UserSubscriptionModel", back_populates="plan")
 
     def __repr__(self):
@@ -125,38 +114,27 @@ class SubscriptionPlanModel(Base):
 
 
 class UserSubscriptionModel(Base):
-    """Модель подписки пользователя."""
+    """User subscription with custom quotas."""
 
     __tablename__ = "user_subscriptions"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="RESTRICT"), nullable=False, index=True)
-
-    # Custom quotas (override plan defaults, NULL = use from plan)
     custom_max_recordings_per_month = Column(Integer, nullable=True)
     custom_max_storage_gb = Column(Integer, nullable=True)
     custom_max_concurrent_tasks = Column(Integer, nullable=True)
     custom_max_automation_jobs = Column(Integer, nullable=True)
     custom_min_automation_interval_hours = Column(Integer, nullable=True)
-
-    # Pay-as-you-go control (for future)
     pay_as_you_go_enabled = Column(Boolean, default=False, nullable=False)
     pay_as_you_go_monthly_limit = Column(Numeric(10, 2), nullable=True)
-
-    # Subscription period
     starts_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=True)
-
-    # Audit
     created_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     modified_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
-
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    # Relationships
     user = relationship("UserModel", back_populates="subscription", foreign_keys=[user_id])
     plan = relationship("SubscriptionPlanModel", back_populates="subscriptions")
 
@@ -165,27 +143,20 @@ class UserSubscriptionModel(Base):
 
 
 class QuotaUsageModel(Base):
-    """Модель использования квот."""
+    """Quota usage tracking per user per period."""
 
     __tablename__ = "quota_usage"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    period = Column(Integer, nullable=False, index=True)  # YYYYMM format
-
-    # Usage counters
+    period = Column(Integer, nullable=False, index=True)
     recordings_count = Column(Integer, default=0, nullable=False)
     storage_bytes = Column(BigInteger, default=0, nullable=False)
     concurrent_tasks_count = Column(Integer, default=0, nullable=False)
-
-    # Overage counters (for future billing)
     overage_recordings_count = Column(Integer, default=0, nullable=False)
     overage_cost = Column(Numeric(10, 2), default=0, nullable=False)
-
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    # Relationships
     user = relationship("UserModel", back_populates="quota_usage")
 
     def __repr__(self):
@@ -196,22 +167,18 @@ class QuotaUsageModel(Base):
 
 
 class QuotaChangeHistoryModel(Base):
-    """Модель истории изменений квот."""
+    """Quota change history for audit trail."""
 
     __tablename__ = "quota_change_history"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-
     changed_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     change_type = Column(String(50), nullable=False, index=True)
-
-    # What changed
     old_plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True)
     new_plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True)
     changes = Column(JSONB, nullable=True)
     notes = Column(Text, nullable=True)
-
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     def __repr__(self):
@@ -219,7 +186,7 @@ class QuotaChangeHistoryModel(Base):
 
 
 class RefreshTokenModel(Base):
-    """Модель для хранения refresh токенов."""
+    """Refresh token storage for JWT authentication."""
 
     __tablename__ = "refresh_tokens"
 

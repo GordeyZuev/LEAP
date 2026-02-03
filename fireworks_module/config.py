@@ -117,14 +117,12 @@ class FireworksConfig(BaseSettings):
     @field_validator("timestamp_granularities", mode="before")
     @classmethod
     def validate_timestamp_granularities(cls, v: Any) -> list[str] | None:
-        """Validation and normalization of timestamp_granularities."""
+        """Parse and validate timestamp granularities from string or list."""
         if v is None:
             return None
         if isinstance(v, str):
-            # Support string "word" or "word,segment"
             return [g.strip() for g in v.split(",") if g.strip()]
         if isinstance(v, list):
-            # Filter only valid values
             valid = {"word", "segment"}
             return [g for g in v if g in valid]
         return None
@@ -132,68 +130,49 @@ class FireworksConfig(BaseSettings):
     @field_validator("base_url", mode="after")
     @classmethod
     def validate_base_url(cls, _v: str, info: Any) -> str:
-        """Automatically sets base_url depending on the model."""
+        """Set base_url based on model (turbo vs prod)."""
         model = info.data.get("model", "whisper-v3-turbo")
-        if model == "whisper-v3-turbo":
-            return "https://audio-turbo.api.fireworks.ai"
-        return "https://audio-prod.api.fireworks.ai"
+        return (
+            "https://audio-turbo.api.fireworks.ai"
+            if model == "whisper-v3-turbo"
+            else "https://audio-prod.api.fireworks.ai"
+        )
 
     @model_validator(mode="after")
     def validate_config(self) -> FireworksConfig:
-        """
-        Validation of dependencies between fields according to the documentation.
+        """Validate field dependencies per Fireworks API requirements."""
+        if self.response_format == "verbose_json" and not self.timestamp_granularities:
+            logger.warning("verbose_json requires timestamp_granularities, setting default: ['segment']")
+            self.timestamp_granularities = ["segment"]
 
-        Правила:
-        1. verbose_json требует timestamp_granularities
-        2. diarize=true требует verbose_json и word в timestamp_granularities
-        3. min_speakers/max_speakers требуют diarize=true
-        """
-        # Rule 1: verbose_json requires timestamp_granularities
-        if self.response_format == "verbose_json":
-            if not self.timestamp_granularities:
-                logger.warning(
-                    "⚠️ response_format = 'verbose_json', but timestamp_granularities is not specified. "
-                    "Setting default value: ['segment']"
-                )
-                self.timestamp_granularities = ["segment"]
-
-        # Rule 2: diarize=true requires verbose_json and word
         if self.diarize:
             if self.response_format != "verbose_json":
                 raise ValueError(
-                    f"diarize=true requires response_format='verbose_json', but '{self.response_format}' is specified"
+                    f"diarize requires response_format='verbose_json', got '{self.response_format}'"
                 )
             if not self.timestamp_granularities or "word" not in self.timestamp_granularities:
                 raise ValueError(
-                    f"diarize=true requires timestamp_granularities to include 'word', "
-                    f"but {self.timestamp_granularities} is specified"
+                    f"diarize requires 'word' in timestamp_granularities, got {self.timestamp_granularities}"
                 )
 
-        # Rule 3: min_speakers/max_speakers require diarize=true
-        if (self.min_speakers is not None or self.max_speakers is not None) and not self.diarize:
-            logger.warning(
-                "min_speakers/max_speakers are specified, but diarize=false. These parameters will be ignored."
-            )
+        if (self.min_speakers or self.max_speakers) and not self.diarize:
+            logger.warning("min_speakers/max_speakers ignored without diarize=true")
 
-        # Rule 4: max_speakers must be >= min_speakers
-        if self.min_speakers is not None and self.max_speakers is not None and self.max_speakers < self.min_speakers:
-            raise ValueError(
-                f"max_speakers ({self.max_speakers}) must be greater than or equal to min_speakers ({self.min_speakers})"
-            )
+        if self.min_speakers and self.max_speakers and self.max_speakers < self.min_speakers:
+            raise ValueError(f"max_speakers ({self.max_speakers}) < min_speakers ({self.min_speakers})")
 
         return self
 
     @classmethod
     def from_file(cls, config_file: str = "config/fireworks_creds.json") -> FireworksConfig:
-        """Download Fireworks configuration from a JSON file."""
+        """Load Fireworks config from JSON file."""
         from pathlib import Path
 
         config_path = Path(config_file)
         if not config_path.exists():
             raise FileNotFoundError(
-                f"Fireworks configuration file not found: {config_file}\n"
-                f"Create a file with the following content:\n"
-                f'{{"api_key": "your-fireworks-api-key"}}'
+                f"Config not found: {config_file}\n"
+                f'Create with: {{"api_key": "your-fireworks-api-key"}}'
             )
 
         with config_path.open(encoding="utf-8") as fp:
@@ -201,47 +180,38 @@ class FireworksConfig(BaseSettings):
 
         api_key = data.pop("api_key", "")
         if not api_key:
-            raise ValueError("Fireworks API key not specified in configuration")
+            raise ValueError("api_key missing in config")
 
         try:
             return cls(api_key=api_key, **data)
         except Exception as e:
-            logger.error(f"Validation error: {e}")
+            logger.error(f"Config validation failed: {e}")
             raise
 
     def to_request_params(self) -> dict[str, Any]:
-        """
-        Generate a dictionary of parameters for the Fireworks API.
-        Converts internal parameters to the format expected by the API.
-        """
+        """Convert config to Fireworks API request parameters."""
         params: dict[str, Any] = {
             "language": self.language,
             "response_format": self.response_format,
+            "diarize": "true" if self.diarize else "false",
         }
 
-        if self.timestamp_granularities:
-            params["timestamp_granularities"] = self.timestamp_granularities
-
-        if self.alignment_model:
-            params["alignment_model"] = self.alignment_model
+        optional_fields = {
+            "timestamp_granularities": self.timestamp_granularities,
+            "alignment_model": self.alignment_model,
+            "vad_model": self.vad_model,
+            "prompt": self.prompt,
+            "preprocessing": self.preprocessing,
+        }
+        params.update({k: v for k, v in optional_fields.items() if v})
 
         if self.temperature is not None:
             params["temperature"] = self.temperature
 
-        if self.vad_model:
-            params["vad_model"] = self.vad_model
-
-        params["diarize"] = "true" if self.diarize else "false"
         if self.diarize:
             if self.min_speakers is not None:
                 params["min_speakers"] = self.min_speakers
             if self.max_speakers is not None:
                 params["max_speakers"] = self.max_speakers
-
-        if self.prompt:
-            params["prompt"] = self.prompt
-
-        if self.preprocessing:
-            params["preprocessing"] = self.preprocessing
 
         return params

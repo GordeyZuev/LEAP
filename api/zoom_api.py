@@ -65,7 +65,7 @@ class ZoomAPI:
     async def get_recordings(
         self,
         page_size: int = 30,
-        from_date: str = "2024-01-01",
+        from_date: str = "2025-01-01",
         to_date: str | None = None,
         meeting_id: str | None = None,
     ) -> dict[str, Any]:

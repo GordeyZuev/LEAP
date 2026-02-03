@@ -6,13 +6,6 @@ clean-pycache:
 
 # ==================== Production-Ready API Commands ====================
 
-# Setup: Установка всех зависимостей
-.PHONY: install
-install:
-	@echo "📦 Установка зависимостей..."
-	@uv pip install -r requirements.txt
-	@echo "✅ Готово!"
-
 # API: Запуск FastAPI сервера
 .PHONY: api
 api:
@@ -66,8 +59,8 @@ celery-dev:
 		--pool=prefork --concurrency=4
 
 # All-in-One: Start all production workers in background
-.PHONY: celery-all
-celery-all:
+.PHONY: celery-start
+celery-start:
 	@echo "🚀 Starting Redis..."
 	@brew services start redis
 	@sleep 2
@@ -79,6 +72,11 @@ celery-all:
 	@echo "✅ All workers started! Check logs/ folder for output"
 	@echo "📊 Use 'make celery-stop' to stop all workers"
 	@echo "📊 Use 'make celery-status' to check workers"
+
+# Restart all Celery workers
+.PHONY: celery-restart
+celery-restart: celery-stop celery-start
+	@echo "🔄 Workers restarted!"
 
 # Stop all Celery workers
 .PHONY: celery-stop
@@ -121,11 +119,6 @@ docker-up:
 .PHONY: docker-down
 docker-down:
 	docker-compose down
-
-# Docker: Полная сборка и запуск
-.PHONY: docker-full
-docker-full:
-	docker-compose up --build -d
 
 # Database: Инициализация (создание БД + миграции)
 .PHONY: init-db
@@ -179,8 +172,7 @@ test:
 .PHONY: help
 help:
 	@echo "📦 Установка и обновление:"
-	@echo "  make install        - Установка зависимостей из requirements.txt"
-	@echo "  make uv-install     - Установка через uv sync"
+	@echo "  make uv-install     - Установка зависимостей через uv sync"
 	@echo "  make uv-update      - Обновить lock и синхронизировать"
 	@echo ""
 	@echo "🔍 Проверка и форматирование:"
@@ -192,9 +184,11 @@ help:
 	@echo "  make api            - Запуск FastAPI (dev режим)"
 	@echo "  make api-prod       - Запуск FastAPI (production)"
 	@echo "  make celery-dev     - Запуск Celery worker + beat (dev, все очереди)"
-	@echo "  make celery-all     - 🔥 Запуск ВСЕХ воркеров + Redis (фон)"
+	@echo "  make celery-start   - 🔥 Запуск ВСЕХ воркеров + Redis (фон)"
 	@echo "  make celery-stop    - 🛑 Остановить все воркеры"
+	@echo "  make celery-restart - 🔄 Перезапустить все воркеры"
 	@echo "  make celery-status  - 📊 Статус воркеров"
+	@echo "  make celery-purge   - ⚠️  Удалить все задачи из очередей"
 	@echo ""
 	@echo "🔧 Production Workers (специализированные):"
 	@echo "  make celery-cpu     - CPU воркер (video trimming, prefork, 3 workers)"
@@ -211,8 +205,12 @@ help:
 	@echo "  make init-db        - Инициализация БД (создание + миграции)"
 	@echo "  make migrate        - Применить миграции БД"
 	@echo "  make migrate-down   - Откатить последнюю миграцию"
+	@echo "  make migration      - Создать новую миграцию (auto-generate)"
 	@echo "  make db-version     - Показать текущую версию БД"
 	@echo "  make db-history     - Показать историю миграций"
+	@echo ""
+	@echo "🧪 Тестирование:"
+	@echo "  make test           - Запуск всех тестов"
 	@echo ""
 	@echo "🧹 Очистка:"
 	@echo "  make clean-pycache  - Очистить __pycache__ и *.pyc/*.pyo"
@@ -223,7 +221,7 @@ help:
 	@echo "  API Documentation: http://localhost:8000/docs"
 	@echo "  Flower Monitoring: http://localhost:5555"
 
-.PHONY: uv-install uv-update uv-run
+.PHONY: uv-install uv-update
 uv-install:
 	@uv sync
 

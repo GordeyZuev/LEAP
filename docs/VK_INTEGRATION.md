@@ -251,7 +251,7 @@ POST /api/v1/recordings/123/upload/vk
 - `album_id` - альбом
 - `privacy_view` - приватность просмотра (0=all, 1=friends, 2=friends_of_friends, 3=only_me)
 - `privacy_comment` - приватность комментариев
-- `no_comments` - отключить комментарии
+- `disable_comments` - отключить комментарии
 - `repeat` - зациклить видео
 - `wallpost` - опубликовать на стену
 
@@ -261,7 +261,7 @@ POST /api/v1/recordings/123/upload/vk
   "group_id": -227011779,
   "album_id": 63,
   "privacy_view": 0,
-  "no_comments": false,
+  "disable_comments": false,
   "wallpost": true
 }
 ```

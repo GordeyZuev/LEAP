@@ -12,18 +12,7 @@ logger = get_logger()
 async def get_current_admin(
     current_user: UserInDB = Depends(get_current_user),
 ) -> UserInDB:
-    """
-    Получить текущего пользователя с ролью admin.
-
-    Args:
-        current_user: Текущий пользователь
-
-    Returns:
-        UserInDB: Пользователь с ролью admin
-
-    Raises:
-        HTTPException: Если пользователь не является админом
-    """
+    """Get current user with admin role."""
     if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

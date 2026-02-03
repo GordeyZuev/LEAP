@@ -37,9 +37,7 @@ class ZoomOAuthCredentials(BaseModel):
     @property
     def is_expired(self) -> bool:
         """Check if access token is expired"""
-        if not self.expiry:
-            return False
-        return datetime.now(self.expiry.tzinfo or None) >= self.expiry
+        return bool(self.expiry and datetime.now(self.expiry.tzinfo) >= self.expiry)
 
 
 # Union type with discriminator for automatic type detection
@@ -51,9 +49,9 @@ ZoomCredentials = Annotated[
 
 def create_zoom_credentials(creds_dict: dict) -> ZoomServerToServerCredentials | ZoomOAuthCredentials:
     """
-    Create appropriate Zoom credentials object from dictionary.
+    Create Zoom credentials object from dictionary.
 
-    Auto-detects credential type based on presence of access_token field.
+    Auto-detects type based on access_token or account_id presence.
 
     Args:
         creds_dict: Credentials dictionary from database
@@ -62,11 +60,9 @@ def create_zoom_credentials(creds_dict: dict) -> ZoomServerToServerCredentials |
         ZoomServerToServerCredentials or ZoomOAuthCredentials
 
     Raises:
-        ValueError: If credentials dictionary is invalid
+        ValueError: If credentials are invalid
     """
-    # Auto-detect type based on fields
     if "access_token" in creds_dict:
-        # OAuth credentials
         return ZoomOAuthCredentials(
             auth_type="oauth",
             client_id=creds_dict["client_id"],
@@ -79,7 +75,6 @@ def create_zoom_credentials(creds_dict: dict) -> ZoomServerToServerCredentials |
             expiry=creds_dict.get("expiry"),
         )
     if "account_id" in creds_dict:
-        # Server-to-Server credentials
         return ZoomServerToServerCredentials(
             auth_type="server_to_server",
             account=creds_dict.get("account", ""),
@@ -87,4 +82,4 @@ def create_zoom_credentials(creds_dict: dict) -> ZoomServerToServerCredentials |
             client_id=creds_dict["client_id"],
             client_secret=creds_dict["client_secret"],
         )
-    raise ValueError("Invalid Zoom credentials: missing required fields (access_token or account_id)")
+    raise ValueError("Invalid Zoom credentials: missing access_token or account_id")

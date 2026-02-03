@@ -1,25 +1,25 @@
-"""Pydantic схемы для токенов."""
+"""Pydantic schemas for tokens."""
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RefreshTokenBase(BaseModel):
-    """Базовая схема refresh токена."""
+    """Base schema for refresh token."""
 
     token: str
 
 
 class RefreshTokenCreate(RefreshTokenBase):
-    """Схема для создания refresh токена."""
+    """Schema for creating refresh token."""
 
     user_id: str
     expires_at: datetime
 
 
 class RefreshTokenInDB(RefreshTokenBase):
-    """Схема refresh токена в БД."""
+    """Schema of refresh token in DB."""
 
     id: int
     user_id: str
@@ -27,14 +27,13 @@ class RefreshTokenInDB(RefreshTokenBase):
     is_revoked: bool = False
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TokenPair(BaseModel):
-    """Пара токенов (access + refresh)."""
+    """Pair of tokens (access + refresh)."""
 
-    access_token: str = Field(..., description="Access токен")
-    refresh_token: str = Field(..., description="Refresh токен")
-    token_type: str = Field(default="bearer", description="Тип токена")
-    expires_in: int = Field(..., description="Время жизни access токена в секундах")
+    access_token: str = Field(..., description="Access token")
+    refresh_token: str = Field(..., description="Refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+    expires_in: int = Field(..., description="Lifetime of access token in seconds")

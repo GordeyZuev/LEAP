@@ -4,14 +4,14 @@ from pydantic import BaseModel, Field
 
 
 class CredentialCreateRequest(BaseModel):
-    """Запрос на создание учетных данных."""
+    """Request to create credentials."""
 
-    platform: str = Field(..., description="Платформа (zoom, youtube, vk)")
-    account_name: str | None = Field(None, description="Имя аккаунта (для нескольких аккаунтов)")
-    credentials: dict = Field(..., description="Учетные данные платформы")
+    platform: str = Field(..., description="Platform (zoom, youtube, vk)")
+    account_name: str | None = Field(None, description="Account name (for multiple accounts)")
+    credentials: dict = Field(..., description="Credentials of platform")
 
 
 class CredentialUpdateRequest(BaseModel):
-    """Запрос на обновление учетных данных."""
+    """Request to update credentials."""
 
-    credentials: dict = Field(..., description="Обновленные учетные данные")
+    credentials: dict = Field(..., description="Updated credentials")

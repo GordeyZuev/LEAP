@@ -16,7 +16,7 @@ DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 
 
 async def global_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
-    """Глобальный обработчик исключений."""
+    """Global exception handler."""
     try:
         exc_str = str(exc)
     except Exception:
@@ -34,7 +34,7 @@ async def global_exception_handler(_request: Request, exc: Exception) -> JSONRes
 
 
 async def api_exception_handler(_request: Request, exc: APIException) -> JSONResponse:
-    """Обработчик API исключений."""
+    """API exception handler."""
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": exc.detail},
@@ -42,7 +42,7 @@ async def api_exception_handler(_request: Request, exc: APIException) -> JSONRes
 
 
 async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Обработчик ошибок валидации."""
+    """Validation exception handler."""
     errors = []
     for error in exc.errors():
         error_dict = {
@@ -65,7 +65,7 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 
 
 async def response_validation_exception_handler(_request: Request, exc: ResponseValidationError) -> JSONResponse:
-    """Обработчик ошибок валидации response (внутренние ошибки сервера)."""
+    """Response validation exception handler."""
     logger.error("Response validation error: {}", exc, exc_info=exc)
 
     # Extract validation errors
@@ -94,7 +94,7 @@ async def response_validation_exception_handler(_request: Request, exc: Response
 
 
 async def sqlalchemy_exception_handler(_request: Request, exc: SQLAlchemyError) -> JSONResponse:
-    """Обработчик ошибок SQLAlchemy."""
+    """SQLAlchemy exception handler."""
     logger.error("Database error: {}", exc, exc_info=exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

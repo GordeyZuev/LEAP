@@ -13,16 +13,12 @@ logger = get_logger()
 
 
 async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> None:
-    """
-    Sync automation job to Celery Beat periodic task.
-    Creates or updates crontab schedule and periodic task.
-    """
+    """Sync automation job to Celery Beat periodic task."""
     try:
         cron_expr, _ = schedule_to_cron(job.schedule)
         minute, hour, day, month, day_of_week = cron_expr.split()
         timezone = job.schedule.get("timezone", "UTC")
 
-        # Step 1: Create or get crontab schedule
         crontab_query = text("""
             INSERT INTO celery_crontab_schedule (minute, hour, day_of_month, month_of_year, day_of_week, timezone)
             VALUES (:minute, :hour, :day, :month, :dow, :tz)
@@ -48,7 +44,6 @@ async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> No
             )
             crontab_id = result.scalar_one()
 
-        # Step 2: Create or update periodic task
         task_name = f"automation_job_{job.id}"
         args_json = json.dumps([job.id, job.user_id])
 
@@ -73,10 +68,9 @@ async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> No
         )
 
         await session.commit()
-        logger.info(f"Synced automation job {job.id} to Celery Beat")
 
     except Exception as e:
-        logger.error(f"Failed to sync job {job.id} to Beat: {e}")
+        logger.error(f"Failed to sync job {job.id}: {e}")
         await session.rollback()
         raise
 
@@ -85,38 +79,29 @@ async def remove_job_from_beat(session: AsyncSession, job_id: int) -> None:
     """Remove automation job from Celery Beat."""
     try:
         task_name = f"automation_job_{job_id}"
-
-        delete_task = text("""
-            DELETE FROM celery_periodic_task
-            WHERE name = :name
-        """)
+        delete_task = text("DELETE FROM celery_periodic_task WHERE name = :name")
 
         await session.execute(delete_task, {"name": task_name})
         await session.commit()
 
-        logger.info(f"Removed automation job {job_id} from Celery Beat")
-
     except Exception as e:
-        logger.error(f"Failed to remove job {job_id} from Beat: {e}")
+        logger.error(f"Failed to remove job {job_id}: {e}")
         await session.rollback()
         raise
 
 
 async def sync_all_jobs_to_beat(session: AsyncSession) -> None:
-    """Sync all active automation jobs to Celery Beat (on startup)."""
+    """Sync all active automation jobs to Celery Beat on startup."""
     from api.repositories.automation_repos import AutomationJobRepository
 
     try:
         job_repo = AutomationJobRepository(session)
         jobs = await job_repo.get_all_active_jobs()
 
-        logger.info(f"Syncing {len(jobs)} active automation jobs to Celery Beat")
-
+        logger.info(f"Syncing {len(jobs)} active jobs to Beat")
         for job in jobs:
             await sync_job_to_beat(session, job)
 
-        logger.info("All automation jobs synced to Celery Beat")
-
     except Exception as e:
-        logger.error(f"Failed to sync jobs to Beat: {e}")
+        logger.error(f"Failed to sync jobs: {e}")
         raise

@@ -1,37 +1,37 @@
-"""Pydantic схемы для пользователей."""
+"""Pydantic schemas for users."""
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserBase(BaseModel):
-    """Базовая схема пользователя."""
+    """Base schema for user."""
 
-    email: EmailStr = Field(..., description="Email пользователя")
-    full_name: str | None = Field(None, max_length=255, description="Полное имя")
+    email: EmailStr = Field(..., description="User email")
+    full_name: str | None = Field(None, max_length=255, description="Full name")
 
 
 class UserCreate(UserBase):
-    """Схема для создания пользователя."""
+    """Schema for creating user."""
 
-    password: str = Field(..., min_length=8, max_length=100, description="Пароль")
+    password: str = Field(..., min_length=8, max_length=100, description="Password")
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        """Валидация пароля."""
+        """Password validation."""
         if len(v) < 8:
-            raise ValueError("Пароль должен быть не менее 8 символов")
+            raise ValueError("Password must be at least 8 characters long")
         if not any(char.isdigit() for char in v):
-            raise ValueError("Пароль должен содержать хотя бы одну цифру")
+            raise ValueError("Password must contain at least one digit")
         if not any(char.isupper() for char in v):
-            raise ValueError("Пароль должен содержать хотя бы одну заглавную букву")
+            raise ValueError("Password must contain at least one uppercase letter")
         return v
 
 
 class UserUpdate(BaseModel):
-    """Схема для обновления пользователя."""
+    """Schema for updating user."""
 
     email: EmailStr | None = None
     full_name: str | None = None
@@ -48,7 +48,7 @@ class UserUpdate(BaseModel):
 
 
 class UserInDB(UserBase):
-    """Схема пользователя в БД."""
+    """Schema of user in DB."""
 
     id: str
     user_slug: int
@@ -69,12 +69,11 @@ class UserInDB(UserBase):
     created_at: datetime
     last_login_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserResponse(BaseModel):
-    """Схема ответа с пользователем."""
+    """Schema of response with user."""
 
     id: str
     email: EmailStr
@@ -95,5 +94,4 @@ class UserResponse(BaseModel):
     created_at: datetime
     last_login_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

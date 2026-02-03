@@ -6,24 +6,16 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 
-# ============================================================================
-# Общие схемы для всех платформ
-# ============================================================================
-
 
 class TopicsDisplayFormat(str, Enum):
-    """Формат отображения тем."""
-
-    NUMBERED_LIST = "numbered_list"  # "1. Тема\n2. Тема"
-    BULLET_LIST = "bullet_list"  # "• Тема\n• Тема"
-    DASH_LIST = "dash_list"  # "- Тема\n- Тема"
-    COMMA_SEPARATED = "comma_separated"  # "Тема 1, Тема 2, Тема 3"
-    INLINE = "inline"  # "Тема 1 | Тема 2 | Тема 3"
+    NUMBERED_LIST = "numbered_list"
+    BULLET_LIST = "bullet_list"
+    DASH_LIST = "dash_list"
+    COMMA_SEPARATED = "comma_separated"
+    INLINE = "inline"
 
 
 class TopicsDisplayConfig(BaseModel):
-    """Конфигурация отображения тем в description."""
-
     model_config = BASE_MODEL_CONFIG
 
     enabled: bool = Field(True, description="Включить отображение тем")
@@ -44,158 +36,119 @@ class TopicsDisplayConfig(BaseModel):
         return v
 
 
-# ============================================================================
-# YouTube-специфичные схемы
-# ============================================================================
-
-
 class YouTubePrivacy(str, Enum):
-    """YouTube privacy статусы."""
-
     PUBLIC = "public"
     PRIVATE = "private"
     UNLISTED = "unlisted"
 
 
 class YouTubeLicense(str, Enum):
-    """YouTube лицензии."""
-
     YOUTUBE = "youtube"
     CREATIVE_COMMON = "creativeCommon"
 
 
 class YouTubePresetMetadata(BaseModel):
-    """YouTube preset metadata (platform defaults)."""
-
     model_config = BASE_MODEL_CONFIG
 
-    # Content templates (added for preset-level control)
     title_template: str | None = Field(
         None,
         max_length=500,
-        description="Шаблон заголовка с переменными (напр. '{display_name} | {themes}')",
+        description="Title template with variables (e.g. '{display_name} | {themes}')",
     )
     description_template: str | None = Field(
         None,
         max_length=5000,
-        description="Шаблон описания с переменными (напр. '{summary}\\n\\n{topics}')",
+        description="Description template with variables (e.g. '{summary}\\n\\n{topics}')",
     )
 
-    # Privacy settings
-    privacy: YouTubePrivacy = Field(YouTubePrivacy.UNLISTED, description="Статус приватности")
-    made_for_kids: bool = Field(False, description="Контент для детей (COPPA)")
-    embeddable: bool = Field(True, description="Разрешить встраивание на других сайтах")
+    privacy: YouTubePrivacy = Field(YouTubePrivacy.UNLISTED, description="Privacy status")
+    made_for_kids: bool = Field(False, description="Content for kids (COPPA)")
+    embeddable: bool = Field(True, description="Allow embedding on other sites")
 
-    # Platform defaults
-    category_id: str = Field("27", description="Категория YouTube (27 = Education)")
-    license: YouTubeLicense = Field(YouTubeLicense.YOUTUBE, description="Тип лицензии")
-    default_language: str | None = Field(None, description="Язык по умолчанию", examples=["ru", "en"])
+    category_id: str = Field("27", description="YouTube category (27 = Education)")
+    license: YouTubeLicense = Field(YouTubeLicense.YOUTUBE, description="License type")
+    default_language: str | None = Field(None, description="Default language", examples=["ru", "en"])
 
-    # Platform organization
-    playlist_id: str | None = Field(None, description="ID плейлиста YouTube для автозагрузки видео")
-    tags: list[str] | None = Field(None, max_length=500, description="Теги видео (макс 500)")
+    playlist_id: str | None = Field(None, description="YouTube playlist ID for auto-upload")
+    tags: list[str] | None = Field(None, max_length=500, description="Video tags (max 500)")
     thumbnail_name: str | None = Field(
         None,
-        description="Имя файла thumbnail (например, 'python_base.png'). API автоматически найдет файл в директории пользователя.",
+        description="Thumbnail filename (e.g. 'python_base.png'). API will find it in user directory.",
         examples=["python_base.png", "ml_extra.png", "hse_ai.jpg"],
     )
 
-    # Scheduling
-    publish_at: str | None = Field(None, description="ISO 8601 дата/время публикации (для отложенной публикации)")
+    publish_at: str | None = Field(None, description="ISO 8601 publish date/time (for scheduled publishing)")
 
-    # Topics display
-    topics_display: TopicsDisplayConfig | None = Field(None, description="Настройки отображения тем в description")
+    topics_display: TopicsDisplayConfig | None = Field(None, description="Topics display settings")
 
-    # Optional comments/ratings
-    disable_comments: bool = Field(False, description="Отключить комментарии")
-    rating_disabled: bool = Field(False, description="Отключить оценки like/dislike")
+    disable_comments: bool = Field(False, description="Disable comments")
+    rating_disabled: bool = Field(False, description="Disable like/dislike ratings")
 
-    # Notifications
-    notify_subscribers: bool = Field(True, description="Уведомить подписчиков о публикации")
+    notify_subscribers: bool = Field(True, description="Notify subscribers about publication")
 
     @field_validator("category_id")
     @classmethod
     def validate_category_id(cls, v: str) -> str:
-        # YouTube category IDs - базовая валидация
         try:
             cat_int = int(v)
             if cat_int < 1:
-                raise ValueError("category_id должен быть положительным")
+                raise ValueError("category_id must be positive")
         except ValueError:
-            raise ValueError("category_id должен быть числом")
+            raise ValueError("category_id must be a number")
         return v
 
 
-# ============================================================================
-# VK-специфичные схемы
-# ============================================================================
-
-
 class VKPrivacyLevel(int, Enum):
-    """VK уровни приватности."""
-
-    ALL = 0  # Все пользователи
-    FRIENDS = 1  # Только друзья
-    FRIENDS_OF_FRIENDS = 2  # Друзья и друзья друзей
-    ONLY_ME = 3  # Только я
+    ALL = 0
+    FRIENDS = 1
+    FRIENDS_OF_FRIENDS = 2
+    ONLY_ME = 3
 
 
 class VKPresetMetadata(BaseModel):
-    """VK preset metadata (platform defaults)."""
-
     model_config = BASE_MODEL_CONFIG
 
-    # Content templates (added for preset-level control)
     title_template: str | None = Field(
         None,
         max_length=500,
-        description="Шаблон заголовка с переменными (напр. '{display_name}')",
+        description="Title template with variables (e.g. '{display_name}')",
     )
     description_template: str | None = Field(
         None,
         max_length=5000,
-        description="Шаблон описания с переменными (напр. '{summary}\\n\\n{topics}')",
+        description="Description template with variables (e.g. '{summary}\\n\\n{topics}')",
     )
 
-    # Privacy settings
     privacy_view: VKPrivacyLevel = Field(
         VKPrivacyLevel.ALL,
-        description="Кто может смотреть видео (0=все, 1=друзья, 2=друзья друзей, 3=только я)",
+        description="Who can view video (0=all, 1=friends, 2=friends of friends, 3=only me)",
     )
     privacy_comment: VKPrivacyLevel = Field(
         VKPrivacyLevel.ALL,
-        description="Кто может комментировать (0=все, 1=друзья, 2=друзья друзей, 3=только я)",
+        description="Who can comment (0=all, 1=friends, 2=friends of friends, 3=only me)",
     )
 
-    # Group settings (optional - может быть в template)
-    group_id: int | None = Field(None, gt=0, description="ID группы VK (можно задать в template metadata_config)")
-    album_id: str | None = Field(None, description="ID альбома VK")
+    group_id: int | None = Field(None, gt=0, description="VK group ID (can be set in template metadata_config)")
+    album_id: str | None = Field(None, description="VK album ID")
     thumbnail_name: str | None = Field(
         None,
-        description="Имя файла thumbnail (например, 'applied_python.png'). API автоматически найдет файл в директории пользователя.",
+        description="Thumbnail filename (e.g. 'applied_python.png'). API will find it in user directory.",
         examples=["applied_python.png", "ml_extra.png", "hse_ai.jpg"],
     )
 
-    # Topics display
-    topics_display: TopicsDisplayConfig | None = Field(None, description="Настройки отображения тем в description")
+    topics_display: TopicsDisplayConfig | None = Field(None, description="Topics display settings")
 
-    # Optional settings
-    disable_comments: bool = Field(False, description="Полностью отключить комментарии")
-    repeat: bool = Field(False, description="Зациклить воспроизведение")
-    compression: bool = Field(False, description="Сжатие видео на стороне VK")
-    wallpost: bool = Field(False, description="Опубликовать запись на стене при загрузке")
+    disable_comments: bool = Field(False, description="Disable comments completely")
+    repeat: bool = Field(False, description="Loop playback")
+    compression: bool = Field(False, description="VK-side video compression")
+    wallpost: bool = Field(False, description="Post to wall on upload")
 
     @field_validator("group_id")
     @classmethod
     def validate_group_id(cls, v: int | None) -> int | None:
         if v is not None and v <= 0:
-            raise ValueError("group_id должен быть положительным")
+            raise ValueError("group_id must be positive")
         return v
-
-
-# ============================================================================
-# Unified Preset Metadata
-# ============================================================================
 
 
 PresetMetadata = YouTubePresetMetadata | VKPresetMetadata

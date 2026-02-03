@@ -7,11 +7,11 @@
       "platform": "vk",
       "credential_id": 14,
       "preset_metadata": {
-        "group_id": "123456",
+        "group_id": 123456,
         "album_id": "60",
         "privacy_view": 0,
         "privacy_comment": 0,
-        "no_comments": false,
+        "disable_comments": false,
         "wallpost": false,
         "thumbnail_name": "time_series.png",
         "title_template": "Временные ряды | {topic} ({date})",
@@ -44,7 +44,7 @@
         "album_id": "60",
         "privacy_view": 0,
         "privacy_comment": 0,
-        "no_comments": false,
+        "disable_comments": false,
         "title_template": "{display_name}",
         "description_template": "Uploaded on {start_time}"
       }
@@ -77,11 +77,11 @@
   "curl_examples": {
     "update_preset_with_group_id": {
       "description": "Update existing VK preset to add group_id",
-      "command": "curl -X 'PATCH' 'http://0.0.0.0:8000/api/v1/presets/output/2' -H 'Authorization: Bearer YOUR_TOKEN' -H 'Content-Type: application/json' -d '{\"preset_metadata\": {\"group_id\": \"123456\", \"album_id\": \"60\", \"privacy_view\": 0, \"privacy_comment\": 0, \"no_comments\": false, \"wallpost\": false}}'"
+      "command": "curl -X 'PATCH' 'http://0.0.0.0:8000/api/v1/presets/output/2' -H 'Authorization: Bearer YOUR_TOKEN' -H 'Content-Type: application/json' -d '{\"preset_metadata\": {\"group_id\": 123456, \"album_id\": \"60\", \"privacy_view\": 0, \"privacy_comment\": 0, \"disable_comments\": false, \"wallpost\": false}}'"
     },
     "create_new_vk_preset": {
       "description": "Create new VK preset for group uploads",
-      "command": "curl -X 'POST' 'http://0.0.0.0:8000/api/v1/presets/output' -H 'Authorization: Bearer YOUR_TOKEN' -H 'Content-Type: application/json' -d '{\"name\": \"VK Group Uploads\", \"platform\": \"vk\", \"credential_id\": 14, \"preset_metadata\": {\"group_id\": \"123456\", \"album_id\": \"60\", \"privacy_view\": 0}}'"
+      "command": "curl -X 'POST' 'http://0.0.0.0:8000/api/v1/presets/output' -H 'Authorization: Bearer YOUR_TOKEN' -H 'Content-Type: application/json' -d '{\"name\": \"VK Group Uploads\", \"platform\": \"vk\", \"credential_id\": 14, \"preset_metadata\": {\"group_id\": 123456, \"album_id\": \"60\", \"privacy_view\": 0}}'"
     }
   }
 }

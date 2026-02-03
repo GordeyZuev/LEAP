@@ -1,7 +1,7 @@
 """Celery tasks for system maintenance."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -84,7 +84,7 @@ def auto_expire_recordings_task():
                     .where(
                         RecordingModel.deleted == False,  # noqa: E712
                         RecordingModel.expire_at.isnot(None),
-                        RecordingModel.expire_at < datetime.utcnow(),
+                        RecordingModel.expire_at < datetime.now(timezone.utc),
                     )
                     .options(selectinload(RecordingModel.owner))
                 )
@@ -192,7 +192,7 @@ def cleanup_recording_files_task():
                         continue
 
                     # Check if cleanup time has passed
-                    if recording.soft_deleted_at >= datetime.utcnow():
+                    if recording.soft_deleted_at >= datetime.now(timezone.utc):
                         logger.debug(
                             f"Skipping recording {recording.id}: cleanup scheduled for {recording.soft_deleted_at}"
                         )
@@ -274,7 +274,7 @@ def hard_delete_recordings_task():
             async with session_maker() as session:
                 query = select(RecordingModel).where(
                     RecordingModel.hard_delete_at.isnot(None),
-                    RecordingModel.hard_delete_at < datetime.utcnow(),
+                    RecordingModel.hard_delete_at < datetime.now(timezone.utc),
                 )
                 result = await session.execute(query)
                 recordings = result.scalars().all()

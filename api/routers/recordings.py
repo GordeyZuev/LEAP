@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
@@ -82,15 +82,20 @@ class ConfigOverrideRequest(BaseModel):
     Flexible request for override configuration in process endpoint.
 
     Supports any fields from template config for override.
+    Runtime template usage: specify template_id to use template config without permanent binding.
     """
 
-    processing_config: dict | None = None
-    metadata_config: dict | None = None
-    output_config: dict | None = None
+    template_id: int | None = Field(None, description="Runtime template to use (not saved to DB by default)")
+    bind_template: bool = Field(False, description="If true, save template_id to recording and set is_mapped=true")
+    processing_config: dict | None = Field(None, description="Override processing config")
+    metadata_config: dict | None = Field(None, description="Override metadata config")
+    output_config: dict | None = Field(None, description="Override output config")
 
     class Config:
         json_schema_extra = {
             "example": {
+                "template_id": 5,
+                "bind_template": False,
                 "processing_config": {
                     "transcription": {
                         "enable_transcription": True,
@@ -101,10 +106,28 @@ class ConfigOverrideRequest(BaseModel):
                 },
                 "metadata_config": {
                     "title_template": "{themes}",
-                    "youtube": {"playlist_id": "PLxxx", "privacy": "unlisted"},
-                    "vk": {"album_id": "63"},
+                    "description_template": "{summary}\\n\\n{topics}",
+                    "youtube": {
+                        "playlist_id": "PLxxx",
+                        "privacy": "unlisted",
+                        "thumbnail_name": "python_base.png",
+                        "category_id": "27",
+                        "tags": ["AI", "ML", "lecture"],
+                    },
+                    "vk": {
+                        "album_id": "123456",
+                        "group_id": 123456,
+                        "thumbnail_name": "applied_python.png",
+                        "privacy_view": 0,
+                        "privacy_comment": 0,
+                        "wallpost": False,
+                    },
                 },
-                "output_config": {"auto_upload": True, "platforms": ["youtube"], "preset_ids": {"youtube": 10}},
+                "output_config": {
+                    "preset_ids": [10],
+                    "auto_upload": True,
+                    "upload_captions": True,
+                },
             }
         }
 
@@ -116,6 +139,9 @@ def _build_override_from_flexible(config: ConfigOverrideRequest) -> dict:
     Returns a dict that will be merged with resolved config hierarchy.
     """
     override = {}
+
+    if config.template_id:
+        override["runtime_template_id"] = config.template_id
 
     if config.processing_config:
         override["processing_config"] = config.processing_config
@@ -269,7 +295,7 @@ async def _query_recordings_by_filters(
 
 async def _execute_dry_run_single(
     recording_id: int,
-    _config_override: ConfigOverrideRequest | None,
+    config_override: ConfigOverrideRequest | None,
     ctx: ServiceContext,
 ) -> dict:
     """
@@ -279,14 +305,14 @@ async def _execute_dry_run_single(
 
     Args:
         recording_id: ID recording
-        _config_override: Override configuration (reserved for future use)
+        config_override: Override configuration
         ctx: Service context
 
     Returns:
         Information about steps that will be executed
     """
     from api.repositories.template_repos import OutputPresetRepository
-    from api.services.config_resolver import ConfigResolver
+    from api.services.config_utils import resolve_full_config
 
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -294,40 +320,45 @@ async def _execute_dry_run_single(
     if not recording:
         raise HTTPException(404, "Recording not found")
 
-    # Resolve config
-    resolver = ConfigResolver(ctx.session)
-    processing_config = await resolver.resolve_processing_config(recording, ctx.user_id)
-    output_config = await resolver.resolve_output_config(recording, ctx.user_id)
+    # Build manual override from request
+    manual_override = _build_override_from_flexible(config_override) if config_override else None
 
-    # Define which steps will be executed
+    # Resolve config with overrides (same as actual run)
+    full_config, output_config, recording = await resolve_full_config(
+        ctx.session,
+        recording_id,
+        ctx.user_id,
+        manual_override=manual_override,
+        include_output_config=True,
+    )
+
+    # Define steps based on resolved config
     steps = []
 
-    # Download step
+    # Download
     if not recording.local_video_path:
         steps.append({"name": "download", "enabled": True})
     else:
         steps.append({"name": "download", "enabled": False, "skip_reason": "Already downloaded"})
 
-    # Trim step
-    trimming_config = processing_config.get("trimming", {})
-    if trimming_config.get("enable_trimming", True):
+    # Trim
+    if full_config.get("trimming", {}).get("enable_trimming", True):
         steps.append({"name": "trim", "enabled": True})
     else:
         steps.append({"name": "trim", "enabled": False, "skip_reason": "Disabled in config"})
 
-    # Transcribe step
-    if processing_config.get("transcription", {}).get("enable_transcription", True):
+    # Transcribe
+    if full_config.get("transcription", {}).get("enable_transcription", True):
         steps.append({"name": "transcribe", "enabled": True})
     else:
         steps.append({"name": "transcribe", "enabled": False})
 
-    # Topics step
+    # Topics
     steps.append({"name": "topics", "enabled": True})
 
-    # Upload step
+    # Upload
     auto_upload = output_config.get("auto_upload", False)
     if auto_upload:
-        # Get platforms from preset_ids
         platforms = []
         preset_ids = output_config.get("preset_ids", [])
 
@@ -340,10 +371,52 @@ async def _execute_dry_run_single(
     else:
         steps.append({"name": "upload", "enabled": False, "skip_reason": "auto_upload is false"})
 
+    # Build config_sources info
+    config_sources = {}
+
+    # Fetch template info if needed (once for both runtime and bound)
+    if (config_override and config_override.template_id) or recording.template_id:
+        from api.repositories.template_repos import RecordingTemplateRepository
+
+        template_repo = RecordingTemplateRepository(ctx.session)
+
+        # Runtime template info (from config_override)
+        if config_override and config_override.template_id:
+            runtime_template = await template_repo.find_by_id(config_override.template_id, ctx.user_id)
+
+            if runtime_template:
+                config_sources["runtime_template"] = {
+                    "id": runtime_template.id,
+                    "name": runtime_template.name,
+                    "will_be_bound": config_override.bind_template,
+                }
+
+        # Bound template info (from recording.template_id)
+        if recording.template_id:
+            bound_template = await template_repo.find_by_id(recording.template_id, ctx.user_id)
+
+            if bound_template:
+                config_sources["bound_template"] = {
+                    "id": bound_template.id,
+                    "name": bound_template.name,
+                }
+
+    # Manual overrides info
+    if config_override:
+        has_overrides = any(
+            [
+                config_override.processing_config,
+                config_override.metadata_config,
+                config_override.output_config,
+            ]
+        )
+        config_sources["has_manual_overrides"] = has_overrides
+
     return DryRunResponse(
         dry_run=True,
         recording_id=recording_id,
         steps=steps,
+        config_sources=config_sources if config_sources else None,
     )
 
 
@@ -424,7 +497,9 @@ async def list_recordings(
     search: str | None = Query(None, description="Search substring in display_name (case-insensitive)"),
     template_id: int | None = Query(None, description="Filter by template ID"),
     source_id: int | None = Query(None, description="Filter by source ID"),
-    status: list[str] = Query(default=[], description="Filter by statuses (repeat param for multiple: ?status=A&status=B)"),
+    status: list[str] = Query(
+        default=[], description="Filter by statuses (repeat param for multiple: ?status=A&status=B)"
+    ),
     failed: bool | None = Query(None, description="Only failed recordings"),
     is_mapped: bool | None = Query(None, description="Filter by is_mapped (true/false/null=all)"),
     include_blank: bool = Query(False, description="Include blank records (short/small)"),
@@ -435,28 +510,7 @@ async def list_recordings(
     per_page: int = Query(20, ge=1, le=100),
     ctx: ServiceContext = Depends(get_service_context),
 ):
-    """
-    Get list of recordings for user.
-
-    Args:
-        search: Search substring in display_name (case-insensitive)
-        template_id: Filter by template ID
-        source_id: Filter by source ID
-        status: Filter by statuses (repeat param for multiple: ?status=A&status=B)
-            Special value "FAILED" = recording.failed=true
-        failed: Only failed recordings
-        is_mapped: Filter by is_mapped (true - only mapped, false - only unmapped, null - all)
-        include_blank: Include blank records (default: False - hides blank records)
-        include_deleted: Include deleted recordings (default: False - hides deleted)
-        from_date: Filter by start date (YYYY-MM-DD)
-        to_date: Filter by end date (YYYY-MM-DD)
-        page: Page number
-        per_page: Number of recordings per page
-        ctx: Service context
-
-    Returns:
-        List of recordings
-    """
+    """Get paginated list of recordings with filtering and search."""
     recording_repo = RecordingRepository(ctx.session)
 
     # Get all recordings for user
@@ -615,10 +669,7 @@ async def get_recording(
     detailed: bool = Query(False, description="Include detailed information (files, transcription, topics, uploads)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingListItem | DetailedRecordingResponse:
-    """
-    Get single recording by ID.
-
-    Default: Returns lightweight schema (same as list view)
+    """Get recording by ID (use detailed=true for full information).
     With detailed=true: Returns full details with files, transcription, topics
 
     Args:
@@ -1346,12 +1397,24 @@ async def bulk_run_recordings(
 
     # Build manual override from config_override
     manual_override = {}
+    if data.template_id:
+        manual_override["runtime_template_id"] = data.template_id
     if data.processing_config:
         manual_override["processing_config"] = data.processing_config
     if data.metadata_config:
         manual_override["metadata_config"] = data.metadata_config
     if data.output_config:
         manual_override["output_config"] = data.output_config
+
+    # Validate template if bind_template is requested
+    if data.template_id and data.bind_template:
+        from api.repositories.template_repos import RecordingTemplateRepository
+
+        template_repo = RecordingTemplateRepository(ctx.session)
+        template = await template_repo.find_by_id(data.template_id, ctx.user_id)
+
+        if not template:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {data.template_id} not found")
 
     recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
 
@@ -1389,6 +1452,15 @@ async def bulk_run_recordings(
                 manual_override=manual_override if manual_override else None,
             )
 
+            # Only bind template after task is successfully created
+            if data.template_id and data.bind_template:
+                recording.template_id = data.template_id
+                recording.is_mapped = True
+
+                # Update status if currently SKIPPED
+                if recording.status == ProcessingStatus.SKIPPED:
+                    recording.status = ProcessingStatus.INITIALIZED
+
             tasks.append(
                 {
                     "recording_id": recording_id,
@@ -1414,6 +1486,11 @@ async def bulk_run_recordings(
     queued_count = len([t for t in tasks if t["status"] == "queued"])
     skipped_count = len([t for t in tasks if t["status"] == "skipped"])
 
+    # Commit template bindings if any
+    if data.template_id and data.bind_template:
+        await ctx.session.commit()
+        logger.info(f"Bound template {data.template_id} to {queued_count} recordings")
+
     return RecordingBulkOperationResponse(
         total=len(recording_ids),
         queued_count=queued_count,
@@ -1433,6 +1510,8 @@ async def run_recording(
     Full pipeline run (async task): download → trim → transcribe → topics → upload.
 
     Supports flexible config overrides:
+    - template_id: Use template config for this run (runtime-only by default)
+    - bind_template: If true with template_id, permanently bind template to recording
     - processing_config: Override processing settings (transcription, trimming, etc.)
     - metadata_config: Override metadata (title, description, playlists, albums, etc.)
     - output_config: Override output settings (preset_ids, auto_upload, etc.)
@@ -1453,12 +1532,31 @@ async def run_recording(
     Example:
         ```json
         {
+          "template_id": 5,
+          "bind_template": False,
           "processing_config": {
-            "transcription": {"granularity": "short"}
+            "transcription": {
+              "enable_transcription": true,
+              "language": "ru",
+              "granularity": "short",
+              "enable_topics": true
+            }
           },
           "metadata_config": {
-            "vk": {"album_id": "63"},
-            "youtube": {"playlist_id": "PLxxx"}
+            "title_template": "{themes}",
+            "youtube": {
+              "playlist_id": "PLxxx",
+              "privacy": "unlisted"
+            },
+            "vk": {
+              "album_id": "123456",
+              "group_id": 123456,
+              "privacy_view": 0
+            }
+          },
+          "output_config": {
+            "preset_ids": [10],
+            "auto_upload": true
           }
         }
         ```
@@ -1481,13 +1579,39 @@ async def run_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
+    # Validate template if binding is requested
+    if config.template_id and config.bind_template:
+        from api.repositories.template_repos import RecordingTemplateRepository
+
+        template_repo = RecordingTemplateRepository(ctx.session)
+        template = await template_repo.find_by_id(config.template_id, ctx.user_id)
+
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {config.template_id} not found"
+            )
+
     manual_override = _build_override_from_flexible(config)
 
+    # Start task first to ensure it can be created
     task = run_recording_task.delay(
         recording_id=recording_id,
         user_id=ctx.user_id,
         manual_override=manual_override,
     )
+
+    # Only bind template after task is successfully created
+    if config.template_id and config.bind_template:
+        recording.template_id = config.template_id
+        recording.is_mapped = True
+
+        # Update status if currently SKIPPED
+        if recording.status == ProcessingStatus.SKIPPED:
+            recording.status = ProcessingStatus.INITIALIZED
+
+        await ctx.session.commit()
+
+        logger.info(f"Bound template (id={config.template_id}) to recording {recording_id}")
 
     logger.info(
         f"Run recording task {task.id} created for recording {recording_id}, user {ctx.user_id}, "
@@ -1625,7 +1749,8 @@ async def transcribe_recording(
             )
 
             logger.info(
-                f"Batch polling task {task.id} created | batch_id={batch_id} | recording={recording_id} | user={ctx.user_id}"
+                f"Batch polling task {task.id} created | batch_id={batch_id} | "
+                f"recording={recording_id} | user={ctx.user_id}"
             )
 
             return {
@@ -2022,7 +2147,8 @@ async def bulk_transcribe_recordings(
             tasks.append(task_info)
 
             logger.info(
-                f"Bulk transcribe task {task.id} created for recording {recording_id}, user {ctx.user_id}, mode={task_info['mode']}"
+                f"Bulk transcribe task {task.id} created for recording {recording_id}, "
+                f"user {ctx.user_id}, mode={task_info['mode']}"
             )
 
         except Exception as e:
@@ -2448,7 +2574,7 @@ async def reset_recording(
     retention = user_config.get("retention", {})
     auto_expire_days = retention.get("auto_expire_days", 90)
     if auto_expire_days:
-        recording.expire_at = datetime.utcnow() + timedelta(days=auto_expire_days)
+        recording.expire_at = datetime.now(timezone.utc) + timedelta(days=auto_expire_days)
 
     # Delete output_targets
     await ctx.session.execute(delete(OutputTargetModel).where(OutputTargetModel.recording_id == recording_id))
@@ -2476,6 +2602,118 @@ async def reset_recording(
             "processing_preferences": bool(recording.processing_preferences),
         },
         task_id=None,
+    )
+
+
+@router.post("/{recording_id}/template/{template_id}", response_model=RecordingOperationResponse)
+async def bind_template_to_recording(
+    recording_id: int,
+    template_id: int,
+    reset_preferences: bool = Query(False, description="Reset processing preferences to use template config"),
+    ctx: ServiceContext = Depends(get_service_context),
+) -> RecordingOperationResponse:
+    """
+    Bind template to recording.
+
+    Sets recording.template_id and is_mapped=true.
+    Optionally resets processing_preferences to allow template config to take effect.
+
+    Args:
+        recording_id: Recording ID
+        template_id: Template ID to bind
+        reset_preferences: If true, clear processing_preferences (default: false)
+        ctx: Service context
+
+    Returns:
+        Result of bind operation
+
+    Raises:
+        HTTPException 404: Recording or template not found
+    """
+    from api.repositories.template_repos import RecordingTemplateRepository
+
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+
+    if not recording:
+        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+
+    # Validate template exists and belongs to user
+    template_repo = RecordingTemplateRepository(ctx.session)
+    template = await template_repo.find_by_id(template_id, ctx.user_id)
+
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+
+    # Bind template
+    recording.template_id = template_id
+    recording.is_mapped = True
+
+    # Reset preferences if requested
+    if reset_preferences:
+        recording.processing_preferences = None
+
+    # Update status if needed (same logic as in run_recording)
+    if recording.status == ProcessingStatus.SKIPPED:
+        recording.status = ProcessingStatus.INITIALIZED
+
+    await ctx.session.commit()
+
+    logger.info(
+        f"Template {template_id} ('{template.name}') bound to recording {recording_id}, "
+        f"reset_preferences={reset_preferences}"
+    )
+
+    return RecordingOperationResponse(
+        success=True,
+        recording_id=recording_id,
+        message=f"Template '{template.name}' bound successfully"
+        + (" (preferences reset)" if reset_preferences else ""),
+    )
+
+
+@router.delete("/{recording_id}/template", response_model=RecordingOperationResponse)
+async def unbind_template_from_recording(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> RecordingOperationResponse:
+    """
+    Unbind template from recording.
+
+    Clears recording.template_id and sets is_mapped=false.
+    Processing preferences are preserved.
+
+    Args:
+        recording_id: Recording ID
+        ctx: Service context
+
+    Returns:
+        Result of unbind operation
+
+    Raises:
+        HTTPException 404: Recording not found
+    """
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+
+    if not recording:
+        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+
+    if not recording.template_id:
+        raise HTTPException(status_code=400, detail="Recording has no template bound")
+
+    # Unbind template
+    recording.template_id = None
+    recording.is_mapped = False
+
+    await ctx.session.commit()
+
+    logger.info(f"Template unbound from recording {recording_id}")
+
+    return RecordingOperationResponse(
+        success=True,
+        recording_id=recording_id,
+        message="Template unbound successfully",
     )
 
 
@@ -3029,6 +3267,6 @@ async def restore_recording(
     return RestoreRecordingResponse(
         message="Recording restored successfully",
         recording_id=recording.id,
-        restored_at=datetime.utcnow(),
+        restored_at=datetime.now(timezone.utc),
         expire_at=recording.expire_at,
     )

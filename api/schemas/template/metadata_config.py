@@ -6,122 +6,88 @@ from api.schemas.common import BASE_MODEL_CONFIG
 
 from .preset_metadata import TopicsDisplayConfig
 
-# ============================================================================
-# Platform-specific metadata
-# ============================================================================
-
 
 class VKMetadataConfig(BaseModel):
-    """VK-специфичные настройки metadata."""
-
     model_config = BASE_MODEL_CONFIG
 
-    album_id: str | None = Field(None, description="ID альбома VK")
-    group_id: int | None = Field(None, gt=0, description="ID группы VK для публикации")
+    album_id: str | None = Field(None, description="VK album ID")
+    group_id: int | None = Field(None, gt=0, description="VK group ID for posting")
     thumbnail_name: str | None = Field(
         None,
-        description="Имя файла thumbnail для VK (например, 'ml_extra.png'). API автоматически найдет файл в директории пользователя.",
+        description="Thumbnail filename for VK (e.g., 'ml_extra.png'). API will find it in user directory.",
         examples=["ml_extra.png", "hse_ai.jpg", "custom_thumbnail.png"],
     )
-    title_template: str | None = Field(None, max_length=500, description="VK-специфичный шаблон заголовка")
+    title_template: str | None = Field(None, max_length=500, description="VK-specific title template")
     description_template: str | None = Field(
-        None, max_length=5000, description="VK-специфичный шаблон описания"
+        None, max_length=5000, description="VK-specific description template"
     )
 
 
 class YouTubeMetadataConfig(BaseModel):
-    """YouTube-специфичные настройки metadata."""
-
     model_config = BASE_MODEL_CONFIG
 
     privacy: str | None = Field(None, description="Privacy status (public, unlisted, private)")
-    playlist_id: str | None = Field(None, description="ID плейлиста YouTube")
+    playlist_id: str | None = Field(None, description="YouTube playlist ID")
     thumbnail_name: str | None = Field(
         None,
-        description="Имя файла thumbnail для YouTube (например, 'python_base.png'). API автоматически найдет файл в директории пользователя.",
+        description="Thumbnail filename (e.g. 'python_base.png'). API will find it in user directory.",
         examples=["python_base.png", "hse_ai.jpg", "custom_thumbnail.png"],
     )
-    title_template: str | None = Field(None, max_length=500, description="YouTube-специфичный шаблон заголовка")
+    title_template: str | None = Field(None, max_length=500, description="YouTube-specific title template")
     description_template: str | None = Field(
-        None, max_length=5000, description="YouTube-специфичный шаблон описания"
+        None, max_length=5000, description="YouTube-specific description template"
     )
-
-
-# ============================================================================
-# Template Metadata Config (реальная структура с платформенными блоками)
-# ============================================================================
 
 
 class TemplateMetadataConfig(BaseModel):
     """
-    Content-specific metadata для Recording Template.
+    Content-specific metadata for Recording Template.
 
-    Структура:
-    - vk: VK-специфичные настройки (album_id, thumbnail_name)
-    - youtube: YouTube-специфичные настройки (privacy, playlist_id, thumbnail_name)
-    - title_template: общий шаблон заголовка (для всех платформ)
-    - description_template: общий шаблон описания (для всех платформ)
-    - topics_display: общие настройки отображения тем
-    - thumbnail_name: имя файла thumbnail (используется если не задан платформо-специфичный)
+    Thumbnail hierarchy:
+    1. Platform-specific (vk.thumbnail_name / youtube.thumbnail_name)
+    2. Common thumbnail_name
+    3. Preset thumbnail
 
-    Иерархия thumbnail_name:
-    1. Если задан vk.thumbnail_name или youtube.thumbnail_name - используется он
-    2. Иначе используется общий thumbnail_name
-    3. Иначе используется thumbnail из preset
-
-    Формат: только имя файла (например, "ml_extra.png")
-    API автоматически ищет файл в директории пользователя:
-    - storage/users/user_XXXXXX/thumbnails/
-
-    Note: Каждый пользователь получает копии всех шаблонов при регистрации.
-
-    Переменные в templates:
-    - {display_name}, {themes}, {topic}, {topics}, {topics_list}
-    - {summary}, {record_time}, {publish_time}, {date}, {duration}
+    Template variables: {display_name}, {themes}, {topic}, {topics}, {topics_list},
+    {summary}, {record_time}, {publish_time}, {date}, {duration}
     """
 
     model_config = BASE_MODEL_CONFIG
 
-    # Платформо-специфичные блоки
-    vk: VKMetadataConfig | None = Field(None, description="VK-специфичные настройки")
-    youtube: YouTubeMetadataConfig | None = Field(None, description="YouTube-специфичные настройки")
+    vk: VKMetadataConfig | None = Field(None, description="VK-specific settings")
+    youtube: YouTubeMetadataConfig | None = Field(None, description="YouTube-specific settings")
 
-    # Общие настройки (для всех платформ)
     title_template: str | None = Field(
         None,
         max_length=500,
-        description="Шаблон заголовка с переменными",
+        description="Title template with variables",
         examples=[
-            "Курс ИИ | {themes} ({record_time:DD.MM.YY})",
+            "AI Course | {themes} ({record_time:DD.MM.YY})",
             "{display_name} - {date}",
-            "Обучение с подкреплением | {themes}",
+            "RL | {themes}",
         ],
     )
 
     description_template: str | None = Field(
         None,
         max_length=5000,
-        description="Шаблон описания с переменными",
+        description="Description template with variables",
         examples=[
-            "Лекция по курсу\\n\\n{topics}\\n\\nЗаписано: {record_time:DD.MM.YYYY}",
+            "Lecture\\n\\n{topics}\\n\\nRecorded: {record_time:DD.MM.YYYY}",
             "{summary}",
-            "Темы: {topics_list}\\n\\nДлительность: {duration}",
+            "Topics: {topics_list}\\n\\nDuration: {duration}",
         ],
     )
 
     topics_display: TopicsDisplayConfig | None = Field(
         None,
-        description="Настройки отображения тем в description (для всех платформ)",
+        description="Topics display settings",
     )
 
     thumbnail_name: str | None = Field(
         None,
-        description="Имя файла thumbnail для всех платформ (если не указан платформо-специфичный). API автоматически найдет файл в директории пользователя.",
-        examples=[
-            "applied_python.png",
-            "ml_extra.png",
-            "hse_ai.jpg"
-        ],
+        description="Thumbnail filename for all platforms (if not platform-specific). API will find it in user directory.",
+        examples=["applied_python.png", "ml_extra.png", "hse_ai.jpg"],
     )
 
     @field_validator("title_template")
@@ -131,8 +97,7 @@ class TemplateMetadataConfig(BaseModel):
             v = v.strip()
             if not v:
                 return None
-            # Проверка что есть хоть одна переменная
             valid_vars = ["{display_name}", "{themes}", "{topic}", "{date}", "{record_time}", "{duration}"]
             if not any(var in v for var in valid_vars):
-                raise ValueError(f"title_template должен содержать хоть одну переменную из: {', '.join(valid_vars)}")
+                raise ValueError(f"title_template must contain at least one variable from: {', '.join(valid_vars)}")
         return v

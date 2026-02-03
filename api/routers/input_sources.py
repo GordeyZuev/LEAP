@@ -27,6 +27,76 @@ router = APIRouter(prefix="/api/v1/sources", tags=["Input Sources"])
 logger = get_logger()
 
 
+def _get_best_video_file(recording_files: list) -> dict | None:
+    """Select best video file from recording files (prefer shared_screen_with_speaker_view)."""
+    for file in recording_files:
+        if file.get("file_type") == "MP4" and file.get("recording_type") == "shared_screen_with_speaker_view":
+            return file
+
+    for file in recording_files:
+        if file.get("file_type") == "MP4":
+            return file
+
+    return None
+
+
+async def _fetch_zoom_recording_details(
+    zoom_api, meeting_id: str, display_name: str
+) -> tuple[dict | None, str | None, bool]:
+    """Fetch recording details from Zoom API. Returns (details, token, is_incomplete)."""
+    try:
+        meeting_details = await zoom_api.get_recording_details(meeting_id, include_download_token=True)
+        download_access_token = meeting_details.get("download_access_token")
+        return meeting_details, download_access_token, False
+    except ZoomRecordingProcessingError:
+        logger.info(f"Recording '{display_name}' still being processed by Zoom (meeting_id={meeting_id})")
+        return None, None, True
+    except Exception as e:
+        logger.warning(f"Failed to get download_access_token for meeting {meeting_id}: {e}")
+        return None, None, False
+
+
+def _build_zoom_metadata(meeting: dict, video_file: dict | None, download_access_token: str | None,
+                         meeting_details: dict | None, zoom_processing_incomplete: bool, credentials: dict) -> dict:
+    """Build source metadata from Zoom API response."""
+    return {
+        "meeting_id": meeting.get("uuid", meeting.get("id", "")),
+        "account": credentials.get("account", ""),
+        "account_id": meeting.get("account_id"),
+        "host_id": meeting.get("host_id"),
+        "host_email": meeting.get("host_email"),
+        "share_url": meeting.get("share_url"),
+        "recording_play_passcode": meeting.get("recording_play_passcode"),
+        "password": meeting.get("password"),
+        "timezone": meeting.get("timezone"),
+        "total_size": meeting.get("total_size"),
+        "recording_count": meeting.get("recording_count"),
+        "download_url": video_file.get("download_url") if video_file else None,
+        "play_url": video_file.get("play_url") if video_file else None,
+        "download_access_token": download_access_token,
+        "video_file_size": video_file.get("file_size") if video_file else None,
+        "video_file_type": video_file.get("file_type") if video_file else None,
+        "recording_type": video_file.get("recording_type") if video_file else None,
+        "delete_time": meeting.get("delete_time"),
+        "auto_delete_date": meeting.get("auto_delete_date"),
+        "zoom_processing_incomplete": zoom_processing_incomplete,
+        "zoom_api_meeting": meeting,
+        "zoom_api_details": meeting_details if meeting_details else {},
+    }
+
+
+def _determine_blank_status(
+    duration: int, video_file_size: int, zoom_processing_incomplete: bool,
+    min_duration_minutes: int = 20, min_file_size_mb: int = 25
+) -> bool:
+    """Determine if recording should be marked as blank."""
+    if zoom_processing_incomplete:
+        return False
+
+    min_file_size_bytes = min_file_size_mb * 1024 * 1024
+    return duration < min_duration_minutes or video_file_size < min_file_size_bytes
+
+
 async def _sync_single_source(
     source_id: int,
     from_date: str,
@@ -34,12 +104,7 @@ async def _sync_single_source(
     session: AsyncSession,
     user_id: str,
 ) -> dict:
-    """
-    Синхронизация одного источника (внутренняя функция для DRY).
-
-    Returns:
-        dict с ключами: status, recordings_found, recordings_saved, recordings_updated, error (опционально)
-    """
+    """Sync single source and save recordings to database."""
     repo = InputSourceRepository(session)
     source = await repo.find_by_id(source_id, user_id)
 
@@ -109,104 +174,34 @@ async def _sync_single_source(
                     start_time_str = meeting.get("start_time", "")
                     duration = meeting.get("duration", 0)
 
-                    if start_time_str:
-                        if start_time_str.endswith("Z"):
-                            start_time_str = start_time_str[:-1] + "+00:00"
-                        start_time = datetime.fromisoformat(start_time_str)
-                    else:
+                    if not start_time_str:
                         logger.warning(f"Meeting {meeting_id} has no start_time, skipping")
                         continue
 
-                    # Получаем видео файл
-                    recording_files = meeting.get("recording_files", [])
-                    video_file = None
-                    for file in recording_files:
-                        if (
-                            file.get("file_type") == "MP4"
-                            and file.get("recording_type") == "shared_screen_with_speaker_view"
-                        ):
-                            video_file = file
-                            break
+                    if start_time_str.endswith("Z"):
+                        start_time_str = start_time_str[:-1] + "+00:00"
+                    start_time = datetime.fromisoformat(start_time_str)
 
-                    if not video_file:
-                        for file in recording_files:
-                            if file.get("file_type") == "MP4":
-                                video_file = file
-                                break
+                    video_file = _get_best_video_file(meeting.get("recording_files", []))
+                    (
+                        meeting_details,
+                        download_access_token,
+                        zoom_processing_incomplete,
+                    ) = await _fetch_zoom_recording_details(zoom_api, meeting_id, display_name)
 
-                    # Получаем download_access_token
-                    download_access_token = None
-                    meeting_details = None
-                    zoom_processing_incomplete = False
+                    source_metadata = _build_zoom_metadata(
+                        meeting,
+                        video_file,
+                        download_access_token,
+                        meeting_details,
+                        zoom_processing_incomplete,
+                        credentials,
+                    )
 
-                    try:
-                        meeting_details = await zoom_api.get_recording_details(meeting_id, include_download_token=True)
-                        download_access_token = meeting_details.get("download_access_token")
-                    except ZoomRecordingProcessingError:
-                        # Запись ещё обрабатывается на стороне Zoom - это нормально
-                        logger.info(
-                            f"Recording '{display_name}' (meeting_id={meeting_id}) is still being processed by Zoom. "
-                            f"Will be available for download later."
-                        )
-                        zoom_processing_incomplete = True
-                    except Exception as e:
-                        # Другие ошибки (например, запись удалена)
-                        logger.warning(f"Failed to get download_access_token for meeting {meeting_id}: {e}")
-
-                    # Метаданные
-                    source_metadata = {
-                        "meeting_id": meeting_id,
-                        "account": credentials.get("account", ""),
-                        "account_id": meeting.get("account_id"),
-                        "host_id": meeting.get("host_id"),
-                        "host_email": meeting.get("host_email"),
-                        "share_url": meeting.get("share_url"),
-                        "recording_play_passcode": meeting.get("recording_play_passcode"),
-                        "password": meeting.get("password"),
-                        "timezone": meeting.get("timezone"),
-                        "total_size": meeting.get("total_size"),
-                        "recording_count": meeting.get("recording_count"),
-                        "download_url": video_file.get("download_url") if video_file else None,
-                        "play_url": video_file.get("play_url") if video_file else None,
-                        "download_access_token": download_access_token,
-                        "video_file_size": video_file.get("file_size") if video_file else None,
-                        "video_file_type": video_file.get("file_type") if video_file else None,
-                        "recording_type": video_file.get("recording_type") if video_file else None,
-                        "delete_time": meeting.get("delete_time"),
-                        "auto_delete_date": meeting.get("auto_delete_date"),
-                        "zoom_processing_incomplete": zoom_processing_incomplete,  # Флаг: запись ещё обрабатывается Zoom
-                        "zoom_api_meeting": meeting,
-                        "zoom_api_details": meeting_details if meeting_details else {},
-                    }
-
-                    # Determine status and blank_record based on Zoom processing state
-                    min_duration_minutes = 20
-                    min_file_size_bytes = 25 * 1024 * 1024  # 25 MB
                     video_file_size = video_file.get("file_size") if video_file else 0
-
-                    # Template matching
                     matched_template = _find_matching_template(display_name, source_id, templates)
-                    is_mapped = matched_template is not None
+                    is_blank = _determine_blank_status(duration, video_file_size, zoom_processing_incomplete)
 
-                    # Determine blank_record and log reasoning
-                    if zoom_processing_incomplete:
-                        # Zoom still processing - can't determine if blank yet
-                        is_blank = False
-                        logger.info(
-                            f"Recording '{display_name}' awaiting Zoom processing: "
-                            f"status will be PENDING_SOURCE until processing completes"
-                        )
-                    else:
-                        # Check if blank based on duration/size
-                        is_blank = (duration < min_duration_minutes) or (video_file_size < min_file_size_bytes)
-                        if is_blank:
-                            logger.info(
-                                f"Recording '{display_name}' marked as blank: "
-                                f"duration={duration}min (min={min_duration_minutes}), "
-                                f"size={video_file_size} bytes (min={min_file_size_bytes})"
-                            )
-
-                    # Create or update
                     _recording, is_new = await recording_repo.create_or_update(
                         user_id=user_id,
                         input_source_id=source_id,
@@ -217,8 +212,8 @@ async def _sync_single_source(
                         source_key=meeting_id,
                         source_metadata=source_metadata,
                         user_config=user_config,
-                        video_file_size=video_file.get("file_size") if video_file else None,
-                        is_mapped=is_mapped,
+                        video_file_size=video_file_size,
+                        is_mapped=matched_template is not None,
                         template_id=matched_template.id if matched_template else None,
                         blank_record=is_blank,
                         zoom_processing_incomplete=zoom_processing_incomplete,
@@ -233,9 +228,8 @@ async def _sync_single_source(
                     logger.warning(f"Failed to save recording {meeting.get('id')}: {e}")
                     continue
 
-            logger.info(
-                f"Synced {saved_count + updated_count} recordings from source {source_id} (new={saved_count}, updated={updated_count})"
-            )
+            logger.info(f"Synced {saved_count + updated_count} recordings from source {source_id} "
+                       f"(new={saved_count}, updated={updated_count})")
 
         except Exception as e:
             logger.error(f"Zoom sync failed for source {source_id}: {e}", exc_info=True)
@@ -275,28 +269,73 @@ async def _sync_single_source(
     }
 
 
-def _find_matching_template(display_name: str, source_id: int, templates: list):
-    """
-    Find first matching template (first-match strategy by created_at ASC).
+def _normalize_string(s: str, case_sensitive: bool) -> str:
+    """Normalize string for comparison."""
+    return s.strip() if case_sensitive else s.lower().strip()
 
-    Matching order for each template:
-    1. source_ids filter (required if specified)
-    2. exclude_keywords - SKIP template if any match
-    3. exclude_patterns - SKIP template if any match
-    4. exact_matches - RETURN template if any match
-    5. keywords - RETURN template if any match
-    6. patterns - RETURN template if any match
 
-    Args:
-        display_name: Recording name
-        source_id: Input source ID
-        templates: Active templates sorted by created_at ASC
+def _check_source_filter(source_id: int, template_source_ids: list) -> bool:
+    """Check if source_id matches template filter."""
+    return not template_source_ids or source_id in template_source_ids
 
-    Returns:
-        First matched template or None
-    """
+
+def _check_exclude_items(items: list, display_name: str, case_sensitive: bool, use_regex: bool = False) -> bool:
+    """Check if any exclude item matches (keywords or patterns)."""
     import re
 
+    for item in items:
+        if not isinstance(item, str):
+            continue
+
+        if use_regex:
+            try:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                if re.search(item, display_name, flags):
+                    return True
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern '{item}': {e}")
+        else:
+            item_compare = _normalize_string(item, case_sensitive)
+            display_compare = _normalize_string(display_name, case_sensitive)
+            if item_compare in display_compare:
+                return True
+
+    return False
+
+
+def _check_match_items(
+    items: list, display_name: str, case_sensitive: bool, exact: bool = False, use_regex: bool = False
+) -> bool:
+    """Check if any match item matches (exact/keywords/patterns)."""
+    import re
+
+    display_compare = _normalize_string(display_name, case_sensitive)
+
+    for item in items:
+        if not isinstance(item, str):
+            continue
+
+        if use_regex:
+            try:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                if re.search(item, display_name, flags):
+                    return True
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern '{item}': {e}")
+        elif exact:
+            item_compare = _normalize_string(item, case_sensitive)
+            if item_compare == display_compare:
+                return True
+        else:
+            item_compare = _normalize_string(item, case_sensitive)
+            if item_compare in display_compare:
+                return True
+
+    return False
+
+
+def _find_matching_template(display_name: str, source_id: int, templates: list):
+    """Find first matching template using first-match strategy."""
     if not templates:
         return None
 
@@ -304,122 +343,29 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
         matching_rules = template.matching_rules or {}
         case_sensitive = matching_rules.get("case_sensitive", False)
 
-        # Prepare comparison strings
-        display_name_compare = display_name.strip() if case_sensitive else display_name.lower().strip()
-
-        logger.debug(
-            f"Checking template '{template.name}' (id={template.id}) for recording '{display_name}' "
-            f"(source_id={source_id}, case_sensitive={case_sensitive})"
-        )
-
-        # 1. Check source_id filter (required if specified)
-        template_source_ids = matching_rules.get("source_ids", [])
-        if template_source_ids and source_id not in template_source_ids:
-            logger.debug(
-                f"Template '{template.name}': source_id {source_id} not in {template_source_ids} - SKIP"
-            )
+        if not _check_source_filter(source_id, matching_rules.get("source_ids", [])):
             continue
 
-        # 2. Check exclude_keywords (negative matching)
-        exclude_keywords = matching_rules.get("exclude_keywords", [])
-        if exclude_keywords:
-            logger.debug(f"Template '{template.name}': checking {len(exclude_keywords)} exclude_keywords: {exclude_keywords}")
-            excluded = False
-            for keyword in exclude_keywords:
-                if not isinstance(keyword, str):
-                    continue
-                keyword_compare = keyword.strip() if case_sensitive else keyword.lower().strip()
-                if keyword_compare in display_name_compare:
-                    logger.debug(
-                        f"Recording '{display_name}' excluded from template '{template.name}' "
-                        f"by exclude_keyword '{keyword}' (found '{keyword_compare}' in '{display_name_compare}')"
-                    )
-                    excluded = True
-                    break
-            if excluded:
-                continue
-        else:
-            logger.debug(f"Template '{template.name}': no exclude_keywords to check")
+        if _check_exclude_items(matching_rules.get("exclude_keywords", []), display_name, case_sensitive):
+            continue
 
-        # 3. Check exclude_patterns (negative matching)
-        exclude_patterns = matching_rules.get("exclude_patterns", [])
-        if exclude_patterns:
-            excluded = False
-            for pattern in exclude_patterns:
-                if not isinstance(pattern, str):
-                    continue
-                try:
-                    flags = 0 if case_sensitive else re.IGNORECASE
-                    if re.search(pattern, display_name, flags):
-                        logger.debug(
-                            f"Recording '{display_name}' excluded from template '{template.name}' "
-                            f"by exclude_pattern '{pattern}'"
-                        )
-                        excluded = True
-                        break
-                except re.error as e:
-                    logger.warning(f"Invalid exclude_pattern '{pattern}' in template '{template.name}': {e}")
-            if excluded:
-                continue
+        if _check_exclude_items(
+            matching_rules.get("exclude_patterns", []), display_name, case_sensitive, use_regex=True
+        ):
+            continue
 
-        # 4. Check exact matches (positive matching)
-        exact_matches = matching_rules.get("exact_matches", [])
-        if exact_matches:
-            logger.debug(f"Template '{template.name}': checking {len(exact_matches)} exact_matches")
-            for exact in exact_matches:
-                if not isinstance(exact, str):
-                    continue
-                exact_compare = exact.strip() if case_sensitive else exact.lower().strip()
-                if exact_compare == display_name_compare:
-                    logger.debug(f"Recording '{display_name}' matched template '{template.name}' by exact match")
-                    return template
-        else:
-            logger.debug(f"Template '{template.name}': no exact_matches to check")
+        if _check_match_items(matching_rules.get("exact_matches", []), display_name, case_sensitive, exact=True):
+            logger.info(f"Recording '{display_name}' matched template '{template.name}' (exact)")
+            return template
 
-        # 5. Check keywords (positive matching)
-        keywords = matching_rules.get("keywords", [])
-        if keywords:
-            logger.debug(f"Template '{template.name}': checking {len(keywords)} keywords")
-            for keyword in keywords:
-                if not isinstance(keyword, str):
-                    continue
-                keyword_compare = keyword.strip() if case_sensitive else keyword.lower().strip()
-                if keyword_compare in display_name_compare:
-                    logger.debug(
-                        f"Recording '{display_name}' matched template '{template.name}' by keyword '{keyword}'"
-                    )
-                    return template
-        else:
-            logger.debug(f"Template '{template.name}': no keywords to check")
+        if _check_match_items(matching_rules.get("keywords", []), display_name, case_sensitive):
+            logger.info(f"Recording '{display_name}' matched template '{template.name}' (keyword)")
+            return template
 
-        # 6. Check regex patterns (positive matching)
-        patterns = matching_rules.get("patterns", [])
-        if patterns:
-            logger.debug(f"Template '{template.name}': checking {len(patterns)} patterns")
-            for pattern in patterns:
-                if not isinstance(pattern, str):
-                    logger.debug(f"Template '{template.name}': pattern is not string, skipping")
-                    continue
-                try:
-                    flags = 0 if case_sensitive else re.IGNORECASE
-                    logger.debug(
-                        f"Template '{template.name}': testing pattern '{pattern}' against '{display_name}' "
-                        f"(case_sensitive={case_sensitive}, flags={flags})"
-                    )
-                    if re.search(pattern, display_name, flags):
-                        logger.debug(
-                            f"Recording '{display_name}' matched template '{template.name}' by pattern '{pattern}'"
-                        )
-                        return template
-                    logger.debug(f"Template '{template.name}': pattern '{pattern}' did not match")
-                except re.error as e:
-                    logger.warning(f"Invalid regex pattern '{pattern}' in template '{template.name}': {e}")
-        else:
-            logger.debug(f"Template '{template.name}': no patterns to check")
+        if _check_match_items(matching_rules.get("patterns", []), display_name, case_sensitive, use_regex=True):
+            logger.info(f"Recording '{display_name}' matched template '{template.name}' (pattern)")
+            return template
 
-    logger.debug(
-        f"Recording '{display_name}' (source_id={source_id}) did not match any of {len(templates)} templates"
-    )
     return None
 
 
@@ -484,7 +430,10 @@ async def create_source(
     if duplicate:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Source with name '{data.name}', type '{source_type}' and credential_id {data.credential_id} already exists",
+            detail=(
+                f"Source with name '{data.name}', type '{source_type}' "
+                f"and credential_id {data.credential_id} already exists"
+            ),
         )
 
     source = await repo.create(
@@ -628,7 +577,7 @@ async def delete_source(
 @router.post("/{source_id}/sync", response_model=dict)
 async def sync_source(
     source_id: int,
-    from_date: str = "2024-01-01",
+    from_date: str = "2025-01-01",
     to_date: str | None = None,
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),

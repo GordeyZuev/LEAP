@@ -1,33 +1,33 @@
-"""Pydantic схемы для учетных данных пользователей."""
+"""Pydantic schemas for user credentials."""
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserCredentialBase(BaseModel):
-    """Базовая схема учетных данных."""
+    """Base schema for user credentials."""
 
-    platform: str = Field(..., max_length=50, description="Платформа (zoom, youtube, gdrive)")
-    account_name: str | None = Field(None, max_length=255, description="Имя аккаунта (для нескольких аккаунтов)")
+    platform: str = Field(..., max_length=50, description="Platform (zoom, youtube, gdrive)")
+    account_name: str | None = Field(None, max_length=255, description="Account name (for multiple accounts)")
 
 
 class UserCredentialCreate(UserCredentialBase):
-    """Схема для создания учетных данных."""
+    """Schema for creating user credentials."""
 
     user_id: str
-    encrypted_data: str = Field(..., description="Зашифрованные данные")
+    encrypted_data: str = Field(..., description="Encrypted data")
 
 
 class UserCredentialUpdate(BaseModel):
-    """Схема для обновления учетных данных."""
+    """Schema for updating user credentials."""
 
     encrypted_data: str | None = None
     is_active: bool | None = None
 
 
 class UserCredentialInDB(UserCredentialBase):
-    """Схема учетных данных в БД."""
+    """Schema of user credentials in DB."""
 
     id: int
     user_id: str
@@ -36,12 +36,11 @@ class UserCredentialInDB(UserCredentialBase):
     created_at: datetime
     last_used_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserCredentialResponse(BaseModel):
-    """Схема ответа с учетными данными (без зашифрованных данных)."""
+    """Schema of response with user credentials (without encrypted data)."""
 
     id: int
     platform: str
@@ -49,5 +48,4 @@ class UserCredentialResponse(BaseModel):
     created_at: datetime
     last_used_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

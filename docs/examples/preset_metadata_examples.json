@@ -87,7 +87,7 @@
         "group_id": 123456,
         "privacy_view": 0,
         "privacy_comment": 0,
-        "no_comments": false,
+        "disable_comments": false,
         "repeat": false,
         "wallpost": true
       }
@@ -101,10 +101,10 @@
         "title_template": "{display_name} - {start_time}",
         "description_template": "{summary}",
         "group_id": 123456,
-        "album_id": 67890,
+        "album_id": "67890",
         "privacy_view": 3,
         "privacy_comment": 3,
-        "no_comments": true,
+        "disable_comments": true,
         "wallpost": false
       }
     },

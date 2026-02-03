@@ -47,20 +47,9 @@ async def create_template(
     current_user: UserModel = Depends(get_current_active_user),
 ):
     """
-    Create new template.
+    Create new template with optional auto-rematch for SKIPPED recordings.
 
-    Args:
-        data: Данные template
-        auto_rematch: Automatically start re-match for SKIPPED recordings (default: True)
-        session: DB session
-        current_user: Current user
-
-    Returns:
-        Created template
-
-    Note:
-        If auto_rematch=True and template is not draft, a background task will be started
-        to check all SKIPPED recordings and update those that matched to the new template.
+    When auto_rematch=True and template is active, starts background task to match unmapped recordings.
     """
     if not current_user.can_create_templates:
         raise HTTPException(
@@ -82,14 +71,7 @@ async def create_template(
     await session.commit()
     await session.refresh(template)
 
-    # Automatic re-match if not draft and auto_rematch=True
-    logger.info(
-        f"Template {template.id} created: is_draft={template.is_draft}, "
-        f"is_active={template.is_active}, auto_rematch={auto_rematch}"
-    )
-
     if auto_rematch and not template.is_draft and template.is_active:
-        # Import rematch task
         from api.tasks.template import rematch_recordings_task
 
         task = rematch_recordings_task.delay(
@@ -97,11 +79,10 @@ async def create_template(
             user_id=current_user.id,
             only_unmapped=True,
         )
-
         logger.info(f"Queued auto re-match task {task.id} for template {template.id} '{template.name}'")
     else:
-        logger.warning(
-            f"Skipping auto re-match for template {template.id}: "
+        logger.info(
+            f"Template {template.id} created without auto-rematch: "
             f"auto_rematch={auto_rematch}, is_draft={template.is_draft}, is_active={template.is_active}"
         )
 
@@ -246,16 +227,7 @@ async def delete_template(
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),
 ):
-    """
-    Delete template.
-
-    When template is deleted, all recordings with this template are unmapped (template_id → NULL, is_mapped → False)
-    - Recordings do not change their status, but become available for new matching
-
-    Note:
-        Deletion is similar to creation: when template is created, auto-rematch is started,
-        when deleted - automatically unmap all related recordings.
-    """
+    """Delete template and automatically unmap all associated recordings."""
     if not current_user.can_create_templates:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete templates"
@@ -272,36 +244,26 @@ async def delete_template(
 
     from database.models import RecordingModel
 
-    # Count number of affected recordings
     count_query = select(RecordingModel).where(
         RecordingModel.template_id == template_id, RecordingModel.user_id == current_user.id
     )
     result = await session.execute(count_query)
     affected_count = len(result.scalars().all())
 
-    # Unmapping all recordings with this template
     if affected_count > 0:
         update_query = (
             update(RecordingModel)
             .where(RecordingModel.template_id == template_id, RecordingModel.user_id == current_user.id)
-            .values(
-                template_id=None,
-                is_mapped=False,
-            )
+            .values(template_id=None, is_mapped=False)
         )
         await session.execute(update_query)
-        logger.info(
-            f"Unmapped {affected_count} recordings from template {template_id} '{template.name}' "
-            f"(user {current_user.id})"
-        )
 
-    # Delete template
     await repo.delete(template)
     await session.commit()
 
     logger.info(
-        f"Deleted template {template_id} '{template.name}' (user {current_user.id}), "
-        f"unmapped {affected_count} recordings"
+        f"Deleted template {template_id} '{template.name}' and unmapped {affected_count} recordings "
+        f"(user {current_user.id})"
     )
 
 
@@ -311,20 +273,7 @@ async def get_template_stats(
     session: AsyncSession = Depends(get_db_session),
     current_user: UserModel = Depends(get_current_active_user),
 ) -> dict:
-    """
-    Statistics of template usage:
-    - total_recordings: how many recordings are mapped
-    - by_status: breakdown by ProcessingStatus
-    - last_matched_at: when last matched (last created_at)
-
-    Args:
-        template_id: ID of template
-        session: DB session
-        current_user: Current user
-
-    Returns:
-        Statistics of template usage
-    """
+    """Get template usage statistics (total recordings, by status, last matched)."""
     from sqlalchemy import func, select
 
     from database.models import RecordingModel
@@ -389,48 +338,9 @@ async def preview_template_match(
     current_user: UserModel = Depends(get_current_active_user),
 ) -> dict:
     """
-    Preview: which recordings will be matched/re-matched by this template.
+    Preview which recordings will match this template (dry-run mode).
 
-    Two modes:
-    - only_skipped=True: Checks SKIPPED recordings (status=SKIPPED, is_mapped=False)
-    - only_skipped=False: Checks all unmapped recordings (is_mapped=False)
-
-    Does not change data, only shows what will be updated when rematching.
-    Useful for checking before activating template or changing matching_rules.
-
-    Args:
-        template_id: ID of template
-        only_skipped: Only SKIPPED or all unmapped (default: True)
-        source_id: Filter by source (optional)
-        limit: Maximum recordings to check (default: 100, max: 500)
-        session: DB session
-        current_user: Current user
-
-    Returns:
-        List of recordings that will be matched, with detailed information
-
-    Example response:
-        {
-            "template_id": 1,
-            "template_name": "ИИ Course",
-            "mode": "skipped_only",
-            "total_checked": 50,
-            "will_match_count": 12,
-            "will_match": [
-                {
-                    "id": 44,
-                    "display_name": "ИИ_1 курс_Анализ временных рядов",
-                    "current_status": "SKIPPED",
-                    "current_is_mapped": false,
-                    "will_become_status": "INITIALIZED",
-                    "will_become_is_mapped": true,
-                    "start_time": "2025-12-11T15:05:22+00:00"
-                }
-            ]
-        }
-
-    Note:
-        Use POST /api/v1/templates/{id}/rematch for real application.
+    Useful for testing matching rules before activation or rematch operation.
     """
     from sqlalchemy import select
 
@@ -511,28 +421,9 @@ async def rematch_template_recordings(
     current_user: UserModel = Depends(get_current_active_user),
 ) -> RematchTaskResponse:
     """
-    Manually start re-match recordings for template.
+    Manually trigger re-match for unmapped/SKIPPED recordings (async task).
 
-    Checks all SKIPPED (unmapped) recordings and updates those that matched to the template.
-    Updates is_mapped=True, template_id and status=INITIALIZED.
-
-    Use cases:
-    - After changing matching_rules template
-    - For old recordings that appeared before template creation
-    - Periodic checking of unmapped recordings
-
-    Args:
-        template_id: ID template
-        only_unmapped: Check only unmapped recordings (default: True)
-        session: DB session
-        current_user: Current user
-
-    Returns:
-        Task ID for checking status of execution
-
-    Note:
-        This is an asynchronous operation. Use GET /api/v1/tasks/{task_id}
-        to check status and get results.
+    Use after changing matching rules or for old recordings created before template.
     """
     template_repo = RecordingTemplateRepository(session)
     template = await template_repo.find_by_id(template_id, current_user.id)

@@ -1,27 +1,30 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from logger import get_logger
+
+if TYPE_CHECKING:
+    from .config import ProcessingConfig
 
 logger = get_logger()
 
 
 @dataclass
 class VideoSegment:
-    """Video segment"""
+    """Video segment with time boundaries and metadata."""
 
-    start_time: float  # start time in seconds
-    end_time: float  # end time in seconds
-    duration: float  # duration in seconds
-    title: str  # segment title
-    description: str  # segment description
-    output_path: str  # output file path
+    start_time: float
+    end_time: float
+    duration: float
+    title: str
+    description: str
+    output_path: str
     processed: bool = False
     processing_time: datetime | None = None
 
     def __post_init__(self):
-        """Validate segment."""
         if self.start_time < 0:
             raise ValueError("start_time cannot be negative")
 
@@ -32,13 +35,13 @@ class VideoSegment:
             self.duration = self.end_time - self.start_time
 
     def format_duration(self) -> str:
-        """Format duration in readable format."""
+        """Format duration as MM:SS."""
         minutes = int(self.duration // 60)
         seconds = int(self.duration % 60)
         return f"{minutes:02d}:{seconds:02d}"
 
     def to_dict(self) -> dict:
-        """Convert to dictionary."""
+        """Serialize segment to dictionary."""
         return {
             "start_time": self.start_time,
             "end_time": self.end_time,
@@ -52,13 +55,13 @@ class VideoSegment:
 
 
 class SegmentProcessor:
-    """Video segment processor."""
+    """Creates video segments based on duration or timestamps."""
 
-    def __init__(self, config):
+    def __init__(self, config: "ProcessingConfig") -> None:
         self.config = config
 
     def create_segments_from_duration(self, video_duration: float, title: str) -> list[VideoSegment]:
-        """Create segments based on video duration."""
+        """Split video into equal-duration segments with overlap."""
         segments = []
         segment_duration_sec = self.config.segment_duration * 60
         overlap_sec = self.config.overlap_duration * 60
@@ -93,7 +96,7 @@ class SegmentProcessor:
         return segments
 
     def create_segments_from_timestamps(self, timestamps: list[tuple], title: str) -> list[VideoSegment]:
-        """Create segments based on timestamps."""
+        """Create segments from explicit timestamp boundaries."""
         segments = []
 
         for i, (start_time, end_time, segment_title) in enumerate(timestamps, 1):
@@ -117,7 +120,7 @@ class SegmentProcessor:
         return segments
 
     def create_single_segment(self, start_time: float, end_time: float, title: str) -> VideoSegment:
-        """Create a single segment."""
+        """Create single segment from start/end times."""
         output_filename = f"{title}.{self.config.output_format}"
         output_path = Path(self.config.output_dir) / output_filename
 

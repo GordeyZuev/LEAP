@@ -1,11 +1,11 @@
 """Common Pydantic schema validators
 
-Содержит только специфичные валидаторы, которые невозможно реализовать через Field constraints.
-Для базовых проверок используйте встроенные возможности Pydantic:
-- Field(min_length=X, max_length=Y) для длины строк
-- Field(gt=0, le=100) для диапазонов чисел
-- Field(pattern=r"regex") для regex валидации формата строки
-- @field_validator с mode="before" для преобразований (strip, lower, etc)
+Contains only specific validators that cannot be implemented through Field constraints.
+For basic checks, use built-in Pydantic capabilities:
+- Field(min_length=X, max_length=Y) for string length
+- Field(gt=0, le=100) for number ranges
+- Field(pattern=r"regex") for regex validation of string format
+- @field_validator with mode="before" for transformations (strip, lower, etc)
 """
 
 import re
@@ -13,59 +13,68 @@ import re
 
 def validate_regex_pattern(v: str | None, field_name: str = "pattern") -> str | None:
     """
-    Валидация regex паттерна.
+    Validation of regex pattern.
 
     Args:
-        v: Regex паттерн для валидации
-        field_name: Название поля (для сообщения об ошибке)
+        v: Regex pattern for validation
+        field_name: Field name (for error message)
 
     Returns:
-        Валидированный паттерн или None
+        Validated pattern or None
 
     Raises:
-        ValueError: Если regex паттерн неверный
+        ValueError: If regex pattern is invalid
     """
     if v is not None:
         try:
             re.compile(v)
         except re.error as e:
-            raise ValueError(f"Неверный regex паттерн '{field_name}': {e}")
+            raise ValueError(f"Invalid regex pattern '{field_name}': {e}")
     return v
 
 
 def validate_regex_patterns(v: list[str] | None, field_name: str = "patterns") -> list[str] | None:
     """
-    Валидация списка regex паттернов.
+    Validation of list of regex patterns.
 
     Args:
-        v: Список regex паттернов
-        field_name: Название поля (для сообщения об ошибке)
+        v: List of regex patterns
+        field_name: Field name (for error message)
 
     Returns:
-        Валидированный список или None
+        Validated list or None
 
     Raises:
-        ValueError: Если хоть один regex паттерн неверный
+        ValueError: If any regex pattern is invalid
     """
     if v is not None:
         for pattern in v:
             try:
                 re.compile(pattern)
             except re.error as e:
-                raise ValueError(f"Неверный regex паттерн в '{field_name}': {e}")
+                raise ValueError(f"Invalid regex pattern in '{field_name}': {e}")
+    return v
+
+
+def strip_and_validate_name(v: str) -> str:
+    """Strip whitespace from name and validate it's not empty."""
+    if isinstance(v, str):
+        v = v.strip()
+        if not v:
+            raise ValueError("Name cannot be empty")
     return v
 
 
 def clean_and_deduplicate_strings(v: list[str] | None) -> list[str] | None:
     """
-    Очистка и дедупликация списка строк.
+    Clean and deduplicate list of strings.
 
-    - Убирает пробелы в начале/конце (strip)
-    - Удаляет пустые строки
-    - Удаляет дубликаты (сохраняя порядок)
-    - Возвращает None если список пуст после очистки
+    - Strips leading/trailing whitespace
+    - Removes empty strings
+    - Removes duplicates (preserving order)
+    - Returns None if list is empty after cleaning
 
-    Пример использования:
+    Usage example:
     ```python
     keywords: list[str] | None = Field(None)
 
@@ -76,21 +85,21 @@ def clean_and_deduplicate_strings(v: list[str] | None) -> list[str] | None:
     ```
 
     Args:
-        v: Список строк
+        v: List of strings
 
     Returns:
-        Очищенный список без дубликатов или None
+        Cleaned list without duplicates or None
     """
     if v is None:
         return None
 
-    # Очистка и фильтрация
+    # Clean and filter
     cleaned = [s.strip() for s in v if isinstance(s, str) and s.strip()]
 
     if not cleaned:
         return None
 
-    # Дедупликация с сохранением порядка
+    # Deduplicate preserving order
     seen = set()
     deduplicated = []
     for item in cleaned:

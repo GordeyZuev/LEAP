@@ -452,8 +452,7 @@ POST /recordings/{id}/config/save-as-template - Create template from config
 GET /recordings?is_mapped=true - Get mapped recordings
 GET /recordings?is_mapped=false - Get unmapped recordings
 GET /recordings?template_id=5 - Get recordings for template
-POST /bulk/process-mapped - Batch process mapped recordings
-POST /bulk/process-unmapped - Batch process unmapped (custom config)
+POST /bulk/run - Batch process recordings with filters (is_mapped, template_id, etc.)
 ```
 
 ---
@@ -482,6 +481,7 @@ POST /api/v1/templates
   },
   "metadata_config": {
     "title_template": "МО | {themes}",
+    "description_template": "{summary}\n\n{topics}",
     "youtube": {
       "playlist_id": "PLxxx",
       "privacy": "unlisted"
@@ -489,7 +489,8 @@ POST /api/v1/templates
   },
   "output_config": {
     "preset_ids": [1],
-    "auto_upload": true
+    "auto_upload": true,
+    "upload_captions": true
   }
 }
 ```
@@ -530,7 +531,7 @@ POST /api/v1/templates {...}
 GET /api/v1/recordings?template_id=NEW_ID
 
 # 4. Batch process them
-POST /api/v1/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {"template_id": NEW_ID}
 }
@@ -630,16 +631,18 @@ GET /templates/{id}/stats
     "title_template": "МО | {themes}",
     "description_template": "Лекция по машинному обучению\n\n{topics}",
     "thumbnail_name": "ml_course.png",  // Common thumbnail for all platforms
-    "tags": ["ML", "AI", "Education"],
     "youtube": {
       "playlist_id": "PLxxx",
-      "privacy": "unlisted",  // Override preset
+      "privacy": "unlisted",
       "thumbnail_name": "youtube_ml.png"  // Platform-specific thumbnail (filename only, optional)
     },
     "vk": {
-      "group_id": -123456,
-      "album_id": 63,
-      "no_comments": false
+      "group_id": 123456,
+      "album_id": "63",
+      "thumbnail_name": "vk_ml.png",
+      "privacy_view": 0,
+      "privacy_comment": 0,
+      "disable_comments": false
       // If vk.thumbnail_name is not set, uses common thumbnail_name
     }
   }

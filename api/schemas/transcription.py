@@ -2,63 +2,54 @@
 
 from pydantic import BaseModel, Field
 
-# ============================================================================
-# Request Models
-# ============================================================================
-
 
 class ExtractTopicsRequest(BaseModel):
-    """Request для извлечения тем."""
+    """Request for extraction of topics."""
 
     model: str = Field(
         default="deepseek",
-        description="Модель для извлечения тем: 'deepseek' или 'fireworks_deepseek'",
+        description="Model for extraction of topics: 'deepseek' or 'fireworks_deepseek'",
     )
     granularity: str = Field(
         default="long",
-        description="Режим извлечения: 'short' (крупные темы) или 'long' (детальные темы)",
+        description="Extraction mode: 'short' (large topics) or 'long' (detailed topics)",
     )
     version_id: str | None = Field(
         default=None,
-        description="ID версии (если не указан, генерируется автоматически)",
+        description="Version ID (if not specified, generated automatically)",
     )
 
 
 class GenerateSubtitlesRequest(BaseModel):
-    """Request для генерации субтитров."""
+    """Request for generation of subtitles."""
 
     formats: list[str] = Field(
         default=["srt", "vtt"],
-        description="Список форматов субтитров: 'srt', 'vtt'",
+        description="List of subtitle formats: 'srt', 'vtt'",
     )
 
 
 class BatchTranscribeRequest(BaseModel):
-    """Request для батчевой транскрибации."""
+    """Request for batch transcription."""
 
-    recording_ids: list[int] = Field(..., description="Список ID записей для транскрибации")
+    recording_ids: list[int] = Field(..., description="List of recording IDs for transcription")
     granularity: str = Field(
         default="long",
-        description="Режим извлечения тем: 'short' или 'long'",
+        description="Extraction mode: 'short' or 'long'",
     )
 
 
-# ============================================================================
-# Response Models
-# ============================================================================
-
-
 class TopicTimestamp(BaseModel):
-    """Топик с временными метками."""
+    """Topic with timestamps."""
 
     topic: str
     start: float
     end: float
-    type: str | None = None  # "pause" для пауз
+    type: str | None = None  # "pause" for pauses
 
 
 class TopicVersion(BaseModel):
-    """Версия извлечения топиков."""
+    """Version of extraction of topics."""
 
     id: str
     model: str
@@ -71,7 +62,7 @@ class TopicVersion(BaseModel):
 
 
 class TranscriptionStats(BaseModel):
-    """Статистика транскрибации."""
+    """Statistics of transcription."""
 
     words_count: int
     segments_count: int
@@ -79,7 +70,7 @@ class TranscriptionStats(BaseModel):
 
 
 class TranscriptionData(BaseModel):
-    """Данные о транскрибации."""
+    """Data about transcription."""
 
     exists: bool
     created_at: str | None = None
@@ -90,7 +81,7 @@ class TranscriptionData(BaseModel):
 
 
 class TopicsData(BaseModel):
-    """Данные о топиках."""
+    """Data about topics."""
 
     exists: bool
     active_version: str | None = None
@@ -98,7 +89,7 @@ class TopicsData(BaseModel):
 
 
 class VideoFileInfo(BaseModel):
-    """Информация о видео файле."""
+    """Information about video file."""
 
     path: str | None = None
     size_mb: float | None = None
@@ -106,7 +97,7 @@ class VideoFileInfo(BaseModel):
 
 
 class AudioFileInfo(BaseModel):
-    """Информация об аудио файле."""
+    """Information about audio file."""
 
     path: str | None = None
     size_mb: float | None = None
@@ -114,23 +105,23 @@ class AudioFileInfo(BaseModel):
 
 
 class SubtitleFileInfo(BaseModel):
-    """Информация о файле субтитров."""
+    """Information about subtitle file."""
 
     path: str | None = None
     exists: bool = False
     size_kb: float | None = None
 
 
-class ThumbnailInfo(BaseModel):
-    """Информация о thumbnail."""
+class ThumbnailInfoExt(BaseModel):
+    """Extended thumbnail information for recording details."""
 
     path: str | None = None
     exists: bool = False
-    type: str | None = None  # "template" или "user"
+    type: str | None = None  # "template" or "user"
 
 
 class RecordingDetailsResponse(BaseModel):
-    """Детальная информация о записи."""
+    """Detailed information about recording."""
 
     id: int
     display_name: str
@@ -138,33 +129,33 @@ class RecordingDetailsResponse(BaseModel):
     start_time: str
     duration: int | None = None
 
-    # Видео файлы
+    # Video files
     videos: dict[str, VideoFileInfo] | None = None
 
-    # Аудио файлы
+    # Audio files
     audio: AudioFileInfo | None = None
 
-    # Транскрибация
+    # Transcription
     transcription: TranscriptionData | None = None
 
-    # Топики (все версии)
+    # Topics (all versions)
     topics: TopicsData | None = None
 
-    # Субтитры
+    # Subtitles
     subtitles: dict[str, SubtitleFileInfo] | None = None
 
     # Thumbnail
-    thumbnail: ThumbnailInfo | None = None
+    thumbnail: ThumbnailInfoExt | None = None
 
-    # Этапы обработки
+    # Processing stages
     processing_stages: list[dict] | None = None
 
-    # Загрузка на платформы
+    # Upload to platforms
     uploads: dict[str, dict] | None = None
 
 
 class ExtractTopicsResponse(BaseModel):
-    """Response для извлечения тем."""
+    """Response for extraction of topics."""
 
     success: bool
     task_id: str
@@ -175,7 +166,7 @@ class ExtractTopicsResponse(BaseModel):
 
 
 class GenerateSubtitlesResponse(BaseModel):
-    """Response для генерации субтитров."""
+    """Response for generation of subtitles."""
 
     success: bool
     task_id: str
@@ -186,7 +177,7 @@ class GenerateSubtitlesResponse(BaseModel):
 
 
 class BatchTranscribeTaskInfo(BaseModel):
-    """Информация о задаче батчевой транскрибации."""
+    """Information about batch transcription task."""
 
     recording_id: int
     status: str
@@ -196,7 +187,7 @@ class BatchTranscribeTaskInfo(BaseModel):
 
 
 class BatchTranscribeResponse(BaseModel):
-    """Response для батчевой транскрибации."""
+    """Response for batch transcription."""
 
     total: int
     queued: int

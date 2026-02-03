@@ -9,6 +9,7 @@ class DryRunResponse(BaseModel):
     dry_run: bool = True
     recording_id: int | None = None
     steps: list[dict] | None = None
+    config_sources: dict | None = None  # Info about where config comes from
 
 
 class RecordingOperationResponse(BaseModel):
@@ -108,3 +109,21 @@ class ResetRecordingResponse(BaseModel):
     status: str | None = None
     preserved: dict | None = None
     task_id: str | None = None
+
+
+class TemplateBindResponse(BaseModel):
+    """Result of template bind operation."""
+
+    success: bool
+    recording_id: int
+    template: dict | None = None  # {"id": int, "name": str}
+    preferences_reset: bool = False
+    message: str
+
+
+class TemplateUnbindResponse(BaseModel):
+    """Result of template unbind operation."""
+
+    success: bool
+    recording_id: int
+    message: str

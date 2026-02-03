@@ -60,7 +60,6 @@ POST /api/v1/recordings/bulk/download
 
 **Параметры:**
 - `force`: Перезаписать уже скачанные (default: false)
-- `allow_skipped`: Разрешить скачивание SKIPPED записей (default: false)
 
 **Пример:**
 ```bash
@@ -116,7 +115,7 @@ POST /api/v1/recordings/bulk/transcribe
 POST /api/v1/recordings/bulk/transcribe
 {
   "filters": {
-    "status": ["PROCESSED", "TRIMMED"],
+    "status": ["DOWNLOADED", "PROCESSED"],
     "is_mapped": true
   },
   "use_batch_api": true,
@@ -143,7 +142,7 @@ POST /api/v1/recordings/bulk/topics
 POST /api/v1/recordings/bulk/topics
 {
   "filters": {
-    "status": ["TRANSCRIBED"]
+    "status": ["PROCESSED"]
   },
   "granularity": "long",
   "limit": 50
@@ -187,7 +186,7 @@ POST /api/v1/recordings/bulk/upload
 POST /api/v1/recordings/bulk/upload
 {
   "filters": {
-    "status": ["TOPICS_EXTRACTED"],
+    "status": ["PROCESSED"],
     "is_mapped": true
   },
   "platforms": ["youtube", "vk"],
@@ -197,40 +196,46 @@ POST /api/v1/recordings/bulk/upload
 
 ---
 
-### 7. Process - Полный пайплайн
+### 7. Run - Полный пайплайн
 
 ```
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 ```
 
 **Все этапы:** download → trim → transcribe → topics → upload
 
 **Параметры:**
-- `config_override`: Override конфигурации поверх template config
-  - `processing_config`: Override обработки (transcription, silence detection)
-  - `metadata_config`: Override метаданных (title, description, playlists)
-  - `output_config`: Override выгрузки (preset_ids, auto_upload, platforms)
+- `template_id`: Runtime template для всех записей (опционально)
+- `bind_template`: Привязать template ко всем записям (default: false)
+- `processing_config`: Override обработки (transcription, silence detection)
+- `metadata_config`: Override метаданных (title, description, playlists)
+- `output_config`: Override выгрузки (preset_ids, auto_upload, upload_captions)
 
 **Пример:**
 ```bash
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "template_id": 5,
-    "status": ["INITIALIZED", "FAILED"],
-    "is_mapped": true
+    "status": ["INITIALIZED"],
+    "is_mapped": true,
+    "failed": false
   },
-  "config_override": {
-    "processing_config": {
-      "transcription": {
-        "granularity": "short",
-        "use_batch_api": true
-      }
-    },
-    "output_config": {
-      "auto_upload": true,
-      "platforms": ["youtube"]
+  "template_id": 5,
+  "bind_template": false,
+  "processing_config": {
+    "transcription": {
+      "enable_transcription": true,
+      "language": "ru",
+      "enable_topics": true,
+      "granularity": "short",
+      "use_batch_api": true
     }
+  },
+  "output_config": {
+    "preset_ids": [10],
+    "auto_upload": true,
+    "upload_captions": true
   },
   "limit": 50
 }
@@ -268,7 +273,7 @@ Bulk операции поддерживают **два режима выбор�
   "filters": {
     "template_id": 5,
     "source_id": 10,
-    "status": ["INITIALIZED", "FAILED"],
+    "status": ["INITIALIZED", "DOWNLOADED"],
     "is_mapped": true,
     "exclude_blank": true,
     "order_by": "created_at",
@@ -284,10 +289,11 @@ Bulk операции поддерживают **два режима выбор�
 |--------|-----|----------|
 | `template_id` | int | Фильтр по ID шаблона |
 | `source_id` | int | Фильтр по ID источника |
-| `status` | list[str] | Список статусов (INITIALIZED, DOWNLOADED, PROCESSED, TRANSCRIBED, READY, etc.) |
+| `status` | list[str] | Список статусов (PENDING_SOURCE, INITIALIZED, DOWNLOADED, PROCESSED, UPLOADED, READY, etc.) |
 | `is_mapped` | bool | Только записи с mapping к template |
 | `failed` | bool | Только failed записи |
 | `exclude_blank` | bool | Исключить blank records (default: true) |
+| `include_deleted` | bool | Включить удаленные записи (default: false) |
 | `search` | str | Поиск по display_name (case-insensitive) |
 | `from_date` | str | Дата начала (>=). Поддерживаемые форматы: `YYYY-MM-DD`, `DD-MM-YYYY`, `DD/MM/YYYY`, `DD-MM-YY`, `DD/MM/YY` |
 | `to_date` | str | Дата окончания (<=). Поддерживаемые форматы: `YYYY-MM-DD`, `DD-MM-YYYY`, `DD/MM/YYYY`, `DD-MM-YY`, `DD/MM/YY` |
@@ -300,14 +306,14 @@ Bulk операции поддерживают **два режима выбор�
 
 ```json
 {
-  "status": ["FAILED"]  // Фильтрует по recording.failed = true
+  "failed": true  // Фильтрует по recording.failed = true
 }
 ```
 
 Можно комбинировать с обычными статусами:
 ```json
 {
-  "status": ["INITIALIZED", "FAILED"]  // INITIALIZED ИЛИ failed=true
+  "status": ["INITIALIZED"]  // Только INITIALIZED
 }
 ```
 
@@ -333,13 +339,13 @@ POST /api/v1/recordings/bulk/download
 {
   "filters": {
     "source_id": 10,
-    "status": ["PENDING"]
+    "status": ["INITIALIZED", "PENDING_SOURCE"]
   },
   "limit": 50
 }
 
 # 2. Обработать скачанные (trim + transcribe + topics + upload)
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "source_id": 10,
@@ -355,18 +361,8 @@ POST /api/v1/recordings/bulk/process
 ### Сценарий 2: Retry failed recordings
 
 ```bash
-# Используйте "FAILED" как псевдо-статус для фильтрации failed записей
-POST /api/v1/recordings/bulk/process
-{
-  "filters": {
-    "status": ["FAILED"],  # Фильтрует по recording.failed = true
-    "template_id": 5
-  },
-  "limit": 30
-}
-
-# Альтернатива: явное использование failed фильтра
-POST /api/v1/recordings/bulk/process
+# Retry всех failed записей из template
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "failed": true,
@@ -381,13 +377,14 @@ POST /api/v1/recordings/bulk/process
 ### Сценарий 3: Массовая транскрибация с экономией
 
 ```bash
+# use_batch_api: true - Экономия ~50%
 POST /api/v1/recordings/bulk/transcribe
 {
   "filters": {
     "status": ["PROCESSED"],
     "template_id": 5
   },
-  "use_batch_api": true,  # Экономия ~50%
+  "use_batch_api": true,
   "limit": 100
 }
 ```
@@ -397,13 +394,13 @@ POST /api/v1/recordings/bulk/transcribe
 ### Сценарий 4: Выборочная обработка конкретных записей
 
 ```bash
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "recording_ids": [15, 16, 17, 18],
-  "config_override": {
-    "output_config": {
-      "auto_upload": false  # Не загружать автоматически
-    }
+  "output_config": {
+    "preset_ids": [10],
+    "auto_upload": false,
+    "upload_captions": true
   }
 }
 ```
@@ -416,7 +413,7 @@ POST /api/v1/recordings/bulk/process
 POST /api/v1/recordings/bulk/upload
 {
   "filters": {
-    "status": ["TOPICS_EXTRACTED"],
+    "status": ["PROCESSED"],
     "is_mapped": true,
     "template_id": 5
   },
@@ -430,37 +427,37 @@ POST /api/v1/recordings/bulk/upload
 ### Сценарий 6: Обработка записей за период (фильтр по датам)
 
 ```bash
-# Обработать все записи за декабрь 2024 (формат YYYY-MM-DD)
-POST /api/v1/recordings/bulk/process
+# Обработать все записи за декабрь 2025 (формат YYYY-MM-DD)
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "is_mapped": true,
     "status": ["INITIALIZED"],
-    "from_date": "2024-12-01",
-    "to_date": "2024-12-31"
+    "from_date": "2025-12-01",
+    "to_date": "2025-12-31"
   },
   "limit": 100
 }
 
 # Альтернативные форматы дат (DD-MM-YYYY, DD/MM/YYYY)
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "is_mapped": true,
-    "from_date": "01-12-2024",  # DD-MM-YYYY
-    "to_date": "31/12/2024"     # DD/MM/YYYY
+    "from_date": "01-12-2025",
+    "to_date": "31/12/2025"
   },
   "limit": 100
 }
 
 # Комбинация фильтров: конкретный шаблон + поиск + период
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "template_id": 13,
     "search": "Python",
-    "from_date": "2024-01-01",
-    "to_date": "2024-12-31",
+    "from_date": "2025-01-01",
+    "to_date": "2025-12-31",
     "exclude_blank": true
   },
   "limit": 100
@@ -471,16 +468,16 @@ POST /api/v1/recordings/bulk/process
 
 ## Dry-run режим
 
-Для `/process` и `/bulk/process` доступен dry-run режим - проверка перед выполнением.
+Для `/run` и `/bulk/run` доступен dry-run режим - проверка перед выполнением.
 
 ### Single Recording Dry-run
 
 ```bash
-POST /api/v1/recordings/123/process?dry_run=true
+POST /api/v1/recordings/123/run?dry_run=true
 {
-  "config_override": {
-    "processing_config": {
-      "transcription": {"granularity": "short"}
+  "processing_config": {
+    "transcription": {
+      "granularity": "short"
     }
   }
 }
@@ -508,7 +505,7 @@ POST /api/v1/recordings/123/process?dry_run=true
 ### Bulk Dry-run
 
 ```bash
-POST /api/v1/recordings/bulk/process?dry_run=true
+POST /api/v1/recordings/bulk/run?dry_run=true
 {
   "filters": {
     "template_id": 5,
@@ -569,7 +566,7 @@ POST /api/v1/recordings/bulk/process?dry_run=true
 {
   "queued_count": 45,
   "skipped_count": 3,
-  "error_count": 2,
+  "total": 50,
   "tasks": [
     {
       "recording_id": 1,
@@ -581,7 +578,7 @@ POST /api/v1/recordings/bulk/process?dry_run=true
       "recording_id": 2,
       "task_id": null,
       "status": "skipped",
-      "reason": "Already processed"
+      "error": "Already processed"
     },
     {
       "recording_id": 3,
@@ -606,7 +603,7 @@ GET /api/v1/tasks/{task_id}
 
 ```bash
 # ✅ Хорошо: автоматическая обработка новых
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "status": ["INITIALIZED"],
@@ -615,9 +612,9 @@ POST /api/v1/recordings/bulk/process
 }
 
 # ❌ Плохо: ручной поиск ID каждый раз
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
-  "recording_ids": [1, 2, 3, ...]  # Нужно каждый раз обновлять
+  "recording_ids": [1, 2, 3, ...]
 }
 ```
 
@@ -660,25 +657,25 @@ POST /api/v1/recordings/bulk/transcribe
 
 ```bash
 # 1. Сначала dry-run
-POST /api/v1/recordings/bulk/process?dry_run=true
+POST /api/v1/recordings/bulk/run?dry_run=true
 {
   "filters": {"status": ["INITIALIZED"]}
 }
 # → Вернет: matched_count: 150
 
 # 2. Если слишком много - уточните фильтры
-POST /api/v1/recordings/bulk/process?dry_run=true
+POST /api/v1/recordings/bulk/run?dry_run=true
 {
   "filters": {
     "status": ["INITIALIZED"],
-    "template_id": 5  # Уточнили
+    "template_id": 5
   },
   "limit": 50
 }
 # → Вернет: matched_count: 42
 
 # 3. Теперь запускаем реально
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "status": ["INITIALIZED"],
@@ -709,17 +706,7 @@ for task_id in tasks:
 
 ```bash
 # Автоматически retry все failed из template
-# "FAILED" - это псевдо-статус, фильтрует по recording.failed = true
-POST /api/v1/recordings/bulk/process
-{
-  "filters": {
-    "status": ["FAILED"],
-    "template_id": 5
-  }
-}
-
-# Или явно через failed фильтр
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "failed": true,
@@ -730,23 +717,20 @@ POST /api/v1/recordings/bulk/process
 
 ---
 
-### 7. Комбинируйте config_override для гибкости
+### 7. Комбинируйте override конфигурации для гибкости
 
 ```bash
 # Все recordings template #5, но с другим preset
-POST /api/v1/recordings/bulk/process
+POST /api/v1/recordings/bulk/run
 {
   "filters": {
     "template_id": 5,
     "status": ["INITIALIZED"]
   },
-  "config_override": {
-    "output_config": {
-      "preset_ids": {
-        "youtube": 10,  # Другой preset
-        "vk": 15
-      }
-    }
+  "output_config": {
+    "preset_ids": [10, 15],
+    "auto_upload": true,
+    "upload_captions": true
   }
 }
 ```
@@ -783,7 +767,7 @@ POST /api/v1/recordings/bulk/process
 **Решение:**
 1. Проверьте статус каждой задачи: `GET /api/v1/tasks/{task_id}`
 2. Исправьте проблемы
-3. Retry failed: `POST /bulk/process {"filters": {"status": ["FAILED"]}}`
+3. Retry failed: `POST /bulk/run {"filters": {"failed": true}}`
 
 ---
 
@@ -815,4 +799,4 @@ Authorization: Bearer <your_jwt_token>
 
 ---
 
-**Последнее обновление:** 2026-01-13
+**Последнее обновление:** 2026-02-03

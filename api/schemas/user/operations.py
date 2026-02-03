@@ -4,14 +4,14 @@ from pydantic import BaseModel
 
 
 class PasswordChangeResponse(BaseModel):
-    """Результат смены пароля."""
+    """Result of change of password."""
 
     message: str
     detail: str
 
 
 class AccountDeleteResponse(BaseModel):
-    """Результат удаления аккаунта."""
+    """Result of deletion of account."""
 
     message: str
     detail: str

@@ -1,9 +1,9 @@
-"""Pydantic схемы для подписок и тарифных планов."""
+"""Pydantic schemas for subscriptions and subscription plans."""
 
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ========================================
 # SUBSCRIPTION PLANS
@@ -11,37 +11,37 @@ from pydantic import BaseModel, Field
 
 
 class SubscriptionPlanBase(BaseModel):
-    """Базовая схема тарифного плана."""
+    """Base schema for subscription plan."""
 
-    name: str = Field(..., max_length=50, description="Уникальное имя плана")
-    display_name: str = Field(..., max_length=100, description="Отображаемое имя")
-    description: str | None = Field(None, description="Описание плана")
+    name: str = Field(..., max_length=50, description="Unique name of plan")
+    display_name: str = Field(..., max_length=100, description="Display name of plan")
+    description: str | None = Field(None, description="Description of plan")
 
     # Included quotas (None = unlimited)
-    included_recordings_per_month: int | None = Field(None, ge=0, description="Записей в месяц")
-    included_storage_gb: int | None = Field(None, ge=0, description="Хранилище (GB)")
-    max_concurrent_tasks: int | None = Field(None, ge=1, description="Одновременных задач")
+    included_recordings_per_month: int | None = Field(None, ge=0, description="Recordings per month")
+    included_storage_gb: int | None = Field(None, ge=0, description="Storage (GB)")
+    max_concurrent_tasks: int | None = Field(None, ge=1, description="Concurrent tasks")
     max_automation_jobs: int | None = Field(None, ge=0, description="Automation jobs")
-    min_automation_interval_hours: int | None = Field(None, ge=1, description="Мин. интервал (часы)")
+    min_automation_interval_hours: int | None = Field(None, ge=1, description="Min interval (hours)")
 
     # Pricing
-    price_monthly: Decimal = Field(Decimal("0.00"), ge=0, description="Цена в месяц")
-    price_yearly: Decimal = Field(Decimal("0.00"), ge=0, description="Цена в год")
+    price_monthly: Decimal = Field(Decimal("0.00"), ge=0, description="Price per month")
+    price_yearly: Decimal = Field(Decimal("0.00"), ge=0, description="Price per year")
 
     # Pay-as-you-go (for future)
-    overage_price_per_unit: Decimal | None = Field(None, ge=0, description="Цена за единицу overage")
-    overage_unit_type: str | None = Field(None, max_length=50, description="Тип единицы")
+    overage_price_per_unit: Decimal | None = Field(None, ge=0, description="Price per unit overage")
+    overage_unit_type: str | None = Field(None, max_length=50, description="Unit type")
 
 
 class SubscriptionPlanCreate(SubscriptionPlanBase):
-    """Схема для создания тарифного плана."""
+    """Schema for creating subscription plan."""
 
-    is_active: bool = Field(True, description="Активен ли план")
-    sort_order: int = Field(0, description="Порядок сортировки")
+    is_active: bool = Field(True, description="Is plan active")
+    sort_order: int = Field(0, description="Sort order")
 
 
 class SubscriptionPlanUpdate(BaseModel):
-    """Схема для обновления тарифного плана."""
+    """Schema for updating subscription plan."""
 
     display_name: str | None = Field(None, max_length=100)
     description: str | None = None
@@ -63,7 +63,7 @@ class SubscriptionPlanUpdate(BaseModel):
 
 
 class SubscriptionPlanInDB(SubscriptionPlanBase):
-    """Схема тарифного плана в БД."""
+    """Schema of subscription plan in DB."""
 
     id: int
     is_active: bool
@@ -71,12 +71,11 @@ class SubscriptionPlanInDB(SubscriptionPlanBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class SubscriptionPlanResponse(BaseModel):
-    """Схема ответа с тарифным планом."""
+    """Schema of response with subscription plan."""
 
     id: int
     name: str
@@ -95,8 +94,7 @@ class SubscriptionPlanResponse(BaseModel):
     is_active: bool
     sort_order: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========================================
@@ -105,15 +103,15 @@ class SubscriptionPlanResponse(BaseModel):
 
 
 class UserSubscriptionBase(BaseModel):
-    """Базовая схема подписки пользователя."""
+    """Base schema for user subscription."""
 
-    plan_id: int = Field(..., description="ID тарифного плана")
+    plan_id: int = Field(..., description="ID of subscription plan")
 
 
 class UserSubscriptionCreate(UserSubscriptionBase):
-    """Схема для создания подписки."""
+    """Schema for creating subscription."""
 
-    user_id: str = Field(..., description="ID пользователя")
+    user_id: str = Field(..., description="User ID")
 
     # Custom quotas (optional overrides)
     custom_max_recordings_per_month: int | None = Field(None, ge=0)
@@ -123,8 +121,8 @@ class UserSubscriptionCreate(UserSubscriptionBase):
     custom_min_automation_interval_hours: int | None = Field(None, ge=1)
 
     # Pay-as-you-go
-    pay_as_you_go_enabled: bool = Field(False, description="Включен ли Pay-as-you-go")
-    pay_as_you_go_monthly_limit: Decimal | None = Field(None, ge=0, description="Лимит overage в месяц")
+    pay_as_you_go_enabled: bool = Field(False, description="Is Pay-as-you-go enabled")
+    pay_as_you_go_monthly_limit: Decimal | None = Field(None, ge=0, description="Monthly limit of overage")
 
     # Period
     starts_at: datetime | None = None
@@ -136,7 +134,7 @@ class UserSubscriptionCreate(UserSubscriptionBase):
 
 
 class UserSubscriptionUpdate(BaseModel):
-    """Схема для обновления подписки."""
+    """Schema for updating subscription."""
 
     plan_id: int | None = None
 
@@ -160,7 +158,7 @@ class UserSubscriptionUpdate(BaseModel):
 
 
 class UserSubscriptionInDB(UserSubscriptionBase):
-    """Схема подписки в БД."""
+    """Schema of subscription in DB."""
 
     id: int
     user_id: str
@@ -184,12 +182,11 @@ class UserSubscriptionInDB(UserSubscriptionBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserSubscriptionResponse(BaseModel):
-    """Схема ответа с подпиской пользователя."""
+    """Schema of response with user subscription."""
 
     id: int
     user_id: str
@@ -215,8 +212,7 @@ class UserSubscriptionResponse(BaseModel):
     starts_at: datetime
     expires_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========================================
@@ -225,14 +221,14 @@ class UserSubscriptionResponse(BaseModel):
 
 
 class QuotaUsageBase(BaseModel):
-    """Базовая схема использования квот."""
+    """Base schema for quota usage."""
 
     user_id: str
     period: int  # YYYYMM
 
 
 class QuotaUsageCreate(QuotaUsageBase):
-    """Схема для создания записи использования."""
+    """Schema for creating quota usage."""
 
     recordings_count: int = 0
     storage_bytes: int = 0
@@ -240,7 +236,7 @@ class QuotaUsageCreate(QuotaUsageBase):
 
 
 class QuotaUsageUpdate(BaseModel):
-    """Схема для обновления использования."""
+    """Schema for updating quota usage."""
 
     recordings_count: int | None = Field(None, ge=0)
     storage_bytes: int | None = Field(None, ge=0)
@@ -250,7 +246,7 @@ class QuotaUsageUpdate(BaseModel):
 
 
 class QuotaUsageInDB(QuotaUsageBase):
-    """Схема использования в БД."""
+    """Schema of quota usage in DB."""
 
     id: int
     recordings_count: int
@@ -261,12 +257,11 @@ class QuotaUsageInDB(QuotaUsageBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class QuotaUsageResponse(BaseModel):
-    """Схема ответа с использованием квот."""
+    """Schema of response with quota usage."""
 
     period: int
     recordings_count: int
@@ -275,12 +270,11 @@ class QuotaUsageResponse(BaseModel):
     overage_recordings_count: int
     overage_cost: Decimal
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class QuotaStatusResponse(BaseModel):
-    """Схема ответа со статусом квот пользователя."""
+    """Schema of response with quota status of user."""
 
     # Current subscription
     subscription: UserSubscriptionResponse
@@ -299,5 +293,4 @@ class QuotaStatusResponse(BaseModel):
     overage_cost_this_month: Decimal
     overage_limit: Decimal | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -23,7 +23,7 @@ def sync_single_source_task(
     self,
     source_id: int,
     user_id: str,
-    from_date: str = "2024-01-01",
+    from_date: str = "2025-01-01",
     to_date: str | None = None,
 ) -> dict:
     """
@@ -64,7 +64,7 @@ def bulk_sync_sources_task(
     self,
     source_ids: list[int],
     user_id: str,
-    from_date: str = "2024-01-01",
+    from_date: str = "2025-01-01",
     to_date: str | None = None,
 ) -> dict:
     """

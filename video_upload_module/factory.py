@@ -1,4 +1,4 @@
-"""Uploader factory with user-specific credentials from DB."""
+"""Factory for creating platform uploaders with user credentials."""
 
 import json
 import tempfile
@@ -18,26 +18,13 @@ logger = get_logger()
 
 
 class UploaderFactory:
-    """Create uploaders with user credentials from DB."""
+    """Factory for creating platform uploaders."""
 
     @staticmethod
     async def create_youtube_uploader(
         session: AsyncSession, user_id: int, credential_id: int | None = None
     ) -> YouTubeUploader:
-        """
-        Create YouTubeUploader for user.
-
-        Args:
-            session: Database session
-            user_id: User ID
-            credential_id: Specific credential ID (optional)
-
-        Returns:
-            Configured YouTubeUploader
-
-        Raises:
-            ValueError: If credentials not found
-        """
+        """Create YouTubeUploader for user."""
         config_helper = ConfigService(session, user_id)
 
         if credential_id:
@@ -73,20 +60,7 @@ class UploaderFactory:
 
     @staticmethod
     async def create_vk_uploader(session: AsyncSession, user_id: int, credential_id: int | None = None) -> VKUploader:
-        """
-        Create VKUploader for user.
-
-        Args:
-            session: Database session
-            user_id: User ID
-            credential_id: Specific credential ID (optional)
-
-        Returns:
-            Configured VKUploader
-
-        Raises:
-            ValueError: If credentials not found
-        """
+        """Create VKUploader for user."""
         config_helper = ConfigService(session, user_id)
 
         if credential_id:
@@ -109,21 +83,7 @@ class UploaderFactory:
     async def create_uploader(
         session: AsyncSession, user_id: int, platform: Literal["youtube", "vk"], credential_id: int | None = None
     ) -> YouTubeUploader | VKUploader:
-        """
-        Universal method for creating uploader for any platform.
-
-        Args:
-            session: Database session
-            user_id: User ID
-            platform: Platform (youtube, vk)
-            credential_id: Specific credential ID (optional)
-
-        Returns:
-            Configured uploader
-
-        Raises:
-            ValueError: If platform not supported or credentials not found
-        """
+        """Create uploader for any platform."""
         if platform == "youtube":
             return await UploaderFactory.create_youtube_uploader(session, user_id, credential_id)
         if platform == "vk":
@@ -134,20 +94,7 @@ class UploaderFactory:
     async def create_uploader_by_preset_id(
         session: AsyncSession, user_id: int, preset_id: int
     ) -> YouTubeUploader | VKUploader:
-        """
-        Create uploader from output preset.
-
-        Args:
-            session: Database session
-            user_id: User ID
-            preset_id: Output preset ID
-
-        Returns:
-            Configured uploader
-
-        Raises:
-            ValueError: If preset not found or credentials unavailable
-        """
+        """Create uploader from output preset."""
         from api.repositories.template_repos import OutputPresetRepository
 
         preset_repo = OutputPresetRepository(session)

@@ -711,9 +711,9 @@ CREATE INDEX idx_output_presets_platform ON output_presets(platform, is_active);
     "tags": ["lecture", "ML"]
   },
   "vk": {
-    "album_id": 63,
+    "album_id": "63",
     "privacy_view": 0,
-    "no_comments": false
+    "disable_comments": false
   }
 }
 ```
@@ -723,7 +723,8 @@ CREATE INDEX idx_output_presets_platform ON output_presets(platform, is_active);
 ```json
 {
   "preset_ids": [1, 2],  // YouTube, VK presets
-  "auto_upload": true
+  "auto_upload": true,
+  "upload_captions": true
 }
 ```
 
@@ -744,11 +745,13 @@ CREATE INDEX idx_output_presets_platform ON output_presets(platform, is_active);
 
 ```json
 {
-  "group_id": -227011779,
-  "album_id": 63,
+  "group_id": 227011779,
+  "album_id": "63",
+  "group_id": 123456,
+  "album_id": "63",
   "privacy_view": 0,
   "privacy_comment": 0,
-  "no_comments": false,
+  "disable_comments": false,
   "repeat": false,
   "wallpost": false
 }

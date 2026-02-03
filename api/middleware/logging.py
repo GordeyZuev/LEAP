@@ -11,22 +11,22 @@ logger = get_logger()
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware для логирования HTTP запросов."""
+    """Middleware for logging HTTP requests."""
 
     async def dispatch(self, request: Request, call_next):
-        """Обработка запроса с логированием."""
+        """Processing of request with logging."""
         start_time = time.time()
 
-        # Логируем запрос
+        # Log request
         logger.debug(
             f"Request: {request.method} {request.url.path} | "
             f"client={request.client.host if request.client else 'unknown'}"
         )
 
-        # Выполняем запрос
+        # Execute request
         response = await call_next(request)
 
-        # Логируем ответ
+        # Log response
         process_time = time.time() - start_time
         logger.debug(
             f"Response: {request.method} {request.url.path} | status={response.status_code} | time={process_time:.3f}s"

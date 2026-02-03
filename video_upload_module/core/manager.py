@@ -15,7 +15,7 @@ logger = get_logger()
 
 
 class UploadManager:
-    """Universal video upload manager for multiple platforms."""
+    """Multi-platform video upload manager."""
 
     def __init__(self, config: UploadConfig):
         self.config = config
@@ -23,7 +23,7 @@ class UploadManager:
         self._initialize_uploaders()
 
     def _initialize_uploaders(self):
-        """Initialize platform uploaders."""
+        """Initialize uploaders for configured platforms."""
         if self.config.youtube:
             self.uploaders["youtube"] = YouTubeUploader(self.config.youtube)
         if self.config.vk:
@@ -123,7 +123,7 @@ class UploadManager:
     async def upload_to_all_platforms(
         self, video_path: str, title: str, description: str = "", **kwargs
     ) -> dict[str, UploadResult | None]:
-        """Upload video to all configured platforms (in parallel)."""
+        """Upload video to all configured platforms in parallel."""
 
         platforms = self.get_available_platforms()
         if not platforms:

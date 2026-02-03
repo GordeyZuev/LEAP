@@ -30,24 +30,16 @@
       "language": "ru",
       "prompt": "Техническая лекция по машинному обучению и глубоким нейронным сетям. Содержит математические формулы, уравнения, греческие буквы (alpha, beta, gamma, theta, lambda, epsilon). Python код с использованием библиотек: numpy, pandas, sklearn, tensorflow, pytorch, keras. Алгоритмы: gradient descent, stochastic gradient descent (SGD), Adam, RMSprop, backpropagation, forward propagation. Термины: loss function, cost function, activation function (ReLU, sigmoid, tanh, softmax), overfitting, underfitting, regularization (L1, L2, dropout), batch normalization, learning rate, epoch, batch size, optimizer, accuracy, precision, recall, F1 score, confusion matrix, cross-validation, train-test split. Архитектуры: CNN (convolutional neural network), RNN (recurrent neural network), LSTM, GRU, transformer, attention mechanism. Спикер часто использует английские термины.",
       "enable_topics": true,
-      "topic_mode": "detailed",
-      "enable_subtitles": true
-    },
-    "video_processing": {
-      "enable_processing": true,
-      "resolution": "1080p",
-      "bitrate": "5000k",
-      "add_intro": false,
-      "add_outro": false,
-      "normalize_audio": true,
-      "remove_silence": false
+      "granularity": "long",
+      "enable_subtitles": true,
+      "allow_errors": false
     }
   },
   
   "output_config": {
     "preset_ids": [1, 2, 3],
     "auto_upload": false,
-    "require_approval": true
+    "upload_captions": true
   },
   
   "is_draft": false,
@@ -66,24 +58,16 @@
         "enable_transcription": "Включить транскрипцию аудио в текст. Default: true",
         "language": "Язык аудио для транскрипции. Поддерживаются: ru, en, es, de, fr, it, pt, ja, ko, zh и другие.",
         "prompt": "Контекст для улучшения качества транскрипции. Укажите тематику, технические термины, имена, аббревиатуры. Чем подробнее - тем лучше результат. Максимум 500 символов.",
-        "enable_topics": "Извлекать основные топики из транскрипции с помощью LLM. Default: false",
-        "topic_mode": "Режим извлечения топиков: 'short' (3-5 топиков), 'long' (5-10 топиков), 'detailed' (10-15 топиков с подробностями). Default: 'long'",
-        "enable_subtitles": "Генерировать субтитры в формате SRT/VTT для видео. Default: false"
-      },
-      "video_processing": {
-        "enable_processing": "Включить постобработку видео. Default: true",
-        "resolution": "Целевое разрешение: '720p', '1080p', '1440p', '4k'. Default: '1080p'",
-        "bitrate": "Битрейт видео в формате '2000k', '5000k' и т.д. Default: '5000k'",
-        "add_intro": "Добавить интро-заставку из preset. Default: false",
-        "add_outro": "Добавить outro-заставку из preset. Default: false",
-        "normalize_audio": "Нормализация громкости аудио. Default: true",
-        "remove_silence": "Удалить длинные паузы (>3 сек). Default: false"
+        "enable_topics": "Извлекать основные топики из транскрипции с помощью LLM. Default: true",
+        "granularity": "Режим извлечения топиков: 'short' (крупные темы) или 'long' (детальные темы). Default: 'long'",
+        "enable_subtitles": "Генерировать субтитры в формате SRT/VTT для видео. Default: true",
+        "allow_errors": "Позволить продолжить обработку при ошибке транскрибации. Default: false"
       }
     },
     "output_config": {
       "preset_ids": "Список ID presets для загрузки [1, 2, 3]. Платформа берется из preset.platform (single source of truth). Preset содержит credentials и metadata (title, description, tags).",
       "auto_upload": "Автоматически загружать после обработки. Default: false (требует ручного запуска)",
-      "require_approval": "Требовать подтверждения перед загрузкой. Default: true"
+      "upload_captions": "Загружать субтитры вместе с видео. Default: true"
     },
     "is_draft": "Если true, template не активен и не используется для matching. Используется для тестирования и настройки.",
     "provider": "УДАЛЕНО. Provider транскрипции всегда 'fireworks' на бэкенде.",

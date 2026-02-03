@@ -5,10 +5,6 @@ from pydantic import BaseModel, Field, field_validator
 from api.schemas.common import BASE_MODEL_CONFIG
 from api.schemas.common.validators import clean_and_deduplicate_strings, validate_regex_patterns
 
-# ============================================================================
-# Matching Rules
-# ============================================================================
-
 
 class MatchingRules(BaseModel):
     """

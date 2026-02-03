@@ -1,6 +1,7 @@
 """Audio compression and processing"""
 
 import asyncio
+import json
 from pathlib import Path
 
 from logger import get_logger
@@ -22,66 +23,49 @@ class AudioCompressor:
         self.max_file_size_mb = max_file_size_mb
         self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
 
-    async def compress_audio(self, input_path: str, output_path: str | None = None) -> str:
+    async def compress_audio(self, input_path: str | Path, output_path: str | Path | None = None) -> str:
         """
-        Compress audio file.
+        Compress audio to optimal parameters for speech recognition.
 
         Args:
             input_path: Path to original audio file
-            output_path: Path to save compressed file (if None, it is created automatically)
+            output_path: Path to save compressed file (auto-generated if None)
 
         Returns:
             Path to compressed file
         """
-        if not Path(input_path).exists():
+        input_path = Path(input_path)
+        if not input_path.exists():
             raise FileNotFoundError(f"Audio file not found: {input_path}")
 
-        # Check size of original file
-        file_size = Path(input_path).stat().st_size
-        file_size_mb = file_size / (1024 * 1024)
+        file_size_mb = input_path.stat().st_size / (1024 * 1024)
+        logger.info(f"Compressing audio: size={file_size_mb:.2f}MB", size_mb=file_size_mb)
 
-        logger.info(f"Original file: size={file_size_mb:.2f}MB", size_mb=file_size_mb)
-
-        # If file is already smaller than limit, we can return original path
-        # But it is better to compress to optimal parameters anyway
-        if file_size <= self.max_file_size_bytes and file_size_mb < 10:
-            logger.info("File is already small, but we compress it for optimization")
-
-        # Define path for output file
         if output_path is None:
-            input_path_obj = Path(input_path)
-            output_path = str(input_path_obj.parent / f"{input_path_obj.stem}_compressed.mp3")
+            output_path = input_path.parent / f"{input_path.stem}_compressed.mp3"
+        else:
+            output_path = Path(output_path)
 
-        # Create directory if needed
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # FFmpeg command for compression
         cmd = [
             "ffmpeg",
             "-i",
-            input_path,
-            "-vn",  # Without video
+            str(input_path),
+            "-vn",
             "-acodec",
-            "libmp3lame",  # MP3 codec
+            "libmp3lame",
             "-ab",
-            self.target_bitrate,  # Bitrate
+            self.target_bitrate,
             "-ar",
-            str(self.target_sample_rate),  # Sample rate
+            str(self.target_sample_rate),
             "-ac",
-            "1",  # Mono (enough for speech)
-            "-y",  # Overwrite file if it exists
-            output_path,
+            "1",
+            "-y",
+            str(output_path),
         ]
 
         try:
-            logger.info(f"Compressing audio: path={input_path}", path=input_path)
-            logger.info(
-                f"Parameters: bitrate={self.target_bitrate} | freq={self.target_sample_rate}Hz | channels=mono",
-                bitrate=self.target_bitrate,
-                sample_rate=self.target_sample_rate,
-                channels=1
-            )
-
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
@@ -90,35 +74,29 @@ class AudioCompressor:
 
             if process.returncode != 0:
                 error_msg = stderr.decode() if stderr else "Unknown error"
-                raise RuntimeError(f"Error compressing audio: {error_msg}")
+                raise RuntimeError(f"FFmpeg compression failed: {error_msg}")
 
-            if not Path(output_path).exists():
-                raise RuntimeError(f"Compressed file was not created: {output_path}")
+            if not output_path.exists():
+                raise RuntimeError(f"Compressed file not created: {output_path}")
 
-            # Check size of compressed file
-            compressed_size = Path(output_path).stat().st_size
-            compressed_size_mb = compressed_size / (1024 * 1024)
+            compressed_size_mb = output_path.stat().st_size / (1024 * 1024)
+            logger.info(f"Compressed: {file_size_mb:.2f}MB -> {compressed_size_mb:.2f}MB")
 
-            logger.info(f"Audio compressed: size={compressed_size_mb:.2f}MB", size_mb=compressed_size_mb)
-
-            if compressed_size > self.max_file_size_bytes:
+            if compressed_size_mb > self.max_file_size_mb:
                 logger.warning(
-                    f"Compressed file exceeds limit: size={compressed_size_mb:.2f}MB | limit={self.max_file_size_mb}MB",
+                    f"Exceeds limit: size={compressed_size_mb:.2f}MB | limit={self.max_file_size_mb}MB",
                     size_mb=compressed_size_mb,
                     limit_mb=self.max_file_size_mb
                 )
-                # We can try to compress more, but for now let's leave it as is
 
-            return output_path
+            return str(output_path)
 
         except Exception as e:
-            logger.error(f"Error compressing audio: error={e}", error=str(e))
+            logger.error(f"Compression failed: {e}")
             raise
 
-    async def get_audio_info(self, audio_path: str) -> dict:
-        """Get audio file information"""
-        import json
-
+    async def get_audio_info(self, audio_path: str | Path) -> dict:
+        """Get audio file metadata using ffprobe"""
         cmd = [
             "ffprobe",
             "-v",
@@ -127,7 +105,7 @@ class AudioCompressor:
             "json",
             "-show_format",
             "-show_streams",
-            audio_path,
+            str(audio_path),
         ]
 
         try:
@@ -138,13 +116,13 @@ class AudioCompressor:
             stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                raise RuntimeError(f"Error getting audio information: {stderr.decode()}")
+                raise RuntimeError(f"ffprobe failed: {stderr.decode()}")
 
             info = json.loads(stdout.decode())
             audio_stream = next((s for s in info["streams"] if s["codec_type"] == "audio"), None)
 
             if not audio_stream:
-                raise RuntimeError("Audio stream not found")
+                raise RuntimeError("No audio stream found")
 
             return {
                 "duration": float(info["format"]["duration"]),
@@ -156,87 +134,60 @@ class AudioCompressor:
             }
 
         except Exception as e:
-            logger.error(f"Error getting audio info: error={e}", error=str(e))
+            logger.error(f"Failed to get audio info: {e}")
             raise
 
-    async def split_audio(self, audio_path: str, max_size_mb: float = 20.0, output_dir: str | None = None) -> list[str]:
+    async def split_audio(
+        self, audio_path: str | Path, max_size_mb: float = 20.0, output_dir: str | Path | None = None
+    ) -> list[str]:
         """
-        Split audio file into parts if it is too large.
+        Split large audio file into smaller parts for processing.
 
         Args:
             audio_path: Path to audio file
-            max_size_mb: Maximum size of one part in MB
-            output_dir: Directory to save parts (if None, the same directory is used)
+            max_size_mb: Maximum size per part in MB
+            output_dir: Output directory (uses source directory if None)
 
         Returns:
-            List of paths to parts of the file
+            List of part file paths
         """
-        if not Path(audio_path).exists():
+        audio_path = Path(audio_path)
+        if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        # Get audio information
         audio_info = await self.get_audio_info(audio_path)
         duration = audio_info["duration"]
-        file_size_mb = Path(audio_path).stat().st_size / (1024 * 1024)
+        file_size_mb = audio_path.stat().st_size / (1024 * 1024)
 
-        logger.info(
-            f"Splitting audio: size={file_size_mb:.2f}MB | duration={duration:.1f}s",
-            size_mb=file_size_mb,
-            duration_sec=duration
-        )
+        logger.info(f"Splitting: size={file_size_mb:.2f}MB | duration={duration:.1f}s")
 
-        # Если файл уже достаточно мал, возвращаем его как есть
         if file_size_mb <= max_size_mb:
-            logger.info("File doesn't need splitting")
-            return [audio_path]
+            return [str(audio_path)]
 
-        # Вычисляем количество частей
-        # Оцениваем размер одной секунды аудио
         size_per_second = file_size_mb / duration
-        # Вычисляем длительность одной части
-        # (без дополнительного запаса, т.к. max_size_mb уже с запасом)
         duration_per_part = max_size_mb / size_per_second
-
-        # Вычисляем минимальное количество частей
-        num_parts = int(duration / duration_per_part)
-        if num_parts * duration_per_part < duration:
-            num_parts += 1
-
+        num_parts = int(duration / duration_per_part) + (1 if duration % duration_per_part else 0)
         actual_duration_per_part = duration / num_parts
-        estimated_size_per_part = actual_duration_per_part * size_per_second
 
-        logger.info(
-            f"Splitting into parts: count={num_parts} | duration_per_part={actual_duration_per_part:.1f}s | size_per_part={estimated_size_per_part:.1f}MB",
-            parts=num_parts,
-            duration_per_part=actual_duration_per_part,
-            size_per_part=estimated_size_per_part
-        )
+        logger.info(f"Split plan: {num_parts} parts x {actual_duration_per_part:.1f}s")
 
-        # Определяем директорию для частей
         if output_dir is None:
-            output_dir = Path(audio_path).parent
+            output_dir = audio_path.parent
         else:
-            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
 
-        input_path_obj = Path(audio_path)
-
-        # Асинхронная функция для создания одной части
         async def create_part(i: int) -> str:
-            """Создание одной части аудио"""
             start_time = i * actual_duration_per_part
-            part_duration = actual_duration_per_part
+            part_duration = duration - start_time if i == num_parts - 1 else actual_duration_per_part
 
-            # Для последней части берем оставшееся время
-            if i == num_parts - 1:
-                part_duration = duration - start_time
-
-            part_filename = f"{input_path_obj.stem}_part_{i + 1:03d}.mp3"
-            part_path = Path(output_dir) / part_filename
+            part_filename = f"{audio_path.stem}_part_{i + 1:03d}.mp3"
+            part_path = output_dir / part_filename
 
             cmd = [
                 "ffmpeg",
                 "-i",
-                audio_path,
+                str(audio_path),
                 "-ss",
                 str(start_time),
                 "-t",
@@ -251,19 +202,10 @@ class AudioCompressor:
                 "-ac",
                 "1",
                 "-y",
-                part_path,
+                str(part_path),
             ]
 
             try:
-                end_time = start_time + part_duration
-                logger.info(
-                    f"Creating part: number={i + 1}/{num_parts} | time={start_time:.1f}s-{end_time:.1f}s",
-                    part=i + 1,
-                    total_parts=num_parts,
-                    start=start_time,
-                    end=end_time
-                )
-
                 process = await asyncio.create_subprocess_exec(
                     *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
@@ -271,60 +213,30 @@ class AudioCompressor:
                 _stdout, stderr = await process.communicate()
 
                 if process.returncode != 0:
-                    error_msg = stderr.decode() if stderr else "Неизвестная ошибка"
-                    raise RuntimeError(f"Ошибка создания части {i + 1}: {error_msg}")
+                    raise RuntimeError(f"Part {i + 1} creation failed: {stderr.decode()}")
 
-                if not Path(part_path).exists():
-                    raise RuntimeError(f"Часть {i + 1} не была создана: {part_path}")
+                if not part_path.exists():
+                    raise RuntimeError(f"Part {i + 1} not created: {part_path}")
 
-                part_size_mb = Path(part_path).stat().st_size / (1024 * 1024)
+                part_size_mb = part_path.stat().st_size / (1024 * 1024)
 
-                # Проверяем, что часть не превышает лимит
                 if part_size_mb > self.max_file_size_mb:
-                    error_msg = (
-                        f"Часть {i + 1}/{num_parts} превышает лимит: "
-                        f"{part_size_mb:.2f} МБ > {self.max_file_size_mb} МБ. "
-                        f"Попробуйте уменьшить max_size_mb в конфигурации."
-                    )
-                    logger.error(
-                        f"Part exceeds limit: part={i + 1}/{num_parts} | size={part_size_mb:.2f}MB | limit={self.max_file_size_mb}MB",
-                        part=i + 1,
-                        total_parts=num_parts,
-                        size_mb=part_size_mb,
-                        limit_mb=self.max_file_size_mb
-                    )
-                    raise ValueError(error_msg)
-                if part_size_mb > self.max_file_size_mb * 0.95:
-                    logger.warning(
-                        f"Part close to limit: part={i + 1}/{num_parts} | size={part_size_mb:.2f}MB | limit={self.max_file_size_mb}MB",
-                        part=i + 1,
-                        total_parts=num_parts,
-                        size_mb=part_size_mb,
-                        limit_mb=self.max_file_size_mb
+                    raise ValueError(
+                        f"Part {i + 1} exceeds limit: {part_size_mb:.2f}MB > {self.max_file_size_mb}MB"
                     )
 
-                logger.info(
-                    f"Part created: number={i + 1}/{num_parts} | size={part_size_mb:.2f}MB",
-                    part=i + 1,
-                    total_parts=num_parts,
-                    size_mb=part_size_mb
-                )
-                return part_path
+                if part_size_mb > self.max_file_size_mb * 0.95:
+                    logger.warning(f"Part {i + 1} near limit: {part_size_mb:.2f}MB")
+
+                return str(part_path)
 
             except Exception as e:
-                logger.error(
-                    f"Error creating part: part={i + 1} | error={e}",
-                    part=i + 1,
-                    error=str(e)
-                )
+                logger.error(f"Part {i + 1} failed: {e}")
                 raise
 
-        # Создаем все части параллельно
-        logger.info(f"Creating parts in parallel: count={num_parts}", parts=num_parts)
         part_tasks = [create_part(i) for i in range(num_parts)]
         part_results = await asyncio.gather(*part_tasks, return_exceptions=True)
 
-        # Проверяем результаты
         parts = []
         errors = []
 
@@ -334,24 +246,15 @@ class AudioCompressor:
             else:
                 parts.append(result)
 
-        # Если были ошибки, удаляем созданные части и выбрасываем исключение
         if errors:
-            logger.error(
-                f"Errors creating parts: failed={len(errors)} | total={num_parts}",
-                failed=len(errors),
-                total=num_parts
-            )
-            # Удаляем все созданные части
+            logger.error(f"Split failed: {len(errors)}/{num_parts} parts failed")
             for part in parts:
                 try:
                     Path(part).unlink()
                 except Exception as e:
-                    logger.warning(f"Ignored exception: {e}")
-            # Выбрасываем первую ошибку
-            raise RuntimeError(f"Ошибки при создании частей: {errors[0][1]}") from errors[0][1]
+                    logger.error(f"Failed to delete part {part}: {e}")
+            raise RuntimeError(f"Part creation failed: {errors[0][1]}") from errors[0][1]
 
-        # Сортируем части по номеру (на случай, если порядок нарушен)
         parts.sort()
-
-        logger.info(f"Audio split completed: parts={len(parts)} | mode=parallel", parts=len(parts))
+        logger.info(f"Split complete: {len(parts)} parts")
         return parts

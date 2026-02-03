@@ -97,8 +97,5 @@ class BaseUploader(ABC):
         _language: str = "ru",
         _name: str | None = None,
     ) -> bool:
-        """
-        Upload captions/subtitles (not implemented by default).
-        Override in platform-specific uploaders that support this feature.
-        """
+        """Upload captions (not implemented by default)."""
         return False

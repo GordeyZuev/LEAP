@@ -1,6 +1,6 @@
 """Recording filter schemas"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RecordingFilters(BaseModel):
@@ -33,20 +33,21 @@ class RecordingFilters(BaseModel):
     order_by: str = Field("created_at", description="Field to sort by (created_at, updated_at, id)")
     order: str = Field("asc", description="Sorting direction (asc, desc)")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "template_id": 5,
                 "source_id": 10,
-                "status": ["INITIALIZED", "FAILED"],
+                "status": ["INITIALIZED", "DOWNLOADED"],
                 "is_mapped": True,
                 "failed": False,
+                "from_date": "2025-01-01",
+                "to_date": "2025-12-31",
                 "exclude_blank": True,
                 "include_deleted": False,
                 "search": "lecture",
-                "from_date": "2024-01-01",
-                "to_date": "2024-12-31",
                 "order_by": "created_at",
                 "order": "desc",
             }
         }
+    )

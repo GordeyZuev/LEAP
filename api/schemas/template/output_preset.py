@@ -5,49 +5,34 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG
+from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 
 from .preset_metadata import VKPresetMetadata, YouTubePresetMetadata
 
-# ============================================================================
-# Output Preset Schemas (Fully Typed)
-# ============================================================================
-
 
 class OutputPresetBase(BaseModel):
-    """Базовая схема для пресета с полной типизацией."""
-
     model_config = BASE_MODEL_CONFIG
 
-    name: str = Field(..., min_length=1, max_length=255, description="Название пресета")
-    description: str | None = Field(None, max_length=1000, description="Описание пресета")
-    platform: Literal["youtube", "vk"] = Field(..., description="Платформа (youtube или vk)")
+    name: str = Field(..., min_length=1, max_length=255, description="Preset name")
+    description: str | None = Field(None, max_length=1000, description="Preset description")
+    platform: Literal["youtube", "vk"] = Field(..., description="Platform (youtube or vk)")
 
     preset_metadata: YouTubePresetMetadata | VKPresetMetadata = Field(
         ...,
-        description="Платформо-специфичные настройки",
+        description="Platform-specific settings",
     )
 
     @field_validator("name", mode="before")
     @classmethod
     def strip_name(cls, v: str) -> str:
-        """Очистка названия от пробелов."""
-        if isinstance(v, str):
-            v = v.strip()
-            if not v:
-                raise ValueError("Название не может быть пустым")
-        return v
+        return strip_and_validate_name(v)
 
 
 class OutputPresetCreate(OutputPresetBase):
-    """Схема для создания пресета (полностью типизированная)."""
-
-    credential_id: int = Field(..., gt=0, description="ID credentials для этой платформы")
+    credential_id: int = Field(..., gt=0, description="Credential ID for this platform")
 
 
 class OutputPresetUpdate(BaseModel):
-    """Схема для обновления пресета (полностью типизированная)."""
-
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = Field(None, max_length=1000)
     credential_id: int | None = Field(None, gt=0)
@@ -56,8 +41,6 @@ class OutputPresetUpdate(BaseModel):
 
 
 class OutputPresetResponse(OutputPresetBase):
-    """Схема ответа для пресета."""
-
     model_config = ORM_MODEL_CONFIG
 
     id: int

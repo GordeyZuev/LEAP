@@ -4,27 +4,27 @@ from pydantic import BaseModel, Field
 
 
 class ThumbnailInfo(BaseModel):
-    """Информация о thumbnail."""
+    """Information about thumbnail."""
 
-    name: str = Field(..., description="Имя файла")
-    url: str = Field(..., description="URL для получения файла через API")
-    is_template: bool = Field(..., description="Является ли глобальным template")
-    size_bytes: int = Field(default=0, description="Размер в байтах")
-    size_kb: float = Field(default=0.0, description="Размер в KB")
-    modified_at: float = Field(default=0.0, description="Время последнего изменения (timestamp)")
+    name: str = Field(..., description="Name of file")
+    url: str = Field(..., description="URL to get file via API")
+    is_template: bool = Field(..., description="Is global template")
+    size_bytes: int = Field(default=0, description="Size in bytes")
+    size_kb: float = Field(default=0.0, description="Size in KB")
+    modified_at: float = Field(default=0.0, description="Time of last modification (timestamp)")
 
 
 class ThumbnailListResponse(BaseModel):
-    """Список thumbnails пользователя."""
+    """List of thumbnails of user."""
 
     thumbnails: list[ThumbnailInfo] = Field(
         default_factory=list,
-        description="Thumbnails пользователя (включая копии шаблонов, полученные при регистрации)"
+        description="Thumbnails of user (including copies of templates, obtained during registration)"
     )
 
 
 class ThumbnailUploadResponse(BaseModel):
-    """Результат загрузки thumbnail."""
+    """Result of loading thumbnail."""
 
-    message: str = Field(..., description="Сообщение о результате")
-    thumbnail: ThumbnailInfo = Field(..., description="Информация о загруженном thumbnail")
+    message: str = Field(..., description="Message about result")
+    thumbnail: ThumbnailInfo = Field(..., description="Information about loaded thumbnail")

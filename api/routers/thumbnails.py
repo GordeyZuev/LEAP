@@ -179,7 +179,8 @@ async def create_thumbnail(
 
     Args:
         file: Uploaded file
-        custom_filename: Custom filename (without extension). Only alphanumeric characters, dash, and underscore allowed.
+        custom_filename: Custom filename (without extension).
+                        Only alphanumeric characters, dash, and underscore allowed.
                         Min length: 1, max length: 100.
                         Example: file="abc123.png" + custom_filename="photo" -> saved as "photo.png"
 
@@ -272,7 +273,10 @@ async def update_thumbnail(
     if thumbnail_name != expected_filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File extension mismatch. Expected '{thumbnail_name}', but uploaded file has '{file_ext}' extension.",
+            detail=(
+                f"File extension mismatch. Expected '{thumbnail_name}', "
+                f"but uploaded file has '{file_ext}' extension."
+            ),
         )
 
     thumbnail_manager = get_thumbnail_manager()

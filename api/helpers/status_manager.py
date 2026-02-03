@@ -1,9 +1,4 @@
-"""Helper for automatic update of aggregated recording status.
-
-Main status (ProcessingStatus) is computed based on:
-- processing_stages (detailed stages)
-- outputs (upload targets)
-"""
+"""Automatic update of aggregated recording status from stages and outputs."""
 
 from datetime import UTC
 
@@ -69,7 +64,6 @@ def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
         # Filter out SKIPPED stages when checking completion
         active_stages = [s for s in recording.processing_stages if s.status != ProcessingStageStatus.SKIPPED]
         if active_stages and all(s.status == ProcessingStageStatus.COMPLETED for s in active_stages):
-            # All active stages done, check outputs
             if recording.outputs:
                 output_statuses = [output.status for output in recording.outputs]
                 if any(status == TargetStatus.UPLOADING for status in output_statuses):
@@ -110,15 +104,7 @@ def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
 
 
 def update_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
-    """
-    Update aggregated recording status.
-
-    Args:
-        recording: RecordingModel
-
-    Returns:
-        New ProcessingStatus
-    """
+    """Update and return aggregated recording status."""
     new_status = compute_aggregate_status(recording)
     recording.status = new_status
     return new_status
@@ -131,55 +117,21 @@ def should_allow_download(recording: RecordingModel) -> bool:
     Download is allowed if:
     1. Recording in INITIALIZED status
     2. Not in download process (DOWNLOADING)
-
-    Args:
-        recording: RecordingModel
-
-    Returns:
-        True if download is allowed
     """
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
         return False
-
     return recording.status == ProcessingStatus.INITIALIZED
 
 
 def should_allow_run(recording: RecordingModel) -> bool:
-    """
-    Check if recording processing (run) can be started.
-
-    Processing is allowed if:
-    1. Recording in DOWNLOADED status (already downloaded)
-    2. Not SKIPPED/PENDING_SOURCE
-
-    Args:
-        recording: RecordingModel
-
-    Returns:
-        True if processing is allowed
-    """
+    """Check if recording processing can be started (DOWNLOADED or PROCESSED status)."""
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
         return False
-
     return recording.status in [ProcessingStatus.DOWNLOADED, ProcessingStatus.PROCESSED]
 
 
 def should_allow_transcription(recording: RecordingModel) -> bool:
-    """
-    Check if transcription can be started for recording.
-
-    Transcription is allowed if:
-    1. Recording in PROCESSED status (basic processing complete)
-    2. Not SKIPPED/PENDING_SOURCE
-    3. No active processing_stages (IN_PROGRESS)
-    4. TRANSCRIBE stage either absent or in PENDING or FAILED status
-
-    Args:
-        recording: RecordingModel
-
-    Returns:
-        True if transcription is allowed
-    """
+    """Check if transcription can be started (PROCESSED status, no IN_PROGRESS stages)."""
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
         return False
 
@@ -203,57 +155,26 @@ def should_allow_transcription(recording: RecordingModel) -> bool:
     if transcribe_stage is None:
         return True
 
-    return transcribe_stage.status in [
-        ProcessingStageStatus.PENDING,
-        ProcessingStageStatus.FAILED,
-    ]
+    return transcribe_stage.status in [ProcessingStageStatus.PENDING, ProcessingStageStatus.FAILED]
 
 
 def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:
-    """
-    Check if upload to platform can be started.
-
-    Upload is allowed if:
-    1. Recording not failed and not deleted
-    2. Recording not in SKIPPED/PENDING_SOURCE/EXPIRED status
-    3. Recording in status >= DOWNLOADED
-    4. All processing_stages completed (COMPLETED or SKIPPED) or no stages
-    5. Target for this platform either absent or NOT_UPLOADED or FAILED
-
-    Args:
-        recording: RecordingModel
-        target_type: Platform type (TargetType value)
-
-    Returns:
-        True if upload is allowed
-    """
+    """Check if upload to platform can be started (all stages complete, target not uploaded)."""
     if recording.failed or recording.deleted:
         return False
 
-    if recording.status in [
-        ProcessingStatus.SKIPPED,
-        ProcessingStatus.PENDING_SOURCE,
-        ProcessingStatus.EXPIRED,
-    ]:
+    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE, ProcessingStatus.EXPIRED]:
         return False
 
     if recording.status in [ProcessingStatus.INITIALIZED, ProcessingStatus.DOWNLOADING]:
         return False
 
     if recording.processing_stages:
-        # Filter out SKIPPED stages
         active_stages = [s for s in recording.processing_stages if s.status != ProcessingStageStatus.SKIPPED]
-        if active_stages:
-            all_completed = all(stage.status == ProcessingStageStatus.COMPLETED for stage in active_stages)
-            if not all_completed:
-                return False
+        if active_stages and not all(stage.status == ProcessingStageStatus.COMPLETED for stage in active_stages):
+            return False
 
-    target = None
-    for output in recording.outputs:
-        if output.target_type == target_type:
-            target = output
-            break
-
+    target = next((o for o in recording.outputs if o.target_type == target_type), None)
     if target is None:
         return True
 

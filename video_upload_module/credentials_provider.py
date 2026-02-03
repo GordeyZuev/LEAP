@@ -1,4 +1,4 @@
-"""Credential provider for accessing platform credentials from database or files."""
+"""Credential providers for platform authentication."""
 
 import json
 from abc import ABC, abstractmethod
@@ -14,33 +14,28 @@ logger = get_logger()
 
 
 class CredentialProvider(ABC):
-    """Abstract base class for credential providers."""
-
     @abstractmethod
     async def load_credentials(self) -> dict[str, Any] | None:
-        """Load credentials data."""
+        pass
 
     @abstractmethod
     async def save_credentials(self, credentials_data: dict[str, Any]) -> bool:
-        """Save credentials data."""
+        pass
 
     @abstractmethod
     async def get_google_credentials(self, scopes: list[str]) -> Credentials | None:
-        """Get Google OAuth2 Credentials object."""
+        pass
 
     @abstractmethod
     async def update_google_credentials(self, credentials: Credentials) -> bool:
-        """Update Google OAuth2 credentials after refresh."""
+        pass
 
 
 class FileCredentialProvider(CredentialProvider):
-    """Credential provider that uses file system."""
-
     def __init__(self, credentials_file: str):
         self.credentials_file = credentials_file
 
     async def load_credentials(self) -> dict[str, Any] | None:
-        """Load credentials from file."""
         path = Path(self.credentials_file)
         if not path.exists():
             return None
@@ -53,7 +48,6 @@ class FileCredentialProvider(CredentialProvider):
             return None
 
     async def save_credentials(self, credentials_data: dict[str, Any]) -> bool:
-        """Save credentials to file."""
         try:
             with Path(self.credentials_file).open("w", encoding="utf-8") as f:
                 json.dump(credentials_data, f, ensure_ascii=False, indent=2)
@@ -63,7 +57,6 @@ class FileCredentialProvider(CredentialProvider):
             return False
 
     async def get_google_credentials(self, scopes: list[str]) -> Credentials | None:
-        """Get Google OAuth2 Credentials from file."""
         data = await self.load_credentials()
         if not data:
             return None
@@ -77,7 +70,6 @@ class FileCredentialProvider(CredentialProvider):
             return None
 
     async def update_google_credentials(self, credentials: Credentials) -> bool:
-        """Update Google credentials in file after refresh."""
         try:
             data = await self.load_credentials()
             token_data = json.loads(credentials.to_json())
@@ -267,17 +259,6 @@ def create_credential_provider(
     """
     Factory function to create appropriate credential provider.
 
-    Args:
-        credential_id: Database credential ID (if using DB)
-        credentials_file: File path (if using file system)
-        encryption_service: Encryption service (required for DB)
-        credential_repository: Credential repository (required for DB)
-
-    Returns:
-        CredentialProvider instance
-
-    Raises:
-        ValueError: If parameters are invalid
     """
     if credential_id is not None:
         if not encryption_service or not credential_repository:

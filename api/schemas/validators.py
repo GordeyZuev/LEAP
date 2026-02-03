@@ -7,18 +7,18 @@ from pydantic import field_validator
 
 
 class DateRangeMixin:
-    """Миксин для работы с диапазонами дат."""
+    """Mixin for working with date ranges."""
 
     @field_validator("from_date", "to_date", mode="before")
     @classmethod
     def parse_date_field(cls, v: Any) -> date | None:
         """
-        Парсит дату из различных форматов.
+        Parses date from different formats.
 
-        Поддерживаемые форматы:
-        - ISO: 2024-12-01, 2024-12-01T10:00:00
-        - Европейский: 01/12/2024, 01-12-2024
-        - Короткий год: 01/12/24, 01-12-24
+        Supported formats:
+        - ISO: 2025-12-01, 2025-12-01T10:00:00
+        - European: 01/12/2025, 01-12-2025
+        - Short year: 01/12/25, 01-12-25
         """
         if v is None or v == "":
             return None
@@ -32,15 +32,15 @@ class DateRangeMixin:
         if isinstance(v, str):
             v = v.strip()
 
-            # Пробуем стандартные форматы
+            # Try standard formats
             formats = [
-                "%Y-%m-%d",  # 2024-12-01
-                "%d/%m/%Y",  # 01/12/2024
-                "%d-%m-%Y",  # 01-12-2024
-                "%d.%m.%Y",  # 01.12.2024
-                "%d/%m/%y",  # 01/12/24
-                "%d-%m-%y",  # 01-12-24
-                "%d.%m.%y",  # 01.12.24
+                "%Y-%m-%d",  # 2025-12-01
+                "%d/%m/%Y",  # 01/12/2025
+                "%d-%m-%Y",  # 01-12-2025
+                "%d.%m.%Y",  # 01.12.2025
+                "%d/%m/%y",  # 01/12/25
+                "%d-%m-%y",  # 01-12-25
+                "%d.%m.%y",  # 01.12.25
             ]
 
             for fmt in formats:
@@ -49,7 +49,7 @@ class DateRangeMixin:
                 except ValueError:
                     continue
 
-        raise ValueError(f"Неверный формат даты: {v}. Используйте: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY или DD.MM.YYYY")
+        raise ValueError(f"Invalid date format: {v}. Use: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY or DD.MM.YYYY")
 
     @staticmethod
     def resolve_date_range(
@@ -58,26 +58,23 @@ class DateRangeMixin:
         last_days: int | None,
     ) -> tuple[date, date | None]:
         """
-        Вычисляет итоговый диапазон дат с учётом приоритетов.
+        Calculates the final date range with priority.
 
-        Логика:
-        1. Если указан last_days — используется он (приоритет)
-        2. Иначе используются from_date/to_date
-        3. По умолчанию: последние 14 дней
+        Logic:
+        1. If last_days is specified - it is used (priority)
+        2. Otherwise from_date/to_date is used
+        3. Default: last 14 days
         """
         if last_days is not None:
             if last_days == 0:
-                # Только сегодня
                 today = date.today()
                 return today, today
-            # Последние N дней
+
             to_date = date.today()
             from_date = to_date - timedelta(days=last_days)
             return from_date, to_date
 
-        # Используем явно указанные даты
         if from_date is None:
-            # По умолчанию: последние 14 дней
             from_date = date.today() - timedelta(days=14)
 
         return from_date, to_date

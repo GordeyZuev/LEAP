@@ -1,6 +1,6 @@
 """Automation filters schemas."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AutomationFilters(BaseModel):
@@ -15,10 +15,11 @@ class AutomationFilters(BaseModel):
         description="Exclude blank records (too short/small)",
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": ["INITIALIZED"],
                 "exclude_blank": True,
             }
         }
+    )

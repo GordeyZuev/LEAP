@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from api.schemas.common.pagination import PaginatedResponse
 from models import ProcessingStageStatus, ProcessingStatus, SourceType, TargetStatus, TargetType
@@ -200,8 +200,7 @@ class RecordingResponse(ReadyToUploadMixin):
 
         return {"total": total, "uploaded": uploaded, "failed": failed, "partial": 0 < uploaded < total}
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RecordingListResponse(PaginatedResponse):

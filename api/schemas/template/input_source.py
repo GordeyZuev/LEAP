@@ -5,22 +5,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG
+from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 
 from .source_config import GoogleDriveSourceConfig, LocalFileSourceConfig, YandexDiskSourceConfig, ZoomSourceConfig
 
-# ============================================================================
-# Input Source Schemas (Fully Typed)
-# ============================================================================
-
 
 class InputSourceBase(BaseModel):
-    """Базовая схема для источника с полной типизацией."""
-
     model_config = BASE_MODEL_CONFIG
 
-    name: str = Field(..., min_length=3, max_length=255, description="Название источника")
-    description: str | None = Field(None, max_length=1000, description="Описание источника")
+    name: str = Field(..., min_length=3, max_length=255, description="Source name")
+    description: str | None = Field(None, max_length=1000, description="Source description")
 
     config: ZoomSourceConfig | GoogleDriveSourceConfig | YandexDiskSourceConfig | LocalFileSourceConfig | None = Field(
         None,
@@ -30,23 +24,16 @@ class InputSourceBase(BaseModel):
     @field_validator("name", mode="before")
     @classmethod
     def strip_name(cls, v: str) -> str:
-        """Очистка названия от пробелов."""
-        if isinstance(v, str):
-            v = v.strip()
-            if not v:
-                raise ValueError("Название не может быть пустым")
-        return v
+        return strip_and_validate_name(v)
 
 
 class InputSourceCreate(BaseModel):
-    """Схема для создания источника."""
-
     model_config = BASE_MODEL_CONFIG
 
-    name: str = Field(..., min_length=3, max_length=255, description="Название источника")
-    description: str | None = Field(None, max_length=1000, description="Описание источника")
-    platform: Literal["ZOOM", "GOOGLE_DRIVE", "YANDEX_DISK", "LOCAL"] = Field(..., description="Платформа")
-    credential_id: int | None = Field(None, gt=0, description="ID credentials (обязательно для всех кроме LOCAL)")
+    name: str = Field(..., min_length=3, max_length=255, description="Source name")
+    description: str | None = Field(None, max_length=1000, description="Source description")
+    platform: Literal["ZOOM", "GOOGLE_DRIVE", "YANDEX_DISK", "LOCAL"] = Field(..., description="Platform")
+    credential_id: int | None = Field(None, gt=0, description="Credential ID (required for all except LOCAL)")
 
     config: ZoomSourceConfig | GoogleDriveSourceConfig | YandexDiskSourceConfig | LocalFileSourceConfig | None = Field(
         None,
@@ -56,30 +43,20 @@ class InputSourceCreate(BaseModel):
     @field_validator("name", mode="before")
     @classmethod
     def strip_name(cls, v: str) -> str:
-        """Очистка названия от пробелов."""
-        if isinstance(v, str):
-            v = v.strip()
-            if not v:
-                raise ValueError("Название не может быть пустым")
-        return v
+        return strip_and_validate_name(v)
 
     @model_validator(mode="after")
     def validate_source(self) -> "InputSourceCreate":
-        """Кросс-валидация source."""
-        # Все кроме LOCAL требуют credential_id
         if self.platform != "LOCAL" and not self.credential_id:
-            raise ValueError(f"Platform {self.platform} требует credential_id")
+            raise ValueError(f"Platform {self.platform} requires credential_id")
 
-        # LOCAL не должен иметь credential_id
         if self.platform == "LOCAL" and self.credential_id:
-            raise ValueError("LOCAL source не должен иметь credential_id")
+            raise ValueError("LOCAL source should not have credential_id")
 
         return self
 
 
 class InputSourceUpdate(BaseModel):
-    """Схема для обновления источника (полностью типизированная)."""
-
     name: str | None = Field(None, min_length=3, max_length=255)
     description: str | None = Field(None, max_length=1000)
     credential_id: int | None = Field(None, gt=0)
@@ -88,8 +65,6 @@ class InputSourceUpdate(BaseModel):
 
 
 class InputSourceResponse(BaseModel):
-    """Схема ответа для источника."""
-
     model_config = ORM_MODEL_CONFIG
 
     id: int
@@ -105,26 +80,17 @@ class InputSourceResponse(BaseModel):
     updated_at: datetime
 
 
-# ============================================================================
-# Batch Sync Schemas
-# ============================================================================
-
-
 class BulkSyncRequest(BaseModel):
-    """Схема для bulk sync запроса."""
-
     model_config = BASE_MODEL_CONFIG
 
     source_ids: list[int] = Field(
-        ..., min_length=1, max_length=50, description="Список ID источников для синхронизации"
+        ..., min_length=1, max_length=50, description="List of source IDs to sync"
     )
-    from_date: str = Field("2024-01-01", description="Дата начала в формате YYYY-MM-DD")
-    to_date: str | None = Field(None, description="Дата окончания в формате YYYY-MM-DD (опционально)")
+    from_date: str = Field("2025-01-01", description="Start date in YYYY-MM-DD format")
+    to_date: str | None = Field(None, description="End date in YYYY-MM-DD format (optional)")
 
 
 class SourceSyncResult(BaseModel):
-    """Результат синхронизации одного источника."""
-
     model_config = BASE_MODEL_CONFIG
 
     source_id: int
@@ -137,8 +103,6 @@ class SourceSyncResult(BaseModel):
 
 
 class BatchSyncResponse(BaseModel):
-    """Схема ответа для batch sync."""
-
     model_config = BASE_MODEL_CONFIG
 
     message: str

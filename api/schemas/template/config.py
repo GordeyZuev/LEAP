@@ -5,58 +5,47 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG
+from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 
 
 class BaseConfigBase(BaseModel):
-    """Базовая схема для конфигурации."""
-
     model_config = BASE_MODEL_CONFIG
 
-    name: str = Field(..., min_length=1, max_length=255, description="Название конфигурации")
-    description: str | None = Field(None, max_length=1000, description="Описание конфигурации")
-    config_type: str | None = Field(None, description="Тип конфигурации (processing, transcription, etc)")
-    config_data: dict[str, Any] = Field(..., description="Данные конфигурации")
+    name: str = Field(..., min_length=1, max_length=255, description="Name of configuration")
+    description: str | None = Field(None, max_length=1000, description="Description of configuration")
+    config_type: str | None = Field(None, description="Type of configuration (processing, transcription, etc)")
+    config_data: dict[str, Any] = Field(..., description="Data of configuration")
 
     @field_validator("name", mode="before")
     @classmethod
     def strip_name(cls, v: str) -> str:
-        """Очистка названия от пробелов."""
-        if isinstance(v, str):
-            v = v.strip()
-            if not v:
-                raise ValueError("Название не может быть пустым")
-        return v
+        return strip_and_validate_name(v)
 
     @field_validator("config_data")
     @classmethod
     def validate_config_data(cls, v: dict[str, Any]) -> dict[str, Any]:
-        """Валидация данных конфигурации."""
         if not v:
-            raise ValueError("config_data не может быть пустым")
+            raise ValueError("config_data cannot be empty")
 
-        # Проверяем типы известных полей (базовая валидация)
         if "max_file_size_mb" in v:
             try:
                 size = float(v["max_file_size_mb"])
                 if size <= 0:
-                    raise ValueError("max_file_size_mb должен быть положительным")
+                    raise ValueError("max_file_size_mb must be positive")
             except (ValueError, TypeError) as e:
-                raise ValueError(f"Неверный max_file_size_mb: {e}") from e
+                raise ValueError(f"Invalid max_file_size_mb: {e}") from e
 
         if "allowed_formats" in v and not isinstance(v["allowed_formats"], list):
-            raise ValueError("allowed_formats должен быть списком")
+            raise ValueError("allowed_formats must be a list")
 
         return v
 
     @model_validator(mode="after")
     def validate_config_by_type(self) -> "BaseConfigBase":
-        """Валидация config_data по config_type."""
         if self.config_type:
             try:
                 from api.schemas.config_types import validate_config_by_type
 
-                # Валидируем через типизированную схему
                 validate_config_by_type(self.config_type, self.config_data)
             except Exception as e:
                 raise ValueError(f"Invalid config_data for type '{self.config_type}': {e}") from e
@@ -64,14 +53,10 @@ class BaseConfigBase(BaseModel):
 
 
 class BaseConfigCreate(BaseConfigBase):
-    """Схема для создания конфигурации."""
-
-    is_global: bool = Field(False, description="Глобальная конфигурация (только для admin)")
+    is_global: bool = Field(False, description="Global configuration (admin only)")
 
 
 class BaseConfigUpdate(BaseModel):
-    """Схема для обновления конфигурации."""
-
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     config_data: dict[str, Any] | None = None
@@ -79,20 +64,18 @@ class BaseConfigUpdate(BaseModel):
 
 
 class BaseConfigResponse(BaseConfigBase):
-    """Схема ответа для конфигурации."""
-
     model_config = ORM_MODEL_CONFIG
 
     id: int
     user_id: str | None
     is_active: bool
-    is_global: bool = Field(False, description="Глобальная конфигурация")
+    is_global: bool = Field(False, description="Global configuration")
     created_at: datetime
     updated_at: datetime
 
     @classmethod
     def from_orm_model(cls, model) -> "BaseConfigResponse":
-        """Создать из ORM модели."""
+        """Create from ORM model."""
         return cls(
             id=model.id,
             name=model.name,

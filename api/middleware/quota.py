@@ -8,9 +8,9 @@ from api.services.quota_service import QuotaService
 
 
 class QuotaMiddleware(BaseHTTPMiddleware):
-    """Middleware для проверки квот перед выполнением операций."""
+    """Middleware for checking quotas before executing operations."""
 
-    # Эндпоинты, требующие проверки квот
+    # Endpoints requiring quota checks
     QUOTA_ENDPOINTS = {
         "/api/v1/recordings/sync": "recordings",
         "/api/v1/recordings/batch-process": "tasks",
@@ -18,38 +18,38 @@ class QuotaMiddleware(BaseHTTPMiddleware):
     }
 
     async def dispatch(self, request: Request, call_next):
-        """Проверка квот перед обработкой запроса."""
-        # Проверяем только POST запросы к защищенным эндпоинтам
+        """Checking quotas before processing request."""
+        # Check only POST requests to protected endpoints
         if request.method == "POST":
             path = request.url.path
 
-            # Проверяем нужна ли проверка квот для этого эндпоинта
+            # Check if quota check is needed for this endpoint
             quota_type = self._get_quota_type(path)
             if quota_type:
-                # Получаем пользователя из request.state (устанавливается в auth middleware)
+                # Get user from request.state (set in auth middleware)
                 user = getattr(request.state, "user", None)
 
                 if user:
-                    # Проверяем квоты
+                    # Check quotas
                     await self._check_quotas(request, user.id, quota_type)
 
         return await call_next(request)
 
     def _get_quota_type(self, path: str) -> str | None:
-        """Определить тип квоты для пути."""
+        """Determine quota type for path."""
         for endpoint_pattern, quota_type in self.QUOTA_ENDPOINTS.items():
-            # Простое сопоставление (можно улучшить с regex)
+            # Simple matching (can be improved with regex)
             if endpoint_pattern.replace("{id}", "").rstrip("/") in path:
                 return quota_type
         return None
 
     async def _check_quotas(self, request: Request, user_id: str, quota_type: str):
-        """Проверить квоты пользователя."""
-        # Получаем сессию БД
+        """Check quotas for user."""
+        # Get database session
         session: AsyncSession = request.state.db_session
         quota_service = QuotaService(session)
 
-        # Проверяем квоты в зависимости от типа операции
+        # Check quotas depending on the operation type
         if quota_type == "recordings":
             allowed, error_msg = await quota_service.check_recordings_quota(user_id)
             if not allowed:
@@ -67,20 +67,20 @@ class QuotaMiddleware(BaseHTTPMiddleware):
 
 
 async def check_storage_quota(session: AsyncSession, user_id: str, required_bytes: int) -> bool:
-    """Проверить квоту хранилища."""
+    """Check storage quota."""
     quota_service = QuotaService(session)
     allowed, _ = await quota_service.check_storage_quota(user_id, required_bytes)
     return allowed
 
 
 async def increment_recordings_quota(session: AsyncSession, user_id: str):
-    """Увеличить счетчик записей."""
+    """Increment recordings counter."""
     quota_service = QuotaService(session)
     await quota_service.track_recording_created(user_id)
 
 
 async def increment_tasks_quota(session: AsyncSession, user_id: str, count: int = 1):
-    """Увеличить счетчик задач."""
+    """Increment tasks counter."""
     from datetime import datetime
 
     quota_service = QuotaService(session)
@@ -91,7 +91,7 @@ async def increment_tasks_quota(session: AsyncSession, user_id: str, count: int 
 
 
 async def decrement_tasks_quota(session: AsyncSession, user_id: str, count: int = 1):
-    """Уменьшить счетчик задач."""
+    """Decrement tasks counter."""
     from datetime import datetime
 
     quota_service = QuotaService(session)

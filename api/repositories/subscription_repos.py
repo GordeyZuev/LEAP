@@ -76,7 +76,7 @@ class SubscriptionPlanRepository:
         for key, value in update_dict.items():
             setattr(db_plan, key, value)
 
-        db_plan.updated_at = datetime.utcnow()
+        db_plan.updated_at = datetime.now(datetime.UTC)
         await self.session.commit()
         await self.session.refresh(db_plan)
         return SubscriptionPlanInDB.model_validate(db_plan)
@@ -89,7 +89,7 @@ class SubscriptionPlanRepository:
             return False
 
         db_plan.is_active = False
-        db_plan.updated_at = datetime.utcnow()
+        db_plan.updated_at = datetime.now(datetime.UTC)
         await self.session.commit()
         return True
 
@@ -158,7 +158,7 @@ class UserSubscriptionRepository:
         for key, value in update_dict.items():
             setattr(db_subscription, key, value)
 
-        db_subscription.updated_at = datetime.utcnow()
+        db_subscription.updated_at = datetime.now(datetime.UTC)
         await self.session.commit()
         await self.session.refresh(db_subscription)
 
@@ -261,7 +261,7 @@ class QuotaUsageRepository:
         for key, value in update_dict.items():
             setattr(db_usage, key, value)
 
-        db_usage.updated_at = datetime.utcnow()
+        db_usage.updated_at = datetime.now(datetime.UTC)
         await self.session.commit()
         await self.session.refresh(db_usage)
         return QuotaUsageInDB.model_validate(db_usage)
@@ -275,7 +275,7 @@ class QuotaUsageRepository:
 
         if db_usage:
             db_usage.recordings_count += count
-            db_usage.updated_at = datetime.utcnow()
+            db_usage.updated_at = datetime.now(datetime.UTC)
         else:
             db_usage = QuotaUsageModel(user_id=user_id, period=period, recordings_count=count)
             self.session.add(db_usage)
@@ -293,7 +293,7 @@ class QuotaUsageRepository:
 
         if db_usage:
             db_usage.storage_bytes += bytes_added
-            db_usage.updated_at = datetime.utcnow()
+            db_usage.updated_at = datetime.now(datetime.UTC)
         else:
             db_usage = QuotaUsageModel(user_id=user_id, period=period, storage_bytes=bytes_added)
             self.session.add(db_usage)
@@ -311,7 +311,7 @@ class QuotaUsageRepository:
 
         if db_usage:
             db_usage.concurrent_tasks_count = count
-            db_usage.updated_at = datetime.utcnow()
+            db_usage.updated_at = datetime.now(datetime.UTC)
         else:
             db_usage = QuotaUsageModel(user_id=user_id, period=period, concurrent_tasks_count=count)
             self.session.add(db_usage)

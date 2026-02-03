@@ -25,12 +25,9 @@ from .template_models import (
 )
 
 __all__ = [
-    # Core models
     "Base",
-    # Template models
     "BaseConfigModel",
     "DatabaseConfig",
-    # Manager and config
     "DatabaseManager",
     "InputSourceModel",
     "OutputPresetModel",
@@ -42,12 +39,9 @@ __all__ = [
     "RecordingTemplateModel",
     "RefreshTokenModel",
     "SourceMetadataModel",
-    # Subscription models
     "SubscriptionPlanModel",
-    # Config models
     "UserConfigModel",
     "UserCredentialModel",
-    # Auth models
     "UserModel",
     "UserSubscriptionModel",
 ]

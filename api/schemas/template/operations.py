@@ -2,9 +2,11 @@
 
 from pydantic import BaseModel
 
+from api.schemas.common import BASE_MODEL_CONFIG
+
 
 class BulkDeleteResponse(BaseModel):
-    """Result of bulk delete."""
+    model_config = BASE_MODEL_CONFIG
 
     template_id: int
     template_name: str
@@ -13,7 +15,7 @@ class BulkDeleteResponse(BaseModel):
 
 
 class TemplateStatsResponse(BaseModel):
-    """Template usage statistics."""
+    model_config = BASE_MODEL_CONFIG
 
     template_id: int
     template_name: str
@@ -24,7 +26,7 @@ class TemplateStatsResponse(BaseModel):
 
 
 class TemplatePreviewRecording(BaseModel):
-    """Recording that will be matched in preview."""
+    model_config = BASE_MODEL_CONFIG
 
     id: int
     display_name: str
@@ -38,7 +40,7 @@ class TemplatePreviewRecording(BaseModel):
 
 
 class TemplatePreviewResponse(BaseModel):
-    """Preview of template matching."""
+    model_config = BASE_MODEL_CONFIG
 
     template_id: int
     template_name: str
@@ -50,7 +52,7 @@ class TemplatePreviewResponse(BaseModel):
 
 
 class RematchTaskResponse(BaseModel):
-    """Result of rematch task start."""
+    model_config = BASE_MODEL_CONFIG
 
     message: str
     task_id: str

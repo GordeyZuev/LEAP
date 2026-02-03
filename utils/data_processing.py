@@ -11,9 +11,14 @@ logger = get_logger()
 
 
 def process_meetings_data(response_data: dict[str, Any], filter_video_only: bool = True) -> list[MeetingRecording]:
-    """Processing meetings data from API response. Each MP4-part is converted into a separate MeetingRecording."""
+    """
+    Process Zoom API meetings response into MeetingRecording objects.
+
+    Each MP4 recording part becomes a separate MeetingRecording.
+    Prioritizes screen sharing recordings over active speaker view.
+    """
     meetings = response_data.get("meetings", [])
-    processed_meetings = []
+    processed_meetings: list[MeetingRecording] = []
 
     mp4_priorities = {
         "shared_screen_with_speaker_view": 3,
@@ -91,10 +96,8 @@ def process_meetings_data(response_data: dict[str, Any], filter_video_only: bool
                 meeting_data["source_metadata"]["meeting_uuid"] = meeting.get("uuid")
             if meeting.get("meeting_id"):
                 meeting_data["source_metadata"]["meeting_id"] = meeting.get("meeting_id")
-                logger.debug(f"Saved meeting_id from API: meeting_id={meeting.get('meeting_id')}", meeting_id=meeting.get("meeting_id"))
             elif meeting.get("id"):
                 meeting_data["source_metadata"]["meeting_id"] = meeting.get("id")
-                logger.debug(f"Saved id as meeting_id: id={meeting.get('id')}", id=meeting.get("id"))
 
             recording = MeetingRecording(meeting_data)
             if not filter_video_only or recording.has_video():
@@ -141,32 +144,22 @@ async def get_recordings_by_date_range(
     page_size: int = 30,
     filter_video_only: bool = True,
 ) -> list[MeetingRecording]:
-    """Fetch recordings by date range through API."""
+    """Fetch recordings by date range with detailed metadata."""
     try:
-        logger.info(
-            f"Fetching recordings: start_date={start_date} | end_date={end_date or 'current date'}",
-            start_date=start_date,
-            end_date=end_date
-        )
+        logger.info(f"Fetching: {start_date} to {end_date or 'current date'}")
         response = await api.get_recordings(page_size=page_size, from_date=start_date, to_date=end_date)
 
         recordings = process_meetings_data(response, filter_video_only)
 
-        enhanced_recordings = []
+        enhanced_recordings: list[MeetingRecording] = []
         for recording in recordings:
             try:
-                logger.debug(
-                    f"Fetching detailed info: meeting_id={recording.meeting_id} | recording={recording.display_name}",
-                    meeting_id=recording.meeting_id,
-                    recording_name=recording.display_name
-                )
                 detailed_data = await api.get_recording_details(recording.meeting_id, include_download_token=True)
 
                 recording.password = detailed_data.get("password")
                 recording.recording_play_passcode = detailed_data.get("recording_play_passcode")
                 recording.download_access_token = detailed_data.get("download_access_token")
 
-                # Store detailed Zoom API response in source_metadata
                 if not hasattr(recording, "source_metadata") or not isinstance(recording.source_metadata, dict):
                     recording.source_metadata = {}
                 recording.source_metadata["zoom_api_details"] = detailed_data
@@ -174,15 +167,14 @@ async def get_recordings_by_date_range(
                 enhanced_recordings.append(recording)
 
             except Exception as e:
-                logger.warning(f"Failed to get details for recording {recording.meeting_id}: {e}")
+                logger.warning(f"Failed to get details for {recording.meeting_id}: {e}")
                 enhanced_recordings.append(recording)
 
-        logger.info(f"Processed recordings: {len(enhanced_recordings)}")
-
+        logger.info(f"Fetched {len(enhanced_recordings)} recordings")
         return enhanced_recordings
 
     except Exception as e:
-        logger.error(f"Error getting recordings: {e}")
+        logger.error(f"Failed to fetch recordings: {e}")
         raise
 
 
@@ -202,8 +194,8 @@ def filter_recordings_by_size(recordings: list[MeetingRecording], min_size_mb: i
 def filter_available_recordings(
     recordings: list[MeetingRecording], min_duration_minutes: int = 25, min_size_mb: int = 30
 ) -> list[MeetingRecording]:
-    """Filter recordings to form a list of available recordings."""
-    with_video = [recording for recording in recordings if recording.has_video()]
+    """Filter recordings by video presence, duration, and size constraints."""
+    with_video = [r for r in recordings if r.has_video()]
     long_enough = filter_recordings_by_duration(with_video, min_duration_minutes)
     large_enough = filter_recordings_by_size(long_enough, min_size_mb)
 

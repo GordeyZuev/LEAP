@@ -16,7 +16,7 @@ def sanitize_filename(filename: str) -> str:
 
 
 def normalize_datetime_string(date_string: str) -> str:
-    """Нормализация строки даты для корректного парсинга."""
+    """Normalize datetime string by removing timezone suffixes for consistent parsing."""
     if not date_string:
         return date_string
 

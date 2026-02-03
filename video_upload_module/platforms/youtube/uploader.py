@@ -107,18 +107,7 @@ class YouTubeUploader(BaseUploader):
         task_id=None,
         **kwargs,
     ) -> UploadResult | None:
-        """
-        Upload video to YouTube.
-
-        Supported kwargs:
-            - tags: list[str] - Video tags
-            - category_id: str|int - YouTube category ID
-            - publish_at: str - ISO 8601 datetime for scheduled publishing
-            - made_for_kids: bool - Whether video is made for kids
-            - embeddable: bool - Whether video can be embedded
-            - license: str - "youtube" or "creativeCommon"
-            - public_stats_viewable: bool - Whether stats are publicly viewable
-        """
+        """Upload video to YouTube with metadata and optional thumbnail."""
 
         if not self._authenticated:
             if not await self.authenticate():
@@ -259,7 +248,7 @@ class YouTubeUploader(BaseUploader):
         language: str = "ru",
         name: str | None = None,
     ) -> bool:
-        """Upload captions (SRT/VTT) to YouTube."""
+        """Upload captions/subtitles to YouTube."""
 
         if not self._authenticated:
             if not await self.authenticate():
