@@ -389,10 +389,10 @@ await vk_uploader.authenticate()  # Checks expiry, refreshes if needed
 # Check expiry daily
 async def check_vk_token_expiry(user_id: int):
     credentials = await get_vk_credentials(user_id)
-    
+
     expires_at = credentials["expires_at"]
     hours_left = (expires_at - now()).total_seconds() / 3600
-    
+
     if hours_left < 6:
         await send_notification(
             user_id,
@@ -433,5 +433,5 @@ await create_uploader(credential_id=6)  # Account "Secondary Group"
 
 ---
 
-**Документ обновлен:** Январь 2026  
+**Документ обновлен:** Январь 2026
 **VK Policy:** Implicit Flow recommended ✅

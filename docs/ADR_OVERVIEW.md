@@ -1,7 +1,7 @@
 # Architecture Decision Records - Overview
 
-**Проект:** LEAP Platform  
-**Версия:** 2.0 (Актуализировано: январь 2026)  
+**Проект:** LEAP Platform
+**Версия:** 2.0 (Актуализировано: январь 2026)
 **Статус:** Production-Ready Multi-tenant SaaS
 
 ---
@@ -664,7 +664,7 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 
 **Статус:** ✅ Полностью реализовано
 
-**См. также:** 
+**См. также:**
 - [API_GUIDE.md](API_GUIDE.md)
 
 ---
@@ -717,5 +717,5 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 
 ---
 
-**Документ обновлен:** Январь 2026  
+**Документ обновлен:** Январь 2026
 **Следующий review:** По мере добавления новых ADR

@@ -183,9 +183,9 @@ CREATE TABLE user_credentials (
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP,
   updated_at TIMESTAMP,
-  
+
   -- Unique constraint: один user может иметь несколько аккаунтов
-  CONSTRAINT ix_user_credentials_user_platform_account 
+  CONSTRAINT ix_user_credentials_user_platform_account
     UNIQUE (user_id, platform, account_name)
 );
 ```
@@ -237,7 +237,7 @@ curl http://localhost:8000/api/v1/credentials \
 
 **Before:**
 ```
-ERROR: duplicate key value violates unique constraint 
+ERROR: duplicate key value violates unique constraint
        "ix_user_credentials_user_platform_account"
 DETAIL: Key (user_id, platform, account_name)=(6, youtube, oauth_auto) already exists.
 ```
@@ -268,5 +268,5 @@ DETAIL: Key (user_id, platform, account_name)=(6, youtube, oauth_auto) already e
 
 ---
 
-**Документ создан:** Январь 2026  
+**Документ создан:** Январь 2026
 **Статус:** Production Ready ✅

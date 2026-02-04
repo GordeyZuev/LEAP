@@ -192,7 +192,7 @@ class UserSubscriptionRepository:
         user_id: str,
         old_plan_id: int,
         new_plan_id: int,
-        changed_by: int | None = None,
+        changed_by: str | None = None,
         notes: str | None = None,
     ):
         """Записать изменение плана в историю."""

@@ -19,7 +19,7 @@ class ProcessRecordingRequest(BaseModel):
     no_transcription: bool = Field(False, description="Skip transcription")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "transcription_model": "fireworks",
                 "granularity": "long",
@@ -53,7 +53,7 @@ class DateRangeRequest(BaseModel, DateRangeMixin):
     )
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "examples": [
                 {"last_days": 10},
                 {"from_date": "2025-12-01", "to_date": "2026-01-31"},
@@ -74,7 +74,7 @@ class BatchProcessRequest(DateRangeRequest):
     no_transcription: bool = Field(False, description="Skip transcription")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "examples": [
                 {"last_days": 7, "platforms": ["youtube"], "no_transcription": False},
                 {"recording_ids": [1, 2, 3], "platforms": ["youtube", "vk"]},
@@ -110,7 +110,7 @@ class UpdateRecordingRequest(BaseModel):
     processing_preferences: ProcessingPreferences | None = Field(None, description="Processing preferences")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "processing_preferences": {
                     "enable_transcription": True,
@@ -155,7 +155,7 @@ class BulkOperationRequest(BaseModel):
         return self
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "examples": [
                 {"recording_ids": [1, 2, 3, 4, 5]},
                 {
@@ -182,7 +182,7 @@ class BulkDownloadRequest(BulkOperationRequest):
     force: bool = Field(False, description="Re-download if already downloaded")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "filters": {
                     "source_id": 10,
@@ -206,7 +206,7 @@ class BulkTrimRequest(BulkOperationRequest):
     padding_after: float = Field(5.0, description="Padding after speech in seconds")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "filters": {
                     "template_id": 5,
@@ -232,7 +232,7 @@ class BulkTranscribeRequest(BulkOperationRequest):
     max_wait_time: float = Field(3600.0, description="Maximum wait time for Batch API (seconds)")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "filters": {
                     "status": ["DOWNLOADED", "PROCESSED"],
@@ -256,7 +256,7 @@ class BulkTopicsRequest(BulkOperationRequest):
     version_id: str | None = Field(None, description="Version ID (if not specified, generated automatically)")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "filters": {
                     "template_id": 5,
@@ -276,7 +276,7 @@ class BulkSubtitlesRequest(BulkOperationRequest):
     formats: list[str] = Field(default=["srt", "vtt"], description="Subtitle formats to generate")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "filters": {
                     "template_id": 5,
@@ -296,7 +296,7 @@ class BulkUploadRequest(BulkOperationRequest):
     preset_id: int | None = Field(None, description="Override preset ID for all recordings")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "filters": {
                     "template_id": 5,
@@ -323,7 +323,7 @@ class BulkRunRequest(BulkOperationRequest):
     output_config: dict | None = Field(None, description="Override output config for all recordings")
 
     model_config = ConfigDict(
-        json_schema_extra = {
+        json_schema_extra={
             "example": {
                 "template_id": 5,
                 "bind_template": False,

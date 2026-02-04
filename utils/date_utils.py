@@ -41,8 +41,7 @@ def parse_date(date_str: str) -> str:
             continue
 
     raise InvalidDateFormatError(
-        f"Invalid date format: '{date_str}'. "
-        f"Supported formats: YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, DD-MM-YY, DD/MM/YY"
+        f"Invalid date format: '{date_str}'. Supported formats: YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, DD-MM-YY, DD/MM/YY"
     )
 
 

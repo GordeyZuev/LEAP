@@ -376,12 +376,12 @@ class UploaderFactory:
     @staticmethod
     async def create_uploader(session, user_id, platform: str):
         """Create uploader by platform name"""
-        
+
     # By credential ID
     @staticmethod
     async def create_youtube_uploader(session, user_id, credential_id: int):
         """Create YouTube uploader from specific credential"""
-        
+
     # By preset ID
     @staticmethod
     async def create_uploader_by_preset_id(session, user_id, preset_id: int):
@@ -617,5 +617,5 @@ GET /api/v1/credentials/{id}/status - Check credential status
 
 ---
 
-**Документ обновлен:** Январь 2026  
+**Документ обновлен:** Январь 2026
 **Статус:** Production Ready ✅

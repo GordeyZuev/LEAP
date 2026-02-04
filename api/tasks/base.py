@@ -184,7 +184,7 @@ class ProcessingTask(BaseTask):
 
         async with session_maker() as session:
             repo = RecordingRepository(session)
-            recording = await repo.find_by_id(user_id, recording_id)
+            recording = await repo.get_by_id(recording_id, user_id)
 
             if not recording:
                 logger.warning(f"Recording {recording_id} not found during failure handling")
@@ -228,9 +228,7 @@ class UploadTask(BaseTask):
 
         logger.error(f"{ctx} | Upload failed: {exc}")
 
-    async def _handle_upload_failure_async(
-        self, recording_id: int, user_id: str, platform: str, exc: Exception
-    ):
+    async def _handle_upload_failure_async(self, recording_id: int, user_id: str, platform: str, exc: Exception):
         """Mark output target as FAILED and recalculate recording status."""
         from api.dependencies import get_async_session_maker
         from api.helpers import failure_handler
@@ -240,7 +238,7 @@ class UploadTask(BaseTask):
 
         async with session_maker() as session:
             repo = RecordingRepository(session)
-            recording = await repo.find_by_id(user_id, recording_id)
+            recording = await repo.get_by_id(recording_id, user_id)
 
             if not recording:
                 logger.warning(f"Recording {recording_id} not found during upload failure handling")

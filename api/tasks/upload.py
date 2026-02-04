@@ -339,9 +339,7 @@ async def _async_upload_recording(
                 title = recording.display_name or "Recording"
             if not description:
                 logger.warning(f"[Upload {platform}] Description is empty, using fallback")
-                fallback_desc = TemplateRenderer.render(
-                    "Uploaded on {record_time:date}", template_context
-                )
+                fallback_desc = TemplateRenderer.render("Uploaded on {record_time:date}", template_context)
                 description = fallback_desc or "Uploaded"
                 if recording.main_topics:
                     if topics_display and topics_display.get("enabled", True):
@@ -401,9 +399,13 @@ async def _async_upload_recording(
 
                     if resolved_path and resolved_path.exists():
                         upload_params["thumbnail_path"] = str(resolved_path)
-                        logger.debug(f"[Upload YouTube] Using thumbnail: {resolved_path} (resolved from '{thumbnail_filename}')")
+                        logger.debug(
+                            f"[Upload YouTube] Using thumbnail: {resolved_path} (resolved from '{thumbnail_filename}')"
+                        )
                     else:
-                        logger.warning(f"[Upload YouTube] Thumbnail not found: '{thumbnail_filename}' for user_slug {user_slug}")
+                        logger.warning(
+                            f"[Upload YouTube] Thumbnail not found: '{thumbnail_filename}' for user_slug {user_slug}"
+                        )
                 else:
                     logger.debug("[Upload YouTube] No thumbnail_name found in metadata")
 
@@ -433,9 +435,13 @@ async def _async_upload_recording(
 
                     if resolved_path and resolved_path.exists():
                         upload_params["thumbnail_path"] = str(resolved_path)
-                        logger.debug(f"[Upload VK] Using thumbnail: {resolved_path} (resolved from '{thumbnail_filename}')")
+                        logger.debug(
+                            f"[Upload VK] Using thumbnail: {resolved_path} (resolved from '{thumbnail_filename}')"
+                        )
                     else:
-                        logger.warning(f"[Upload VK] Thumbnail not found: '{thumbnail_filename}' for user_slug {user_slug}")
+                        logger.warning(
+                            f"[Upload VK] Thumbnail not found: '{thumbnail_filename}' for user_slug {user_slug}"
+                        )
                 else:
                     logger.debug("[Upload VK] No thumbnail_name found in metadata")
 
@@ -466,16 +472,16 @@ async def _async_upload_recording(
                     "platform": platform,
                     "uploaded_by_task": True,
                     # Thumbnail metadata
-                    "thumbnail_set": upload_result.metadata.get("thumbnail_set"),
-                    "thumbnail_error": upload_result.metadata.get("thumbnail_error"),
+                    "thumbnail_set": (upload_result.metadata or {}).get("thumbnail_set"),
+                    "thumbnail_error": (upload_result.metadata or {}).get("thumbnail_error"),
                     # YouTube playlist metadata
-                    "playlist_id": upload_result.metadata.get("playlist_id"),
-                    "added_to_playlist": upload_result.metadata.get("added_to_playlist"),
-                    "playlist_error": upload_result.metadata.get("playlist_error"),
+                    "playlist_id": (upload_result.metadata or {}).get("playlist_id"),
+                    "added_to_playlist": (upload_result.metadata or {}).get("added_to_playlist"),
+                    "playlist_error": (upload_result.metadata or {}).get("playlist_error"),
                     # VK album metadata
-                    "album_id": upload_result.metadata.get("album_id"),
-                    "added_to_album": upload_result.metadata.get("added_to_album"),
-                    "owner_id": upload_result.metadata.get("owner_id"),
+                    "album_id": (upload_result.metadata or {}).get("album_id"),
+                    "added_to_album": (upload_result.metadata or {}).get("added_to_album"),
+                    "owner_id": (upload_result.metadata or {}).get("owner_id"),
                 },
             )
 

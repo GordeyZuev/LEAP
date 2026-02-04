@@ -36,4 +36,3 @@ echo "✅ Migrations applied!"
 # Запускаем команду, переданную в CMD
 echo "🎉 Starting application: $@"
 exec "$@"
-

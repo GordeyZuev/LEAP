@@ -71,7 +71,9 @@ def run_automation_job_task(self, job_id: int, user_id: str):
                         has_empty_source_ids = True
                     else:
                         template_sources = template.matching_rules.get("source_ids")
-                        if template_sources is None or (isinstance(template_sources, list) and len(template_sources) == 0):
+                        if template_sources is None or (
+                            isinstance(template_sources, list) and len(template_sources) == 0
+                        ):
                             # No source_ids specified or empty list → match all sources
                             has_empty_source_ids = True
                         else:
@@ -287,7 +289,9 @@ def dry_run_automation_job_task(self, job_id: int, user_id: str):
                         has_empty_source_ids = True
                     else:
                         template_sources = template.matching_rules.get("source_ids")
-                        if template_sources is None or (isinstance(template_sources, list) and len(template_sources) == 0):
+                        if template_sources is None or (
+                            isinstance(template_sources, list) and len(template_sources) == 0
+                        ):
                             # No source_ids specified or empty list → match all sources
                             has_empty_source_ids = True
                         else:

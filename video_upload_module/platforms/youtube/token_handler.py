@@ -1,7 +1,7 @@
 """Token error handler with automatic refresh for YouTube and VK."""
 
 import functools
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
 from google.auth.exceptions import RefreshError
@@ -21,9 +21,6 @@ class TokenRefreshError(Exception):
         super().__init__(f"[{platform}] {message}")
         self.platform = platform
         self.original_error = original_error
-
-
-YouTubeTokenError = TokenRefreshError
 
 
 def is_youtube_auth_error(error: Exception) -> bool:
@@ -53,7 +50,8 @@ def is_vk_auth_error(response_data: dict) -> bool:
 
 def requires_valid_token(max_retries: int = 1):
     """Decorator that catches YouTube auth errors and refreshes token."""
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+
+    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @functools.wraps(func)
         async def wrapper(self, *args: Any, **kwargs: Any) -> T:
             from googleapiclient.errors import HttpError
@@ -94,6 +92,7 @@ def requires_valid_token(max_retries: int = 1):
 
                         if hasattr(self, "service") and self.service:
                             from googleapiclient.discovery import build
+
                             self.service = build("youtube", "v3", credentials=self.credentials)
 
                         logger.info("YouTube token refreshed")
@@ -109,12 +108,14 @@ def requires_valid_token(max_retries: int = 1):
             raise RuntimeError("Unexpected state in decorator")
 
         return wrapper
+
     return decorator
 
 
 def requires_valid_vk_token(max_retries: int = 1):
     """Decorator that catches VK auth errors and refreshes token."""
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+
+    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
         @functools.wraps(func)
         async def wrapper(self, *args: Any, **kwargs: Any) -> T:
             last_error = None
@@ -161,4 +162,5 @@ def requires_valid_vk_token(max_retries: int = 1):
             raise RuntimeError("Unexpected state in decorator")
 
         return wrapper
+
     return decorator

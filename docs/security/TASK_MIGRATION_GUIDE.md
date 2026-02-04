@@ -26,7 +26,7 @@ self.update_state(
     }
 )
 
-# ✅ НОВЫЙ КОД  
+# ✅ НОВЫЙ КОД
 self.update_progress(
     user_id=user_id,
     progress=50,
@@ -144,10 +144,10 @@ return self.build_result(
   - [ ] `extract_topics_task`
   - [ ] `generate_subtitles_task`
   - [ ] `process_recording_task`
-  
+
 - [ ] `api/tasks/upload.py`
   - [ ] `upload_recording_to_platform`
-  
+
 - [ ] `api/tasks/sync_tasks.py`
   - [ ] `sync_single_source_task`
   - [ ] `bulk_sync_sources_task`
@@ -157,7 +157,7 @@ return self.build_result(
 - [ ] `api/tasks/automation.py`
   - [ ] `run_automation_job_task`
   - [ ] `dry_run_automation_job_task`
-  
+
 - [ ] `api/tasks/template.py`
   - [ ] `rematch_recordings_task`
 

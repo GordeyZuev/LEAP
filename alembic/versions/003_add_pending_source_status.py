@@ -5,6 +5,7 @@ Revises: 002
 Create Date: 2026-01-22
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -24,9 +25,7 @@ def upgrade() -> None:
     due to PostgreSQL's constraint that new enum values must be committed before use.
     """
     # Add PENDING_SOURCE to enum (PostgreSQL specific)
-    op.execute(
-        "ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'PENDING_SOURCE' BEFORE 'INITIALIZED'"
-    )
+    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'PENDING_SOURCE' BEFORE 'INITIALIZED'")
 
     # Note: Cannot update existing records in the same transaction due to PostgreSQL limitations.
     # If needed, run this UPDATE manually after the migration:

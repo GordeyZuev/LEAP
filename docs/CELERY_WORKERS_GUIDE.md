@@ -1,6 +1,6 @@
 # Celery Workers: Operations Guide
 
-> **Quick Start**: `make celery-all` → запускает все workers  
+> **Quick Start**: `make celery-all` → запускает все workers
 > **Technical Deep Dive**: См. [CELERY_ASYNCIO_TECHNICAL.md](CELERY_ASYNCIO_TECHNICAL.md)
 
 ## Overview
@@ -16,9 +16,9 @@ ZoomUploader использует специализированные Celery wo
 
 ### 1. CPU-Intensive Pool (`processing_cpu`)
 
-**Queue**: `processing_cpu`  
-**Pool Type**: `prefork`  
-**Concurrency**: 3 workers  
+**Queue**: `processing_cpu`
+**Pool Type**: `prefork`
+**Concurrency**: 3 workers
 **Use Case**: CPU-bound операции (video processing)
 
 ```bash
@@ -43,9 +43,9 @@ make celery-cpu
 
 ### 2. Async Operations Pool (`async_operations`)
 
-**Queue**: `async_operations`  
-**Pool Type**: `threads`  
-**Concurrency**: 20 threads  
+**Queue**: `async_operations`
+**Pool Type**: `threads`
+**Concurrency**: 20 threads
 **Use Case**: All async I/O operations (database, API calls, uploads)
 
 ```bash
@@ -65,7 +65,7 @@ make celery-async
 - ✅ Хорошая concurrency для I/O (20 threads)
 - ✅ Нет конфликтов с event loop
 
-> **Техническая причина**: Gevent pool несовместим с asyncio (InterfaceError).  
+> **Техническая причина**: Gevent pool несовместим с asyncio (InterfaceError).
 > **Детали**: См. [CELERY_ASYNCIO_TECHNICAL.md](CELERY_ASYNCIO_TECHNICAL.md)
 
 **Scaling для production:**
@@ -79,9 +79,9 @@ make celery-async
 
 ### 3. Maintenance Pool (`maintenance`)
 
-**Queue**: `maintenance`  
-**Pool Type**: `prefork`  
-**Concurrency**: 1 worker  
+**Queue**: `maintenance`
+**Pool Type**: `prefork`
+**Concurrency**: 1 worker
 **Use Case**: Periodic cleanup tasks
 
 ```bash
@@ -227,11 +227,11 @@ tail -f logs/celery-async.log  # Есть ли ошибки?
 ```
 
 ### Issue: Low throughput
-**Cause**: Недостаточно workers  
+**Cause**: Недостаточно workers
 **Solution**: Увеличить `--concurrency` для async pool
 
 ### Issue: High memory usage
-**Cause**: Слишком много concurrent workers  
+**Cause**: Слишком много concurrent workers
 **Solution**: Уменьшить concurrency или добавить машины
 
 ### Issue: InterfaceError / asyncio errors
@@ -259,5 +259,5 @@ tail -f logs/celery-async.log  # Есть ли ошибки?
 
 ---
 
-**Last Updated**: 2026-01-24  
+**Last Updated**: 2026-01-24
 **Status**: Production Ready

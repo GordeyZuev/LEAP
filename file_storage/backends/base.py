@@ -29,4 +29,3 @@ class StorageBackend(ABC):
 
 class StorageQuotaExceededError(Exception):
     """Raised when storage quota is exceeded"""
-

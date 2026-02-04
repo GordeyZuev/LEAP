@@ -3,7 +3,7 @@
 Provides reusable config resolution logic for template-driven pipeline.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,7 +83,9 @@ async def resolve_full_config(
                 f"for recording {recording_id}"
             )
             if runtime_template.processing_config:
-                full_config = config_resolver._merge_configs(full_config, runtime_template.processing_config)
+                full_config = config_resolver._merge_configs(
+                    full_config, cast("dict", runtime_template.processing_config)
+                )
             if runtime_template.metadata_config:
                 # Wrap metadata_config to preserve structure
                 full_config = config_resolver._merge_configs(
@@ -131,7 +133,7 @@ async def resolve_full_config(
                 f"Applying runtime template output_config from template {runtime_template.id} "
                 f"for recording {recording_id}"
             )
-            output_config = config_resolver._merge_configs(output_config, runtime_template.output_config)
+            output_config = config_resolver._merge_configs(output_config, cast("dict", runtime_template.output_config))
 
         # Apply manual output_config override if provided
         if manual_override and "output_config" in manual_override:

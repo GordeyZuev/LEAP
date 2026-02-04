@@ -1,6 +1,6 @@
 # Upload Validation Logic Alignment
 
-**Date:** 2026-01-28  
+**Date:** 2026-01-28
 **Issue:** Inconsistency between `ready_to_upload` (UI) and `should_allow_upload` (server)
 
 ---
@@ -40,13 +40,13 @@
 @property
 def ready_to_upload(self) -> bool:
     """Check if recording is ready to upload to platforms.
-    
+
     Note: This is a general readiness indicator. Server-side validation
     (should_allow_upload) performs additional checks for specific platforms.
     """
     if self.failed or self.deleted:
         return False
-    
+
     if self.status not in [
         ProcessingStatus.DOWNLOADED,  # ← ADDED
         ProcessingStatus.PROCESSING,
@@ -54,16 +54,16 @@ def ready_to_upload(self) -> bool:
         # ... other statuses
     ]:
         return False
-    
+
     # Check all stages completed
     if self.processing_stages:
         all_completed = all(
-            stage.status == ProcessingStageStatus.COMPLETED.value 
+            stage.status == ProcessingStageStatus.COMPLETED.value
             for stage in self.processing_stages
         )
         if not all_completed:
             return False
-    
+
     return True
 ```
 
@@ -81,7 +81,7 @@ def ready_to_upload(self) -> bool:
 ```python
 def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:
     """Server-side validation before upload to specific platform.
-    
+
     Загрузка разрешена, если:
     1. Recording не failed и не deleted  # ← NEW
     2. Recording не в статусе SKIPPED/PENDING_SOURCE/EXPIRED  # ← EXPIRED NEW
@@ -92,7 +92,7 @@ def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:
     # NEW: Block failed and deleted
     if recording.failed or recording.deleted:
         return False
-    
+
     # NEW: Block special statuses including EXPIRED
     if recording.status in [
         ProcessingStatus.SKIPPED,
@@ -100,33 +100,33 @@ def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:
         ProcessingStatus.EXPIRED,  # ← NEW
     ]:
         return False
-    
+
     # NEW: Explicit minimum status check
     if recording.status in [
-        ProcessingStatus.INITIALIZED, 
+        ProcessingStatus.INITIALIZED,
         ProcessingStatus.DOWNLOADING
     ]:
         return False
-    
+
     # Existing: Check all stages completed
     if recording.processing_stages:
         all_completed = all(
-            stage.status == ProcessingStageStatus.COMPLETED 
+            stage.status == ProcessingStageStatus.COMPLETED
             for stage in recording.processing_stages
         )
         if not all_completed:
             return False
-    
+
     # Existing: Check target status for this platform
     target = None
     for output in recording.outputs:
         if output.target_type == target_type:
             target = output
             break
-    
+
     if target is None:
         return True
-    
+
     return target.status in [TargetStatus.NOT_UPLOADED, TargetStatus.FAILED]
 ```
 
@@ -309,8 +309,8 @@ All tests passed! ✅
 
 ## 🎉 Summary
 
-**Problem:** Inconsistent validation logic between UI and server  
-**Solution:** Aligned both checks while preserving their distinct responsibilities  
+**Problem:** Inconsistent validation logic between UI and server
+**Solution:** Aligned both checks while preserving their distinct responsibilities
 **Result:** Secure, consistent, and user-friendly upload validation
 
 **No breaking changes. Fully backwards compatible.**

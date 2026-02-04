@@ -1,6 +1,8 @@
 """OAuth endpoints for YouTube and VK"""
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -62,11 +64,7 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
         "vk_video": {
             "url": "https://api.vk.com/method/users.get",
             "params": {"access_token": access_token, "v": "5.131"},
-            "extract": lambda data: (
-                f"vk_{data['response'][0].get('id')}"
-                if data.get("response")
-                else "oauth_auto"
-            ),
+            "extract": lambda data: f"vk_{data['response'][0].get('id')}" if data.get("response") else "oauth_auto",
         },
         "zoom": {
             "url": "https://api.zoom.us/v2/users/me",
@@ -87,7 +85,8 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
     )
 
     if success and data:
-        account_id = config["extract"](data)
+        extract_func = cast("Callable[[dict], str]", config["extract"])
+        account_id = extract_func(data)
         logger.info(f"Retrieved {platform} account identifier: {account_id}")
         return account_id
 
@@ -182,6 +181,9 @@ async def save_oauth_credentials(
         )
         credential = await cred_repo.create(credential_data=cred_create)
         action = "created"
+
+    if not credential:
+        raise HTTPException(status_code=500, detail="Failed to save OAuth credentials")
 
     logger.info(
         f"OAuth credentials {action}: user_id={user_id} platform={platform} "
@@ -294,32 +296,32 @@ async def vk_authorize_implicit(
     current_user: UserInDB = Depends(get_current_user),
 ) -> OAuthImplicitFlowResponse:
     """
-    Generate VK Implicit Flow URL (legacy method, no refresh token).
+       Generate VK Implicit Flow URL (legacy method, no refresh token).
 
-    Uses separate VK app (54249533) configured for Implicit Flow.
+       Uses separate VK app (54249533) configured for Implicit Flow.
 
-    **How to use:**
-    1. Redirect user to `redirect_uri` URL
-    2. User authorizes and VK redirects to `blank_redirect_uri`
-    3. Parse token from URL hash: `#access_token=XXX&expires_in=86400&user_id=YYY`
-    4. Extract `access_token`, `expires_in`, and `user_id` from hash
+       **How to use:**
+       1. Redirect user to `redirect_uri` URL
+       2. User authorizes and VK redirects to `blank_redirect_uri`
+       3. Parse token from URL hash: `#access_token=XXX&expires_in=86400&user_id=YYY`
+       4. Extract `access_token`, `expires_in`, and `user_id` from hash
 
-    **Response fields:**
-    - `method`: OAuth method type ("implicit_flow")
-    - `app_id`: VK application ID
-    - `redirect_uri`: Full authorization URL to redirect user to
-    - `scope`: Requested permissions (e.g., "video,groups,wall")
-    - `response_type`: Response type ("token" for implicit flow)
-    - `blank_redirect_uri`: Final redirect URI where token will appear in URL hash
+       **Response fields:**
+       - `method`: OAuth method type ("implicit_flow")
+       - `app_id`: VK application ID
+       - `redirect_uri`: Full authorization URL to redirect user to
+       - `scope`: Requested permissions (e.g., "video,groups,wall")
+       - `response_type`: Response type ("token" for implicit flow)
+       - `blank_redirect_uri`: Final redirect URI where token will appear in URL hash
 
-    **Pros:**
-    - Works immediately without VK approval
-    - Grants video, groups, wall permissions
+       **Pros:**
+       - Works immediately without VK approval
+       - Grants video, groups, wall permissions
 
- й    **Cons:**
-    - Token expires in 24 hours
-    - No refresh token
-    - Deprecated by VK (use for testing only)
+    й    **Cons:**
+       - Token expires in 24 hours
+       - No refresh token
+       - Deprecated by VK (use for testing only)
     """
     # Load VK config to get implicit_flow_app_id
     import os

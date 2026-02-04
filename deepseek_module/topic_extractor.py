@@ -71,7 +71,7 @@ class TopicExtractor:
             f"TopicExtractor initialized: provider={provider} | base_url={config.base_url} | model={config.model}",
             provider=provider,
             base_url=config.base_url,
-            model=config.model
+            model=config.model,
         )
 
     async def extract_topics(
@@ -136,7 +136,7 @@ class TopicExtractor:
             logger.info(
                 f"Topics extracted successfully: main={len(main_topics)} | detailed={len(topic_timestamps_with_end)}",
                 main_topics=len(main_topics),
-                detailed_topics=len(topic_timestamps_with_end)
+                detailed_topics=len(topic_timestamps_with_end),
             )
 
             return {
@@ -145,10 +145,7 @@ class TopicExtractor:
                 "long_pauses": result.get("long_pauses", []),
             }
         except Exception as error:
-            logger.exception(
-                f"Failed to extract topics: error={error}",
-                error=str(error)
-            )
+            logger.exception(f"Failed to extract topics: error={error}", error=str(error))
             return {
                 "topic_timestamps": [],
                 "main_topics": [],
@@ -217,8 +214,7 @@ class TopicExtractor:
         noise_times = [
             float(seg.get("start", 0))
             for seg in segments
-            if (text := (seg.get("text") or "").strip().lower())
-            and any(re.search(pat, text) for pat in NOISE_PATTERNS)
+            if (text := (seg.get("text") or "").strip().lower()) and any(re.search(pat, text) for pat in NOISE_PATTERNS)
         ]
 
         if noise_times:
@@ -258,11 +254,13 @@ class TopicExtractor:
                             end_seconds = end_h * 3600 + end_m * 60 + end_s
 
                         if text:
-                            segments.append({
-                                "start": float(start_seconds),
-                                "end": float(end_seconds),
-                                "text": text,
-                            })
+                            segments.append(
+                                {
+                                    "start": float(start_seconds),
+                                    "end": float(end_seconds),
+                                    "text": text,
+                                }
+                            )
                     except (ValueError, IndexError) as e:
                         logger.warning(f"⚠️ Parse error at line {line_num}: {line[:50]}... - {e}")
                         continue
@@ -470,10 +468,7 @@ class TopicExtractor:
             return parsed
 
         except Exception as error:
-            logger.exception(
-                f"Failed to analyze transcript: error={error}",
-                error=str(error)
-            )
+            logger.exception(f"Failed to analyze transcript: error={error}", error=str(error))
             return {"main_topics": [], "topic_timestamps": []}
 
     async def _fireworks_request(self, prompt: str) -> str:
@@ -756,7 +751,7 @@ class TopicExtractor:
                             f"Timestamp skipped (out of range): topic={topic.strip()} | position={total_seconds / 60:.1f}min | range=0-{total_duration / 60:.1f}min",
                             topic=topic.strip(),
                             position_min=round(total_seconds / 60, 1),
-                            valid_range=f"0-{round(total_duration / 60, 1)}"
+                            valid_range=f"0-{round(total_duration / 60, 1)}",
                         )
 
         # Fallback: parse all lines with timestamps
@@ -777,7 +772,9 @@ class TopicExtractor:
         if processed_main_topics:
             logger.info(f"Main topic: {processed_main_topics[0]}")
         elif main_topics_section_found:
-            logger.warning(f"⚠️ Main topics section found but extraction failed. First lines:\n{chr(10).join(lines[:10])}")
+            logger.warning(
+                f"⚠️ Main topics section found but extraction failed. First lines:\n{chr(10).join(lines[:10])}"
+            )
 
         return {
             "main_topics": processed_main_topics,
@@ -850,9 +847,12 @@ class TopicExtractor:
                     topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", candidate).strip()
                     topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
 
-                    if (topic_candidate and len(topic_candidate) > MAIN_TOPIC_MIN_LENGTH and
-                        not any(word in topic_candidate.lower() for word in ["выведи", "тема", "пример"]) and
-                        MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS):
+                    if (
+                        topic_candidate
+                        and len(topic_candidate) > MAIN_TOPIC_MIN_LENGTH
+                        and not any(word in topic_candidate.lower() for word in ["выведи", "тема", "пример"])
+                        and MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS
+                    ):
                         return topic_candidate
                 break
         return None
@@ -957,7 +957,7 @@ class TopicExtractor:
                     f"Topic skipped (invalid timestamps): topic={topic} | start={start:.1f}s | end={end:.1f}s",
                     topic=topic,
                     start_sec=round(start, 1),
-                    end_sec=round(end, 1)
+                    end_sec=round(end, 1),
                 )
                 continue
 

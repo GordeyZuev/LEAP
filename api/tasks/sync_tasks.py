@@ -1,6 +1,5 @@
 """Celery tasks for syncing sources with multi-tenancy support."""
 
-
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
 from api.repositories.template_repos import InputSourceRepository

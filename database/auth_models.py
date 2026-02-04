@@ -44,7 +44,9 @@ class UserModel(Base):
     can_export_data = Column(Boolean, default=True, nullable=False)
     timezone = Column(String(50), default="UTC", nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    )
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     credentials = relationship("UserCredentialModel", back_populates="user", cascade="all, delete-orphan")
     recordings = relationship("RecordingModel", back_populates="owner", cascade="all, delete-orphan")
@@ -75,7 +77,9 @@ class UserCredentialModel(Base):
     encrypted_data = Column(Text, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    )
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     user = relationship("UserModel", back_populates="credentials")
 
@@ -105,7 +109,9 @@ class SubscriptionPlanModel(Base):
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     sort_order = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    )
     subscriptions = relationship("UserSubscriptionModel", back_populates="plan")
 
     def __repr__(self):
@@ -133,7 +139,9 @@ class UserSubscriptionModel(Base):
     modified_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    )
     user = relationship("UserModel", back_populates="subscription", foreign_keys=[user_id])
     plan = relationship("SubscriptionPlanModel", back_populates="subscriptions")
 
@@ -155,7 +163,9 @@ class QuotaUsageModel(Base):
     overage_recordings_count = Column(Integer, default=0, nullable=False)
     overage_cost = Column(Numeric(10, 2), default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    )
     user = relationship("UserModel", back_populates="quota_usage")
 
     def __repr__(self):

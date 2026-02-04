@@ -72,6 +72,11 @@ class InputSourceRepository:
         )
         return list(result.scalars().all())
 
+    async def find_by_user(self, user_id: str) -> list[InputSourceModel]:
+        """Get all sources for user (both active and inactive)."""
+        result = await self.session.execute(select(InputSourceModel).where(InputSourceModel.user_id == user_id))
+        return list(result.scalars().all())
+
     async def find_duplicate(
         self,
         user_id: str,
@@ -174,6 +179,11 @@ class OutputPresetRepository:
         )
         return list(result.scalars().all())
 
+    async def find_by_user(self, user_id: str) -> list[OutputPresetModel]:
+        """Get all presets for user (both active and inactive)."""
+        result = await self.session.execute(select(OutputPresetModel).where(OutputPresetModel.user_id == user_id))
+        return list(result.scalars().all())
+
     async def find_by_platform(self, user_id: str, platform: str) -> list[OutputPresetModel]:
         """Get presets by platform."""
         result = await self.session.execute(
@@ -245,6 +255,17 @@ class RecordingTemplateRepository:
             )
             .order_by(RecordingTemplateModel.created_at.asc())
         )
+        return list(result.scalars().all())
+
+    async def find_by_user(self, user_id: str, include_drafts: bool = False) -> list[RecordingTemplateModel]:
+        """Get all templates for user, sorted by created_at ASC."""
+        query = select(RecordingTemplateModel).where(RecordingTemplateModel.user_id == user_id)
+
+        if not include_drafts:
+            query = query.where(~RecordingTemplateModel.is_draft)
+
+        query = query.order_by(RecordingTemplateModel.created_at.asc())
+        result = await self.session.execute(query)
         return list(result.scalars().all())
 
     async def find_by_ids(self, template_ids: list[int], user_id: str) -> list[RecordingTemplateModel]:

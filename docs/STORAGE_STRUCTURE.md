@@ -1,7 +1,7 @@
     # 📁 Storage Structure - Final Design
 
-**Version:** 2.1  
-**Date:** 2026-01-22  
+**Version:** 2.1
+**Date:** 2026-01-22
 **Status:** Approved for implementation
 
 **Changes in v2.1:**
@@ -221,15 +221,15 @@ class StorageBackend(ABC):
     @abstractmethod
     async def save(self, path: str, content: bytes) -> str:
         """Save file, return full path"""
-    
+
     @abstractmethod
     async def load(self, path: str) -> bytes:
         """Load file content"""
-    
+
     @abstractmethod
     async def delete(self, path: str) -> bool:
         """Delete file"""
-    
+
     @abstractmethod
     async def exists(self, path: str) -> bool:
         """Check if file exists"""
@@ -239,14 +239,14 @@ class LocalStorageBackend(StorageBackend):
     def __init__(self, base_path: str = "storage", max_size_gb: int | None = None):
         self.base = Path(base_path)
         self.max_size_gb = max_size_gb
-    
+
     async def save(self, path: str, content: bytes) -> str:
         # Check quota if configured
         if self.max_size_gb:
             current_size = self._get_total_size()
             if current_size + len(content) > self.max_size_gb * (1024**3):
                 raise StorageQuotaExceededError()
-        
+
         full_path = self.base / path
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_bytes(content)
@@ -265,7 +265,7 @@ class S3StorageBackend(StorageBackend):
         self.prefix = prefix
         self.region = region
         self.max_size_gb = max_size_gb
-    
+
     async def save(self, path: str, content: bytes) -> str:
         s3_key = f"{self.prefix}/{path}"
         await s3.put_object(
@@ -280,7 +280,7 @@ class S3StorageBackend(StorageBackend):
 def create_storage_backend() -> StorageBackend:
     """Create storage backend based on STORAGE_TYPE environment variable"""
     storage_type = os.getenv("STORAGE_TYPE", "LOCAL").upper()
-    
+
     if storage_type == "LOCAL":
         return LocalStorageBackend(
             base_path=os.getenv("STORAGE_LOCAL_PATH", "storage"),
@@ -495,6 +495,6 @@ $ du -sh storage/
 
 ---
 
-**Status:** Ready for implementation  
-**Estimated time:** 1 day (migration included)  
+**Status:** Ready for implementation
+**Estimated time:** 1 day (migration included)
 **Breaking change:** Yes (acceptable per requirements)

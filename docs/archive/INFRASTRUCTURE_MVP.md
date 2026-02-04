@@ -300,7 +300,7 @@ upstream fastapi {
 server {
     listen 80;
     server_name api.yourdomain.com;
-    
+
     # Redirect to HTTPS
     return 301 https://$server_name$request_uri;
 }
@@ -308,27 +308,27 @@ server {
 server {
     listen 443 ssl http2;
     server_name api.yourdomain.com;
-    
+
     ssl_certificate /etc/letsencrypt/live/api.yourdomain.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/api.yourdomain.com/privkey.pem;
-    
+
     # Security headers
     add_header Strict-Transport-Security "max-age=31536000" always;
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
-    
+
     # Rate limiting
     limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
     limit_req zone=api burst=20 nodelay;
-    
+
     # Timeouts
     proxy_connect_timeout 60s;
     proxy_send_timeout 60s;
     proxy_read_timeout 60s;
-    
+
     # Upload size limit
     client_max_body_size 2G;
-    
+
     location / {
         proxy_pass http://fastapi;
         proxy_http_version 1.1;
@@ -440,4 +440,3 @@ docker exec leap_postgres pg_dump -U postgres leap_platform > backup.sql
 # Clean old files
 find /app/media -name "*.mp4" -mtime +7 -delete
 ```
-

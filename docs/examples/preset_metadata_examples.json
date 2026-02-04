@@ -128,4 +128,3 @@
     "upload_with_preset": "curl -X POST 'http://localhost:8000/api/v1/recordings/123/upload' \\\n  -H 'Authorization: Bearer YOUR_TOKEN' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"platform\": \"youtube\",\n    \"preset_id\": 1\n  }'"
   }
 }
-

@@ -28,9 +28,7 @@ class RecordingRepository:
         """
         self.session = session
 
-    async def get_by_id(
-        self, recording_id: int, user_id: str, include_deleted: bool = False
-    ) -> RecordingModel | None:
+    async def get_by_id(self, recording_id: int, user_id: str, include_deleted: bool = False) -> RecordingModel | None:
         """
         Get recording by ID with user ownership check.
 
@@ -250,7 +248,6 @@ class RecordingRepository:
         logger.debug(f"Updated recording {recording.id}")
         return recording
 
-
     async def get_or_create_output_target(
         self,
         recording: RecordingModel,
@@ -306,7 +303,7 @@ class RecordingRepository:
         """
         from api.helpers.status_manager import update_aggregate_status
 
-        output_target.status = TargetStatus.UPLOADING
+        output_target.status = TargetStatus.UPLOADING  # type: ignore[assignment]
         output_target.failed = False
         output_target.updated_at = datetime.now(UTC)
         await self.session.flush()
@@ -318,7 +315,9 @@ class RecordingRepository:
         # Update aggregate recording status (PROCESSED → UPLOADING)
         update_aggregate_status(recording)
 
-        logger.debug(f"Marked output_target {output_target.id} as UPLOADING, recording {recording.id} status: {recording.status}")
+        logger.debug(
+            f"Marked output_target {output_target.id} as UPLOADING, recording {recording.id} status: {recording.status}"
+        )
 
     async def mark_output_failed(
         self,
@@ -334,7 +333,7 @@ class RecordingRepository:
         """
         from api.helpers.status_manager import update_aggregate_status
 
-        output_target.status = TargetStatus.FAILED
+        output_target.status = TargetStatus.FAILED  # type: ignore[assignment]
         output_target.failed = True
         output_target.failed_at = datetime.now(UTC)
         output_target.failed_reason = error_message[:1000]  # Length limit
@@ -349,7 +348,9 @@ class RecordingRepository:
         # Update aggregate recording status (may revert from UPLOADING to PROCESSED)
         update_aggregate_status(recording)
 
-        logger.warning(f"Marked output_target {output_target.id} as FAILED: {error_message[:100]}, recording {recording.id} status: {recording.status}")
+        logger.warning(
+            f"Marked output_target {output_target.id} as FAILED: {error_message[:100]}, recording {recording.id} status: {recording.status}"
+        )
 
     async def save_upload_result(
         self,
@@ -386,7 +387,7 @@ class RecordingRepository:
 
         if existing_output:
             # Update existing
-            existing_output.status = TargetStatus.UPLOADED
+            existing_output.status = TargetStatus.UPLOADED  # type: ignore[assignment]
             existing_output.preset_id = preset_id
             existing_output.target_meta = {
                 **(existing_output.target_meta or {}),
@@ -522,7 +523,7 @@ class RecordingRepository:
                     ]:
                         # Check if this is resync from PENDING_SOURCE (Zoom finished processing)
                         if old_is_mapped != existing.is_mapped:
-                            existing.status = (
+                            existing.status = (  # type: ignore[assignment]
                                 ProcessingStatus.INITIALIZED if existing.is_mapped else ProcessingStatus.SKIPPED
                             )
 
@@ -531,14 +532,13 @@ class RecordingRepository:
                     # Zoom finished processing - recheck blank and update status
                     is_blank = kwargs.get("blank_record", False)
                     if is_blank:
-                        existing.status = ProcessingStatus.SKIPPED
+                        existing.status = ProcessingStatus.SKIPPED  # type: ignore[assignment]
                     elif existing.is_mapped:
-                        existing.status = ProcessingStatus.INITIALIZED
+                        existing.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
                     else:
-                        existing.status = ProcessingStatus.SKIPPED
+                        existing.status = ProcessingStatus.SKIPPED  # type: ignore[assignment]
                     logger.info(
-                        f"Recording {existing.id} processing completed on Zoom side: "
-                        f"PENDING_SOURCE → {existing.status}"
+                        f"Recording {existing.id} processing completed on Zoom side: PENDING_SOURCE → {existing.status}"
                     )
 
                 # Update template_id if passed
@@ -742,8 +742,7 @@ class RecordingRepository:
         # CRITICAL: Check state before cleanup to prevent race conditions
         if recording.delete_state != "soft":
             logger.warning(
-                f"Skipped cleanup for recording {recording.id}: "
-                f"delete_state={recording.delete_state} (expected 'soft')"
+                f"Skipped cleanup for recording {recording.id}: delete_state={recording.delete_state} (expected 'soft')"
             )
             return 0
 

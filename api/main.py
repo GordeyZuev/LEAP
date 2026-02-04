@@ -92,7 +92,7 @@ async def startup_event():
 
 # CORS middleware
 app.add_middleware(
-    CORSMiddleware,
+    CORSMiddleware,  # type: ignore[arg-type]
     allow_origins=settings.server.cors_origins,
     allow_credentials=settings.server.cors_allow_credentials,
     allow_methods=settings.server.cors_allow_methods,
@@ -100,16 +100,16 @@ app.add_middleware(
 )
 
 # Rate limiting middleware
-app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RateLimitMiddleware)  # type: ignore[arg-type]
 
 # Logging middleware
-app.add_middleware(LoggingMiddleware)
+app.add_middleware(LoggingMiddleware)  # type: ignore[arg-type]
 
 # Exception handlers
-app.add_exception_handler(APIException, api_exception_handler)
-app.add_exception_handler(RequestValidationError, validation_exception_handler)
-app.add_exception_handler(ResponseValidationError, response_validation_exception_handler)
-app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
+app.add_exception_handler(APIException, api_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(ResponseValidationError, response_validation_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, global_exception_handler)
 
 # Routers

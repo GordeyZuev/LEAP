@@ -2,7 +2,7 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.4 (January 2026)  
+**Version:** v0.9.4 (January 2026)
 **Status:** ✅ Production Ready
 
 ---
@@ -41,7 +41,7 @@
 
 **Backend:**
 ```
-Python 3.11+ • FastAPI • SQLAlchemy 2.0 (async)
+Python 3.14+ • FastAPI • SQLAlchemy 2.0 (async)
 PostgreSQL 12+ • Redis • Celery + Beat
 ```
 
@@ -158,11 +158,11 @@ ZoomUploader/
 ```python
 class RecordingRepository:
     """Data access layer for recordings"""
-    
-    async def find_by_id(self, user_id: int, recording_id: int) -> Recording:
+
+    async def find_by_id(self, user_id: str, recording_id: int) -> Recording:
         """Get recording with multi-tenant isolation"""
-        
-    async def find_all(self, user_id: int, filters: dict) -> list[Recording]:
+
+    async def find_all(self, user_id: str, filters: dict) -> list[Recording]:
         """List recordings with filters"""
 ```
 
@@ -176,10 +176,10 @@ class RecordingRepository:
 **Purpose:** Создание сервисов с правильными credentials
 
 ```python
-# TranscriptionServiceFactory
-service = await TranscriptionServiceFactory.create_for_user(
-    session, user_id
-)
+# FireworksTranscriptionService via ConfigService
+config_service = ConfigService(session, user_id)
+fireworks_config = await config_service.get_fireworks_config()
+service = FireworksTranscriptionService(fireworks_config)
 
 # UploaderFactory
 uploader = await UploaderFactory.create_uploader(
@@ -200,11 +200,11 @@ uploader = await UploaderFactory.create_uploader(
 @dataclass
 class ServiceContext:
     session: AsyncSession
-    user_id: int
-    
+    user_id: str
+
     @property
-    def config_helper(self) -> ConfigHelper:
-        """Lazy-loaded config helper"""
+    def config_helper(self) -> ConfigService:
+        """Lazy-loaded config service"""
 ```
 
 **Benefits:**
@@ -229,12 +229,12 @@ final_config = user_config ← template_config ← recording_override
 
 **KISS (Keep It Simple):**
 - ServiceContext вместо передачи множества параметров
-- ConfigHelper вместо прямого доступа к credentials
+- ConfigService вместо прямого доступа к credentials
 - Factories для упрощения создания объектов
 
 **DRY (Don't Repeat Yourself):**
 - Все credential-запросы через `CredentialService`
-- Все config-запросы через `ConfigHelper`
+- Все config-запросы через `ConfigService`
 - Repository pattern для избежания дублирования SQL
 
 **Separation of Concerns:**
@@ -253,7 +253,7 @@ final_config = user_config ← template_config ← recording_override
 **Purpose:** Централизованное хранение контекста выполнения операции
 
 ```python
-from api.dependencies import get_service_context
+from api.core.dependencies import get_service_context
 
 @router.post("/recordings/{id}/process")
 async def process_recording(
@@ -267,29 +267,29 @@ async def process_recording(
 
 **Key Features:**
 - Автоматическая инициализация в `get_service_context` dependency
-- Lazy-loading `ConfigHelper` (создается только при обращении)
+- Lazy-loading `ConfigService` (создается только при обращении)
 - Единая точка входа для всех сервисов
 
-### 2. ConfigHelper
+### 2. ConfigService
 
-**File:** `api/helpers/config_helper.py`
+**File:** `api/services/config_service.py`
 
 **Purpose:** Получение конфигураций и credentials для пользователя
 
 ```python
-config_helper = ConfigHelper(session, user_id)
+config_service = ConfigService(session, user_id)
 
 # Platform credentials
-zoom_config = await config_helper.get_zoom_config(account_name="myaccount")
-youtube_creds = await config_helper.get_youtube_credentials()
-vk_creds = await config_helper.get_vk_credentials()
+zoom_config = await config_service.get_zoom_config(account_name="myaccount")
+youtube_creds = await config_service.get_youtube_credentials()
+vk_creds = await config_service.get_vk_credentials()
 
 # AI service credentials
-fireworks_config = await config_helper.get_fireworks_config()
-deepseek_config = await config_helper.get_deepseek_config()
+fireworks_config = await config_service.get_fireworks_config()
+deepseek_config = await config_service.get_deepseek_config()
 
 # Generic access
-creds = await config_helper.get_credentials_for_platform("zoom", "myaccount")
+creds = await config_service.get_credentials_for_platform("zoom", "myaccount")
 ```
 
 **Key Features:**
@@ -298,21 +298,28 @@ creds = await config_helper.get_credentials_for_platform("zoom", "myaccount")
 - Автоматическая валидация и дешифрование
 - Fallback на default credentials
 
-### 3. TranscriptionServiceFactory
+### 3. FireworksTranscriptionService
 
-**File:** `transcription_module/factory.py`
+**File:** `fireworks_module/service.py`
 
-**Purpose:** Создание TranscriptionService с user credentials
+**Purpose:** Транскрибация аудио через Fireworks AI API
 
 ```python
-from transcription_module.factory import TranscriptionServiceFactory
+from fireworks_module.service import FireworksTranscriptionService
+from api.services.config_service import ConfigService
 
-# Создать для конкретного пользователя
-service = await TranscriptionServiceFactory.create_for_user(session, user_id)
+# Получение конфигурации через ConfigService
+config_service = ConfigService(session, user_id)
+fireworks_config = await config_service.get_fireworks_config()
 
-# С fallback на default credentials
-service = await TranscriptionServiceFactory.create_with_fallback(
-    session, user_id, use_default_on_missing=True
+# Создание сервиса транскрибации
+service = FireworksTranscriptionService(fireworks_config)
+
+# Транскрибация
+result = await service.transcribe_audio(
+    audio_path="path/to/audio.mp3",
+    language="ru",
+    prompt="Optional context prompt"
 )
 ```
 
@@ -329,7 +336,7 @@ service = await TranscriptionServiceFactory.create_with_fallback(
 from video_upload_module.factory import UploaderFactory
 
 # По платформе (автоматический выбор credentials)
-uploader = await UploaderFactory.create_uploader(session, user_id, "youtube")
+uploader = await UploaderFactory.create_uploader(session, user_id, platform="youtube")
 
 # По credential_id (явный выбор)
 uploader = await UploaderFactory.create_youtube_uploader(
@@ -359,7 +366,7 @@ cred_service = CredentialService(session)
 
 # Получение credentials
 creds = await cred_service.get_decrypted_credentials(
-    user_id=1,
+    user_id="01HQ123456789ABCDEFGHJKMNP",  # ULID string
     platform="zoom",
     account_name="myaccount"
 )
@@ -420,7 +427,7 @@ platforms = await cred_service.list_available_platforms(user_id)
 - Zoom API (OAuth 2.0 / Server-to-Server)
 - Локальные файлы
 
-**Output:** `media/video/unprocessed/recording_*.mp4`
+**Output:** `storage/users/user_XXXXXX/recordings/{id}/source.mp4`
 
 ---
 
@@ -441,8 +448,8 @@ platforms = await cred_service.list_available_platforms(user_id)
 - `segments.py` - Segment management
 
 **Output:**
-- Processed video: `media/video/processed/recording_*_processed.mp4`
-- Extracted audio: `media/processed_audio/recording_*_processed.mp3`
+- Processed video: `storage/users/user_XXXXXX/recordings/{id}/video.mp4`
+- Extracted audio: `storage/users/user_XXXXXX/recordings/{id}/audio.mp3`
 
 ---
 
@@ -452,11 +459,14 @@ platforms = await cred_service.list_available_platforms(user_id)
 
 **Architecture:**
 ```
-TranscriptionManager (manager.py)
-    ↓
-TranscriptionServiceFactory (factory.py)
-    ↓
-FireworksService (fireworks_module/service.py)
+TranscriptionManager (transcription_module/manager.py)
+    ↓ (file operations: save/load master.json, topics.json)
+
+ConfigService (api/services/config_service.py)
+    ↓ (get credentials)
+
+FireworksTranscriptionService (fireworks_module/service.py)
+    ↓ (actual AI transcription via Fireworks API)
 ```
 
 **Key Features:**
@@ -465,10 +475,9 @@ FireworksService (fireworks_module/service.py)
 - Retry механизм (3 попытки с exponential backoff)
 - Валидация конфигурации через Pydantic
 
-**Output:** `media/user_{user_id}/transcriptions/{recording_id}/`
-- `words.txt` - Слова с таймкодами
-- `segments.txt` - Сегменты
-- `master.json` - Метаданные транскрипции
+**Output:** `storage/users/user_XXXXXX/recordings/{id}/transcriptions/`
+- `master.json` - Метаданные транскрипции с words и segments
+- `topics.json` - Извлеченные темы с таймкодами (опционально)
 
 **Documentation:** [Fireworks Audio API](https://fireworks.ai/docs/api-reference/audio-transcriptions)
 
@@ -519,7 +528,7 @@ FireworksService (fireworks_module/service.py)
 - Таймкоды из words.txt
 - Поддержка multiple языков
 
-**Output:** 
+**Output:**
 - `subtitles.srt`
 - `subtitles.vtt`
 
@@ -656,7 +665,7 @@ Orchestrator создает chain задач вместо монолитной �
 process_recording_task(recording_id, user_id)
   ↓
 # Chain (каждый шаг на любом свободном worker)
-download_task.s() 
+download_task.s()
   | trim_task.s()
   | transcribe_task.s()
   | topics_task.s()
@@ -673,7 +682,7 @@ download_task.s()
 ### Processing Status Flow
 
 ```
-INITIALIZED → DOWNLOADING → DOWNLOADED → 
+INITIALIZED → DOWNLOADING → DOWNLOADED →
 PROCESSING → PROCESSED → UPLOADING → READY
 ```
 
@@ -846,7 +855,7 @@ DELETE /api/v1/thumbnails/{filename}
 # Returns: 204 No Content
 ```
 
-**Note:** 
+**Note:**
 - Each user gets copies of all shared templates (22 files) at registration
 - Users can upload, modify, or delete any thumbnails in their directory
 - In templates/presets, use filename only: `"thumbnail_name": "ml_extra.png"`
@@ -902,15 +911,19 @@ DELETE /api/v1/thumbnails/{filename}
 **RBAC (Role-Based Access Control):**
 ```python
 class UserModel:
+    id: str  # ULID (26 chars): "01HQ123456789ABCDEFGHJKMNP"
+    user_slug: int  # Sequential integer for storage paths (user_000001)
     role: str  # "user", "admin"
-    
+
     # Permissions
     can_transcribe: bool
     can_process_video: bool
     can_upload: bool
     can_create_templates: bool
     can_delete_recordings: bool
+    can_update_uploaded_videos: bool
     can_manage_credentials: bool
+    can_export_data: bool
 ```
 
 **Documentation:** [OAUTH.md](OAUTH.md)
@@ -987,7 +1000,7 @@ ALLOWED_ORIGINS = ["http://localhost:3000"]
 ### Setup
 
 **Requirements:**
-- Python 3.11+
+- Python 3.14+
 - PostgreSQL 12+
 - Redis
 - FFmpeg
@@ -1075,15 +1088,15 @@ alembic upgrade head
 class NewModel(Base):
     __tablename__ = "new_table"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))  # Multi-tenant
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"))  # Multi-tenant (ULID)
 ```
 
 **3. Add repository:**
 ```python
 # api/repositories/new_repository.py
 class NewRepository:
-    async def find_all(self, user_id: int) -> list[NewModel]:
-        # Auto-filter by user_id
+    async def find_all(self, user_id: str) -> list[NewModel]:
+        # Auto-filter by user_id (ULID string)
         pass
 ```
 
@@ -1100,7 +1113,7 @@ class NewService:
 # api/schemas/new/schemas.py
 class NewCreate(BaseModel):
     name: str = Field(..., min_length=1)
-    
+
 class NewResponse(BaseModel):
     id: int
     name: str
@@ -1189,7 +1202,7 @@ psql -U postgres -d zoom_manager
 ### Optimization Strategies
 
 **1. Lazy Loading:**
-- `ConfigHelper` создается только при первом обращении
+- `ConfigService` создается только при первом обращении
 - SQLAlchemy relationships с `lazy="selectin"`
 
 **2. Async Operations:**
@@ -1255,8 +1268,8 @@ psql -U postgres -d zoom_manager
 
 ## Quick Reference
 
-**Technology Stack:**  
-Python 3.11+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Celery • FFmpeg
+**Technology Stack:**
+Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Celery • FFmpeg
 
 **Features:**
 - Production-ready REST API
@@ -1270,6 +1283,6 @@ Python 3.11+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 
 ---
 
-**Version:** v0.9.4 (January 2026)  
-**Status:** Development  
+**Version:** v0.9.4 (January 2026)
+**Status:** Development
 **License:** Business Source License 1.1

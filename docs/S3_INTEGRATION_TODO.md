@@ -1,8 +1,8 @@
 # S3 Integration TODO
 
-**Version:** v0.9.4  
-**Date:** 2026-01-22  
-**Status:** 🚧 Ready for S3 Implementation  
+**Version:** v0.9.4
+**Date:** 2026-01-22
+**Status:** 🚧 Ready for S3 Implementation
 **Estimated Time:** 2-3 hours
 
 ---
@@ -70,7 +70,7 @@ logger = get_logger(__name__)
 
 class S3StorageBackend(StorageBackend):
     """S3 storage backend implementation"""
-    
+
     def __init__(
         self,
         bucket_name: str,
@@ -83,7 +83,7 @@ class S3StorageBackend(StorageBackend):
     ):
         """
         Initialize S3 backend.
-        
+
         Args:
             bucket_name: S3 bucket name
             prefix: Prefix for all keys (default: "storage")
@@ -100,7 +100,7 @@ class S3StorageBackend(StorageBackend):
         self.secret_access_key = secret_access_key
         self.endpoint_url = endpoint_url
         self.max_size_gb = max_size_gb
-        
+
         # Create boto3 session config
         self.session_config = {
             "region_name": region,
@@ -110,11 +110,11 @@ class S3StorageBackend(StorageBackend):
                 "aws_access_key_id": access_key_id,
                 "aws_secret_access_key": secret_access_key,
             })
-    
+
     def _get_s3_key(self, path: str) -> str:
         """Convert local path to S3 key"""
         return f"{self.prefix}/{path}"
-    
+
     async def save(self, path: str, content: bytes) -> str:
         """Save file to S3"""
         # Check quota if enabled
@@ -124,9 +124,9 @@ class S3StorageBackend(StorageBackend):
                 raise StorageQuotaExceededError(
                     f"Storage quota exceeded: {current_size / (1024**3):.2f}GB / {self.max_size_gb}GB"
                 )
-        
+
         s3_key = self._get_s3_key(path)
-        
+
         session = aioboto3.Session(**self.session_config)
         async with session.client("s3", endpoint_url=self.endpoint_url) as s3:
             try:
@@ -140,11 +140,11 @@ class S3StorageBackend(StorageBackend):
             except ClientError as e:
                 logger.error(f"Failed to save to S3: {e}")
                 raise
-    
+
     async def load(self, path: str) -> bytes:
         """Load file from S3"""
         s3_key = self._get_s3_key(path)
-        
+
         session = aioboto3.Session(**self.session_config)
         async with session.client("s3", endpoint_url=self.endpoint_url) as s3:
             try:
@@ -156,11 +156,11 @@ class S3StorageBackend(StorageBackend):
                     raise FileNotFoundError(f"File not found: s3://{self.bucket_name}/{s3_key}")
                 logger.error(f"Failed to load from S3: {e}")
                 raise
-    
+
     async def delete(self, path: str) -> None:
         """Delete file from S3"""
         s3_key = self._get_s3_key(path)
-        
+
         session = aioboto3.Session(**self.session_config)
         async with session.client("s3", endpoint_url=self.endpoint_url) as s3:
             try:
@@ -169,11 +169,11 @@ class S3StorageBackend(StorageBackend):
             except ClientError as e:
                 logger.error(f"Failed to delete from S3: {e}")
                 raise
-    
+
     async def exists(self, path: str) -> bool:
         """Check if file exists in S3"""
         s3_key = self._get_s3_key(path)
-        
+
         session = aioboto3.Session(**self.session_config)
         async with session.client("s3", endpoint_url=self.endpoint_url) as s3:
             try:
@@ -183,11 +183,11 @@ class S3StorageBackend(StorageBackend):
                 if e.response["Error"]["Code"] == "404":
                     return False
                 raise
-    
+
     async def get_size(self, path: str) -> int:
         """Get file size in bytes"""
         s3_key = self._get_s3_key(path)
-        
+
         session = aioboto3.Session(**self.session_config)
         async with session.client("s3", endpoint_url=self.endpoint_url) as s3:
             try:
@@ -197,12 +197,12 @@ class S3StorageBackend(StorageBackend):
                 if e.response["Error"]["Code"] == "404":
                     raise FileNotFoundError(f"File not found: s3://{self.bucket_name}/{s3_key}")
                 raise
-    
+
     async def get_total_size(self) -> int:
         """Get total size of all files in storage"""
         total_size = 0
         prefix = f"{self.prefix}/"
-        
+
         session = aioboto3.Session(**self.session_config)
         async with session.client("s3", endpoint_url=self.endpoint_url) as s3:
             paginator = s3.get_paginator("list_objects_v2")
@@ -210,7 +210,7 @@ class S3StorageBackend(StorageBackend):
                 if "Contents" in page:
                     for obj in page["Contents"]:
                         total_size += obj["Size"]
-        
+
         return total_size
 ```
 
@@ -238,7 +238,7 @@ def create_storage_backend() -> StorageBackend:
 
     if storage_type == "S3":
         from file_storage.backends.s3 import S3StorageBackend
-        
+
         backend = S3StorageBackend(
             bucket_name=settings.storage.s3_bucket,
             prefix=settings.storage.s3_prefix,
@@ -265,7 +265,7 @@ botocore>=1.34.0
 
 ### PHASE 2: Replace Path Operations (1-2 hours)
 
-**Current:** Direct Path operations  
+**Current:** Direct Path operations
 **Target:** Use `backend.save/load/delete` everywhere
 
 **Files to update:**
@@ -275,7 +275,7 @@ botocore>=1.34.0
    # BEFORE:
    temp_path.write_bytes(content)
    shutil.move(str(temp_path), str(final_path))
-   
+
    # AFTER:
    backend = get_storage_backend()
    await backend.save(relative_path, content)
@@ -286,7 +286,7 @@ botocore>=1.34.0
    # BEFORE:
    with open(audio_path, "rb") as f:
        content = f.read()
-   
+
    # AFTER:
    backend = get_storage_backend()
    content = await backend.load(relative_path)
@@ -296,7 +296,7 @@ botocore>=1.34.0
    ```python
    # BEFORE:
    path.write_text(json.dumps(data), encoding="utf-8")
-   
+
    # AFTER:
    backend = get_storage_backend()
    content = json.dumps(data).encode("utf-8")
@@ -352,7 +352,7 @@ STORAGE_S3_MAX_SIZE_GB=100  # Optional quota
 ```python
 class StorageSettings(BaseSettings):
     storage_type: str = "LOCAL"
-    
+
     # S3 settings (already exist)
     s3_bucket: str = Field(default="", description="S3 bucket name")
     s3_prefix: str = Field(default="storage", description="S3 prefix")
@@ -519,8 +519,8 @@ For direct browser uploads/downloads:
 ```python
 # Add to S3StorageBackend:
 async def get_presigned_url(
-    self, 
-    path: str, 
+    self,
+    path: str,
     expires_in: int = 3600,
     method: str = "GET"
 ) -> str:
@@ -558,13 +558,13 @@ async def get_presigned_url(
    async def migrate_to_s3():
        local_backend = LocalStorageBackend(Path("storage"))
        s3_backend = S3StorageBackend(...)
-       
+
        # Get all recording files
        for recording in all_recordings:
            for file_path in recording.get_all_files():
                content = await local_backend.load(file_path)
                await s3_backend.save(file_path, content)
-       
+
        # Update database: recording.storage_backend = "S3"
        # Switch STORAGE_TYPE=S3
    ```

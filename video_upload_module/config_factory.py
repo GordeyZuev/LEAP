@@ -36,13 +36,7 @@ class VKUploadConfig(VKConfig):
     pass
 
 
-class UploadConfig(BaseModel):
-    platform: str = Field(description="Platform name (youtube, vk)")
-    enabled: bool = True
-
-
 __all__ = [
-    "UploadConfig",
     "VKConfig",
     "VKUploadConfig",
     "YouTubeConfig",

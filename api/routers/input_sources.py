@@ -59,8 +59,14 @@ async def _fetch_zoom_recording_details(
         return None, None, False
 
 
-def _build_zoom_metadata(meeting: dict, video_file: dict | None, download_access_token: str | None,
-                         meeting_details: dict | None, zoom_processing_incomplete: bool, credentials: dict) -> dict:
+def _build_zoom_metadata(
+    meeting: dict,
+    video_file: dict | None,
+    download_access_token: str | None,
+    meeting_details: dict | None,
+    zoom_processing_incomplete: bool,
+    credentials: dict,
+) -> dict:
     """Build source metadata from Zoom API response."""
     return {
         "meeting_id": meeting.get("uuid", meeting.get("id", "")),
@@ -89,8 +95,11 @@ def _build_zoom_metadata(meeting: dict, video_file: dict | None, download_access
 
 
 def _determine_blank_status(
-    duration: int, video_file_size: int, zoom_processing_incomplete: bool,
-    min_duration_minutes: int = 20, min_file_size_mb: int = 25
+    duration: int,
+    video_file_size: int,
+    zoom_processing_incomplete: bool,
+    min_duration_minutes: int = 20,
+    min_file_size_mb: int = 25,
 ) -> bool:
     """Determine if recording should be marked as blank."""
     if zoom_processing_incomplete:
@@ -231,8 +240,10 @@ async def _sync_single_source(
                     logger.warning(f"Failed to save recording {meeting.get('id')}: {e}")
                     continue
 
-            logger.info(f"Synced {saved_count + updated_count} recordings from source {source_id} "
-                       f"(new={saved_count}, updated={updated_count})")
+            logger.info(
+                f"Synced {saved_count + updated_count} recordings from source {source_id} "
+                f"(new={saved_count}, updated={updated_count})"
+            )
 
         except Exception as e:
             logger.error(f"Zoom sync failed for source {source_id}: {e}", exc_info=True)
@@ -358,9 +369,7 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
         if _check_exclude_items(matching_rules.get("exclude_keywords"), display_name, case_sensitive):
             continue
 
-        if _check_exclude_items(
-            matching_rules.get("exclude_patterns"), display_name, case_sensitive, use_regex=True
-        ):
+        if _check_exclude_items(matching_rules.get("exclude_patterns"), display_name, case_sensitive, use_regex=True):
             continue
 
         if _check_match_items(matching_rules.get("exact_matches"), display_name, case_sensitive, exact=True):

@@ -1,15 +1,39 @@
 """Template renderer for upload metadata"""
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 class TemplateRenderer:
     """Renders templates with variable substitution and flexible topics formatting."""
 
     @staticmethod
-    def render(template: str, context: dict) -> str:
-        """Render template with context variable substitution and optional formatting."""
+    def render(template: str, context: dict, topics_display: dict | None = None) -> str:  # noqa: ARG004
+        """
+        Render template with context variables.
+
+        Supports variable substitution with optional formatting:
+        - Simple: {var_name}
+        - With format: {var_name:format}
+
+        Time format examples:
+        - {publish_time:DD-MM-YY hh:mm}
+        - {record_time:date}
+        - {record_time:time}
+        - {publish_time:YYYY-MM-DD}
+
+        Args:
+            template: Template string with {variable} or {variable:format} placeholders
+            context: Dict with variable values
+            topics_display: Optional topics display configuration
+
+        Returns:
+            Rendered string with substituted values
+
+        Example:
+            >>> render("{display_name} - {publish_time:DD.MM.YYYY}", {"display_name": "Test", "publish_time": datetime(2026,1,11)})
+            "Test - 11.01.2026"
+        """
         if not template:
             return ""
 
@@ -49,7 +73,34 @@ class TemplateRenderer:
 
     @staticmethod
     def _format_datetime(dt: datetime, format_spec: str) -> str:
-        """Format datetime with custom format (date/time/datetime or DD-MM-YY hh:mm:ss)."""
+        """
+        Format datetime with custom format specification.
+
+        Supports:
+        - 'date' - only date (YYYY-MM-DD)
+        - 'time' - only time (HH:MM)
+        - Custom format string with replacements:
+          - DD - day (01-31)
+          - MM - month (01-12)
+          - YY - year 2-digit (26)
+          - YYYY - year 4-digit (2026)
+          - hh - hour (00-23)
+          - mm - minute (00-59)
+          - ss - second (00-59)
+
+        Args:
+            dt: datetime object
+            format_spec: format specification
+
+        Returns:
+            Formatted datetime string
+
+        Examples:
+            >>> _format_datetime(datetime(2026, 1, 11, 14, 30), "DD-MM-YY hh:mm")
+            "11-01-26 14:30"
+            >>> _format_datetime(datetime(2026, 1, 11, 14, 30), "date")
+            "2026-01-11"
+        """
         if format_spec == "date":
             return dt.strftime("%Y-%m-%d")
         if format_spec == "time":
@@ -69,13 +120,35 @@ class TemplateRenderer:
 
         result = format_spec
         for key in sorted(replacements.keys(), key=len, reverse=True):
-            result = result.replace(key, replacements[key])
+            result = result.replace(key, replacements[key])  # type: ignore[arg-type]
 
         return result
 
     @staticmethod
     def _format_topics_list(topics: list[str] | list[dict], config: dict) -> str:
-        """Format topics list according to configuration (numbered/bullet/dash/comma/inline)."""
+        """
+        Format topics list according to configuration.
+
+        Args:
+            topics: List of topic strings or dicts with {topic, start, end}
+            config: topics_display configuration dict
+
+        Returns:
+            Formatted topics string
+
+        Example config:
+            {
+                "enabled": true,
+                "max_count": 999,  # Default: show all topics (999 = effectively unlimited)
+                "min_length": 0,   # Default: no filtering (0 = show all)
+                "max_length": 999,
+                "format": "numbered_list",  # numbered_list, bullet_list, dash_list, comma_separated, inline
+                "separator": "\n",
+                "prefix": "Темы:",
+                "show_timestamps": true  # Show timestamps if available
+            }
+        """
+        # Ensure config is a dict
         if not isinstance(config, dict):
             config = {}
 
@@ -91,7 +164,7 @@ class TemplateRenderer:
         min_length = config.get("min_length") or 0
         max_length = config.get("max_length") or 999
 
-        filtered_topics = [t for t in normalized_topics if min_length <= len(t.get("topic", "")) <= max_length]
+        filtered_topics = [t for t in normalized_topics if min_length <= len(str(t.get("topic", ""))) <= max_length]
 
         max_count = config.get("max_count") or 999
         if max_count > 0:
@@ -140,9 +213,30 @@ class TemplateRenderer:
 
     @staticmethod
     def prepare_recording_context(recording, topics_display: dict | None = None) -> dict:
-        """Prepare context dict from recording with all template variables."""
-        from datetime import UTC
+        """
+        Prepare context dict from recording object.
 
+        Available variables:
+        - {display_name} - recording name
+        - {record_time} - recording start time (datetime)
+        - {publish_time} - current time (datetime)
+        - {duration} - recording duration
+        - {themes} - short topics for title (from main_topics)
+        - {topics} - detailed formatted topics for description (from topic_timestamps)
+
+        Time formatting examples:
+        - {record_time:DD.MM.YYYY}
+        - {publish_time:date}
+        - {record_time:time}
+
+        Args:
+            recording: Recording model instance
+            topics_display: Optional topics display configuration for {topics}
+
+        Returns:
+            Dict with template variables
+        """
+        # Basic info
         context = {
             "display_name": recording.display_name or "Recording",
             "duration": getattr(recording, "duration", ""),

@@ -51,7 +51,6 @@ celery_app.conf.task_routes = {
     # CPU-bound: Video processing (prefork pool, low concurrency)
     # Uses asyncio.run() for DB access, but main work is CPU-intensive
     "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
-
     # I/O-bound: All other tasks (threads pool, safe for asyncio)
     # These tasks spend most time waiting for I/O (network, disk)
     "api.tasks.processing.download_recording": {"queue": "async_operations"},

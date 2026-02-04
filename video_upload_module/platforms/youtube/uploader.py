@@ -28,8 +28,8 @@ class YouTubeUploader(BaseUploader):
     def __init__(self, config: YouTubeConfig, credential_provider: CredentialProvider | None = None):
         super().__init__(config)
         self.config = config
-        self.service = None
-        self.credentials = None
+        self.service: Any = None
+        self.credentials: Any = None
         self.credential_provider = credential_provider
 
     async def authenticate(self) -> bool:
@@ -163,6 +163,7 @@ class YouTubeUploader(BaseUploader):
 
             logger.info(f"Uploading video to YouTube: {title}")
 
+            assert self.service is not None, "Service not initialized"
             request = self.service.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
 
             response = None
@@ -278,6 +279,7 @@ class YouTubeUploader(BaseUploader):
 
             logger.info(f"Uploading captions to YouTube for video {video_id} ({language})")
 
+            assert self.service is not None, "Service not initialized"
             request = self.service.captions().insert(part="snippet", body=body, media_body=media)
             response = request.execute()
 
@@ -305,6 +307,7 @@ class YouTubeUploader(BaseUploader):
             return None
 
         try:
+            assert self.service is not None, "Service not initialized"
             request = self.service.videos().list(part="snippet,statistics,status", id=video_id)
             response = request.execute()
 
@@ -334,6 +337,7 @@ class YouTubeUploader(BaseUploader):
             return False
 
         try:
+            assert self.service is not None, "Service not initialized"
             request = self.service.videos().delete(id=video_id)
             request.execute()
 

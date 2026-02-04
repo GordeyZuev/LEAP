@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 def create_storage_backend() -> StorageBackend:
     """Create storage backend based on STORAGE_TYPE setting"""
     settings = get_settings()
-    storage_type = settings.storage.storage_type.upper()
+    storage_type = settings.storage.type.upper()
 
     if storage_type == "LOCAL":
         backend = LocalStorageBackend(

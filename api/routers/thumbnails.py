@@ -52,9 +52,7 @@ def validate_filename(filename: str, strict: bool = True) -> str:
 
     if strict:
         if not FILENAME_PATTERN.match(filename):
-            raise ValueError(
-                "Filename can only contain English letters, numbers, dash (-), and underscore (_)"
-            )
+            raise ValueError("Filename can only contain English letters, numbers, dash (-), and underscore (_)")
     else:
         filename = re.sub(r"[^a-zA-Z0-9_-]", "_", filename)
         filename = filename.strip("_")
@@ -274,8 +272,7 @@ async def update_thumbnail(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"File extension mismatch. Expected '{thumbnail_name}', "
-                f"but uploaded file has '{file_ext}' extension."
+                f"File extension mismatch. Expected '{thumbnail_name}', but uploaded file has '{file_ext}' extension."
             ),
         )
 

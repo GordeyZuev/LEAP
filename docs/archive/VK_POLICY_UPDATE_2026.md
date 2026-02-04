@@ -7,12 +7,12 @@
 ### Официальное сообщение от VK Support
 
 > Здравствуйте!
-> 
+>
 > Спасибо за обращение. В связи с изменениями доступности расширенных API-методов новые расширенные API-доступы в сервисе больше не выдаются, согласно п.7.2 условий Оферты.
-> 
+>
 > Команда Поддержки VK ID
 
-**Дата:** 8 января 2026  
+**Дата:** 8 января 2026
 **Источник:** [VK ID Оферта п.7.2](https://id.vk.com/terms)
 
 ---
@@ -164,7 +164,7 @@ def check_vk_token_expiry():
         platform="vk_video",
         hours=1  # Уведомлять за 1 час
     )
-    
+
     for cred in expiring:
         send_notification(
             user_id=cred.user_id,
@@ -197,7 +197,7 @@ if (error.code === 'vk_token_expired') {
 def remind_token_refresh():
     """Напоминание об обновлении токенов."""
     credentials = get_credentials_older_than(hours=12)
-    
+
     for cred in credentials:
         if not cred.has_refresh_token:
             send_email_reminder(cred.user)
@@ -293,6 +293,5 @@ def remind_token_refresh():
 - ✅ Документация обновлена
 - ✅ Примеры credentials готовы
 
-**Дата обновления:** 8 января 2026  
+**Дата обновления:** 8 января 2026
 **Версия:** v2.10
-

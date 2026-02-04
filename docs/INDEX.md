@@ -49,6 +49,9 @@
 - [API_GUIDE.md](API_GUIDE.md) - Pydantic schemas, best practices, admin/quota API
 - [TECHNICAL.md](TECHNICAL.md) - REST API endpoints reference
 
+**Code Quality:**
+- [TYPE_CHECKING.md](TYPE_CHECKING.md) - Static type checking with ty 🆕
+
 ### 🚀 Deployment & Operations
 
 **Setup & Deploy:**
@@ -81,11 +84,11 @@
 → [TEMPLATES.md](TEMPLATES.md) - Template system, matching, automation
 
 ### "I want to understand the architecture"
-→ [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Core decisions  
+→ [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Core decisions
 → [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database structure
 
 ### "I want to use the API"
-→ [API_GUIDE.md](API_GUIDE.md) - Schemas & best practices  
+→ [API_GUIDE.md](API_GUIDE.md) - Schemas & best practices
 → [TECHNICAL.md](TECHNICAL.md) - Endpoints reference
 
 ### "I want to process recordings in bulk"
@@ -156,7 +159,7 @@
 | [security/MULTI_TENANCY_FIXES.md](security/MULTI_TENANCY_FIXES.md) | 3K | Multi-tenancy security |
 | [security/TASK_MIGRATION_GUIDE.md](security/TASK_MIGRATION_GUIDE.md) | 2K | Task isolation guide |
 
-**Total:** 20 active documents (~250KB)  
+**Total:** 20 active documents (~250KB)
 **Roadmap:** 1 technical roadmap (5KB)
 
 ---
@@ -226,6 +229,6 @@ ls -lh docs/*.md | sort -h -k5
 
 ---
 
-**Index last updated:** 19 января 2026  
-**Total docs:** 20 active + 1 roadmap + 9 archived  
+**Index last updated:** 19 января 2026
+**Total docs:** 20 active + 1 roadmap + 9 archived
 **Status:** ✅ Clean & optimized (-64% archive size)

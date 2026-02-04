@@ -5,6 +5,7 @@ Revises: 001
 Create Date: 2026-01-22
 
 """
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -25,6 +26,5 @@ def downgrade() -> None:
     import sqlalchemy as sa
 
     op.add_column(
-        "recording_templates",
-        sa.Column("priority", sa.Integer, default=0, nullable=False, server_default="0")
+        "recording_templates", sa.Column("priority", sa.Integer, default=0, nullable=False, server_default="0")
     )

@@ -2,7 +2,7 @@
 
 **Документ для обсуждения архитектуры fallback механизма для транскрибации**
 
-**Дата создания:** 2026-02-01  
+**Дата создания:** 2026-02-01
 **Статус:** Draft for Discussion
 
 ---
@@ -64,31 +64,31 @@ TRANSCRIPTION_RETRY_STRATEGY = {
 ```python
 async def transcribe_with_fallback(audio_path: str, config: dict):
     """Try each strategy in sequence until success"""
-    
+
     strategies = config.get("transcription_retry_strategy", {}).get("strategies", [])
-    
+
     for strategy_idx, strategy in enumerate(strategies):
         provider = strategy["provider"]
         model = strategy["model"]
         attempts = strategy["attempts"]
         retry_delay = strategy["retry_delay"]
-        
+
         logger.info(f"Trying strategy {strategy_idx + 1}/{len(strategies)}: {provider}/{model}")
-        
+
         for attempt in range(attempts):
             try:
                 result = await _transcribe_with_model(audio_path, provider, model)
                 logger.info(f"Transcription successful: {provider}/{model} (attempt {attempt + 1})")
                 return result
-            
+
             except Exception as e:
                 is_last_attempt = (attempt == attempts - 1)
                 is_last_strategy = (strategy_idx == len(strategies) - 1)
-                
+
                 if is_last_attempt and is_last_strategy:
                     # All strategies exhausted
                     raise TranscriptionFailedError(f"All strategies failed. Last error: {e}")
-                
+
                 if is_last_attempt:
                     # Try next strategy
                     logger.warning(f"Strategy {strategy_idx + 1} failed, trying next strategy")
@@ -123,14 +123,14 @@ async def transcribe_with_fallback(audio_path: str, config: dict):
 )
 def transcribe_recording_task(self, recording_id: int, user_id: str):
     attempt = self.request.retries
-    
+
     # First 3 attempts: turbo
     if attempt < 3:
         model = "whisper-v3-turbo"
     # Next 2 attempts: prod
     else:
         model = "whisper-v3"
-    
+
     try:
         result = await transcribe_with_model(audio_path, model)
         return result
@@ -159,14 +159,14 @@ def transcribe_recording_task(self, recording_id: int, user_id: str):
 @celery_app.task(bind=True, max_retries=5)
 def transcribe_recording_task(self, recording_id: int, user_id: str):
     attempt = self.request.retries
-    
+
     # Get strategy from config
     strategies = get_transcription_strategies()
     current_strategy = _select_strategy_for_attempt(strategies, attempt)
-    
+
     try:
         result = await transcribe_with_model(
-            audio_path, 
+            audio_path,
             model=current_strategy["model"],
             timeout=current_strategy["timeout"]
         )
@@ -207,7 +207,7 @@ class TranscriptionRetryStrategy(BaseModel):
 class TranscriptionConfig(BaseModel):
     retry_enabled: bool = True
     strategies: list[TranscriptionRetryStrategy]
-    
+
     # Example:
     # strategies = [
     #     {"provider": "fireworks", "model": "whisper-v3-turbo", "attempts": 3, ...},
@@ -233,7 +233,7 @@ async def transcribe_with_simple_fallback(audio_path: str):
                 logger.warning("Turbo failed, trying prod")
             else:
                 await asyncio.sleep(60)
-    
+
     # Try prod 2 times
     for attempt in range(2):
         try:
@@ -311,7 +311,7 @@ if quality_score(result) < 0.7:
 
 ---
 
-**Автор:** AI Assistant  
-**Для обсуждения с:** @gazuev  
-**Приоритет:** High  
+**Автор:** AI Assistant
+**Для обсуждения с:** @gazuev
+**Приоритет:** High
 **Ожидаемое время:** 2-3 спринта (Simple → Config-Driven)

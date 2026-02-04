@@ -26,7 +26,6 @@ class ZoomDownloader:
             return quote(encoded, safe="/:")
         return url
 
-
     async def download_file(
         self,
         url: str,

@@ -170,8 +170,8 @@ class SubtitleGenerator:
         """Generate subtitles from transcription file (expects segments.txt)"""
         formats = formats or ["srt", "vtt"]
         trans_path = Path(transcription_path)
-        output_dir = Path(output_dir) if output_dir else trans_path.parent
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir_path: Path = Path(output_dir) if output_dir else trans_path.parent
+        output_dir_path.mkdir(parents=True, exist_ok=True)
 
         if trans_path.is_dir():
             segments_path = trans_path / "segments.txt"
@@ -191,12 +191,12 @@ class SubtitleGenerator:
         base_name = "subtitles"
 
         if "srt" in formats:
-            srt_path = output_dir / f"{base_name}.srt"
+            srt_path = output_dir_path / f"{base_name}.srt"
             self.generate_srt(entries, str(srt_path))
             result["srt"] = str(srt_path)
 
         if "vtt" in formats:
-            vtt_path = output_dir / f"{base_name}.vtt"
+            vtt_path = output_dir_path / f"{base_name}.vtt"
             self.generate_vtt(entries, str(vtt_path))
             result["vtt"] = str(vtt_path)
 

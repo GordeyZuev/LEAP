@@ -167,19 +167,18 @@ def _extract_account_name(platform: str, credentials: dict, explicit_name: str |
 
 
 def _check_duplicate_credentials(
-    platform: str, credentials: dict, existing_cred_data: dict, cred_id: int, account: str
+    platform: str, credentials: dict, existing_cred_data: dict, cred_id: int, account: str | None
 ) -> None:
     """Check if credentials are duplicates based on platform-specific key fields."""
     if platform == "zoom":
-        if (
-            existing_cred_data.get("account_id") == credentials.get("account_id")
-            and existing_cred_data.get("client_id") == credentials.get("client_id")
-        ):
+        if existing_cred_data.get("account_id") == credentials.get("account_id") and existing_cred_data.get(
+            "client_id"
+        ) == credentials.get("client_id"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     f"Credentials with same account_id and client_id already exist "
-                    f"(credential_id: {cred_id}, account: {account})"
+                    f"(credential_id: {cred_id}, account: {account or 'N/A'})"
                 ),
             )
     elif platform == "youtube":
@@ -295,6 +294,12 @@ async def update_credentials(
 
     cred_update = UserCredentialUpdate(encrypted_data=encrypted_data)
     updated_credential = await cred_repo.update(credential.id, credential_data=cred_update)
+
+    if not updated_credential:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update credential",
+        )
 
     logger.info(f"User credentials updated: user_id={current_user.id} | credential_id={credential_id}")
 

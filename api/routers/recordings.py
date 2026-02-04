@@ -449,7 +449,7 @@ async def _execute_dry_run_bulk(
                 "recording_id": rec_id,
                 "will_be_processed": True,
                 "display_name": recording.display_name,
-                "current_status": recording.status.value,
+                "current_status": recording.status,
                 "start_time": recording.start_time.isoformat(),
             }
         )
@@ -472,8 +472,8 @@ async def list_recordings(
     search: str | None = Query(None, description="Search substring in display_name (case-insensitive)"),
     template_id: int | None = Query(None, description="Filter by template ID"),
     source_id: int | None = Query(None, description="Filter by source ID"),
-    status: list[str] = Query(
-        default=[], description="Filter by statuses (repeat param for multiple: ?status=A&status=B)"
+    status_filter: list[str] = Query(
+        default=[], description="Filter by statuses (repeat param for multiple: ?status=A&status=B)", alias="status"
     ),
     failed: bool | None = Query(None, description="Only failed recordings"),
     is_mapped: bool | None = Query(None, description="Filter by is_mapped (true/false/null=all)"),
@@ -495,19 +495,16 @@ async def list_recordings(
     if source_id is not None:
         recordings = [r for r in recordings if r.input_source_id == source_id]
 
-    if status:
-        has_failed = "FAILED" in status
-        other_statuses = [s for s in status if s != "FAILED"]
+    if status_filter:
+        has_failed = "FAILED" in status_filter
+        other_statuses = [s for s in status_filter if s != "FAILED"]
 
         if has_failed and other_statuses:
-            recordings = [
-                r for r in recordings
-                if r.status.value in other_statuses or r.failed
-            ]
+            recordings = [r for r in recordings if r.status in other_statuses or r.failed]
         elif has_failed:
             recordings = [r for r in recordings if r.failed]
         else:
-            recordings = [r for r in recordings if r.status.value in other_statuses]
+            recordings = [r for r in recordings if r.status in other_statuses]
 
     if failed is not None:
         recordings = [r for r in recordings if r.failed == failed]
@@ -667,8 +664,8 @@ async def get_recording(
         ],
         "processing_stages": [
             ProcessingStageResponse(
-                stage_type=stage.stage_type.value,
-                status=stage.status.value,
+                stage_type=stage.stage_type,
+                status=stage.status,
                 failed=stage.failed,
                 failed_at=stage.failed_at,
                 failed_reason=stage.failed_reason,
@@ -746,9 +743,7 @@ async def get_recording(
                     "segments_txt": str(
                         transcription_manager.get_dir(recording_id, user_slug) / "cache" / "segments.txt"
                     ),
-                    "words_txt": str(
-                        transcription_manager.get_dir(recording_id, user_slug) / "cache" / "words.txt"
-                    ),
+                    "words_txt": str(transcription_manager.get_dir(recording_id, user_slug) / "cache" / "words.txt"),
                 },
             }
         except Exception as e:
@@ -1059,7 +1054,7 @@ async def download_recording(
     if not should_allow_download(recording):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Download not allowed for recording with status {recording.status.value}.",
+            detail=f"Download not allowed for recording with status {recording.status}.",
         )
 
     # Check if we have download_url in source metadata
@@ -1110,7 +1105,6 @@ async def trim_recording(
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
     """Trim video using FFmpeg to remove silence (async task)."""
-    from api.helpers.status_manager import should_allow_processing
     from api.tasks.processing import trim_video_task
 
     recording_repo = RecordingRepository(ctx.session)
@@ -1122,11 +1116,11 @@ async def trim_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    # Check if we can process
-    if not should_allow_processing(recording):
+    # Check if we can process (trim allowed for PROCESSED status)
+    if recording.status not in [ProcessingStatus.PROCESSED, ProcessingStatus.DOWNLOADED]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Processing not allowed for recording with status {recording.status.value}.",
+            detail=f"Trim not allowed for recording with status {recording.status}. Recording must be downloaded or processed first.",
         )
 
     # Check if original video is present
@@ -1254,7 +1248,7 @@ async def bulk_run_recordings(
 
                 # Update status if currently SKIPPED
                 if recording.status == ProcessingStatus.SKIPPED:
-                    recording.status = ProcessingStatus.INITIALIZED
+                    recording.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
 
             tasks.append(
                 {
@@ -1342,7 +1336,7 @@ async def run_recording(
 
         # Update status if currently SKIPPED
         if recording.status == ProcessingStatus.SKIPPED:
-            recording.status = ProcessingStatus.INITIALIZED
+            recording.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
 
         await ctx.session.commit()
 
@@ -1387,7 +1381,7 @@ async def transcribe_recording(
     if not should_allow_transcription(recording):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Transcription cannot be started. Current status: {recording.status.value}. "
+            detail=f"Transcription cannot be started. Current status: {recording.status}. "
             f"Transcription is already completed or in progress.",
         )
 
@@ -1533,7 +1527,7 @@ async def upload_recording(
     if not should_allow_upload(recording, target_type_enum.value):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Upload to {platform} cannot be started. Current status: {recording.status.value}. "
+            detail=f"Upload to {platform} cannot be started. Current status: {recording.status}. "
             f"Either upload is already completed/in progress, or recording is not ready for upload.",
         )
 
@@ -1825,7 +1819,7 @@ async def retry_failed_uploads(
         if output.failed or output.status == TargetStatus.FAILED.value:
             # If specific platforms are specified, filter them
             if platforms:
-                if output.target_type.value.lower() in [p.lower() for p in platforms]:
+                if output.target_type.lower() in [p.lower() for p in platforms]:
                     failed_targets.append(output)
             else:
                 failed_targets.append(output)
@@ -2128,7 +2122,7 @@ async def reset_recording(
         message="Recording reset to initial state",
         deleted_files=deleted_files if deleted_files else None,
         errors=errors if errors else None,
-        status=recording.status.value,
+        status=recording.status,
         preserved={
             "template_id": recording.template_id,
             "is_mapped": recording.is_mapped,

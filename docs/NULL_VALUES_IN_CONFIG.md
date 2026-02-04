@@ -23,17 +23,17 @@
 ```python
 def _merge_configs(self, base: dict, override: dict) -> dict:
     result = copy.deepcopy(base)
-    
+
     for key, value in override.items():
         # Skip None values - they don't override base
         if value is None:
             continue  # ← Ключевая логика!
-        
+
         if isinstance(value, dict):
             result[key] = self._merge_configs(result[key], value)
         else:
             result[key] = copy.deepcopy(value)
-    
+
     return result
 ```
 
@@ -201,7 +201,7 @@ template:     { "topics_display": {} }  // no max_count key
    - Preset merge: `max_count = null` → **SKIPPED**
    - Template merge: `max_count = null` → **SKIPPED**
    - **Final: 10** (from user config)
-   
+
    **But wait!** Your VK showed **50 topics**, not 10. This means either:
    - Your user config had `max_count = 50` or higher
    - Or there was a bug in the old code

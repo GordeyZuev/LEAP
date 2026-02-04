@@ -2,15 +2,18 @@
 
 > **AI-powered platform for intelligent educational video content processing**
 
-![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
+![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-green.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-12+-blue.svg)
+![Redis](https://img.shields.io/badge/Redis-7+-blue.svg)
+![Celery](https://img.shields.io/badge/Celery-5+-blue.svg)
+![ty](https://img.shields.io/badge/ty-0.14+-orange.svg)
 ![License](https://img.shields.io/badge/license-BSL%201.1-orange.svg)
 
-**LEAP** — это multi-tenant платформа с полным `REST API` для автоматизации end-to-end обработки образовательного видеоконтента — от загрузки до публикации с AI-транскрибацией, интеллектуальным структурированием и профессиональным оформлением.
+**LEAP** — это `multi-tenant` платформа с полным `REST API` для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.9.4` (Production Ready)  
-**Tech:** `Python 3.11+` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek)
+**Версия:** `v0.9.4` (In development)
+**Tech:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `ruff & ty`
 
 ---
 
@@ -19,10 +22,10 @@
 **🏫 Университеты и образовательные платформы**
 - Автоматическая публикация тысяч лекций с минимальными усилиями
 - AI-структурирование контента для удобной навигации
-- Multi-tenant изоляция для разных кафедр/факультетов
+- Multi-tenant изоляция для разных факультетов/кафедр
 
 **🎓 Онлайн-школы и EdTech**
-- Быстрый time-to-market для образовательного контента
+- Быстрый `time-to-market` для образовательного контента
 - Профессиональное оформление с таймкодами и субтитрами
 - Scheduled automation для регулярных публикаций
 
@@ -32,9 +35,9 @@
 - API-first подход для интеграции в существующие системы
 
 **👨‍💼 Enterprise**
-- Multi-tenancy для изоляции клиентов/проектов
-- RBAC и квоты для контроля доступа
-- Audit logs и usage tracking
+- `Multi-tenancy` для изоляции клиентов/проектов
+- `RBAC` и квоты для контроля доступа
+- `Audit logs` и `usage tracking`
 
 ---
 
@@ -43,11 +46,11 @@
 Платформа автоматизирует полный цикл обработки видео от загрузки до публикации:
 
 ```
-📥 Zoom/Файлы → ✂️ FFmpeg → 🤖 AI (Whisper+DeepSeek) → 📝 Метаданные → 📤 YouTube/VK
-                Видео        Транскрипция+Темы        Таймкоды         Публикация
-                  ↓              ↓                        ↓                 ↓
-              Тишина       Структура контента      Описание+Субтитры   Multi-platform
-              удалена      с таймкодами           Template-based       Auto-retry
+📥 Видео-контент → ✂️ FFmpeg → 🤖 AI (Whisper+DeepSeek) → 📝 Метаданные → 📤 Публикация
+                   Обработка    Транскрипция+Темы        Таймкоды         На платформы
+                      ↓              ↓                        ↓                 ↓
+                  Тишина       Структура контента      Описание+Субтитры   Multi-platform
+                  удалена      с таймкодами           Template-based       Auto-retry
 ```
 
 ### Этап 1: 📥 Получение контента
@@ -55,24 +58,27 @@
 **Источники данных:**
 - Синхронизация с `Zoom API` через `OAuth 2.0`
 - Загрузка локальных файлов
-- Automatic retry при сбоях
+- 🚧 **В разработке (февраль 2026):**
+  - **yt-dlp** - загрузка по ссылкам с YouTube, VK, Rutube и 1000+ сайтов
+  - **Яндекс Диск** - загрузка файлов через OAuth 2.0
+  - **Google Drive** - интеграция с облачным хранилищем
 
 **Что происходит:**
-- Система забирает записи из Zoom или загружает файлы
+- Система забирает записи из различных источников
 - Создает записи в БД с метаданными
-- Скачивает видео в user-isolated storage
+- Скачивает видео в `user-isolated storage`
+- Поддержка `multi-source` для одного пользователя
 
 ### Этап 2: ✂️ Обработка видео
 
-**FFmpeg Processing:**
+**`FFmpeg Processing`:**
 - Детекция и удаление тишины
 - Обрезка пустого начала и конца
-- Удаление длинных пауз
 - Извлечение аудиодорожки для транскрибации
 
-**Celery Chains для параллелизма:**
-- Orchestrator запускает chain задач (download → trim → transcribe → topics → subs → upload)
-- Каждый шаг выполняется на свободном worker (~0.08s overhead)
+**`Celery Chains` для параллелизма:**
+- Orchestrator запускает chain задач (`download` → `trim` → `transcribe` → `topics` → `subs` → `upload`)
+- Каждый шаг выполняется на свободном worker (~0.08s `overhead`)
 - Динамическое распределение между recordings
 
 **Результат:**
@@ -84,8 +90,8 @@
 
 **Транскрибация (`Fireworks AI`):**
 - `whisper-v3-turbo` для точной транскрибации
-- Поддержка больших файлов
-- Automatic chunking и retry
+- Поддержка больших файлов (Аудио до гб)
+- `Automatic chunking` и `retry`
 
 **Извлечение структуры (`DeepSeek`):**
 - Определение основных и детализированных тем
@@ -94,20 +100,20 @@
 
 **Субтитры:**
 - Генерация `SRT` и `VTT` файлов
-- Поддержка multiple языков
+- Поддержка `multiple` языков
 
 ### Этап 4: 📝 Формирование метаданных
 
 **Автоматическая генерация:**
 - Структурированное описание с таймкодами
 - Заголовок на основе шаблона
-- Подбор миниатюр (thumbnails)
-- Применение user config и templates
+- Подбор миниатюр (`thumbnails`)
+- Применение `user config` и `templates`
 
 **Template-Based:**
-- Matching rules для автоматического применения
+- `Matching rules` для автоматического применения
 - Пресеты для разных типов контента
-- Настройка через API или config файлы
+- Настройка через `API` или `config` файлы
 
 ### Этап 5: 📤 Публикация
 
@@ -122,29 +128,21 @@
 - Добавление в альбомы
 - Настройка видимости
 
+**🚧 В разработке (февраль 2026):**
+- **Яндекс Диск** - публикация с созданием папок и шарингом
+- **Rutube** - российская видеоплатформа
+- **Local Export** - полный пакет (видео + субтитры + метаданные)
+
 **Multi-Platform:**
 - Параллельная загрузка на несколько платформ
-- Tracking статусов для каждой
-- Retry при сбоях
-
-### Этап 6: 📊 Мониторинг
-
-**Real-Time Tracking:**
-- Progress tracking для каждого этапа
-- Журнал операций
-- Usage tracking (AI costs, storage)
-- Audit logs
-
-**Automation:**
-- Scheduled jobs через `Celery Beat`
-- Automatic retry при ошибках
-- Notifications (планируется)
+- Tracking статусов для каждой платформы
+- `Template-driven` настройка для каждой платформы
 
 ---
 
-## 🚀 Почему этот проект
+## 🚀 Чем хорош проект
 
-### Enterprise-Ready Features
+### **Enterprise-Ready Features**
 
 **⚡ Comprehensive REST API**
 - Полноценный `CRUD` для всех сущностей
@@ -183,20 +181,19 @@
 
 ### ⚡ Производительность
 
-**80%+ экономия времени**
+**90%+ экономия времени**
 - Полная автоматизация: от синхронизации до публикации
-- Batch processing для массовой обработки
-- Concurrent execution с оптимизацией ресурсов
-- Scheduled automation — публикация в фоне
+- `Batch processing` для массовой обработки
+- `Concurrent execution` с оптимизацией ресурсов
+- `Scheduled automation` — публикация в фоне
 
 **Масштабируемость**
-- Multi-tenant архитектура для тысяч пользователей
-- Horizontal scaling через `Celery` workers с chains
-- Async-first для высокой пропускной способности
-- Resource quotas для fair usage
-- DB optimization (N+1 queries устранены, eager loading, bulk operations)
+- `Multi-tenant` архитектура для тысяч пользователей
+- `Horizontal scaling` через `Celery workers` с `chains`
+- `Async-first` для высокой пропускной способности
+- `DB optimization` (`eager loading`, `bulk operations`)
 
-### 🤖 AI-Powered Intelligence
+### 🤖 **AI-Powered Intelligence**
 
 **Smart Content Processing**
 - `Fireworks AI` (`whisper-v3-turbo`) — точная транскрибация
@@ -206,11 +203,11 @@
 
 **Video Enhancement**
 - `FFmpeg` — удаление тишины и пауз
-- Automatic trimming начала/конца
-- Audio extraction для AI processing
-- Quality optimization
+- `Automatic trimming` начала/конца
+- `Audio extraction` для `AI processing`
+- `Quality optimization`
 
-### 🏢 Enterprise-Grade
+### 🏢 **Enterprise-Grade**
 
 **Security & Compliance**
 - `OAuth 2.0` + `JWT` authentication
@@ -218,16 +215,9 @@
 - `RBAC` для управления доступом
 - Audit logs и usage tracking
 
-**Production-Ready**
-- Comprehensive REST API с `OpenAPI` docs
-- Health checks и monitoring (`Flower`)
-- Automatic retry mechanisms
-- Error handling и graceful degradation
-- Credential error handling без traceback spam
-
 ---
 
-## 🛠️ Технологический стек
+## 🛠️ **Технологический стек**
 
 ### Modern Python Stack
 
@@ -246,6 +236,9 @@ FFmpeg • Pydantic V2
 **External Integrations**
 ```
 Zoom API (OAuth 2.0) • YouTube Data API v3 • VK API
+
+🚧 В разработке (февраль 2026):
+yt-dlp (1000+ сайтов) • Yandex Disk API • Google Drive API
 ```
 
 **Security Stack**
@@ -257,7 +250,7 @@ PBKDF2 Hashing • RBAC • CSRF Protection
 **DevOps & Tools**
 ```
 Docker & Docker Compose • UV (package manager)
-Ruff (linter) • Flower (monitoring) • Make
+Ruff (linter) • ty (type checker) • Flower (monitoring) • Make
 ```
 
 ### Архитектурные паттерны
@@ -270,50 +263,7 @@ Ruff (linter) • Flower (monitoring) • Make
 
 ---
 
-## 🚀 Quick Start
-
-```bash
-# Production (Docker Compose)
-docker-compose up -d
-
-# Development
-make docker-up && make init-db && make api
-```
-
-**Access:**
-- API: http://localhost:8000/docs (Swagger)
-- Monitoring: http://localhost:5555 (Flower)
-
-📖 **Full Documentation:** [docs/INDEX.md](docs/INDEX.md)
-
-**Key Guides:**
-- [DEPLOYMENT.md](docs/DEPLOYMENT.md) - Setup & deployment
-- [OAUTH.md](docs/OAUTH.md) - OAuth configuration
-- [TECHNICAL.md](docs/TECHNICAL.md) - Technical reference
-- [TEMPLATES.md](docs/TEMPLATES.md) - Automation guide
-
----
-
-## 🌐 REST API
-
-**Production-ready endpoints** with full OpenAPI documentation:
-
-- 🔐 Authentication - JWT + OAuth 2.0
-- 👤 Users - Profile, config, quotas
-- 🎥 Recordings - Full processing pipeline
-- 📋 Templates - Automation rules
-- 🔌 OAuth - YouTube, VK, Zoom
-- 🤖 Automation - Scheduled jobs
-- And more...
-
-**Documentation:**
-- Interactive: http://localhost:8000/docs
-- Reference: [TECHNICAL.md](docs/TECHNICAL.md#rest-api)
-- Guide: [API_GUIDE.md](docs/API_GUIDE.md)
-
----
-
-## 🏗️ Enterprise Architecture
+## 🏗️ **Enterprise Architecture**
 
 ### Multi-Tenancy
 
@@ -364,7 +314,7 @@ storage/             ← User media files (ID-based structure)
 
 **Status Flow:**
 ```
-INITIALIZED → DOWNLOADING → DOWNLOADED → 
+INITIALIZED → DOWNLOADING → DOWNLOADED →
 PROCESSING → PROCESSED → UPLOADING → READY
 ```
 
@@ -382,72 +332,73 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ## 📚 Документация
 
-**📋 Навигация:** [docs/INDEX.md](docs/INDEX.md) - полный список документов
+**📋 Навигация:** [INDEX.md](docs/INDEX.md) - полный список документов
 
-### Core Documentation
-
-| Документ | Описание |
-|----------|----------|
-| 📖 [TECHNICAL.md](docs/TECHNICAL.md) | Complete technical docs (API, modules, security) |
-| 🚀 [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment guide (dev → production) |
-| 🔐 [OAUTH.md](docs/OAUTH.md) | OAuth setup & troubleshooting (YouTube, VK, Zoom) |
-| 📝 [TEMPLATES.md](docs/TEMPLATES.md) | Template-driven automation system |
-| 🔧 [API_GUIDE.md](docs/API_GUIDE.md) | Pydantic schemas & API best practices |
-
-### Architecture & Design
+### Основные руководства
 
 | Документ | Описание |
 |----------|----------|
-| 🏛️ [ADR_OVERVIEW.md](docs/ADR_OVERVIEW.md) | Architecture Decision Records (core) |
-| ✨ [ADR_FEATURES.md](docs/ADR_FEATURES.md) | Feature-specific ADRs |
+| 📖 [TECHNICAL.md](docs/TECHNICAL.md) | Complete technical reference (API, modules, security) |
+| 🚀 [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment guide |
 | 🗄️ [DATABASE_DESIGN.md](docs/DATABASE_DESIGN.md) | Database schema & migrations |
-| 🎯 [PLAN.md](docs/PLAN.md) | Project roadmap & thesis plan |
-
-### Additional Guides
-
-- 📦 [BULK_OPERATIONS_GUIDE.md](docs/BULK_OPERATIONS_GUIDE.md) - Batch processing
-- 🌐 [VK_INTEGRATION.md](docs/VK_INTEGRATION.md) - VK Implicit Flow (2026 policy)
-- 🔥 [FIREWORKS_BATCH_API.md](docs/FIREWORKS_BATCH_API.md) - 50% cost savings
-- 📜 [CHANGELOG.md](docs/CHANGELOG.md) - Project history
+| 🗺️ [ROADMAP.md](docs/ROADMAP.md) | Project roadmap & future plans |
+| 📋 [PLAN.md](docs/PLAN.md) | Thesis plan & milestones |
+| 🆕 [UPDATES.md](docs/UPDATES.md) | Latest updates & progress |
+| 📜 [CHANGELOG.md](docs/CHANGELOG.md) | Complete version history |
 
 ---
 
-## 🆕 Version: v0.9.4 (January 2026)
+## 🆕 Version v0.9.4 (February 2026)
 
-**Status:** Production-ready multi-tenant SaaS
+**Status:** In Active Development • Beta
 
-**v0.9.4 - Storage Structure Migration + Bugfixes (January 2026):**
+**Ключевые возможности v0.9.4:**
 
-**Storage Structure:**
-- ✅ ID-based file naming (no Cyrillic in paths)
-- ✅ Clean architecture: `file_storage/` (code) + `storage/` (data)
-- ✅ S3-ready storage abstraction
-- ✅ Complete legacy code removal
-- ✅ TranscriptionManager with user_slug (required)
+**🔐 Multi-tenancy & Data Isolation**
+- Полная изоляция данных между пользователями на всех уровнях
+- База данных: `user_id` filtering с indexes для производительности
+- Файловая система: `storage/users/user_{slug}/` - изолированные директории
+- Сервисный слой: `ServiceContext` + `ConfigHelper` для безопасного доступа
+- *Зачем:* Безопасность данных, соответствие GDPR, доверие клиентов
 
-**Critical Bugfixes (January 30):**
-- 🐛 Fixed processing status not updating during transcription
-  - Added missing `mark_stage_in_progress()` and `mark_stage_failed()` methods
-  - Reordered priority logic in `compute_aggregate_status()`
-- 🐛 Fixed upload status not updating (PROCESSED → UPLOADING → READY)
-  - Added status updates to all upload repository methods
-  - Status now correctly reflects upload state in real-time
+**🤖 Template-driven Автоматизация**
+- `Celery Beat` scheduling - запуск задач по расписанию
+- Declarative configuration - описание задач в конфигах
+- Автоматический цикл: sync → process → upload
+- Гибкие правила matching для применения templates
+- *Зачем:* Экономия времени, масштабирование без увеличения команды
 
-**Previous Features:**
-- ✅ Celery Chains для параллелизма (0.08s orchestrator overhead)
-- ✅ Graceful credential error handling
-- ✅ DB optimization (N+1 eliminated, eager loading, bulk ops)
-- ✅ Automatic token refresh decorators
-- ✅ Template-driven automation
-- ✅ Two-level deletion system
-- ✅ Unified configuration
-- ✅ Bulk operations API
+**⚡ Параллельное Выполнение Задач**
+- `Celery Chains` - параллелизм задач с минимальным overhead (0.08s)
+- Concurrent execution - одновременная обработка множества записей
+- Обрезка видео ускорена в **6x раз** (audio-first подход)
+- Оптимизация ресурсов: `CPU/IO` задачи в отдельных `queues`
+- *Зачем:* Быстрая обработка = довольные пользователи, меньше затрат на инфраструктуру
 
-📜 **Full changelog:** [CHANGELOG.md](docs/CHANGELOG.md)
+**⚙️ Единый Конфиг Системы**
+- `Unified configuration resolve`r - одна точка управления настройками
+- `Template-based` конфигурация для разных типов контента
+- Иерархия конфигов: `user` → `template` → `preferences` → `overrides`
+- Гибкость настроек без дублирования кода
+- *Зачем:* Легко управлять сложными настройками, меньше ошибок конфигурации
+
+**☁️ S3 Storage Support**
+- `S3-ready storage abstraction layer` - готово к облачному хранилищу
+- Backend factory pattern: `LOCAL` / `S3` переключение одной строкой
+- Чистая архитектура: `file_storage/` (код) + `storage/` (данные)
+- `ID-based naming` - никакой кириллицы в путях
+- *Зачем:* Неограниченное хранилище, легкое масштабирование на тысячи пользователей
+
+**🔄 Качество Кода**
+- `Pydantic V2` - современная валидация данных с type safety
+- `Ruff` - быстрый линтер (10-100x быстрее `flake8`)
+- `ty` - статический type checker (10-100x быстрее `mypy`)
+- Pre-commit hooks - автоматические проверки качества
+- *Зачем:* Меньше багов в production, быстрее разработка новых функций
 
 ---
 
-## 📄 Лицензия
+## 📄 **Лицензия**
 
 **Business Source License 1.1**
 
@@ -455,12 +406,11 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ---
 
-## 📞 Контакты
+## 📞 **Сотрудничетсво**
 
-**Документация:** [папка `docs`](docs/)
+**Телеграм:** [Gordey Zuev](https://t.me/WhiteShape)
+**Почта** [gordey.zuev@gmail.com](mailto:gordey.zuev@gmail.com)
 
 ---
 
-**Version:** `v0.9.4` (January 2026) • **Status:** Production Ready  
-**Documentation:** [docs/INDEX.md](docs/INDEX.md) • 20+ comprehensive guides  
-**Changelog:** [docs/CHANGELOG.md](docs/CHANGELOG.md) • [STORAGE_STRUCTURE_IMPLEMENTED.md](STORAGE_STRUCTURE_IMPLEMENTED.md)
+**Version:** `v0.9.4` (February 2026) • **Status:** In Active Development • Beta

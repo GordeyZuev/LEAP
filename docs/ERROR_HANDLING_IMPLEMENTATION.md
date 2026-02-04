@@ -1,6 +1,6 @@
 # Error Handling & Retry - Implementation Summary
 
-**Дата реализации:** 2026-02-01  
+**Дата реализации:** 2026-02-01
 **Статус:** ✅ Completed
 
 ---
@@ -27,7 +27,7 @@ if allow_errors=True:
     dependent_stages = SKIPPED (skip_reason="parent_failed")
     status → PROCESSED (продолжить в upload)
     failed=True (но можно upload)
-    
+
 else:
     # Rollback для ручного исправления
     status → DOWNLOADED
@@ -282,6 +282,6 @@ dependencies = {
 
 ---
 
-**Автор:** AI Assistant  
-**Принципы:** KISS, DRY, YAGNI  
+**Автор:** AI Assistant
+**Принципы:** KISS, DRY, YAGNI
 **Статус:** Production Ready

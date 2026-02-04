@@ -20,8 +20,12 @@ class TopicsDisplayConfig(BaseModel):
 
     enabled: bool = Field(True, description="Включить отображение тем")
     format: TopicsDisplayFormat = Field(TopicsDisplayFormat.NUMBERED_LIST, description="Формат списка")
-    max_count: int | None = Field(None, ge=1, le=999, description="Максимальное количество тем (None = default из base config)")
-    min_length: int | None = Field(None, ge=0, le=500, description="Минимальная длина темы в символах (0 = без фильтрации)")
+    max_count: int | None = Field(
+        None, ge=1, le=999, description="Максимальное количество тем (None = default из base config)"
+    )
+    min_length: int | None = Field(
+        None, ge=0, le=500, description="Минимальная длина темы в символах (0 = без фильтрации)"
+    )
     max_length: int | None = Field(None, ge=10, le=1000, description="Максимальная длина темы в символах")
     prefix: str | None = Field(None, max_length=200, description="Префикс перед списком тем")
     separator: str = Field("\n", max_length=10, description="Разделитель между темами")

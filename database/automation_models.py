@@ -33,7 +33,9 @@ class AutomationJobModel(Base):
     run_count = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    )
 
     user = relationship("UserModel", back_populates="automation_jobs")
 

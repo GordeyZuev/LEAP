@@ -302,9 +302,7 @@ class StorageSettings(BaseSettings):
 
     # Thumbnails
     thumbnail_dir: str = Field(default="thumbnails", description="Thumbnail directory")
-    template_thumbnail_dir: str = Field(
-        default="storage/shared/thumbnails", description="Template thumbnail directory"
-    )
+    template_thumbnail_dir: str = Field(default="storage/shared/thumbnails", description="Template thumbnail directory")
 
     # Max file sizes
     max_upload_size_mb: int = Field(default=5000, ge=1, description="Max upload size (MB)")

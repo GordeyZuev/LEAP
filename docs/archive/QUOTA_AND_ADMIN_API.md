@@ -1,6 +1,6 @@
 # Quota & Admin API Documentation
 
-**Дата:** 9 января 2026  
+**Дата:** 9 января 2026
 **Версия:** v2.11
 
 ---
@@ -518,6 +518,5 @@ const quota_status = await quotaResponse.json();
 - `api/main.py` - Добавлен admin роутер
 - `database/auth_models.py` - Исправлен relationship для subscription
 
-**Всего endpoints:** 67 (было 65)  
+**Всего endpoints:** 67 (было 65)
 **Linter errors:** 0 ✅
-

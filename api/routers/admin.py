@@ -125,9 +125,8 @@ async def get_user_stats(
         recordings_used = row[8] or 0
         storage_bytes_used = row[9] or 0
 
-        is_exceeding = (
-            (recordings_limit is not None and recordings_used > recordings_limit)
-            or (storage_limit is not None and (storage_bytes_used / (1024**3)) > storage_limit)
+        is_exceeding = (recordings_limit is not None and recordings_used > recordings_limit) or (
+            storage_limit is not None and (storage_bytes_used / (1024**3)) > storage_limit
         )
 
         if exceeded_only and not is_exceeding:
@@ -176,9 +175,14 @@ async def get_quota_stats(
         ).where(QuotaUsageModel.period == period)
     )
     row = result.first()
-    total_recordings = row[0] or 0
-    total_storage_bytes = row[1] or 0
-    total_overage_cost = row[2] or Decimal("0")
+    if row is None:
+        total_recordings = 0
+        total_storage_bytes = 0
+        total_overage_cost = Decimal("0")
+    else:
+        total_recordings = row[0] or 0
+        total_storage_bytes = row[1] or 0
+        total_overage_cost = row[2] or Decimal("0")
 
     result = await session.execute(
         select(

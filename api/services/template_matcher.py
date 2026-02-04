@@ -1,6 +1,6 @@
 """Recording to template matching service"""
 
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +43,7 @@ class TemplateMatcher:
 
         matched = _find_matching_template(
             display_name=recording.display_name,
-            source_id=recording.source.id if recording.source else 0,
+            source_id=recording.input_source_id or 0,
             templates=[template],
         )
 
@@ -62,7 +62,7 @@ class TemplateMatcher:
         if template.processing_config:
             recording.processing_preferences = self._merge_configs(
                 recording.processing_preferences or {},
-                template.processing_config,
+                cast("dict", template.processing_config),
             )
 
         if template.output_config:

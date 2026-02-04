@@ -87,7 +87,7 @@ class ZoomAPI:
                 f"Fetching recordings: from={from_date} | to={to_date} | meeting_id={meeting_id}",
                 from_date=from_date,
                 to_date=to_date,
-                meeting_id=meeting_id
+                meeting_id=meeting_id,
             )
             async with httpx.AsyncClient() as client:
                 response = await client.get(
@@ -98,7 +98,10 @@ class ZoomAPI:
 
                 if response.status_code == 200:
                     data = response.json()
-                    logger.info(f"Fetched recordings: count={len(data.get('meetings', []))}", count=len(data.get("meetings", [])))
+                    logger.info(
+                        f"Fetched recordings: count={len(data.get('meetings', []))}",
+                        count=len(data.get("meetings", [])),
+                    )
                     # Логируем сырые данные от Zoom API
                     import json
 
@@ -111,7 +114,7 @@ class ZoomAPI:
                     f"API error: account={account} | status={response.status_code}",
                     account=account,
                     status_code=response.status_code,
-                    response_preview=response.text[:200]
+                    response_preview=response.text[:200],
                 )
                 raise ZoomResponseError(f"Ошибка API: {response.status_code} - {response.text}")
 
@@ -123,7 +126,7 @@ class ZoomAPI:
                 account=account,
                 error_type=error_type,
                 error=str(e),
-                exc_info=True
+                exc_info=True,
             )
             raise ZoomRequestError(f"Ошибка сетевого запроса: {e}") from e
         except ZoomAPIError:
@@ -136,7 +139,7 @@ class ZoomAPI:
                 account=account,
                 error_type=error_type,
                 error=str(e),
-                exc_info=True
+                exc_info=True,
             )
             raise ZoomAPIError(f"Неожиданная ошибка: {e}") from e
 
@@ -186,7 +189,7 @@ class ZoomAPI:
                         f"Recording still processing on Zoom side: account={account} | meeting_id={meeting_id} | message={error_message}",
                         account=account,
                         meeting_id=meeting_id,
-                        zoom_code=error_code
+                        zoom_code=error_code,
                     )
                     raise ZoomRecordingProcessingError(f"Запись ещё обрабатывается: {error_message}")
 
@@ -197,7 +200,7 @@ class ZoomAPI:
                     meeting_id=meeting_id,
                     status_code=response.status_code,
                     zoom_code=error_code,
-                    response_preview=error_message[:200] if error_message else response.text[:200]
+                    response_preview=error_message[:200] if error_message else response.text[:200],
                 )
                 raise ZoomResponseError(f"Ошибка API: {response.status_code} - {error_message}")
 
@@ -210,7 +213,7 @@ class ZoomAPI:
                 meeting_id=meeting_id,
                 error_type=error_type,
                 error=str(e),
-                exc_info=True
+                exc_info=True,
             )
             raise ZoomRequestError(f"Ошибка сетевого запроса: {e}") from e
         except ZoomAPIError:
@@ -224,6 +227,6 @@ class ZoomAPI:
                 meeting_id=meeting_id,
                 error_type=error_type,
                 error=str(e),
-                exc_info=True
+                exc_info=True,
             )
             raise ZoomAPIError(f"Неожиданная ошибка: {e}") from e

@@ -1,6 +1,6 @@
 # Thumbnail API Security & Validation
 
-**Date:** 2026-01-23  
+**Date:** 2026-01-23
 **Status:** ✅ Implemented
 
 ## Security Measures
@@ -207,7 +207,7 @@ Users can modify or delete these copies independently.
    - Users can modify, delete, or keep them as-is
 
 2. **In templates/presets:** You specify only the filename: `"ml_extra.png"`
-   
+
 3. **At upload time:** API resolves filename to user's file:
    - Checks: `storage/users/user_000001/thumbnails/ml_extra.png`
    - Uses this file for upload
@@ -273,8 +273,8 @@ preset_metadata (output preset):
 ### 2. Handle 404 gracefully
 
 ```typescript
-<img 
-  src={thumbnail.url} 
+<img
+  src={thumbnail.url}
   alt={thumbnail.name}
   onError={(e) => {
     e.currentTarget.src = '/fallback.png';
@@ -362,5 +362,5 @@ curl -X GET '/api/v1/thumbnails/secret.png' \
 
 ---
 
-**Implementation:** Following OWASP security guidelines  
+**Implementation:** Following OWASP security guidelines
 **Reference:** [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)

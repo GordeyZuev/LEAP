@@ -10,9 +10,7 @@ from database.template_models import OutputPresetModel
 from models.recording import ProcessingStageStatus, ProcessingStageType, TargetStatus, TargetType
 
 
-def _build_stages_from_config(
-    processing_config: dict[str, Any]
-) -> list[tuple[ProcessingStageType, dict]]:
+def _build_stages_from_config(processing_config: dict[str, Any]) -> list[tuple[ProcessingStageType, dict]]:
     """Build list of required stages from processing config."""
     stages = []
     trimming_config = processing_config.get("trimming", {})

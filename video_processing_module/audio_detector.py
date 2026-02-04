@@ -24,10 +24,14 @@ class AudioDetector:
 
             cmd = [
                 "ffmpeg",
-                "-threads", "1",
-                "-i", audio_path,
-                "-af", f"silencedetect=noise={self.silence_threshold}dB:d={self.min_silence_duration}",
-                "-f", "null",
+                "-threads",
+                "1",
+                "-i",
+                audio_path,
+                "-af",
+                f"silencedetect=noise={self.silence_threshold}dB:d={self.min_silence_duration}",
+                "-f",
+                "null",
                 "-",
             ]
 
@@ -62,6 +66,7 @@ class AudioDetector:
         """Parse ffmpeg output to extract silence periods."""
         silence_periods = []
         lines = ffmpeg_output.split("\n")
+        start_time = None
 
         for line in lines:
             if "silence_start" in line:
@@ -72,8 +77,10 @@ class AudioDetector:
             elif "silence_end" in line:
                 try:
                     end_time = float(line.split("silence_end: ")[1].split()[0])
-                    silence_periods.append((start_time, end_time))
-                except (IndexError, ValueError, NameError):
+                    if start_time is not None:
+                        silence_periods.append((start_time, end_time))
+                    start_time = None  # Reset for next pair
+                except (IndexError, ValueError):
                     continue
 
         return silence_periods

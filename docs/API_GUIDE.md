@@ -121,7 +121,7 @@ class MyModel(BaseModel):
             "description": "Model description"
         }
     )
-    
+
     # Порядок сохранится в Swagger
     id: int
     name: str
@@ -137,7 +137,7 @@ from pydantic import field_validator
 
 class Template(BaseModel):
     keywords: list[str]
-    
+
     @field_validator("keywords", mode="before")
     @classmethod
     def normalize_keywords(cls, v):
@@ -157,7 +157,7 @@ from pydantic import computed_field
 class Recording(BaseModel):
     start_time: datetime
     end_time: datetime
-    
+
     @computed_field
     @property
     def duration_minutes(self) -> int:
@@ -194,7 +194,7 @@ from pydantic import HttpUrl, field_validator
 
 class Config(BaseModel):
     webhook_url: HttpUrl | None = None
-    
+
     @field_validator("webhook_url", mode="before")
     @classmethod
     def empty_str_to_none(cls, v):
@@ -219,7 +219,7 @@ from pydantic import field_validator
 class Event(BaseModel):
     start_time: datetime
     end_time: datetime
-    
+
     @field_validator("end_time")
     @classmethod
     def end_after_start(cls, v, info):
@@ -544,5 +544,5 @@ curl -X PATCH /api/v1/admin/users/5/quota \
 
 ---
 
-**Документ обновлен:** Январь 2026  
+**Документ обновлен:** Январь 2026
 **Pydantic Version:** V2 ✅

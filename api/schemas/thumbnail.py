@@ -19,7 +19,7 @@ class ThumbnailListResponse(BaseModel):
 
     thumbnails: list[ThumbnailInfo] = Field(
         default_factory=list,
-        description="Thumbnails of user (including copies of templates, obtained during registration)"
+        description="Thumbnails of user (including copies of templates, obtained during registration)",
     )
 
 

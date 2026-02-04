@@ -18,9 +18,7 @@ class VKMetadataConfig(BaseModel):
         examples=["ml_extra.png", "hse_ai.jpg", "custom_thumbnail.png"],
     )
     title_template: str | None = Field(None, max_length=500, description="VK-specific title template")
-    description_template: str | None = Field(
-        None, max_length=5000, description="VK-specific description template"
-    )
+    description_template: str | None = Field(None, max_length=5000, description="VK-specific description template")
 
 
 class YouTubeMetadataConfig(BaseModel):
@@ -34,9 +32,7 @@ class YouTubeMetadataConfig(BaseModel):
         examples=["python_base.png", "hse_ai.jpg", "custom_thumbnail.png"],
     )
     title_template: str | None = Field(None, max_length=500, description="YouTube-specific title template")
-    description_template: str | None = Field(
-        None, max_length=5000, description="YouTube-specific description template"
-    )
+    description_template: str | None = Field(None, max_length=5000, description="YouTube-specific description template")
 
 
 class TemplateMetadataConfig(BaseModel):

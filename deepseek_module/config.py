@@ -94,10 +94,10 @@ class DeepSeekConfig(BaseSettings):
     @model_validator(mode="after")
     def validate_config(self) -> DeepSeekConfig:
         """Validate field dependencies."""
-        if (self.top_k is not None or self.reasoning_effort is not None) and "fireworks.ai" not in self.base_url.lower():
-            logger.warning(
-                "⚠️ Fireworks-specific parameters set without Fireworks endpoint. May not work."
-            )
+        if (
+            self.top_k is not None or self.reasoning_effort is not None
+        ) and "fireworks.ai" not in self.base_url.lower():
+            logger.warning("⚠️ Fireworks-specific parameters set without Fireworks endpoint. May not work.")
         return self
 
     @classmethod

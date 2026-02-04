@@ -1,5 +1,7 @@
 """User configuration repository"""
 
+from typing import cast
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,7 +64,7 @@ class UserConfigRepository:
             return copy.deepcopy(DEFAULT_USER_CONFIG)
 
         # Merge: defaults as base, user overrides on top (deep_merge does deep copy)
-        return deep_merge(DEFAULT_USER_CONFIG, user_config_model.config_data)
+        return deep_merge(DEFAULT_USER_CONFIG, cast("dict", user_config_model.config_data))
 
     async def create(self, user_id: str, config_data: dict) -> UserConfigModel:
         config = UserConfigModel(user_id=user_id, config_data=config_data)

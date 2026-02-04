@@ -92,25 +92,25 @@
 def matches_template(recording: Recording, template: Template) -> bool:
     rules = template.matching_rules
     results = []
-    
+
     # Check exact matches
     if rules.exact_matches:
         results.append(recording.display_name in rules.exact_matches)
-    
+
     # Check keywords
     if rules.keywords:
         name_lower = recording.display_name.lower()
         results.append(any(kw.lower() in name_lower for kw in rules.keywords))
-    
+
     # Check regex patterns
     if rules.patterns:
         import re
         results.append(any(re.search(p, recording.display_name) for p in rules.patterns))
-    
+
     # Check source filter
     if rules.source_ids:
         results.append(recording.source_id in rules.source_ids)
-    
+
     # Apply match_mode
     if rules.match_mode == "all":
         return all(results)
@@ -199,13 +199,13 @@ async def create_template(
 ):
     # Create template
     template = await template_service.create(data)
-    
+
     # Auto re-match unmapped recordings
     matched_count = await template_matcher.rematch_unmapped_recordings(
         user_id=ctx.user_id,
         template=template
     )
-    
+
     return template
 ```
 
@@ -280,10 +280,10 @@ curl -X POST http://localhost:8000/api/v1/templates/5/preview-rematch \
 async def delete_template(template_id: int, ctx: ServiceContext):
     # 1. Delete template
     await template_service.delete(template_id, ctx.user_id)
-    
+
     # 2. Auto-unmap recordings
     await recording_service.unmap_by_template(template_id, ctx.user_id)
-    
+
     # recordings.template_id = NULL
     # recordings.is_mapped = False
     # recordings.status сохраняется (UPLOADED остается UPLOADED)
@@ -347,11 +347,11 @@ CREATE TABLE recording_template_mappings (
     id SERIAL PRIMARY KEY,
     recording_id INT REFERENCES recordings(id),
     template_id INT REFERENCES recording_templates(id),
-    
+
     is_active BOOLEAN DEFAULT TRUE,
     matched_at TIMESTAMP,
     unmapped_at TIMESTAMP,
-    
+
     match_score FLOAT,  -- Future: confidence score
     matched_rules JSONB,  -- Which rules matched
     rank INT  -- Priority (1 = primary)
@@ -759,5 +759,5 @@ final = {"privacy": "private", "category_id": 27, "playlist_id": "PLxxx"}
 
 ---
 
-**Документ обновлен:** Январь 2026  
+**Документ обновлен:** Январь 2026
 **Статус:** Production Ready ✅

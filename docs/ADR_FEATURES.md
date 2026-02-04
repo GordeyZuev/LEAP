@@ -1,7 +1,7 @@
 # Architecture Decision Records - Features
 
-**Проект:** LEAP Platform  
-**Версия:** 2.0 (Актуализировано: январь 2026)  
+**Проект:** LEAP Platform
+**Версия:** 2.0 (Актуализировано: январь 2026)
 **Статус:** Production Features
 
 ---
@@ -20,7 +20,7 @@
 
 ## ADR-010: Automation System
 
-**Статус:** ✅ Полностью реализовано  
+**Статус:** ✅ Полностью реализовано
 **Дата:** Январь 2026
 
 ### Решение
@@ -96,17 +96,17 @@ async def execute_automation_job(job_id: int):
     """
     job = await get_job(job_id)
     template = await get_template(job.template_id)
-    
+
     # Sync
     new_recordings = await sync_sources(template.source_ids)
-    
+
     # Filter + Process
     to_process = await filter_recordings(
         template_id=template.id,
         status="INITIALIZED",
         exclude_blank=True
     )
-    
+
     # Batch process
     await bulk_process_recordings(to_process)
 ```
@@ -152,7 +152,7 @@ if job.last_run_at + min_interval > now():
 
 ## ADR-011: Async Processing (Celery)
 
-**Статус:** ✅ Полностью реализовано  
+**Статус:** ✅ Полностью реализовано
 **Дата:** Январь 2026
 
 ### Решение
@@ -295,7 +295,7 @@ process_recording_task(recording_id, user_id)
 
 ## ADR-012: Quotas & Subscriptions
 
-**Статус:** ✅ Полностью реализовано  
+**Статус:** ✅ Полностью реализовано
 **Дата:** Январь 2026
 
 ### Решение
@@ -413,7 +413,7 @@ GET /admin/users/{id}/usage - User usage history
 
 ## ADR-013: Audit Logging
 
-**Статус:** 🚧 Частично реализовано (базовый logging)  
+**Статус:** 🚧 Частично реализовано (базовый logging)
 **Приоритет:** Medium (для compliance)
 
 ### Решение
@@ -488,7 +488,7 @@ GET /users/me/activity - User activity log
 
 ## ADR-014: Notifications
 
-**Статус:** 🚧 Частично реализовано (error logging)  
+**Статус:** 🚧 Частично реализовано (error logging)
 **Приоритет:** Low (nice to have)
 
 ### Решение
@@ -547,7 +547,7 @@ class NotificationService:
     ):
         # Send via configured channels
         pass
-    
+
     async def send_quota_warning(
         user_id: int,
         quota_type: str,
@@ -562,7 +562,7 @@ class NotificationService:
 
 ## ADR-015: FSM для надежной обработки
 
-**Статус:** ✅ Полностью реализовано  
+**Статус:** ✅ Полностью реализовано
 **Дата:** Январь 2026
 
 ### Решение
@@ -643,7 +643,7 @@ if not validate_transition(recording.status, new_status):
 class OutputTarget:
     target_type: str  # youtube, vk
     status: TargetStatus  # Enum
-    
+
     # Transitions
     NOT_UPLOADED → UPLOADING → UPLOADED
     NOT_UPLOADED → FAILED
@@ -679,15 +679,15 @@ async def retry_recording(recording_id: int):
     5. Increment retry_count
     """
     recording = await get_recording(recording_id)
-    
+
     if not recording.failed:
         raise ValueError("Recording not failed")
-    
+
     # Continue from failed stage
     stage = recording.failed_at_stage
     recording.failed = False
     recording.retry_count += 1
-    
+
     if stage == "DOWNLOADING":
         await download_task(recording_id)
     elif stage == "PROCESSING":
@@ -735,7 +735,7 @@ GET /recordings/{id}/stages - Get processing stages
 
 ## ADR-016: Database Performance Optimization
 
-**Статус:** ✅ Полностью реализовано  
+**Статус:** ✅ Полностью реализовано
 **Дата:** Январь 2026
 
 ### Решение
@@ -866,5 +866,5 @@ stmt = (
 
 ---
 
-**Документ обновлен:** Январь 2026  
+**Документ обновлен:** Январь 2026
 **Статус фич:** 4/6 fully done, 2/6 partial

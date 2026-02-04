@@ -30,7 +30,6 @@ class VideoProcessor:
         for directory in [self.config.input_dir, self.config.output_dir, self.config.temp_dir]:
             Path(directory).mkdir(parents=True, exist_ok=True)
 
-
     async def get_video_info(self, video_path: str) -> dict[str, Any]:
         """Extract video metadata using ffprobe."""
         cmd = [
@@ -85,12 +84,17 @@ class VideoProcessor:
         try:
             cmd = [
                 "ffmpeg",
-                "-i", video_path,
+                "-i",
+                video_path,
                 "-vn",
-                "-acodec", "libmp3lame",
-                "-ab", "64k",
-                "-ar", "16000",
-                "-ac", "1",
+                "-acodec",
+                "libmp3lame",
+                "-ab",
+                "64k",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
                 "-y",
                 output_audio_path,
             ]
@@ -102,6 +106,7 @@ class VideoProcessor:
             await process.wait()
 
             if process.returncode != 0:
+                assert process.stderr is not None, "stderr should be available"
                 stderr_output = await process.stderr.read()
                 logger.error(f"Audio extraction failed: {stderr_output.decode()[:500]}")
                 return False
@@ -125,10 +130,14 @@ class VideoProcessor:
 
             cmd = [
                 "ffmpeg",
-                "-ss", str(start_time),
-                "-t", str(duration),
-                "-i", input_audio_path,
-                "-c", "copy",
+                "-ss",
+                str(start_time),
+                "-t",
+                str(duration),
+                "-i",
+                input_audio_path,
+                "-c",
+                "copy",
                 "-y",
                 output_audio_path,
             ]
@@ -140,6 +149,7 @@ class VideoProcessor:
             await process.wait()
 
             if process.returncode != 0:
+                assert process.stderr is not None, "stderr should be available"
                 stderr_output = await process.stderr.read()
                 logger.error(f"Audio trimming failed: {stderr_output.decode()[:500]}")
                 return False
@@ -193,6 +203,7 @@ class VideoProcessor:
             await process.wait()
 
             if process.returncode != 0:
+                assert process.stderr is not None, "stderr should be available"
                 stderr_output = await process.stderr.read()
                 logger.error(f"FFmpeg trimming failed: {stderr_output.decode()[:500]}")
                 return False

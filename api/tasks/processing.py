@@ -21,7 +21,7 @@ from deepseek_module import DeepSeekConfig, TopicExtractor
 from file_storage.path_builder import StoragePathBuilder
 from fireworks_module import FireworksConfig, FireworksTranscriptionService
 from logger import get_logger
-from models import MeetingRecording, ProcessingStageType, ProcessingStatus, recording as models
+from models import MeetingRecording, ProcessingStageType, ProcessingStatus
 from models.recording import ProcessingStageStatus
 from transcription_module.manager import TranscriptionManager, get_transcription_manager
 from video_download_module.downloader import ZoomDownloader
@@ -424,7 +424,7 @@ async def _async_process_video(
                 break
 
         if trim_stage:
-            trim_stage.status = models.recording.ProcessingStageStatus.IN_PROGRESS
+            trim_stage.status = ProcessingStageStatus.IN_PROGRESS
             update_aggregate_status(recording)
             await session.commit()
 
@@ -436,10 +436,7 @@ async def _async_process_video(
 
         logger.info(f"Extracting full audio: id={recording_id}")
 
-        success = await processor.extract_audio_full(
-            recording.local_video_path,
-            str(temp_audio_path)
-        )
+        success = await processor.extract_audio_full(recording.local_video_path, str(temp_audio_path))
 
         if not success:
             raise Exception("Failed to extract audio from video")
@@ -447,9 +444,7 @@ async def _async_process_video(
         # Step 2: Analyze audio file (faster than video)
         task_self.update_progress(user_id, 40, "Analyzing audio for silence...", step="analyze")
 
-        first_sound, last_sound = await processor.audio_detector.detect_audio_boundaries_from_file(
-            str(temp_audio_path)
-        )
+        first_sound, last_sound = await processor.audio_detector.detect_audio_boundaries_from_file(str(temp_audio_path))
 
         if first_sound is None:
             if temp_audio_path.exists():
@@ -489,12 +484,7 @@ async def _async_process_video(
             # Step 3: Trim video
             task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
 
-            success = await processor.trim_video(
-                recording.local_video_path,
-                output_video_path,
-                start_trim,
-                end_trim
-            )
+            success = await processor.trim_video(recording.local_video_path, output_video_path, start_trim, end_trim)
 
             if not success:
                 if temp_audio_path.exists():
@@ -504,12 +494,7 @@ async def _async_process_video(
             # Step 4: Trim audio (stream copy - instant)
             task_self.update_progress(user_id, 80, "Trimming audio...", step="trim_audio")
 
-            success = await processor.trim_audio(
-                str(temp_audio_path),
-                final_audio_path,
-                start_trim,
-                end_trim
-            )
+            success = await processor.trim_audio(str(temp_audio_path), final_audio_path, start_trim, end_trim)
 
             if not success:
                 if temp_audio_path.exists():
@@ -528,17 +513,14 @@ async def _async_process_video(
 
         # Mark TRIM stage as COMPLETED
         if trim_stage:
-            trim_stage.status = models.recording.ProcessingStageStatus.COMPLETED
+            trim_stage.status = ProcessingStageStatus.COMPLETED
             trim_stage.completed_at = datetime.now(UTC)
             update_aggregate_status(recording)
 
         await recording_repo.update(recording)
         await session.commit()
 
-        logger.info(
-            f"✅ Trimming complete: id={recording_id}, "
-            f"video={output_video_path}, audio={final_audio_path}"
-        )
+        logger.info(f"✅ Trimming complete: id={recording_id}, video={output_video_path}, audio={final_audio_path}")
 
         return {
             "success": True,
@@ -821,9 +803,7 @@ def _launch_uploads_task(
     """
     from api.tasks.upload import upload_recording_to_platform
 
-    logger.info(
-        f"[Task {self.request.id}] Launching uploads for recording {recording_id}: platforms={platforms}"
-    )
+    logger.info(f"[Task {self.request.id}] Launching uploads for recording {recording_id}: platforms={platforms}")
 
     upload_task_ids = []
     for platform in platforms:
@@ -1018,9 +998,7 @@ def run_recording_task(
                 )
             )
 
-            logger.info(
-                f"[Task {self.request.id}] Added upload launcher for platforms: {platforms}"
-            )
+            logger.info(f"[Task {self.request.id}] Added upload launcher for platforms: {platforms}")
 
         # Launch chain
         chain_signature = chain(*task_chain)
@@ -1440,12 +1418,10 @@ async def _async_poll_batch_transcription(
 
     try:
         recording_repo = RecordingRepository(session)
-        recording_db = await recording_repo.find_by_id(recording_id, user_id)
+        recording_db = await recording_repo.get_by_id(recording_id, user_id)
 
         if not recording_db:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
-
-        recording = MeetingRecording.from_db_model(recording_db)
 
         # Initialize Fireworks service
         fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
@@ -1495,29 +1471,25 @@ async def _async_poll_batch_transcription(
                 task_self.update_progress(user_id, 90, "Saving transcription...", step="batch_transcribe")
 
                 # Get user_slug for path generation
-                user_slug = recording.owner.user_slug
+                user_slug = recording_db.owner.user_slug
 
                 # Save master.json
                 words = transcription_result.get("words", [])
                 segments = transcription_result.get("segments", [])
                 language = transcription_result.get("language", "ru")
 
-                master_data = {
-                    "text": transcription_result.get("text", ""),
-                    "segments": segments,
-                    "words": words,
-                    "language": language,
-                }
-
                 transcription_manager.save_master(
                     recording_id=recording_id,
-                    master_data=master_data,
+                    words=words,
+                    segments=segments,
+                    language=language,
+                    model="fireworks",
                     user_slug=user_slug,
                 )
 
                 # Update recording in DB
-                recording.transcription_path = transcription_manager.get_dir(recording_id, user_slug)
-                recording.mark_stage_completed(
+                recording_db.transcription_dir = str(transcription_manager.get_dir(recording_id, user_slug))
+                recording_db.mark_stage_completed(
                     ProcessingStageType.TRANSCRIBE,
                     meta={
                         "batch_id": batch_id,
@@ -1531,9 +1503,9 @@ async def _async_poll_batch_transcription(
                 # Update aggregated status
                 from api.helpers.status_manager import update_aggregate_status
 
-                update_aggregate_status(recording)
+                update_aggregate_status(recording_db)
 
-                await recording_repo.update(recording)
+                await recording_repo.update(recording_db)
                 await session.commit()
 
                 return {

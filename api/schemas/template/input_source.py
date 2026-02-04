@@ -83,9 +83,7 @@ class InputSourceResponse(BaseModel):
 class BulkSyncRequest(BaseModel):
     model_config = BASE_MODEL_CONFIG
 
-    source_ids: list[int] = Field(
-        ..., min_length=1, max_length=50, description="List of source IDs to sync"
-    )
+    source_ids: list[int] = Field(..., min_length=1, max_length=50, description="List of source IDs to sync")
     from_date: str = Field("2025-01-01", description="Start date in YYYY-MM-DD format")
     to_date: str | None = Field(None, description="End date in YYYY-MM-DD format (optional)")
 

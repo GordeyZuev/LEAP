@@ -1,6 +1,6 @@
 # Templates, Presets & Sources - Complete Guide
 
-**Version:** 0.9.4  
+**Version:** 0.9.4
 **Last Updated:** January 2026
 
 Complete reference for configuring Recording Templates, Output Presets, and Input Sources in LEAP Platform.
@@ -416,7 +416,7 @@ Defines which recordings match this template.
 2. Common (`thumbnail_name`)
 3. From preset (`preset.preset_metadata.thumbnail_name`)
 
-**Note:** All `thumbnail_name` values should be just filenames (e.g., "ml_extra.png"), not full paths. 
+**Note:** All `thumbnail_name` values should be just filenames (e.g., "ml_extra.png"), not full paths.
 API automatically resolves filename to user's thumbnail directory: `storage/users/user_XXXXXX/thumbnails/`
 Each user gets their own copies of all shared templates at registration.
 
@@ -449,7 +449,7 @@ Each user gets their own copies of all shared templates at registration.
 
 **Step 1: Get Active Templates**
 ```sql
-SELECT * FROM recording_templates 
+SELECT * FROM recording_templates
 WHERE user_id = ? AND is_active = true AND is_draft = false
 ORDER BY created_at ASC
 ```

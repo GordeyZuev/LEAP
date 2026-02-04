@@ -1,6 +1,6 @@
 # 🎯 Production-Ready Multi-tenant платформа
 
-**Период:** 2-14 января 2026  
+**Период:** 2-14 января 2026
 **Версия:** v0.9.3
 **Статус:** Production Ready
 
@@ -21,11 +21,11 @@
 ```
 Day 0:  User DELETE → deleted=true, delete_state="soft"
         hard_delete_at = now + (soft_delete_days + hard_delete_days)
-        
+
 Day 3:  Maintenance → Files cleanup (Level 2)
         Удалены: video, audio | Сохранены: master.json, topics.json, метаданные БД
         delete_state="hard", soft_deleted_at=now
-        
+
 Day 33: Maintenance → Hard delete (Level 3)
         Удалена запись из БД полностью
 ```
@@ -294,9 +294,9 @@ Day 33: Maintenance → Hard delete (Level 3)
 
 ### Core Categories
 
-**Authentication** (5): register, login, refresh, logout, logout-all  
-**Users** (6): me, config, quota, quota/history, password, delete  
-**Admin** (3): stats/overview, stats/users, stats/quotas  
+**Authentication** (5): register, login, refresh, logout, logout-all
+**Users** (6): me, config, quota, quota/history, password, delete
+**Admin** (3): stats/overview, stats/users, stats/quotas
 
 **Recordings** (16):
 - CRUD + details, process, transcribe, topics, subtitles, upload
@@ -308,13 +308,13 @@ Day 33: Maintenance → Hard delete (Level 3)
 - CRUD + from-recording
 - stats, preview-match, rematch, preview-rematch
 
-**Credentials** (6): CRUD + status, VK token API  
-**Input Sources** (6): CRUD + sync, bulk-sync  
-**Output Presets** (5): CRUD  
+**Credentials** (6): CRUD + status, VK token API
+**Input Sources** (6): CRUD + sync, bulk-sync
+**Output Presets** (5): CRUD
 
-**OAuth** (6): YouTube, VK, Zoom (authorize + callback)  
-**Automation** (6): jobs CRUD + run, dry-run  
-**Tasks** (2): status + progress, cancel  
+**OAuth** (6): YouTube, VK, Zoom (authorize + callback)
+**Automation** (6): jobs CRUD + run, dry-run
+**Tasks** (2): status + progress, cancel
 **Health** (1)
 
 **Swagger UI:** http://localhost:8000/docs

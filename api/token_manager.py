@@ -156,9 +156,7 @@ class TokenManager:
             if self._is_token_valid():
                 return self._cached_token
 
-            access_token, expires_in = await self._fetch_token(
-                config, max_retries, base_delay, max_delay
-            )
+            access_token, expires_in = await self._fetch_token(config, max_retries, base_delay, max_delay)
 
             if access_token:
                 self._cached_token = access_token

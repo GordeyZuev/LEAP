@@ -390,7 +390,7 @@ async def preview_template_match(
                 {
                     "id": recording.id,
                     "display_name": recording.display_name,
-                    "current_status": recording.status.value,
+                    "current_status": recording.status,
                     "current_is_mapped": recording.is_mapped,
                     "will_become_status": "INITIALIZED",
                     "will_become_is_mapped": True,

@@ -69,8 +69,7 @@ class LocalStorageBackend(StorageBackend):
         return sum(
             file_path.stat().st_size
             for file_path in self.base.rglob("*")
-            if file_path.is_file()
-            and not self._should_skip_file(file_path)
+            if file_path.is_file() and not self._should_skip_file(file_path)
         )
 
     def _should_skip_file(self, file_path: Path) -> bool:

@@ -29,7 +29,7 @@ update_task_state_with_user(self, user_id, ...)
 # api/tasks/base.py
 class BaseTask(Task):
     """Base class for all application tasks."""
-    
+
     def update_progress(self, user_id, progress, status, **kwargs):
         self.update_state(state="PROCESSING", meta={
             "user_id": user_id,
@@ -81,10 +81,10 @@ Task (Celery)
 class BaseTask(Task):
     # Обновление прогресса с user_id
     def update_progress(user_id, progress, status, step=None, **extra_meta)
-    
+
     # Формирование результата с user_id
     def build_result(user_id, status="completed", **data)
-    
+
     # Hooks для логирования
     def on_failure(exc, task_id, args, kwargs, einfo)
     def on_retry(exc, task_id, args, kwargs, einfo)
@@ -103,9 +103,9 @@ def process_recording_task(self, recording_id: int, user_id: int):
         status="Processing video...",
         step="trim"
     )
-    
+
     result = do_processing()
-    
+
     # Вместо: return {"task_id": self.request.id, ...}
     return self.build_result(
         user_id=user_id,

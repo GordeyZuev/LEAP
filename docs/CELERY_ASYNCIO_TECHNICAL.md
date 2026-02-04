@@ -1,8 +1,8 @@
 # Celery + Asyncio: Technical Deep Dive
 
-> **Проблема:** InterfaceError при использовании asyncio в Celery  
-> **Решение:** Threads pool + asyncio.run() + NullPool  
-> **Operational Guide:** См. [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md)  
+> **Проблема:** InterfaceError при использовании asyncio в Celery
+> **Решение:** Threads pool + asyncio.run() + NullPool
+> **Operational Guide:** См. [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md)
 > **Статус:** ✅ Production Ready
 
 ---
@@ -114,7 +114,7 @@ async with async_session() as session:  # loop #2
 celery_app.conf.task_routes = {
     # CPU-bound: prefork pool (изоляция процессов)
     "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
-    
+
     # I/O-bound: threads pool (asyncio-safe)
     "api.tasks.processing.*": {"queue": "async_operations"},
     "api.tasks.upload.*": {"queue": "async_operations"},
@@ -219,7 +219,7 @@ def my_task(self, recording_id, user_id):
         async with get_session() as session:
             recording = await session.get(RecordingModel, recording_id)
             # ... async работа
-    
+
     return self.run_async(_async_work())  # ✅ Через базовый класс
 ```
 
@@ -232,7 +232,7 @@ def cleanup_expired_tokens_task():
     async def cleanup():
         async with get_session() as session:
             return await session.execute(...)
-    
+
     return asyncio.run(cleanup())  # ✅ Напрямую asyncio.run()
 ```
 
@@ -425,7 +425,7 @@ SELECT count(*) FROM pg_stat_activity WHERE state = 'active';
 -- Long-running queries
 SELECT pid, now() - query_start AS duration, query
 FROM pg_stat_activity
-WHERE state = 'active' 
+WHERE state = 'active'
 ORDER BY duration DESC;
 ```
 
@@ -580,7 +580,7 @@ curl -X POST 'http://localhost:8000/api/v1/templates/11/rematch' \
 
 ---
 
-**Date:** 2026-01-24  
-**Python:** 3.13+  
-**Celery:** 5.x  
+**Date:** 2026-01-24
+**Python:** 3.13+
+**Celery:** 5.x
 **Status:** ✅ Production Ready

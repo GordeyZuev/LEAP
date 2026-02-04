@@ -136,4 +136,3 @@ batch_transcribe_recording_task(
 **"Batch API вернул ошибку":**
 - Проверьте API key и account_id
 - Проверьте размер файла (max 1GB)
-

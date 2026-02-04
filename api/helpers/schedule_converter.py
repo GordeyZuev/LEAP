@@ -25,7 +25,7 @@ def get_next_run_time(cron_expression: str, timezone_str: str) -> datetime:
     tz = pytz.timezone(timezone_str)
     cron = croniter(cron_expression, datetime.now(tz))
     next_run = cron.get_next(datetime)
-    return next_run.astimezone(pytz.UTC) if next_run.tzinfo else pytz.UTC.localize(next_run)
+    return next_run.astimezone(pytz.UTC) if next_run.tzinfo else pytz.UTC.localize(next_run)  # type: ignore[call-arg]
 
 
 def schedule_to_cron(schedule: dict) -> tuple[str, str]:

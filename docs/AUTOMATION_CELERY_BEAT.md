@@ -1,7 +1,7 @@
 # Automation Jobs & Celery Beat Integration
 
-> **Status**: ✅ Fully Implemented  
-> **Migration**: 008_create_celery_beat_tables  
+> **Status**: ✅ Fully Implemented
+> **Migration**: 008_create_celery_beat_tables
 > **Updated**: 2026-01-31
 
 ## Overview
@@ -115,7 +115,7 @@ Run on specific days at specific time.
 }
 ```
 
-**Days**: `0=Monday, 1=Tuesday, ..., 6=Sunday`  
+**Days**: `0=Monday, 1=Tuesday, ..., 6=Sunday`
 **Cron equivalent**: `30 09 * * 1,3,5`
 
 **Use cases:**
@@ -380,7 +380,7 @@ WHERE name LIKE 'automation_job_%'
 ORDER BY last_run_at DESC;
 
 -- Next runs
-SELECT 
+SELECT
   aj.name,
   aj.next_run_at,
   pt.enabled

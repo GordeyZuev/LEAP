@@ -4,7 +4,6 @@ Provides centralized logic for clearing failure state when retrying failed opera
 Follows DRY principle - single source of truth for failure reset.
 """
 
-
 from database.models import RecordingModel
 from logger import get_logger
 

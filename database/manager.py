@@ -306,7 +306,7 @@ class DatabaseManager:
             db_target = existing_outputs.get(target_type_value)
             target_status = _normalize_enum(target.status, TargetStatus)
             if db_target:
-                db_target.status = target_status
+                db_target.status = target_status  # type: ignore[assignment]
                 db_target.target_meta = target.target_meta
                 db_target.uploaded_at = target.uploaded_at
             else:

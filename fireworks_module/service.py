@@ -126,7 +126,6 @@ class FireworksTranscriptionService:
 
         raise RuntimeError(f"Transcription failed after {retry_attempts} attempts") from last_error
 
-
     def _format_error_info(self, exc: Exception) -> str:
         """Extract status code and response body from exception."""
         status_code = getattr(exc, "status_code", None)
@@ -189,12 +188,14 @@ class FireworksTranscriptionService:
             if seg_end_float <= seg_start_float:
                 seg_end_float = seg_start_float + 0.1
 
-            segments.append({
-                "id": len(segments),
-                "start": seg_start_float,
-                "end": seg_end_float,
-                "text": seg_text.strip(),
-            })
+            segments.append(
+                {
+                    "id": len(segments),
+                    "start": seg_start_float,
+                    "end": seg_end_float,
+                    "text": seg_text.strip(),
+                }
+            )
 
         return segments
 
@@ -224,12 +225,14 @@ class FireworksTranscriptionService:
             if word_end_float <= word_start_float:
                 word_end_float = word_start_float + 0.1
 
-            words.append({
-                "id": len(words),
-                "start": word_start_float,
-                "end": word_end_float,
-                "word": word_text.strip(),
-            })
+            words.append(
+                {
+                    "id": len(words),
+                    "start": word_start_float,
+                    "end": word_end_float,
+                    "word": word_text.strip(),
+                }
+            )
 
         words.sort(key=lambda x: x["start"])
         return words
@@ -363,12 +366,14 @@ class FireworksTranscriptionService:
 
             if merged and word_count < short_segment_words and duration < short_segment_duration:
                 prev = merged.pop()
-                merged.append({
-                    "id": prev["id"],
-                    "start": prev["start"],
-                    "end": seg["end"],
-                    "text": f"{prev['text']} {seg['text']}".strip(),
-                })
+                merged.append(
+                    {
+                        "id": prev["id"],
+                        "start": prev["start"],
+                        "end": seg["end"],
+                        "text": f"{prev['text']} {seg['text']}".strip(),
+                    }
+                )
             else:
                 merged.append(seg)
 
@@ -384,7 +389,9 @@ class FireworksTranscriptionService:
 
         payload = self._to_dict(response)
         if not payload:
-            payload = {k: getattr(response, k) for k in ("text", "segments", "language", "words") if hasattr(response, k)}
+            payload = {
+                k: getattr(response, k) for k in ("text", "segments", "language", "words") if hasattr(response, k)
+            }
 
         text = payload.get("text") or ""
         language = payload.get("language") or self.config.language
@@ -406,9 +413,7 @@ class FireworksTranscriptionService:
             )
 
         if not all_words:
-            raise ValueError(
-                "No words in response. Ensure timestamp_granularities contains 'word'"
-            )
+            raise ValueError("No words in response. Ensure timestamp_granularities contains 'word'")
 
         segments_auto = self._create_segments_from_words(all_words)
         logger.info(f"Created {len(segments_auto)} local segments")
@@ -484,9 +489,7 @@ class FireworksTranscriptionService:
         """Parse SRT content into segments and text parts."""
         segments: list[dict[str, Any]] = []
         text_parts: list[str] = []
-        timestamp_pattern = re.compile(
-            r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})"
-        )
+        timestamp_pattern = re.compile(r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})")
 
         lines = srt_content.split("\n")
         i = 0
@@ -514,12 +517,14 @@ class FireworksTranscriptionService:
 
                 subtitle_text = " ".join(subtitle_lines).strip()
                 if subtitle_text:
-                    segments.append({
-                        "id": len(segments),
-                        "start": start_sec,
-                        "end": end_sec,
-                        "text": subtitle_text,
-                    })
+                    segments.append(
+                        {
+                            "id": len(segments),
+                            "start": start_sec,
+                            "end": end_sec,
+                            "text": subtitle_text,
+                        }
+                    )
                     text_parts.append(subtitle_text)
             else:
                 i += 1
@@ -555,10 +560,7 @@ class FireworksTranscriptionService:
         async with httpx.AsyncClient(timeout=60.0) as client:
             with Path(audio_path).open("rb") as audio_file:
                 files = {"file": (Path(audio_path).name, audio_file, "audio/mpeg")}
-                data = {
-                    k: json.dumps(v) if not isinstance(v, str) else v
-                    for k, v in params.items()
-                }
+                data = {k: json.dumps(v) if not isinstance(v, str) else v for k, v in params.items()}
 
                 response = await client.post(
                     url,

@@ -2,7 +2,7 @@
 
 **Документ для обсуждения архитектуры Smart Resume и унификации retry механизма**
 
-**Дата создания:** 2026-02-01  
+**Дата создания:** 2026-02-01
 **Статус:** Draft for Discussion
 
 ---
@@ -65,7 +65,7 @@ POST /recordings/{id}/run?resume=true
 ```python
 def run_recording(recording_id: int, resume: bool = False):
     recording = get_recording(recording_id)
-    
+
     if resume:
         # Smart Resume: продолжить с места остановки
         return _resume_from_current_state(recording)
@@ -75,31 +75,31 @@ def run_recording(recording_id: int, resume: bool = False):
 
 def _resume_from_current_state(recording):
     """Resume from current status/stage."""
-    
+
     # 1. Download не завершён
     if recording.status in [INITIALIZED, DOWNLOADING]:
         if recording.failed and recording.failed_at_stage == "download":
             return download_task.delay(recording_id)
         return download_task.delay(recording_id)
-    
+
     # 2. Processing stages не завершены
     if recording.status in [DOWNLOADED, PROCESSING]:
         # Check which stages need to run
         pending_stages = get_pending_stages(recording)
         return run_processing_pipeline(recording, stages=pending_stages)
-    
+
     # 3. Upload не завершён или partial
     if recording.status in [PROCESSED, UPLOADING, UPLOADED]:
         failed_outputs = get_failed_outputs(recording)
         not_uploaded = get_not_uploaded_outputs(recording)
-        
+
         targets = failed_outputs + not_uploaded
         if targets:
             return upload_targets(recording, targets)
-        
+
         # Already complete
         return {"status": "complete", "message": "Nothing to resume"}
-    
+
     # 4. Already READY
     if recording.status == READY:
         return {"status": "complete", "message": "Recording already complete"}
@@ -177,11 +177,11 @@ async def run_recording(
 ):
     """
     Run recording processing pipeline.
-    
+
     Args:
         resume: If True, continue from current state (smart resume).
                 If False, start from beginning (full re-run).
-    
+
     Examples:
         - Recording failed at download → resume will retry download
         - Recording failed at transcribe → resume will continue from transcribe
@@ -190,17 +190,17 @@ async def run_recording(
     """
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
-    
+
     if not recording:
         raise HTTPException(404, "Recording not found")
-    
+
     if resume:
         # Smart Resume
         result = await _smart_resume(recording, ctx)
     else:
         # Full pipeline
         result = await _run_full_pipeline(recording, manual_override, ctx)
-    
+
     return result
 ```
 
@@ -210,7 +210,7 @@ async def run_recording(
 async def _smart_resume(recording: RecordingModel, ctx: ServiceContext):
     """
     Smart Resume: determine current state and continue from there.
-    
+
     State Machine:
     1. INITIALIZED/SKIPPED → start download
     2. DOWNLOADING (failed) → retry download
@@ -222,12 +222,12 @@ async def _smart_resume(recording: RecordingModel, ctx: ServiceContext):
     """
     from api.tasks.processing import download_recording_task, run_recording_task
     from api.tasks.upload import upload_recording_to_platform
-    
+
     # 1. Download phase
     if recording.status in [ProcessingStatus.INITIALIZED, ProcessingStatus.SKIPPED]:
         task = download_recording_task.delay(recording.id, ctx.user_id, force=False)
         return {"task_id": task.id, "phase": "download", "resumed": False}
-    
+
     if recording.status == ProcessingStatus.DOWNLOADING:
         # Failed download - retry
         if recording.failed and recording.failed_at_stage == "download":
@@ -235,59 +235,59 @@ async def _smart_resume(recording: RecordingModel, ctx: ServiceContext):
             return {"task_id": task.id, "phase": "download", "resumed": True, "retry": True}
         # Still downloading - return existing task
         return {"message": "Download already in progress", "phase": "download"}
-    
+
     # 2. Processing phase
     if recording.status in [ProcessingStatus.DOWNLOADED, ProcessingStatus.PROCESSING]:
         # Check if any stages failed or pending
         has_failed = any(s.status == ProcessingStageStatus.FAILED for s in recording.processing_stages)
         has_pending = any(s.status == ProcessingStageStatus.PENDING for s in recording.processing_stages)
-        
+
         if has_failed or has_pending or recording.status == ProcessingStatus.DOWNLOADED:
             # Resume processing from current point
             task = run_recording_task.delay(recording.id, ctx.user_id)
             return {"task_id": task.id, "phase": "processing", "resumed": True}
-        
+
         return {"message": "Processing already in progress", "phase": "processing"}
-    
+
     # 3. Upload phase
     if recording.status in [ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADING, ProcessingStatus.UPLOADED]:
         # Find failed or not-uploaded outputs
         failed_outputs = [o for o in recording.outputs if o.status == TargetStatus.FAILED]
         pending_outputs = [o for o in recording.outputs if o.status == TargetStatus.NOT_UPLOADED]
-        
+
         targets_to_upload = failed_outputs + pending_outputs
-        
+
         if targets_to_upload:
             # Resume uploads
             tasks = []
             for output in targets_to_upload:
                 platform = output.target_type.value.lower()
                 task = upload_recording_to_platform.delay(
-                    recording.id, 
-                    ctx.user_id, 
+                    recording.id,
+                    ctx.user_id,
                     platform,
                     preset_id=output.preset_id
                 )
                 tasks.append({"platform": platform, "task_id": task.id})
-            
+
             return {
                 "phase": "upload",
                 "resumed": True,
                 "tasks": tasks,
                 "message": f"Resuming {len(tasks)} failed/pending uploads"
             }
-        
+
         # Check if already complete
         if recording.status == ProcessingStatus.READY:
             return {"message": "Recording already complete", "phase": "complete", "resumed": False}
-        
+
         # In progress
         return {"message": "Upload already in progress", "phase": "upload"}
-    
+
     # 4. Already complete
     if recording.status == ProcessingStatus.READY:
         return {"message": "Recording already complete. Use resume=false to re-run.", "phase": "complete"}
-    
+
     # Unknown state
     return {"message": f"Cannot resume from status {recording.status.value}", "error": True}
 ```
@@ -470,7 +470,7 @@ POST /recordings/123/run?resume=false
 
 ---
 
-**Автор:** AI Assistant  
-**Для обсуждения с:** @gazuev  
-**Приоритет:** High  
+**Автор:** AI Assistant
+**Для обсуждения с:** @gazuev
+**Приоритет:** High
 **Ожидаемое время:** 1-2 дня реализации

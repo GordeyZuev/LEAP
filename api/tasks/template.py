@@ -1,6 +1,5 @@
 """Celery tasks для работы с templates."""
 
-
 from sqlalchemy import select
 
 from api.celery_app import celery_app

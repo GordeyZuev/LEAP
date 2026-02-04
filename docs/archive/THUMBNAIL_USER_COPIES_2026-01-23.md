@@ -1,7 +1,7 @@
 # Thumbnail User Copies Approach
 
-**Date:** 2026-01-23  
-**Status:** ✅ Implemented  
+**Date:** 2026-01-23
+**Status:** ✅ Implemented
 **Decision:** Each user gets their own copies of shared templates
 
 ## Problem Solved
@@ -245,5 +245,5 @@ Each user gets their own copies.
 
 ---
 
-**Implementation:** KISS principle - simplest solution that works  
+**Implementation:** KISS principle - simplest solution that works
 **Related:** docs/THUMBNAILS_SECURITY.md, docs/STORAGE_STRUCTURE_IMPLEMENTED.md

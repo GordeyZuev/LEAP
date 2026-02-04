@@ -1,6 +1,6 @@
 [project]
 name = "leap"
-version = "0.9.3"
+version = "0.9.4"
 description = "LEAP - Lecture Enhancement & Automation Platform for intelligent video content processing"
 readme = "README.md"
 license = {text = "Business Source License 1.1"}
@@ -58,3 +58,69 @@ dependencies = [
     "gevent>=25.9.1",
     "python-ulid>=3.1.0",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "pytest-mock>=3.15.1",
+    "ty>=0.0.14",
+]
+
+[tool.ty]
+# ty configuration - extremely fast type checker
+
+[tool.ty.environment]
+# Python version for type checking
+python-version = "3.14"
+
+# Project root directories for first-party modules
+root = [
+    ".",
+]
+
+[tool.ty.src]
+# Paths to check
+include = [
+    "api",
+    "database",
+    "models",
+    "utils",
+    "config",
+    "video_download_module",
+    "video_processing_module",
+    "video_upload_module",
+    "subtitle_module",
+    "transcription_module",
+    "deepseek_module",
+    "fireworks_module",
+    "file_storage",
+]
+
+# Exclude patterns (in addition to defaults)
+exclude = [
+    "alembic/versions",
+    "tests",
+]
+
+[tool.ty.terminal]
+# Output format for diagnostics
+output-format = "full"
+
+[tool.ty.analysis]
+# Respect type: ignore comments (in addition to ty: ignore)
+respect-type-ignore-comments = true
+
+# Allow unresolved imports for third-party libraries that might not have stubs
+allowed-unresolved-imports = []
+
+# Override rules for test files
+[[tool.ty.overrides]]
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+# Relax some rules in tests
+possibly-unresolved-reference = "warn"

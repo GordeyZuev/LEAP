@@ -1,7 +1,7 @@
 # 🔍 Media System Audit & Redesign
 
-**Дата:** 2026-01-16  
-**Статус:** Critical Issues Found  
+**Дата:** 2026-01-16
+**Статус:** Critical Issues Found
 **Приоритет:** 🔴 Высокий
 
 ---
@@ -126,7 +126,7 @@ async def delete(self, recording: RecordingModel) -> None:
     # 1. Delete files FIRST
     file_manager = FileManager()
     await file_manager.delete_recording_files(recording)
-    
+
     # 2. Update quota
     # 3. Delete DB record
     await self.session.delete(recording)
@@ -246,17 +246,17 @@ class FileManager:
     async def save_file(self, path, content, user_id):
         # 1. Save file
         file_size = len(content)
-        
+
         # 2. Update quota AUTOMATICALLY
         await QuotaService.track_storage_added(user_id, file_size)
-    
+
     async def delete_file(self, path, user_id):
         # 1. Get file size
         file_size = path.stat().st_size
-        
+
         # 2. Delete file
         path.unlink()
-        
+
         # 3. Update quota AUTOMATICALLY
         await QuotaService.track_storage_removed(user_id, file_size)
 ```
@@ -325,11 +325,11 @@ local_video_path: "user_5/video/unprocessed/142_original.mp4"
 class RecordingModel:
     id: int
     user_id: int
-    
+
     @property
     def local_video_path(self) -> Path:
         return PathBuilder.video_original(self.user_id, self.id)
-    
+
     @property
     def processed_audio_path(self) -> Path:
         return PathBuilder.audio_processed(self.user_id, self.id)
@@ -366,17 +366,17 @@ recording.processed_audio_path = str(audio_path)
 async def save_processed_audio(recording, audio_path):
     # 1. Create temp file
     temp_path = audio_path.with_suffix(".tmp")
-    
+
     # 2. Process (FFmpeg)
     await process_audio(temp_path)
-    
+
     # 3. Verify integrity
     if not verify_audio_file(temp_path):
         raise ValueError("Audio file corrupted")
-    
+
     # 4. Atomic rename
     temp_path.rename(audio_path)
-    
+
     # 5. Only then save to DB
     recording.processed_audio_path = str(audio_path)
 ```
@@ -459,5 +459,5 @@ media/
 
 ---
 
-**Статус:** Ready for implementation  
+**Статус:** Ready for implementation
 **Следующий шаг:** Начать с Фазы 1 (Critical Fixes)

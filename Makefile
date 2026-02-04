@@ -169,6 +169,25 @@ db-history:
 test:
 	uv run pytest tests/ -v
 
+# Tests: Запуск unit тестов (с моками, без БД)
+.PHONY: tests-mock
+tests-mock:
+	@echo "🧪 Running unit tests with mocks..."
+	@uv run ruff check tests/
+	@uv run pytest tests/unit/ -v --tb=short
+
+# Tests: Code quality checks
+.PHONY: tests-quality
+tests-quality:
+	@echo "🔍 Running code quality tests..."
+	@uv run pytest tests/quality/ -v -m quality
+
+# Tests: Security checks
+.PHONY: tests-security
+tests-security:
+	@echo "🔒 Running security tests..."
+	@uv run pytest tests/quality/ -v -m security
+
 .PHONY: help
 help:
 	@echo "📦 Установка и обновление:"
@@ -177,8 +196,13 @@ help:
 	@echo ""
 	@echo "🔍 Проверка и форматирование:"
 	@echo "  make lint           - Проверка кода (ruff check)"
-	@echo "  make lint-fix       - Авто-исправления (ruff check --fix)"
-	@echo "  make format         - Форматирование (ruff format)"
+	@echo "  make lint-fix       - Авто-исправления + форматирование"
+	@echo "  make format         - Форматирование кода"
+	@echo "  make typecheck      - Проверка типов (ty)"
+	@echo "  make typecheck-watch - Проверка типов в watch режиме"
+	@echo "  make quality        - Все проверки качества"
+	@echo "  make pre-commit-install - Установить pre-commit hooks"
+	@echo "  make pre-commit-run     - Запустить pre-commit проверки"
 	@echo ""
 	@echo "🚀 API & Workers:"
 	@echo "  make api            - Запуск FastAPI (dev режим)"
@@ -211,6 +235,9 @@ help:
 	@echo ""
 	@echo "🧪 Тестирование:"
 	@echo "  make test           - Запуск всех тестов"
+	@echo "  make tests-mock     - Unit тесты (быстрые, с моками)"
+	@echo "  make tests-quality  - Проверки качества кода"
+	@echo "  make tests-security - Проверки безопасности"
 	@echo ""
 	@echo "🧹 Очистка:"
 	@echo "  make clean-pycache  - Очистить __pycache__ и *.pyc/*.pyo"
@@ -230,15 +257,56 @@ uv-update:
 
 .PHONY: lint
 lint:
-	@ruff check .
+	@echo "🔍 Running ruff linter..."
+	@uv run ruff check .
 
 .PHONY: lint-fix
 lint-fix:
-	@ruff check . --fix
+	@echo "🔧 Running ruff auto-fix..."
+	@uv run ruff check . --fix
+	@uv run ruff format .
 
 .PHONY: format
 format:
-	@ruff format .
+	@echo "✨ Formatting code..."
+	@uv run ruff format .
+
+# Type checking with ty
+.PHONY: typecheck
+typecheck:
+	@echo "🔍 Running ty type checker..."
+	@uv run ty check
+
+# Watch mode for ty (useful during development)
+.PHONY: typecheck-watch
+typecheck-watch:
+	@echo "👀 Running ty in watch mode..."
+	@uv run ty check --watch
+
+# Type check with detailed output
+.PHONY: typecheck-verbose
+typecheck-verbose:
+	@echo "🔍 Running ty with verbose output..."
+	@uv run ty check --verbose
+
+# Pre-commit: Install hooks
+.PHONY: pre-commit-install
+pre-commit-install:
+	@echo "🪝 Installing pre-commit hooks..."
+	@uv add --dev pre-commit
+	@uv run pre-commit install
+	@echo "✅ Pre-commit hooks installed"
+
+# Pre-commit: Run on all files
+.PHONY: pre-commit-run
+pre-commit-run:
+	@echo "🔍 Running pre-commit on all files..."
+	@uv run pre-commit run --all-files
+
+# Quality: Run all quality checks
+.PHONY: quality
+quality: lint typecheck tests-quality
+	@echo "✅ All quality checks passed"
 
 .PHONY: clean-logs
 clean-logs:
@@ -246,5 +314,3 @@ clean-logs:
 
 .PHONY: clean
 clean: clean-pycache clean-logs
-
-

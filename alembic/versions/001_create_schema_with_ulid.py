@@ -142,8 +142,12 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(26), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("changed_by", sa.String(26), sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True),
         sa.Column("change_type", sa.String(50), nullable=False),
-        sa.Column("old_plan_id", sa.Integer, sa.ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True),
-        sa.Column("new_plan_id", sa.Integer, sa.ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "old_plan_id", sa.Integer, sa.ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True
+        ),
+        sa.Column(
+            "new_plan_id", sa.Integer, sa.ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True
+        ),
         sa.Column("changes", postgresql.JSONB, nullable=True),
         sa.Column("notes", sa.Text, nullable=True),
         sa.Column("created_at", sa.DateTime, default=sa.func.now(), nullable=False),
@@ -175,13 +179,17 @@ def upgrade() -> None:
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text, nullable=True),
         sa.Column("source_type", sa.String(50), nullable=False),
-        sa.Column("credential_id", sa.Integer, sa.ForeignKey("user_credentials.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "credential_id", sa.Integer, sa.ForeignKey("user_credentials.id", ondelete="SET NULL"), nullable=True
+        ),
         sa.Column("config", postgresql.JSONB, nullable=True),
         sa.Column("is_active", sa.Boolean, default=True, nullable=False),
         sa.Column("last_sync_at", sa.DateTime, nullable=True),
         sa.Column("created_at", sa.DateTime, default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime, default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
-        sa.UniqueConstraint("user_id", "name", "source_type", "credential_id", name="uq_input_sources_user_name_type_credential"),
+        sa.UniqueConstraint(
+            "user_id", "name", "source_type", "credential_id", name="uq_input_sources_user_name_type_credential"
+        ),
     )
     op.create_index("ix_input_sources_id", "input_sources", ["id"])
     op.create_index("ix_input_sources_user_id", "input_sources", ["user_id"])
@@ -194,7 +202,9 @@ def upgrade() -> None:
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text, nullable=True),
         sa.Column("platform", sa.String(50), nullable=False),
-        sa.Column("credential_id", sa.Integer, sa.ForeignKey("user_credentials.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "credential_id", sa.Integer, sa.ForeignKey("user_credentials.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("preset_metadata", postgresql.JSONB, nullable=True),
         sa.Column("is_active", sa.Boolean, default=True, nullable=False),
         sa.Column("created_at", sa.DateTime, default=sa.func.now(), nullable=False),
@@ -263,8 +273,15 @@ def upgrade() -> None:
         sa.Column("source_id", sa.Integer, sa.ForeignKey("input_sources.id", ondelete="CASCADE"), nullable=False),
         sa.Column("template_ids", postgresql.ARRAY(sa.Integer), nullable=False, server_default="{}"),
         sa.Column("schedule", postgresql.JSONB, nullable=False),
-        sa.Column("sync_config", postgresql.JSONB, nullable=False, server_default='{"sync_days": 2, "allow_skipped": false}'),
-        sa.Column("processing_config", postgresql.JSONB, nullable=False, server_default='{"auto_process": true, "auto_upload": true, "max_parallel": 3}'),
+        sa.Column(
+            "sync_config", postgresql.JSONB, nullable=False, server_default='{"sync_days": 2, "allow_skipped": false}'
+        ),
+        sa.Column(
+            "processing_config",
+            postgresql.JSONB,
+            nullable=False,
+            server_default='{"auto_process": true, "auto_upload": true, "max_parallel": 3}',
+        ),
         sa.Column("is_active", sa.Boolean, default=True, nullable=False),
         sa.Column("last_run_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("next_run_at", sa.DateTime(timezone=True), nullable=True),
@@ -282,11 +299,27 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer, sa.Identity(), primary_key=True),
         sa.Column("user_id", sa.String(26), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=True),
         sa.Column("input_source_id", sa.Integer, sa.ForeignKey("input_sources.id", ondelete="SET NULL"), nullable=True),
-        sa.Column("template_id", sa.Integer, sa.ForeignKey("recording_templates.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "template_id", sa.Integer, sa.ForeignKey("recording_templates.id", ondelete="SET NULL"), nullable=True
+        ),
         sa.Column("display_name", sa.String(500), nullable=False),
         sa.Column("start_time", sa.DateTime(timezone=True), nullable=False),
         sa.Column("duration", sa.Integer, nullable=False),
-        sa.Column("status", sa.Enum("INITIALIZED", "SKIPPED", "DOWNLOADED", "PROCESSED", "TRANSCRIBED", "UPLOADED", "FAILED", "EXPIRED", name="processingstatus"), nullable=True),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "INITIALIZED",
+                "SKIPPED",
+                "DOWNLOADED",
+                "PROCESSED",
+                "TRANSCRIBED",
+                "UPLOADED",
+                "FAILED",
+                "EXPIRED",
+                name="processingstatus",
+            ),
+            nullable=True,
+        ),
         sa.Column("is_mapped", sa.Boolean, default=False),
         sa.Column("blank_record", sa.Boolean, default=False, server_default="false"),
         sa.Column("expire_at", sa.DateTime(timezone=True), nullable=True),
@@ -312,7 +345,9 @@ def upgrade() -> None:
         sa.Column("failed_at_stage", sa.String(50), nullable=True),
         sa.Column("retry_count", sa.Integer, default=0),
         sa.Column("created_at", sa.DateTime(timezone=True), default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), default=sa.func.now(), onupdate=sa.func.now(), nullable=False
+        ),
     )
     op.create_index("ix_recordings_user_id", "recordings", ["user_id"])
     op.create_index("ix_recordings_input_source_id", "recordings", ["input_source_id"])
@@ -324,10 +359,16 @@ def upgrade() -> None:
     op.create_table(
         "source_metadata",
         sa.Column("id", sa.Integer, sa.Identity(), primary_key=True),
-        sa.Column("recording_id", sa.Integer, sa.ForeignKey("recordings.id", ondelete="CASCADE"), nullable=False, unique=True),
+        sa.Column(
+            "recording_id", sa.Integer, sa.ForeignKey("recordings.id", ondelete="CASCADE"), nullable=False, unique=True
+        ),
         sa.Column("user_id", sa.String(26), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=True),
         sa.Column("input_source_id", sa.Integer, sa.ForeignKey("input_sources.id", ondelete="SET NULL"), nullable=True),
-        sa.Column("source_type", sa.Enum("ZOOM", "GOOGLE_DRIVE", "YANDEX_DISK", "LOCAL", "MANUAL", name="sourcetype"), nullable=False),
+        sa.Column(
+            "source_type",
+            sa.Enum("ZOOM", "GOOGLE_DRIVE", "YANDEX_DISK", "LOCAL", "MANUAL", name="sourcetype"),
+            nullable=False,
+        ),
         sa.Column("source_key", sa.String(1000), nullable=False),
         sa.Column("metadata", postgresql.JSONB, nullable=True),
         sa.UniqueConstraint("source_type", "source_key", "recording_id", name="unique_source_per_recording"),
@@ -343,7 +384,11 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(26), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=True),
         sa.Column("preset_id", sa.Integer, sa.ForeignKey("output_presets.id", ondelete="SET NULL"), nullable=True),
         sa.Column("target_type", sa.Enum("YOUTUBE", "VK", "LOCAL", name="targettype"), nullable=False),
-        sa.Column("status", sa.Enum("NOT_UPLOADED", "UPLOADING", "UPLOADED", "FAILED", name="targetstatus"), default="NOT_UPLOADED"),
+        sa.Column(
+            "status",
+            sa.Enum("NOT_UPLOADED", "UPLOADING", "UPLOADED", "FAILED", name="targetstatus"),
+            default="NOT_UPLOADED",
+        ),
         sa.Column("target_meta", postgresql.JSONB, nullable=True),
         sa.Column("uploaded_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("failed", sa.Boolean, default=False),
@@ -351,7 +396,9 @@ def upgrade() -> None:
         sa.Column("failed_reason", sa.String(1000), nullable=True),
         sa.Column("retry_count", sa.Integer, default=0),
         sa.Column("created_at", sa.DateTime(timezone=True), default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), default=sa.func.now(), onupdate=sa.func.now(), nullable=False
+        ),
         sa.UniqueConstraint("recording_id", "target_type", name="unique_target_per_recording"),
     )
     op.create_index("ix_output_targets_user_id", "output_targets", ["user_id"])
@@ -363,8 +410,23 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer, sa.Identity(), primary_key=True),
         sa.Column("recording_id", sa.Integer, sa.ForeignKey("recordings.id", ondelete="CASCADE"), nullable=False),
         sa.Column("user_id", sa.String(26), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=True),
-        sa.Column("stage_type", sa.Enum("DOWNLOAD", "VIDEO_PROCESSING", "TRANSCRIPTION", "TOPIC_EXTRACTION", "UPLOAD", name="processingstagetype"), nullable=False),
-        sa.Column("status", sa.Enum("PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "SKIPPED", name="processingstagestatus"), default="PENDING"),
+        sa.Column(
+            "stage_type",
+            sa.Enum(
+                "DOWNLOAD",
+                "VIDEO_PROCESSING",
+                "TRANSCRIPTION",
+                "TOPIC_EXTRACTION",
+                "UPLOAD",
+                name="processingstagetype",
+            ),
+            nullable=False,
+        ),
+        sa.Column(
+            "status",
+            sa.Enum("PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "SKIPPED", name="processingstagestatus"),
+            default="PENDING",
+        ),
         sa.Column("failed", sa.Boolean, default=False),
         sa.Column("failed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("failed_reason", sa.String(1000), nullable=True),
@@ -372,7 +434,9 @@ def upgrade() -> None:
         sa.Column("stage_meta", postgresql.JSONB, nullable=True),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), default=sa.func.now(), onupdate=sa.func.now(), nullable=False
+        ),
         sa.UniqueConstraint("recording_id", "stage_type", name="unique_stage_per_recording"),
     )
     op.create_index("ix_processing_stages_user_id", "processing_stages", ["user_id"])

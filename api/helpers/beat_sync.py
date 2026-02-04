@@ -1,6 +1,7 @@
 """Automation jobs and Celery Beat synchronization"""
 
 import json
+from typing import cast
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,9 +16,10 @@ logger = get_logger()
 async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> None:
     """Sync automation job to Celery Beat periodic task."""
     try:
-        cron_expr, _ = schedule_to_cron(job.schedule)
+        schedule = cast("dict", job.schedule)
+        cron_expr, _ = schedule_to_cron(schedule)
         minute, hour, day, month, day_of_week = cron_expr.split()
-        timezone = job.schedule.get("timezone", "UTC")
+        timezone = schedule.get("timezone", "UTC")
 
         crontab_query = text("""
             INSERT INTO celery_crontab_schedule (minute, hour, day_of_month, month_of_year, day_of_week, timezone)

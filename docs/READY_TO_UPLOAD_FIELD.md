@@ -13,7 +13,7 @@
 ```python
 class ReadyToUploadMixin(BaseModel):
     """Mixin for computing ready_to_upload field."""
-    
+
     @computed_field
     @property
     def ready_to_upload(self) -> bool:
@@ -197,7 +197,7 @@ await bulkUpload(readyRecordings.map(r => r.id));
 There are **TWO** separate validation checks for uploads:
 
 ### 1. `ready_to_upload` (Computed Field - UI)
-**Location:** `api/schemas/recording/response.py`  
+**Location:** `api/schemas/recording/response.py`
 **Purpose:** General readiness indicator for UI
 
 **Checks:**
@@ -219,7 +219,7 @@ if (recording.ready_to_upload) {
 ---
 
 ### 2. `should_allow_upload()` (Server Function)
-**Location:** `api/helpers/status_manager.py`  
+**Location:** `api/helpers/status_manager.py`
 **Purpose:** Server-side validation before actual upload to specific platform
 
 **Checks:**

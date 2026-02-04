@@ -12,7 +12,7 @@
 
 ### Files Modified (11 files)
 1. ✅ `models/recording.py` - Added PENDING_SOURCE enum
-2. ✅ `api/zoom_api.py` - New exception + smart error handling  
+2. ✅ `api/zoom_api.py` - New exception + smart error handling
 3. ✅ `api/routers/input_sources.py` - Sync logic
 4. ✅ `api/repositories/recording_repos.py` - create_or_update logic
 5. ✅ `api/helpers/status_manager.py` - Permission checks
@@ -27,7 +27,7 @@
 
 ### 1. Status Manager (api/helpers/status_manager.py)
 - ✅ `should_allow_download()` - PENDING_SOURCE blocked like SKIPPED
-- ✅ `should_allow_processing()` - PENDING_SOURCE blocked like SKIPPED  
+- ✅ `should_allow_processing()` - PENDING_SOURCE blocked like SKIPPED
 - ✅ `should_allow_transcription()` - PENDING_SOURCE blocked like SKIPPED
 - ✅ `should_allow_upload()` - PENDING_SOURCE blocked like SKIPPED
 - ✅ `compute_aggregate_status()` - PENDING_SOURCE included in workflow
@@ -40,7 +40,7 @@
 ### 3. Repository (api/repositories/recording_repos.py)
 **Create (new):**
 - ✅ `zoom_processing_incomplete` → PENDING_SOURCE
-- ✅ `is_blank` → SKIPPED  
+- ✅ `is_blank` → SKIPPED
 - ✅ `is_mapped` → INITIALIZED
 - ✅ else → SKIPPED
 
@@ -118,7 +118,7 @@ PENDING_SOURCE → SKIPPED (when Zoom finishes + blank/unmapped)
 
 ### Terminal States:
 - UPLOADED ✅
-- SKIPPED ✅  
+- SKIPPED ✅
 - PENDING_SOURCE ❌ (transitions to INITIALIZED/SKIPPED)
 
 ### Blocked Operations for PENDING_SOURCE:

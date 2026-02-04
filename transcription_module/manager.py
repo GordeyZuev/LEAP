@@ -31,10 +31,7 @@ class TranscriptionManager:
             ValueError: If user_slug is None
         """
         if user_slug is None:
-            raise ValueError(
-                "user_slug is required. "
-                "Get it from recording.owner.user_slug or user.user_slug"
-            )
+            raise ValueError("user_slug is required. Get it from recording.owner.user_slug or user.user_slug")
 
         storage_builder = StoragePathBuilder()
         return storage_builder.transcription_dir(user_slug, recording_id)
@@ -60,6 +57,8 @@ class TranscriptionManager:
         **meta,
     ) -> str:
         """Save transcription results to master.json with words, segments, and metadata."""
+        if user_slug is None:
+            raise ValueError("user_slug is required. Get it from recording.owner.user_slug or user.user_slug")
         dir_path = self.get_dir(recording_id, user_slug)
         dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -116,6 +115,8 @@ class TranscriptionManager:
         **meta,
     ) -> str:
         """Add new topics version to topics.json, managing active version state."""
+        if user_slug is None:
+            raise ValueError("user_slug is required. Get it from recording.owner.user_slug or user.user_slug")
         topics_path = self.get_dir(recording_id, user_slug) / "topics.json"
 
         if topics_path.exists():

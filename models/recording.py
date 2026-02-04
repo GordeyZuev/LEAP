@@ -36,7 +36,9 @@ class SourceType(Enum):
     ZOOM = "ZOOM"
     LOCAL_FILE = "LOCAL_FILE"
     GOOGLE_DRIVE = "GOOGLE_DRIVE"
-    YOUTUBE = "YOUTUBE"
+    YANDEX_DISK = "YANDEX_DISK"  # В разработке (февраль 2026)
+    YOUTUBE = "YOUTUBE"  # Через yt-dlp (в разработке)
+    EXTERNAL_URL = "EXTERNAL_URL"  # Через yt-dlp (в разработке)
     OTHER = "OTHER"
 
 
@@ -47,6 +49,9 @@ class TargetType(Enum):
     VK = "VK"
     LOCAL_STORAGE = "LOCAL_STORAGE"
     GOOGLE_DRIVE = "GOOGLE_DRIVE"
+    YANDEX_DISK = "YANDEX_DISK"  # В разработке (февраль 2026)
+    TELEGRAM = "TELEGRAM"  # Планируется
+    RUTUBE = "RUTUBE"  # Планируется
     OTHER = "OTHER"
 
 
@@ -176,6 +181,7 @@ class MeetingRecording:
     def __init__(self, meeting_data: dict[str, Any]):
         self.db_id: int | None = None
         self.user_id: int | None = meeting_data.get("user_id")
+        self.input_source_id: int | None = meeting_data.get("input_source_id")
         self.display_name: str = meeting_data.get("display_name") or meeting_data.get("topic", "")
         self.start_time: str = meeting_data.get("start_time", "")
         self.duration: int = meeting_data.get("duration", 0)

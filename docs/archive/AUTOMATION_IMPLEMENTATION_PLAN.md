@@ -1,7 +1,7 @@
 # 🤖 Automation Implementation Plan
 
-**Feature:** Automated recording sync and processing with Celery Beat  
-**Status:** 🚧 In Progress  
+**Feature:** Automated recording sync and processing with Celery Beat
+**Status:** 🚧 In Progress
 **Version:** v2.7
 
 ---
@@ -77,17 +77,17 @@ def downgrade():
 CREATE TABLE automation_jobs (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    
+
     -- Basic info
     name VARCHAR(200) NOT NULL,
     description TEXT,
-    
+
     -- Source to sync
     source_id INTEGER NOT NULL REFERENCES input_sources(id) ON DELETE CASCADE,
-    
+
     -- Templates to apply (ARRAY)
     template_ids INTEGER[] DEFAULT '{}',  -- Empty = all active templates
-    
+
     -- Schedule config (JSONB)
     schedule JSONB NOT NULL,
     -- Examples:
@@ -95,19 +95,19 @@ CREATE TABLE automation_jobs (
     -- {"type": "hours", "hours": 6, "timezone": "Europe/Moscow"}
     -- {"type": "weekdays", "days": [1,2,3,4,5], "time": "09:00", "timezone": "Europe/Moscow"}
     -- {"type": "cron", "expression": "0 6 * * *", "timezone": "Europe/Moscow"}
-    
+
     -- Sync config (JSONB)
     sync_config JSONB NOT NULL DEFAULT '{"sync_days": 2, "allow_skipped": false}',
-    
+
     -- Processing config (JSONB)
     processing_config JSONB NOT NULL DEFAULT '{"auto_process": true, "auto_upload": true, "max_parallel": 3}',
-    
+
     -- State
     is_active BOOLEAN NOT NULL DEFAULT true,
     last_run_at TIMESTAMP WITH TIME ZONE,
     next_run_at TIMESTAMP WITH TIME ZONE,
     run_count INTEGER NOT NULL DEFAULT 0,
-    
+
     -- Metadata
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
@@ -149,25 +149,25 @@ class AutomationJobModel(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    
+
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    
+
     source_id: Mapped[int] = mapped_column(Integer, ForeignKey("input_sources.id", ondelete="CASCADE"), nullable=False)
     template_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer), default=list, server_default="{}")
-    
+
     schedule: Mapped[dict] = mapped_column(JSONB, nullable=False)
     sync_config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{"sync_days": 2, "allow_skipped": false}')
     processing_config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default='{"auto_process": true, "auto_upload": true, "max_parallel": 3}')
-    
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     run_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    
+
     user = relationship("UserModel", back_populates="automation_jobs")
     source = relationship("InputSourceModel")
 ```
@@ -177,7 +177,7 @@ class AutomationJobModel(Base):
 ```python
 class UserQuotasModel(Base):
     # ... existing fields ...
-    
+
     max_automation_jobs: Mapped[int] = mapped_column(Integer, default=5, server_default="5", nullable=False)
     min_automation_interval_hours: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
 ```
@@ -211,11 +211,11 @@ class TimeOfDaySchedule(BaseModel):
     type: Literal["time_of_day"]
     time: str = Field(pattern=r"^([0-1][0-9]|2[0-3]):[0-5][0-9]$")
     timezone: str = "Europe/Moscow"
-    
+
     def to_cron(self) -> str:
         hour, minute = self.time.split(":")
         return f"{minute} {hour} * * *"
-    
+
     def human_readable(self) -> str:
         return f"Daily at {self.time}"
 
@@ -223,10 +223,10 @@ class HoursSchedule(BaseModel):
     type: Literal["hours"]
     hours: int = Field(ge=1, le=24)
     timezone: str = "Europe/Moscow"
-    
+
     def to_cron(self) -> str:
         return f"0 */{self.hours} * * *"
-    
+
     def human_readable(self) -> str:
         return f"Every {self.hours} hour(s)"
 
@@ -235,19 +235,19 @@ class WeekdaysSchedule(BaseModel):
     days: list[int] = Field(min_length=1, max_length=7)
     time: str = Field(pattern=r"^([0-1][0-9]|2[0-3]):[0-5][0-9]$")
     timezone: str = "Europe/Moscow"
-    
+
     @field_validator("days")
     @classmethod
     def validate_days(cls, v):
         if not all(0 <= day <= 6 for day in v):
             raise ValueError("Days must be 0-6 (0=Monday)")
         return sorted(set(v))
-    
+
     def to_cron(self) -> str:
         hour, minute = self.time.split(":")
         days_cron = ",".join(str((d + 1) % 7) for d in self.days)
         return f"{minute} {hour} * * {days_cron}"
-    
+
     def human_readable(self) -> str:
         day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         days_str = ", ".join(day_names[d] for d in self.days)
@@ -257,10 +257,10 @@ class CronSchedule(BaseModel):
     type: Literal["cron"]
     expression: str
     timezone: str = "Europe/Moscow"
-    
+
     def to_cron(self) -> str:
         return self.expression
-    
+
     def human_readable(self) -> str:
         return f"Custom: {self.expression}"
 
@@ -322,7 +322,7 @@ class AutomationJobResponse(BaseModel):
     run_count: int
     created_at: datetime
     updated_at: datetime
-    
+
     class Config:
         from_attributes = True
 
@@ -371,9 +371,9 @@ def schedule_to_cron(schedule: dict) -> tuple[str, str]:
     from api.schemas.automation.schedule import (
         TimeOfDaySchedule, HoursSchedule, WeekdaysSchedule, CronSchedule
     )
-    
+
     schedule_type = schedule.get("type")
-    
+
     if schedule_type == "time_of_day":
         obj = TimeOfDaySchedule(**schedule)
     elif schedule_type == "hours":
@@ -384,7 +384,7 @@ def schedule_to_cron(schedule: dict) -> tuple[str, str]:
         obj = CronSchedule(**schedule)
     else:
         raise ValueError(f"Unknown schedule type: {schedule_type}")
-    
+
     return obj.to_cron(), obj.human_readable()
 ```
 
@@ -401,33 +401,33 @@ from datetime import datetime
 class AutomationJobRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
-    
+
     async def create(self, job_data: dict, user_id: int) -> AutomationJobModel:
         job = AutomationJobModel(**job_data, user_id=user_id, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
         self.session.add(job)
         await self.session.commit()
         await self.session.refresh(job)
         return job
-    
+
     async def get_by_id(self, job_id: int, user_id: int) -> AutomationJobModel | None:
         stmt = select(AutomationJobModel).where(
             and_(AutomationJobModel.id == job_id, AutomationJobModel.user_id == user_id)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
-    
+
     async def get_user_jobs(self, user_id: int, active_only: bool = False) -> list[AutomationJobModel]:
         stmt = select(AutomationJobModel).where(AutomationJobModel.user_id == user_id)
         if active_only:
             stmt = stmt.where(AutomationJobModel.is_active == True)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
-    
+
     async def count_user_jobs(self, user_id: int) -> int:
         stmt = select(AutomationJobModel).where(AutomationJobModel.user_id == user_id)
         result = await self.session.execute(stmt)
         return len(list(result.scalars().all()))
-    
+
     async def update(self, job: AutomationJobModel, updates: dict) -> AutomationJobModel:
         for key, value in updates.items():
             if value is not None:
@@ -436,11 +436,11 @@ class AutomationJobRepository:
         await self.session.commit()
         await self.session.refresh(job)
         return job
-    
+
     async def delete(self, job: AutomationJobModel):
         await self.session.delete(job)
         await self.session.commit()
-    
+
     async def mark_run(self, job: AutomationJobModel, next_run_at: datetime):
         job.last_run_at = datetime.utcnow()
         job.next_run_at = next_run_at
@@ -465,38 +465,38 @@ class AutomationService:
         self.user_id = user_id
         self.job_repo = AutomationJobRepository(session)
         self.quota_repo = UserQuotasRepository(session)
-    
+
     async def validate_quota(self):
         quota = await self.quota_repo.get(self.user_id)
         current_count = await self.job_repo.count_user_jobs(self.user_id)
-        
+
         if current_count >= quota.max_automation_jobs:
             raise HTTPException(
                 status_code=400,
                 detail=f"Automation job limit reached ({quota.max_automation_jobs})"
             )
-        
+
         return quota
-    
+
     async def validate_schedule(self, schedule: dict, quota):
         cron_expr, _ = schedule_to_cron(schedule)
-        
+
         if not validate_min_interval(cron_expr, quota.min_automation_interval_hours):
             raise HTTPException(
                 status_code=400,
                 detail=f"Schedule interval must be at least {quota.min_automation_interval_hours} hour(s)"
             )
-    
+
     async def create_job(self, job_data: dict):
         quota = await self.validate_quota()
         await self.validate_schedule(job_data["schedule"], quota)
-        
+
         cron_expr, human = schedule_to_cron(job_data["schedule"])
         timezone = job_data["schedule"].get("timezone", "Europe/Moscow")
         next_run = get_next_run_time(cron_expr, timezone)
-        
+
         job_data["next_run_at"] = next_run
-        
+
         return await self.job_repo.create(job_data, self.user_id)
 ```
 
@@ -529,27 +529,27 @@ def run_automation_job(self, job_id: int, user_id: int):
         async with db_manager.async_session() as session:
             job_repo = AutomationJobRepository(session)
             job = await job_repo.get_by_id(job_id, user_id)
-            
+
             if not job or not job.is_active:
                 logger.warning(f"Job {job_id} not found or inactive")
                 return
-            
+
             try:
                 # 1. Sync source
                 from api.routers.input_sources import sync_source
                 sync_result = await sync_source(job.source_id, session, user_id)
-                
+
                 # 2. Get newly synced recordings (INITIALIZED)
                 recording_repo = RecordingRepository(session)
                 new_recordings = await recording_repo.get_by_status(
                     user_id=user_id,
                     status="INITIALIZED"
                 )
-                
+
                 # 3. Match with templates (first match by priority)
                 template_repo = RecordingTemplateRepository(session)
                 template_ids = job.template_ids if job.template_ids else None
-                
+
                 for recording in new_recordings:
                     matched_template = await template_repo.match_recording(
                         recording, template_ids
@@ -562,19 +562,19 @@ def run_automation_job(self, job_id: int, user_id: int):
                             user_id=user_id,
                             auto_upload=job.processing_config.get("auto_upload", True)
                         )
-                
+
                 # 5. Update job stats
                 cron_expr, _ = schedule_to_cron(job.schedule)
                 timezone = job.schedule.get("timezone", "Europe/Moscow")
                 next_run = get_next_run_time(cron_expr, timezone)
                 await job_repo.mark_run(job, next_run)
-                
+
                 logger.info(f"Job {job_id} completed. Processed {len(new_recordings)} recordings")
-                
+
             except Exception as e:
                 logger.error(f"Job {job_id} failed: {e}")
                 raise
-    
+
     import asyncio
     asyncio.run(_run())
 
@@ -604,7 +604,7 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-    
+
     # Celery Beat with SQLAlchemy scheduler
     beat_scheduler=DatabaseScheduler,
     beat_dburi=settings.DATABASE_URL,
@@ -650,11 +650,11 @@ async def create_job(
     """Create new automation job"""
     service = AutomationService(ctx.session, ctx.user_id)
     job = await service.create_job(data.model_dump())
-    
+
     # Sync with Celery Beat
     from api.helpers.beat_sync import sync_job_to_beat
     await sync_job_to_beat(job)
-    
+
     return job
 
 @router.get("/{job_id}", response_model=AutomationJobResponse)
@@ -680,20 +680,20 @@ async def update_job(
     job = await repo.get_by_id(job_id, ctx.user_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    
+
     updates = data.model_dump(exclude_unset=True)
-    
+
     if "schedule" in updates:
         service = AutomationService(ctx.session, ctx.user_id)
         quota = await service.quota_repo.get(ctx.user_id)
         await service.validate_schedule(updates["schedule"], quota)
-    
+
     job = await repo.update(job, updates)
-    
+
     # Re-sync with Celery Beat
     from api.helpers.beat_sync import sync_job_to_beat
     await sync_job_to_beat(job)
-    
+
     return job
 
 @router.delete("/{job_id}", status_code=204)
@@ -706,9 +706,9 @@ async def delete_job(
     job = await repo.get_by_id(job_id, ctx.user_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    
+
     await repo.delete(job)
-    
+
     # Remove from Celery Beat
     from api.helpers.beat_sync import remove_job_from_beat
     await remove_job_from_beat(job_id)
@@ -724,7 +724,7 @@ async def trigger_job(
     job = await repo.get_by_id(job_id, ctx.user_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    
+
     if dry_run:
         task = dry_run_automation_job.delay(job_id, ctx.user_id)
         return {"task_id": task.id, "mode": "dry_run"}
@@ -747,7 +747,7 @@ async def sync_job_to_beat(job: AutomationJobModel):
     """Sync automation job to Celery Beat"""
     cron_expr, _ = schedule_to_cron(job.schedule)
     minute, hour, day, month, day_of_week = cron_expr.split()
-    
+
     # Create or update CrontabSchedule
     schedule, _ = CrontabSchedule.objects.get_or_create(
         minute=minute,
@@ -757,7 +757,7 @@ async def sync_job_to_beat(job: AutomationJobModel):
         day_of_week=day_of_week,
         timezone=job.schedule.get("timezone", "UTC")
     )
-    
+
     # Create or update PeriodicTask
     task, created = PeriodicTask.objects.update_or_create(
         name=f"automation_job_{job.id}",
@@ -768,7 +768,7 @@ async def sync_job_to_beat(job: AutomationJobModel):
             "enabled": job.is_active
         }
     )
-    
+
     return task
 
 async def remove_job_from_beat(job_id: int):
@@ -883,4 +883,3 @@ curl -X DELETE http://localhost:8000/api/v1/automation/jobs/1 \
 ---
 
 **Ready to implement! Following this plan step by step.**
-

@@ -5,6 +5,7 @@ Centralized logic following DRY principle.
 """
 
 from datetime import UTC, datetime
+from typing import cast
 
 from database.models import RecordingModel
 from logger import get_logger
@@ -15,18 +16,19 @@ logger = get_logger(__name__)
 
 async def handle_download_failure(recording: RecordingModel, error: str) -> None:
     """Handle download failure: rollback to INITIALIZED if mapped, else SKIPPED."""
-    recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
+    recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED  # type: ignore[assignment]
     recording.failed = True
     recording.failed_at_stage = "download"
     recording.failed_reason = error[:1000]
     recording.failed_at = datetime.now(UTC)
 
-    logger.error(f"Download failed {recording.id}: {recording.status.value}")
+    status = cast("ProcessingStatus", recording.status)
+    logger.error(f"Download failed {recording.id}: {status.value}")
 
 
 async def handle_trim_failure(recording: RecordingModel, error: str) -> None:
     """Handle trim failure: rollback to DOWNLOADED for manual intervention."""
-    recording.status = ProcessingStatus.DOWNLOADED
+    recording.status = ProcessingStatus.DOWNLOADED  # type: ignore[assignment]
     recording.failed = True
     recording.failed_at_stage = "trim"
     recording.failed_reason = error[:1000]
@@ -43,7 +45,7 @@ async def handle_transcribe_failure(
     if allow_errors:
         for stage in recording.processing_stages:
             if stage.stage_type == stage_type:
-                stage.status = ProcessingStageStatus.SKIPPED
+                stage.status = ProcessingStageStatus.SKIPPED  # type: ignore[assignment]
                 stage.stage_meta = {"skip_reason": "error", "error": error[:500]}
                 break
 
@@ -59,7 +61,7 @@ async def handle_transcribe_failure(
 
         logger.warning(f"{stage_type.value} failed {recording.id}: skipped, continue")
     else:
-        recording.status = ProcessingStatus.DOWNLOADED
+        recording.status = ProcessingStatus.DOWNLOADED  # type: ignore[assignment]
         recording.failed = True
         recording.failed_at_stage = stage_type.value.lower()
         recording.failed_reason = error[:1000]
@@ -78,7 +80,7 @@ def _cascade_skip_dependent_stages(recording: RecordingModel, parent_stage: Proc
     for dep_stage_type in dependencies.get(parent_stage, []):
         for stage in recording.processing_stages:
             if stage.stage_type == dep_stage_type:
-                stage.status = ProcessingStageStatus.SKIPPED
+                stage.status = ProcessingStageStatus.SKIPPED  # type: ignore[assignment]
                 stage.stage_meta = {"skip_reason": "parent_failed", "parent_stage": parent_stage.value}
                 break
 
@@ -89,8 +91,8 @@ async def handle_upload_failure(recording: RecordingModel, platform: str, error:
 
     target_found = False
     for output in recording.outputs:
-        if output.target_type.value.lower() == platform.lower():
-            output.status = TargetStatus.FAILED
+        if output.target_type.lower() == platform.lower():
+            output.status = TargetStatus.FAILED  # type: ignore[assignment]
             output.failed = True
             output.failed_reason = error[:1000]
             target_found = True
@@ -109,5 +111,5 @@ async def handle_upload_failure(recording: RecordingModel, platform: str, error:
     if all_failed:
         recording.failed = True
         recording.failed_at_stage = "upload"
-        recording.status = ProcessingStatus.PROCESSED
+        recording.status = ProcessingStatus.PROCESSED  # type: ignore[assignment]
         logger.error(f"All uploads failed {recording.id}")

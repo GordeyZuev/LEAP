@@ -1,6 +1,7 @@
 """Automatic update of aggregated recording status from stages and outputs."""
 
 from datetime import UTC
+from typing import cast
 
 from database.models import RecordingModel
 from models.recording import (
@@ -31,7 +32,7 @@ def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
     """
     from datetime import datetime
 
-    current_status = recording.status
+    current_status = cast("ProcessingStatus", recording.status)
 
     # 1. Check EXPIRED first (terminal state)
     if recording.deleted and recording.deletion_reason == "expired":
@@ -106,7 +107,7 @@ def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
 def update_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
     """Update and return aggregated recording status."""
     new_status = compute_aggregate_status(recording)
-    recording.status = new_status
+    recording.status = new_status  # type: ignore[assignment]
     return new_status
 
 

@@ -1,8 +1,8 @@
 # ADR: User ID Type Selection
 
-**Status**: Accepted  
-**Date**: 2026-01-22  
-**Decision Makers**: Development Team  
+**Status**: Accepted
+**Date**: 2026-01-22
+**Decision Makers**: Development Team
 **Context**: ZoomUploader multi-tenant system requires user identification for database records and file system paths
 
 ## Problem Statement
@@ -209,7 +209,7 @@ from sqlalchemy import Column, String, Integer, Sequence
 
 class UserModel(Base):
     __tablename__ = "users"
-    
+
     id = Column(String(26), primary_key=True, default=lambda: str(ULID()))
     user_slug = Column(Integer, Sequence('user_slug_seq'), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
@@ -222,7 +222,7 @@ class UserPathManager:
     def get_user_root(self, user_slug: int) -> Path:
         """Get user root directory using user_slug"""
         return Path("media") / f"user_{user_slug:06d}"
-    
+
 # Example usage
 user = UserModel(id="01ARZ3NDEKTSV4RRFFQ69G5FAV", user_slug=1, ...)
 path = path_manager.get_user_root(user.user_slug)

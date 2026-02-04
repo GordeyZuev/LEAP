@@ -147,9 +147,7 @@ class FireworksConfig(BaseSettings):
 
         if self.diarize:
             if self.response_format != "verbose_json":
-                raise ValueError(
-                    f"diarize requires response_format='verbose_json', got '{self.response_format}'"
-                )
+                raise ValueError(f"diarize requires response_format='verbose_json', got '{self.response_format}'")
             if not self.timestamp_granularities or "word" not in self.timestamp_granularities:
                 raise ValueError(
                     f"diarize requires 'word' in timestamp_granularities, got {self.timestamp_granularities}"
@@ -171,8 +169,7 @@ class FireworksConfig(BaseSettings):
         config_path = Path(config_file)
         if not config_path.exists():
             raise FileNotFoundError(
-                f"Config not found: {config_file}\n"
-                f'Create with: {{"api_key": "your-fireworks-api-key"}}'
+                f'Config not found: {config_file}\nCreate with: {{"api_key": "your-fireworks-api-key"}}'
             )
 
         with config_path.open(encoding="utf-8") as fp:

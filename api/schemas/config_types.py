@@ -67,9 +67,7 @@ class UploadConfigData(BaseModel):
     )
     retry_attempts: int = Field(3, ge=1, le=10, description="Retry attempts on error")
     retry_delay: int = Field(5, ge=0, description="Delay between retries (seconds)")
-    default_privacy: Literal["private", "unlisted", "public"] = Field(
-        "unlisted", description="Default privacy"
-    )
+    default_privacy: Literal["private", "unlisted", "public"] = Field("unlisted", description="Default privacy")
 
 
 class MappingRule(BaseModel):
@@ -86,9 +84,7 @@ class VideoMappingConfigData(BaseModel):
     """Configuration for video title mapping."""
 
     mapping_rules: list[MappingRule] = Field(default_factory=list, description="Mapping rules")
-    default_title_template: str = Field(
-        "{original_title} | {topic} ({date})", description="Default title template"
-    )
+    default_title_template: str = Field("{original_title} | {topic} ({date})", description="Default title template")
     default_thumbnail: str = Field("storage/shared/thumbnails/default.png", description="Default thumbnail")
     date_format: str = Field("DD.MM.YYYY", description="Date format")
     thumbnail_directory: str = Field(
