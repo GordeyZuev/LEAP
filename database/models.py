@@ -76,6 +76,8 @@ class RecordingModel(Base):
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
     failed_at_stage: Mapped[str | None] = mapped_column(String(50))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    on_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    pause_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)

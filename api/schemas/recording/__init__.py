@@ -5,9 +5,9 @@ from .operations import (
     ConfigSaveResponse,
     DryRunResponse,
     MappingStatusResponse,
+    PauseRecordingResponse,
     RecordingBulkOperationResponse,
     RecordingOperationResponse,
-    RetryUploadResponse,
     TemplateInfoResponse,
 )
 from .request import (
@@ -37,6 +37,7 @@ __all__ = [
     # Operations schemas
     "DryRunResponse",
     "MappingStatusResponse",
+    "PauseRecordingResponse",
     "RecordingBulkOperationResponse",
     # Filters
     "RecordingFilters",
@@ -44,6 +45,5 @@ __all__ = [
     "RecordingOperationResponse",
     # Response schemas
     "RecordingResponse",
-    "RetryUploadResponse",
     "TemplateInfoResponse",
 ]

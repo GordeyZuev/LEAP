@@ -1,5 +1,73 @@
 # Change Log
 
+## 2026-02-05: Unified Smart Run, Pause & Duplicate Prevention
+
+### Summary
+
+Replaced the old `/run` + `/run?resume=true` two-mode system with a single unified smart `/run` that always determines the correct action based on current recording status. Added soft pause, bulk pause, and smart bulk run with duplicate prevention.
+
+### Added
+
+- **Unified Smart `/run`** (`POST /recordings/{id}/run`)
+  - One endpoint, one button in UI — always does the right thing
+  - INITIALIZED/SKIPPED → full pipeline (download → process → upload)
+  - DOWNLOADED → processing pipeline (skip download)
+  - DOWNLOADING/PROCESSING/UPLOADING + paused → clear pause flag, pipeline continues
+  - DOWNLOADING/PROCESSING/UPLOADING + not paused → 409 (already running)
+  - PROCESSED/UPLOADED → retry failed/pending uploads
+  - READY → "already complete" (no error, just a message)
+  - EXPIRED/PENDING_SOURCE → 409 (cannot process)
+  - For full restart: use `/reset` first, then `/run`
+
+- **Soft Pause** (`POST /recordings/{id}/pause`)
+  - Graceful stop: current stage completes, then pipeline halts
+  - `on_pause` flag checked by every Celery task before starting
+  - Idempotent: pausing an already-paused recording returns success
+  - Only available during active processing (DOWNLOADING, PROCESSING, UPLOADING)
+
+- **Bulk Pause** (`POST /recordings/bulk/pause`)
+  - Pause multiple recordings at once using recording_ids or filters
+  - Skips recordings that can't be paused (not running, already paused)
+
+- **Smart Bulk Run** (`POST /recordings/bulk/run`)
+  - Same smart logic applied per recording (via `_execute_smart_run`)
+  - Skips already-complete, rejects already-running, retries failed uploads
+  - HTTPException from smart run caught per-recording (doesn't fail entire batch)
+
+- **Computed UI fields** in recording responses (`PipelineControlMixin`):
+  - `is_runtime` — True when actively processing
+  - `can_pause` — True when pause is available
+  - `can_run` — True when `/run` will take a meaningful action
+
+- **DB fields** — `on_pause` (bool), `pause_requested_at` (datetime) on recordings table
+- **Migration** — `alembic/versions/011_add_pause_fields.py`
+- **Pause checks** in all 7 Celery task entry points (download, trim, transcribe, topics, subtitles, upload, pipeline orchestrator)
+
+### Changed
+
+- `/run` endpoint no longer accepts `resume` query parameter — smart logic is always active
+- `/bulk/run` uses `_execute_smart_run` per recording instead of blindly calling `run_recording_task.delay`
+- `/reset` clears `on_pause` and `pause_requested_at` flags
+- `can_pause` helper uses whitelist (DOWNLOADING/PROCESSING/UPLOADING) instead of blacklist
+
+### Removed
+
+- `/retry-upload` endpoint — replaced by smart `/run` (PROCESSED/UPLOADED status → retries uploads)
+- `resume` query parameter from `/run` — no longer needed
+
+### Files
+
+- `database/models.py`, `alembic/versions/011_add_pause_fields.py`
+- `api/routers/recordings.py` — smart run, bulk pause, dry-run updates
+- `api/helpers/status_manager.py` — `can_pause` helper
+- `api/tasks/processing.py`, `api/tasks/upload.py` — on_pause checks
+- `api/schemas/recording/response.py` — `PipelineControlMixin` (was `PauseResumeMixin`)
+- `api/schemas/recording/operations.py` — `PauseRecordingResponse`
+- `api/schemas/recording/request.py` — `BulkPauseRequest`
+- `tests/unit/api/test_pause_resume.py` — 61 tests
+
+---
+
 ## 2026-02-05: Unified HTTP Client - Migrated from aiohttp to httpx
 
 ### Changes

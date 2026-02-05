@@ -113,7 +113,63 @@ class ReadyToUploadMixin(BaseModel):
         return True
 
 
-class RecordingListItem(ReadyToUploadMixin):
+class PipelineControlMixin(BaseModel):
+    """Mixin for computing pipeline control UI fields (run/pause)."""
+
+    status: ProcessingStatus
+    failed: bool
+    on_pause: bool = False
+
+    @computed_field
+    @property
+    def is_runtime(self) -> bool:
+        """True if recording is actively being processed (runtime status)."""
+        return self.status in [
+            ProcessingStatus.DOWNLOADING,
+            ProcessingStatus.PROCESSING,
+            ProcessingStatus.UPLOADING,
+        ]
+
+    @computed_field
+    @property
+    def can_pause(self) -> bool:
+        """True if recording can be paused right now."""
+        if self.on_pause:
+            return False
+        return self.status in [
+            ProcessingStatus.DOWNLOADING,
+            ProcessingStatus.PROCESSING,
+            ProcessingStatus.UPLOADING,
+        ]
+
+    @computed_field
+    @property
+    def can_run(self) -> bool:
+        """True if calling /run will take a meaningful action.
+
+        Returns False when:
+        - READY (already complete)
+        - PENDING_SOURCE / EXPIRED (cannot process)
+        - Runtime + not paused (already running)
+        - On pause + runtime (stage still completing, wait for it)
+        """
+        if self.on_pause:
+            # Pause requested but stage still running — not ready to run yet
+            return not self.is_runtime
+        if self.failed:
+            return True
+        return (
+            self.status
+            not in [
+                ProcessingStatus.READY,
+                ProcessingStatus.PENDING_SOURCE,
+                ProcessingStatus.EXPIRED,
+            ]
+            and not self.is_runtime
+        )
+
+
+class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     """Recording item for list view (optimized for UI table)."""
 
     id: int
@@ -124,6 +180,7 @@ class RecordingListItem(ReadyToUploadMixin):
     failed: bool
     failed_at_stage: str | None = None
     is_mapped: bool
+    on_pause: bool = False
     template_id: int | None = None
     template_name: str | None = None
     source: SourceInfo | None = None
@@ -140,7 +197,7 @@ class RecordingListItem(ReadyToUploadMixin):
     updated_at: datetime
 
 
-class RecordingResponse(ReadyToUploadMixin):
+class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     """Full recording response with all details."""
 
     id: int
@@ -158,6 +215,8 @@ class RecordingResponse(ReadyToUploadMixin):
     failed_at: datetime | None = None
     failed_reason: str | None = None
     failed_at_stage: str | None = None
+    on_pause: bool = False
+    pause_requested_at: datetime | None = None
     video_file_size: int | None = None
     deleted: bool = False
     deleted_at: datetime | None = None

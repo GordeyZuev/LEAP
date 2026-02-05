@@ -2,20 +2,20 @@
 
 from pydantic import ConfigDict
 
-# Базовая конфигурация для всех схем
-# Сохраняет порядок полей как в определении класса (не сортирует по алфавиту)
+# Base configuration for all schemas
+# Keep order of fields as in class definition (not sorted alphabetically)
 BASE_MODEL_CONFIG = ConfigDict(
-    # Сохранить порядок полей в JSON Schema
+    # Keep order of fields in JSON Schema
     json_schema_serialization_defaults_required=True,
-    # Разрешить populate_by_name для ORM совместимости
+    # Allow populate_by_name for ORM compatibility
     populate_by_name=True,
-    # Строгая валидация типов
+    # Strict validation of types
     strict=False,
-    # Использовать enum значения вместо имен
+    # Use enum values instead of names
     use_enum_values=False,
 )
 
-# Конфигурация для ORM моделей (response schemas)
+# Configuration for ORM models (response schemas)
 ORM_MODEL_CONFIG = ConfigDict(
     from_attributes=True,
     json_schema_serialization_defaults_required=True,

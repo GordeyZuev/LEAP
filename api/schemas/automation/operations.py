@@ -1,11 +1,11 @@
 """Schemas for automation operations."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TriggerJobResponse(BaseModel):
-    """Результат запуска automation job."""
+    """Result of triggering automation job."""
 
     task_id: str
-    mode: str  # "dry_run" | "execute"
+    mode: str = Field(default="dry_run", description="Mode of triggering (dry_run or execute)")
     message: str

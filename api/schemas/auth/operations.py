@@ -4,13 +4,13 @@ from pydantic import BaseModel
 
 
 class LogoutResponse(BaseModel):
-    """Результат logout."""
+    """Result of logout."""
 
     message: str
 
 
 class LogoutAllResponse(BaseModel):
-    """Результат logout от всех устройств."""
+    """Result of logout from all devices."""
 
     message: str
     revoked_tokens: int

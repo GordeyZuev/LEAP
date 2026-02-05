@@ -171,6 +171,11 @@ async def _async_upload_recording(
         if not recording:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
 
+        # Check pause flag before starting upload
+        if recording.on_pause:
+            logger.info(f"[Upload] Skipping upload to {platform}: recording {recording_id} is paused")
+            return {"status": "paused", "message": "Pipeline paused by user"}
+
         logger.debug(f"[Upload] Recording {recording_id} loaded from DB")
         logger.debug(
             f"[Upload] Recording has main_topics: {hasattr(recording, 'main_topics')} = {getattr(recording, 'main_topics', None)}"

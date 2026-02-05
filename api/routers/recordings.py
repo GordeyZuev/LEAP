@@ -17,14 +17,15 @@ from api.schemas.recording.operations import (
     BulkProcessDryRunResponse,
     ConfigSaveResponse,
     DryRunResponse,
+    PauseRecordingResponse,
     RecordingBulkOperationResponse,
     RecordingOperationResponse,
     ResetRecordingResponse,
-    RetryUploadResponse,
 )
 from api.schemas.recording.request import (
     BulkDeleteRequest,
     BulkDownloadRequest,
+    BulkPauseRequest,
     BulkRunRequest,
     BulkSubtitlesRequest,
     BulkTopicsRequest,
@@ -311,9 +312,13 @@ async def _execute_dry_run_single(
     config_override: ConfigOverrideRequest | None,
     ctx: ServiceContext,
 ) -> dict:
-    """Dry-run for single process: shows execution plan without running."""
+    """
+    Dry-run: shows what /run will do based on config and current state.
+    Shows detailed plan of what steps will be executed.
+    """
     from api.repositories.template_repos import OutputPresetRepository
     from api.services.config_utils import resolve_full_config
+    from models.recording import ProcessingStageStatus, ProcessingStageType, TargetStatus
 
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -331,39 +336,144 @@ async def _execute_dry_run_single(
         include_output_config=True,
     )
 
+    stage_map = {}
+    for stage in recording.processing_stages:
+        stage_type_str = stage.stage_type.value if hasattr(stage.stage_type, "value") else str(stage.stage_type)
+        stage_map[stage_type_str] = stage
+
+    def is_stage_done(stage_type: str) -> tuple[bool, str | None]:
+        stage = stage_map.get(stage_type)
+        if stage:
+            status_value = stage.status.value if hasattr(stage.status, "value") else str(stage.status)
+            if status_value in [ProcessingStageStatus.COMPLETED.value, ProcessingStageStatus.SKIPPED.value]:
+                return True, "Completed"
+        return False, None
+
+    # Mirror config flags from run_recording_task (lines 965-978)
+    trimming = full_config.get("trimming", {})
+    transcription = full_config.get("transcription", {})
+
+    download_enabled = True
+    trim_enabled = trimming.get("enable_trimming", True)
+    transcribe_enabled = transcription.get("enable_transcription", True)
+    extract_topics_enabled = transcription.get("enable_topics", True)
+    generate_subs_enabled = transcription.get("enable_subtitles", True)
+
+    upload_enabled = output_config.get("auto_upload", False)
+
     steps = []
 
-    if not recording.local_video_path:
+    if not download_enabled:
+        steps.append({"name": "download", "enabled": False, "skip_reason": "Disabled in config"})
+    elif recording.local_video_path:
+        steps.append({"name": "download", "enabled": False, "skip_reason": "Completed"})
+    else:
         steps.append({"name": "download", "enabled": True})
-    else:
-        steps.append({"name": "download", "enabled": False, "skip_reason": "Already downloaded"})
 
-    if full_config.get("trimming", {}).get("enable_trimming", True):
-        steps.append({"name": "trim", "enabled": True})
-    else:
+    if not trim_enabled:
         steps.append({"name": "trim", "enabled": False, "skip_reason": "Disabled in config"})
-
-    if full_config.get("transcription", {}).get("enable_transcription", True):
-        steps.append({"name": "transcribe", "enabled": True})
     else:
-        steps.append({"name": "transcribe", "enabled": False})
+        done, reason = is_stage_done(ProcessingStageType.TRIM.value)
+        # Check processed_video_path for recordings processed before TRIM stage existed
+        if done or recording.processed_video_path:
+            steps.append({"name": "trim", "enabled": False, "skip_reason": "Completed"})
+        else:
+            steps.append({"name": "trim", "enabled": True})
 
-    steps.append({"name": "topics", "enabled": True})
+    if not transcribe_enabled:
+        steps.append({"name": "transcribe", "enabled": False, "skip_reason": "Disabled in config"})
+    else:
+        done, reason = is_stage_done(ProcessingStageType.TRANSCRIBE.value)
+        if done:
+            steps.append({"name": "transcribe", "enabled": False, "skip_reason": reason})
+        else:
+            steps.append({"name": "transcribe", "enabled": True})
 
-    auto_upload = output_config.get("auto_upload", False)
-    if auto_upload:
-        platforms = []
+    if not extract_topics_enabled:
+        steps.append({"name": "topics", "enabled": False, "skip_reason": "Disabled in config"})
+    else:
+        done, reason = is_stage_done(ProcessingStageType.EXTRACT_TOPICS.value)
+        if done:
+            steps.append({"name": "topics", "enabled": False, "skip_reason": reason})
+        else:
+            steps.append({"name": "topics", "enabled": True})
+
+    if not generate_subs_enabled:
+        steps.append({"name": "subtitles", "enabled": False, "skip_reason": "Disabled in config"})
+    else:
+        done, reason = is_stage_done(ProcessingStageType.GENERATE_SUBTITLES.value)
+        if done:
+            steps.append({"name": "subtitles", "enabled": False, "skip_reason": reason})
+        else:
+            steps.append({"name": "subtitles", "enabled": True})
+
+    if not upload_enabled:
+        steps.append({"name": "upload", "enabled": False, "skip_reason": "Disabled in config"})
+    else:
         preset_ids = output_config.get("preset_ids", [])
 
-        if preset_ids:
+        if not preset_ids:
+            steps.append({"name": "upload", "enabled": False, "skip_reason": "No presets configured"})
+        else:
             preset_repo = OutputPresetRepository(ctx.session)
             presets = await preset_repo.find_by_ids(preset_ids, ctx.user_id)
-            platforms = [preset.platform for preset in presets if preset.is_active]
 
-        steps.append({"name": "upload", "enabled": True, "platforms": platforms})
-    else:
-        steps.append({"name": "upload", "enabled": False, "skip_reason": "auto_upload is false"})
+            from models.recording import TargetStatus
 
+            platform_statuses = {}
+            for output in recording.outputs:
+                platform_statuses[output.target_type] = {
+                    "status": output.status,
+                    "uploaded_at": output.uploaded_at.isoformat() if output.uploaded_at else None,
+                }
+
+            platforms_to_upload = []
+            upload_details = []
+            is_ready = recording.status == ProcessingStatus.READY
+
+            for preset in presets:
+                if not preset.is_active:
+                    continue
+
+                platform_status = platform_statuses.get(preset.platform)
+
+                if platform_status:
+                    status = platform_status["status"]
+                    if status == TargetStatus.UPLOADED.value:
+                        upload_details.append(
+                            {
+                                "platform": preset.platform,
+                                "status": "uploaded",
+                                "uploaded_at": platform_status["uploaded_at"],
+                            }
+                        )
+                    elif status == TargetStatus.FAILED.value:
+                        platforms_to_upload.append(preset.platform)
+                        upload_details.append({"platform": preset.platform, "status": "failed", "will_retry": True})
+                    else:
+                        platforms_to_upload.append(preset.platform)
+                        upload_details.append({"platform": preset.platform, "status": "pending", "will_retry": True})
+                elif is_ready:
+                    upload_details.append({"platform": preset.platform, "status": "Completed"})
+                else:
+                    platforms_to_upload.append(preset.platform)
+                    upload_details.append({"platform": preset.platform, "status": "not_started", "will_upload": True})
+
+            upload_step = {"name": "upload"}
+
+            if platforms_to_upload:
+                upload_step["enabled"] = True
+                upload_step["platforms"] = platforms_to_upload
+            else:
+                upload_step["enabled"] = False
+                upload_step["skip_reason"] = "Completed"
+
+            if upload_details:
+                upload_step["details"] = upload_details
+
+            steps.append(upload_step)
+
+    # Config sources info
     config_sources = {}
 
     if (config_override and config_override.template_id) or recording.template_id:
@@ -403,6 +513,7 @@ async def _execute_dry_run_single(
     return DryRunResponse(
         dry_run=True,
         recording_id=recording_id,
+        current_status=recording.status,
         steps=steps,
         config_sources=config_sources if config_sources else None,
     )
@@ -1176,8 +1287,6 @@ async def bulk_run_recordings(
     if dry_run:
         return await _execute_dry_run_bulk(data.recording_ids, data.filters, data.limit, ctx)
 
-    from api.tasks.processing import run_recording_task
-
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
@@ -1234,28 +1343,39 @@ async def bulk_run_recordings(
                 )
                 continue
 
-            # Start task for this recording (template-driven + manual override)
-            task = run_recording_task.delay(
-                recording_id=recording_id,
-                user_id=ctx.user_id,
-                manual_override=manual_override if manual_override else None,
-            )
-
-            # Only bind template after task is successfully created
+            # Template binding before smart run
             if data.template_id and data.bind_template:
                 recording.template_id = data.template_id
                 recording.is_mapped = True
-
-                # Update status if currently SKIPPED
                 if recording.status == ProcessingStatus.SKIPPED:
                     recording.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
+
+            # Smart run: determine action by current status
+            result = await _execute_smart_run(
+                recording,
+                recording_id,
+                ctx,
+                manual_override=manual_override if manual_override else None,
+            )
 
             tasks.append(
                 {
                     "recording_id": recording_id,
-                    "status": "queued",
-                    "task_id": task.id,
-                    "check_status_url": f"/api/v1/tasks/{task.id}",
+                    "status": "queued" if result.task_id else "completed",
+                    "task_id": result.task_id,
+                    "message": result.message,
+                    "check_status_url": f"/api/v1/tasks/{result.task_id}" if result.task_id else None,
+                }
+            )
+
+        except HTTPException as he:
+            # Smart run raises HTTPException for rejected statuses (409, etc.)
+            tasks.append(
+                {
+                    "recording_id": recording_id,
+                    "status": "skipped",
+                    "error": he.detail,
+                    "task_id": None,
                 }
             )
 
@@ -1271,7 +1391,7 @@ async def bulk_run_recordings(
             )
 
     queued_count = len([t for t in tasks if t["status"] == "queued"])
-    skipped_count = len([t for t in tasks if t["status"] == "skipped"])
+    skipped_count = len([t for t in tasks if t["status"] in ("skipped", "completed")])
 
     # Commit template bindings if any
     if data.template_id and data.bind_template:
@@ -1293,11 +1413,21 @@ async def run_recording(
     dry_run: bool = Query(False, description="Dry-run: show what will be done without actual execution"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse | DryRunResponse:
-    """Run full pipeline: download → trim → transcribe → topics → upload (async task)."""
+    """
+    Smart run: always does the right thing based on current recording state.
+
+    - INITIALIZED/SKIPPED → full pipeline (download → process → upload)
+    - DOWNLOADED → processing pipeline (skip download)
+    - DOWNLOADING/PROCESSING/UPLOADING + paused → clear pause, continue
+    - DOWNLOADING/PROCESSING/UPLOADING + not paused → 409 (already running)
+    - PROCESSED/UPLOADED → retry failed/pending uploads
+    - READY → already complete
+    - EXPIRED/PENDING_SOURCE → 409 (cannot process)
+
+    For a full restart: use /reset first, then /run.
+    """
     if dry_run:
         return await _execute_dry_run_single(recording_id, config, ctx)
-
-    from api.tasks.processing import run_recording_task
 
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -1308,7 +1438,7 @@ async def run_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    # Validate template if binding is requested
+    # Template binding (before smart run, so override is available)
     if config.template_id and config.bind_template:
         from api.repositories.template_repos import RecordingTemplateRepository
 
@@ -1320,17 +1450,6 @@ async def run_recording(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {config.template_id} not found"
             )
 
-    manual_override = _build_override_from_flexible(config)
-
-    # Start task first to ensure it can be created
-    task = run_recording_task.delay(
-        recording_id=recording_id,
-        user_id=ctx.user_id,
-        manual_override=manual_override,
-    )
-
-    # Only bind template after task is successfully created
-    if config.template_id and config.bind_template:
         recording.template_id = config.template_id
         recording.is_mapped = True
 
@@ -1339,23 +1458,155 @@ async def run_recording(
             recording.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
 
         await ctx.session.commit()
-
         logger.info(f"Bound template (id={config.template_id}) to recording {recording_id}")
 
-    logger.info(
-        f"Run recording task {task.id} created for recording {recording_id}, user {ctx.user_id}, "
-        f"overrides: {list(manual_override.keys())}"
-    )
+    manual_override = _build_override_from_flexible(config)
 
-    return {
-        "success": True,
-        "task_id": task.id,
-        "recording_id": recording_id,
-        "status": "queued",
-        "message": "Run task has been queued",
-        "check_status_url": f"/api/v1/tasks/{task.id}",
-        "config_overrides": manual_override if manual_override else None,
-    }
+    return await _execute_smart_run(recording, recording_id, ctx, manual_override)
+
+
+async def _execute_smart_run(
+    recording,
+    recording_id: int,
+    ctx: ServiceContext,
+    manual_override: dict | None = None,
+) -> RecordingOperationResponse:
+    """
+    Unified smart run: determine the right action based on current state.
+
+    State machine:
+    - INITIALIZED/SKIPPED → start full pipeline (download → process → upload)
+    - DOWNLOADED → start processing pipeline (skip download)
+    - DOWNLOADING/PROCESSING/UPLOADING → reject if running, or clear pause flag
+    - PROCESSED/UPLOADED → retry failed/pending uploads
+    - READY → already complete
+    - EXPIRED/PENDING_SOURCE → reject
+    """
+    from api.tasks.processing import run_recording_task
+    from api.tasks.upload import upload_recording_to_platform
+
+    current_status = recording.status
+
+    # --- Reject terminal/unprocessable statuses ---
+    if current_status == ProcessingStatus.EXPIRED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot run expired recording.",
+        )
+    if current_status == ProcessingStatus.PENDING_SOURCE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording is waiting for source. Cannot run yet.",
+        )
+
+    # --- Runtime statuses: already running ---
+    if current_status in [ProcessingStatus.DOWNLOADING, ProcessingStatus.PROCESSING, ProcessingStatus.UPLOADING]:
+        if recording.on_pause:
+            # Clear pause flag — existing chain will continue naturally
+            recording.on_pause = False
+            recording.pause_requested_at = None
+            await ctx.session.commit()
+            logger.info(f"Smart run: cleared pause flag for recording {recording_id} (status={current_status})")
+            return RecordingOperationResponse(
+                success=True,
+                recording_id=recording_id,
+                message="Pipeline will continue after current stage completes",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Recording is already being processed (status={current_status}). "
+            "Use /pause to stop, or wait for completion.",
+        )
+
+    # --- Clear pause flag if set (for non-runtime statuses) ---
+    if recording.on_pause:
+        recording.on_pause = False
+        recording.pause_requested_at = None
+        await ctx.session.commit()
+
+    # 1. Fresh start: INITIALIZED or SKIPPED → full pipeline
+    if current_status in [ProcessingStatus.INITIALIZED, ProcessingStatus.SKIPPED]:
+        task = run_recording_task.delay(
+            recording_id=recording_id,
+            user_id=ctx.user_id,
+            manual_override=manual_override,
+        )
+        logger.info(f"Smart run: starting full pipeline for recording {recording_id} (status={current_status})")
+        return RecordingOperationResponse(
+            success=True,
+            task_id=task.id,
+            recording_id=recording_id,
+            message="Pipeline started",
+        )
+
+    # 2. Processing: DOWNLOADED → start processing (skip download)
+    if current_status == ProcessingStatus.DOWNLOADED:
+        task = run_recording_task.delay(
+            recording_id=recording_id,
+            user_id=ctx.user_id,
+            manual_override=manual_override,
+        )
+        logger.info(f"Smart run: continuing processing for recording {recording_id}")
+        return RecordingOperationResponse(
+            success=True,
+            task_id=task.id,
+            recording_id=recording_id,
+            message="Processing pipeline started (download already complete)",
+        )
+
+    # 3. Upload phase: PROCESSED, UPLOADED → retry failed/pending uploads
+    #    Note: UPLOADING is a runtime status handled above (step 3 runtime check)
+    if current_status in [ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADED]:
+        # DB stores enum values as strings, compare with .value for safety
+        failed_statuses = {TargetStatus.FAILED, TargetStatus.FAILED.value}
+        pending_statuses = {TargetStatus.NOT_UPLOADED, TargetStatus.NOT_UPLOADED.value}
+        failed_outputs = [o for o in recording.outputs if o.status in failed_statuses]
+        pending_outputs = [o for o in recording.outputs if o.status in pending_statuses]
+
+        targets = failed_outputs + pending_outputs
+
+        if targets:
+            task_ids = []
+            for output in targets:
+                target_type = output.target_type
+                platform = target_type.lower() if isinstance(target_type, str) else target_type.value.lower()
+                task = upload_recording_to_platform.delay(
+                    recording_id=recording_id,
+                    user_id=ctx.user_id,
+                    platform=platform,
+                    preset_id=output.preset_id,
+                )
+                task_ids.append(task.id)
+
+            logger.info(f"Smart run: retrying {len(targets)} uploads for recording {recording_id}")
+            return RecordingOperationResponse(
+                success=True,
+                task_id=task_ids[0] if len(task_ids) == 1 else None,
+                recording_id=recording_id,
+                message=f"Retrying {len(targets)} upload(s)",
+            )
+
+        # All outputs already handled — nothing to retry
+        return RecordingOperationResponse(
+            success=True,
+            recording_id=recording_id,
+            message="Processing complete. No pending or failed uploads found.",
+        )
+
+    # 4. Already complete
+    if current_status == ProcessingStatus.READY:
+        return RecordingOperationResponse(
+            success=True,
+            recording_id=recording_id,
+            message="Recording already complete. No action needed.",
+        )
+
+    # Fallback: unexpected status
+    return RecordingOperationResponse(
+        success=True,
+        recording_id=recording_id,
+        message=f"No action available for status {current_status}. Use /reset to start over.",
+    )
 
 
 @router.post("/{recording_id}/transcribe", response_model=RecordingOperationResponse)
@@ -1797,82 +2048,6 @@ async def bulk_transcribe_recordings(
     }
 
 
-@router.post("/{recording_id}/retry-upload", response_model=RetryUploadResponse)
-async def retry_failed_uploads(
-    recording_id: int,
-    platforms: list[str] | None = None,
-    ctx: ServiceContext = Depends(get_service_context),
-) -> RetryUploadResponse:
-    """Retry upload for failed output targets."""
-    from api.tasks.upload import upload_recording_to_platform
-
-    recording_repo = RecordingRepository(ctx.session)
-
-    # Get recording from DB
-    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
-    if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
-
-    # Get failed output_targets
-    failed_targets = []
-    for output in recording.outputs:
-        if output.failed or output.status == TargetStatus.FAILED.value:
-            # If specific platforms are specified, filter them
-            if platforms:
-                if output.target_type.lower() in [p.lower() for p in platforms]:
-                    failed_targets.append(output)
-            else:
-                failed_targets.append(output)
-
-    if not failed_targets:
-        return {
-            "message": "No failed uploads found for retry",
-            "recording_id": recording_id,
-            "tasks": [],
-        }
-
-    # Start retry for each failed target
-    tasks = []
-    for target in failed_targets:
-        try:
-            task = upload_recording_to_platform.delay(
-                recording_id=recording_id,
-                user_id=ctx.user_id,
-                platform=target.target_type.value.lower(),
-                preset_id=target.preset_id,
-            )
-
-            tasks.append(
-                {
-                    "platform": target.target_type.value,
-                    "task_id": str(task.id),
-                    "status": "queued",
-                    "previous_attempts": target.retry_count,
-                }
-            )
-
-            logger.info(
-                f"Queued retry upload for recording {recording_id} to {target.target_type.value} "
-                f"(attempt {target.retry_count + 1})"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to queue retry for {target.target_type.value}: {e}")
-            tasks.append(
-                {
-                    "platform": target.target_type.value,
-                    "status": "error",
-                    "error": str(e),
-                }
-            )
-
-    return RetryUploadResponse(
-        message=f"Retry queued for {len([t for t in tasks if t['status'] == 'queued'])} platforms",
-        recording_id=recording_id,
-        tasks=tasks,
-    )
-
-
 @router.get("/{recording_id}/config")
 async def get_recording_config(
     recording_id: int,
@@ -1999,6 +2174,126 @@ async def reset_to_template(
     )
 
 
+@router.post("/{recording_id}/pause", response_model=PauseRecordingResponse)
+async def pause_recording(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> PauseRecordingResponse:
+    """Soft pause: wait for current stage to complete, then stop pipeline."""
+    from datetime import UTC, datetime
+
+    from api.helpers.status_manager import can_pause
+
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+
+    if not recording:
+        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+
+    if recording.on_pause:
+        return PauseRecordingResponse(
+            success=True,
+            recording_id=recording_id,
+            message="Recording is already paused",
+            status=recording.status,
+            on_pause=True,
+        )
+
+    if not can_pause(recording):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot pause recording in status {recording.status}. "
+            "Pause is only available during active processing (DOWNLOADING, PROCESSING, UPLOADING).",
+        )
+
+    recording.on_pause = True
+    recording.pause_requested_at = datetime.now(UTC)
+    await ctx.session.commit()
+
+    logger.info(f"Pause requested for recording {recording_id} (status={recording.status})")
+
+    return PauseRecordingResponse(
+        success=True,
+        recording_id=recording_id,
+        message="Pause requested. Current stage will complete before stopping.",
+        status=recording.status,
+        on_pause=True,
+    )
+
+
+@router.post("/bulk/pause", response_model=RecordingBulkOperationResponse)
+async def bulk_pause_recordings(
+    data: BulkPauseRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> RecordingBulkOperationResponse:
+    """Bulk pause recordings. Only pauses recordings that are actively processing."""
+    from datetime import UTC, datetime
+
+    from api.helpers.status_manager import can_pause
+
+    recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
+
+    recording_repo = RecordingRepository(ctx.session)
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id)
+
+    tasks = []
+    paused_count = 0
+
+    for recording_id in recording_ids:
+        recording = recordings_map.get(recording_id)
+
+        if not recording:
+            tasks.append({"recording_id": recording_id, "status": "error", "error": "Not found", "task_id": None})
+            continue
+
+        if recording.on_pause:
+            tasks.append(
+                {
+                    "recording_id": recording_id,
+                    "status": "skipped",
+                    "error": "Already paused",
+                    "task_id": None,
+                }
+            )
+            continue
+
+        if not can_pause(recording):
+            tasks.append(
+                {
+                    "recording_id": recording_id,
+                    "status": "skipped",
+                    "error": f"Cannot pause in status {recording.status}",
+                    "task_id": None,
+                }
+            )
+            continue
+
+        recording.on_pause = True
+        recording.pause_requested_at = datetime.now(UTC)
+        paused_count += 1
+
+        tasks.append(
+            {
+                "recording_id": recording_id,
+                "status": "queued",
+                "task_id": None,
+                "message": "Pause requested",
+            }
+        )
+
+    if paused_count > 0:
+        await ctx.session.commit()
+
+    logger.info(f"Bulk pause: {paused_count}/{len(recording_ids)} recordings paused")
+
+    return RecordingBulkOperationResponse(
+        total=len(recording_ids),
+        queued_count=paused_count,
+        skipped_count=len(recording_ids) - paused_count,
+        tasks=tasks,
+    )
+
+
 @router.post("/{recording_id}/reset", response_model=ResetRecordingResponse)
 async def reset_recording(
     recording_id: int,
@@ -2080,6 +2375,8 @@ async def reset_recording(
     recording.transcription_info = None
     recording.failed = False
     recording.failed_reason = None
+    recording.on_pause = False
+    recording.pause_requested_at = None
 
     # Set status based on source processing state and is_mapped
     if recording.source and recording.source.meta:

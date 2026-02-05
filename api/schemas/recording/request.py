@@ -370,6 +370,24 @@ class BulkRunRequest(BulkOperationRequest):
     )
 
 
+class BulkPauseRequest(BulkOperationRequest):
+    """Bulk pause recordings."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"recording_ids": [1, 2, 3]},
+                {
+                    "filters": {
+                        "status": ["DOWNLOADING", "PROCESSING", "UPLOADING"],
+                    },
+                    "limit": 50,
+                },
+            ]
+        }
+    )
+
+
 class BulkDeleteRequest(BulkOperationRequest):
     """Bulk soft delete recordings."""
 

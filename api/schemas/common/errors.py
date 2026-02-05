@@ -6,7 +6,7 @@ from .config import BASE_MODEL_CONFIG
 
 
 class ErrorDetail(BaseModel):
-    """Детали ошибки."""
+    """Error details."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -16,7 +16,7 @@ class ErrorDetail(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """Стандартный ответ с ошибкой."""
+    """Standard error response."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -25,7 +25,7 @@ class ErrorResponse(BaseModel):
 
 
 class ValidationErrorResponse(BaseModel):
-    """Ответ с ошибками валидации."""
+    """Response with validation errors."""
 
     model_config = BASE_MODEL_CONFIG
 

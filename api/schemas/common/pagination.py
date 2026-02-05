@@ -1,17 +1,17 @@
-"""Pagination schemas"""
+"""Pagination schemas."""
 
 from pydantic import BaseModel, Field
 
 
 class PaginationParams(BaseModel):
-    """Параметры пагинации."""
+    """Parameters of pagination."""
 
-    page: int = Field(1, ge=1, description="Номер страницы")
-    per_page: int = Field(20, ge=1, le=100, description="Записей на страницу")
+    page: int = Field(1, ge=1, description="Page number")
+    per_page: int = Field(20, ge=1, le=100, description="Number of records per page")
 
 
 class PaginatedResponse(BaseModel):
-    """Ответ с пагинацией."""
+    """Response with pagination."""
 
     page: int
     per_page: int
@@ -20,10 +20,10 @@ class PaginatedResponse(BaseModel):
 
     @property
     def has_next(self) -> bool:
-        """Есть ли следующая страница."""
+        """Is there a next page."""
         return self.page < self.total_pages
 
     @property
     def has_prev(self) -> bool:
-        """Есть ли предыдущая страница."""
+        """Is there a previous page."""
         return self.page > 1

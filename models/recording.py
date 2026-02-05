@@ -36,9 +36,9 @@ class SourceType(Enum):
     ZOOM = "ZOOM"
     LOCAL_FILE = "LOCAL_FILE"
     GOOGLE_DRIVE = "GOOGLE_DRIVE"
-    YANDEX_DISK = "YANDEX_DISK"  # В разработке (февраль 2026)
-    YOUTUBE = "YOUTUBE"  # Через yt-dlp (в разработке)
-    EXTERNAL_URL = "EXTERNAL_URL"  # Через yt-dlp (в разработке)
+    YANDEX_DISK = "YANDEX_DISK"
+    YOUTUBE = "YOUTUBE"
+    EXTERNAL_URL = "EXTERNAL_URL"
     OTHER = "OTHER"
 
 
@@ -49,9 +49,8 @@ class TargetType(Enum):
     VK = "VK"
     LOCAL_STORAGE = "LOCAL_STORAGE"
     GOOGLE_DRIVE = "GOOGLE_DRIVE"
-    YANDEX_DISK = "YANDEX_DISK"  # В разработке (февраль 2026)
-    TELEGRAM = "TELEGRAM"  # Планируется
-    RUTUBE = "RUTUBE"  # Планируется
+    YANDEX_DISK = "YANDEX_DISK"
+    RUTUBE = "RUTUBE"
     OTHER = "OTHER"
 
 

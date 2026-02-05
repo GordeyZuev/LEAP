@@ -432,7 +432,6 @@ API Request → Create Celery Task → Return task_id
 
 # Upload tasks
 - upload_to_platform_task(recording_id, platform, user_id)
-- retry_upload_task(recording_id, platform, user_id)
 
 # Batch tasks
 - bulk_process_task(recording_ids, user_id)

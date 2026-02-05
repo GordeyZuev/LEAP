@@ -1,4 +1,4 @@
-"""Base reusable response schemas"""
+"""Base reusable response schemas."""
 
 from pydantic import BaseModel
 
@@ -6,7 +6,7 @@ from .config import BASE_MODEL_CONFIG
 
 
 class MessageResponse(BaseModel):
-    """Простой ответ с сообщением."""
+    """Simple response with message."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -15,7 +15,7 @@ class MessageResponse(BaseModel):
 
 
 class SuccessResponse(BaseModel):
-    """Стандартный success ответ."""
+    """Standard success response."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -24,7 +24,7 @@ class SuccessResponse(BaseModel):
 
 
 class TaskQueuedResponse(BaseModel):
-    """Ответ при постановке задачи в очередь."""
+    """Response when task is queued."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -34,7 +34,7 @@ class TaskQueuedResponse(BaseModel):
 
 
 class TaskInfo(BaseModel):
-    """Информация о задаче в bulk операции."""
+    """Information about task in bulk operation."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -44,7 +44,7 @@ class TaskInfo(BaseModel):
 
 
 class BulkOperationResponse(BaseModel):
-    """Результат массовой операции."""
+    """Result of bulk operation."""
 
     model_config = BASE_MODEL_CONFIG
 

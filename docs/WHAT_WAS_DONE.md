@@ -298,9 +298,9 @@ Day 33: Maintenance → Hard delete (Level 3)
 **Users** (6): me, config, quota, quota/history, password, delete
 **Admin** (3): stats/overview, stats/users, stats/quotas
 
-**Recordings** (16):
+**Recordings** (18):
 - CRUD + details, process, transcribe, topics, subtitles, upload
-- retry-upload, bulk-process, bulk-transcribe, sync
+- run (smart), pause, bulk-run, bulk-pause, bulk-transcribe, sync
 - config management (get, update, save-as-template, reset)
 - unmapped recordings list
 
@@ -341,9 +341,11 @@ Sync → Auto-match template → Recording + template_id
 - `GET/PUT /recordings/{id}/config` - manual config management
 - `DELETE /recordings/{id}/config` - reset to template
 - `POST /recordings/{id}/config/save-as-template` - create template from config
-- `POST /recordings/{id}/retry-upload` - retry failed uploads
+- `POST /recordings/{id}/run` - unified smart run (start, continue, retry)
+- `POST /recordings/{id}/pause` - soft pause (graceful stop)
 - `POST /recordings/{id}/reset` - reset to INITIALIZED state
-- `POST /recordings/bulk/process` - bulk processing
+- `POST /recordings/bulk/run` - smart bulk run
+- `POST /recordings/bulk/pause` - bulk pause
 - `POST /templates/{id}/rematch` - re-match recordings to templates
 
 **Matching Rules:**

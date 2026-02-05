@@ -182,6 +182,11 @@ async def _async_download_recording(
         # Resolve config
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
 
+        # Check pause flag before starting
+        if recording.on_pause:
+            logger.info(f"[Task {task_self.request.id}] Skipping download: recording {recording_id} is paused")
+            return {"status": "paused", "message": "Pipeline paused by user"}
+
         recording_repo = RecordingRepository(session)
 
         # Reset failure flags if retrying after download failure
@@ -371,6 +376,11 @@ async def _async_process_video(
 
     async with session_maker() as session:
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
+
+        # Check pause flag before starting
+        if recording.on_pause:
+            logger.info(f"[Task {task_self.request.id}] Skipping trim: recording {recording_id} is paused")
+            return {"status": "paused", "message": "Pipeline paused by user"}
 
         recording_repo = RecordingRepository(session)
 
@@ -611,6 +621,11 @@ async def _async_transcribe_recording(
         # Resolve config from hierarchy
         full_config, recording = await resolve_full_config(session, recording_id, user_id, manual_override)
 
+        # Check pause flag before starting
+        if recording.on_pause:
+            logger.info(f"[Task {task_self.request.id}] Skipping transcribe: recording {recording_id} is paused")
+            return {"status": "paused", "message": "Pipeline paused by user"}
+
         transcription_config = full_config.get("transcription", {})
 
         recording_repo = RecordingRepository(session)
@@ -803,6 +818,24 @@ def _launch_uploads_task(
     """
     from api.tasks.upload import upload_recording_to_platform
 
+    # Check pause flag before launching uploads
+    session_maker = get_async_session_maker()
+
+    async def _check_pause():
+        async with session_maker() as session:
+            recording_repo = RecordingRepository(session)
+            recording = await recording_repo.get_by_id(recording_id, user_id)
+            return recording.on_pause if recording else False
+
+    if self.run_async(_check_pause()):
+        logger.info(f"[Task {self.request.id}] Skipping uploads: recording {recording_id} is paused")
+        return self.build_result(
+            user_id=user_id,
+            status="paused",
+            recording_id=recording_id,
+            result={"message": "Pipeline paused by user"},
+        )
+
     logger.info(f"[Task {self.request.id}] Launching uploads for recording {recording_id}: platforms={platforms}")
 
     upload_task_ids = []
@@ -869,6 +902,22 @@ def run_recording_task(
 
         manual_override = manual_override or {}
         session_maker = get_async_session_maker()
+
+        # Check pause flag before building pipeline
+        async def _check_pause_before_pipeline():
+            async with session_maker() as session:
+                repo = RecordingRepository(session)
+                rec = await repo.get_by_id(recording_id, user_id)
+                return rec.on_pause if rec else False
+
+        if self.run_async(_check_pause_before_pipeline()):
+            logger.info(f"[Task {self.request.id}] Skipping pipeline: recording {recording_id} is paused")
+            return self.build_result(
+                user_id=user_id,
+                status="paused",
+                recording_id=recording_id,
+                result={"message": "Pipeline paused by user"},
+            )
 
         # Resolve config to determine which steps are enabled
         async def _resolve_pipeline_config():
@@ -1097,6 +1146,11 @@ async def _async_extract_topics(
         if not recording:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
 
+        # Check pause flag before starting
+        if recording.on_pause:
+            logger.info(f"[Task {task_self.request.id}] Skipping topics: recording {recording_id} is paused")
+            return {"status": "paused", "message": "Pipeline paused by user"}
+
         # Get user_slug for path generation
         user_slug = recording.owner.user_slug
 
@@ -1281,6 +1335,11 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         recording = await recording_repo.get_by_id(recording_id, user_id)
         if not recording:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
+
+        # Check pause flag before starting
+        if recording.on_pause:
+            logger.info(f"[Task {task_self.request.id}] Skipping subtitles: recording {recording_id} is paused")
+            return {"status": "paused", "message": "Pipeline paused by user"}
 
         # Get user_slug for path generation
         user_slug = recording.owner.user_slug

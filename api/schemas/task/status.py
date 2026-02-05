@@ -6,17 +6,17 @@ from api.schemas.common import BASE_MODEL_CONFIG
 
 
 class TaskProgressInfo(BaseModel):
-    """Информация о прогрессе задачи."""
+    """Information about progress of task."""
 
     model_config = BASE_MODEL_CONFIG
 
     status: str
-    progress: int = Field(0, ge=0, le=100, description="Прогресс выполнения (0-100)")
+    progress: int = Field(0, ge=0, le=100, description="Progress of execution (0-100)")
     step: str | None = None
 
 
 class TaskResult(BaseModel):
-    """Результат выполнения задачи."""
+    """Result of execution of task."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -25,14 +25,14 @@ class TaskResult(BaseModel):
     file_path: str | None = None
     message: str | None = None
 
-    # Дополнительные поля для разных типов задач
+    # Additional fields for different types of tasks
     transcription_text: str | None = None
     topics: list[str] | None = None
-    duration_seconds: float | None = Field(None, ge=0, description="Длительность в секундах")
+    duration_seconds: float | None = Field(None, ge=0, description="Duration in seconds")
 
 
 class TaskStatusResponse(BaseModel):
-    """Статус Celery задачи."""
+    """Status of Celery task."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -40,12 +40,12 @@ class TaskStatusResponse(BaseModel):
     state: str
     status: str
     progress: int = Field(0, ge=0, le=100)
-    result: TaskResult | dict | None = None  # dict для legacy support
+    result: TaskResult | dict | None = None  # dict for legacy support
     error: str | None = None
 
 
 class TaskCancelResponse(BaseModel):
-    """Результат отмены задачи."""
+    """Result of cancellation of task."""
 
     model_config = BASE_MODEL_CONFIG
 

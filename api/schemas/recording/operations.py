@@ -2,14 +2,17 @@
 
 from pydantic import BaseModel
 
+from models import ProcessingStatus
+
 
 class DryRunResponse(BaseModel):
     """Result of dry-run check for single recording."""
 
     dry_run: bool = True
     recording_id: int | None = None
+    current_status: ProcessingStatus | None = None
     steps: list[dict] | None = None
-    config_sources: dict | None = None  # Info about where config comes from
+    config_sources: dict | None = None
 
 
 class RecordingOperationResponse(BaseModel):
@@ -39,14 +42,6 @@ class BulkProcessDryRunResponse(BaseModel):
     skipped_count: int
     total: int
     recordings: list[dict]
-
-
-class RetryUploadResponse(BaseModel):
-    """Result of retry upload."""
-
-    message: str
-    recording_id: int
-    tasks: list[dict] | None = None
 
 
 class MappingStatusResponse(BaseModel):
@@ -127,3 +122,13 @@ class TemplateUnbindResponse(BaseModel):
     success: bool
     recording_id: int
     message: str
+
+
+class PauseRecordingResponse(BaseModel):
+    """Result of pause recording operation."""
+
+    success: bool
+    recording_id: int
+    message: str
+    status: ProcessingStatus
+    on_pause: bool

@@ -31,6 +31,8 @@ def create_mock_recording(
     recording.blank_record = blank_record
     recording.deleted = deleted
     recording.failed = failed
+    recording.on_pause = kwargs.get("on_pause", False)
+    recording.pause_requested_at = kwargs.get("pause_requested_at")
     recording.start_time = kwargs.get("start_time", datetime.now(UTC))
     recording.duration = kwargs.get("duration", 3600)
     recording.local_video_path = kwargs.get("local_video_path")

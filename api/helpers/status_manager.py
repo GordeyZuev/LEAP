@@ -152,6 +152,17 @@ def should_allow_transcription(recording: RecordingModel) -> bool:
     return transcribe_stage.status in [ProcessingStageStatus.PENDING, ProcessingStageStatus.FAILED]
 
 
+def can_pause(recording: RecordingModel) -> bool:
+    """Check if recording can be paused (only during active processing)."""
+    if recording.on_pause:
+        return False
+    return recording.status in [
+        ProcessingStatus.DOWNLOADING,
+        ProcessingStatus.PROCESSING,
+        ProcessingStatus.UPLOADING,
+    ]
+
+
 def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:
     """Check if upload to platform can be started (all stages complete, target not uploaded)."""
     if recording.failed or recording.deleted:

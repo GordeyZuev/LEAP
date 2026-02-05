@@ -11,6 +11,6 @@ router = APIRouter(tags=["Health"])
 async def health_check() -> HealthCheckResponse:
     """Health check endpoint."""
     return HealthCheckResponse(
-        status="ok",
-        service="LEAP API - Lecture Enhancement & Automation Platform",
+        status="OK",
+        service="LEAP API",
     )

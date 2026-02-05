@@ -127,7 +127,7 @@
       "step_4": "Если все ок - активируйте template (is_draft: false)",
       "step_5": "Запустите batch обработку для всех matched recordings",
       "step_6": "Мониторьте output_targets для отслеживания статуса загрузки",
-      "step_7": "При ошибках используйте retry-upload для повторной попытки"
+      "step_7": "При ошибках используйте /run для повторной обработки (smart retry)"
     }
   },
 
@@ -148,9 +148,11 @@
       "get_config": "GET /api/v1/recordings/{id}/config",
       "update_config": "PUT /api/v1/recordings/{id}/config",
       "save_as_template": "POST /api/v1/recordings/{id}/config/save-as-template",
-      "retry_upload": "POST /api/v1/recordings/{id}/retry-upload",
+      "run": "POST /api/v1/recordings/{id}/run",
+      "pause": "POST /api/v1/recordings/{id}/pause",
       "unmapped": "GET /api/v1/recordings/unmapped",
-      "batch_process": "POST /api/v1/recordings/batch/process-mapped"
+      "bulk_run": "POST /api/v1/recordings/bulk/run",
+      "bulk_pause": "POST /api/v1/recordings/bulk/pause"
     },
     "input_sources": {
       "sync": "POST /api/v1/input-sources/{id}/sync",

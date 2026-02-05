@@ -6,18 +6,18 @@ from pydantic import BaseModel, Field
 
 
 class AdminOverviewStats(BaseModel):
-    """Общая статистика платформы."""
+    """Overall platform statistics."""
 
-    total_users: int = Field(..., description="Всего пользователей")
-    active_users: int = Field(..., description="Активных пользователей")
-    total_recordings: int = Field(..., description="Всего записей")
-    total_storage_gb: float = Field(..., description="Всего использовано хранилища (GB)")
-    total_plans: int = Field(..., description="Всего тарифных планов")
-    users_by_plan: dict[str, int] = Field(..., description="Распределение пользователей по планам")
+    total_users: int = Field(..., description="Total users")
+    active_users: int = Field(..., description="Active users")
+    total_recordings: int = Field(..., description="Total recordings")
+    total_storage_gb: float = Field(..., description="Total storage used (GB)")
+    total_plans: int = Field(..., description="Total plans")
+    users_by_plan: dict[str, int] = Field(..., description="Distribution of users by plans")
 
 
 class UserQuotaDetails(BaseModel):
-    """Детальная информация о квотах пользователя."""
+    """Detailed information about user quotas."""
 
     user_id: str
     email: str
@@ -26,13 +26,13 @@ class UserQuotaDetails(BaseModel):
     recordings_limit: int | None
     storage_used_gb: float
     storage_limit_gb: int | None
-    is_exceeding: bool = Field(..., description="Превышены ли квоты")
+    is_exceeding: bool = Field(..., description="Are quotas exceeded")
     overage_enabled: bool
     overage_cost: Decimal = Field(default=Decimal("0"))
 
 
 class AdminUserStats(BaseModel):
-    """Статистика по пользователям с фильтрами."""
+    """Statistics by users with filters."""
 
     total_count: int
     users: list[UserQuotaDetails]
@@ -41,7 +41,7 @@ class AdminUserStats(BaseModel):
 
 
 class PlanUsageStats(BaseModel):
-    """Статистика использования по плану."""
+    """Statistics of usage by plan."""
 
     plan_name: str
     total_users: int
@@ -52,9 +52,9 @@ class PlanUsageStats(BaseModel):
 
 
 class AdminQuotaStats(BaseModel):
-    """Статистика использования квот."""
+    """Statistics of quota usage."""
 
-    period: int = Field(..., description="Период (YYYYMM)")
+    period: int = Field(..., description="Period (YYYYMM)")
     total_recordings: int
     total_storage_gb: float
     total_overage_cost: Decimal
