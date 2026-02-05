@@ -21,7 +21,6 @@ POST /api/v1/recordings/bulk/transcribe
 }
 ```
 
-Для bulk операций смотрите [BULK_OPERATIONS_GUIDE.md](./BULK_OPERATIONS_GUIDE.md).
 
 ---
 

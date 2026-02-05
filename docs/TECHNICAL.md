@@ -409,8 +409,6 @@ platforms = await cred_service.list_available_platforms(user_id)
 - Quota management
 - OpenAPI documentation (Swagger, ReDoc)
 
-**Documentation:** [API_GUIDE.md](API_GUIDE.md)
-
 ---
 
 ### ⬇️ Video Download Module (`video_download_module/`)
@@ -775,8 +773,6 @@ final = {
 - Nested typing (templates, presets, configs)
 - 6 Enums (`ProcessingStatus`, `YouTubePrivacy`, `VKPrivacyLevel`, etc.)
 - 100% OpenAPI documentation coverage
-
-**Documentation:** [API_GUIDE.md](API_GUIDE.md)
 
 ### Key Endpoint Groups
 
@@ -1256,13 +1252,11 @@ psql -U postgres -d zoom_manager
 - [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
 - [OAUTH.md](OAUTH.md) - OAuth integration
 - [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow
-- [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Batch processing
 
 **Architecture:**
 - [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema
 - [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Architecture decisions
 - [ADR_FEATURES.md](ADR_FEATURES.md) - Feature ADRs
-- [API_GUIDE.md](API_GUIDE.md) - API schemas & best practices
 
 ---
 

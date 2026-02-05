@@ -533,8 +533,6 @@ Enterprise: ∞ recordings, ∞ storage, 10 tasks, ∞ automation jobs
 
 **Статус:** ✅ Полностью реализовано
 
-**См. также:** [API_GUIDE.md](API_GUIDE.md) - Admin & Quota API
-
 ---
 
 ### ADR-008: FSM для Processing Status
@@ -664,9 +662,6 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 
 **Статус:** ✅ Полностью реализовано
 
-**См. также:**
-- [API_GUIDE.md](API_GUIDE.md)
-
 ---
 
 ## Текущее состояние системы
@@ -705,8 +700,7 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 - [TECHNICAL.md](TECHNICAL.md) - Полная техническая документация
 
 ### API & Integration
-- [API_GUIDE.md](API_GUIDE.md) - Pydantic схемы
-- [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Bulk операции
+- [TECHNICAL.md](TECHNICAL.md) - Pydantic схемы и API endpoints
 - [OAUTH.md](OAUTH.md) - OAuth setup & integration
 
 ### Features

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-import aiohttp
+import httpx
 
 from logger import get_logger
 
@@ -32,20 +32,25 @@ class VKAlbumManager:
             if self.config.group_id:
                 params["group_id"] = self.config.group_id
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.addAlbum", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error: {data['error']}")
-                            return None
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.addAlbum", data=params)
 
-                        album_id = data["response"]["album_id"]
-                        logger.info(f"Album created: {album_id}")
-                        return str(album_id)
-                    logger.error(f"HTTP Error: {response.status}")
-                    return None
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error: {data['error']}")
+                        return None
 
+                    album_id = data["response"]["album_id"]
+                    logger.info(f"Album created: {album_id}")
+                    return str(album_id)
+                logger.error(f"HTTP Error: {response.status_code}")
+                return None
+
+        except httpx.TimeoutException:
+            logger.error("Timeout creating album")
+            return None
         except Exception as e:
             logger.error(f"Album creation error: {e}")
             return None
@@ -58,31 +63,36 @@ class VKAlbumManager:
             if self.config.group_id:
                 params["owner_id"] = -self.config.group_id
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.getAlbums", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error: {data['error']}")
-                            return []
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.getAlbums", data=params)
 
-                        albums = []
-                        for album in data["response"]["items"]:
-                            albums.append(
-                                {
-                                    "album_id": album["id"],
-                                    "title": album["title"],
-                                    "description": album.get("description", ""),
-                                    "count": album["count"],
-                                    "updated_time": album["updated_time"],
-                                }
-                            )
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error: {data['error']}")
+                        return []
 
-                        logger.info(f"Albums retrieved: {len(albums)}")
-                        return albums
-                    logger.error(f"HTTP Error: {response.status}")
-                    return []
+                    albums = []
+                    for album in data["response"]["items"]:
+                        albums.append(
+                            {
+                                "album_id": album["id"],
+                                "title": album["title"],
+                                "description": album.get("description", ""),
+                                "count": album["count"],
+                                "updated_time": album["updated_time"],
+                            }
+                        )
 
+                    logger.info(f"Albums retrieved: {len(albums)}")
+                    return albums
+                logger.error(f"HTTP Error: {response.status_code}")
+                return []
+
+        except httpx.TimeoutException:
+            logger.error("Timeout getting albums")
+            return []
         except Exception as e:
             logger.error(f"Error getting albums: {e}")
             return []
@@ -100,33 +110,38 @@ class VKAlbumManager:
             if self.config.group_id:
                 params["owner_id"] = -self.config.group_id
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.get", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error: {data['error']}")
-                            return []
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.get", data=params)
 
-                        videos = []
-                        for video in data["response"]["items"]:
-                            videos.append(
-                                {
-                                    "video_id": video["id"],
-                                    "owner_id": video["owner_id"],
-                                    "title": video["title"],
-                                    "description": video.get("description", ""),
-                                    "duration": video.get("duration", 0),
-                                    "views": video.get("views", 0),
-                                    "date": video["date"],
-                                }
-                            )
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error: {data['error']}")
+                        return []
 
-                        logger.info(f"Videos retrieved from album: {len(videos)}")
-                        return videos
-                    logger.error(f"HTTP Error: {response.status}")
-                    return []
+                    videos = []
+                    for video in data["response"]["items"]:
+                        videos.append(
+                            {
+                                "video_id": video["id"],
+                                "owner_id": video["owner_id"],
+                                "title": video["title"],
+                                "description": video.get("description", ""),
+                                "duration": video.get("duration", 0),
+                                "views": video.get("views", 0),
+                                "date": video["date"],
+                            }
+                        )
 
+                    logger.info(f"Videos retrieved from album: {len(videos)}")
+                    return videos
+                logger.error(f"HTTP Error: {response.status_code}")
+                return []
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout getting videos from album {album_id}")
+            return []
         except Exception as e:
             logger.error(f"Error getting album videos: {e}")
             return []
@@ -149,19 +164,24 @@ class VKAlbumManager:
             if privacy is not None:
                 params["privacy"] = privacy
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.editAlbum", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error: {data['error']}")
-                            return False
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.editAlbum", data=params)
 
-                        logger.info(f"Album edited: {album_id}")
-                        return True
-                    logger.error(f"HTTP Error: {response.status}")
-                    return False
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error: {data['error']}")
+                        return False
 
+                    logger.info(f"Album edited: {album_id}")
+                    return True
+                logger.error(f"HTTP Error: {response.status_code}")
+                return False
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout editing album {album_id}")
+            return False
         except Exception as e:
             logger.error(f"Album edit error: {e}")
             return False
@@ -171,19 +191,24 @@ class VKAlbumManager:
         try:
             params = {"album_id": album_id, "access_token": self.config.access_token, "v": "5.131"}
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.deleteAlbum", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error: {data['error']}")
-                            return False
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.deleteAlbum", data=params)
 
-                        logger.info(f"Album deleted: {album_id}")
-                        return True
-                    logger.error(f"HTTP Error: {response.status}")
-                    return False
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error: {data['error']}")
+                        return False
 
+                    logger.info(f"Album deleted: {album_id}")
+                    return True
+                logger.error(f"HTTP Error: {response.status_code}")
+                return False
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout deleting album {album_id}")
+            return False
         except Exception as e:
             logger.error(f"Album deletion error: {e}")
             return False
@@ -199,19 +224,24 @@ class VKAlbumManager:
                 "v": "5.131",
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.moveToAlbum", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error: {data['error']}")
-                            return False
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.moveToAlbum", data=params)
 
-                        logger.info(f"Video moved to album: {album_id}")
-                        return True
-                    logger.error(f"HTTP Error: {response.status}")
-                    return False
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error: {data['error']}")
+                        return False
 
+                    logger.info(f"Video moved to album: {album_id}")
+                    return True
+                logger.error(f"HTTP Error: {response.status_code}")
+                return False
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout moving video {video_id} to album {album_id}")
+            return False
         except Exception as e:
             logger.error(f"Video move error: {e}")
             return False

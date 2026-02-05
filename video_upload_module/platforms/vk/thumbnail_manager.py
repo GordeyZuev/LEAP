@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import aiohttp
+import httpx
 
 from logger import get_logger
 
@@ -68,16 +68,22 @@ class VKThumbnailManager:
         try:
             params = {"access_token": self.config.access_token, "owner_id": owner_id, "v": "5.199"}
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.getThumbUploadUrl", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error: {data['error']}")
-                            return None
-                        return data["response"]["upload_url"]
-                    logger.error(f"HTTP Error: {response.status}")
-                    return None
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.getThumbUploadUrl", data=params)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error: {data['error']}")
+                        return None
+                    return data["response"]["upload_url"]
+                logger.error(f"HTTP Error: {response.status_code}")
+                return None
+
+        except httpx.TimeoutException:
+            logger.error("Timeout getting thumbnail upload URL")
+            return None
         except Exception as e:
             logger.error(f"Error getting thumbnail upload URL: {e}")
             return None
@@ -86,16 +92,22 @@ class VKThumbnailManager:
         """Upload thumbnail file to server."""
         try:
             with Path(thumbnail_path).open("rb") as thumbnail_file:
-                files = {"file": thumbnail_file}
+                files = {"file": (Path(thumbnail_path).name, thumbnail_file)}
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(upload_url, data=files) as response:
-                        if response.status == 200:
-                            text = await response.text()
-                            logger.info("Thumbnail uploaded to server")
-                            return text
-                        logger.error(f"HTTP Upload Error: {response.status}")
-                        return None
+                timeout = httpx.Timeout(60.0)
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(upload_url, files=files)
+
+                    if response.status_code == 200:
+                        text = response.text
+                        logger.info("Thumbnail uploaded to server")
+                        return text
+                    logger.error(f"HTTP Upload Error: {response.status_code}")
+                    return None
+
+        except httpx.TimeoutException:
+            logger.error("Timeout uploading thumbnail file")
+            return None
         except Exception as e:
             logger.error(f"Thumbnail upload error: {e}")
             return None
@@ -112,18 +124,24 @@ class VKThumbnailManager:
                 "set_thumb": 1,
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/video.saveUploadedThumb", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            logger.error(f"VK API Error saving thumbnail: {data['error']}")
-                            return False
+            timeout = httpx.Timeout(30.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{self.base_url}/video.saveUploadedThumb", data=params)
 
-                        logger.info(f"Thumbnail saved for video {video_id}")
-                        return True
-                    logger.error(f"HTTP Error saving thumbnail: {response.status}")
-                    return False
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        logger.error(f"VK API Error saving thumbnail: {data['error']}")
+                        return False
+
+                    logger.info(f"Thumbnail saved for video {video_id}")
+                    return True
+                logger.error(f"HTTP Error saving thumbnail: {response.status_code}")
+                return False
+
+        except httpx.TimeoutException:
+            logger.error(f"Timeout saving thumbnail for video {video_id}")
+            return False
         except Exception as e:
             logger.error(f"Thumbnail save error: {e}")
             return False

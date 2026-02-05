@@ -5,7 +5,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-import aiohttp
+import httpx
 
 from logger import get_logger
 
@@ -96,27 +96,28 @@ class VKUploader(BaseUploader):
     async def _validate_token(self) -> bool:
         """Validate VK access token."""
         try:
-            async with aiohttp.ClientSession() as session:
+            async with httpx.AsyncClient() as client:
                 params = {"access_token": self.config.access_token, "v": "5.131"}
-                async with session.post(f"{self.base_url}/users.get", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "error" in data:
-                            error_info = data["error"]
-                            error_code = error_info.get("error_code")
-                            error_msg = error_info.get("error_msg", "Unknown error")
+                response = await client.post(f"{self.base_url}/users.get", data=params)
 
-                            # Token errors are expected, not critical
-                            if error_code in (5, 28):
-                                logger.warning(f"VK token invalid or expired: {error_msg}")
-                            else:
-                                logger.error(f"VK API Error [{error_code}]: {error_msg}")
-                            return False
-                        self._authenticated = True
-                        logger.info("VK authentication successful")
-                        return True
-                    logger.warning(f"VK API HTTP error: {response.status}")
-                    return False
+                if response.status_code == 200:
+                    data = response.json()
+                    if "error" in data:
+                        error_info = data["error"]
+                        error_code = error_info.get("error_code")
+                        error_msg = error_info.get("error_msg", "Unknown error")
+
+                        # Token errors are expected, not critical
+                        if error_code in (5, 28):
+                            logger.warning(f"VK token invalid or expired: {error_msg}")
+                        else:
+                            logger.error(f"VK API Error [{error_code}]: {error_msg}")
+                        return False
+                    self._authenticated = True
+                    logger.info("VK authentication successful")
+                    return True
+                logger.warning(f"VK API HTTP error: {response.status_code}")
+                return False
         except Exception as e:
             logger.error(f"VK token validation exception: {e}")
             return False
@@ -202,21 +203,26 @@ class VKUploader(BaseUploader):
             "extended": 1,
         }
 
-        response = await self._make_request("video.get", params)
+        try:
+            response = await asyncio.wait_for(self._make_request("video.get", params), timeout=30.0)
 
-        if response and "items" in response and response["items"]:
-            video = response["items"][0]
-            return {
-                "title": video.get("title", ""),
-                "description": video.get("description", ""),
-                "duration": video.get("duration", 0),
-                "views": video.get("views", 0),
-                "date": video.get("date", 0),
-                "privacy_view": video.get("privacy_view", 0),
-                "privacy_comment": video.get("privacy_comment", 0),
-            }
+            if response and "items" in response and response["items"]:
+                video = response["items"][0]
+                return {
+                    "title": video.get("title", ""),
+                    "description": video.get("description", ""),
+                    "duration": video.get("duration", 0),
+                    "views": video.get("views", 0),
+                    "date": video.get("date", 0),
+                    "privacy_view": video.get("privacy_view", 0),
+                    "privacy_comment": video.get("privacy_comment", 0),
+                }
 
-        return None
+            return None
+
+        except TimeoutError:
+            logger.error(f"Timeout getting video info for {video_id}")
+            return None
 
     async def delete_video(self, video_id: str) -> bool:
         """Delete video."""
@@ -228,13 +234,18 @@ class VKUploader(BaseUploader):
             "owner_id": None,
         }
 
-        response = await self._make_request("video.delete", params)
+        try:
+            response = await asyncio.wait_for(self._make_request("video.delete", params), timeout=30.0)
 
-        if response:
-            logger.info(f"Video deleted: {video_id}")
-            return True
-        logger.error(f"Video deletion error: {video_id}")
-        return False
+            if response:
+                logger.info(f"Video deleted: {video_id}")
+                return True
+            logger.error(f"Video deletion error: {video_id}")
+            return False
+
+        except TimeoutError:
+            logger.error(f"Timeout deleting video {video_id}")
+            return False
 
     async def _get_upload_url(self, name: str, description: str = "", album_id: str | None = None, **kwargs) -> str:
         """Get video upload URL."""
@@ -259,37 +270,38 @@ class VKUploader(BaseUploader):
             params["wallpost"] = int(kwargs["wallpost"])
             logger.debug(f"Wallpost enabled: {kwargs['wallpost']}")
 
-        response = await self._make_request("video.save", params)
+        try:
+            response = await asyncio.wait_for(self._make_request("video.save", params), timeout=30.0)
 
-        if response and "upload_url" in response:
-            return response["upload_url"]
+            if response and "upload_url" in response:
+                return response["upload_url"]
 
-        return None
+            return None
+
+        except TimeoutError:
+            logger.error("Timeout getting upload URL")
+            return None
 
     async def _upload_video_file(
         self, upload_url: str, video_path: str, progress=None, task_id=None
     ) -> dict[str, Any] | None:
         """Upload video file to VK using streaming for large files."""
-        video_file = None
         try:
             file_size = Path(video_path).stat().st_size
             logger.info(f"Uploading video file: {Path(video_path).name} ({file_size / (1024**2):.1f} MB)")
 
-            # File must stay open for aiohttp.FormData streaming
-            video_file = Path(video_path).open("rb")  # noqa: SIM115
-
             # Dynamic timeout based on file size: 10 min base + 2 min per GB
             timeout_seconds = 600 + (file_size // (1024**3)) * 120
-            timeout = aiohttp.ClientTimeout(total=timeout_seconds, sock_read=300)
+            timeout = httpx.Timeout(timeout_seconds, read=300.0)
 
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                # Use FormData for streaming upload
-                form = aiohttp.FormData()
-                form.add_field("video_file", video_file, filename=Path(video_path).name)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                with Path(video_path).open("rb") as video_file:
+                    files = {"video_file": (Path(video_path).name, video_file)}
 
-                async with session.post(upload_url, data=form) as response:
-                    if response.status == 200:
-                        result_data = await response.json()
+                    response = await client.post(upload_url, files=files)
+
+                    if response.status_code == 200:
+                        result_data = response.json()
 
                         if "error" in result_data:
                             logger.error(f"VK Upload Error: {result_data['error']}")
@@ -305,22 +317,16 @@ class VKUploader(BaseUploader):
                         logger.info(f"Video uploaded successfully: video_id={result_data.get('video_id')}")
                         return result_data
 
-                    error_text = await response.text()
-                    logger.error(f"VK upload failed: HTTP {response.status}, {error_text[:200]}")
+                    error_text = response.text
+                    logger.error(f"VK upload failed: HTTP {response.status_code}, {error_text[:200]}")
                     return None
 
-        except TimeoutError:
+        except httpx.TimeoutException:
             logger.error(f"Upload timeout after {timeout_seconds}s for file {Path(video_path).name}")
             return None
         except Exception as e:
             logger.error(f"File upload error: {e}")
             return None
-        finally:
-            if video_file:
-                try:
-                    video_file.close()
-                except Exception:  # noqa: S110
-                    pass
 
     @requires_valid_vk_token(max_retries=1)
     async def _make_request(self, method: str, params: dict[str, Any]) -> dict[str, Any] | None:
@@ -329,29 +335,30 @@ class VKUploader(BaseUploader):
         params["v"] = "5.131"
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(f"{self.base_url}/{method}", data=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(f"{self.base_url}/{method}", data=params)
 
-                        # Return full response to allow decorator to check for token errors
-                        if "error" in data:
-                            error_info = data["error"]
-                            error_code = error_info.get("error_code")
+                if response.status_code == 200:
+                    data = response.json()
 
-                            # Token errors - let decorator handle them
-                            if error_code in (5, 28):
-                                return data
+                    # Return full response to allow decorator to check for token errors
+                    if "error" in data:
+                        error_info = data["error"]
+                        error_code = error_info.get("error_code")
 
-                            # Other errors
-                            logger.error(f"VK API Error: {error_info}")
-                            return None
+                        # Token errors - let decorator handle them
+                        if error_code in (5, 28):
+                            return data
 
-                        return data.get("response")
+                        # Other errors
+                        logger.error(f"VK API Error: {error_info}")
+                        return None
 
-                    error_text = await response.text()
-                    logger.error(f"HTTP Error: {response.status}, Response: {error_text[:500]}")
-                    return None
+                    return data.get("response")
+
+                error_text = response.text
+                logger.error(f"HTTP Error: {response.status_code}, Response: {error_text[:500]}")
+                return None
         except TokenRefreshError:
             raise
         except Exception as e:

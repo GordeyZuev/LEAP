@@ -209,7 +209,7 @@ class DatabaseCredentialProvider(CredentialProvider):
     async def refresh_vk_token(self) -> dict[str, Any] | None:
         """Refresh VK token using VK ID API."""
         try:
-            import aiohttp
+            import httpx
 
             creds = await self.get_vk_credentials()
             if not creds or not creds.get("refresh_token"):
@@ -224,13 +224,15 @@ class DatabaseCredentialProvider(CredentialProvider):
             }
 
             url = "https://oauth.vk.com/access_token"
-            async with aiohttp.ClientSession() as session, session.post(url, data=data) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"VK token refresh failed: status={response.status} error={error_text}")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, data=data)
+
+                if response.status_code != 200:
+                    error_text = response.text
+                    logger.error(f"VK token refresh failed: status={response.status_code} error={error_text}")
                     return None
 
-                token_data = await response.json()
+                token_data = response.json()
 
                 if "error" in token_data:
                     logger.error(f"VK token refresh error: {token_data['error']}")

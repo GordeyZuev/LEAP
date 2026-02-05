@@ -407,7 +407,6 @@ GET /admin/users/{id}/usage - User usage history
 
 **Статус:** ✅ Реализовано
 
-**См. также:** [API_GUIDE.md](API_GUIDE.md) - Admin & Quota API
 
 ---
 
@@ -857,7 +856,7 @@ stmt = (
 
 ### Детальная документация
 - [TECHNICAL.md](TECHNICAL.md) - Automation system implementation
-- [API_GUIDE.md](API_GUIDE.md) - Admin & Quota API
+- [TECHNICAL.md](TECHNICAL.md) - Admin & Quota API
 - [TECHNICAL.md](TECHNICAL.md) - Техническая документация
 
 ### Архитектура

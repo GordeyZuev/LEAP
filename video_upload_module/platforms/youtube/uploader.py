@@ -281,7 +281,9 @@ class YouTubeUploader(BaseUploader):
 
             assert self.service is not None, "Service not initialized"
             request = self.service.captions().insert(part="snippet", body=body, media_body=media)
-            response = request.execute()
+
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=120.0)
 
             if response and response.get("id"):
                 logger.info(f"Captions uploaded: caption_id={response['id']}")
@@ -290,6 +292,9 @@ class YouTubeUploader(BaseUploader):
             logger.error(f"Failed to upload captions: {response}")
             return False
 
+        except TimeoutError:
+            logger.error(f"Caption upload timeout for video {video_id}")
+            return False
         except TokenRefreshError as e:
             logger.error(f"Token error during caption upload: {e}")
             return False
@@ -309,7 +314,9 @@ class YouTubeUploader(BaseUploader):
         try:
             assert self.service is not None, "Service not initialized"
             request = self.service.videos().list(part="snippet,statistics,status", id=video_id)
-            response = request.execute()
+
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             if response["items"]:
                 video = response["items"][0]
@@ -323,6 +330,9 @@ class YouTubeUploader(BaseUploader):
                 }
             return None
 
+        except TimeoutError:
+            logger.error(f"Timeout getting video info for {video_id}")
+            return None
         except TokenRefreshError as e:
             logger.error(f"Token error during get_video_info: {e}")
             return None
@@ -339,11 +349,16 @@ class YouTubeUploader(BaseUploader):
         try:
             assert self.service is not None, "Service not initialized"
             request = self.service.videos().delete(id=video_id)
-            request.execute()
+
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             logger.info(f"Video deleted: {video_id}")
             return True
 
+        except TimeoutError:
+            logger.error(f"Timeout deleting video {video_id}")
+            return False
         except TokenRefreshError as e:
             logger.error(f"Token error during delete_video: {e}")
             return False

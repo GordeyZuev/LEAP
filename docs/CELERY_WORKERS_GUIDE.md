@@ -254,7 +254,7 @@ tail -f logs/celery-async.log  # Есть ли ошибки?
 ## Related Documentation
 
 - **[CELERY_ASYNCIO_TECHNICAL.md](CELERY_ASYNCIO_TECHNICAL.md)** - Technical deep dive: asyncio + threads решение
-- **[API_GUIDE.md](API_GUIDE.md)** - API endpoints и schemas
+- **[TECHNICAL.md](TECHNICAL.md)** - API endpoints и schemas
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment
 
 ---

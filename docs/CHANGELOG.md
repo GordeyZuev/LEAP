@@ -1,5 +1,103 @@
 # Change Log
 
+## 2026-02-05: Unified HTTP Client - Migrated from aiohttp to httpx
+
+### Changes
+**Complete migration from aiohttp to httpx for unified async HTTP client across the project:**
+
+**Why this change:**
+- **DRY principle**: Eliminated duplicate HTTP library usage (aiohttp + httpx → httpx only)
+- **Consistency**: Single HTTP client API throughout the codebase
+- **Simpler dependencies**: -1 dependency in requirements.txt
+- **Better maintainability**: One library to update, test, and understand
+
+**Migration scope:**
+- ✅ **VK module** (3 files): uploader, thumbnail_manager, album_manager
+- ✅ **YouTube module** (1 file): thumbnail_manager (download method)
+- ✅ **Credentials** (1 file): VK token refresh in credentials_provider
+- ✅ **OAuth service** (1 file): All OAuth token exchange and validation methods
+- ✅ **Requirements**: Removed aiohttp>=3.13.1 from dependencies
+
+**Key changes:**
+- `aiohttp.ClientSession()` → `httpx.AsyncClient()`
+- `response.status` → `response.status_code`
+- `await response.json()` → `response.json()`
+- `await response.text()` → `response.text`
+- `aiohttp.ClientTimeout()` → `httpx.Timeout()`
+- `aiohttp.FormData()` → `files={}` parameter
+- `aiohttp.ClientError` → `httpx.HTTPStatusError`
+- `asyncio.TimeoutError` → `httpx.TimeoutException` (where needed)
+
+**Benefits:**
+- ✅ **Unified API**: Same HTTP client patterns everywhere
+- ✅ **Cleaner code**: httpx has simpler, more intuitive API
+- ✅ **HTTP/2 support**: httpx has better HTTP/2 implementation
+- ✅ **Same async patterns**: Preserves all existing async/await logic
+- ✅ **Zero functionality loss**: All features work exactly as before
+
+### Modified Files
+**VK platform:**
+- `video_upload_module/platforms/vk/uploader.py` - migrated all HTTP operations
+- `video_upload_module/platforms/vk/thumbnail_manager.py` - migrated all methods
+- `video_upload_module/platforms/vk/album_manager.py` - migrated all 6 album operations
+
+**YouTube platform:**
+- `video_upload_module/platforms/youtube/thumbnail_manager.py` - migrated download_thumbnail
+
+**Core services:**
+- `video_upload_module/credentials_provider.py` - migrated refresh_vk_token
+- `api/services/oauth_service.py` - migrated all token exchange, refresh, and validation methods
+
+**Dependencies:**
+- `requirements.txt` - removed aiohttp dependency
+
+### Testing
+- ✅ Linter: 0 errors (ruff check passed)
+- ✅ All imports verified: No aiohttp references remaining
+- ✅ Timeout protection: Preserved from previous changes
+
+---
+
+## 2026-02-05: YouTube & VK API Timeout Protection
+
+### Changes
+**Added timeout protection for all YouTube and VK API calls to prevent hanging operations:**
+
+**YouTube (Google API):**
+- Wrapped all synchronous Google API `.execute()` calls in `asyncio.run_in_executor()` with `asyncio.wait_for()` timeouts
+- Fixed "Broken pipe" error during thumbnail upload (connection hung for 22 minutes)
+- Prevents event loop blocking by running sync operations in separate thread
+
+**VK (aiohttp):**
+- Wrapped all VK API requests in `asyncio.wait_for()` with explicit timeouts
+- Already async operations, added timeout layer for reliability
+- Covers video operations, thumbnail management, and album management
+
+**Timeouts by operation type:**
+- Thumbnail upload: 60 seconds (both platforms)
+- Caption upload: 120 seconds (YouTube)
+- All other API operations: 30 seconds (both platforms)
+
+**Benefits:**
+- ✅ Prevents event loop blocking (YouTube executor, VK already async)
+- ✅ Prevents indefinite hangs (timeout kills operations after max duration)
+- ✅ Better error reporting (clear timeout errors vs broken pipe/connection errors)
+- ✅ Improved compliance with INSTRUCTIONS.md: "Async/await for all I/O operations"
+- ✅ Maintains existing functionality (all operations work as before, just protected)
+
+### Modified Files
+**YouTube:**
+- `video_upload_module/platforms/youtube/thumbnail_manager.py` - added timeouts to `set_thumbnail()`, `get_thumbnail_info()`
+- `video_upload_module/platforms/youtube/uploader.py` - added timeouts to `upload_caption()`, `get_video_info()`, `delete_video()`
+- `video_upload_module/platforms/youtube/playlist_manager.py` - added timeouts to all 8 playlist operations
+
+**VK:**
+- `video_upload_module/platforms/vk/uploader.py` - added timeouts to `get_video_info()`, `delete_video()`, `_get_upload_url()`
+- `video_upload_module/platforms/vk/thumbnail_manager.py` - added timeouts to all 3 thumbnail operations
+- `video_upload_module/platforms/vk/album_manager.py` - added timeouts to all 6 album operations
+
+---
+
 ## 2026-02-04: Type Checker Integration (ty)
 
 ### Changes

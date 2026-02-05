@@ -575,7 +575,7 @@ curl -X POST 'http://localhost:8000/api/v1/templates/11/rematch' \
 ## Related Documentation
 
 - **[CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md)** - Operational guide: запуск, scaling, monitoring
-- **[API_GUIDE.md](API_GUIDE.md)** - API endpoints
+- **[TECHNICAL.md](TECHNICAL.md)** - API endpoints
 - **[DEPLOYMENT.md](DEPLOYMENT.md)** - Production deployment
 
 ---

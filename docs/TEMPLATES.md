@@ -32,7 +32,6 @@
 - Use **filename only** (e.g., `"ml_extra.png"`), not full path
 - Each user gets their own copies of all shared templates at registration
 - Users can upload custom thumbnails and use them in templates
-- See [THUMBNAILS_SECURITY.md](THUMBNAILS_SECURITY.md) for details
 
 ### Как это работает
 
@@ -753,7 +752,6 @@ final = {"privacy": "private", "category_id": 27, "playlist_id": "PLxxx"}
 
 ## См. также
 
-- [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Bulk processing
 - [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Architecture decisions
 - [OAUTH.md](OAUTH.md) - OAuth credentials
 

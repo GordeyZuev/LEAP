@@ -716,5 +716,5 @@ Exclude rules are checked **before** positive rules:
 
 **For more information, see:**
 - [TECHNICAL.md](./TECHNICAL.md) - Technical architecture
-- [API_GUIDE.md](./API_GUIDE.md) - API documentation
+- [TECHNICAL.md](./TECHNICAL.md) - API documentation
 - [DEPLOYMENT.md](./DEPLOYMENT.md) - Deployment guide

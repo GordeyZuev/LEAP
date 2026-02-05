@@ -1,5 +1,6 @@
 """YouTube playlist manager."""
 
+import asyncio
 from typing import Any
 
 from googleapiclient.errors import HttpError
@@ -38,7 +39,9 @@ class YouTubePlaylistManager:
             }
 
             request = self.service.playlists().insert(part="snippet,status", body=body)
-            response = request.execute()
+
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             playlist_id = response["id"]
             playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
@@ -46,6 +49,9 @@ class YouTubePlaylistManager:
             logger.info(f"Playlist created: {playlist_url}")
             return playlist_id
 
+        except TimeoutError:
+            logger.error("Timeout creating playlist")
+            return None
         except TokenRefreshError as e:
             logger.error(f"Token error during create_playlist: {e}")
             return None
@@ -65,10 +71,15 @@ class YouTubePlaylistManager:
             }
 
             request = self.service.playlistItems().insert(part="snippet", body=body)
-            request.execute()
+
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             logger.info(f"Video added to playlist {playlist_id}")
             return True
+        except TimeoutError:
+            logger.error(f"Timeout adding video to playlist {playlist_id}")
+            return False
         except TokenRefreshError as e:
             logger.error(f"Token error during add_video_to_playlist: {e}")
             return False
@@ -81,10 +92,15 @@ class YouTubePlaylistManager:
         """Remove video from playlist."""
         try:
             request = self.service.playlistItems().delete(id=playlist_item_id)
-            request.execute()
+
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             logger.info("Video removed from playlist")
             return True
+        except TimeoutError:
+            logger.error("Timeout removing video from playlist")
+            return False
         except TokenRefreshError as e:
             logger.error(f"Token error during remove_video_from_playlist: {e}")
             return False
@@ -97,7 +113,9 @@ class YouTubePlaylistManager:
         """Get playlist information."""
         try:
             request = self.service.playlists().list(part="snippet,contentDetails,status", id=playlist_id)
-            response = request.execute()
+
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             if response["items"]:
                 playlist = response["items"][0]
@@ -110,6 +128,9 @@ class YouTubePlaylistManager:
                 }
             return None
 
+        except TimeoutError:
+            logger.error(f"Timeout getting playlist info for {playlist_id}")
+            return None
         except TokenRefreshError as e:
             logger.error(f"Token error during get_playlist_info: {e}")
             return None
@@ -130,7 +151,9 @@ class YouTubePlaylistManager:
                     maxResults=min(max_results, 50),
                     pageToken=next_page_token,
                 )
-                response = request.execute()
+
+                loop = asyncio.get_event_loop()
+                response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
                 for item in response["items"]:
                     videos.append(
@@ -149,6 +172,9 @@ class YouTubePlaylistManager:
 
             return videos[:max_results]
 
+        except TimeoutError:
+            logger.error(f"Timeout getting playlist videos for {playlist_id}")
+            return []
         except HttpError as e:
             logger.error(f"Error getting playlist videos: {e}")
             return []
@@ -164,11 +190,16 @@ class YouTubePlaylistManager:
                 body["snippet"]["description"] = description
 
             request = self.service.playlists().update(part="snippet", body=body)
-            request.execute()
+
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             logger.info(f"Playlist updated: {playlist_id}")
             return True
 
+        except TimeoutError:
+            logger.error(f"Timeout updating playlist {playlist_id}")
+            return False
         except HttpError as e:
             logger.error(f"Playlist update error: {e}")
             return False
@@ -177,11 +208,16 @@ class YouTubePlaylistManager:
         """Delete playlist."""
         try:
             request = self.service.playlists().delete(id=playlist_id)
-            request.execute()
+
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
             logger.info(f"Playlist deleted: {playlist_id}")
             return True
 
+        except TimeoutError:
+            logger.error(f"Timeout deleting playlist {playlist_id}")
+            return False
         except HttpError as e:
             logger.error(f"Playlist deletion error: {e}")
             return False
@@ -199,7 +235,9 @@ class YouTubePlaylistManager:
                     maxResults=min(max_results, 50),
                     pageToken=next_page_token,
                 )
-                response = request.execute()
+
+                loop = asyncio.get_event_loop()
+                response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
                 for playlist in response["items"]:
                     playlists.append(
@@ -219,6 +257,9 @@ class YouTubePlaylistManager:
 
             return playlists[:max_results]
 
+        except TimeoutError:
+            logger.error("Timeout getting user playlists")
+            return []
         except HttpError as e:
             logger.error(f"Error getting user playlists: {e}")
             return []

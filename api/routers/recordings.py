@@ -500,11 +500,11 @@ async def list_recordings(
         other_statuses = [s for s in status_filter if s != "FAILED"]
 
         if has_failed and other_statuses:
-            recordings = [r for r in recordings if r.status in other_statuses or r.failed]
+            recordings = [r for r in recordings if r.status.value in other_statuses or r.failed]
         elif has_failed:
             recordings = [r for r in recordings if r.failed]
         else:
-            recordings = [r for r in recordings if r.status in other_statuses]
+            recordings = [r for r in recordings if r.status.value in other_statuses]
 
     if failed is not None:
         recordings = [r for r in recordings if r.failed == failed]

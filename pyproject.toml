@@ -10,7 +10,6 @@ authors = [
 ]
 dependencies = [
     # Core async & HTTP
-    "aiohttp>=3.13.1",
     "httpx>=0.24.0",
     "asyncpg>=0.29.0",
     # Web framework

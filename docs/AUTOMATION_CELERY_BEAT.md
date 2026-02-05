@@ -450,4 +450,4 @@ uv run alembic upgrade head
 
 - [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md) - Worker pools and queues
 - [TEMPLATES.md](TEMPLATES.md) - Template matching rules
-- [API_GUIDE.md](API_GUIDE.md) - Full API documentation
+- [TECHNICAL.md](TECHNICAL.md) - Full API documentation

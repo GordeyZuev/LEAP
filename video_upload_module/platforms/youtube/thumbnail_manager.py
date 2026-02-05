@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-import aiohttp
+import httpx
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
@@ -65,11 +65,22 @@ class YouTubeThumbnailManager:
         try:
             # Thumbnail files are small (< 2MB), use non-resumable upload
             media = MediaFileUpload(thumbnail_path, mimetype="image/jpeg", resumable=False)
-            self.service.thumbnails().set(videoId=video_id, media_body=media).execute()
+
+            # Execute in executor with timeout to prevent hanging
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, lambda: self.service.thumbnails().set(videoId=video_id, media_body=media).execute()
+                ),
+                timeout=60.0,
+            )
 
             logger.info(f"Thumbnail set for video {video_id}")
             return True
 
+        except TimeoutError:
+            logger.error(f"Thumbnail upload timeout (60s) for video {video_id}")
+            return False
         except TokenRefreshError as e:
             logger.error(f"Token error during set_thumbnail: {e}")
             return False
@@ -84,8 +95,11 @@ class YouTubeThumbnailManager:
     async def get_thumbnail_info(self, video_id: str) -> dict[str, Any] | None:
         """Get video thumbnail information."""
         try:
-            request = self.service.videos().list(part="snippet", id=video_id)
-            response = request.execute()
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: self.service.videos().list(part="snippet", id=video_id).execute()),
+                timeout=30.0,
+            )
 
             if response["items"]:
                 video = response["items"][0]
@@ -102,6 +116,9 @@ class YouTubeThumbnailManager:
 
             return None
 
+        except TimeoutError:
+            logger.error(f"Timeout getting thumbnail info for video {video_id}")
+            return None
         except TokenRefreshError as e:
             logger.error(f"Token error during get_thumbnail_info: {e}")
             return None
@@ -129,17 +146,18 @@ class YouTubeThumbnailManager:
                 logger.warning(f"Thumbnail size {size} not found")
                 return False
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(thumbnail_url) as response:
-                    if response.status == 200:
-                        with Path(output_path).open("wb") as f:
-                            async for chunk in response.content.iter_chunked(8192):
-                                f.write(chunk)
+            async with httpx.AsyncClient() as client:
+                response = await client.get(thumbnail_url)
 
-                        logger.info(f"Thumbnail downloaded: {output_path}")
-                        return True
-                    logger.error(f"Thumbnail download error: HTTP {response.status}")
-                    return False
+                if response.status_code == 200:
+                    with Path(output_path).open("wb") as f:
+                        async for chunk in response.aiter_bytes(chunk_size=8192):
+                            f.write(chunk)
+
+                    logger.info(f"Thumbnail downloaded: {output_path}")
+                    return True
+                logger.error(f"Thumbnail download error: HTTP {response.status_code}")
+                return False
 
         except Exception as e:
             logger.error(f"Thumbnail download error: {e}")

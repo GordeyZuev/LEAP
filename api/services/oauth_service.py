@@ -4,7 +4,7 @@ import json
 from typing import Any
 from urllib.parse import urlencode
 
-import aiohttp
+import httpx
 
 from api.services.oauth_platforms import OAuthPlatformConfig
 from api.services.oauth_state import OAuthStateManager
@@ -101,7 +101,7 @@ class OAuthService:
             Token data (access_token, refresh_token, expires_in, etc)
 
         Raises:
-            aiohttp.ClientError: If token exchange fails
+            httpx.HTTPStatusError: If token exchange fails
             ValueError: If PKCE is required but code_verifier is missing
         """
         # Validate PKCE requirements
@@ -138,16 +138,19 @@ class OAuthService:
 
     async def _exchange_google_token(self, data: dict) -> dict[str, Any]:
         """Exchange Google/YouTube authorization code for token."""
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self.config.token_url, data=data) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Google token exchange failed: status={response.status} error={error_text}")
-                    raise aiohttp.ClientError(f"Token exchange failed: {response.status}")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.config.token_url, data=data)
 
-                token_data = await response.json()
-                logger.info(f"Google token obtained: has_refresh={bool(token_data.get('refresh_token'))}")
-                return token_data
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"Google token exchange failed: status={response.status_code} error={error_text}")
+                raise httpx.HTTPStatusError(
+                    f"Token exchange failed: {response.status_code}", request=response.request, response=response
+                )
+
+            token_data = response.json()
+            logger.info(f"Google token obtained: has_refresh={bool(token_data.get('refresh_token'))}")
+            return token_data
 
     async def _exchange_vk_token(self, data: dict) -> dict[str, Any]:
         """Exchange VK authorization code for token using VK ID API.
@@ -165,30 +168,34 @@ class OAuthService:
             "Content-Type": "application/x-www-form-urlencoded",
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=data, headers=headers) as response:
-                response_text = await response.text()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, data=data, headers=headers)
+            response_text = response.text
 
-                if response.status != 200:
-                    logger.error(
-                        f"VK token exchange failed: status={response.status} url={url} error={response_text[:500]}"
-                    )
-                    raise aiohttp.ClientError(f"Token exchange failed: {response.status}")
+            if response.status_code != 200:
+                logger.error(
+                    f"VK token exchange failed: status={response.status_code} url={url} error={response_text[:500]}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Token exchange failed: {response.status_code}", request=response.request, response=response
+                )
 
-                try:
-                    token_data = json.loads(response_text) if response_text else {}
-                except json.JSONDecodeError:
-                    logger.error(f"VK token response is not JSON: {response_text[:500]}")
-                    raise aiohttp.ClientError("Invalid JSON response from VK")
+            try:
+                token_data = json.loads(response_text) if response_text else {}
+            except json.JSONDecodeError:
+                logger.error(f"VK token response is not JSON: {response_text[:500]}")
+                raise httpx.HTTPStatusError(
+                    "Invalid JSON response from VK", request=response.request, response=response
+                )
 
-                if "error" in token_data:
-                    logger.error(
-                        f"VK token error: {token_data.get('error')} - {token_data.get('error_description', '')}"
-                    )
-                    raise aiohttp.ClientError(f"VK error: {token_data['error']}")
+            if "error" in token_data:
+                logger.error(f"VK token error: {token_data.get('error')} - {token_data.get('error_description', '')}")
+                raise httpx.HTTPStatusError(
+                    f"VK error: {token_data['error']}", request=response.request, response=response
+                )
 
-                logger.info(f"VK ID token obtained: has_refresh={bool(token_data.get('refresh_token'))}")
-                return token_data
+            logger.info(f"VK ID token obtained: has_refresh={bool(token_data.get('refresh_token'))}")
+            return token_data
 
     async def _exchange_zoom_token(self, data: dict) -> dict[str, Any]:
         """Exchange Zoom authorization code for token.
@@ -213,28 +220,34 @@ class OAuthService:
 
         logger.debug(f"Zoom token exchange: url={self.config.token_url} data_keys={list(token_data.keys())}")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self.config.token_url, data=token_data, headers=headers) as response:
-                response_text = await response.text()
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.config.token_url, data=token_data, headers=headers)
+            response_text = response.text
 
-                if response.status != 200:
-                    logger.error(f"Zoom token exchange failed: status={response.status} error={response_text[:500]}")
-                    raise aiohttp.ClientError(f"Token exchange failed: {response.status}")
+            if response.status_code != 200:
+                logger.error(f"Zoom token exchange failed: status={response.status_code} error={response_text[:500]}")
+                raise httpx.HTTPStatusError(
+                    f"Token exchange failed: {response.status_code}", request=response.request, response=response
+                )
 
-                try:
-                    token_response = json.loads(response_text) if response_text else {}
-                except json.JSONDecodeError:
-                    logger.error(f"Zoom token response is not JSON: {response_text[:500]}")
-                    raise aiohttp.ClientError("Invalid JSON response from Zoom")
+            try:
+                token_response = json.loads(response_text) if response_text else {}
+            except json.JSONDecodeError:
+                logger.error(f"Zoom token response is not JSON: {response_text[:500]}")
+                raise httpx.HTTPStatusError(
+                    "Invalid JSON response from Zoom", request=response.request, response=response
+                )
 
-                if "error" in token_response:
-                    logger.error(
-                        f"Zoom token error: {token_response.get('error')} - {token_response.get('error_description', '')}"
-                    )
-                    raise aiohttp.ClientError(f"Zoom error: {token_response['error']}")
+            if "error" in token_response:
+                logger.error(
+                    f"Zoom token error: {token_response.get('error')} - {token_response.get('error_description', '')}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Zoom error: {token_response['error']}", request=response.request, response=response
+                )
 
-                logger.info(f"Zoom token obtained: has_refresh={bool(token_response.get('refresh_token'))}")
-                return token_response
+            logger.info(f"Zoom token obtained: has_refresh={bool(token_response.get('refresh_token'))}")
+            return token_response
 
     async def refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         """
@@ -248,7 +261,7 @@ class OAuthService:
 
         Raises:
             ValueError: If platform doesn't support refresh or token_url is not set
-            aiohttp.ClientError: If refresh fails
+            httpx.HTTPStatusError: If refresh fails
         """
         if not self.config.token_url:
             raise ValueError(f"Platform {self.config.platform_id} does not have token_url configured")
@@ -270,16 +283,19 @@ class OAuthService:
             "grant_type": "refresh_token",
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self.config.token_url, data=data) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Google token refresh failed: status={response.status} error={error_text}")
-                    raise aiohttp.ClientError(f"Token refresh failed: {response.status}")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.config.token_url, data=data)
 
-                token_data = await response.json()
-                logger.info("Google access token refreshed successfully")
-                return token_data
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"Google token refresh failed: status={response.status_code} error={error_text}")
+                raise httpx.HTTPStatusError(
+                    f"Token refresh failed: {response.status_code}", request=response.request, response=response
+                )
+
+            token_data = response.json()
+            logger.info("Google access token refreshed successfully")
+            return token_data
 
     async def _refresh_vk_token(self, refresh_token: str) -> dict[str, Any]:
         """Refresh VK token using VK ID API."""
@@ -290,21 +306,26 @@ class OAuthService:
             "grant_type": "refresh_token",
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self.config.token_url, data=data) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"VK token refresh failed: status={response.status} error={error_text}")
-                    raise aiohttp.ClientError(f"Token refresh failed: {response.status}")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.config.token_url, data=data)
 
-                token_data = await response.json()
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"VK token refresh failed: status={response.status_code} error={error_text}")
+                raise httpx.HTTPStatusError(
+                    f"Token refresh failed: {response.status_code}", request=response.request, response=response
+                )
 
-                if "error" in token_data:
-                    logger.error(f"VK token refresh error: {token_data['error']}")
-                    raise aiohttp.ClientError(f"VK error: {token_data['error']}")
+            token_data = response.json()
 
-                logger.info("VK access token refreshed successfully")
-                return token_data
+            if "error" in token_data:
+                logger.error(f"VK token refresh error: {token_data['error']}")
+                raise httpx.HTTPStatusError(
+                    f"VK error: {token_data['error']}", request=response.request, response=response
+                )
+
+            logger.info("VK access token refreshed successfully")
+            return token_data
 
     async def _refresh_zoom_token(self, refresh_token: str) -> dict[str, Any]:
         """Refresh Zoom token using refresh_token."""
@@ -325,21 +346,26 @@ class OAuthService:
             "refresh_token": refresh_token,
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(self.config.token_url, data=data, headers=headers) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.error(f"Zoom token refresh failed: status={response.status} error={error_text}")
-                    raise aiohttp.ClientError(f"Token refresh failed: {response.status}")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.config.token_url, data=data, headers=headers)
 
-                token_data = await response.json()
+            if response.status_code != 200:
+                error_text = response.text
+                logger.error(f"Zoom token refresh failed: status={response.status_code} error={error_text}")
+                raise httpx.HTTPStatusError(
+                    f"Token refresh failed: {response.status_code}", request=response.request, response=response
+                )
 
-                if "error" in token_data:
-                    logger.error(f"Zoom token refresh error: {token_data['error']}")
-                    raise aiohttp.ClientError(f"Zoom error: {token_data['error']}")
+            token_data = response.json()
 
-                logger.info("Zoom access token refreshed successfully")
-                return token_data
+            if "error" in token_data:
+                logger.error(f"Zoom token refresh error: {token_data['error']}")
+                raise httpx.HTTPStatusError(
+                    f"Zoom error: {token_data['error']}", request=response.request, response=response
+                )
+
+            logger.info("Zoom access token refreshed successfully")
+            return token_data
 
     async def validate_token(self, access_token: str) -> bool:
         """
@@ -370,27 +396,30 @@ class OAuthService:
         params = {"part": "id", "mine": "true"}
         headers = {"Authorization": f"Bearer {access_token}"}
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers) as response:
-                if response.status == 200:
-                    logger.debug("YouTube token validated successfully")
-                    return True
-                logger.warning(f"YouTube token validation failed: status={response.status}")
-                return False
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=params, headers=headers)
+
+            if response.status_code == 200:
+                logger.debug("YouTube token validated successfully")
+                return True
+            logger.warning(f"YouTube token validation failed: status={response.status_code}")
+            return False
 
     async def _validate_vk_token(self, access_token: str) -> bool:
         """Validate VK token via API call."""
         url = "https://api.vk.com/method/users.get"
         params = {"access_token": access_token, "v": "5.131"}
 
-        async with aiohttp.ClientSession() as session, session.get(url, params=params) as response:
-            if response.status == 200:
-                data = await response.json()
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=params)
+
+            if response.status_code == 200:
+                data = response.json()
                 if "error" not in data:
                     logger.debug("VK token validated successfully")
                     return True
 
-            logger.warning(f"VK token validation failed: status={response.status}")
+            logger.warning(f"VK token validation failed: status={response.status_code}")
             return False
 
     async def _validate_zoom_token(self, access_token: str) -> bool:
@@ -398,9 +427,11 @@ class OAuthService:
         url = "https://api.zoom.us/v2/users/me"
         headers = {"Authorization": f"Bearer {access_token}"}
 
-        async with aiohttp.ClientSession() as session, session.get(url, headers=headers) as response:
-            if response.status == 200:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+
+            if response.status_code == 200:
                 logger.debug("Zoom token validated successfully")
                 return True
-            logger.warning(f"Zoom token validation failed: status={response.status}")
+            logger.warning(f"Zoom token validation failed: status={response.status_code}")
             return False

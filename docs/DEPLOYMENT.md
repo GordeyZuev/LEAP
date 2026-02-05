@@ -1680,7 +1680,7 @@ See `.env.example` for complete reference with all available variables.
 
 **Technical Documentation:**
 - [TECHNICAL.md](TECHNICAL.md) - Architecture and technical details
-- [API_GUIDE.md](API_GUIDE.md) - API endpoints and usage
+- [TECHNICAL.md](TECHNICAL.md) - API endpoints and usage
 - [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema and models
 
 **Feature Documentation:**
@@ -1696,11 +1696,10 @@ See `.env.example` for complete reference with all available variables.
 
 **Storage:**
 - [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) - File organization
-- [S3_INTEGRATION_TODO.md](S3_INTEGRATION_TODO.md) - S3 backend implementation
+- [S3_INTEGRATION_TODO.md](dev_notes/S3_INTEGRATION_TODO.md) - S3 backend implementation
 
 **Other:**
 - [ROADMAP.md](ROADMAP.md) - Future plans and features
-- [TYPE_CHECKING.md](TYPE_CHECKING.md) - Type checking with ty
 
 ### Project Structure
 

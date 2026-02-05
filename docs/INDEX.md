@@ -29,11 +29,9 @@
 **Templates & Automation:**
 - [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
 - [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) - Scheduled automation jobs & Celery Beat 🆕
-- [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Batch processing API
 
 **OAuth & Credentials:**
 - [OAUTH.md](OAUTH.md) - Complete OAuth guide
-- [OAUTH_MULTIPLE_ACCOUNTS.md](OAUTH_MULTIPLE_ACCOUNTS.md) - Multi-account setup
 - [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow
 
 **Processing:**
@@ -41,16 +39,11 @@
 
 **Storage:**
 - [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) - Storage architecture
-- [MEDIA_SYSTEM_AUDIT.md](MEDIA_SYSTEM_AUDIT.md) - Media system audit
 
 ### 🔧 API & Development
 
 **API Documentation:**
-- [API_GUIDE.md](API_GUIDE.md) - Pydantic schemas, best practices, admin/quota API
-- [TECHNICAL.md](TECHNICAL.md) - REST API endpoints reference
-
-**Code Quality:**
-- [TYPE_CHECKING.md](TYPE_CHECKING.md) - Static type checking with ty 🆕
+- [TECHNICAL.md](TECHNICAL.md) - REST API endpoints reference, Pydantic schemas
 
 ### 🚀 Deployment & Operations
 
@@ -59,12 +52,6 @@
 - [PLAN.md](PLAN.md) - Project roadmap (thesis)
 - [ROADMAP.md](../ROADMAP.md) - Technical roadmap & TODO
 
-### 🔒 Security
-
-- [security/ARCHITECTURE_DECISION.md](security/ARCHITECTURE_DECISION.md) - Security architecture
-- [THUMBNAILS_SECURITY.md](THUMBNAILS_SECURITY.md) - Thumbnail API security & validation
-- [security/MULTI_TENANCY_FIXES.md](security/MULTI_TENANCY_FIXES.md) - Multi-tenancy security
-- [security/TASK_MIGRATION_GUIDE.md](security/TASK_MIGRATION_GUIDE.md) - Task isolation
 
 ### 📜 History
 
@@ -88,11 +75,7 @@
 → [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database structure
 
 ### "I want to use the API"
-→ [API_GUIDE.md](API_GUIDE.md) - Schemas & best practices
-→ [TECHNICAL.md](TECHNICAL.md) - Endpoints reference
-
-### "I want to process recordings in bulk"
-→ [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Bulk API
+→ [TECHNICAL.md](TECHNICAL.md) - Endpoints reference, schemas & best practices
 
 ### "I want to integrate VK"
 → [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow setup
@@ -113,7 +96,7 @@
    - [OAUTH.md](OAUTH.md) - OAuth integration
 
 3. **Development:**
-   - [API_GUIDE.md](API_GUIDE.md) - Pydantic schemas
+   - [TECHNICAL.md](TECHNICAL.md) - Pydantic schemas & API
    - [DEPLOYMENT.md](DEPLOYMENT.md) - Local setup
 
 ### For Users
@@ -124,7 +107,6 @@
 
 2. **Usage:**
    - [TEMPLATES.md](TEMPLATES.md) - Automate with templates
-   - [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) - Bulk processing
 
 ### For DevOps
 
@@ -148,18 +130,12 @@
 | [OAUTH.md](OAUTH.md) | 14K | OAuth setup & integration |
 | [VK_INTEGRATION.md](VK_INTEGRATION.md) | 11K | VK Implicit Flow guide |
 | [TEMPLATES.md](TEMPLATES.md) | 15K | Template system guide |
-| [BULK_OPERATIONS_GUIDE.md](BULK_OPERATIONS_GUIDE.md) | 18K | Bulk processing API |
-| [API_GUIDE.md](API_GUIDE.md) | 9K | Pydantic schemas & API |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 16K | Deployment guide |
 | [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) | 4K | Fireworks Batch API |
-| [OAUTH_MULTIPLE_ACCOUNTS.md](OAUTH_MULTIPLE_ACCOUNTS.md) | 3K | Multi-account OAuth |
 | [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) | 12K | Storage architecture |
-| [MEDIA_SYSTEM_AUDIT.md](MEDIA_SYSTEM_AUDIT.md) | 8K | Media system audit |
-| [security/ARCHITECTURE_DECISION.md](security/ARCHITECTURE_DECISION.md) | 4K | Security architecture |
-| [security/MULTI_TENANCY_FIXES.md](security/MULTI_TENANCY_FIXES.md) | 3K | Multi-tenancy security |
-| [security/TASK_MIGRATION_GUIDE.md](security/TASK_MIGRATION_GUIDE.md) | 2K | Task isolation guide |
+| [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) | 12K | Celery Beat automation |
 
-**Total:** 20 active documents (~250KB)
+**Total:** 14 active documents (~180KB)
 **Roadmap:** 1 technical roadmap (5KB)
 
 ---
@@ -183,7 +159,7 @@ Legacy documentation and historical records: [archive/](archive/)
 
 - Architecture changes → Update ADR_OVERVIEW.md or ADR_FEATURES.md
 - New features → Update TECHNICAL.md, create examples
-- API changes → Update API_GUIDE.md
+- API changes → Update TECHNICAL.md
 - Database changes → Update DATABASE_DESIGN.md
 
 ### Creating New Docs
@@ -220,15 +196,15 @@ ls -lh docs/*.md | sort -h -k5
 
 ## ✅ Quality Metrics
 
-- ✅ **20 active documents** (core + security + storage)
+- ✅ **14 active documents** (core documentation)
 - ✅ **Minimal duplication** (reduced by ~750 lines)
 - ✅ **Clear structure** (Architecture, Features, API, Deployment)
-- ✅ **Comprehensive guides** (OAuth, Templates, API)
-- ✅ **Up-to-date** (January 2026)
-- ✅ **Accurate metrics** (verified 19 Jan 2026)
+- ✅ **Comprehensive guides** (OAuth, Templates, Technical)
+- ✅ **Up-to-date** (February 2026)
+- ✅ **Accurate metrics** (verified 5 Feb 2026)
 
 ---
 
-**Index last updated:** 19 января 2026
-**Total docs:** 20 active + 1 roadmap + 9 archived
-**Status:** ✅ Clean & optimized (-64% archive size)
+**Index last updated:** 5 февраля 2026
+**Total docs:** 14 active + 1 roadmap + dev_notes folder
+**Status:** ✅ Clean & optimized (removed redundant docs)
