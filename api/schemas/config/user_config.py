@@ -82,11 +82,26 @@ class RetentionConfig(BaseModel):
         return self
 
 
-class PlatformSettings(BaseModel):
+class YouTubePlatformSettings(BaseModel):
     enabled: bool = False
     default_privacy: Literal["public", "unlisted", "private"] = "unlisted"
     default_language: str = "ru"
-    privacy_comment: str | None = None
+
+
+class VKPlatformSettings(BaseModel):
+    enabled: bool = False
+    privacy_view: Literal[0, 1, 2, 3] = 0  # 0=all, 1=friends, 2=friends of friends, 3=only me
+    privacy_comment: Literal[0, 1, 2, 3] = 1  # Who can comment
+    no_comments: bool = False
+    repeat: bool = False
+
+
+# For backward compatibility and other platforms
+class PlatformSettings(BaseModel):
+    enabled: bool = False
+    default_privacy: str | int = "unlisted"
+    default_language: str = "ru"
+    privacy_comment: str | int | None = None
     no_comments: bool | None = None
     repeat: bool | None = None
 
@@ -98,7 +113,7 @@ class UserConfigData(BaseModel):
     upload: UploadConfig = Field(default_factory=UploadConfig)
     metadata: MetadataConfig = Field(default_factory=MetadataConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
-    platforms: dict[str, PlatformSettings] = Field(default_factory=dict)
+    platforms: dict[str, YouTubePlatformSettings | VKPlatformSettings | PlatformSettings] = Field(default_factory=dict)
 
 
 class UserConfigResponse(BaseModel):
@@ -118,4 +133,4 @@ class UserConfigUpdate(BaseModel):
     upload: UploadConfig | None = None
     metadata: MetadataConfig | None = None
     retention: RetentionConfig | None = None
-    platforms: dict[str, PlatformSettings] | None = None
+    platforms: dict[str, YouTubePlatformSettings | VKPlatformSettings | PlatformSettings] | None = None

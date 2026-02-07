@@ -701,8 +701,8 @@ DEFAULT_USER_CONFIG = {
         },
         "vk_video": {
             "enabled": False,
-            "default_privacy": "0",
-            "privacy_comment": "1",
+            "privacy_view": 0,
+            "privacy_comment": 1,
             "no_comments": False,
             "repeat": False,
         },

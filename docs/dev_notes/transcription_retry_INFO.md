@@ -198,7 +198,7 @@ def transcribe_recording_task(self, recording_id: int, user_id: str):
 ```python
 # В FireworksConfig или отдельный TranscriptionConfig:
 class TranscriptionRetryStrategy(BaseModel):
-    provider: Literal["fireworks", "openai", "deepgram"]
+    provider: Literal["fireworks"]
     model: str
     attempts: int = Field(ge=1, le=10)
     retry_delay: int = Field(ge=10, le=600)  # seconds
@@ -287,8 +287,7 @@ async def transcribe_with_simple_fallback(audio_path: str):
 ```python
 strategies = [
     {"provider": "fireworks", "model": "whisper-v3-turbo"},
-    {"provider": "fireworks", "model": "whisper-v3"},
-    {"provider": "openai", "model": "whisper-1"},  # Last resort
+    {"provider": "fireworks", "model": "whisper-v3"}
 ]
 ```
 

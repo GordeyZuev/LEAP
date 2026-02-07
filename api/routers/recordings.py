@@ -459,18 +459,15 @@ async def _execute_dry_run_single(
                     platforms_to_upload.append(preset.platform)
                     upload_details.append({"platform": preset.platform, "status": "not_started", "will_upload": True})
 
-            upload_step = {"name": "upload"}
-
-            if platforms_to_upload:
-                upload_step["enabled"] = True
-                upload_step["platforms"] = platforms_to_upload
-            else:
-                upload_step["enabled"] = False
+            upload_step = {
+                "name": "upload",
+                "enabled": bool(platforms_to_upload),
+                "details": upload_details
+            }
+            
+            if not platforms_to_upload:
                 upload_step["skip_reason"] = "Completed"
-
-            if upload_details:
-                upload_step["details"] = upload_details
-
+            
             steps.append(upload_step)
 
     # Config sources info
@@ -1047,94 +1044,6 @@ async def add_local_recording(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload file: {e!s}",
         )
-
-
-# ============================================================================
-# Metadata Endpoints
-# ============================================================================
-
-
-class StatusInfo(BaseModel):
-    """Information about processing status."""
-
-    value: str
-    label: str
-    description: str
-
-
-@router.get("/statuses", response_model=list[StatusInfo])
-async def get_available_statuses():
-    """
-    Get list of all available processing statuses for filtering.
-
-    This endpoint provides a list of statuses that can be used in the `status` filter
-    parameter for GET /recordings and bulk operations.
-
-    Returns:
-        List of status info with value, label and description
-    """
-    return [
-        StatusInfo(
-            value="PENDING_SOURCE",
-            label="Pending Source",
-            description="Source still processing on platform",
-        ),
-        StatusInfo(
-            value="INITIALIZED",
-            label="Initialized",
-            description="Synced from source, awaiting processing",
-        ),
-        StatusInfo(
-            value="DOWNLOADING",
-            label="Downloading",
-            description="In progress of downloading",
-        ),
-        StatusInfo(
-            value="DOWNLOADED",
-            label="Downloaded",
-            description="Downloaded from source",
-        ),
-        StatusInfo(
-            value="PROCESSING",
-            label="Processing",
-            description="In progress of video processing",
-        ),
-        StatusInfo(
-            value="PROCESSED",
-            label="Processed",
-            description="All processing stages completed or skipped",
-        ),
-        StatusInfo(
-            value="UPLOADING",
-            label="Uploading",
-            description="In progress of uploading to platforms",
-        ),
-        StatusInfo(
-            value="UPLOADED",
-            label="Uploaded",
-            description="Uploaded to platforms",
-        ),
-        StatusInfo(
-            value="READY",
-            label="Ready",
-            description="Ready (all stages completed)",
-        ),
-        StatusInfo(
-            value="SKIPPED",
-            label="Skipped",
-            description="Skipped (blank or too short)",
-        ),
-        StatusInfo(
-            value="EXPIRED",
-            label="Expired",
-            description="Expired (retention period ended)",
-        ),
-        StatusInfo(
-            value="FAILED",
-            label="Failed",
-            description="Failed (pseudo-status: recording.failed = true)",
-        ),
-    ]
 
 
 # ============================================================================

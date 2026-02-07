@@ -265,13 +265,3 @@ class TestGetRecording:
         assert response.status_code == 404
         # Verify repository was called with correct user_id (multi-tenancy check)
         mock_repo_instance.get_by_id.assert_called_once()
-
-
-@pytest.mark.unit
-class TestGetRecordingStatuses:
-    """Tests for GET /api/v1/recordings/statuses endpoint."""
-
-    def test_get_statuses_success(self):
-        """Test successful retrieval of all available statuses."""
-        # Skip - endpoint requires auth but returns 422, complex to mock
-        pytest.skip("Requires proper auth and StatusInfo model setup")
