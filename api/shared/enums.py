@@ -1,25 +1,21 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class InputPlatform(str, Enum):
+class InputPlatform(StrEnum):
     ZOOM = "zoom"
     YANDEX_DISK = "yandex_disk"
-    GOOGLE_DRIVE = "google_drive"
-    DROPBOX = "dropbox"
+    VIDEO_URL = "video_url"
     LOCAL = "local"
 
 
-class OutputPlatform(str, Enum):
+class OutputPlatform(StrEnum):
     YOUTUBE = "youtube"
     VK_VIDEO = "vk_video"
     YANDEX_DISK = "yandex_disk"
-    GOOGLE_DRIVE = "google_drive"
-    TELEGRAM = "telegram"
-    RUTUBE = "rutube"
     LOCAL = "local"
 
 
-class CredentialPlatform(str, Enum):
+class CredentialPlatform(StrEnum):
     ZOOM = "zoom"
     YOUTUBE = "youtube"
     VK_VIDEO = "vk_video"

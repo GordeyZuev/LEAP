@@ -103,10 +103,10 @@ class ReadyToUploadMixin(BaseModel):
             return False
 
         if self.processing_stages:
-            active_stages = [s for s in self.processing_stages if s.status != ProcessingStageStatus.SKIPPED.value]
+            active_stages = [s for s in self.processing_stages if s.status != ProcessingStageStatus.SKIPPED]
 
             if active_stages:
-                all_completed = all(stage.status == ProcessingStageStatus.COMPLETED.value for stage in active_stages)
+                all_completed = all(stage.status == ProcessingStageStatus.COMPLETED for stage in active_stages)
                 if not all_completed:
                     return False
 

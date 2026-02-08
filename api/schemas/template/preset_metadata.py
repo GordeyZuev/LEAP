@@ -1,13 +1,13 @@
 """Typed schemas for preset_metadata"""
 
-from enum import Enum
+from enum import Enum, StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 
 
-class TopicsDisplayFormat(str, Enum):
+class TopicsDisplayFormat(StrEnum):
     NUMBERED_LIST = "numbered_list"
     BULLET_LIST = "bullet_list"
     DASH_LIST = "dash_list"
@@ -40,13 +40,13 @@ class TopicsDisplayConfig(BaseModel):
         return v
 
 
-class YouTubePrivacy(str, Enum):
+class YouTubePrivacy(StrEnum):
     PUBLIC = "public"
     PRIVATE = "private"
     UNLISTED = "unlisted"
 
 
-class YouTubeLicense(str, Enum):
+class YouTubeLicense(StrEnum):
     YOUTUBE = "youtube"
     CREATIVE_COMMON = "creativeCommon"
 

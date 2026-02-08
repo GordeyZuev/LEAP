@@ -345,7 +345,7 @@ async def _execute_dry_run_single(
         stage = stage_map.get(stage_type)
         if stage:
             status_value = stage.status.value if hasattr(stage.status, "value") else str(stage.status)
-            if status_value in [ProcessingStageStatus.COMPLETED.value, ProcessingStageStatus.SKIPPED.value]:
+            if status_value in [ProcessingStageStatus.COMPLETED, ProcessingStageStatus.SKIPPED]:
                 return True, "Completed"
         return False, None
 
@@ -373,7 +373,7 @@ async def _execute_dry_run_single(
     if not trim_enabled:
         steps.append({"name": "trim", "enabled": False, "skip_reason": "Disabled in config"})
     else:
-        done, reason = is_stage_done(ProcessingStageType.TRIM.value)
+        done, reason = is_stage_done(ProcessingStageType.TRIM)
         # Check processed_video_path for recordings processed before TRIM stage existed
         if done or recording.processed_video_path:
             steps.append({"name": "trim", "enabled": False, "skip_reason": "Completed"})
@@ -383,7 +383,7 @@ async def _execute_dry_run_single(
     if not transcribe_enabled:
         steps.append({"name": "transcribe", "enabled": False, "skip_reason": "Disabled in config"})
     else:
-        done, reason = is_stage_done(ProcessingStageType.TRANSCRIBE.value)
+        done, reason = is_stage_done(ProcessingStageType.TRANSCRIBE)
         if done:
             steps.append({"name": "transcribe", "enabled": False, "skip_reason": reason})
         else:
@@ -392,7 +392,7 @@ async def _execute_dry_run_single(
     if not extract_topics_enabled:
         steps.append({"name": "topics", "enabled": False, "skip_reason": "Disabled in config"})
     else:
-        done, reason = is_stage_done(ProcessingStageType.EXTRACT_TOPICS.value)
+        done, reason = is_stage_done(ProcessingStageType.EXTRACT_TOPICS)
         if done:
             steps.append({"name": "topics", "enabled": False, "skip_reason": reason})
         else:
@@ -401,7 +401,7 @@ async def _execute_dry_run_single(
     if not generate_subs_enabled:
         steps.append({"name": "subtitles", "enabled": False, "skip_reason": "Disabled in config"})
     else:
-        done, reason = is_stage_done(ProcessingStageType.GENERATE_SUBTITLES.value)
+        done, reason = is_stage_done(ProcessingStageType.GENERATE_SUBTITLES)
         if done:
             steps.append({"name": "subtitles", "enabled": False, "skip_reason": reason})
         else:
@@ -439,7 +439,7 @@ async def _execute_dry_run_single(
 
                 if platform_status:
                     status = platform_status["status"]
-                    if status == TargetStatus.UPLOADED.value:
+                    if status == TargetStatus.UPLOADED:
                         upload_details.append(
                             {
                                 "platform": preset.platform,
@@ -447,7 +447,7 @@ async def _execute_dry_run_single(
                                 "uploaded_at": platform_status["uploaded_at"],
                             }
                         )
-                    elif status == TargetStatus.FAILED.value:
+                    elif status == TargetStatus.FAILED:
                         platforms_to_upload.append(preset.platform)
                         upload_details.append({"platform": preset.platform, "status": "failed", "will_retry": True})
                     else:
@@ -459,15 +459,11 @@ async def _execute_dry_run_single(
                     platforms_to_upload.append(preset.platform)
                     upload_details.append({"platform": preset.platform, "status": "not_started", "will_upload": True})
 
-            upload_step = {
-                "name": "upload",
-                "enabled": bool(platforms_to_upload),
-                "details": upload_details
-            }
-            
+            upload_step = {"name": "upload", "enabled": bool(platforms_to_upload), "details": upload_details}
+
             if not platforms_to_upload:
                 upload_step["skip_reason"] = "Completed"
-            
+
             steps.append(upload_step)
 
     # Config sources info
@@ -1387,12 +1383,11 @@ async def _execute_smart_run(
     - INITIALIZED/SKIPPED → start full pipeline (download → process → upload)
     - DOWNLOADED → start processing pipeline (skip download)
     - DOWNLOADING/PROCESSING/UPLOADING → reject if running, or clear pause flag
-    - PROCESSED/UPLOADED → retry failed/pending uploads
+    - PROCESSED/UPLOADED → ensure output targets from config, then upload pending/failed
     - READY → already complete
     - EXPIRED/PENDING_SOURCE → reject
     """
-    from api.tasks.processing import run_recording_task
-    from api.tasks.upload import upload_recording_to_platform
+    from api.tasks.processing import _launch_uploads_task, run_recording_task
 
     current_status = recording.status
 
@@ -1463,39 +1458,57 @@ async def _execute_smart_run(
             message="Processing pipeline started (download already complete)",
         )
 
-    # 3. Upload phase: PROCESSED, UPLOADED → retry failed/pending uploads
-    #    Note: UPLOADING is a runtime status handled above (step 3 runtime check)
+    # 3. Upload phase: PROCESSED, UPLOADED → ensure targets from config, then upload pending/failed
     if current_status in [ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADED]:
-        # DB stores enum values as strings, compare with .value for safety
-        failed_statuses = {TargetStatus.FAILED, TargetStatus.FAILED.value}
-        pending_statuses = {TargetStatus.NOT_UPLOADED, TargetStatus.NOT_UPLOADED.value}
-        failed_outputs = [o for o in recording.outputs if o.status in failed_statuses]
-        pending_outputs = [o for o in recording.outputs if o.status in pending_statuses]
+        from api.helpers.pipeline_initializer import ensure_output_targets
+        from api.services.config_utils import resolve_full_config
 
+        # Presets may exist in template but output targets not yet created in DB
+        full_config, output_config, recording = await resolve_full_config(
+            ctx.session,
+            recording_id,
+            ctx.user_id,
+            manual_override=manual_override,
+            include_output_config=True,
+        )
+
+        if output_config and output_config.get("auto_upload") and output_config.get("preset_ids"):
+            await ensure_output_targets(ctx.session, recording, output_config)
+            await ctx.session.commit()
+
+        # Reload to pick up freshly created targets
+        await ctx.session.refresh(recording, ["outputs"])
+
+        failed_outputs = [o for o in recording.outputs if o.status == TargetStatus.FAILED]
+        pending_outputs = [o for o in recording.outputs if o.status == TargetStatus.NOT_UPLOADED]
         targets = failed_outputs + pending_outputs
 
         if targets:
-            task_ids = []
+            platforms = []
+            preset_map = {}
             for output in targets:
                 target_type = output.target_type
                 platform = target_type.lower() if isinstance(target_type, str) else target_type.value.lower()
-                task = upload_recording_to_platform.delay(
-                    recording_id=recording_id,
-                    user_id=ctx.user_id,
-                    platform=platform,
-                    preset_id=output.preset_id,
-                )
-                task_ids.append(task.id)
+                platforms.append(platform)
+                if output.preset_id:
+                    preset_map[platform] = output.preset_id
 
-            logger.info(f"Smart run: retrying {len(targets)} uploads for recording {recording_id}")
-            return RecordingOperationResponse(
-                success=True,
-                task_id=task_ids[0] if len(task_ids) == 1 else None,
+            task = _launch_uploads_task.delay(
                 recording_id=recording_id,
-                message=f"Retrying {len(targets)} upload(s)",
+                user_id=ctx.user_id,
+                platforms=platforms,
+                preset_map=preset_map,
+                metadata_override=full_config.get("metadata_config"),
             )
 
-        # All outputs already handled — nothing to retry
+            logger.info(f"Smart run: uploading {len(targets)} target(s) for recording {recording_id}")
+            return RecordingOperationResponse(
+                success=True,
+                task_id=task.id,
+                recording_id=recording_id,
+                message=f"Uploading {len(targets)} target(s)",
+            )
+
         return RecordingOperationResponse(
             success=True,
             recording_id=recording_id,

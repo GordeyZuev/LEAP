@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any, TypeVar
 
 from logger import get_logger
@@ -13,7 +13,7 @@ def _normalize_enum(value: T | str, enum_class: type[T]) -> T:
     return value if isinstance(value, enum_class) else enum_class(value)
 
 
-class ProcessingStatus(Enum):
+class ProcessingStatus(StrEnum):
     """Processing statuses for video recording (aggregated status from processing_stages/outputs)"""
 
     PENDING_SOURCE = "PENDING_SOURCE"  # Pending processing on source (Zoom)
@@ -30,7 +30,7 @@ class ProcessingStatus(Enum):
     # FAILED removed - using recording.failed (boolean) + failed_reason
 
 
-class SourceType(Enum):
+class SourceType(StrEnum):
     """Type of video source."""
 
     ZOOM = "ZOOM"
@@ -42,7 +42,7 @@ class SourceType(Enum):
     OTHER = "OTHER"
 
 
-class TargetType(Enum):
+class TargetType(StrEnum):
     """Type of output/publication."""
 
     YOUTUBE = "YOUTUBE"
@@ -54,7 +54,7 @@ class TargetType(Enum):
     OTHER = "OTHER"
 
 
-class TargetStatus(Enum):
+class TargetStatus(StrEnum):
     """Statuses of uploading to output platforms."""
 
     NOT_UPLOADED = "NOT_UPLOADED"
@@ -63,7 +63,7 @@ class TargetStatus(Enum):
     FAILED = "FAILED"
 
 
-class ProcessingStageType(Enum):
+class ProcessingStageType(StrEnum):
     """Types of processing pipeline stages (detail for ProcessingStatus.PROCESSING/PROCESSED)."""
 
     TRIM = "TRIM"  # Video trimming (silence removal)
@@ -73,7 +73,7 @@ class ProcessingStageType(Enum):
     # TRANSLATION = "TRANSLATION"  # Translation
 
 
-class ProcessingStageStatus(Enum):
+class ProcessingStageStatus(StrEnum):
     """Statuses of individual processing stage."""
 
     PENDING = "PENDING"  # Pending
@@ -195,7 +195,7 @@ class MeetingRecording:
         self.retry_count: int = int(meeting_data.get("retry_count", 0))
 
         # Source
-        source_type_raw = meeting_data.get("source_type") or SourceType.ZOOM.value
+        source_type_raw = meeting_data.get("source_type") or SourceType.ZOOM
         self.source_type: SourceType = _normalize_enum(source_type_raw, SourceType)
         self.source_key: str = meeting_data.get("source_key") or str(meeting_data.get("id", ""))
         self.source_metadata: dict[str, Any] = meeting_data.get("source_metadata", {}) or {}

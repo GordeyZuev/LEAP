@@ -1,12 +1,12 @@
 """Declarative schedule schemas for automation jobs."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 
-class ScheduleType(str, Enum):
+class ScheduleType(StrEnum):
     """Schedule type enumeration."""
 
     TIME_OF_DAY = "time_of_day"
