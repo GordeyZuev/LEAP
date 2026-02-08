@@ -21,6 +21,8 @@ from api.schemas.recording.operations import (
     RecordingBulkOperationResponse,
     RecordingOperationResponse,
     ResetRecordingResponse,
+    TemplateBindResponse,
+    TemplateUnbindResponse,
 )
 from api.schemas.recording.request import (
     BulkDeleteRequest,
@@ -1573,98 +1575,41 @@ async def transcribe_recording(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Video file not found at path: {audio_path}"
         )
 
-    # Select mode: Batch API or synchronous API
     if use_batch_api:
-        # Batch API mode: submit batch job, then polling
-        from api.services.config_utils import resolve_full_config
-        from fireworks_module import FireworksConfig, FireworksTranscriptionService
-
-        fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
-
-        # Check if account_id exists
-        if not fireworks_config.account_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Batch API is not available: account_id is not configured in config/fireworks_creds.json. "
-                "Add account_id from Fireworks dashboard or use use_batch_api=false.",
-            )
-
-        fireworks_service = FireworksTranscriptionService(fireworks_config)
-
-        # Resolve config from template hierarchy to get language and prompt
-        full_config, _ = await resolve_full_config(ctx.session, recording_id, ctx.user_id, None)
-        transcription_config = full_config.get("transcription", {})
-        language = transcription_config.get("language", "ru")
-        user_prompt = transcription_config.get("prompt", "")
-
-        # Compose prompt with recording topic
-        fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording.display_name)
-
-        # Submit batch job
-        try:
-            batch_result = await fireworks_service.submit_batch_transcription(
-                audio_path=audio_path,
-                language=language,
-                prompt=fireworks_prompt,
-            )
-            batch_id = batch_result.get("batch_id")
-
-            if not batch_id:
-                raise ValueError("Batch API did not return batch_id")
-
-            logger.info(
-                f"Batch transcription submitted | batch_id={batch_id} | recording={recording_id} | user={ctx.user_id}"
-            )
-
-            # Start polling task
-            task = batch_transcribe_recording_task.delay(
-                recording_id=recording_id,
-                user_id=ctx.user_id,
-                batch_id=batch_id,
-                poll_interval=10.0,  # 10 seconds
-                max_wait_time=3600.0,  # 1 hour
-            )
-
-            logger.info(
-                f"Batch polling task {task.id} created | batch_id={batch_id} | "
-                f"recording={recording_id} | user={ctx.user_id}"
-            )
-
-            return {
-                "success": True,
-                "task_id": task.id,
-                "recording_id": recording_id,
-                "batch_id": batch_id,
-                "mode": "batch_api",
-                "status": "queued",
-                "message": "Batch transcription submitted. Polling task queued.",
-                "check_status_url": f"/api/v1/tasks/{task.id}",
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to submit batch transcription: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to submit batch transcription: {e!s}",
-            )
-    else:
-        # Synchronous API mode
-        task = transcribe_recording_task.delay(
+        task = batch_transcribe_recording_task.delay(
             recording_id=recording_id,
             user_id=ctx.user_id,
         )
 
-        logger.info(f"Transcription task {task.id} created for recording {recording_id}, user {ctx.user_id}")
+        logger.info(f"Batch transcription task {task.id} created for recording {recording_id}, user {ctx.user_id}")
 
         return {
             "success": True,
             "task_id": task.id,
             "recording_id": recording_id,
-            "mode": "sync_api",
+            "mode": "batch_api",
             "status": "queued",
-            "message": "Transcription task has been queued",
+            "message": "Batch transcription task queued. File upload and polling handled by worker.",
             "check_status_url": f"/api/v1/tasks/{task.id}",
         }
+
+    # Synchronous API mode
+    task = transcribe_recording_task.delay(
+        recording_id=recording_id,
+        user_id=ctx.user_id,
+    )
+
+    logger.info(f"Transcription task {task.id} created for recording {recording_id}, user {ctx.user_id}")
+
+    return {
+        "success": True,
+        "task_id": task.id,
+        "recording_id": recording_id,
+        "mode": "sync_api",
+        "status": "queued",
+        "message": "Transcription task has been queued",
+        "check_status_url": f"/api/v1/tasks/{task.id}",
+    }
 
 
 @router.post("/{recording_id}/upload/{platform}", response_model=RecordingOperationResponse)
@@ -1856,9 +1801,9 @@ async def bulk_transcribe_recordings(
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
     """Bulk transcription of multiple recordings (async tasks)."""
+    from api.helpers.status_manager import should_allow_transcription
     from api.tasks.processing import batch_transcribe_recording_task, transcribe_recording_task
 
-    # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
     if not recording_ids:
@@ -1901,7 +1846,17 @@ async def bulk_transcribe_recordings(
                 )
                 continue
 
-            # Check if file is present
+            if not should_allow_transcription(recording):
+                tasks.append(
+                    {
+                        "recording_id": recording_id,
+                        "status": "skipped",
+                        "reason": f"Transcription not allowed (status: {recording.status})",
+                        "task_id": None,
+                    }
+                )
+                continue
+
             if not recording.processed_video_path and not recording.local_video_path:
                 tasks.append(
                     {
@@ -1913,13 +1868,10 @@ async def bulk_transcribe_recordings(
                 )
                 continue
 
-            # Select mode: Batch API or regular sync API
             if data.use_batch_api:
-                # Fireworks Batch API mode
                 task = batch_transcribe_recording_task.delay(
                     recording_id=recording_id,
                     user_id=ctx.user_id,
-                    batch_id=None,  # Will be set by task
                     poll_interval=data.poll_interval,
                     max_wait_time=data.max_wait_time,
                 )
@@ -1931,7 +1883,6 @@ async def bulk_transcribe_recordings(
                     "check_status_url": f"/api/v1/tasks/{task.id}",
                 }
             else:
-                # Sync API mode
                 task = transcribe_recording_task.delay(
                     recording_id=recording_id,
                     user_id=ctx.user_id,
@@ -2351,13 +2302,13 @@ async def reset_recording(
     )
 
 
-@router.post("/{recording_id}/template/{template_id}", response_model=RecordingOperationResponse)
+@router.post("/{recording_id}/template/{template_id}", response_model=TemplateBindResponse)
 async def bind_template_to_recording(
     recording_id: int,
     template_id: int,
     reset_preferences: bool = Query(False, description="Reset processing preferences to use template config"),
     ctx: ServiceContext = Depends(get_service_context),
-) -> RecordingOperationResponse:
+) -> TemplateBindResponse:
     """Bind template to recording."""
     from api.repositories.template_repos import RecordingTemplateRepository
 
@@ -2367,22 +2318,18 @@ async def bind_template_to_recording(
     if not recording:
         raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
 
-    # Validate template exists and belongs to user
     template_repo = RecordingTemplateRepository(ctx.session)
     template = await template_repo.find_by_id(template_id, ctx.user_id)
 
     if not template:
         raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
 
-    # Bind template
     recording.template_id = template_id
     recording.is_mapped = True
 
-    # Reset preferences if requested
     if reset_preferences:
         recording.processing_preferences = None
 
-    # Update status if needed (same logic as in run_recording)
     if recording.status == ProcessingStatus.SKIPPED:
         recording.status = ProcessingStatus.INITIALIZED
 
@@ -2393,19 +2340,21 @@ async def bind_template_to_recording(
         f"reset_preferences={reset_preferences}"
     )
 
-    return RecordingOperationResponse(
+    return TemplateBindResponse(
         success=True,
         recording_id=recording_id,
+        template={"id": template.id, "name": template.name},
+        preferences_reset=reset_preferences,
         message=f"Template '{template.name}' bound successfully"
         + (" (preferences reset)" if reset_preferences else ""),
     )
 
 
-@router.delete("/{recording_id}/template", response_model=RecordingOperationResponse)
+@router.delete("/{recording_id}/template", response_model=TemplateUnbindResponse)
 async def unbind_template_from_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
-) -> RecordingOperationResponse:
+) -> TemplateUnbindResponse:
     """Unbind template from recording."""
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -2416,7 +2365,6 @@ async def unbind_template_from_recording(
     if not recording.template_id:
         raise HTTPException(status_code=400, detail="Recording has no template bound")
 
-    # Unbind template
     recording.template_id = None
     recording.is_mapped = False
 
@@ -2424,7 +2372,7 @@ async def unbind_template_from_recording(
 
     logger.info(f"Template unbound from recording {recording_id}")
 
-    return RecordingOperationResponse(
+    return TemplateUnbindResponse(
         success=True,
         recording_id=recording_id,
         message="Template unbound successfully",

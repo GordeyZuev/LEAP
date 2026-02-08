@@ -125,11 +125,12 @@ def should_allow_download(recording: RecordingModel) -> bool:
 
 
 def should_allow_transcription(recording: RecordingModel) -> bool:
-    """Check if transcription can be started (PROCESSED status, no IN_PROGRESS stages)."""
+    """Check if transcription can be started (DOWNLOADED or PROCESSED status, no IN_PROGRESS stages)."""
     if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
         return False
 
-    if recording.status != ProcessingStatus.PROCESSED:
+    # Allow transcription from DOWNLOADED (skip trimming) or PROCESSED (after trimming)
+    if recording.status not in [ProcessingStatus.DOWNLOADED, ProcessingStatus.PROCESSED]:
         return False
 
     if not recording.processing_stages:

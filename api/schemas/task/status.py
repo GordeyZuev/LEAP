@@ -40,7 +40,7 @@ class TaskStatusResponse(BaseModel):
     state: str
     status: str
     progress: int = Field(0, ge=0, le=100)
-    result: TaskResult | dict | None = None  # dict for legacy support
+    result: dict | None = None
     error: str | None = None
 
 

@@ -1,5 +1,41 @@
 # Change Log
 
+## 2026-02-08: Fixed Batch Transcription API
+
+### Problem
+Batch API transcription had multiple issues preventing correct operation:
+1. Bulk endpoint passed `batch_id=None` to polling task which didn't handle submission — bulk batch mode was broken
+2. Single endpoint blocked FastAPI for 10-15s uploading file to Fireworks before returning response
+3. `timestamp_granularities` serialized as JSON string in multipart form data — Fireworks ignored it, returned no words
+4. Polling loop didn't check for terminal failure statuses — waited until timeout (up to 1 hour) on failed batches
+5. Missing `mark_stage_in_progress`, cache file generation, metadata saving compared to sync flow
+6. DB session held open for entire polling duration (up to 1 hour)
+7. Redundant API call in `get_batch_result` (called `check_batch_status` again after polling already had the response)
+8. `max_wait_time` (3600s) exceeded Celery soft time limit (3300s)
+
+### Solution
+**Self-contained batch task** — `batch_transcribe_recording_task` now handles both submission and polling:
+- When `batch_id` provided (single endpoint pre-submitted): polls directly
+- When `batch_id=None` (bulk endpoint or new single endpoint): submits first, then polls
+
+**Key changes:**
+- Moved file upload from FastAPI handler to Celery worker — endpoint responds instantly
+- Fixed multipart form data serialization via `_build_form_data()` — lists sent as repeated fields with `[]` suffix
+- Added terminal status detection (`failed`, `error`, `cancelled`) — immediate error instead of timeout
+- Added `mark_stage_in_progress` before polling, `generate_cache_files` + full metadata after save
+- Split long-lived DB session into two short `async with` blocks (Phase 1: load+submit, Phase 4: save results)
+- `get_batch_result` accepts optional `status_response` to skip redundant API call
+- `max_wait_time` reduced from 3600s to 3000s — fits within Celery soft limit (3300s) with headroom for submit+save
+- Added `should_allow_transcription` check in bulk endpoint
+
+### Files
+- `api/tasks/processing.py` — rewrote `batch_transcribe_recording_task` + `_async_poll_batch_transcription`
+- `api/routers/recordings.py` — simplified single+bulk batch endpoints, added status validation
+- `fireworks_module/service.py` — added `_build_form_data`, updated `get_batch_result` signature
+- `api/schemas/recording/request.py` — updated `max_wait_time` default
+
+---
+
 ## 2026-02-05: Unified Smart Run, Pause & Duplicate Prevention
 
 ### Summary

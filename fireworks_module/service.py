@@ -153,6 +153,26 @@ class FireworksTranscriptionService:
         return " | ".join(parts)
 
     @staticmethod
+    def _build_form_data(params: dict[str, Any]) -> list[tuple[str, Any]]:
+        """Convert params dict to multipart form field tuples for httpx files= parameter.
+
+        Lists are expanded as repeated fields with [] suffix (e.g. timestamp_granularities[]).
+        Form fields use (None, value) format compatible with httpx multipart encoding.
+        """
+        items: list[tuple[str, Any]] = []
+        for key, value in params.items():
+            if isinstance(value, list):
+                for item in value:
+                    items.append((f"{key}[]", (None, str(item))))
+            elif isinstance(value, bool):
+                items.append((key, (None, "true" if value else "false")))
+            elif isinstance(value, str):
+                items.append((key, (None, value)))
+            else:
+                items.append((key, (None, str(value))))
+        return items
+
+    @staticmethod
     def _to_dict(obj: Any) -> dict[str, Any] | None:
         """Convert object to dict using available serialization methods."""
         if hasattr(obj, "model_dump"):
@@ -559,15 +579,14 @@ class FireworksTranscriptionService:
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             with Path(audio_path).open("rb") as audio_file:
-                files = {"file": (Path(audio_path).name, audio_file, "audio/mpeg")}
-                data = {k: json.dumps(v) if not isinstance(v, str) else v for k, v in params.items()}
+                multipart_fields = self._build_form_data(params)
+                multipart_fields.append(("file", (Path(audio_path).name, audio_file, "audio/mpeg")))
 
                 response = await client.post(
                     url,
                     params={"endpoint_id": endpoint_id},
                     headers={"Authorization": self.config.api_key},
-                    files=files,
-                    data=data,
+                    files=multipart_fields,
                 )
 
                 if response.status_code != 200:
@@ -599,9 +618,17 @@ class FireworksTranscriptionService:
             logger.debug(f"Batch | Status: {batch_id} | {status}")
             return result
 
-    async def get_batch_result(self, batch_id: str) -> dict[str, Any]:
-        """Get batch job result (only for completed jobs)."""
-        status_response = await self.check_batch_status(batch_id)
+    async def get_batch_result(
+        self, batch_id: str, status_response: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Get batch job result (only for completed jobs).
+
+        Args:
+            batch_id: Batch job ID.
+            status_response: Pre-fetched status response to avoid redundant API call.
+        """
+        if status_response is None:
+            status_response = await self.check_batch_status(batch_id)
 
         if status_response.get("status") != "completed":
             raise RuntimeError(f"Batch {batch_id} not completed: {status_response.get('status')}")

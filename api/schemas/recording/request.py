@@ -228,8 +228,8 @@ class BulkTranscribeRequest(BulkOperationRequest):
     """Bulk transcription of recordings."""
 
     use_batch_api: bool = Field(False, description="Use Fireworks Batch API (saves ~50%, but slower)")
-    poll_interval: float = Field(10.0, description="Polling interval for Batch API (seconds)")
-    max_wait_time: float = Field(3600.0, description="Maximum wait time for Batch API (seconds)")
+    poll_interval: float = Field(5.0, description="Polling interval for Batch API (seconds)")
+    max_wait_time: float = Field(3000.0, description="Maximum wait time for Batch API polling (seconds)")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -241,8 +241,8 @@ class BulkTranscribeRequest(BulkOperationRequest):
                     "to_date": "2025-12-31",
                 },
                 "use_batch_api": True,
-                "poll_interval": 10.0,
-                "max_wait_time": 3600.0,
+                "poll_interval": 5.0,
+                "max_wait_time": 3000.0,
                 "limit": 100,
             }
         }

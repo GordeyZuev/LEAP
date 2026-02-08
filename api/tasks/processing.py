@@ -23,7 +23,7 @@ from fireworks_module import FireworksConfig, FireworksTranscriptionService
 from logger import get_logger
 from models import MeetingRecording, ProcessingStageType, ProcessingStatus
 from models.recording import ProcessingStageStatus
-from transcription_module.manager import TranscriptionManager, get_transcription_manager
+from transcription_module.manager import get_transcription_manager
 from video_download_module.downloader import ZoomDownloader
 from video_processing_module.config import ProcessingConfig
 from video_processing_module.video_processor import VideoProcessor
@@ -1402,41 +1402,26 @@ def batch_transcribe_recording_task(
     self,
     recording_id: int,
     user_id: str,
-    batch_id: str,
-    poll_interval: float = 10.0,
-    max_wait_time: float = 3600.0,
+    batch_id: str | None = None,
+    poll_interval: float = 5.0,
+    max_wait_time: float = 3000.0,
 ) -> dict:
-    """
-    Polling for Fireworks Batch API transcription.
+    """Batch API transcription: submit (if needed) + poll + save.
 
-    This task is created after submit_batch_transcription() and waits for completion of batch job.
-    Uses polling to check status every poll_interval seconds.
-
-    Args:
-        recording_id: ID of recording
-        user_id: ID of user
-        batch_id: ID of batch job from Fireworks
-        poll_interval: Status check interval (seconds)
-        max_wait_time: Maximum waiting time (seconds)
-
-    Returns:
-        Result of transcription
+    When batch_id is provided (single endpoint), skips submission and polls directly.
+    When batch_id is None (bulk endpoint), submits the batch job first.
     """
     try:
         logger.info(
-            f"[Task {self.request.id}] Batch transcription polling | recording={recording_id} | user={user_id} | batch_id={batch_id}"
+            f"[Task {self.request.id}] Batch transcription | recording={recording_id} | "
+            f"user={user_id} | batch_id={batch_id or 'will_submit'}"
         )
 
-        self.update_progress(user_id, 10, "Waiting for batch transcription...", step="batch_transcribe")
+        self.update_progress(user_id, 5, "Starting batch transcription...", step="batch_transcribe")
 
         result = self.run_async(
             _async_poll_batch_transcription(
-                self,
-                recording_id,
-                user_id,
-                batch_id,
-                poll_interval,
-                max_wait_time,
+                self, recording_id, user_id, batch_id, poll_interval, max_wait_time,
             )
         )
 
@@ -1444,8 +1429,7 @@ def batch_transcribe_recording_task(
             user_id=user_id,
             status="completed",
             recording_id=recording_id,
-            batch_id=batch_id,
-            result=result,
+            **result,
         )
 
     except TimeoutError as exc:
@@ -1467,119 +1451,189 @@ async def _async_poll_batch_transcription(
     task_self,
     recording_id: int,
     user_id: str,
-    batch_id: str,
+    batch_id: str | None,
     poll_interval: float,
     max_wait_time: float,
 ) -> dict:
-    """Async function for polling batch transcription."""
+    """Async batch transcription: optional submit, poll until done, save results."""
     session_maker = get_async_session_maker()
-    session = session_maker()
+    fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
+    fireworks_service = FireworksTranscriptionService(fireworks_config)
 
-    try:
+    # Phase 1: Load recording, submit batch if needed, mark IN_PROGRESS
+    async with session_maker() as session:
         recording_repo = RecordingRepository(session)
         recording_db = await recording_repo.get_by_id(recording_id, user_id)
 
         if not recording_db:
             raise ValueError(f"Recording {recording_id} not found for user {user_id}")
 
-        # Initialize Fireworks service
-        fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
-        fireworks_service = FireworksTranscriptionService(fireworks_config)
+        user_slug = recording_db.owner.user_slug
 
-        # Polling loop
-        start_time = time.time()
-        attempt = 0
+        # Submit batch job if batch_id not provided (bulk endpoint path)
+        if batch_id is None:
+            if not fireworks_config.account_id:
+                raise ValueError("Batch API requires account_id in config/fireworks_creds.json")
 
-        while True:
-            attempt += 1
-            elapsed = time.time() - start_time
+            audio_path = (
+                recording_db.processed_audio_path
+                or recording_db.processed_video_path
+                or recording_db.local_video_path
+            )
+            if not audio_path or not Path(audio_path).exists():
+                raise ValueError(f"No audio/video file available for recording {recording_id}")
 
-            if elapsed > max_wait_time:
-                raise TimeoutError(
-                    f"Batch transcription {batch_id} not completed after {max_wait_time}s (attempts: {attempt})"
-                )
+            full_config, _ = await resolve_full_config(session, recording_id, user_id, None)
+            transcription_config = full_config.get("transcription", {})
+            language = transcription_config.get("language", "ru")
+            user_prompt = transcription_config.get("prompt", "")
+            fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording_db.display_name)
 
-            # Check status
-            status_response = await fireworks_service.check_batch_status(batch_id)
-            status = status_response.get("status", "unknown")
+            task_self.update_progress(user_id, 10, "Submitting batch job...", step="batch_transcribe")
 
-            # Update progress (approximately)
-            progress = min(20 + int((elapsed / max_wait_time) * 60), 80)
-            task_self.update_progress(
-                user_id,
-                progress,
-                f"Batch transcribing... ({status}, {elapsed:.0f}s)",
-                step="batch_transcribe",
-                batch_id=batch_id,
-                attempt=attempt,
+            batch_result = await fireworks_service.submit_batch_transcription(
+                audio_path=audio_path, language=language, prompt=fireworks_prompt,
+            )
+            batch_id = batch_result.get("batch_id")
+            if not batch_id:
+                raise ValueError("Batch API did not return batch_id")
+
+            logger.info(f"[Batch Transcription] Submitted | batch_id={batch_id} | recording={recording_id}")
+
+        # Mark TRANSCRIBE stage as IN_PROGRESS
+        recording_db.mark_stage_in_progress(ProcessingStageType.TRANSCRIBE)
+        update_aggregate_status(recording_db)
+        await recording_repo.update(recording_db)
+        await session.commit()
+
+    # Phase 2: Poll (no DB session held open)
+    task_self.update_progress(user_id, 15, "Waiting for batch transcription...", step="batch_transcribe")
+
+    start_time = time.time()
+    attempt = 0
+    completed_response: dict | None = None
+    terminal_statuses = {"failed", "error", "cancelled"}
+
+    while True:
+        attempt += 1
+        elapsed = time.time() - start_time
+
+        if elapsed > max_wait_time:
+            raise TimeoutError(
+                f"Batch transcription {batch_id} not completed after {max_wait_time}s (attempts: {attempt})"
             )
 
-            if status == "completed":
-                logger.info(
-                    f"[Batch Transcription] Completed ✅ | batch_id={batch_id} | elapsed={elapsed:.1f}s | attempts={attempt}"
-                )
+        status_response = await fireworks_service.check_batch_status(batch_id)
+        batch_status = status_response.get("status", "unknown")
 
-                task_self.update_progress(user_id, 85, "Parsing batch result...", step="batch_transcribe")
+        progress = min(20 + int((elapsed / max_wait_time) * 60), 80)
+        task_self.update_progress(
+            user_id, progress, f"Batch transcribing... ({batch_status}, {elapsed:.0f}s)",
+            step="batch_transcribe", batch_id=batch_id, attempt=attempt,
+        )
 
-                # Get result
-                transcription_result = await fireworks_service.get_batch_result(batch_id)
+        if batch_status == "completed":
+            completed_response = status_response
+            logger.info(
+                f"[Batch Transcription] Completed | batch_id={batch_id} | "
+                f"elapsed={elapsed:.1f}s | attempts={attempt}"
+            )
+            break
 
-                # Save transcription (as usual)
-                transcription_manager = TranscriptionManager()
-
-                task_self.update_progress(user_id, 90, "Saving transcription...", step="batch_transcribe")
-
-                # Get user_slug for path generation
-                user_slug = recording_db.owner.user_slug
-
-                # Save master.json
-                words = transcription_result.get("words", [])
-                segments = transcription_result.get("segments", [])
-                language = transcription_result.get("language", "ru")
-
-                transcription_manager.save_master(
-                    recording_id=recording_id,
-                    words=words,
-                    segments=segments,
-                    language=language,
-                    model="fireworks",
-                    user_slug=user_slug,
-                )
-
-                # Update recording in DB
-                recording_db.transcription_dir = str(transcription_manager.get_dir(recording_id, user_slug))
-                recording_db.mark_stage_completed(
-                    ProcessingStageType.TRANSCRIBE,
-                    meta={
-                        "batch_id": batch_id,
-                        "language": language,
-                        "words_count": len(words),
-                        "segments_count": len(segments),
-                        "elapsed_seconds": elapsed,
-                    },
-                )
-
-                # Update aggregated status
-                from api.helpers.status_manager import update_aggregate_status
-
-                update_aggregate_status(recording_db)
-
-                await recording_repo.update(recording_db)
-                await session.commit()
-
-                return {
-                    "success": True,
-                    "batch_id": batch_id,
-                    "language": language,
-                    "elapsed_seconds": elapsed,
-                    "attempts": attempt,
-                }
-
-            logger.debug(
-                f"[Batch Transcription] Polling | batch_id={batch_id} | status={status} | attempt={attempt} | elapsed={elapsed:.1f}s"
+        if batch_status in terminal_statuses:
+            raise RuntimeError(
+                f"Batch {batch_id} failed with status '{batch_status}': "
+                f"{status_response.get('error', 'no details')}"
             )
 
-            await asyncio.sleep(poll_interval)
+        logger.debug(
+            f"[Batch Transcription] Polling | batch_id={batch_id} | "
+            f"status={batch_status} | attempt={attempt} | elapsed={elapsed:.1f}s"
+        )
+        await asyncio.sleep(poll_interval)
 
-    finally:
-        await session.close()
+    elapsed = time.time() - start_time
+
+    # Phase 3: Parse result, save to disk and DB
+    task_self.update_progress(user_id, 85, "Parsing batch result...", step="batch_transcribe")
+
+    transcription_result = await fireworks_service.get_batch_result(batch_id, status_response=completed_response)
+
+    words = transcription_result.get("words", [])
+    segments = transcription_result.get("segments", [])
+    language = transcription_result.get("language", "ru")
+
+    duration = 0.0
+    if segments:
+        duration = segments[-1].get("end", 0.0)
+
+    usage_metadata = {
+        "model": fireworks_config.model,
+        "batch_id": batch_id,
+        "config": {
+            "language": language,
+            "response_format": fireworks_config.response_format,
+            "timestamp_granularities": fireworks_config.timestamp_granularities,
+        },
+        "audio_file": {"duration_seconds": duration},
+    }
+
+    transcription_manager = get_transcription_manager()
+
+    task_self.update_progress(user_id, 90, "Saving transcription...", step="batch_transcribe")
+
+    transcription_manager.save_master(
+        recording_id=recording_id,
+        words=words,
+        segments=segments,
+        language=language,
+        model="fireworks",
+        duration=duration,
+        usage_metadata=usage_metadata,
+        user_slug=user_slug,
+        raw_response=transcription_result,
+    )
+
+    transcription_manager.generate_cache_files(recording_id, user_slug)
+
+    # Phase 4: Update DB with results
+    async with session_maker() as session:
+        recording_repo = RecordingRepository(session)
+        recording_db = await recording_repo.get_by_id(recording_id, user_id)
+
+        if not recording_db:
+            raise ValueError(f"Recording {recording_id} disappeared during batch processing")
+
+        transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
+        recording_db.transcription_dir = str(transcription_dir)
+        recording_db.transcription_info = transcription_result
+
+        recording_db.mark_stage_completed(
+            ProcessingStageType.TRANSCRIBE,
+            meta={
+                "batch_id": batch_id,
+                "language": language,
+                "words_count": len(words),
+                "segments_count": len(segments),
+                "elapsed_seconds": elapsed,
+            },
+        )
+        update_aggregate_status(recording_db)
+
+        await recording_repo.update(recording_db)
+        await session.commit()
+
+    logger.info(
+        f"[Batch Transcription] Saved | recording={recording_id} | "
+        f"words={len(words)} | segments={len(segments)} | language={language}"
+    )
+
+    return {
+        "success": True,
+        "batch_id": batch_id,
+        "language": language,
+        "words_count": len(words),
+        "segments_count": len(segments),
+        "elapsed_seconds": elapsed,
+        "attempts": attempt,
+    }
