@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
+from api.schemas.common.pagination import PaginatedResponse
 
 from .preset_metadata import VKPresetMetadata, YouTubePresetMetadata
 
@@ -40,7 +41,23 @@ class OutputPresetUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class OutputPresetListItem(BaseModel):
+    """Lightweight preset for list views (excludes heavy preset_metadata)."""
+
+    model_config = ORM_MODEL_CONFIG
+
+    id: int
+    name: str
+    platform: str
+    credential_id: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class OutputPresetResponse(OutputPresetBase):
+    """Full preset detail including preset_metadata."""
+
     model_config = ORM_MODEL_CONFIG
 
     id: int
@@ -49,3 +66,9 @@ class OutputPresetResponse(OutputPresetBase):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class PresetListResponse(PaginatedResponse):
+    """Paginated list of output presets."""
+
+    items: list[OutputPresetListItem]

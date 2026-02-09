@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, Field
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
@@ -16,11 +16,16 @@ from api.schemas.recording.filters import RecordingFilters as RecordingFiltersSc
 from api.schemas.recording.operations import (
     BulkProcessDryRunResponse,
     ConfigSaveResponse,
+    ConfigUpdateResponse,
+    DeleteRecordingResponse,
     DryRunResponse,
     PauseRecordingResponse,
+    RecordingBulkDeleteResponse,
     RecordingBulkOperationResponse,
+    RecordingConfigResponse,
     RecordingOperationResponse,
     ResetRecordingResponse,
+    RestoreRecordingResponse,
     TemplateBindResponse,
     TemplateUnbindResponse,
 )
@@ -34,14 +39,16 @@ from api.schemas.recording.request import (
     BulkTranscribeRequest,
     BulkTrimRequest,
     BulkUploadRequest,
+    ConfigOverrideRequest,
+    TrimVideoRequest,
 )
 from api.schemas.recording.response import (
+    DetailedRecordingResponse,
     OutputTargetResponse,
     PresetInfo,
     ProcessingStageResponse,
     RecordingListItem,
     RecordingListResponse,
-    RecordingResponse,
     SourceInfo,
     SourceResponse,
     UploadInfo,
@@ -52,87 +59,6 @@ from models.recording import TargetStatus
 
 router = APIRouter(prefix="/api/v1/recordings", tags=["Recordings"])
 logger = get_logger()
-
-
-# ============================================================================
-# Request/Response Models (used only in this router - KISS)
-# ============================================================================
-
-
-class DetailedRecordingResponse(RecordingResponse):
-    """Extended response model with detailed information."""
-
-    videos: dict | None = None
-    audio: dict | None = None
-    transcription: dict | None = None
-    topics: dict | None = None
-    subtitles: dict | None = None
-    processing_stages_detailed: list[dict] | None = None
-    uploads: dict | None = None
-
-
-class TrimVideoRequest(BaseModel):
-    """Request for video trimming (FFmpeg - removing silence)."""
-
-    silence_threshold: float = -40.0
-    min_silence_duration: float = 2.0
-    padding_before: float = 5.0
-    padding_after: float = 5.0
-
-
-class ConfigOverrideRequest(BaseModel):
-    """
-    Flexible request for override configuration in process endpoint.
-
-    Supports any fields from template config for override.
-    Runtime template usage: specify template_id to use template config without permanent binding.
-    """
-
-    template_id: int | None = Field(None, description="Runtime template to use (not saved to DB by default)")
-    bind_template: bool = Field(False, description="If true, save template_id to recording and set is_mapped=true")
-    processing_config: dict | None = Field(None, description="Override processing config")
-    metadata_config: dict | None = Field(None, description="Override metadata config")
-    output_config: dict | None = Field(None, description="Override output config")
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "template_id": 5,
-                "bind_template": False,
-                "processing_config": {
-                    "transcription": {
-                        "enable_transcription": True,
-                        "language": "ru",
-                        "granularity": "short",
-                        "enable_topics": True,
-                    }
-                },
-                "metadata_config": {
-                    "title_template": "{themes}",
-                    "description_template": "{summary}\\n\\n{topics}",
-                    "youtube": {
-                        "playlist_id": "PLxxx",
-                        "privacy": "unlisted",
-                        "thumbnail_name": "python_base.png",
-                        "category_id": "27",
-                        "tags": ["AI", "ML", "lecture"],
-                    },
-                    "vk": {
-                        "album_id": "123456",
-                        "group_id": 123456,
-                        "thumbnail_name": "applied_python.png",
-                        "privacy_view": 0,
-                        "privacy_comment": 0,
-                        "wallpost": False,
-                    },
-                },
-                "output_config": {
-                    "preset_ids": [10],
-                    "auto_upload": True,
-                    "upload_captions": True,
-                },
-            }
-        }
 
 
 def _build_override_from_flexible(config: ConfigOverrideRequest) -> dict:
@@ -326,7 +252,7 @@ async def _execute_dry_run_single(
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
-        raise HTTPException(404, "Recording not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
 
     manual_override = _build_override_from_flexible(config_override) if config_override else None
 
@@ -440,8 +366,8 @@ async def _execute_dry_run_single(
                 platform_status = platform_statuses.get(preset.platform)
 
                 if platform_status:
-                    status = platform_status["status"]
-                    if status == TargetStatus.UPLOADED:
+                    target_status = platform_status["status"]
+                    if target_status == TargetStatus.UPLOADED:
                         upload_details.append(
                             {
                                 "platform": preset.platform,
@@ -449,7 +375,7 @@ async def _execute_dry_run_single(
                                 "uploaded_at": platform_status["uploaded_at"],
                             }
                         )
-                    elif status == TargetStatus.FAILED:
+                    elif target_status == TargetStatus.FAILED:
                         platforms_to_upload.append(preset.platform)
                         upload_details.append({"platform": preset.platform, "status": "failed", "will_retry": True})
                     else:
@@ -587,11 +513,15 @@ async def list_recordings(
     include_deleted: bool = Query(False, description="Include deleted recordings"),
     from_date: str | None = Query(None, description="Filter: start_time >= from_date (YYYY-MM-DD)"),
     to_date: str | None = Query(None, description="Filter: start_time <= to_date (YYYY-MM-DD)"),
+    sort_by: str = Query(
+        "created_at", description="Sort field (created_at, updated_at, start_time, display_name, status)"
+    ),
+    sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     ctx: ServiceContext = Depends(get_service_context),
 ):
-    """Get paginated list of recordings with filtering and search."""
+    """Get paginated list of recordings with filtering, search and sorting."""
     recording_repo = RecordingRepository(ctx.session)
     recordings = await recording_repo.list_by_user(ctx.user_id, include_deleted=include_deleted)
 
@@ -643,6 +573,16 @@ async def list_recordings(
         search_lower = search.lower()
         recordings = [r for r in recordings if search_lower in r.display_name.lower()]
 
+    # Apply sorting
+    allowed_sort_fields = {"created_at", "updated_at", "start_time", "display_name", "status"}
+    effective_sort_by = sort_by if sort_by in allowed_sort_fields else "created_at"
+    recordings.sort(
+        key=lambda item: (0, "")
+        if getattr(item, effective_sort_by, None) is None
+        else (1, getattr(item, effective_sort_by)),
+        reverse=(sort_order == "desc"),
+    )
+
     total = len(recordings)
     start = (page - 1) * per_page
     end = start + per_page
@@ -687,7 +627,7 @@ async def list_recordings(
     )
 
 
-@router.get("/{recording_id}")
+@router.get("/{recording_id}", response_model=RecordingListItem | DetailedRecordingResponse)
 async def get_recording(
     recording_id: int,
     detailed: bool = Query(False, description="Include detailed information (files, transcription, topics, uploads)"),
@@ -1183,7 +1123,7 @@ async def trim_recording(
     }
 
 
-@router.post("/bulk/run")
+@router.post("/bulk/run", response_model=RecordingBulkOperationResponse | BulkProcessDryRunResponse)
 async def bulk_run_recordings(
     data: BulkRunRequest,
     dry_run: bool = Query(False, description="Dry-run: show which recordings will be run"),
@@ -1921,13 +1861,12 @@ async def bulk_transcribe_recordings(
     }
 
 
-@router.get("/{recording_id}/config")
+@router.get("/{recording_id}/config", response_model=RecordingConfigResponse)
 async def get_recording_config(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
-):
+) -> RecordingConfigResponse:
     """Get current resolved configuration for recording."""
-    from api.schemas.recording.operations import RecordingConfigResponse
     from api.services.config_resolver import ConfigResolver
 
     recording_repo = RecordingRepository(ctx.session)
@@ -1935,7 +1874,7 @@ async def get_recording_config(
     # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     # Resolve configuration
     config_resolver = ConfigResolver(ctx.session)
@@ -1953,13 +1892,13 @@ async def get_recording_config(
     )
 
 
-@router.put("/{recording_id}/config")
+@router.put("/{recording_id}/config", response_model=ConfigUpdateResponse)
 async def update_recording_config(
     recording_id: int,
     processing_config: dict | None = None,
     output_config: dict | None = None,
     ctx: ServiceContext = Depends(get_service_context),
-) -> dict:
+) -> ConfigUpdateResponse:
     """Save user configuration overrides in recording.processing_preferences."""
     from api.services.config_resolver import ConfigResolver
 
@@ -1968,7 +1907,7 @@ async def update_recording_config(
     # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     # Get config resolver
     config_resolver = ConfigResolver(ctx.session)
@@ -2003,8 +1942,6 @@ async def update_recording_config(
 
     logger.info(f"Updated manual config for recording {recording_id}")
 
-    from api.schemas.recording.operations import ConfigUpdateResponse
-
     return ConfigUpdateResponse(
         recording_id=recording_id,
         message="Configuration saved",
@@ -2027,7 +1964,7 @@ async def reset_to_template(
     # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     # Clear overrides
     recording.processing_preferences = None
@@ -2061,7 +1998,7 @@ async def pause_recording(
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     if recording.on_pause:
         return PauseRecordingResponse(
@@ -2184,11 +2121,11 @@ async def reset_recording(
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     if recording.deleted:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot reset deleted recording. Please restore it first using POST /recordings/{id}/restore",
         )
 
@@ -2316,13 +2253,13 @@ async def bind_template_to_recording(
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     template_repo = RecordingTemplateRepository(ctx.session)
     template = await template_repo.find_by_id(template_id, ctx.user_id)
 
     if not template:
-        raise HTTPException(status_code=404, detail=f"Template {template_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
 
     recording.template_id = template_id
     recording.is_mapped = True
@@ -2360,10 +2297,10 @@ async def unbind_template_from_recording(
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     if not recording.template_id:
-        raise HTTPException(status_code=400, detail="Recording has no template bound")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Recording has no template bound")
 
     recording.template_id = None
     recording.is_mapped = False
@@ -2680,24 +2617,6 @@ async def bulk_upload_recordings(
 # ============================================================================
 
 
-class DeleteRecordingResponse(BaseModel):
-    """Response for soft delete recording."""
-
-    message: str
-    recording_id: int
-    deleted_at: datetime
-    hard_delete_at: datetime  # When recording will be completely removed from DB
-
-
-class RestoreRecordingResponse(BaseModel):
-    """Response for restore recording."""
-
-    message: str
-    recording_id: int
-    restored_at: datetime
-    expire_at: datetime
-
-
 @router.delete("/{recording_id}", response_model=DeleteRecordingResponse)
 async def delete_recording(
     recording_id: int,
@@ -2708,10 +2627,10 @@ async def delete_recording(
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     if recording.deleted:
-        raise HTTPException(status_code=400, detail="Recording is already deleted")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Recording is already deleted")
 
     # Get user config (merged with defaults)
     user_config_repo = UserConfigRepository(ctx.session)
@@ -2730,21 +2649,11 @@ async def delete_recording(
     )
 
 
-class BulkDeleteResponse(BaseModel):
-    """Response for bulk delete operation."""
-
-    message: str
-    deleted_count: int
-    skipped_count: int
-    error_count: int
-    details: list[dict]
-
-
-@router.post("/bulk/delete", response_model=BulkDeleteResponse)
+@router.post("/bulk/delete", response_model=RecordingBulkDeleteResponse)
 async def bulk_delete_recordings(
     data: BulkDeleteRequest,
     ctx: ServiceContext = Depends(get_service_context),
-) -> BulkDeleteResponse:
+) -> RecordingBulkDeleteResponse:
     """Bulk soft delete recordings."""
     # Resolve recording IDs
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
@@ -2824,7 +2733,7 @@ async def bulk_delete_recordings(
         f"{deleted_count} deleted, {skipped_count} skipped, {error_count} errors"
     )
 
-    return BulkDeleteResponse(
+    return RecordingBulkDeleteResponse(
         message=f"Bulk delete completed: {deleted_count} recordings deleted",
         deleted_count=deleted_count,
         skipped_count=skipped_count,
@@ -2843,14 +2752,14 @@ async def restore_recording(
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id, include_deleted=True)
 
     if not recording:
-        raise HTTPException(status_code=404, detail=f"Recording {recording_id} not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     if not recording.deleted:
-        raise HTTPException(status_code=400, detail="Recording is not deleted")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Recording is not deleted")
 
     if recording.delete_state != "soft":
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot restore: files already deleted. Recording can only be restored before files cleanup.",
         )
 

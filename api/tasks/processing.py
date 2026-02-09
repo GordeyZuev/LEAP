@@ -1421,7 +1421,12 @@ def batch_transcribe_recording_task(
 
         result = self.run_async(
             _async_poll_batch_transcription(
-                self, recording_id, user_id, batch_id, poll_interval, max_wait_time,
+                self,
+                recording_id,
+                user_id,
+                batch_id,
+                poll_interval,
+                max_wait_time,
             )
         )
 
@@ -1476,9 +1481,7 @@ async def _async_poll_batch_transcription(
                 raise ValueError("Batch API requires account_id in config/fireworks_creds.json")
 
             audio_path = (
-                recording_db.processed_audio_path
-                or recording_db.processed_video_path
-                or recording_db.local_video_path
+                recording_db.processed_audio_path or recording_db.processed_video_path or recording_db.local_video_path
             )
             if not audio_path or not Path(audio_path).exists():
                 raise ValueError(f"No audio/video file available for recording {recording_id}")
@@ -1492,7 +1495,9 @@ async def _async_poll_batch_transcription(
             task_self.update_progress(user_id, 10, "Submitting batch job...", step="batch_transcribe")
 
             batch_result = await fireworks_service.submit_batch_transcription(
-                audio_path=audio_path, language=language, prompt=fireworks_prompt,
+                audio_path=audio_path,
+                language=language,
+                prompt=fireworks_prompt,
             )
             batch_id = batch_result.get("batch_id")
             if not batch_id:
@@ -1528,22 +1533,24 @@ async def _async_poll_batch_transcription(
 
         progress = min(20 + int((elapsed / max_wait_time) * 60), 80)
         task_self.update_progress(
-            user_id, progress, f"Batch transcribing... ({batch_status}, {elapsed:.0f}s)",
-            step="batch_transcribe", batch_id=batch_id, attempt=attempt,
+            user_id,
+            progress,
+            f"Batch transcribing... ({batch_status}, {elapsed:.0f}s)",
+            step="batch_transcribe",
+            batch_id=batch_id,
+            attempt=attempt,
         )
 
         if batch_status == "completed":
             completed_response = status_response
             logger.info(
-                f"[Batch Transcription] Completed | batch_id={batch_id} | "
-                f"elapsed={elapsed:.1f}s | attempts={attempt}"
+                f"[Batch Transcription] Completed | batch_id={batch_id} | elapsed={elapsed:.1f}s | attempts={attempt}"
             )
             break
 
         if batch_status in terminal_statuses:
             raise RuntimeError(
-                f"Batch {batch_id} failed with status '{batch_status}': "
-                f"{status_response.get('error', 'no details')}"
+                f"Batch {batch_id} failed with status '{batch_status}': {status_response.get('error', 'no details')}"
             )
 
         logger.debug(

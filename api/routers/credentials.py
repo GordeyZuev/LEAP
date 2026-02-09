@@ -1,8 +1,8 @@
 """User credentials management endpoints (multi-tenancy)"""
 
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,9 +11,10 @@ from api.auth.encryption import get_encryption
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import UserCredentialRepository
 from api.schemas.auth import UserCredentialCreate, UserCredentialUpdate, UserInDB
+from api.schemas.common.pagination import paginate_list
 from api.schemas.credentials import (
     CredentialCreateRequest,
-    CredentialDeleteResponse,
+    CredentialListResponse,
     CredentialResponse,
     CredentialStatusResponse,
     CredentialUpdateRequest,
@@ -27,15 +28,20 @@ logger = get_logger()
 
 router = APIRouter(prefix="/api/v1/credentials", tags=["Credentials"])
 
+CREDENTIAL_SORT_FIELDS = {"created_at", "platform"}
 
-@router.get("/", response_model=list[CredentialResponse])
+
+@router.get("", response_model=CredentialListResponse)
 async def list_credentials(
     platform: str | None = None,
-    include_data: bool = False,
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    sort_by: str = Query("created_at", description="Sort field"),
+    sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Get user's credentials, optionally filtered by platform."""
+    """Get paginated list of user's credentials."""
     cred_repo = UserCredentialRepository(session)
 
     credentials = (
@@ -44,27 +50,15 @@ async def list_credentials(
         else await cred_repo.find_by_user(current_user.id)
     )
 
-    result = []
-    encryption = get_encryption() if include_data else None
+    items, total, total_pages = paginate_list(credentials, page, per_page, sort_by, sort_order, CREDENTIAL_SORT_FIELDS)
 
-    for cred in credentials:
-        response = CredentialResponse(
-            id=cred.id,
-            platform=cred.platform,
-            account_name=cred.account_name,
-            is_active=cred.is_active,
-            last_used_at=cred.last_used_at.isoformat() if cred.last_used_at else None,
-        )
-
-        if include_data and encryption:
-            try:
-                response.credentials = encryption.decrypt_credentials(cred.encrypted_data)
-            except Exception as e:
-                logger.error(f"Failed to decrypt credentials for id={cred.id}: {e}")
-
-        result.append(response)
-
-    return result
+    return CredentialListResponse(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+    )
 
 
 @router.get("/status", response_model=CredentialStatusResponse)
@@ -112,7 +106,9 @@ async def get_credential_by_id(
         platform=credential.platform,
         account_name=credential.account_name,
         is_active=credential.is_active,
-        last_used_at=credential.last_used_at.isoformat() if credential.last_used_at else None,
+        last_used_at=credential.last_used_at,
+        created_at=credential.created_at,
+        updated_at=credential.updated_at,
     )
 
     if include_data:
@@ -197,7 +193,7 @@ def _check_duplicate_credentials(
             )
 
 
-@router.post("/", response_model=CredentialResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CredentialResponse, status_code=status.HTTP_201_CREATED)
 async def create_credentials(
     request: CredentialCreateRequest,
     current_user: UserInDB = Depends(get_current_user),
@@ -262,6 +258,8 @@ async def create_credentials(
         account_name=credential.account_name,
         is_active=credential.is_active,
         last_used_at=None,
+        created_at=credential.created_at,
+        updated_at=credential.updated_at,
     )
 
 
@@ -308,16 +306,18 @@ async def update_credentials(
         platform=updated_credential.platform,
         account_name=updated_credential.account_name,
         is_active=updated_credential.is_active,
-        last_used_at=(updated_credential.last_used_at.isoformat() if updated_credential.last_used_at else None),
+        last_used_at=updated_credential.last_used_at,
+        created_at=updated_credential.created_at,
+        updated_at=updated_credential.updated_at,
     )
 
 
-@router.delete("/{credential_id}")
+@router.delete("/{credential_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_credentials(
     credential_id: int,
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
-):
+) -> None:
     """Delete platform credentials by ID."""
     cred_repo = UserCredentialRepository(session)
 
@@ -331,5 +331,3 @@ async def delete_credentials(
     await cred_repo.delete(credential.id)
 
     logger.info(f"User credentials deleted: user_id={current_user.id} | credential_id={credential_id}")
-
-    return CredentialDeleteResponse(message=f"Credential {credential_id} deleted successfully")

@@ -1,8 +1,11 @@
-"""Global error handling"""
+"""Global error handling.
+
+All handlers return a unified error format: {"error": str, "detail": str | list}.
+"""
 
 import os
 
-from fastapi import Request, status
+from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,6 +16,29 @@ from logger import get_logger
 logger = get_logger()
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+
+# Maps HTTP status codes to human-readable error categories
+_STATUS_ERROR_MAP: dict[int, str] = {
+    400: "Bad request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not found",
+    409: "Conflict",
+    413: "Payload too large",
+}
+
+
+async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    """HTTPException handler with unified error format."""
+    error_category = _STATUS_ERROR_MAP.get(exc.status_code, f"Error {exc.status_code}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": error_category,
+            "detail": exc.detail,
+        },
+        headers=exc.headers,
+    )
 
 
 async def global_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
@@ -35,9 +61,13 @@ async def global_exception_handler(_request: Request, exc: Exception) -> JSONRes
 
 async def api_exception_handler(_request: Request, exc: APIException) -> JSONResponse:
     """API exception handler."""
+    error_category = _STATUS_ERROR_MAP.get(exc.status_code, f"Error {exc.status_code}")
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": exc.detail},
+        content={
+            "error": error_category,
+            "detail": exc.detail,
+        },
     )
 
 
@@ -68,7 +98,6 @@ async def response_validation_exception_handler(_request: Request, exc: Response
     """Response validation exception handler."""
     logger.error("Response validation error: {}", exc, exc_info=exc)
 
-    # Extract validation errors
     errors = []
     for error in exc.errors():
         error_dict = {
@@ -77,7 +106,6 @@ async def response_validation_exception_handler(_request: Request, exc: Response
             "msg": error.get("msg"),
         }
         if "input" in error:
-            # Don't expose full input in production
             error_dict["input_summary"] = f"{type(error['input']).__name__}" if not DEBUG else error["input"]
         if error.get("ctx"):
             error_dict["ctx"] = {k: str(v) for k, v in error["ctx"].items()}
@@ -88,7 +116,6 @@ async def response_validation_exception_handler(_request: Request, exc: Response
         content={
             "error": "Internal server error",
             "detail": "Response validation failed" if not DEBUG else errors,
-            "message": "The server returned invalid data. Please contact support.",
         },
     )
 

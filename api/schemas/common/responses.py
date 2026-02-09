@@ -1,6 +1,6 @@
 """Base reusable response schemas."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .config import BASE_MODEL_CONFIG
 
@@ -52,3 +52,21 @@ class BulkOperationResponse(BaseModel):
     skipped_count: int
     total: int | None = None
     tasks: list[TaskInfo] | None = None
+
+
+class BulkIdsRequest(BaseModel):
+    """Request for bulk operations by IDs."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    ids: list[int] = Field(..., min_length=1, max_length=100, description="List of resource IDs")
+
+
+class BulkDeleteResult(BaseModel):
+    """Result of bulk delete operation."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    deleted_count: int
+    skipped_count: int
+    details: list[dict]

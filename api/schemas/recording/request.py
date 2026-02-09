@@ -9,6 +9,71 @@ from api.schemas.recording.filters import RecordingFilters
 from api.schemas.validators import DateRangeMixin
 
 
+class TrimVideoRequest(BaseModel):
+    """Request for video trimming (FFmpeg - removing silence)."""
+
+    silence_threshold: float = -40.0
+    min_silence_duration: float = 2.0
+    padding_before: float = 5.0
+    padding_after: float = 5.0
+
+
+class ConfigOverrideRequest(BaseModel):
+    """
+    Flexible request for override configuration in process endpoint.
+
+    Supports any fields from template config for override.
+    Runtime template usage: specify template_id to use template config without permanent binding.
+    """
+
+    template_id: int | None = Field(None, description="Runtime template to use (not saved to DB by default)")
+    bind_template: bool = Field(False, description="If true, save template_id to recording and set is_mapped=true")
+    processing_config: dict | None = Field(None, description="Override processing config")
+    metadata_config: dict | None = Field(None, description="Override metadata config")
+    output_config: dict | None = Field(None, description="Override output config")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "template_id": 5,
+                "bind_template": False,
+                "processing_config": {
+                    "transcription": {
+                        "enable_transcription": True,
+                        "language": "ru",
+                        "granularity": "short",
+                        "enable_topics": True,
+                    }
+                },
+                "metadata_config": {
+                    "title_template": "{themes}",
+                    "description_template": "{summary}\\n\\n{topics}",
+                    "youtube": {
+                        "playlist_id": "PLxxx",
+                        "privacy": "unlisted",
+                        "thumbnail_name": "python_base.png",
+                        "category_id": "27",
+                        "tags": ["AI", "ML", "lecture"],
+                    },
+                    "vk": {
+                        "album_id": "123456",
+                        "group_id": 123456,
+                        "thumbnail_name": "applied_python.png",
+                        "privacy_view": 0,
+                        "privacy_comment": 0,
+                        "wallpost": False,
+                    },
+                },
+                "output_config": {
+                    "preset_ids": [10],
+                    "auto_upload": True,
+                    "upload_captions": True,
+                },
+            }
+        }
+    )
+
+
 class ProcessRecordingRequest(BaseModel):
     """Request for processing recording."""
 

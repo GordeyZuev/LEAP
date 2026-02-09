@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.common.pagination import PaginatedResponse
+
 from .filters import AutomationFilters
 from .schedule import Schedule
 
@@ -42,8 +44,23 @@ class AutomationJobUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class AutomationJobListItem(BaseModel):
+    """Lightweight job for list views (excludes schedule, config, filters)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    is_active: bool
+    last_run_at: datetime | None
+    next_run_at: datetime | None
+    run_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
 class AutomationJobResponse(BaseModel):
-    """Schema for automation job response."""
+    """Full job detail including schedule, config, filters."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,6 +79,12 @@ class AutomationJobResponse(BaseModel):
     run_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class JobListResponse(PaginatedResponse):
+    """Paginated list of automation jobs."""
+
+    items: list[AutomationJobListItem]
 
 
 class DryRunResult(BaseModel):

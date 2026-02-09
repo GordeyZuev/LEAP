@@ -30,9 +30,10 @@ class TestListTemplates:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert data[0]["name"] == "Template 1"
-        assert data[1]["name"] == "Template 2"
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
+        names = {item["name"] for item in data["items"]}
+        assert names == {"Template 1", "Template 2"}
 
     def test_list_templates_empty(self, client, mocker):
         """Test empty templates list."""
@@ -48,7 +49,8 @@ class TestListTemplates:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert data["total"] == 0
+        assert len(data["items"]) == 0
 
     def test_list_templates_with_search(self, client, mocker, mock_user):
         """Test searching templates by name."""
@@ -70,7 +72,8 @@ class TestListTemplates:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
 
     def test_list_templates_exclude_drafts_by_default(self, client, mocker, mock_user):
         """Test that draft templates are excluded by default."""
@@ -113,7 +116,54 @@ class TestListTemplates:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
+
+    def test_list_templates_pagination(self, client, mocker, mock_user):
+        """Test pagination parameters work correctly."""
+        # Arrange
+        mock_templates = [
+            create_mock_template(template_id=i, name=f"Template {i}", user_id=mock_user.id) for i in range(5)
+        ]
+
+        mock_repo = mocker.patch("api.routers.templates.RecordingTemplateRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.find_by_user = AsyncMock(return_value=mock_templates)
+        mock_repo.return_value = mock_repo_instance
+
+        # Act
+        response = client.get("/api/v1/templates?page=1&per_page=2")
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 5
+        assert data["page"] == 1
+        assert data["per_page"] == 2
+        assert data["total_pages"] == 3
+        assert len(data["items"]) == 2
+
+    def test_list_templates_is_active_filter(self, client, mocker, mock_user):
+        """Test filtering templates by is_active status."""
+        # Arrange
+        mock_templates = [
+            create_mock_template(template_id=1, name="Active", user_id=mock_user.id, is_active=True),
+            create_mock_template(template_id=2, name="Inactive", user_id=mock_user.id, is_active=False),
+        ]
+
+        mock_repo = mocker.patch("api.routers.templates.RecordingTemplateRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.find_by_user = AsyncMock(return_value=mock_templates)
+        mock_repo.return_value = mock_repo_instance
+
+        # Act
+        response = client.get("/api/v1/templates?is_active=true")
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["items"][0]["name"] == "Active"
 
     def test_list_templates_multi_tenancy(self, client, mocker, mock_user):
         """Test that templates are filtered by user_id (multi-tenancy)."""

@@ -1,22 +1,26 @@
 """Input source endpoints"""
 
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth.dependencies import get_current_active_user
+from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
+from api.schemas.common.pagination import paginate_list
 from api.schemas.template import (
     BulkSyncRequest,
     InputSourceCreate,
     InputSourceResponse,
     InputSourceUpdate,
+    SourceListResponse,
 )
+from api.schemas.template.sync import BulkSyncTaskResponse, SourceSyncTaskResponse
 from api.zoom_api import ZoomAPI, ZoomRecordingProcessingError
 from database.auth_models import UserModel
 from logger import get_logger
@@ -387,14 +391,22 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
     return None
 
 
-@router.get("", response_model=list[InputSourceResponse])
+SOURCE_SORT_FIELDS = {"created_at", "updated_at", "name", "last_sync_at"}
+
+
+@router.get("", response_model=SourceListResponse)
 async def list_sources(
     search: str | None = Query(None, description="Search substring in source name (case-insensitive)"),
     active_only: bool = False,
+    platform: str | None = Query(None, description="Filter by source type (e.g. zoom, google_drive)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    sort_by: str = Query("created_at", description="Sort field"),
+    sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Get list of user's input sources."""
+    """Get paginated list of user's input sources."""
     repo = InputSourceRepository(session)
 
     if active_only:
@@ -407,14 +419,26 @@ async def list_sources(
         search_lower = search.lower()
         sources = [s for s in sources if search_lower in s.name.lower()]
 
-    return sources
+    # Apply platform filter
+    if platform:
+        sources = [s for s in sources if s.source_type == platform]
+
+    items, total, total_pages = paginate_list(sources, page, per_page, sort_by, sort_order, SOURCE_SORT_FIELDS)
+
+    return SourceListResponse(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+    )
 
 
 @router.post("", response_model=InputSourceResponse, status_code=status.HTTP_201_CREATED)
 async def create_source(
     data: InputSourceCreate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Create new input source.
@@ -467,11 +491,11 @@ async def create_source(
     return source
 
 
-@router.post("/bulk/sync", response_model=dict)
+@router.post("/bulk/sync", response_model=BulkSyncTaskResponse)
 async def bulk_sync_sources(
     data: BulkSyncRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Bulk sync multiple sources (async via Celery).
@@ -511,20 +535,20 @@ async def bulk_sync_sources(
 
     logger.info(f"Started batch sync task {task.id} for {len(data.source_ids)} sources (user {current_user.id})")
 
-    return {
-        "task_id": task.id,
-        "status": "queued",
-        "message": f"Batch sync task started for {len(data.source_ids)} sources",
-        "source_ids": data.source_ids,
-        "source_names": source_names,
-    }
+    return BulkSyncTaskResponse(
+        task_id=task.id,
+        status="queued",
+        message=f"Batch sync task started for {len(data.source_ids)} sources",
+        source_ids=data.source_ids,
+        source_names=source_names,
+    )
 
 
 @router.get("/{source_id}", response_model=InputSourceResponse)
 async def get_source(
     source_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Get input source by ID."""
     repo = InputSourceRepository(session)
@@ -541,7 +565,7 @@ async def update_source(
     source_id: int,
     data: InputSourceUpdate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Update input source.
@@ -579,7 +603,7 @@ async def update_source(
 async def delete_source(
     source_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Delete input source."""
     repo = InputSourceRepository(session)
@@ -592,13 +616,13 @@ async def delete_source(
     await session.commit()
 
 
-@router.post("/{source_id}/sync", response_model=dict)
+@router.post("/{source_id}/sync", response_model=SourceSyncTaskResponse)
 async def sync_source(
     source_id: int,
     from_date: str = "2025-01-01",
     to_date: str | None = None,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Sync recordings from one source (async via Celery).
@@ -635,10 +659,10 @@ async def sync_source(
 
     logger.info(f"Started sync task {task.id} for source {source_id} (user {current_user.id})")
 
-    return {
-        "task_id": task.id,
-        "status": "queued",
-        "message": f"Sync task started for source {source_id}",
-        "source_id": source_id,
-        "source_name": source.name,
-    }
+    return SourceSyncTaskResponse(
+        task_id=task.id,
+        status="queued",
+        message=f"Sync task started for source {source_id}",
+        source_id=source_id,
+        source_name=source.name,
+    )

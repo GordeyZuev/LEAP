@@ -88,18 +88,27 @@ class RecordingTemplateModel(Base):
 
     __tablename__ = "recording_templates"
 
+    # --- PK & FK ---
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # --- Core info ---
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    is_draft = Column(Boolean, default=False, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # --- Configuration (JSONB) ---
     matching_rules = Column(JSONB, nullable=True)
     processing_config = Column(JSONB, nullable=True)
     metadata_config = Column(JSONB, nullable=True)
     output_config = Column(JSONB, nullable=True)
-    is_draft = Column(Boolean, default=False, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
+
+    # --- Usage stats ---
     used_count = Column(Integer, default=0, nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    # --- Timestamps ---
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False

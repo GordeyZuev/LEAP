@@ -47,6 +47,7 @@ class RecordingRepository:
                 selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
                 selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
+                selectinload(RecordingModel.template),
             )
             .where(
                 RecordingModel.id == recording_id,
@@ -84,6 +85,7 @@ class RecordingRepository:
                 selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
                 selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
+                selectinload(RecordingModel.template),
             )
             .where(
                 RecordingModel.id.in_(recording_ids),
@@ -129,6 +131,7 @@ class RecordingRepository:
                 selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
                 selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
+                selectinload(RecordingModel.template),
             )
             .where(RecordingModel.user_id == user_id)
             .order_by(RecordingModel.start_time.desc())
@@ -449,6 +452,7 @@ class RecordingRepository:
                 selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
                 selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
+                selectinload(RecordingModel.template),
             )
             .join(SourceMetadataModel)
             .where(

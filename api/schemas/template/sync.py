@@ -21,3 +21,17 @@ class SyncTaskResponse(BaseModel):
     task_id: str
     status: str
     message: str | None = None
+
+
+class SourceSyncTaskResponse(SyncTaskResponse):
+    """Response when a single source sync task is queued."""
+
+    source_id: int
+    source_name: str
+
+
+class BulkSyncTaskResponse(SyncTaskResponse):
+    """Response when a bulk source sync task is queued."""
+
+    source_ids: list[int]
+    source_names: list[str]

@@ -2,6 +2,19 @@
 
 from pydantic import BaseModel, Field
 
+from api.schemas.common import BASE_MODEL_CONFIG
+
+
+class OAuthAuthorizeResponse(BaseModel):
+    """Response for OAuth authorization URL generation."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    authorization_url: str = Field(..., description="URL to redirect user to for authorization")
+    state: str = Field(..., description="CSRF state token")
+    expires_in: int = Field(..., description="State token TTL in seconds")
+    platform: str = Field(..., description="OAuth platform identifier")
+
 
 class OAuthImplicitFlowResponse(BaseModel):
     """Response for OAuth Implicit Flow authorization."""

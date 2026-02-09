@@ -1,7 +1,7 @@
 import shutil
 import subprocess
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
@@ -16,6 +16,7 @@ import api.tasks.upload  # noqa: F401
 from api.middleware.error_handler import (
     api_exception_handler,
     global_exception_handler,
+    http_exception_handler,
     response_validation_exception_handler,
     sqlalchemy_exception_handler,
     validation_exception_handler,
@@ -105,8 +106,9 @@ app.add_middleware(RateLimitMiddleware)  # type: ignore[arg-type]
 # Logging middleware
 app.add_middleware(LoggingMiddleware)  # type: ignore[arg-type]
 
-# Exception handlers
+# Exception handlers (order matters: specific first, generic last)
 app.add_exception_handler(APIException, api_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(ResponseValidationError, response_validation_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)  # type: ignore[arg-type]

@@ -6,11 +6,12 @@ from .platform_credentials import (
     ZoomCredentialsManual,
 )
 from .request import CredentialCreateRequest, CredentialUpdateRequest
-from .response import CredentialDeleteResponse, CredentialResponse, CredentialStatusResponse
+from .response import CredentialListItem, CredentialListResponse, CredentialResponse, CredentialStatusResponse
 
 __all__ = [
     "CredentialCreateRequest",
-    "CredentialDeleteResponse",
+    "CredentialListItem",
+    "CredentialListResponse",
     "CredentialResponse",
     "CredentialStatusResponse",
     "CredentialUpdateRequest",

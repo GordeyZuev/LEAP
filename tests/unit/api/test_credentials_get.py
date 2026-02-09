@@ -8,6 +8,24 @@ import pytest
 from tests.fixtures.factories import create_mock_credential
 
 
+def _make_mock_credential(**kwargs):
+    """Create a MagicMock credential with all required fields for pagination/serialization."""
+    defaults = {
+        "id": 1,
+        "platform": "youtube",
+        "account_name": "test@example.com",
+        "is_active": True,
+        "last_used_at": None,
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+    }
+    defaults.update(kwargs)
+    mock = MagicMock()
+    for k, v in defaults.items():
+        setattr(mock, k, v)
+    return mock
+
+
 @pytest.mark.unit
 class TestListCredentials:
     """Tests for GET /api/v1/credentials/ endpoint."""
@@ -15,25 +33,12 @@ class TestListCredentials:
     def test_list_credentials_success(self, client, mocker, mock_user):  # noqa: ARG002
         """Test successful retrieval of credentials list."""
         # Arrange
-        mock_cred1 = MagicMock()
-        mock_cred1.id = 1
-        mock_cred1.platform = "youtube"
-        mock_cred1.account_name = "test@example.com"
-        mock_cred1.is_active = True
-        mock_cred1.last_used_at = None
-
-        mock_cred2 = MagicMock()
-        mock_cred2.id = 2
-        mock_cred2.platform = "vk"
-        mock_cred2.account_name = "vk_user"
-        mock_cred2.is_active = True
-        mock_cred2.last_used_at = None
-
-        mock_credentials = [mock_cred1, mock_cred2]
+        mock_cred1 = _make_mock_credential(id=1, platform="youtube")
+        mock_cred2 = _make_mock_credential(id=2, platform="vk", account_name="vk_user")
 
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.find_by_user = AsyncMock(return_value=mock_credentials)
+        mock_repo_instance.find_by_user = AsyncMock(return_value=[mock_cred1, mock_cred2])
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -42,9 +47,11 @@ class TestListCredentials:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert data[0]["platform"] == "youtube"
-        assert data[1]["platform"] == "vk"
+        assert data["total"] == 2
+        assert len(data["items"]) == 2
+        # Default sort is created_at desc, both have same created_at, so order may vary
+        platforms = {item["platform"] for item in data["items"]}
+        assert platforms == {"youtube", "vk"}
 
     def test_list_credentials_empty(self, client, mocker):
         """Test empty credentials list."""
@@ -60,17 +67,13 @@ class TestListCredentials:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
+        assert data["total"] == 0
+        assert len(data["items"]) == 0
 
     def test_list_credentials_filtered_by_platform(self, client, mocker, mock_user):  # noqa: ARG002
         """Test filtering credentials by platform."""
         # Arrange
-        mock_cred = MagicMock()
-        mock_cred.id = 1
-        mock_cred.platform = "youtube"
-        mock_cred.account_name = "test@example.com"
-        mock_cred.is_active = True
-        mock_cred.last_used_at = None
+        mock_cred = _make_mock_credential(id=1, platform="youtube")
 
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()
@@ -83,20 +86,15 @@ class TestListCredentials:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["platform"] == "youtube"
+        assert data["total"] == 1
+        assert data["items"][0]["platform"] == "youtube"
         # Verify repository method was called with platform filter
         mock_repo_instance.list_by_platform.assert_called_once()
 
-    def test_list_credentials_without_data_by_default(self, client, mocker, mock_user):  # noqa: ARG002
-        """Test that credentials are not decrypted by default."""
+    def test_list_credentials_without_secret_data(self, client, mocker, mock_user):  # noqa: ARG002
+        """Test that list endpoint returns lightweight items without credentials field."""
         # Arrange
-        mock_cred = MagicMock()
-        mock_cred.id = 1
-        mock_cred.platform = "youtube"
-        mock_cred.account_name = "test@example.com"
-        mock_cred.is_active = True
-        mock_cred.last_used_at = None
+        mock_cred = _make_mock_credential(id=1, platform="youtube")
 
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()
@@ -109,40 +107,32 @@ class TestListCredentials:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        # Credentials should not be included in response
-        assert "credentials" not in data[0] or data[0]["credentials"] is None
+        assert data["total"] == 1
+        item = data["items"][0]
+        # CredentialListItem does not include the 'credentials' field
+        assert "credentials" not in item
 
-    def test_list_credentials_with_include_data(self, client, mocker):
-        """Test decrypting credentials when include_data=true."""
+    def test_list_credentials_pagination(self, client, mocker, mock_user):  # noqa: ARG002
+        """Test pagination parameters work correctly."""
         # Arrange
-        mock_credential = MagicMock()
-        mock_credential.id = 1
-        mock_credential.platform = "youtube"
-        mock_credential.account_name = "test@example.com"
-        mock_credential.is_active = True
-        mock_credential.last_used_at = datetime.now(UTC)
-        mock_credential.encrypted_data = b"encrypted"
+        mock_creds = [_make_mock_credential(id=i, platform="youtube") for i in range(5)]
 
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.find_by_user = AsyncMock(return_value=[mock_credential])
+        mock_repo_instance.find_by_user = AsyncMock(return_value=mock_creds)
         mock_repo.return_value = mock_repo_instance
 
-        # Mock encryption service
-        mock_encryption = mocker.patch("api.routers.credentials.get_encryption")
-        mock_encryption_instance = MagicMock()
-        mock_encryption_instance.decrypt_credentials = MagicMock(return_value={"access_token": "decrypted"})
-        mock_encryption.return_value = mock_encryption_instance
-
         # Act
-        response = client.get("/api/v1/credentials/?include_data=true")
+        response = client.get("/api/v1/credentials/?page=1&per_page=2")
 
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["credentials"] is not None
+        assert data["total"] == 5
+        assert data["page"] == 1
+        assert data["per_page"] == 2
+        assert data["total_pages"] == 3
+        assert len(data["items"]) == 2
 
     def test_list_credentials_multi_tenancy(self, client, mocker, mock_user):
         """Test that credentials are filtered by user_id (multi-tenancy)."""
@@ -169,13 +159,7 @@ class TestGetCredentialById:
         """Test successful retrieval of single credential."""
         # Arrange
         credential_id = 1
-        mock_credential = MagicMock()
-        mock_credential.id = credential_id
-        mock_credential.user_id = mock_user.id
-        mock_credential.platform = "youtube"
-        mock_credential.account_name = "test@example.com"
-        mock_credential.is_active = True
-        mock_credential.last_used_at = None
+        mock_credential = _make_mock_credential(id=credential_id, user_id=mock_user.id)
 
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()
@@ -211,10 +195,7 @@ class TestGetCredentialById:
         """Test that user cannot access credential of another user (multi-tenancy)."""
         # Arrange
         credential_id = 1
-        mock_credential = MagicMock()
-        mock_credential.id = credential_id
-        mock_credential.user_id = "other_user_id"  # Different user
-        mock_credential.platform = "youtube"
+        mock_credential = _make_mock_credential(id=credential_id, user_id="other_user_id")
 
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()
@@ -232,14 +213,12 @@ class TestGetCredentialById:
         """Test decrypting credential when include_data=true."""
         # Arrange
         credential_id = 1
-        mock_credential = MagicMock()
-        mock_credential.id = credential_id
-        mock_credential.user_id = mock_user.id
-        mock_credential.platform = "youtube"
-        mock_credential.account_name = "test@example.com"
-        mock_credential.is_active = True
-        mock_credential.last_used_at = None
-        mock_credential.encrypted_data = b"encrypted"
+        mock_credential = _make_mock_credential(
+            id=credential_id,
+            user_id=mock_user.id,
+            last_used_at=datetime.now(UTC),
+            encrypted_data=b"encrypted",
+        )
 
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()

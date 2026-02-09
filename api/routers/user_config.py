@@ -3,7 +3,7 @@ import copy
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth.dependencies import get_current_active_user
+from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
 from api.repositories.config_repos import UserConfigRepository, deep_merge
 from api.schemas.config.user_config import UserConfigResponse, UserConfigUpdate
@@ -18,7 +18,7 @@ logger = get_logger()
 @router.get("", response_model=UserConfigResponse)
 async def get_user_config(
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Get user config with automatic merge of new default fields.
@@ -50,7 +50,7 @@ async def get_user_config(
 async def update_user_config(
     update_data: UserConfigUpdate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Update user config with partial data.
@@ -80,7 +80,7 @@ async def update_user_config(
 @router.post("/reset", response_model=UserConfigResponse)
 async def reset_user_config(
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Reset user config to default values.

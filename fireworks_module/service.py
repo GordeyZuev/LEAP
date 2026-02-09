@@ -619,7 +619,9 @@ class FireworksTranscriptionService:
             return result
 
     async def get_batch_result(
-        self, batch_id: str, status_response: dict[str, Any] | None = None,
+        self,
+        batch_id: str,
+        status_response: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Get batch job result (only for completed jobs).
 

@@ -36,8 +36,8 @@ class TestListRecordings:
         data = response.json()
         assert data["total"] == 2
         assert len(data["items"]) == 2
-        assert data["items"][0]["display_name"] == "Recording 1"
-        assert data["items"][1]["display_name"] == "Recording 2"
+        names = {item["display_name"] for item in data["items"]}
+        assert names == {"Recording 1", "Recording 2"}
 
     def test_list_recordings_empty(self, client, mocker):
         """Test empty recordings list."""

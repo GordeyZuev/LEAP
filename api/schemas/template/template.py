@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
+from api.schemas.common.pagination import PaginatedResponse
 
 from .matching_rules import MatchingRules
 from .metadata_config import TemplateMetadataConfig
@@ -109,3 +110,9 @@ class RecordingTemplateListResponse(BaseModel):
     used_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class TemplateListResponse(PaginatedResponse):
+    """Paginated list of templates."""
+
+    items: list[RecordingTemplateListResponse]

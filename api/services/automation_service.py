@@ -1,6 +1,6 @@
 """Automation job service"""
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron, validate_min_interval
@@ -35,7 +35,10 @@ class AutomationService:
         current_count = await self.job_repo.count_user_jobs(self.user_id)
 
         if current_count >= max_jobs:
-            raise HTTPException(status_code=400, detail=f"Automation job limit reached ({max_jobs} jobs maximum)")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Automation job limit reached ({max_jobs} jobs maximum)",
+            )
 
         return quotas
 
@@ -49,27 +52,30 @@ class AutomationService:
             return
 
         if not validate_min_interval(cron_expr, min_interval):
-            raise HTTPException(status_code=400, detail=f"Schedule interval must be at least {min_interval} hour(s)")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Schedule interval must be at least {min_interval} hour(s)",
+            )
 
     async def validate_templates(self, template_ids: list[int]) -> None:
         """Validate templates exist, are active, and not draft."""
         if not template_ids:
-            raise HTTPException(status_code=400, detail="template_ids cannot be empty")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="template_ids cannot be empty")
 
         templates = await self.template_repo.find_by_ids(template_ids, self.user_id)
 
         if len(templates) != len(template_ids):
             found_ids = {t.id for t in templates}
             missing = set(template_ids) - found_ids
-            raise HTTPException(status_code=404, detail=f"Templates not found: {list(missing)}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Templates not found: {list(missing)}")
 
         inactive = [t.id for t in templates if not t.is_active]
         if inactive:
-            raise HTTPException(status_code=400, detail=f"Templates are inactive: {inactive}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Templates are inactive: {inactive}")
 
         drafts = [t.id for t in templates if t.is_draft]
         if drafts:
-            raise HTTPException(status_code=400, detail=f"Templates are drafts: {drafts}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Templates are drafts: {drafts}")
 
     async def prepare_job_data(self, job_data: dict) -> dict:
         """Prepare job data with calculated next_run_at."""
@@ -95,7 +101,7 @@ class AutomationService:
         """Update automation job with validation."""
         job = await self.job_repo.get_by_id(job_id, self.user_id)
         if not job:
-            raise HTTPException(status_code=404, detail="Automation job not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation job not found")
 
         if "schedule" in updates:
             quota = await self.get_user_quotas()

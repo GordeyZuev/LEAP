@@ -37,6 +37,7 @@ class RecordingModel(Base):
 
     __tablename__ = "recordings"
 
+    # --- PK & FK ---
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     user_id: Mapped[str | None] = mapped_column(
         String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
@@ -48,12 +49,15 @@ class RecordingModel(Base):
         Integer, ForeignKey("recording_templates.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # --- Core info ---
     display_name: Mapped[str] = mapped_column(String(500), nullable=False)
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     duration: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(Enum(ProcessingStatus), default=ProcessingStatus.INITIALIZED)
     is_mapped: Mapped[bool] = mapped_column(Boolean, default=False)
     blank_record: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+    # --- Deletion state ---
     expire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -61,23 +65,33 @@ class RecordingModel(Base):
     deletion_reason: Mapped[str | None] = mapped_column(String(20))
     soft_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     hard_delete_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- File paths & storage ---
     local_video_path: Mapped[str | None] = mapped_column(String(1000))
     processed_video_path: Mapped[str | None] = mapped_column(String(1000))
     processed_audio_path: Mapped[str | None] = mapped_column(String(1000))
     transcription_dir: Mapped[str | None] = mapped_column(String(1000))
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     video_file_size: Mapped[int | None] = mapped_column(Integer)
+
+    # --- Processing data (JSONB) ---
     transcription_info: Mapped[Any | None] = mapped_column(JSONB)
     topic_timestamps: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
     main_topics: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
     processing_preferences: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+
+    # --- Failure tracking ---
     failed: Mapped[bool] = mapped_column(Boolean, default=False)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
     failed_at_stage: Mapped[str | None] = mapped_column(String(50))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # --- Pause state ---
     on_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     pause_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
@@ -167,6 +181,7 @@ class SourceMetadataModel(Base):
         UniqueConstraint("source_type", "source_key", "recording_id", name="unique_source_per_recording"),
     )
 
+    # --- PK & FK ---
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"), unique=True)
     user_id: Mapped[str | None] = mapped_column(
@@ -175,6 +190,8 @@ class SourceMetadataModel(Base):
     input_source_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("input_sources.id", ondelete="SET NULL"), nullable=True, index=True
     )
+
+    # --- Core info ---
     source_type: Mapped[str] = mapped_column(Enum(SourceType))
     source_key: Mapped[str] = mapped_column(String(1000))
     meta: Mapped[Any | None] = mapped_column("metadata", JSONB)
@@ -200,6 +217,7 @@ class OutputTargetModel(Base):
 
     __table_args__ = (UniqueConstraint("recording_id", "target_type", name="unique_target_per_recording"),)
 
+    # --- PK & FK ---
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"))
     user_id: Mapped[str | None] = mapped_column(
@@ -208,15 +226,20 @@ class OutputTargetModel(Base):
     preset_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("output_presets.id", ondelete="SET NULL"), nullable=True, index=True
     )
+
+    # --- Core info ---
     target_type: Mapped[str] = mapped_column(Enum(TargetType))
     status: Mapped[str] = mapped_column(Enum(TargetStatus), default=TargetStatus.NOT_UPLOADED)
     target_meta: Mapped[Any | None] = mapped_column(JSONB)
     uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # FSM поля
+
+    # --- Failure tracking ---
     failed: Mapped[bool] = mapped_column(Boolean, default=False)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
@@ -237,22 +260,29 @@ class ProcessingStageModel(Base):
 
     __table_args__ = (UniqueConstraint("recording_id", "stage_type", name="unique_stage_per_recording"),)
 
+    # --- PK & FK ---
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"))
     user_id: Mapped[str | None] = mapped_column(
         String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
+
+    # --- Core info ---
     stage_type: Mapped[str] = mapped_column(Enum(ProcessingStageType, name="processingstagetype"))
     status: Mapped[str] = mapped_column(
         Enum(ProcessingStageStatus, name="processingstagestatus"), default=ProcessingStageStatus.PENDING
     )
+    stage_meta: Mapped[Any | None] = mapped_column(JSONB)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- Failure tracking ---
     failed: Mapped[bool] = mapped_column(Boolean, default=False)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
     skip_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
-    stage_meta: Mapped[Any | None] = mapped_column(JSONB)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)

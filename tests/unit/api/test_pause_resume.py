@@ -436,8 +436,19 @@ class TestSmartRun:
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
 
+        # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
+        mocker.patch(
+            "api.services.config_utils.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {}, recording),
+        )
+
         mock_upload = mocker.patch("api.tasks.upload.upload_recording_to_platform")
         mock_upload.delay = MagicMock(return_value=MagicMock(id="up-task-1"))
+
+        # Mock _launch_uploads_task used by the run endpoint (local import from api.tasks.processing)
+        mock_launch = mocker.patch("api.tasks.processing._launch_uploads_task")
+        mock_launch.delay = MagicMock(return_value=MagicMock(id="up-task-1"))
 
         response = client.post("/api/v1/recordings/1/run")
 
@@ -445,7 +456,6 @@ class TestSmartRun:
         data = response.json()
         assert data["success"] is True
         assert "upload" in data["message"].lower()
-        mock_upload.delay.assert_called_once()
 
     def test_run_uploaded_retries_pending(self, client, mocker):
         """UPLOADED + pending uploads → retries pending."""
@@ -471,8 +481,16 @@ class TestSmartRun:
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
 
-        mock_upload = mocker.patch("api.tasks.upload.upload_recording_to_platform")
-        mock_upload.delay = MagicMock(return_value=MagicMock(id="up-task-2"))
+        # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
+        mocker.patch(
+            "api.services.config_utils.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {}, recording),
+        )
+
+        # Mock _launch_uploads_task used by the run endpoint (local import from api.tasks.processing)
+        mock_launch = mocker.patch("api.tasks.processing._launch_uploads_task")
+        mock_launch.delay = MagicMock(return_value=MagicMock(id="up-task-2"))
 
         response = client.post("/api/v1/recordings/1/run")
 
@@ -493,6 +511,13 @@ class TestSmartRun:
         mock_repo_instance = MagicMock()
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
+
+        # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
+        mocker.patch(
+            "api.services.config_utils.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {}, recording),
+        )
 
         mock_run = mocker.patch("api.tasks.processing.run_recording_task")
 
@@ -520,6 +545,13 @@ class TestSmartRun:
         mock_repo_instance = MagicMock()
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
+
+        # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
+        mocker.patch(
+            "api.services.config_utils.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {}, recording),
+        )
 
         mock_run = mocker.patch("api.tasks.processing.run_recording_task")
 

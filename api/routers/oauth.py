@@ -14,7 +14,7 @@ from api.auth.encryption import get_encryption
 from api.dependencies import get_db_session, get_redis
 from api.repositories.auth_repos import UserCredentialRepository
 from api.schemas.auth import UserCredentialCreate, UserInDB
-from api.schemas.oauth import OAuthImplicitFlowResponse
+from api.schemas.oauth import OAuthAuthorizeResponse, OAuthImplicitFlowResponse
 from api.services.oauth_platforms import OAuthPlatformConfig, get_platform_config
 from api.services.oauth_service import OAuthService
 from api.services.oauth_state import OAuthStateManager
@@ -183,7 +183,9 @@ async def save_oauth_credentials(
         action = "created"
 
     if not credential:
-        raise HTTPException(status_code=500, detail="Failed to save OAuth credentials")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to save OAuth credentials"
+        )
 
     logger.info(
         f"OAuth credentials {action}: user_id={user_id} platform={platform} "
@@ -193,7 +195,7 @@ async def save_oauth_credentials(
     return credential.id
 
 
-@router.get("/youtube/authorize")
+@router.get("/youtube/authorize", response_model=OAuthAuthorizeResponse)
 async def youtube_authorize(
     request: Request,
     current_user: UserInDB = Depends(get_current_user),
@@ -266,7 +268,7 @@ async def youtube_callback(
         return RedirectResponse(url=f"{base_redirect}/?oauth_error=token_exchange_failed")
 
 
-@router.get("/vk/authorize")
+@router.get("/vk/authorize", response_model=OAuthAuthorizeResponse)
 async def vk_authorize(
     request: Request,
     current_user: UserInDB = Depends(get_current_user),
@@ -410,7 +412,7 @@ async def vk_callback(
         return RedirectResponse(url=f"{base_redirect}/?oauth_error=token_exchange_failed")
 
 
-@router.get("/zoom/authorize")
+@router.get("/zoom/authorize", response_model=OAuthAuthorizeResponse)
 async def zoom_authorize(
     request: Request,
     current_user: UserInDB = Depends(get_current_user),

@@ -34,6 +34,7 @@ class UserCredentialInDB(UserCredentialBase):
     encrypted_data: str
     is_active: bool = True
     created_at: datetime
+    updated_at: datetime
     last_used_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -46,6 +47,7 @@ class UserCredentialResponse(BaseModel):
     platform: str
     is_active: bool
     created_at: datetime
+    updated_at: datetime
     last_used_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)

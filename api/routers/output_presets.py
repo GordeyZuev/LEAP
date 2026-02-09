@@ -1,29 +1,40 @@
 """Output preset endpoints"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth.dependencies import get_current_active_user
+from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
 from api.repositories.template_repos import OutputPresetRepository
+from api.schemas.common.pagination import paginate_list
+from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
 from api.schemas.template import (
     OutputPresetCreate,
     OutputPresetResponse,
     OutputPresetUpdate,
+    PresetListResponse,
 )
 from database.auth_models import UserModel
 
 router = APIRouter(prefix="/api/v1/presets", tags=["Output Presets"])
 
+PRESET_SORT_FIELDS = {"created_at", "updated_at", "name"}
 
-@router.get("", response_model=list[OutputPresetResponse])
+
+@router.get("", response_model=PresetListResponse)
 async def list_presets(
     platform: str | None = None,
     active_only: bool = False,
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    sort_by: str = Query("created_at", description="Sort field"),
+    sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Get list of user's output presets."""
+    """Get paginated list of user's output presets."""
     repo = OutputPresetRepository(session)
 
     if platform:
@@ -33,14 +44,22 @@ async def list_presets(
     else:
         presets = await repo.find_by_user(current_user.id)
 
-    return presets
+    items, total, total_pages = paginate_list(presets, page, per_page, sort_by, sort_order, PRESET_SORT_FIELDS)
+
+    return PresetListResponse(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+    )
 
 
 @router.get("/{preset_id}", response_model=OutputPresetResponse)
 async def get_preset(
     preset_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Get output preset by ID."""
     repo = OutputPresetRepository(session)
@@ -56,7 +75,7 @@ async def get_preset(
 async def create_preset(
     data: OutputPresetCreate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Create new output preset.
@@ -93,7 +112,7 @@ async def update_preset(
     preset_id: int,
     data: OutputPresetUpdate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
     Update output preset.
@@ -127,11 +146,43 @@ async def update_preset(
     return preset
 
 
+@router.post("/bulk/delete", response_model=BulkDeleteResult)
+async def bulk_delete_presets(
+    data: BulkIdsRequest,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Bulk delete output presets by IDs."""
+    repo = OutputPresetRepository(session)
+    deleted_count = 0
+    skipped_count = 0
+    details: list[dict] = []
+
+    for preset_id in data.ids:
+        preset = await repo.find_by_id(preset_id, current_user.id)
+        if not preset:
+            skipped_count += 1
+            details.append({"id": preset_id, "status": "skipped", "reason": "not found"})
+            continue
+
+        await repo.delete(preset)
+        deleted_count += 1
+        details.append({"id": preset_id, "status": "deleted", "name": preset.name})
+
+    await session.commit()
+
+    return BulkDeleteResult(
+        deleted_count=deleted_count,
+        skipped_count=skipped_count,
+        details=details,
+    )
+
+
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_preset(
     preset_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_active_user),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Delete output preset."""
     repo = OutputPresetRepository(session)

@@ -5,15 +5,23 @@ from .input_source import (
     BatchSyncResponse,
     BulkSyncRequest,
     InputSourceCreate,
+    InputSourceListItem,
     InputSourceResponse,
     InputSourceUpdate,
+    SourceListResponse,
     SourceSyncResult,
 )
 from .matching_rules import MatchingRules
 from .metadata_config import TemplateMetadataConfig, VKMetadataConfig, YouTubeMetadataConfig
 from .operations import BulkDeleteResponse, RematchTaskResponse
 from .output_config import TemplateOutputConfig
-from .output_preset import OutputPresetCreate, OutputPresetResponse, OutputPresetUpdate
+from .output_preset import (
+    OutputPresetCreate,
+    OutputPresetListItem,
+    OutputPresetResponse,
+    OutputPresetUpdate,
+    PresetListResponse,
+)
 from .preset_metadata import (
     TopicsDisplayConfig,
     TopicsDisplayFormat,
@@ -31,12 +39,13 @@ from .source_config import (
     YandexDiskSourceConfig,
     ZoomSourceConfig,
 )
-from .sync import SyncSourceResponse, SyncTaskResponse
+from .sync import BulkSyncTaskResponse, SourceSyncTaskResponse, SyncSourceResponse, SyncTaskResponse
 from .template import (
     RecordingTemplateCreate,
     RecordingTemplateListResponse,
     RecordingTemplateResponse,
     RecordingTemplateUpdate,
+    TemplateListResponse,
 )
 
 __all__ = [
@@ -46,24 +55,31 @@ __all__ = [
     "BatchSyncResponse",
     "BulkDeleteResponse",
     "BulkSyncRequest",
+    "BulkSyncTaskResponse",
     "GoogleDriveSourceConfig",
     "InputSourceCreate",
+    "InputSourceListItem",
     "InputSourceResponse",
     "InputSourceUpdate",
     "LocalFileSourceConfig",
     "MatchingRules",
     "OutputPresetCreate",
+    "OutputPresetListItem",
     "OutputPresetResponse",
     "OutputPresetUpdate",
+    "PresetListResponse",
     "RecordingTemplateCreate",
     "RecordingTemplateListResponse",
     "RecordingTemplateResponse",
     "RecordingTemplateUpdate",
     "RematchTaskResponse",
     "SourceConfig",
+    "SourceListResponse",
     "SourceSyncResult",
+    "SourceSyncTaskResponse",
     "SyncSourceResponse",
     "SyncTaskResponse",
+    "TemplateListResponse",
     "TemplateMetadataConfig",
     "TemplateOutputConfig",
     "TemplateProcessingConfig",

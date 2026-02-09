@@ -172,20 +172,27 @@ class PipelineControlMixin(BaseModel):
 class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     """Recording item for list view (optimized for UI table)."""
 
+    # --- Core info ---
     id: int
     display_name: str
     start_time: datetime
     duration: int
     status: ProcessingStatus
-    failed: bool
-    failed_at_stage: str | None = None
     is_mapped: bool
-    on_pause: bool = False
     template_id: int | None = None
     template_name: str | None = None
+
+    # --- Related data ---
     source: SourceInfo | None = None
     uploads: dict[str, UploadInfo] = Field(default_factory=dict)
     processing_stages: list[ProcessingStageResponse] = Field(default_factory=list)
+
+    # --- Failure & pause ---
+    failed: bool = False
+    failed_at_stage: str | None = None
+    on_pause: bool = False
+
+    # --- Deletion state ---
     deleted: bool = False
     deleted_at: datetime | None = None
     delete_state: str = "active"
@@ -193,6 +200,8 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     soft_deleted_at: datetime | None = None
     hard_delete_at: datetime | None = None
     expire_at: datetime | None = None
+
+    # --- Timestamps ---
     created_at: datetime
     updated_at: datetime
 
@@ -200,6 +209,7 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
 class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     """Full recording response with all details."""
 
+    # --- Core info ---
     id: int
     display_name: str
     start_time: datetime
@@ -208,16 +218,22 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     is_mapped: bool
     blank_record: bool = Field(False, description="Whether recording is too short/small to process")
     processing_preferences: dict[str, Any] | None = None
+    video_file_size: int | None = None
+
+    # --- Related data ---
     source: SourceResponse | None = None
     outputs: list[OutputTargetResponse] = Field(default_factory=list)
     processing_stages: list[ProcessingStageResponse] = Field(default_factory=list)
+
+    # --- Failure & pause ---
     failed: bool = False
     failed_at: datetime | None = None
     failed_reason: str | None = None
     failed_at_stage: str | None = None
     on_pause: bool = False
     pause_requested_at: datetime | None = None
-    video_file_size: int | None = None
+
+    # --- Deletion state ---
     deleted: bool = False
     deleted_at: datetime | None = None
     delete_state: str = "active"
@@ -225,6 +241,8 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     soft_deleted_at: datetime | None = None
     hard_delete_at: datetime | None = None
     expire_at: datetime | None = None
+
+    # --- Timestamps ---
     created_at: datetime
     updated_at: datetime
 
@@ -262,6 +280,18 @@ class RecordingListResponse(PaginatedResponse):
     """Response with list of recordings (optimized for UI)."""
 
     items: list[RecordingListItem]
+
+
+class DetailedRecordingResponse(RecordingResponse):
+    """Extended response model with detailed information."""
+
+    videos: dict | None = None
+    audio: dict | None = None
+    transcription: dict | None = None
+    topics: dict | None = None
+    subtitles: dict | None = None
+    processing_stages_detailed: list[dict] | None = None
+    uploads: dict | None = None
 
 
 class RunRecordingResponse(BaseModel):

@@ -1,5 +1,7 @@
 """Schemas for recording operations endpoints."""
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from models import ProcessingStatus
@@ -132,3 +134,31 @@ class PauseRecordingResponse(BaseModel):
     message: str
     status: ProcessingStatus
     on_pause: bool
+
+
+class DeleteRecordingResponse(BaseModel):
+    """Response for soft delete recording."""
+
+    message: str
+    recording_id: int
+    deleted_at: datetime
+    hard_delete_at: datetime
+
+
+class RestoreRecordingResponse(BaseModel):
+    """Response for restore recording."""
+
+    message: str
+    recording_id: int
+    restored_at: datetime
+    expire_at: datetime
+
+
+class RecordingBulkDeleteResponse(BaseModel):
+    """Response for bulk delete operation."""
+
+    message: str
+    deleted_count: int
+    skipped_count: int
+    error_count: int
+    details: list[dict]

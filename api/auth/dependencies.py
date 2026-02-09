@@ -61,14 +61,11 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: UserInDB = Depends(get_current_user),
 ) -> UserInDB:
+    """Get current active user.
+
+    Deprecated: use ``get_current_user`` directly — it already checks ``is_active``.
+    This wrapper is kept only for backward compatibility.
     """
-    Get current active user.
-    """
-    if not current_user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user",
-        )
     return current_user
 
 

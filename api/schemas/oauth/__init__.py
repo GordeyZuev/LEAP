@@ -1,5 +1,5 @@
 """OAuth-related schemas."""
 
-from .responses import OAuthImplicitFlowResponse
+from .responses import OAuthAuthorizeResponse, OAuthImplicitFlowResponse
 
-__all__ = ["OAuthImplicitFlowResponse"]
+__all__ = ["OAuthAuthorizeResponse", "OAuthImplicitFlowResponse"]

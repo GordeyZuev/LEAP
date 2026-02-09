@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
+from api.schemas.common.pagination import PaginatedResponse
 
 from .source_config import GoogleDriveSourceConfig, LocalFileSourceConfig, YandexDiskSourceConfig, ZoomSourceConfig
 
@@ -64,7 +65,24 @@ class InputSourceUpdate(BaseModel):
     is_active: bool | None = None
 
 
+class InputSourceListItem(BaseModel):
+    """Lightweight source for list views (excludes heavy config)."""
+
+    model_config = ORM_MODEL_CONFIG
+
+    id: int
+    name: str
+    source_type: str
+    credential_id: int | None
+    is_active: bool
+    last_sync_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class InputSourceResponse(BaseModel):
+    """Full source detail including platform-specific config."""
+
     model_config = ORM_MODEL_CONFIG
 
     id: int
@@ -78,6 +96,12 @@ class InputSourceResponse(BaseModel):
     last_sync_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class SourceListResponse(PaginatedResponse):
+    """Paginated list of input sources."""
+
+    items: list[InputSourceListItem]
 
 
 class BulkSyncRequest(BaseModel):

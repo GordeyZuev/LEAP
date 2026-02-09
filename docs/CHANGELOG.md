@@ -1,5 +1,31 @@
 # Change Log
 
+## 2026-02-09: API Consistency Fix (pre-UI)
+
+### Summary
+Standardized all API endpoints for consistency before UI integration: unified error format, strict Pydantic typing, correct HTTP semantics, clean code style, simplified auth dependencies.
+
+### Changes
+
+**Unified error format** — All error handlers now return `{"error": str, "detail": str | list}`. Added `HTTPException` handler with status-to-category mapping. Fixed `api_exception_handler` format, removed extra `message` field from response validation handler.
+
+**Strict Pydantic typing** — Moved 6 inline schemas from `recordings.py` to `api/schemas/recording/`. Created 3 new schemas (`OAuthAuthorizeResponse`, `SourceSyncTaskResponse`, `BulkSyncTaskResponse`). Added `response_model` to 11 endpoints that were returning raw dicts.
+
+**HTTP semantics** — `DELETE /credentials/{id}`: 200+body → 204 No Content. `POST /templates/from-recording`: 200 → 201 Created. Removed `CredentialDeleteResponse` (no longer needed).
+
+**Code style** — Replaced ~24 bare integer status codes with `status.HTTP_*` constants. Removed trailing slashes from credentials routes.
+
+**Auth simplification** — `get_current_active_user` deprecated (redundant `is_active` check). 4 routers + `get_service_context` switched to `get_current_user`.
+
+### Files (22 files changed)
+- `api/middleware/error_handler.py`, `api/main.py` — error handling
+- `api/schemas/recording/{operations,response,request,__init__}.py` — moved schemas
+- `api/schemas/{oauth,template,credentials}/` — new/updated schemas
+- `api/routers/{recordings,templates,credentials,input_sources,oauth,automation,output_presets,user_config}.py` — endpoint fixes
+- `api/auth/dependencies.py`, `api/core/dependencies.py` — auth simplification
+
+---
+
 ## 2026-02-08: Fixed Batch Transcription API
 
 ### Problem

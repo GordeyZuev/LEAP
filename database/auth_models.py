@@ -26,14 +26,20 @@ class UserModel(Base):
 
     __tablename__ = "users"
 
+    # --- PK & identity ---
     id = Column(String(26), primary_key=True, default=lambda: str(ULID()))
     user_slug = Column(Integer, Sequence("user_slug_seq"), unique=True, nullable=False, index=True)
+
+    # --- Core info ---
     email = Column(String(255), unique=True, nullable=False, index=True)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
     role = Column(String(50), default="user", nullable=False)
+    timezone = Column(String(50), default="UTC", nullable=False)
+
+    # --- Permissions ---
     can_transcribe = Column(Boolean, default=True, nullable=False)
     can_process_video = Column(Boolean, default=True, nullable=False)
     can_upload = Column(Boolean, default=True, nullable=False)
@@ -42,7 +48,8 @@ class UserModel(Base):
     can_update_uploaded_videos = Column(Boolean, default=True, nullable=False)
     can_manage_credentials = Column(Boolean, default=True, nullable=False)
     can_export_data = Column(Boolean, default=True, nullable=False)
-    timezone = Column(String(50), default="UTC", nullable=False)
+
+    # --- Timestamps ---
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
@@ -93,25 +100,33 @@ class SubscriptionPlanModel(Base):
 
     __tablename__ = "subscription_plans"
 
+    # --- PK & core info ---
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(50), unique=True, nullable=False, index=True)
     display_name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+
+    # --- Quotas & limits ---
     included_recordings_per_month = Column(Integer, nullable=True)
     included_storage_gb = Column(Integer, nullable=True)
     max_concurrent_tasks = Column(Integer, nullable=True)
     max_automation_jobs = Column(Integer, nullable=True)
     min_automation_interval_hours = Column(Integer, nullable=True)
+
+    # --- Pricing ---
     price_monthly = Column(Numeric(10, 2), default=0, nullable=False)
     price_yearly = Column(Numeric(10, 2), default=0, nullable=False)
     overage_price_per_unit = Column(Numeric(10, 4), nullable=True)
     overage_unit_type = Column(String(50), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False, index=True)
-    sort_order = Column(Integer, default=0, nullable=False)
+
+    # --- Timestamps ---
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
     )
+
     subscriptions = relationship("UserSubscriptionModel", back_populates="plan")
 
     def __repr__(self):
@@ -123,25 +138,37 @@ class UserSubscriptionModel(Base):
 
     __tablename__ = "user_subscriptions"
 
+    # --- PK & FK ---
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="RESTRICT"), nullable=False, index=True)
+
+    # --- Custom quota overrides ---
     custom_max_recordings_per_month = Column(Integer, nullable=True)
     custom_max_storage_gb = Column(Integer, nullable=True)
     custom_max_concurrent_tasks = Column(Integer, nullable=True)
     custom_max_automation_jobs = Column(Integer, nullable=True)
     custom_min_automation_interval_hours = Column(Integer, nullable=True)
+
+    # --- Pay-as-you-go ---
     pay_as_you_go_enabled = Column(Boolean, default=False, nullable=False)
     pay_as_you_go_monthly_limit = Column(Numeric(10, 2), nullable=True)
+
+    # --- Lifecycle ---
     starts_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+
+    # --- Audit ---
     created_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     modified_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     notes = Column(Text, nullable=True)
+
+    # --- Timestamps ---
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
     )
+
     user = relationship("UserModel", back_populates="subscription", foreign_keys=[user_id])
     plan = relationship("SubscriptionPlanModel", back_populates="subscriptions")
 
