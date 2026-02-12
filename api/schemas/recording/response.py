@@ -31,6 +31,7 @@ class OutputTargetResponse(BaseModel):
     target_type: TargetType
     status: TargetStatus
     target_meta: dict[str, Any] = Field(default_factory=dict)
+    started_at: datetime | None = None
     uploaded_at: datetime | None = None
     failed: bool = False
     failed_at: datetime | None = None
@@ -48,6 +49,7 @@ class ProcessingStageResponse(BaseModel):
     failed_at: datetime | None = None
     failed_reason: str | None = None
     retry_count: int = 0
+    started_at: datetime | None = None
     completed_at: datetime | None = None
 
 
@@ -64,6 +66,7 @@ class UploadInfo(BaseModel):
 
     status: str
     url: str | None = None
+    started_at: datetime | None = None
     uploaded_at: datetime | None = None
     error: str | None = None
 
@@ -224,6 +227,11 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     source: SourceResponse | None = None
     outputs: list[OutputTargetResponse] = Field(default_factory=list)
     processing_stages: list[ProcessingStageResponse] = Field(default_factory=list)
+
+    # --- Pipeline timing ---
+    pipeline_started_at: datetime | None = None
+    pipeline_completed_at: datetime | None = None
+    pipeline_duration_seconds: float | None = None
 
     # --- Failure & pause ---
     failed: bool = False

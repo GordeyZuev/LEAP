@@ -2,7 +2,7 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.4 (January 2026)
+**Version:** v0.9.5 (February 2026)
 **Status:** ✅ Production Ready
 
 ---
@@ -29,11 +29,13 @@
 
 **Ключевые возможности:**
 - ✅ Синхронизация видео из Zoom, локальных файлов
+- ✅ Загрузка видео по ссылке (YouTube, VK, Rutube, 1000+ сайтов через yt-dlp)
+- ✅ Интеграция с Яндекс Диском (загрузка и выгрузка через REST API)
 - ✅ FFmpeg обработка (удаление тишины, обрезка)
 - ✅ AI транскрибация (Fireworks Whisper)
 - ✅ AI извлечение тем (DeepSeek)
 - ✅ Генерация субтитров (SRT, VTT)
-- ✅ Multi-platform upload (YouTube, VK)
+- ✅ Multi-platform upload (YouTube, VK, Яндекс Диск)
 - ✅ Template-driven automation
 - ✅ Scheduled jobs (Celery Beat)
 
@@ -54,6 +56,7 @@ FFmpeg • Pydantic V2
 **External APIs:**
 ```
 Zoom API • YouTube Data API v3 • VK API
+yt-dlp (1000+ sites) • Yandex Disk REST API
 ```
 
 **Security:**
@@ -87,11 +90,16 @@ ZoomUploader/
 │       └── local.py          # LocalStorageBackend
 ├── *_module/                 # Processing modules
 │   ├── video_download_module/
+│   │   ├── core/base.py      # BaseDownloader ABC
+│   │   ├── factory.py        # Downloader factory (by SourceType)
+│   │   ├── downloader.py     # ZoomDownloader
+│   │   └── platforms/        # yt-dlp, Yandex Disk downloaders
 │   ├── video_processing_module/
 │   ├── transcription_module/
 │   ├── deepseek_module/
 │   ├── subtitle_module/
-│   └── video_upload_module/
+│   ├── video_upload_module/
+│   └── yandex_disk_module/   # Yandex Disk REST API client
 ├── storage/                  # User media files (ID-based, NEW v2.0)
 │   ├── shared/thumbnails/    # Global thumbnails
 │   ├── temp/                 # Temporary processing files
@@ -352,6 +360,7 @@ uploader = await UploaderFactory.create_uploader_by_preset_id(
 **Поддерживаемые платформы:**
 - `youtube` - YouTube Data API v3
 - `vk_video` - VK Video API
+- `yandex_disk` - Yandex Disk REST API
 
 ### 5. CredentialService
 
@@ -415,17 +424,39 @@ platforms = await cred_service.list_available_platforms(user_id)
 
 **Purpose:** Загрузка видео из внешних источников
 
-**Key Features:**
-- Multi-threaded download
-- Progress tracking
-- Retry механизм
-- Checksum validation
+**Architecture:**
+```
+video_download_module/
+├── core/base.py              # BaseDownloader ABC (httpx streaming, resume, validation)
+├── factory.py                # create_downloader(source_type) → BaseDownloader
+├── downloader.py             # ZoomDownloader (Zoom API)
+└── platforms/
+    ├── ytdlp/
+    │   ├── downloader.py     # YtDlpDownloader (YouTube, VK, Rutube, 1000+ sites)
+    │   └── metadata.py       # Platform detection, playlist extraction
+    └── yadisk/
+        └── downloader.py     # YandexDiskDownloader (public links + OAuth API)
+```
 
 **Supported Sources:**
-- Zoom API (OAuth 2.0 / Server-to-Server)
-- Локальные файлы
+- **Zoom API** — OAuth 2.0 / Server-to-Server, token refresh
+- **yt-dlp** — YouTube, VK, Rutube и 1000+ сайтов (видео + плейлисты + аудио/mp3)
+- **Yandex Disk** — публичные ссылки и OAuth API для приватных файлов
+- **Local files** — загрузка через API endpoint
 
-**Output:** `storage/users/user_XXXXXX/recordings/{id}/source.mp4`
+**Key Features:**
+- `BaseDownloader` — общий ABC с httpx streaming, resume, file validation
+- `create_downloader()` — factory dispatch по `SourceType`
+- Source-agnostic pipeline: download → process → upload работает одинаково для всех типов
+
+**Direct Add-by-URL Endpoints:**
+```
+POST /api/v1/recordings/add-url       — добавить видео по ссылке
+POST /api/v1/recordings/add-playlist  — добавить плейлист/канал
+POST /api/v1/recordings/add-yadisk    — добавить с Яндекс Диска
+```
+
+**Output:** `storage/users/user_XXXXXX/recordings/{id}/source.mp4` (или `.mp3` для audio)
 
 ---
 
@@ -549,16 +580,18 @@ python main.py subtitles --format srt,vtt
 ```
 video_upload_module/
 ├── factory.py                # UploaderFactory
-├── uploader_factory.py       # Legacy factory
+├── uploader_factory.py       # DB-based factory (create_uploader_from_db)
 ├── credentials_provider.py   # Credential providers
 ├── config_factory.py         # Config factory
 └── platforms/
     ├── youtube/
     │   ├── uploader.py       # YouTubeUploader
     │   └── config.py         # YouTubeUploadConfig
-    └── vk/
-        ├── uploader.py       # VKUploader
-        └── config.py         # VKUploadConfig
+    ├── vk/
+    │   ├── uploader.py       # VKUploader
+    │   └── config.py         # VKUploadConfig
+    └── yadisk/
+        └── uploader.py       # YandexDiskUploader (folder templates, overwrite)
 ```
 
 **Supported Platforms:**
@@ -579,6 +612,13 @@ video_upload_module/
 - Privacy settings
 - Implicit Flow authentication (2026 policy)
 - Automatic token refresh через `@requires_valid_vk_token` decorator
+
+#### Yandex Disk (REST API)
+- Upload через OAuth API
+- Template-driven folder paths (e.g. `/Video/{course_name}/{date}`)
+- Custom filename templates
+- Overwrite mode
+- Automatic folder creation
 
 **Key Features:**
 - Automatic token refresh с декораторами (Jan 2026)
@@ -604,7 +644,7 @@ video_upload_module/
 - `template_models.py` - Templates, Sources, Presets
 - `automation_models.py` - Automation jobs
 - `config.py` - Database configuration
-- `manager.py` - Database manager
+- `manager.py` - Database lifecycle manager (create, migrate, close)
 
 **ORM:** SQLAlchemy 2.0 (async)
 
@@ -645,13 +685,13 @@ video_upload_module/
 ### Pipeline Stages
 
 ```
-1. SYNC         → Fetch from Zoom, template matching
-2. DOWNLOAD     → Multi-threaded download, validation
+1. INGEST       → Fetch from Zoom / yt-dlp / Yandex Disk / add-by-URL
+2. DOWNLOAD     → Source-agnostic download via BaseDownloader factory
 3. PROCESS      → FFmpeg trim silence, extract audio
 4. TRANSCRIBE   → Fireworks AI (Whisper-v3-turbo)
 5. TOPICS       → DeepSeek extraction with timestamps
 6. SUBTITLES    → Generate SRT/VTT (optional)
-7. UPLOAD       → YouTube + VK with metadata
+7. UPLOAD       → YouTube + VK + Yandex Disk with metadata
 ```
 
 **Celery Chains Architecture (Jan 2026):**
@@ -753,14 +793,14 @@ final = {
 | 🔐 **Authentication** | Register, Login, Refresh, Logout, Profile |
 | 👤 **User Management** | Profile, Config, Password, Account |
 | 👔 **Admin** | Stats, Users, Quotas |
-| 🎥 **Recordings** | CRUD, Pipeline, Batch operations |
+| 🎥 **Recordings** | CRUD, Pipeline, Batch, Add-by-URL |
 | 📋 **Templates** | CRUD, Matching, Re-match |
 | 🔑 **Credentials** | CRUD, Platform management |
 | 🔌 **OAuth** | YouTube, VK, Zoom flows |
 | 🤖 **Automation** | Jobs, Scheduling, Celery Beat |
-| 📊 **Tasks** | 2 | Async task monitoring |
-| 📥 **Input Sources** | 7 | Zoom sources, Sync |
-| 📤 **Output Presets** | 5 | Upload presets |
+| 📊 **Tasks** | Async task monitoring |
+| 📥 **Input Sources** | Zoom/yt-dlp/Yandex Disk sources, Sync |
+| 📤 **Output Presets** | Upload presets |
 | 🖼️ **Thumbnails** | Upload, Management |
 | 💚 **Health** | System status |
 | 🔧 **User Config** | User-specific settings |
@@ -779,6 +819,11 @@ final = {
 #### Recordings Pipeline
 
 ```bash
+# Add video from external sources (no InputSource required)
+POST /api/v1/recordings/add-url        # Single video by URL (yt-dlp)
+POST /api/v1/recordings/add-playlist   # Playlist/channel by URL (yt-dlp)
+POST /api/v1/recordings/add-yadisk     # Yandex Disk public link
+
 # Full pipeline
 POST /api/v1/recordings/{id}/full-pipeline
 
@@ -950,6 +995,7 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 - Zoom (OAuth tokens, Server-to-Server credentials)
 - YouTube (OAuth tokens)
 - VK (access tokens)
+- Yandex Disk (OAuth tokens)
 - Fireworks API keys
 - DeepSeek API keys
 
@@ -1252,6 +1298,8 @@ psql -U postgres -d zoom_manager
 - [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
 - [OAUTH.md](OAUTH.md) - OAuth integration
 - [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow
+- [YT_DLP_GUIDE.md](YT_DLP_GUIDE.md) - yt-dlp video ingestion
+- [YANDEX_DISK_GUIDE.md](YANDEX_DISK_GUIDE.md) - Yandex Disk integration
 
 **Architecture:**
 - [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema
@@ -1269,7 +1317,9 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 - Production-ready REST API
 - Multi-tenant database with auto-migrations
 - Complete type safety with Pydantic
+- Multi-source ingestion (Zoom, yt-dlp, Yandex Disk, local files)
 - Processing modules (video, transcription, upload)
+- Multi-platform upload (YouTube, VK, Yandex Disk)
 - OAuth platforms (YouTube, VK, Zoom)
 - AI models (Whisper, DeepSeek)
 
@@ -1277,6 +1327,6 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 
 ---
 
-**Version:** v0.9.4 (January 2026)
+**Version:** v0.9.5 (February 2026)
 **Status:** Development
 **License:** Business Source License 1.1

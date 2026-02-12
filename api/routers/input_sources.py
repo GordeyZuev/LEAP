@@ -1,6 +1,6 @@
 """Input source endpoints"""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -72,7 +72,7 @@ def _build_zoom_metadata(
     credentials: dict,
 ) -> dict:
     """Build source metadata from Zoom API response."""
-    return {
+    meta = {
         "meeting_id": meeting.get("uuid", meeting.get("id", "")),
         "account": credentials.get("account", ""),
         "account_id": meeting.get("account_id"),
@@ -92,21 +92,27 @@ def _build_zoom_metadata(
         "recording_type": video_file.get("recording_type") if video_file else None,
         "delete_time": meeting.get("delete_time"),
         "auto_delete_date": meeting.get("auto_delete_date"),
-        "zoom_processing_incomplete": zoom_processing_incomplete,
+        "source_processing_incomplete": zoom_processing_incomplete,
         "zoom_api_meeting": meeting,
         "zoom_api_details": meeting_details if meeting_details else {},
     }
+
+    # Store source user email for Master Account syncs
+    if "_source_user_email" in meeting:
+        meta["source_user_email"] = meeting["_source_user_email"]
+
+    return meta
 
 
 def _determine_blank_status(
     duration: int,
     video_file_size: int,
-    zoom_processing_incomplete: bool,
+    source_processing_incomplete: bool,
     min_duration_minutes: int = 20,
     min_file_size_mb: int = 25,
 ) -> bool:
-    """Determine if recording should be marked as blank."""
-    if zoom_processing_incomplete:
+    """Determine if recording should be marked as blank (skip if source is still processing)."""
+    if source_processing_incomplete:
         return False
 
     min_file_size_bytes = min_file_size_mb * 1024 * 1024
@@ -136,26 +142,37 @@ async def _sync_single_source(
             "error": "Source is not active",
         }
 
-    if not source.credential_id:
-        return {
-            "status": "error",
-            "error": "Source has no credential configured",
-        }
+    # Some sources don't require credentials (VIDEO_URL, public Yandex Disk links)
+    credentials = {}
+    _no_credential_types = {"VIDEO_URL", "LOCAL"}
 
-    # Получаем credentials
-    cred_repo = UserCredentialRepository(session)
-    credential = await cred_repo.get_by_id(source.credential_id)
+    if source.source_type not in _no_credential_types:
+        # Check if credential is needed (Yandex Disk public_url doesn't need one)
+        source_config = source.config or {}
+        needs_credential = True
+        if source.source_type == "YANDEX_DISK" and source_config.get("public_url"):
+            needs_credential = False
 
-    if not credential:
-        return {
-            "status": "error",
-            "error": f"Credentials {source.credential_id} not found",
-        }
+        if needs_credential:
+            if not source.credential_id:
+                return {
+                    "status": "error",
+                    "error": "Source has no credential configured",
+                }
 
-    from api.auth.encryption import get_encryption
+            cred_repo = UserCredentialRepository(session)
+            credential = await cred_repo.get_by_id(source.credential_id)
 
-    encryption = get_encryption()
-    credentials = encryption.decrypt_credentials(credential.encrypted_data)
+            if not credential:
+                return {
+                    "status": "error",
+                    "error": f"Credentials {source.credential_id} not found",
+                }
+
+            from api.auth.encryption import get_encryption
+
+            encryption = get_encryption()
+            credentials = encryption.decrypt_credentials(credential.encrypted_data)
 
     # Синхронизация в зависимости от типа
     meetings = []
@@ -166,9 +183,38 @@ async def _sync_single_source(
         try:
             # Create Zoom credentials from dict
             zoom_config = create_zoom_credentials(credentials)
-            zoom_api = ZoomAPI(zoom_config)
-            recordings_data = await zoom_api.get_recordings(from_date=from_date, to_date=to_date)
-            meetings = recordings_data.get("meetings") or []
+
+            # Check if Master Account sync
+            source_config = source.config or {}
+            is_master = source_config.get("is_master_account", False)
+            user_emails = source_config.get("user_emails") or []
+
+            if is_master and user_emails:
+                # Master Account: one token, query recordings per user email
+                zoom_api = ZoomAPI(zoom_config)
+                logger.info(
+                    f"Master Account sync: {len(user_emails)} users for source {source_id}",
+                )
+                for email in user_emails:
+                    try:
+                        recordings_data = await zoom_api.get_recordings(
+                            from_date=from_date,
+                            to_date=to_date,
+                            user_id=email,
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to sync user {email}: {e}")
+                        continue
+                    user_meetings = recordings_data.get("meetings") or []
+                    for m in user_meetings:
+                        m["_source_user_email"] = email
+                    meetings.extend(user_meetings)
+                    logger.info(f"User {email}: {len(user_meetings)} recordings")
+            else:
+                # Regular account: single sync
+                zoom_api = ZoomAPI(zoom_config)
+                recordings_data = await zoom_api.get_recordings(from_date=from_date, to_date=to_date)
+                meetings = recordings_data.get("meetings") or []
 
             logger.info(f"Found {len(meetings)} recordings from Zoom source {source_id}")
 
@@ -198,12 +244,14 @@ async def _sync_single_source(
                         start_time_str = start_time_str[:-1] + "+00:00"
                     start_time = datetime.fromisoformat(start_time_str)
 
+                    meeting_zoom_api = ZoomAPI(zoom_config)
+
                     video_file = _get_best_video_file(meeting.get("recording_files") or [])
                     (
                         meeting_details,
                         download_access_token,
                         zoom_processing_incomplete,
-                    ) = await _fetch_zoom_recording_details(zoom_api, meeting_id, display_name)
+                    ) = await _fetch_zoom_recording_details(meeting_zoom_api, meeting_id, display_name)
 
                     source_metadata = _build_zoom_metadata(
                         meeting,
@@ -232,7 +280,7 @@ async def _sync_single_source(
                         is_mapped=matched_template is not None,
                         template_id=matched_template.id if matched_template else None,
                         blank_record=is_blank,
-                        zoom_processing_incomplete=zoom_processing_incomplete,
+                        source_processing_incomplete=zoom_processing_incomplete,
                     )
 
                     if is_new:
@@ -256,11 +304,34 @@ async def _sync_single_source(
                 "error": str(e),
             }
 
+    elif source.source_type == "VIDEO_URL":
+        try:
+            result = await _sync_video_url_source(
+                source,
+                session,
+                user_id,
+            )
+            saved_count = result.get("saved", 0)
+            updated_count = result.get("updated", 0)
+            meetings = [None] * result.get("found", 0)  # placeholder for count
+        except Exception as e:
+            logger.error(f"VIDEO_URL sync failed for source {source_id}: {e}", exc_info=True)
+            return {"status": "error", "error": str(e)}
+
     elif source.source_type == "YANDEX_DISK":
-        return {
-            "status": "error",
-            "error": "Yandex Disk sync not implemented yet",
-        }
+        try:
+            result = await _sync_yandex_disk_source(
+                source,
+                credentials,
+                session,
+                user_id,
+            )
+            saved_count = result.get("saved", 0)
+            updated_count = result.get("updated", 0)
+            meetings = [None] * result.get("found", 0)
+        except Exception as e:
+            logger.error(f"Yandex Disk sync failed for source {source_id}: {e}", exc_info=True)
+            return {"status": "error", "error": str(e)}
 
     elif source.source_type == "LOCAL":
         # LOCAL sources don't need sync
@@ -269,22 +340,204 @@ async def _sync_single_source(
     else:
         return {
             "status": "error",
-            "error": f"Unknown source type: {source.source_type.value}",
+            "error": f"Unknown source type: {source.source_type}",
         }
 
     # Обновляем last_sync_at
     await repo.update_last_sync(source)
 
-    recordings_found = len(meetings) if source.source_type == "ZOOM" else 0
-    recordings_saved = saved_count if source.source_type == "ZOOM" else 0
-    recordings_updated = updated_count if source.source_type == "ZOOM" else 0
-
     return {
         "status": "success",
-        "recordings_found": recordings_found,
-        "recordings_saved": recordings_saved,
-        "recordings_updated": recordings_updated,
+        "recordings_found": len(meetings),
+        "recordings_saved": saved_count,
+        "recordings_updated": updated_count,
     }
+
+
+async def _sync_video_url_source(
+    source,
+    session: AsyncSession,
+    user_id: str,
+) -> dict:
+    """Sync recordings from a VIDEO_URL source (yt-dlp: YouTube, VK, Rutube, etc.)."""
+    from api.schemas.template.source_config import VideoUrlSourceConfig
+    from video_download_module.platforms.ytdlp.metadata import (
+        detect_platform,
+        extract_playlist_entries,
+        extract_video_info,
+    )
+
+    config = VideoUrlSourceConfig(**(source.config or {}))
+    platform = config.video_platform or detect_platform(config.url)
+
+    template_repo = RecordingTemplateRepository(session)
+    templates = await template_repo.find_active_by_user(user_id)
+    user_config_repo = UserConfigRepository(session)
+    user_config = await user_config_repo.get_effective_config(user_id)
+    recording_repo = RecordingRepository(session)
+
+    saved_count = 0
+    updated_count = 0
+
+    if config.is_playlist:
+        entries = await extract_playlist_entries(config.url)
+    else:
+        info = await extract_video_info(config.url)
+        entries = [info]
+
+    for entry in entries:
+        try:
+            video_id = entry.get("id", "")
+            title = entry.get("title", "Unknown")
+            duration = entry.get("duration") or 0
+            video_url = entry.get("url") or entry.get("webpage_url", config.url)
+
+            source_key = f"{platform}:{video_id}" if video_id else video_url
+
+            source_metadata = {
+                "url": video_url,
+                "platform": platform,
+                "video_id": video_id,
+                "title": title,
+                "duration": duration,
+                "thumbnail": entry.get("thumbnail"),
+                "uploader": entry.get("uploader"),
+                "upload_date": entry.get("upload_date"),
+                "quality": config.quality,
+                "format_preference": config.format_preference,
+            }
+
+            matched_template = _find_matching_template(title, source.id, templates)
+
+            _recording, is_new = await recording_repo.create_or_update(
+                user_id=user_id,
+                input_source_id=source.id,
+                display_name=title,
+                start_time=datetime.now(UTC),
+                duration=duration,
+                source_type=SourceType.EXTERNAL_URL,
+                source_key=source_key,
+                source_metadata=source_metadata,
+                user_config=user_config,
+                is_mapped=matched_template is not None,
+                template_id=matched_template.id if matched_template else None,
+            )
+
+            if is_new:
+                saved_count += 1
+            else:
+                updated_count += 1
+
+        except Exception as e:
+            logger.warning(f"Failed to save video entry '{entry.get('title', '?')}': {e}")
+            continue
+
+    logger.info(
+        f"VIDEO_URL sync for source {source.id}: found={len(entries)}, saved={saved_count}, updated={updated_count}"
+    )
+    return {"found": len(entries), "saved": saved_count, "updated": updated_count}
+
+
+async def _sync_yandex_disk_source(
+    source,
+    credentials: dict,
+    session: AsyncSession,
+    user_id: str,
+) -> dict:
+    """Sync recordings from a Yandex Disk source (folder listing or public link)."""
+    from api.schemas.template.source_config import YandexDiskSourceConfig
+    from yandex_disk_module.client import YandexDiskClient
+
+    config = YandexDiskSourceConfig(**(source.config or {}))
+    oauth_token = credentials.get("oauth_token") if credentials else None
+    client = YandexDiskClient(oauth_token=oauth_token)
+
+    template_repo = RecordingTemplateRepository(session)
+    templates = await template_repo.find_active_by_user(user_id)
+    user_config_repo = UserConfigRepository(session)
+    user_config = await user_config_repo.get_effective_config(user_id)
+    recording_repo = RecordingRepository(session)
+
+    # Collect video files from Yandex Disk
+    video_files: list[dict] = []
+
+    if config.public_url:
+        video_files = await client.list_public_video_files(
+            public_key=config.public_url,
+            file_pattern=config.file_pattern,
+        )
+    else:
+        if not oauth_token:
+            raise ValueError("Yandex Disk folder sync requires OAuth token in credentials")
+        if not config.folder_path:
+            raise ValueError("Yandex Disk folder sync requires folder_path in config")
+        video_files = await client.list_video_files(
+            folder_path=config.folder_path,
+            recursive=config.recursive,
+            file_pattern=config.file_pattern,
+        )
+
+    saved_count = 0
+    updated_count = 0
+
+    for file_info in video_files:
+        try:
+            file_path = file_info.get("path", "")
+            file_name = file_info.get("name", "Unknown")
+            file_size = file_info.get("size", 0)
+
+            source_key = f"yadisk:{file_path}" if file_path else file_name
+
+            download_method = "public" if config.public_url else "api"
+            source_metadata = {
+                "path": file_path,
+                "name": file_name,
+                "size": file_size,
+                "mime_type": file_info.get("mime_type"),
+                "download_method": download_method,
+                "public_key": config.public_url,
+                "modified": file_info.get("modified"),
+            }
+
+            matched_template = _find_matching_template(file_name, source.id, templates)
+
+            modified_str = file_info.get("modified")
+            if modified_str:
+                try:
+                    start_time = datetime.fromisoformat(modified_str)
+                except (ValueError, TypeError):
+                    start_time = datetime.now(UTC)
+            else:
+                start_time = datetime.now(UTC)
+
+            _recording, is_new = await recording_repo.create_or_update(
+                user_id=user_id,
+                input_source_id=source.id,
+                display_name=file_name,
+                start_time=start_time,
+                duration=0,
+                source_type=SourceType.YANDEX_DISK,
+                source_key=source_key,
+                source_metadata=source_metadata,
+                user_config=user_config,
+                is_mapped=matched_template is not None,
+                template_id=matched_template.id if matched_template else None,
+            )
+
+            if is_new:
+                saved_count += 1
+            else:
+                updated_count += 1
+
+        except Exception as e:
+            logger.warning(f"Failed to save Yandex Disk file '{file_info.get('name', '?')}': {e}")
+            continue
+
+    logger.info(
+        f"Yandex Disk sync for source {source.id}: "
+        f"found={len(video_files)}, saved={saved_count}, updated={updated_count}"
+    )
+    return {"found": len(video_files), "saved": saved_count, "updated": updated_count}
 
 
 def _normalize_string(s: str, case_sensitive: bool) -> str:

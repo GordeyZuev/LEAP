@@ -35,6 +35,24 @@ class YouTubeMetadataConfig(BaseModel):
     description_template: str | None = Field(None, max_length=5000, description="YouTube-specific description template")
 
 
+class YandexDiskMetadataConfig(BaseModel):
+    """Yandex Disk metadata overrides at template level."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    folder_path_template: str | None = Field(
+        None,
+        max_length=500,
+        description="Override folder path template for this template",
+        examples=["/Video/{display_name}", "/Lectures/{record_time:YYYY-MM-DD}"],
+    )
+    filename_template: str | None = Field(
+        None,
+        max_length=500,
+        description="Override filename template",
+    )
+
+
 class TemplateMetadataConfig(BaseModel):
     """
     Content-specific metadata for Recording Template.
@@ -52,6 +70,7 @@ class TemplateMetadataConfig(BaseModel):
 
     vk: VKMetadataConfig | None = Field(None, description="VK-specific settings")
     youtube: YouTubeMetadataConfig | None = Field(None, description="YouTube-specific settings")
+    yandex_disk: YandexDiskMetadataConfig | None = Field(None, description="Yandex Disk-specific settings")
 
     title_template: str | None = Field(
         None,

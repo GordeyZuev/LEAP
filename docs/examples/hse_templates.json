@@ -1,0 +1,2402 @@
+[
+  {
+    "name": "Основы программирования на Python – ВШБ УБ, Сусла, гр. 9",
+    "description": "Основы программирования на Python – ВШБ УБ, Сусла, гр. 9 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ВШБ Управление бизнесом_Основы программирования на Python_группа 9_Сусла Д.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "1",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – ВШБ УБ, Сусла, гр. 9 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Дизайн СПБ, Демчук, гр. 3",
+    "description": "Анализ данных – Дизайн СПБ, Демчук, гр. 3 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Анализ данных_группа 3_Демчук К.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "2",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Дизайн СПБ, Демчук, гр. 3 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Дизайн СПБ, Демчук, гр. 4",
+    "description": "Анализ данных – Дизайн СПБ, Демчук, гр. 4 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Анализ данных_группа 4_Демчук К.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "3",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Дизайн СПБ, Демчук, гр. 4 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Машинное обучение – Матфак, Корпачев, гр. 1",
+    "description": "Машинное обучение – Матфак, Корпачев, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Факультет математики_Машинное обучение_группа 1_Корпачев С.С."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Машинное обучение. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "4",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Машинное обучение – Матфак, Корпачев, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – ВШБ УБ, Шишлов, гр. 10",
+    "description": "Основы программирования на Python – ВШБ УБ, Шишлов, гр. 10 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ВШБ Управление бизнесом_Основы программирования на Python_группа 10_Шишлов И.Д."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "5",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – ВШБ УБ, Шишлов, гр. 10 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование и компьютерные науки – ФИКЛ, Сусла, гр. 1",
+    "description": "Программирование и компьютерные науки – ФИКЛ, Сусла, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ФИКЛ_Программирование и компьютерные науки_группа 1_Сусла Д.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование и компьютерные науки. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "6",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование и компьютерные науки – ФИКЛ, Сусла, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных в Python – Право, Гусев, гр. 2",
+    "description": "Анализ данных в Python – Право, Гусев, гр. 2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Право_Анализ данных в Python_группа 2_Гусев В.Д."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных в Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "7",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных в Python – Право, Гусев, гр. 2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных в Python – Право, Малкова, гр. 3,4",
+    "description": "Анализ данных в Python – Право, Малкова, гр. 3,4 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Право_Анализ данных в Python_группа 3,4_Малкова К.Э."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных в Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "8",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных в Python – Право, Малкова, гр. 3,4 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – ВШБ УБ, Сусла, гр. 8",
+    "description": "Основы программирования на Python – ВШБ УБ, Сусла, гр. 8 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ВШБ Управление бизнесом_Основы программирования на Python_группа 8_Сусла Д.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "9",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – ВШБ УБ, Сусла, гр. 8 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – ВШБ УБ, Ликсаков, гр. 12",
+    "description": "Основы программирования на Python – ВШБ УБ, Ликсаков, гр. 12 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ВШБ Управление бизнесом_Основы программирования на Python_группа 12_Ликсаков М.В."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "10",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – ВШБ УБ, Ликсаков, гр. 12 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – ВШБ УБ, Ликсаков, гр. 11",
+    "description": "Основы программирования на Python – ВШБ УБ, Ликсаков, гр. 11 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ВШБ Управление бизнесом_Основы программирования на Python_группа 11_Ликсаков М.В."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "11",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – ВШБ УБ, Ликсаков, гр. 11 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Дизайн СПБ, Соколов, гр. 5,6",
+    "description": "Анализ данных – Дизайн СПБ, Соколов, гр. 5,6 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Анализ данных_группа 5,6_Соколов Я.И."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "12",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Дизайн СПБ, Соколов, гр. 5,6 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на языке Python – РИСО, Иванов, гр. 6",
+    "description": "Программирование на языке Python – РИСО, Иванов, гр. 6 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "РИСО_Программирование на языке Python_группа 6_Иванов М.Д."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на языке Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "13",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на языке Python – РИСО, Иванов, гр. 6 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – Экономика, Топалова, гр. 1,2",
+    "description": "Основы программирования на Python – Экономика, Топалова, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Экономика_Основы программирования на Python_группа 1,2_Топалова Я.Р."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "14",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – Экономика, Топалова, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Дизайн СПБ, Коршунова, гр. 1,2",
+    "description": "Анализ данных – Дизайн СПБ, Коршунова, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Анализ данных_группа 1,2_Коршунова М.Р."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "15",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Дизайн СПБ, Коршунова, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 5",
+    "description": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 5 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Python для анализа данных_группа 5_Курченко М.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Python для анализа данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "16",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 5 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных в Python – Право, Касьяненко, гр. 5,6",
+    "description": "Анализ данных в Python – Право, Касьяненко, гр. 5,6 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Право_Анализ данных в Python_группа 5,6_Касьяненко Д.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных в Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "17",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных в Python – Право, Касьяненко, гр. 5,6 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Python для анализа данных – Дизайн СПБ, Смоленчук, гр. 1,2",
+    "description": "Python для анализа данных – Дизайн СПБ, Смоленчук, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Python для анализа данных_группа 1,2_Смоленчук И.К."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Python для анализа данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "18",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Python для анализа данных – Дизайн СПБ, Смоленчук, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – Экономика, Топалова, гр. 1,2",
+    "description": "Основы программирования на Python – Экономика, Топалова, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП Экономика_Основы программирования на Python_группа 1,2_Топалова Я."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "19",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – Экономика, Топалова, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на Python – История, Галушко, гр. 2",
+    "description": "Программирование на Python – История, Галушко, гр. 2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП История_Программирование на Python_группа 2_Галушко И.Н."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "20",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на Python – История, Галушко, гр. 2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Дизайн СПБ, Коршунова, гр. 1,2",
+    "description": "Анализ данных – Дизайн СПБ, Коршунова, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП СПБ Дизайн_Анализ данных_группы 1,2_Коршунова М.Р."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "21",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Дизайн СПБ, Коршунова, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – УБ, Иванов, гр. 4,5",
+    "description": "Основы программирования на Python – УБ, Иванов, гр. 4,5 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП УБ_Основы программирования на Python_группа 4,5_Иванов М.Д."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "22",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – УБ, Иванов, гр. 4,5 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – Матфак, Корпачев, гр. 1 (С.С.1)",
+    "description": "Основы программирования на Python – Матфак, Корпачев, гр. 1 (С.С.1) - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП Матфак_Основы программирования на Python_группа 1_Корпачев С.С.1"
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "23",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – Матфак, Корпачев, гр. 1 (С.С.1) | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – Матфак, Кубаева, гр. 1",
+    "description": "Основы программирования на Python – Матфак, Кубаева, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП Матфак_Основы программирования на Python_группа 1_Кубаева А.Р."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "24",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – Матфак, Кубаева, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "ИИ для бизнеса: автоматизация без разработчиков – МагоЛего, Завелишко",
+    "description": "ИИ для бизнеса: автоматизация без разработчиков – МагоЛего, Завелишко - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП МагоЛего_ИИ для бизнеса: автоматизация без разработчиков_ Завелишко С.В."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине ИИ для бизнеса: автоматизация без разработчиков. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "25",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "ИИ для бизнеса: автоматизация без разработчиков – МагоЛего, Завелишко | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Быстрое создание MVP в Data Science – МагоЛего, Бурова",
+    "description": "Быстрое создание MVP в Data Science – МагоЛего, Бурова - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП МагоЛего_Быстрое создание MVP в Data Science (МагоЛего)_Бурова М.Б."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Быстрое создание MVP в Data Science. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "26",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Быстрое создание MVP в Data Science – МагоЛего, Бурова | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных на Python – УвКИ, Сусла",
+    "description": "Анализ данных на Python – УвКИ, Сусла - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП УвКИ_Анализ данных на Python_Д.Сусла"
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "27",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных на Python – УвКИ, Сусла | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Машинное обучение – Матфак, Корпачев, гр. 1",
+    "description": "Машинное обучение – Матфак, Корпачев, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП Мактфак_Машинное обучение_группа 1_Корпачев С.С."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Машинное обучение. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "28",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Машинное обучение – Матфак, Корпачев, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных на Python – Востоковедение, Хорин, гр. 3",
+    "description": "Анализ данных на Python – Востоковедение, Хорин, гр. 3 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ОП Востоковедение_Анализ данных на Python_группа 3_Хорин А.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "29",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных на Python – Востоковедение, Хорин, гр. 3 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных в Python – Право, Сусла, гр. 1",
+    "description": "Анализ данных в Python – Право, Сусла, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Право_Анализ данных в Python_группа 1_Сусла Д.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных в Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "30",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных в Python – Право, Сусла, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных в Python – Цифровой юрист, Сусла, гр. 1,2",
+    "description": "Анализ данных в Python – Цифровой юрист, Сусла, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Цифровой юрист_Анализ данных в Python_группа 1,2_Сусла Д.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных в Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "31",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных в Python – Цифровой юрист, Сусла, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на языке Python – Востоковедение, Коршунова, гр. 5,6",
+    "description": "Программирование на языке Python – Востоковедение, Коршунова, гр. 5,6 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Востоковедение_Программирование на языке Python_группа 5,6_Коршунова М.Р."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на языке Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "32",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на языке Python – Востоковедение, Коршунова, гр. 5,6 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных, ИИ и генеративные модели – Филология, Галушко, гр. 4",
+    "description": "Анализ данных, ИИ и генеративные модели – Филология, Галушко, гр. 4 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Филология_Анализ данных, искусственный интеллект и генеративные модели_группа 4_Галушко И.Н."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных, искусственный интеллект и генеративные модели. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "33",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных, ИИ и генеративные модели – Филология, Галушко, гр. 4 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных, ИИ и генеративные модели – Филология, Галушко, гр. 5",
+    "description": "Анализ данных, ИИ и генеративные модели – Филология, Галушко, гр. 5 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Филология_Анализ данных, искусственный интеллект и генеративные модели_группа 5_Галушко И.Н."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных, искусственный интеллект и генеративные модели. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "34",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных, ИИ и генеративные модели – Филология, Галушко, гр. 5 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Дизайн СПБ, Семенов, гр. 7,8",
+    "description": "Анализ данных – Дизайн СПБ, Семенов, гр. 7,8 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Анализ данных_группа 7, 8_Семенов Г.Ю."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "35",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Дизайн СПБ, Семенов, гр. 7,8 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 5",
+    "description": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 5 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Python для анализа данных_группа 5_Курченко М.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Python для анализа данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "36",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 5 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 6",
+    "description": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 6 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Python для анализа данных_группа 6_Курченко М.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Python для анализа данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "37",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Python для анализа данных – Дизайн СПБ, Курченко, гр. 6 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "AI и no-code для менеджмента – ОПОД, Бурова, гр. 1",
+    "description": "AI и no-code для менеджмента – ОПОД, Бурова, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Объединенный план общевузовских дисциплин_AI и no-code для менеджмента: автоматизация рутины_группа 1_Бурова М.Б."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине AI и no-code для менеджмента: автоматизация рутины. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "38",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "AI и no-code для менеджмента – ОПОД, Бурова, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Дизайн СПБ, Демчук, гр. 3,4",
+    "description": "Анализ данных – Дизайн СПБ, Демчук, гр. 3,4 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Анализ данных_группа 3,4_Демчук К.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "39",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Дизайн СПБ, Демчук, гр. 3,4 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Python для анализа данных – Дизайн СПБ, Симакова, гр. 3,4",
+    "description": "Python для анализа данных – Дизайн СПБ, Симакова, гр. 3,4 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Дизайн СПБ_Python для анализа данных_группа 3,4_Симакова Е.А."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Python для анализа данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "40",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Python для анализа данных – Дизайн СПБ, Симакова, гр. 3,4 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Анализ данных – Цифровой юрист, Сусла, гр. 1,2",
+    "description": "Анализ данных – Цифровой юрист, Сусла, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Цифровой юрист_Анализ данных_группа 1,2_Сусла Д.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Анализ данных. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "41",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Анализ данных – Цифровой юрист, Сусла, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование и компьютерные науки – ФИКЛ, Сусла, гр. 1",
+    "description": "Программирование и компьютерные науки – ФИКЛ, Сусла, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "ФИКЛ_Программирование и компьютерные науки_группа 1_Сусла Д.М."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование и компьютерные науки. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "42",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование и компьютерные науки – ФИКЛ, Сусла, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Основы программирования на Python – Экономика, Топалова, гр. 1,2",
+    "description": "Основы программирования на Python – Экономика, Топалова, гр. 1,2 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Экономика_Основы программирования на Python_группа 1,2_Топалова Я.Р."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Основы программирования на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "43",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Основы программирования на Python – Экономика, Топалова, гр. 1,2 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "ИИ в маркетинге, СМИ и PR – ОПОД, Нам, гр. 1",
+    "description": "ИИ в маркетинге, СМИ и PR – ОПОД, Нам, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Объединенный план общевузовских дисциплин_Искусственный интеллект в маркетинге, СМИ и PR_группа 1_Нам Ю.Н."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Искусственный интеллект в маркетинге, СМИ и PR. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "44",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "ИИ в маркетинге, СМИ и PR – ОПОД, Нам, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Автоматизация задач с ИИ – ОПОД, Бакшук, гр. 1",
+    "description": "Автоматизация задач с ИИ – ОПОД, Бакшук, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Объединенный план общевузовских дисциплин_Автоматизация задач с использованием ИИ_группа 1_Бакшук М.В."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Автоматизация задач с использованием ИИ. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "45",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Автоматизация задач с ИИ – ОПОД, Бакшук, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на языке Python – Городское планирование, Перевышина, гр. 1",
+    "description": "Программирование на языке Python – Городское планирование, Перевышина, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "Городское планирование_Программирование на языке Python_группа 1_Перевышина Т.О."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на языке Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "46",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на языке Python – Городское планирование, Перевышина, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на Python – История, Галушко, гр. 1",
+    "description": "Программирование на Python – История, Галушко, гр. 1 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "История_Программирование на Python_группа 1_Галушко И.Н."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "47",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на Python – История, Галушко, гр. 1 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на Python – История, Галушко, гр. 3",
+    "description": "Программирование на Python – История, Галушко, гр. 3 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "История_Программирование на Python_группа 3_Галушко И.Н."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "48",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на Python – История, Галушко, гр. 3 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на Python – История, Бакшук, гр. 11",
+    "description": "Программирование на Python – История, Бакшук, гр. 11 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "История_Программирование на Python_группа 11_Бакшук М.В."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "49",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на Python – История, Бакшук, гр. 11 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  },
+  {
+    "name": "Программирование на Python – История, Бакшук, гр. 10",
+    "description": "Программирование на Python – История, Бакшук, гр. 10 - VK.",
+    "matching_rules": {
+      "exact_matches": [
+        "История_Программирование на Python_группа 10_Бакшук М.В."
+      ],
+      "keywords": null,
+      "patterns": null,
+      "source_ids": [
+        4
+      ],
+      "exclude_keywords": null,
+      "exclude_patterns": null,
+      "case_sensitive": false
+    },
+    "processing_config": {
+      "transcription": {
+        "enable_transcription": true,
+        "prompt": "Это видео-семинар по дисциплине Программирование на Python. Сохраняй правильное написание профильных терминов (включая английские), аббревиатур и имён собственных. Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации.",
+        "language": "ru",
+        "allow_errors": false,
+        "enable_topics": true,
+        "granularity": "long",
+        "enable_subtitles": true
+      }
+    },
+    "metadata_config": {
+      "vk": {
+        "album_id": "50",
+        "group_id": null,
+        "thumbnail_name": null,
+        "title_template": null,
+        "description_template": null
+      },
+      "title_template": "Программирование на Python – История, Бакшук, гр. 10 | {themes} ({record_time:DD.MM.YY})",
+      "description_template": null,
+      "topics_display": null,
+      "thumbnail_name": null
+    },
+    "output_config": {
+      "preset_ids": [
+        4
+      ],
+      "auto_upload": true,
+      "upload_captions": true
+    }
+  }
+]

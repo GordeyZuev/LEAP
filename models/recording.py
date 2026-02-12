@@ -16,8 +16,8 @@ def _normalize_enum(value: T | str, enum_class: type[T]) -> T:
 class ProcessingStatus(StrEnum):
     """Processing statuses for video recording (aggregated status from processing_stages/outputs)"""
 
-    PENDING_SOURCE = "PENDING_SOURCE"  # Pending processing on source (Zoom)
-    INITIALIZED = "INITIALIZED"  # Initialized (loaded from Zoom API)
+    PENDING_SOURCE = "PENDING_SOURCE"  # Pending: source is still processing (e.g. Zoom recording conversion)
+    INITIALIZED = "INITIALIZED"  # Initialized: ready for download from source
     DOWNLOADING = "DOWNLOADING"  # In progress of downloading (runtime)
     DOWNLOADED = "DOWNLOADED"  # Downloaded
     PROCESSING = "PROCESSING"  # In progress of any processing stage (aggregate for stages IN_PROGRESS)
@@ -66,6 +66,7 @@ class TargetStatus(StrEnum):
 class ProcessingStageType(StrEnum):
     """Types of processing pipeline stages (detail for ProcessingStatus.PROCESSING/PROCESSED)."""
 
+    DOWNLOAD = "DOWNLOAD"  # Video download from source
     TRIM = "TRIM"  # Video trimming (silence removal)
     TRANSCRIBE = "TRANSCRIBE"  # Transcription
     EXTRACT_TOPICS = "EXTRACT_TOPICS"  # Extraction of topics
@@ -92,11 +93,13 @@ class OutputTarget:
         status: TargetStatus = TargetStatus.NOT_UPLOADED,
         target_meta: dict[str, Any] | None = None,
         uploaded_at: datetime | None = None,
+        started_at: datetime | None = None,
     ):
         self.target_type = target_type
         self.status = status
         self.target_meta: dict[str, Any] = target_meta or {}
         self.uploaded_at = uploaded_at
+        self.started_at = started_at
 
     def get_link(self) -> str | None:
         return self.target_meta.get("target_link") or self.target_meta.get("video_url")
@@ -123,6 +126,7 @@ class ProcessingStage:
         retry_count: int = 0,
         stage_meta: dict[str, Any] | None = None,
         completed_at: datetime | None = None,
+        started_at: datetime | None = None,
     ):
         self.stage_type = stage_type
         self.status = status
@@ -132,6 +136,7 @@ class ProcessingStage:
         self.retry_count = retry_count
         self.stage_meta: dict[str, Any] = stage_meta or {}
         self.completed_at = completed_at
+        self.started_at = started_at
 
     def mark_completed(self, meta: dict[str, Any] | None = None):
         """Mark stage as completed (FSM: transition to COMPLETED)."""
@@ -144,6 +149,7 @@ class ProcessingStage:
     def mark_in_progress(self):
         """Mark stage as in progress (FSM: transition to IN_PROGRESS)."""
         self.status = ProcessingStageStatus.IN_PROGRESS
+        self.started_at = datetime.now(UTC)
         self.failed = False  # Reset failed on new start
 
     def mark_failed(self, reason: str):
@@ -222,6 +228,11 @@ class MeetingRecording:
         # Processing settings
         self.processing_preferences: dict[str, Any] | None = meeting_data.get("processing_preferences")
 
+        # Pipeline timing
+        self.pipeline_started_at: datetime | None = meeting_data.get("pipeline_started_at")
+        self.pipeline_completed_at: datetime | None = meeting_data.get("pipeline_completed_at")
+        self.pipeline_duration_seconds: float | None = meeting_data.get("pipeline_duration_seconds")
+
         # Outputs
         raw_targets = meeting_data.get("output_targets", []) or []
         self.output_targets: list[OutputTarget] = []
@@ -239,6 +250,7 @@ class MeetingRecording:
                             status=status,
                             target_meta=raw.get("target_meta"),
                             uploaded_at=raw.get("uploaded_at"),
+                            started_at=raw.get("started_at"),
                         )
                     )
                 except Exception as e:
@@ -275,6 +287,7 @@ class MeetingRecording:
                             retry_count=int(raw.get("retry_count", 0)),
                             stage_meta=raw.get("stage_meta"),
                             completed_at=raw.get("completed_at"),
+                            started_at=raw.get("started_at"),
                         )
                     )
                 except Exception as e:
@@ -510,6 +523,7 @@ class MeetingRecording:
     def _get_previous_status_for_stage(self, stage_type: ProcessingStageType) -> ProcessingStatus:
         """Get previous status for rollback when stage fails"""
         stage_rollback_map = {
+            ProcessingStageType.DOWNLOAD: ProcessingStatus.INITIALIZED,
             ProcessingStageType.TRIM: ProcessingStatus.DOWNLOADED,
             ProcessingStageType.TRANSCRIBE: ProcessingStatus.PROCESSED,
             ProcessingStageType.EXTRACT_TOPICS: ProcessingStatus.PROCESSED,

@@ -1,12 +1,122 @@
 """Recording request schemas"""
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from api.schemas.processing.preferences import ProcessingPreferences
 from api.schemas.recording.filters import RecordingFilters
 from api.schemas.validators import DateRangeMixin
+
+# ============================================================================
+# Add by URL / Playlist / Yandex Disk
+# ============================================================================
+
+
+class AddVideoByUrlRequest(BaseModel):
+    """Add single video by URL (YouTube, VK, Rutube, etc.)."""
+
+    url: str = Field(..., description="Video URL", examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"])
+    display_name: str | None = Field(None, max_length=500, description="Custom name (auto-extracted if not set)")
+    quality: Literal["best", "1080p", "720p", "480p"] = Field("best", description="Video quality preference")
+    format_preference: Literal["mp4", "mp3", "audio", "any"] = Field(
+        "mp4",
+        description="Container format: mp4 (video), mp3/audio (audio only, useful for transcription)",
+    )
+    template_id: int | None = Field(None, gt=0, description="Bind recording to template")
+    auto_run: bool = Field(False, description="Immediately start full pipeline (download → process → upload)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "quality": "1080p",
+                    "auto_run": True,
+                },
+                {
+                    "url": "https://rutube.ru/video/abc123/",
+                    "display_name": "Лекция 5 — ML",
+                    "template_id": 3,
+                },
+                {
+                    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    "format_preference": "mp3",
+                    "auto_run": True,
+                    "_comment": "Audio-only: download mp3 for transcription",
+                },
+            ]
+        }
+    )
+
+
+class AddPlaylistByUrlRequest(BaseModel):
+    """Add all videos from a playlist/channel URL."""
+
+    url: str = Field(..., description="Playlist or channel URL")
+    quality: Literal["best", "1080p", "720p", "480p"] = Field("best", description="Video quality preference")
+    format_preference: Literal["mp4", "mp3", "audio", "any"] = Field(
+        "mp4",
+        description="Container format: mp4 (video), mp3/audio (audio only)",
+    )
+    template_id: int | None = Field(None, gt=0, description="Bind all recordings to template")
+    auto_run: bool = Field(False, description="Immediately start pipeline for all videos")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "url": "https://www.youtube.com/playlist?list=PLxxxxxxxx",
+                "quality": "1080p",
+                "auto_run": False,
+            }
+        }
+    )
+
+
+class AddYandexDiskUrlRequest(BaseModel):
+    """Add video(s) from a public Yandex Disk link."""
+
+    public_url: str = Field(
+        ...,
+        description="Public Yandex Disk URL",
+        examples=["https://disk.yandex.ru/d/AbCdEf123"],
+    )
+    file_pattern: str | None = Field(None, description="Regex pattern to filter files by name")
+    template_id: int | None = Field(None, gt=0, description="Bind recordings to template")
+    auto_run: bool = Field(False, description="Immediately start pipeline for all videos")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "public_url": "https://disk.yandex.ru/d/AbCdEf123",
+                "auto_run": True,
+            }
+        }
+    )
+
+
+class AddVideoByUrlResponse(BaseModel):
+    """Response for add-by-URL endpoints."""
+
+    success: bool
+    recording_id: int | None = None
+    display_name: str | None = None
+    platform: str | None = None
+    task_id: str | None = None
+    message: str | None = None
+
+
+class AddPlaylistResponse(BaseModel):
+    """Response for add-playlist endpoint."""
+
+    success: bool
+    total_videos: int = 0
+    recordings_created: int = 0
+    recordings_updated: int = 0
+    recordings: list[dict] = Field(default_factory=list)
+    task_ids: list[str] = Field(default_factory=list)
+    message: str | None = None
 
 
 class TrimVideoRequest(BaseModel):
@@ -242,7 +352,7 @@ class BulkOperationRequest(BaseModel):
 
 
 class BulkDownloadRequest(BulkOperationRequest):
-    """Bulk download recordings from Zoom."""
+    """Bulk download recordings from source."""
 
     force: bool = Field(False, description="Re-download if already downloaded")
 

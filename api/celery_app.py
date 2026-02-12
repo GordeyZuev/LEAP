@@ -47,24 +47,30 @@ celery_app.conf.update(
 )
 
 # Task routing: Separate by execution requirements
+# Queues:
+#   downloads      – network-bound download tasks (dedicated threads worker)
+#   uploads        – network-bound upload tasks   (dedicated threads worker)
+#   async_operations – fast I/O processing tasks  (threads worker)
+#   processing_cpu – CPU-intensive FFmpeg tasks    (prefork worker)
+#   maintenance    – periodic cleanup              (prefork worker)
 celery_app.conf.task_routes = {
-    # CPU-bound: Video processing (prefork pool, low concurrency)
-    # Uses asyncio.run() for DB access, but main work is CPU-intensive
+    # CPU-bound: Video trimming (prefork pool, low concurrency)
     "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
-    # I/O-bound: All other tasks (threads pool, safe for asyncio)
-    # These tasks spend most time waiting for I/O (network, disk)
-    "api.tasks.processing.download_recording": {"queue": "async_operations"},
+    # Network-bound downloads: isolated to prevent bandwidth starvation
+    "api.tasks.processing.download_recording": {"queue": "downloads"},
+    # Network-bound uploads: isolated so they don't block processing
+    "api.tasks.upload.*": {"queue": "uploads"},
+    # I/O-bound processing: transcription, topics, subtitles, orchestration
     "api.tasks.processing.transcribe_recording": {"queue": "async_operations"},
     "api.tasks.processing.extract_topics": {"queue": "async_operations"},
     "api.tasks.processing.generate_subtitles": {"queue": "async_operations"},
     "api.tasks.processing.batch_transcribe_recording": {"queue": "async_operations"},
     "api.tasks.processing.run_recording": {"queue": "async_operations"},
     "api.tasks.processing.launch_uploads": {"queue": "async_operations"},
-    "api.tasks.upload.*": {"queue": "async_operations"},
     "api.tasks.template.*": {"queue": "async_operations"},
     "api.tasks.sync.*": {"queue": "async_operations"},
     "automation.*": {"queue": "async_operations"},
-    "maintenance.*": {"queue": "async_operations"},
+    "maintenance.*": {"queue": "maintenance"},
 }
 
 # Приоритеты очередей

@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 MIN_PAUSE_MINUTES = 8.0
 MIN_TOPIC_DURATION_SECONDS = 60
 NOISE_WINDOW_MINUTES = 15
-TIMESTAMP_PATTERN = r"\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\s*[-–—]?\s*(.+)"
+TIMESTAMP_PATTERN = r"\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?\s*[-–—]\s*(.+)"
 TIMESTAMP_PATTERN_MS = r"\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)"
 NOISE_PATTERNS = [r"редактор субтитров", r"корректор", r"продолжение следует"]
 FIREWORKS_MAX_TOKENS_NON_STREAM = 4096
@@ -455,13 +455,13 @@ class TopicExtractor:
             if not content:
                 return {"main_topics": [], "topic_timestamps": []}
 
-            logger.debug(f"Prompt sent to DeepSeek: preview={prompt[:1000]}... | total_length={len(prompt)}")
-            logger.debug(f"Full DeepSeek response: length={len(content)} | preview={content[:200]}...")
+            logger.info(f"DeepSeek response: length={len(content)} | preview={content[:500]}...")
+            logger.debug(f"Full DeepSeek response:\n{content}")
 
             parsed = self._parse_structured_response(content, total_duration)
             parsed["long_pauses"] = long_pauses
-            logger.debug(
-                f"Результат парсинга: main_topics={len(parsed.get('main_topics', []))} | "
+            logger.info(
+                f"Parsed result: main_topics={len(parsed.get('main_topics', []))} | "
                 f"topic_timestamps={len(parsed.get('topic_timestamps', []))} | total_duration={total_duration}s"
             )
 

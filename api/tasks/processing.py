@@ -15,21 +15,31 @@ from api.helpers.status_manager import update_aggregate_status
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository
 from api.services.config_utils import resolve_full_config
+from api.services.timing_service import TimingService
 from api.tasks.base import ProcessingTask
 from config.settings import get_settings
+from database.models import RecordingModel
 from deepseek_module import DeepSeekConfig, TopicExtractor
 from file_storage.path_builder import StoragePathBuilder
 from fireworks_module import FireworksConfig, FireworksTranscriptionService
 from logger import get_logger
-from models import MeetingRecording, ProcessingStageType, ProcessingStatus
-from models.recording import ProcessingStageStatus
+from models import MeetingRecording, ProcessingStageStatus, ProcessingStageType, ProcessingStatus
 from transcription_module.manager import get_transcription_manager
 from video_download_module.downloader import ZoomDownloader
+from video_download_module.factory import create_downloader
 from video_processing_module.config import ProcessingConfig
 from video_processing_module.video_processor import VideoProcessor
 
 logger = get_logger()
 settings = get_settings()
+
+
+def _update_pipeline_completed(recording: RecordingModel) -> None:
+    """Update pipeline_completed_at and duration after stage completion."""
+    now = datetime.now(UTC)
+    recording.pipeline_completed_at = now
+    if recording.pipeline_started_at:
+        recording.pipeline_duration_seconds = (now - recording.pipeline_started_at).total_seconds()
 
 
 @celery_app.task(
@@ -47,7 +57,9 @@ def download_recording_task(
     manual_override: dict | None = None,
 ) -> dict:
     """
-    Download recording from Zoom (template-driven).
+    Download recording from source (Zoom, yt-dlp, Yandex Disk, etc.).
+
+    Dispatches to the appropriate downloader based on recording source_type.
 
     Args:
         recording_id: ID of recording
@@ -174,8 +186,9 @@ async def _async_download_recording(
     force: bool,
     manual_override: dict | None = None,
 ) -> dict:
-    """Async function for downloading (template-driven)."""
+    """Async function for downloading (template-driven, multi-source)."""
     from api.helpers.failure_reset import reset_recording_failure, should_reset_on_retry
+    from models.recording import SourceType
 
     async_session_maker = get_async_session_maker()
     async with async_session_maker() as session:
@@ -206,14 +219,6 @@ async def _async_download_recording(
             f"max_file_size_mb={max_file_size_mb}, retry_attempts={retry_attempts}"
         )
 
-        # Check download_url
-        download_url = None
-        if recording.source and recording.source.meta:
-            download_url = recording.source.meta.get("download_url")
-
-        if not download_url:
-            raise ValueError("No download URL available. Please sync from Zoom first.")
-
         # Check if not already downloaded
         if not force and recording.status == ProcessingStatus.DOWNLOADED and recording.local_video_path:
             if Path(recording.local_video_path).exists():
@@ -223,82 +228,209 @@ async def _async_download_recording(
                     "local_video_path": recording.local_video_path,
                 }
 
-        task_self.update_progress(
-            user_id=user_id,
-            progress=30,
-            status="Downloading from Zoom...",
-            step="download",
-        )
-
         # Get user_slug for path generation
         user_slug = recording.owner.user_slug
-
-        # Create downloader with StoragePathBuilder
         storage_builder = StoragePathBuilder()
-        downloader = ZoomDownloader(user_slug=user_slug, storage_builder=storage_builder)
 
-        # Convert to MeetingRecording
-        meeting_id = recording.source.source_key if recording.source else str(recording.id)
-        file_size = recording.source.meta.get("file_size", 0) if recording.source and recording.source.meta else 0
-        passcode = (
-            recording.source.meta.get("recording_play_passcode") if recording.source and recording.source.meta else None
-        )
-        password = recording.source.meta.get("password") if recording.source and recording.source.meta else None
-        account = recording.source.meta.get("account") if recording.source and recording.source.meta else None
+        source_type = recording.source.source_type if recording.source else SourceType.ZOOM
+        if not recording.source:
+            logger.warning(f"Recording {recording_id} has no source, defaulting to ZOOM")
 
-        # Refresh download_access_token if needed (for old/skipped recordings)
-        download_access_token = await _refresh_download_token_if_needed(
-            session, recording, user_id, meeting_id, force, task_self.request.id
-        )
+        # Start download timing (stage_timings only, not processing_stages)
+        timing_service = TimingService(session)
+        timing = await timing_service.start_stage(recording_id, user_id, "DOWNLOAD")
+        await session.commit()
 
-        meeting_recording = MeetingRecording(
-            {
-                "id": meeting_id,
-                "uuid": meeting_id,
-                "topic": recording.display_name,
-                "start_time": recording.start_time.isoformat(),
-                "duration": recording.duration or 0,
-                "account": account or "default",
-                "recording_files": [
-                    {
-                        "file_type": "MP4",
-                        "file_size": file_size,
-                        "download_url": download_url,
-                        "recording_type": "shared_screen_with_speaker_view",
-                        "download_access_token": download_access_token,
-                    }
-                ],
-                "password": password,
-                "recording_play_passcode": passcode,
-            }
-        )
-        meeting_recording.db_id = recording.id
+        try:
+            if source_type in (SourceType.EXTERNAL_URL, SourceType.YOUTUBE, SourceType.YANDEX_DISK):
+                result = await _download_via_external(
+                    task_self,
+                    session,
+                    recording,
+                    recording_repo,
+                    user_id,
+                    user_slug,
+                    storage_builder,
+                    source_type,
+                    force,
+                )
+            else:
+                result = await _download_via_zoom(
+                    task_self,
+                    session,
+                    recording,
+                    recording_repo,
+                    user_id,
+                    user_slug,
+                    storage_builder,
+                    force,
+                )
 
-        task_self.update_progress(user_id, 40, "Starting download...", step="download")
+            await timing_service.complete_stage(timing, meta={"file_size": recording.video_file_size})
+            _update_pipeline_completed(recording)
+            await session.commit()
+            return result
 
-        # Set DOWNLOADING status BEFORE actual download starts
-        recording.status = ProcessingStatus.DOWNLOADING
+        except Exception as e:
+            await timing_service.fail_stage(timing, str(e))
+            await session.commit()
+            raise
+
+
+async def _download_via_external(
+    task_self,
+    session,
+    recording,
+    recording_repo,
+    user_id: str,
+    user_slug: int,
+    storage_builder: StoragePathBuilder,
+    source_type: str,
+    force: bool,
+) -> dict:
+    """Download via factory-based downloader (yt-dlp, Yandex Disk, etc.)."""
+    from api.auth.encryption import get_encryption
+    from api.repositories.auth_repos import UserCredentialRepository
+    from api.repositories.template_repos import InputSourceRepository
+
+    source_meta = recording.source.meta if recording.source and recording.source.meta else {}
+
+    task_self.update_progress(user_id=user_id, progress=30, status="Preparing download...", step="download")
+
+    # Yandex Disk OAuth token is stored encrypted, not in source_meta
+    oauth_token = None
+    if source_type == "YANDEX_DISK" and recording.source and recording.source.input_source_id:
+        source_repo = InputSourceRepository(session)
+        source = await source_repo.find_by_id(recording.source.input_source_id, user_id)
+        if source and source.credential_id:
+            cred_repo = UserCredentialRepository(session)
+            credential = await cred_repo.get_by_id(source.credential_id)
+            if credential:
+                encryption = get_encryption()
+                creds_data = encryption.decrypt_credentials(credential.encrypted_data)
+                oauth_token = creds_data.get("oauth_token")
+
+    downloader = create_downloader(
+        source_type=source_type,
+        user_slug=user_slug,
+        storage_builder=storage_builder,
+        oauth_token=oauth_token,
+    )
+
+    recording.status = ProcessingStatus.DOWNLOADING
+    await recording_repo.update(recording)
+    await session.commit()
+
+    task_self.update_progress(user_id=user_id, progress=50, status="Downloading video...", step="download")
+
+    result = await downloader.download(
+        recording_id=recording.id,
+        source_meta=source_meta,
+        force=force,
+    )
+
+    task_self.update_progress(user_id=user_id, progress=90, status="Updating database...", step="download")
+
+    try:
+        recording.local_video_path = str(result.file_path.relative_to(Path.cwd()))
+    except ValueError:
+        recording.local_video_path = str(result.file_path)
+    recording.status = ProcessingStatus.DOWNLOADED
+    recording.downloaded_at = datetime.now(UTC)
+    recording.video_file_size = result.file_size
+    await recording_repo.update(recording)
+    await session.commit()
+
+    return {"success": True, "local_video_path": recording.local_video_path}
+
+
+async def _download_via_zoom(
+    task_self,
+    session,
+    recording,
+    recording_repo,
+    user_id: str,
+    user_slug: int,
+    storage_builder: StoragePathBuilder,
+    force: bool,
+) -> dict:
+    """Download via Zoom API with token refresh."""
+    download_url = None
+    if recording.source and recording.source.meta:
+        download_url = recording.source.meta.get("download_url")
+
+    if not download_url:
+        raise ValueError("No download URL available. Please sync from Zoom first.")
+
+    task_self.update_progress(
+        user_id=user_id,
+        progress=30,
+        status="Downloading from Zoom...",
+        step="download",
+    )
+
+    downloader = ZoomDownloader(user_slug=user_slug, storage_builder=storage_builder)
+
+    meeting_id = recording.source.source_key if recording.source else str(recording.id)
+    file_size = recording.source.meta.get("file_size", 0) if recording.source and recording.source.meta else 0
+    passcode = (
+        recording.source.meta.get("recording_play_passcode") if recording.source and recording.source.meta else None
+    )
+    password = recording.source.meta.get("password") if recording.source and recording.source.meta else None
+    account = recording.source.meta.get("account") if recording.source and recording.source.meta else None
+
+    download_access_token = await _refresh_download_token_if_needed(
+        session, recording, user_id, meeting_id, force, task_self.request.id
+    )
+
+    meeting_recording = MeetingRecording(
+        {
+            "id": meeting_id,
+            "uuid": meeting_id,
+            "topic": recording.display_name,
+            "start_time": recording.start_time.isoformat(),
+            "duration": recording.duration or 0,
+            "account": account or "default",
+            "recording_files": [
+                {
+                    "file_type": "MP4",
+                    "file_size": file_size,
+                    "download_url": download_url,
+                    "recording_type": "shared_screen_with_speaker_view",
+                    "download_access_token": download_access_token,
+                }
+            ],
+            "password": password,
+            "recording_play_passcode": passcode,
+        }
+    )
+    meeting_recording.db_id = recording.id
+
+    task_self.update_progress(user_id, 40, "Starting download...", step="download")
+
+    # Set DOWNLOADING status BEFORE actual download starts
+    recording.status = ProcessingStatus.DOWNLOADING
+    await recording_repo.update(recording)
+    await session.commit()
+
+    task_self.update_progress(user_id, 50, "Downloading video file...", step="download")
+
+    # Download
+    success = await downloader.download_recording(meeting_recording, force_download=force)
+
+    if success:
+        task_self.update_progress(user_id, 90, "Updating database...", step="download")
+
+        recording.local_video_path = meeting_recording.local_video_path
+        recording.status = ProcessingStatus.DOWNLOADED
         await recording_repo.update(recording)
         await session.commit()
 
-        task_self.update_progress(user_id, 50, "Downloading video file...", step="download")
-
-        # Download
-        success = await downloader.download_recording(meeting_recording, force_download=force)
-
-        if success:
-            task_self.update_progress(user_id, 90, "Updating database...", step="download")
-
-            recording.local_video_path = meeting_recording.local_video_path
-            recording.status = ProcessingStatus.DOWNLOADED
-            await recording_repo.update(recording)
-            await session.commit()
-
-            return {
-                "success": True,
-                "local_video_path": recording.local_video_path,
-            }
-        raise Exception("Download failed")
+        return {
+            "success": True,
+            "local_video_path": recording.local_video_path,
+        }
+    raise Exception("Download failed")
 
 
 @celery_app.task(
@@ -426,117 +558,147 @@ async def _async_process_video(
         task_self.update_progress(user_id, 15, "Starting video trimming...", step="trim")
 
         # Mark TRIM stage as IN_PROGRESS
+        recording.mark_stage_in_progress(ProcessingStageType.TRIM)
+        update_aggregate_status(recording)
 
-        trim_stage = None
-        for stage in recording.processing_stages:
-            if stage.stage_type == ProcessingStageType.TRIM:
-                trim_stage = stage
-                break
-
-        if trim_stage:
-            trim_stage.status = ProcessingStageStatus.IN_PROGRESS
-            update_aggregate_status(recording)
-            await session.commit()
-
-        # Step 1: Extract full audio from original video
-        task_self.update_progress(user_id, 20, "Extracting audio from original video...", step="extract_audio")
-
-        temp_audio_path = Path(temp_dir) / f"{recording_id}_full_audio.mp3"
-        temp_audio_path.parent.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Extracting full audio: id={recording_id}")
-
-        success = await processor.extract_audio_full(recording.local_video_path, str(temp_audio_path))
-
-        if not success:
-            raise Exception("Failed to extract audio from video")
-
-        # Step 2: Analyze audio file (faster than video)
-        task_self.update_progress(user_id, 40, "Analyzing audio for silence...", step="analyze")
-
-        first_sound, last_sound = await processor.audio_detector.detect_audio_boundaries_from_file(str(temp_audio_path))
-
-        if first_sound is None:
-            if temp_audio_path.exists():
-                temp_audio_path.unlink()
-            raise Exception("Failed to detect audio start")
-
-        output_video_path = str(storage_builder.recording_video(user_slug, recording_id))
-        final_audio_path = str(storage_builder.recording_audio(user_slug, recording_id))
-        Path(output_video_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(final_audio_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Sound throughout entire video - skip trimming, reference original
-        if last_sound is None and first_sound == 0.0:
-            logger.info("Sound throughout entire video, skipping trim")
-            task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
-
-            output_video_path = recording.local_video_path
-            logger.info(f"Processed video path references original: {output_video_path}")
-
-            if Path(final_audio_path).exists():
-                Path(final_audio_path).unlink()
-            shutil.move(str(temp_audio_path), final_audio_path)
-            logger.info(f"Full audio saved: {final_audio_path}")
-
-        else:
-            # Normal case: trim video and audio
-            if last_sound is None:
-                if temp_audio_path.exists():
-                    temp_audio_path.unlink()
-                raise Exception("Failed to detect audio end")
-
-            start_trim = max(0, first_sound - padding_before)
-            end_trim = last_sound + padding_after
-
-            logger.info(f"Audio boundaries detected: {start_trim:.1f}s - {end_trim:.1f}s")
-
-            # Step 3: Trim video
-            task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
-
-            success = await processor.trim_video(recording.local_video_path, output_video_path, start_trim, end_trim)
-
-            if not success:
-                if temp_audio_path.exists():
-                    temp_audio_path.unlink()
-                raise Exception("Failed to trim video")
-
-            # Step 4: Trim audio (stream copy - instant)
-            task_self.update_progress(user_id, 80, "Trimming audio...", step="trim_audio")
-
-            success = await processor.trim_audio(str(temp_audio_path), final_audio_path, start_trim, end_trim)
-
-            if not success:
-                if temp_audio_path.exists():
-                    temp_audio_path.unlink()
-                raise Exception("Failed to trim audio")
-
-            if temp_audio_path.exists():
-                temp_audio_path.unlink()
-                logger.info(f"Temp audio cleaned: {temp_audio_path}")
-
-        # Step 5: Update database
-        task_self.update_progress(user_id, 90, "Updating database...", step="trim")
-
-        recording.processed_video_path = output_video_path
-        recording.processed_audio_path = final_audio_path
-
-        # Mark TRIM stage as COMPLETED
-        if trim_stage:
-            trim_stage.status = ProcessingStageStatus.COMPLETED
-            trim_stage.completed_at = datetime.now(UTC)
-            update_aggregate_status(recording)
-
-        await recording_repo.update(recording)
+        timing_service = TimingService(session)
+        timing = await timing_service.start_stage(recording_id, user_id, "TRIM")
         await session.commit()
 
-        logger.info(f"✅ Trimming complete: id={recording_id}, video={output_video_path}, audio={final_audio_path}")
+        try:
+            # Step 1: Extract full audio from original video
+            task_self.update_progress(user_id, 20, "Extracting audio from original video...", step="extract_audio")
 
-        return {
-            "success": True,
-            "processed_video_path": output_video_path,
-            "audio_path": final_audio_path,
-        }
+            sub_extract = await timing_service.start_substep(recording_id, user_id, "TRIM", "extract_audio")
+            await session.commit()
+
+            temp_audio_path = Path(temp_dir) / f"{recording_id}_full_audio.mp3"
+            temp_audio_path.parent.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Extracting full audio: id={recording_id}")
+
+            success = await processor.extract_audio_full(recording.local_video_path, str(temp_audio_path))
+
+            if not success:
+                raise Exception("Failed to extract audio from video")
+
+            await timing_service.complete_substep(sub_extract)
+            await session.commit()
+
+            # Step 2: Analyze audio file (faster than video)
+            task_self.update_progress(user_id, 40, "Analyzing audio for silence...", step="analyze")
+
+            sub_analyze = await timing_service.start_substep(recording_id, user_id, "TRIM", "analyze_silence")
+            await session.commit()
+
+            first_sound, last_sound = await processor.audio_detector.detect_audio_boundaries_from_file(
+                str(temp_audio_path)
+            )
+
+            if first_sound is None:
+                if temp_audio_path.exists():
+                    temp_audio_path.unlink()
+                raise Exception("Failed to detect audio start")
+
+            await timing_service.complete_substep(sub_analyze)
+            await session.commit()
+
+            output_video_path = str(storage_builder.recording_video(user_slug, recording_id))
+            final_audio_path = str(storage_builder.recording_audio(user_slug, recording_id))
+            Path(output_video_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(final_audio_path).parent.mkdir(parents=True, exist_ok=True)
+
+            # Sound throughout entire video - skip trimming, reference original
+            if last_sound is None and first_sound == 0.0:
+                logger.info("Sound throughout entire video, skipping trim")
+                task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
+
+                output_video_path = recording.local_video_path
+                logger.info(f"Processed video path references original: {output_video_path}")
+
+                if Path(final_audio_path).exists():
+                    Path(final_audio_path).unlink()
+                shutil.move(str(temp_audio_path), final_audio_path)
+                logger.info(f"Full audio saved: {final_audio_path}")
+
+            else:
+                # Normal case: trim video and audio
+                if last_sound is None:
+                    if temp_audio_path.exists():
+                        temp_audio_path.unlink()
+                    raise Exception("Failed to detect audio end")
+
+                start_trim = max(0, first_sound - padding_before)
+                end_trim = last_sound + padding_after
+
+                logger.info(f"Audio boundaries detected: {start_trim:.1f}s - {end_trim:.1f}s")
+
+                # Step 3: Trim video
+                task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
+
+                sub_trim_v = await timing_service.start_substep(recording_id, user_id, "TRIM", "trim_video")
+                await session.commit()
+
+                success = await processor.trim_video(
+                    recording.local_video_path, output_video_path, start_trim, end_trim
+                )
+
+                if not success:
+                    if temp_audio_path.exists():
+                        temp_audio_path.unlink()
+                    raise Exception("Failed to trim video")
+
+                await timing_service.complete_substep(sub_trim_v)
+                await session.commit()
+
+                # Step 4: Trim audio (stream copy - instant)
+                task_self.update_progress(user_id, 80, "Trimming audio...", step="trim_audio")
+
+                sub_trim_a = await timing_service.start_substep(recording_id, user_id, "TRIM", "trim_audio")
+                await session.commit()
+
+                success = await processor.trim_audio(str(temp_audio_path), final_audio_path, start_trim, end_trim)
+
+                if not success:
+                    if temp_audio_path.exists():
+                        temp_audio_path.unlink()
+                    raise Exception("Failed to trim audio")
+
+                await timing_service.complete_substep(sub_trim_a)
+                await session.commit()
+
+                if temp_audio_path.exists():
+                    temp_audio_path.unlink()
+                    logger.info(f"Temp audio cleaned: {temp_audio_path}")
+
+            # Step 5: Update database
+            task_self.update_progress(user_id, 90, "Updating database...", step="trim")
+
+            recording.processed_video_path = output_video_path
+            recording.processed_audio_path = final_audio_path
+
+            # Mark TRIM stage as COMPLETED
+            recording.mark_stage_completed(ProcessingStageType.TRIM)
+            update_aggregate_status(recording)
+
+            await timing_service.complete_stage(timing)
+            _update_pipeline_completed(recording)
+
+            await recording_repo.update(recording)
+            await session.commit()
+
+            logger.info(f"Trimming complete: id={recording_id}, video={output_video_path}, audio={final_audio_path}")
+
+            return {
+                "success": True,
+                "processed_video_path": output_video_path,
+                "audio_path": final_audio_path,
+            }
+
+        except Exception as e:
+            await timing_service.fail_stage(timing, str(e))
+            await session.commit()
+            raise
 
 
 @celery_app.task(
@@ -683,107 +845,121 @@ async def _async_transcribe_recording(
 
         # Mark TRANSCRIBE stage as IN_PROGRESS BEFORE actual transcription
         recording.mark_stage_in_progress(ProcessingStageType.TRANSCRIBE)
-        update_aggregate_status(recording)  # Will set ProcessingStatus.TRANSCRIBING
-        await recording_repo.update(recording)
-        await session.commit()
-
-        task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
-
-        # Compose prompt: user_prompt (from config) + display_name
-        fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording.display_name)
-
-        # Transcription through Fireworks API (ONLY transcription, WITHOUT topic extraction)
-        # Use language and temperature from resolved config
-        transcription_result = await fireworks_service.transcribe_audio(
-            audio_path=audio_path,
-            language=language,  # ← from resolved config
-            prompt=fireworks_prompt,
-        )
-
-        task_self.update_progress(user_id, 70, "Saving transcription...", step="transcribe")
-
-        # Save only master.json (WITHOUT topics.json)
-        transcription_manager = get_transcription_manager()
-        user_slug = recording.owner.user_slug
-        transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
-
-        # Prepare data for admin
-        words = transcription_result.get("words", [])
-        segments = transcription_result.get("segments", [])
-        detected_language = transcription_result.get("language", language)
-
-        # Calculate duration from last segment
-        duration = 0.0
-        if segments and len(segments) > 0:
-            last_segment = segments[-1]
-            duration = last_segment.get("end", 0.0)
-
-        # Collect metadata for admin (for cost calculation)
-        usage_metadata = {
-            "model": fireworks_config.model,
-            "prompt_used": fireworks_prompt,
-            "config": {
-                "temperature": temperature,  # ← from resolved config
-                "language": language,  # ← from resolved config
-                "detected_language": detected_language,
-                "response_format": fireworks_config.response_format,
-                "timestamp_granularities": fireworks_config.timestamp_granularities,
-                "preprocessing": fireworks_config.preprocessing,
-            },
-            "audio_file": {
-                "path": str(audio_path),  # Convert Path to string for JSON serialization
-                "duration_seconds": duration,
-            },
-            # If Fireworks API returns usage, add here
-            "usage": transcription_result.get("usage"),
-        }
-
-        # Save master.json
-        transcription_manager.save_master(
-            recording_id=recording_id,
-            words=words,
-            segments=segments,
-            language=language,
-            model="fireworks",
-            duration=duration,
-            usage_metadata=usage_metadata,
-            user_slug=user_slug,
-            raw_response=transcription_result,
-        )
-
-        # Generate cache files (segments.txt, words.txt)
-        transcription_manager.generate_cache_files(recording_id, user_slug)
-
-        task_self.update_progress(user_id, 90, "Updating database...", step="transcribe")
-
-        # Update recording in DB (without topics)
-        recording.transcription_dir = str(transcription_dir)
-        recording.transcription_info = transcription_result
-
-        # Mark transcription stage as completed
-        recording.mark_stage_completed(
-            ProcessingStageType.TRANSCRIBE,
-            meta={"transcription_dir": str(transcription_dir), "language": language, "model": "fireworks"},
-        )
-
-        # Update aggregated status based on processing_stages (aggregate status)
         update_aggregate_status(recording)
 
+        timing_service = TimingService(session)
+        timing = await timing_service.start_stage(
+            recording_id,
+            user_id,
+            "TRANSCRIBE",
+            meta={"language": language, "model": "fireworks"},
+        )
         await recording_repo.update(recording)
         await session.commit()
 
-        logger.info(
-            f"✅ Transcription completed for recording {recording_id} (aggregate status): "
-            f"words={len(words)}, segments={len(segments)}, language={language}"
-        )
+        try:
+            task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
 
-        return {
-            "success": True,
-            "transcription_dir": str(transcription_dir),
-            "language": language,
-            "words_count": len(words),
-            "segments_count": len(segments),
-        }
+            # Compose prompt: user_prompt (from config) + display_name
+            fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording.display_name)
+
+            # Transcription through Fireworks API (ONLY transcription, WITHOUT topic extraction)
+            transcription_result = await fireworks_service.transcribe_audio(
+                audio_path=audio_path,
+                language=language,
+                prompt=fireworks_prompt,
+            )
+
+            task_self.update_progress(user_id, 70, "Saving transcription...", step="transcribe")
+
+            # Save only master.json (WITHOUT topics.json)
+            transcription_manager = get_transcription_manager()
+            user_slug = recording.owner.user_slug
+            transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
+
+            # Prepare data for admin
+            words = transcription_result.get("words", [])
+            segments = transcription_result.get("segments", [])
+            detected_language = transcription_result.get("language", language)
+
+            # Calculate duration from last segment
+            duration = 0.0
+            if segments and len(segments) > 0:
+                last_segment = segments[-1]
+                duration = last_segment.get("end", 0.0)
+
+            # Collect metadata for admin (for cost calculation)
+            usage_metadata = {
+                "model": fireworks_config.model,
+                "prompt_used": fireworks_prompt,
+                "config": {
+                    "temperature": temperature,
+                    "language": language,
+                    "detected_language": detected_language,
+                    "response_format": fireworks_config.response_format,
+                    "timestamp_granularities": fireworks_config.timestamp_granularities,
+                    "preprocessing": fireworks_config.preprocessing,
+                },
+                "audio_file": {
+                    "path": str(audio_path),
+                    "duration_seconds": duration,
+                },
+                "usage": transcription_result.get("usage"),
+            }
+
+            # Save master.json
+            transcription_manager.save_master(
+                recording_id=recording_id,
+                words=words,
+                segments=segments,
+                language=language,
+                model="fireworks",
+                duration=duration,
+                usage_metadata=usage_metadata,
+                user_slug=user_slug,
+                raw_response=transcription_result,
+            )
+
+            # Generate cache files (segments.txt, words.txt)
+            transcription_manager.generate_cache_files(recording_id, user_slug)
+
+            task_self.update_progress(user_id, 90, "Updating database...", step="transcribe")
+
+            # Update recording in DB (without topics)
+            recording.transcription_dir = str(transcription_dir)
+            recording.transcription_info = transcription_result
+
+            # Mark transcription stage as completed
+            recording.mark_stage_completed(
+                ProcessingStageType.TRANSCRIBE,
+                meta={"transcription_dir": str(transcription_dir), "language": language, "model": "fireworks"},
+            )
+
+            update_aggregate_status(recording)
+
+            await timing_service.complete_stage(timing, meta={"language": language, "words": len(words)})
+            _update_pipeline_completed(recording)
+
+            await recording_repo.update(recording)
+            await session.commit()
+
+            logger.info(
+                f"Transcription completed for recording {recording_id}: "
+                f"words={len(words)}, segments={len(segments)}, language={language}"
+            )
+
+            return {
+                "success": True,
+                "transcription_dir": str(transcription_dir),
+                "language": language,
+                "words_count": len(words),
+                "segments_count": len(segments),
+            }
+
+        except Exception as e:
+            await timing_service.fail_stage(timing, str(e))
+            await session.commit()
+            raise
 
 
 @celery_app.task(
@@ -935,6 +1111,19 @@ def run_recording_task(
                 return full_config, output_config, recording, presets
 
         full_config, output_config, recording, presets = self.run_async(_resolve_pipeline_config())
+
+        # Set pipeline_started_at
+        async def _set_pipeline_started():
+            async with session_maker() as session:
+                recording_repo = RecordingRepository(session)
+                rec = await recording_repo.get_by_id(recording_id, user_id)
+                if rec:
+                    rec.pipeline_started_at = datetime.now(UTC)
+                    rec.pipeline_completed_at = None
+                    rec.pipeline_duration_seconds = None
+                    await session.commit()
+
+        self.run_async(_set_pipeline_started())
 
         # Check blank_record
         if recording.blank_record:
@@ -1171,40 +1360,24 @@ async def _async_extract_topics(
 
         recording.mark_stage_in_progress(ProcessingStageType.EXTRACT_TOPICS)
         update_aggregate_status(recording)
+
+        timing_service = TimingService(session)
+        timing = await timing_service.start_stage(recording_id, user_id, "EXTRACT_TOPICS")
         await recording_repo.update(recording)
         await session.commit()
 
-        # Try extracting topics with fallback strategy
-        topics_result = None
-        model_used = None
-        last_error = None
-
-        # Strategy 1: DeepSeek (primary model)
         try:
-            logger.info(f"[Topics] Trying primary model: deepseek for recording {recording_id}")
-            task_self.update_progress(user_id, 40, "Extracting topics (deepseek)...", step="extract_topics")
+            # Try extracting topics with fallback strategy
+            topics_result = None
+            model_used = None
+            last_error = None
 
-            deepseek_config = DeepSeekConfig.from_file("config/deepseek_creds.json")
-            topic_extractor = TopicExtractor(deepseek_config)
-
-            topics_result = await topic_extractor.extract_topics_from_file(
-                segments_file_path=str(segments_path),
-                recording_topic=recording.display_name,
-                granularity=granularity,
-            )
-            model_used = "deepseek"
-            logger.info(f"[Topics] Successfully extracted with deepseek for recording {recording_id}")
-
-        except Exception as e:
-            logger.warning(f"[Topics] DeepSeek failed for recording {recording_id}: {e}. Trying fallback...")
-            last_error = e
-
-            # Strategy 2: Fireworks DeepSeek (fallback)
+            # Strategy 1: DeepSeek (primary model)
             try:
-                logger.info(f"[Topics] Trying fallback model: fireworks_deepseek for recording {recording_id}")
-                task_self.update_progress(user_id, 50, "Extracting topics (fallback)...", step="extract_topics")
+                logger.info(f"[Topics] Trying primary model: deepseek for recording {recording_id}")
+                task_self.update_progress(user_id, 40, "Extracting topics (deepseek)...", step="extract_topics")
 
-                deepseek_config = DeepSeekConfig.from_file("config/deepseek_fireworks_creds.json")
+                deepseek_config = DeepSeekConfig.from_file("config/deepseek_creds.json")
                 topic_extractor = TopicExtractor(deepseek_config)
 
                 topics_result = await topic_extractor.extract_topics_from_file(
@@ -1212,72 +1385,95 @@ async def _async_extract_topics(
                     recording_topic=recording.display_name,
                     granularity=granularity,
                 )
-                model_used = "fireworks_deepseek"
-                logger.info(f"[Topics] Successfully extracted with fireworks_deepseek for recording {recording_id}")
+                model_used = "deepseek"
+                logger.info(f"[Topics] Successfully extracted with deepseek for recording {recording_id}")
 
-            except Exception as e2:
-                logger.error(f"[Topics] All models failed for recording {recording_id}. Last error: {e2}")
-                raise ValueError(f"Failed to extract topics with all models. Primary: {last_error}, Fallback: {e2}")
+            except Exception as e:
+                logger.warning(f"[Topics] DeepSeek failed for recording {recording_id}: {e}. Trying fallback...")
+                last_error = e
 
-        if not topics_result:
-            raise ValueError("Failed to extract topics: no result returned")
+                # Strategy 2: Fireworks DeepSeek (fallback)
+                try:
+                    logger.info(f"[Topics] Trying fallback model: fireworks_deepseek for recording {recording_id}")
+                    task_self.update_progress(user_id, 50, "Extracting topics (fallback)...", step="extract_topics")
 
-        task_self.update_progress(user_id, 80, "Saving topics...", step="extract_topics")
+                    deepseek_config = DeepSeekConfig.from_file("config/deepseek_fireworks_creds.json")
+                    topic_extractor = TopicExtractor(deepseek_config)
 
-        # Generate version_id if not specified
-        if not version_id:
-            version_id = transcription_manager.generate_version_id(recording_id, user_slug)
+                    topics_result = await topic_extractor.extract_topics_from_file(
+                        segments_file_path=str(segments_path),
+                        recording_topic=recording.display_name,
+                        granularity=granularity,
+                    )
+                    model_used = "fireworks_deepseek"
+                    logger.info(f"[Topics] Successfully extracted with fireworks_deepseek for recording {recording_id}")
 
-        # Collect metadata for admin
-        usage_metadata = {
-            "model": model_used,
-            "prompt_used": "See TopicExtractor code for prompt generation",
-            "config": {
-                "temperature": deepseek_config.temperature if deepseek_config else None,
-                "max_tokens": deepseek_config.max_tokens if deepseek_config else None,
-            },
-            # Here you can add usage from API response, if available
-        }
+                except Exception as e2:
+                    logger.error(f"[Topics] All models failed for recording {recording_id}. Last error: {e2}")
+                    raise ValueError(f"Failed to extract topics with all models. Primary: {last_error}, Fallback: {e2}")
 
-        # Save in topics.json
-        transcription_manager.add_topics_version(
-            recording_id=recording_id,
-            version_id=version_id,
-            model=model_used,
-            granularity=granularity,
-            main_topics=topics_result.get("main_topics", []),
-            topic_timestamps=topics_result.get("topic_timestamps", []),
-            pauses=topics_result.get("long_pauses", []),
-            is_active=True,
-            usage_metadata=usage_metadata,
-            user_slug=user_slug,
-        )
+            if not topics_result:
+                raise ValueError("Failed to extract topics: no result returned")
 
-        # Update recording in DB (active version)
-        recording.topic_timestamps = topics_result.get("topic_timestamps", [])
-        recording.main_topics = topics_result.get("main_topics", [])
+            task_self.update_progress(user_id, 80, "Saving topics...", step="extract_topics")
 
-        # Mark topic extraction stage as completed
-        recording.mark_stage_completed(
-            ProcessingStageType.EXTRACT_TOPICS,
-            meta={"version_id": version_id, "granularity": granularity, "model": model_used},
-        )
+            # Generate version_id if not specified
+            if not version_id:
+                version_id = transcription_manager.generate_version_id(recording_id, user_slug)
 
-        # Update aggregated status
-        from api.helpers.status_manager import update_aggregate_status
+            # Collect metadata for admin
+            usage_metadata = {
+                "model": model_used,
+                "prompt_used": "See TopicExtractor code for prompt generation",
+                "config": {
+                    "temperature": deepseek_config.temperature if deepseek_config else None,
+                    "max_tokens": deepseek_config.max_tokens if deepseek_config else None,
+                },
+            }
 
-        update_aggregate_status(recording)
+            # Save in topics.json
+            transcription_manager.add_topics_version(
+                recording_id=recording_id,
+                version_id=version_id,
+                model=model_used,
+                granularity=granularity,
+                main_topics=topics_result.get("main_topics", []),
+                topic_timestamps=topics_result.get("topic_timestamps", []),
+                pauses=topics_result.get("long_pauses", []),
+                is_active=True,
+                usage_metadata=usage_metadata,
+                user_slug=user_slug,
+            )
 
-        await recording_repo.update(recording)
-        await session.commit()
+            # Update recording in DB (active version)
+            recording.topic_timestamps = topics_result.get("topic_timestamps", [])
+            recording.main_topics = topics_result.get("main_topics", [])
 
-        # Don't show model to user, only results
-        return {
-            "success": True,
-            "version_id": version_id,
-            "topics_count": len(topics_result.get("topic_timestamps", [])),
-            "main_topics": topics_result.get("main_topics", []),
-        }
+            # Mark topic extraction stage as completed
+            recording.mark_stage_completed(
+                ProcessingStageType.EXTRACT_TOPICS,
+                meta={"version_id": version_id, "granularity": granularity, "model": model_used},
+            )
+
+            update_aggregate_status(recording)
+
+            await timing_service.complete_stage(timing, meta={"model": model_used, "granularity": granularity})
+            _update_pipeline_completed(recording)
+
+            await recording_repo.update(recording)
+            await session.commit()
+
+            return {
+                "success": True,
+                "version_id": version_id,
+                "topics_count": len(topics_result.get("topic_timestamps", [])),
+                "main_topics": topics_result.get("main_topics", []),
+            }
+
+        except Exception as e:
+            await timing_service.fail_stage(timing, str(e))
+            await session.commit()
+            raise
 
 
 @celery_app.task(
@@ -1356,39 +1552,48 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
 
         recording.mark_stage_in_progress(ProcessingStageType.GENERATE_SUBTITLES)
         update_aggregate_status(recording)
+
+        timing_service = TimingService(session)
+        timing = await timing_service.start_stage(recording_id, user_id, "GENERATE_SUBTITLES")
         await recording_repo.update(recording)
         await session.commit()
 
-        task_self.update_progress(user_id, 40, "Generating subtitles...", step="generate_subtitles")
+        try:
+            task_self.update_progress(user_id, 40, "Generating subtitles...", step="generate_subtitles")
 
-        # Generate subtitles
-        subtitle_paths = transcription_manager.generate_subtitles(
-            recording_id=recording_id,
-            formats=formats,
-            user_slug=user_slug,
-        )
+            # Generate subtitles
+            subtitle_paths = transcription_manager.generate_subtitles(
+                recording_id=recording_id,
+                formats=formats,
+                user_slug=user_slug,
+            )
 
-        task_self.update_progress(user_id, 90, "Saving results...", step="generate_subtitles")
+            task_self.update_progress(user_id, 90, "Saving results...", step="generate_subtitles")
 
-        # Update recording in DB
-        recording.mark_stage_completed(
-            ProcessingStageType.GENERATE_SUBTITLES,
-            meta={"formats": formats, "files": subtitle_paths},
-        )
+            # Update recording in DB
+            recording.mark_stage_completed(
+                ProcessingStageType.GENERATE_SUBTITLES,
+                meta={"formats": formats, "files": subtitle_paths},
+            )
 
-        # Update aggregated status
-        from api.helpers.status_manager import update_aggregate_status
+            update_aggregate_status(recording)
 
-        update_aggregate_status(recording)
+            await timing_service.complete_stage(timing, meta={"formats": formats})
+            _update_pipeline_completed(recording)
 
-        await recording_repo.update(recording)
-        await session.commit()
+            await recording_repo.update(recording)
+            await session.commit()
 
-        return {
-            "success": True,
-            "formats": formats,
-            "files": subtitle_paths,
-        }
+            return {
+                "success": True,
+                "formats": formats,
+                "files": subtitle_paths,
+            }
+
+        except Exception as e:
+            await timing_service.fail_stage(timing, str(e))
+            await session.commit()
+            raise
 
 
 @celery_app.task(
@@ -1508,10 +1713,59 @@ async def _async_poll_batch_transcription(
         # Mark TRANSCRIBE stage as IN_PROGRESS
         recording_db.mark_stage_in_progress(ProcessingStageType.TRANSCRIBE)
         update_aggregate_status(recording_db)
+
+        timing_service = TimingService(session)
+        timing = await timing_service.start_stage(
+            recording_id,
+            user_id,
+            "TRANSCRIBE",
+            meta={"batch_id": batch_id, "model": "fireworks"},
+        )
+        timing_id = timing.id
+
         await recording_repo.update(recording_db)
         await session.commit()
 
     # Phase 2: Poll (no DB session held open)
+    try:
+        return await _batch_transcribe_poll_and_save(
+            task_self,
+            session_maker,
+            fireworks_config,
+            fireworks_service,
+            recording_id,
+            user_id,
+            user_slug,
+            batch_id,
+            timing_id,
+            poll_interval,
+            max_wait_time,
+        )
+    except Exception as e:
+        # Record timing failure in a fresh session
+        async with session_maker() as session:
+            ts = TimingService(session)
+            t = await ts.get_by_id(timing_id)
+            if t and t.status == "IN_PROGRESS":
+                await ts.fail_stage(t, str(e))
+                await session.commit()
+        raise
+
+
+async def _batch_transcribe_poll_and_save(
+    task_self,
+    session_maker,
+    fireworks_config,
+    fireworks_service,
+    recording_id: int,
+    user_id: str,
+    user_slug: int,
+    batch_id: str,
+    timing_id: int,
+    poll_interval: float,
+    max_wait_time: float,
+) -> dict:
+    """Poll batch transcription status, parse result, save to disk and DB."""
     task_self.update_progress(user_id, 15, "Waiting for batch transcription...", step="batch_transcribe")
 
     start_time = time.time()
@@ -1626,6 +1880,15 @@ async def _async_poll_batch_transcription(
             },
         )
         update_aggregate_status(recording_db)
+
+        # Complete timing row from Phase 1
+        timing_service = TimingService(session)
+        timing = await timing_service.get_by_id(timing_id)
+        if timing:
+            await timing_service.complete_stage(
+                timing, meta={"batch_id": batch_id, "language": language, "words": len(words)}
+            )
+        _update_pipeline_completed(recording_db)
 
         await recording_repo.update(recording_db)
         await session.commit()

@@ -22,10 +22,9 @@ class TestListRecordings:
             create_mock_recording(record_id=2, display_name="Recording 2", user_id=mock_user.id),
         ]
 
-        # Mock repository method
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_user = AsyncMock(return_value=mock_recordings)
+        mock_repo_instance.list_filtered = AsyncMock(return_value=(mock_recordings, 2))
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -44,7 +43,7 @@ class TestListRecordings:
         # Arrange
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_user = AsyncMock(return_value=[])
+        mock_repo_instance.list_filtered = AsyncMock(return_value=([], 0))
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -71,7 +70,7 @@ class TestListRecordings:
 
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_user = AsyncMock(return_value=mock_recordings)
+        mock_repo_instance.list_filtered = AsyncMock(return_value=(mock_recordings, 1))
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -97,7 +96,7 @@ class TestListRecordings:
 
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_user = AsyncMock(return_value=mock_recordings)
+        mock_repo_instance.list_filtered = AsyncMock(return_value=(mock_recordings, 1))
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -111,16 +110,15 @@ class TestListRecordings:
 
     def test_list_recordings_with_search(self, client, mocker, mock_user):
         """Test searching recordings by display_name."""
-        # Arrange
+        # Arrange (repository now handles filtering, so mock returns pre-filtered results)
         mock_recordings = [
             create_mock_recording(record_id=1, display_name="Python Lecture 1", user_id=mock_user.id),
             create_mock_recording(record_id=2, display_name="Python Lecture 2", user_id=mock_user.id),
-            create_mock_recording(record_id=3, display_name="Math Course", user_id=mock_user.id),
         ]
 
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_user = AsyncMock(return_value=mock_recordings)
+        mock_repo_instance.list_filtered = AsyncMock(return_value=(mock_recordings, 2))
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -133,15 +131,15 @@ class TestListRecordings:
 
     def test_list_recordings_pagination(self, client, mocker, mock_user):
         """Test pagination of recordings list."""
-        # Arrange
+        # Arrange (repository now handles pagination, mock returns one page)
         mock_recordings = [
             create_mock_recording(record_id=i, display_name=f"Recording {i}", user_id=mock_user.id)
-            for i in range(1, 26)
+            for i in range(1, 11)
         ]
 
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_user = AsyncMock(return_value=mock_recordings)
+        mock_repo_instance.list_filtered = AsyncMock(return_value=(mock_recordings, 25))
         mock_repo.return_value = mock_repo_instance
 
         # Act - page 1
@@ -165,7 +163,7 @@ class TestListRecordings:
 
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_user = AsyncMock(return_value=mock_recordings)
+        mock_repo_instance.list_filtered = AsyncMock(return_value=(mock_recordings, 1))
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -173,8 +171,10 @@ class TestListRecordings:
 
         # Assert
         assert response.status_code == 200
-        # Verify include_deleted=False was passed to repository
-        mock_repo_instance.list_by_user.assert_called_once()
+        # Verify list_filtered was called with include_deleted=False
+        mock_repo_instance.list_filtered.assert_called_once()
+        call_kwargs = mock_repo_instance.list_filtered.call_args
+        assert call_kwargs.kwargs.get("include_deleted") is False
 
 
 @pytest.mark.unit

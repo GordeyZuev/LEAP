@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -29,6 +30,18 @@ class ZoomResponseError(ZoomAPIError):
 
 class ZoomRecordingProcessingError(ZoomAPIError):
     """Запись ещё обрабатывается на стороне Zoom (код 3301)."""
+
+
+def _encode_meeting_uuid(meeting_id: str) -> str:
+    """
+    Encode meeting UUID for use in Zoom API URL path.
+
+    Per Zoom API docs: if the meeting UUID begins with '/' or contains '//',
+    it must be double-encoded before making an API request.
+    """
+    if meeting_id.startswith("/") or "//" in meeting_id:
+        return quote(quote(meeting_id, safe=""), safe="")
+    return quote(meeting_id, safe="")
 
 
 class ZoomAPI:
@@ -68,8 +81,9 @@ class ZoomAPI:
         from_date: str = "2025-01-01",
         to_date: str | None = None,
         meeting_id: str | None = None,
+        user_id: str = "me",
     ) -> dict[str, Any]:
-        """Получение списка записей."""
+        """Fetch recordings list. user_id can be 'me', email, or Zoom user ID."""
         access_token = await self.get_access_token()
         if not access_token:
             raise ZoomAuthenticationError("Не удалось получить access token")
@@ -84,14 +98,14 @@ class ZoomAPI:
 
         try:
             logger.info(
-                f"Fetching recordings: from={from_date} | to={to_date} | meeting_id={meeting_id}",
+                f"Fetching recordings: user={user_id} | from={from_date} | to={to_date}",
+                user_id=user_id,
                 from_date=from_date,
                 to_date=to_date,
-                meeting_id=meeting_id,
             )
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    "https://api.zoom.us/v2/users/me/recordings",
+                    f"https://api.zoom.us/v2/users/{user_id}/recordings",
                     headers={"Authorization": f"Bearer {access_token}"},
                     params=params,
                 )
@@ -155,9 +169,10 @@ class ZoomAPI:
                 # ttl in seconds: 86400 = 24 hours (max is 604800 = 7 days)
                 params = {"include_fields": "download_access_token", "ttl": "604800"}
 
+            encoded_id = _encode_meeting_uuid(meeting_id)
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"https://api.zoom.us/v2/meetings/{meeting_id}/recordings",
+                    f"https://api.zoom.us/v2/meetings/{encoded_id}/recordings",
                     headers={"Authorization": f"Bearer {access_token}"},
                     params=params,
                 )

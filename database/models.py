@@ -5,8 +5,10 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -87,6 +89,11 @@ class RecordingModel(Base):
     failed_at_stage: Mapped[str | None] = mapped_column(String(50))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # --- Pipeline timing ---
+    pipeline_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pipeline_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pipeline_duration_seconds: Mapped[float | None] = mapped_column(Float)
+
     # --- Pause state ---
     on_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     pause_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -129,6 +136,12 @@ class RecordingModel(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    stage_timings: Mapped[list["StageTimingModel"]] = relationship(
+        "StageTimingModel",
+        back_populates="recording",
+        cascade="all, delete-orphan",
+        lazy="noload",
+    )
 
     def _get_or_create_stage(self, stage_type: ProcessingStageType) -> "ProcessingStageModel":
         """Get existing stage or create new one."""
@@ -149,6 +162,7 @@ class RecordingModel(Base):
         """Mark stage as in progress."""
         stage = self._get_or_create_stage(stage_type)
         stage.status = ProcessingStageStatus.IN_PROGRESS
+        stage.started_at = datetime.now(UTC)
         stage.failed = False
 
     def mark_stage_completed(self, stage_type: ProcessingStageType, meta: dict[str, Any] | None = None) -> None:
@@ -231,6 +245,7 @@ class OutputTargetModel(Base):
     target_type: Mapped[str] = mapped_column(Enum(TargetType))
     status: Mapped[str] = mapped_column(Enum(TargetStatus), default=TargetStatus.NOT_UPLOADED)
     target_meta: Mapped[Any | None] = mapped_column(JSONB)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # --- Failure tracking ---
@@ -273,6 +288,7 @@ class ProcessingStageModel(Base):
         Enum(ProcessingStageStatus, name="processingstagestatus"), default=ProcessingStageStatus.PENDING
     )
     stage_meta: Mapped[Any | None] = mapped_column(JSONB)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # --- Failure tracking ---
@@ -296,4 +312,46 @@ class ProcessingStageModel(Base):
         return (
             f"<ProcessingStage(id={self.id}, recording_id={self.recording_id}, "
             f"stage_type={self.stage_type}, status={self.status})>"
+        )
+
+
+class StageTimingModel(Base):
+    """Append-only audit/analytics table for pipeline stage timing."""
+
+    __tablename__ = "stage_timings"
+
+    __table_args__ = (Index("ix_stage_timings_recording_stage", "recording_id", "stage_type"),)
+
+    # --- PK & FK ---
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+
+    # --- Timing info ---
+    stage_type: Mapped[str] = mapped_column(String(50), index=True)
+    substep: Mapped[str | None] = mapped_column(String(100))
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duration_seconds: Mapped[float | None] = mapped_column(Float)
+
+    status: Mapped[str] = mapped_column(String(20), default="IN_PROGRESS")
+    error_message: Mapped[str | None] = mapped_column(String(1000))
+    meta: Mapped[Any | None] = mapped_column(JSONB)
+
+    # --- Timestamps ---
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    recording: Mapped["RecordingModel"] = relationship(
+        "RecordingModel", back_populates="stage_timings", lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<StageTiming(id={self.id}, recording_id={self.recording_id}, "
+            f"stage_type={self.stage_type}, substep={self.substep}, "
+            f"duration={self.duration_seconds}s)>"
         )

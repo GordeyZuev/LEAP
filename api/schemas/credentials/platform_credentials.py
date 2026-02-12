@@ -95,11 +95,16 @@ class VKCredentialsManual(BaseModel):
     expires_in: int | None = Field(None, description="Token expiry in seconds")
     expiry: str | None = Field(None, description="Token expiry (ISO format)")
 
-    # Legacy fields (optional)
     group_id: str | None = Field(None, description="VK group ID for posting")
     album_id: str | None = Field(None, description="VK album ID")
-    app_id: str | None = Field(None, description="VK app ID (legacy)")
-    scope: str | None = Field(None, description="VK scopes (legacy)")
+    app_id: str | None = Field(None, description="VK app ID (for Implicit Flow)")
+    scope: str | None = Field(None, description="VK scopes")
+
+
+class YandexDiskCredentialsManual(BaseModel):
+    """Yandex Disk credentials for OAuth API access."""
+
+    oauth_token: str = Field(..., description="Yandex OAuth token", min_length=10)
 
 
 class ZoomCredentialsManual(BaseModel):
@@ -109,6 +114,9 @@ class ZoomCredentialsManual(BaseModel):
     Supports two formats:
     1. Server-to-Server OAuth (account_id + client_id + client_secret)
     2. OAuth 2.0 with tokens (access_token + refresh_token)
+
+    Master Account mode (is_master_account=True) requires Server-to-Server OAuth.
+    User emails for sub-accounts are configured in ZoomSourceConfig.user_emails.
     """
 
     # Server-to-Server OAuth fields
@@ -116,6 +124,12 @@ class ZoomCredentialsManual(BaseModel):
     client_id: str | None = Field(None, description="Zoom client ID", min_length=5)
     client_secret: str | None = Field(None, description="Zoom client secret", min_length=10)
     account: str | None = Field(None, description="Account name for identification")
+
+    # Master Account flag
+    is_master_account: bool = Field(
+        False,
+        description="Master Account (can sync sub-account recordings via user_emails in source config)",
+    )
 
     # OAuth 2.0 fields
     access_token: str | None = Field(None, description="Zoom OAuth access token", min_length=10)
@@ -134,7 +148,7 @@ class ZoomCredentialsManual(BaseModel):
         return v.strip() if v else None
 
     def model_post_init(self, __context):
-        """Validate that either Server-to-Server or OAuth format is provided."""
+        """Validate credentials format and Master Account constraints."""
         has_server_to_server = bool(self.account_id and self.client_id and self.client_secret)
         has_oauth = bool(self.access_token)
 
@@ -143,3 +157,6 @@ class ZoomCredentialsManual(BaseModel):
                 "Either Server-to-Server credentials (account_id, client_id, client_secret) "
                 "or OAuth credentials (access_token) must be provided"
             )
+
+        if self.is_master_account and not has_server_to_server:
+            raise ValueError("Master Account must use Server-to-Server OAuth (account_id, client_id, client_secret)")

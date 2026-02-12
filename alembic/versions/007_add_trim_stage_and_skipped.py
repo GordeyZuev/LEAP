@@ -7,7 +7,7 @@ Create Date: 2026-01-28 00:00:00.000000
 Changes:
 - Add skip_reason column to processing_stages table
 - Update recordings: TRANSCRIBING → PROCESSING, TRANSCRIBED/PREPARING → PROCESSED
-- PostgreSQL string-based enums don't require migration for new values (TRIM, SKIPPED)
+- BUG: TRIM was NOT added to processingstagetype PG enum here (fixed in migration 014)
 
 """
 

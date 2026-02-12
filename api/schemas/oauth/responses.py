@@ -37,3 +37,15 @@ class OAuthImplicitFlowResponse(BaseModel):
         None,
         description="Final redirect URI where token will appear in URL hash fragment (e.g., 'https://oauth.vk.com/blank.html')",
     )
+
+
+class VKImplicitFlowCallbackResponse(BaseModel):
+    """Response after saving VK Implicit Flow credentials."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    credential_id: int = Field(..., description="Saved credential ID")
+    account_name: str = Field(..., description="Resolved VK account name")
+    user_id: int | None = Field(None, description="VK user ID from token")
+    expires_in: int | None = Field(None, description="Token TTL in seconds")
+    message: str = Field(..., description="Status message")

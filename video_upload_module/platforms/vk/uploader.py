@@ -31,7 +31,7 @@ class VKUploader(BaseUploader):
         if self.credential_provider:
             return await self._authenticate_with_provider()
 
-        return await self._authenticate_legacy()
+        return await self._authenticate_with_token()
 
     async def _authenticate_with_provider(self) -> bool:
         """Authenticate using credential provider (DB mode)."""
@@ -55,9 +55,13 @@ class VKUploader(BaseUploader):
             needs_refresh = False
             if expiry_str:
                 try:
+                    import re
                     from datetime import datetime
 
-                    expiry = datetime.fromisoformat(expiry_str.replace("Z", "+00:00"))
+                    # Normalise: strip duplicate tz offsets (e.g. +00:00+00:00) and trailing Z
+                    cleaned = re.sub(r"([+-]\d{2}:\d{2})+Z?$", r"\1", expiry_str)
+                    cleaned = cleaned.replace("Z", "+00:00")
+                    expiry = datetime.fromisoformat(cleaned)
                     now = datetime.now(UTC)
                     if expiry <= now or (expiry - now).total_seconds() < 300:
                         needs_refresh = True
@@ -83,8 +87,8 @@ class VKUploader(BaseUploader):
             logger.error(f"Error authenticating with credential provider: {e}")
             return False
 
-    async def _authenticate_legacy(self) -> bool:
-        """Legacy file-based authentication mode."""
+    async def _authenticate_with_token(self) -> bool:
+        """Authenticate using pre-configured access token."""
         if not self.config.access_token:
             logger.error(
                 "VK access_token not found. Use OAuth 2.0 flow via API (GET /oauth/vk/authorize) to obtain credentials."

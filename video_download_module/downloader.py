@@ -1,23 +1,20 @@
-import asyncio
+"""Zoom video downloader with resume support."""
+
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
-import httpx
-
-from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 from models import MeetingRecording, ProcessingStatus
+
+from .core.base import BaseDownloader, DownloadResult
 
 logger = get_logger()
 
 
-class ZoomDownloader:
+class ZoomDownloader(BaseDownloader):
     """Downloads Zoom recordings with resume support and ID-based storage paths."""
-
-    def __init__(self, user_slug: int, storage_builder: StoragePathBuilder | None = None):
-        self.user_slug = user_slug
-        self.storage = storage_builder or StoragePathBuilder()
 
     def _encode_download_url(self, url: str) -> str:
         """Double-encode URLs with special chars per Zoom API requirements."""
@@ -26,184 +23,94 @@ class ZoomDownloader:
             return quote(encoded, safe="/:")
         return url
 
-    async def download_file(
+    def _build_zoom_auth(
         self,
-        url: str,
-        filepath: Path,
-        description: str = "file",
-        expected_size: int | None = None,
         password: str | None = None,
         passcode: str | None = None,
         download_access_token: str | None = None,
         oauth_token: str | None = None,
-        max_retries: int = 10,
-    ) -> bool:
-        """Download with resume support and exponential backoff retry."""
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """Build Zoom-specific auth headers and params."""
+        headers: dict[str, str] = {}
+        params: dict[str, str] = {}
 
-        for attempt in range(max_retries):
-            try:
-                if attempt > 0:
-                    logger.info(f"Retry {attempt + 1}/{max_retries}: {description}")
+        if oauth_token:
+            headers["Authorization"] = f"Bearer {oauth_token}"
+        elif download_access_token:
+            headers["Authorization"] = f"Bearer {download_access_token}"
+        elif passcode:
+            headers["X-Zoom-Passcode"] = passcode
+            headers["Authorization"] = f"Bearer {passcode}"
+        elif password:
+            params["password"] = password
+            params["access_token"] = password
+        else:
+            logger.warning("No authentication provided")
 
-                downloaded = 0
-                if filepath.exists():
-                    downloaded = filepath.stat().st_size
-                    logger.info(f"Resuming from {downloaded / (1024 * 1024):.1f} MB")
+        return headers, params
 
-                encoded_url = self._encode_download_url(url)
-                headers = {}
-                params = {}
+    async def download(
+        self,
+        recording_id: int,
+        source_meta: dict[str, Any],
+        force: bool = False,
+    ) -> DownloadResult:
+        """Download a Zoom recording by source metadata."""
+        download_url = source_meta.get("download_url")
+        if not download_url:
+            raise ValueError("No download_url in source metadata")
 
-                if oauth_token:
-                    headers["Authorization"] = f"Bearer {oauth_token}"
-                elif download_access_token:
-                    headers["Authorization"] = f"Bearer {download_access_token}"
-                elif passcode:
-                    headers["X-Zoom-Passcode"] = passcode
-                    headers["Authorization"] = f"Bearer {passcode}"
-                elif password:
-                    params["password"] = password
-                    params["access_token"] = password
-                else:
-                    logger.warning("No authentication provided")
+        target_path = self._get_target_path(recording_id)
 
-                if downloaded > 0:
-                    headers["Range"] = f"bytes={downloaded}-"
+        if not force and target_path.exists() and target_path.stat().st_size > 1024:
+            return DownloadResult(
+                file_path=target_path,
+                file_size=target_path.stat().st_size,
+            )
 
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(timeout=180.0, connect=30.0, read=60.0, write=30.0),
-                    follow_redirects=True,
-                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
-                ) as client:
-                    async with client.stream("GET", encoded_url, headers=headers, params=params) as response:
-                        if downloaded > 0 and response.status_code == 206:
-                            mode = "ab"
-                        elif downloaded > 0 and response.status_code == 200:
-                            logger.warning("Server doesn't support resume, restarting")
-                            downloaded = 0
-                            mode = "wb"
-                            if filepath.exists():
-                                filepath.unlink()
-                        else:
-                            response.raise_for_status()
-                            mode = "wb"
+        encoded_url = self._encode_download_url(download_url)
+        headers, params = self._build_zoom_auth(
+            password=source_meta.get("password"),
+            passcode=source_meta.get("recording_play_passcode"),
+            download_access_token=source_meta.get("download_access_token"),
+        )
 
-                        filepath.parent.mkdir(parents=True, exist_ok=True)
+        success = await self._download_url(
+            url=encoded_url,
+            filepath=target_path,
+            headers=headers,
+            params=params,
+            expected_size=source_meta.get("file_size", 0) or None,
+            description="Zoom recording",
+        )
 
-                        content_range = response.headers.get("content-range")
-                        if content_range:
-                            total_size = int(content_range.split("/")[-1])
-                        else:
-                            total_size = int(response.headers.get("content-length", 0))
-                            if downloaded > 0 and mode == "ab":
-                                total_size += downloaded
+        if not success:
+            raise RuntimeError(f"Failed to download Zoom recording {recording_id}")
 
-                        if total_size == 0 and expected_size:
-                            total_size = expected_size
-
-                        with filepath.open(mode) as f:
-                            async for chunk in response.aiter_bytes(chunk_size=8192):
-                                f.write(chunk)
-                                downloaded += len(chunk)
-
-                        logger.info(f"Downloaded {downloaded / (1024 * 1024):.1f} MB")
-
-                if not self._validate_downloaded_file(filepath, expected_size, total_size):
-                    if attempt < max_retries - 1:
-                        wait_time = 3 if attempt < 2 else 5
-                        await asyncio.sleep(wait_time)
-                        continue
-                    logger.error(f"Download validation failed: {description}")
-                    if filepath.exists():
-                        filepath.unlink()
-                    return False
-
-                return True
-
-            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.ReadTimeout) as e:
-                logger.warning(f"Network error: {type(e).__name__}")
-                if attempt < max_retries - 1:
-                    wait_time = 3 + attempt * 2 if attempt < 2 else min(10 + (attempt - 2) * 5, 30)
-                    await asyncio.sleep(wait_time)
-                    continue
-                return False
-
-            except httpx.HTTPStatusError as e:
-                status = e.response.status_code
-                if status == 416 and filepath.exists():
-                    filepath.unlink()
-                    downloaded = 0
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(1)
-                        continue
-
-                logger.error(f"HTTP {status} error: {description}")
-                if filepath.exists() and status >= 400:
-                    filepath.unlink()
-                return False
-
-            except Exception as e:
-                logger.error(f"Unexpected error: {type(e).__name__}: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(5)
-                    continue
-                if filepath.exists():
-                    filepath.unlink()
-                return False
-
-        return False
-
-    def _validate_downloaded_file(
-        self, filepath: Path, expected_size: int | None = None, total_size: int | None = None
-    ) -> bool:
-        """Validates file integrity by size and content type."""
-        try:
-            if not filepath.exists():
-                return False
-
-            file_size = filepath.stat().st_size
-
-            if file_size < 1024:
-                return False
-
-            reference_size = total_size or expected_size
-            if reference_size:
-                if file_size < reference_size:
-                    logger.warning(f"Incomplete: {(file_size / reference_size * 100):.1f}%")
-                    return False
-                if file_size > reference_size * 1.1:
-                    logger.warning("File size exceeds expected by >10%")
-
-            with filepath.open("rb") as f:
-                first_chunk = f.read(1024)
-                if b"<html" in first_chunk.lower() or b"<!doctype html" in first_chunk.lower():
-                    logger.error("Downloaded HTML instead of media file")
-                    return False
-
-                if filepath.suffix.lower() == ".mp4":
-                    if not (
-                        first_chunk.startswith(b"\x00\x00\x00") or b"ftyp" in first_chunk or b"moov" in first_chunk
-                    ):
-                        logger.error("Invalid MP4 format")
-                        return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Validation error: {e}")
-            return False
+        return DownloadResult(
+            file_path=target_path,
+            file_size=target_path.stat().st_size,
+        )
 
     async def download_recording(
         self,
         recording: MeetingRecording,
         force_download: bool = False,
     ) -> bool:
-        """Downloads recording to storage/users/user_XXXXXX/recordings/{id}/source.mp4"""
-
+        """Downloads Zoom recording to storage/users/user_XXXXXX/recordings/{id}/source.mp4"""
         if not recording.video_file_download_url:
             logger.error(f"No video URL for recording {recording.db_id}")
             recording.mark_failure(
                 reason="No video link",
+                rollback_to_status=ProcessingStatus.INITIALIZED,
+                failed_at_stage="downloading",
+            )
+            return False
+
+        if recording.db_id is None:
+            logger.error("Recording has no db_id, cannot determine storage path")
+            recording.mark_failure(
+                reason="No database ID",
                 rollback_to_status=ProcessingStatus.INITIALIZED,
                 failed_at_stage="downloading",
             )
@@ -221,19 +128,22 @@ class ZoomDownloader:
             return False
 
         recording.update_status(ProcessingStatus.DOWNLOADING)
-
         logger.info(f"Downloading recording {recording.db_id}: {recording.display_name}")
 
-        success = await self.download_file(
-            recording.video_file_download_url,
-            final_path,
-            "video file",
-            recording.video_file_size or 0,
-            recording.password,
-            recording.recording_play_passcode,
-            recording.download_access_token,
-            None,
-            max_retries=10,
+        encoded_url = self._encode_download_url(recording.video_file_download_url)
+        headers, params = self._build_zoom_auth(
+            password=recording.password,
+            passcode=recording.recording_play_passcode,
+            download_access_token=recording.download_access_token,
+        )
+
+        success = await self._download_url(
+            url=encoded_url,
+            filepath=final_path,
+            headers=headers,
+            params=params,
+            expected_size=recording.video_file_size or None,
+            description="video file",
         )
 
         if not success:

@@ -1,6 +1,6 @@
 [project]
 name = "leap"
-version = "0.9.4"
+version = "0.9.5"
 description = "LEAP - Lecture Enhancement & Automation Platform for intelligent video content processing"
 readme = "README.md"
 license = {text = "Business Source License 1.1"}
@@ -40,6 +40,7 @@ dependencies = [
     "python-dotenv>=1.1.1",
     # Video processing
     "ffmpeg-python>=0.2.0",
+    "yt-dlp>=2024.0.0",
     # Google/YouTube API
     "google-api-python-client>=2.0.0",
     "google-auth>=2.0.0",
@@ -97,6 +98,7 @@ include = [
     "deepseek_module",
     "fireworks_module",
     "file_storage",
+    "yandex_disk_module",
 ]
 
 # Exclude patterns (in addition to defaults)

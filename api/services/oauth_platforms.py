@@ -111,8 +111,7 @@ def create_vk_config() -> OAuthPlatformConfig:
             access_type=None,
             use_pkce=True,
         )
-    # Old VK OAuth (stable, but no refresh tokens)
-    logger.info("Using legacy VK OAuth (without PKCE)")
+    logger.info("Using VK OAuth without PKCE (no refresh tokens)")
     return OAuthPlatformConfig(
         name="VK",
         platform_id="vk_video",

@@ -11,6 +11,7 @@ from logger import get_logger
 from .config_factory import VKUploadConfig, YouTubeUploadConfig
 from .credentials_provider import DatabaseCredentialProvider
 from .platforms.vk.uploader import VKUploader
+from .platforms.yadisk.uploader import YandexDiskUploader
 from .platforms.youtube.uploader import YouTubeUploader
 
 logger = get_logger()
@@ -64,15 +65,41 @@ async def create_vk_uploader_from_db(
     return uploader
 
 
+async def create_yadisk_uploader_from_db(
+    credential_id: int,
+    session: AsyncSession,
+) -> YandexDiskUploader:
+    """Create YandexDiskUploader with database credentials."""
+    encryption = get_encryption()
+    repo = UserCredentialRepository(session)
+    credential = await repo.get_by_id(credential_id)
+
+    if not credential:
+        raise ValueError(f"Credential {credential_id} not found")
+
+    credentials_data = encryption.decrypt_credentials(credential.encrypted_data)
+    oauth_token = credentials_data.get("oauth_token")
+
+    if not oauth_token:
+        raise ValueError(f"No oauth_token in credential {credential_id}")
+
+    uploader = YandexDiskUploader(config=None, oauth_token=oauth_token)
+
+    logger.info(f"Created YandexDiskUploader with DB credential ID: {credential_id}")
+    return uploader
+
+
 async def create_uploader_from_db(
     platform: str,
     credential_id: int,
     session: AsyncSession,
     config: Any | None = None,
-) -> YouTubeUploader | VKUploader:
+) -> YouTubeUploader | VKUploader | YandexDiskUploader:
     """Create platform uploader with database credentials."""
     if platform == "youtube":
         return await create_youtube_uploader_from_db(credential_id, session, config)
     if platform in ("vk", "vk_video"):
         return await create_vk_uploader_from_db(credential_id, session, config)
+    if platform == "yandex_disk":
+        return await create_yadisk_uploader_from_db(credential_id, session)
     raise ValueError(f"Unsupported platform: {platform}")

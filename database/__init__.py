@@ -16,6 +16,7 @@ from .models import (
     ProcessingStageModel,
     RecordingModel,
     SourceMetadataModel,
+    StageTimingModel,
 )
 from .template_models import (
     BaseConfigModel,
@@ -39,6 +40,7 @@ __all__ = [
     "RecordingTemplateModel",
     "RefreshTokenModel",
     "SourceMetadataModel",
+    "StageTimingModel",
     "SubscriptionPlanModel",
     "UserConfigModel",
     "UserCredentialModel",

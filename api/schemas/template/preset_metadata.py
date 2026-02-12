@@ -155,4 +155,23 @@ class VKPresetMetadata(BaseModel):
         return v
 
 
-PresetMetadata = YouTubePresetMetadata | VKPresetMetadata
+class YandexDiskPresetMetadata(BaseModel):
+    """Preset metadata for Yandex Disk output target."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    folder_path_template: str = Field(
+        ...,
+        description="Path template on Disk with variables (e.g. '/Video/{course_name}/{date}')",
+        examples=["/Video/Processed", "/Video/{display_name}/{record_time:YYYY-MM-DD}"],
+    )
+    filename_template: str | None = Field(
+        None,
+        max_length=500,
+        description="Custom filename template (default: video.mp4)",
+        examples=["{display_name}.mp4", "{record_time:YYYY-MM-DD}_{display_name}.mp4"],
+    )
+    overwrite: bool = Field(False, description="Overwrite existing files on Disk")
+
+
+PresetMetadata = YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata

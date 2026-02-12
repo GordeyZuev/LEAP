@@ -8,7 +8,13 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 from api.schemas.common.pagination import PaginatedResponse
 
-from .source_config import GoogleDriveSourceConfig, LocalFileSourceConfig, YandexDiskSourceConfig, ZoomSourceConfig
+from .source_config import (
+    SourceConfig,
+    YandexDiskSourceConfig,
+)
+
+# Platforms that don't require credentials
+_NO_CREDENTIAL_PLATFORMS = {"LOCAL", "VIDEO_URL"}
 
 
 class InputSourceBase(BaseModel):
@@ -17,7 +23,7 @@ class InputSourceBase(BaseModel):
     name: str = Field(..., min_length=3, max_length=255, description="Source name")
     description: str | None = Field(None, max_length=1000, description="Source description")
 
-    config: ZoomSourceConfig | GoogleDriveSourceConfig | YandexDiskSourceConfig | LocalFileSourceConfig | None = Field(
+    config: SourceConfig | None = Field(
         None,
         description="Platform-specific config",
     )
@@ -33,10 +39,10 @@ class InputSourceCreate(BaseModel):
 
     name: str = Field(..., min_length=3, max_length=255, description="Source name")
     description: str | None = Field(None, max_length=1000, description="Source description")
-    platform: Literal["ZOOM", "GOOGLE_DRIVE", "YANDEX_DISK", "LOCAL"] = Field(..., description="Platform")
-    credential_id: int | None = Field(None, gt=0, description="Credential ID (required for all except LOCAL)")
+    platform: Literal["ZOOM", "GOOGLE_DRIVE", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] = Field(..., description="Platform")
+    credential_id: int | None = Field(None, gt=0, description="Credential ID (required for ZOOM, GOOGLE_DRIVE)")
 
-    config: ZoomSourceConfig | GoogleDriveSourceConfig | YandexDiskSourceConfig | LocalFileSourceConfig | None = Field(
+    config: SourceConfig | None = Field(
         None,
         description="Platform-specific config",
     )
@@ -48,7 +54,12 @@ class InputSourceCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_source(self) -> "InputSourceCreate":
-        if self.platform != "LOCAL" and not self.credential_id:
+        # VIDEO_URL and LOCAL don't require credentials
+        # YANDEX_DISK may not require credential if using public_url
+        if self.platform not in _NO_CREDENTIAL_PLATFORMS and not self.credential_id:
+            if self.platform == "YANDEX_DISK" and self.config and isinstance(self.config, YandexDiskSourceConfig):
+                if self.config.public_url:
+                    return self
             raise ValueError(f"Platform {self.platform} requires credential_id")
 
         if self.platform == "LOCAL" and self.credential_id:
@@ -61,7 +72,7 @@ class InputSourceUpdate(BaseModel):
     name: str | None = Field(None, min_length=3, max_length=255)
     description: str | None = Field(None, max_length=1000)
     credential_id: int | None = Field(None, gt=0)
-    config: ZoomSourceConfig | GoogleDriveSourceConfig | YandexDiskSourceConfig | LocalFileSourceConfig | None = None
+    config: SourceConfig | None = None
     is_active: bool | None = None
 
 
@@ -91,7 +102,7 @@ class InputSourceResponse(BaseModel):
     description: str | None
     source_type: str
     credential_id: int | None
-    config: ZoomSourceConfig | GoogleDriveSourceConfig | YandexDiskSourceConfig | LocalFileSourceConfig | None
+    config: SourceConfig | None
     is_active: bool
     last_sync_at: datetime | None
     created_at: datetime

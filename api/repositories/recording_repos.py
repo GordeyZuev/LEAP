@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -150,6 +150,191 @@ class RecordingRepository:
 
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    # ========================================================================
+    # Unified filtered queries (SQL-level filtering)
+    # ========================================================================
+
+    def _apply_filters(
+        self,
+        query,
+        user_id: str,
+        *,
+        template_id: int | None = None,
+        source_id: int | None = None,
+        statuses: list[str] | None = None,
+        failed: bool | None = None,
+        is_mapped: bool | None = None,
+        exclude_blank: bool = True,
+        include_deleted: bool = False,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
+        search: str | None = None,
+    ):
+        """Apply common recording filters to a SQLAlchemy query."""
+        query = query.where(RecordingModel.user_id == user_id)
+
+        if not include_deleted:
+            query = query.where(RecordingModel.deleted == False)  # noqa: E712
+
+        if template_id is not None:
+            query = query.where(RecordingModel.template_id == template_id)
+
+        if source_id is not None:
+            query = query.where(RecordingModel.input_source_id == source_id)
+
+        if statuses:
+            has_failed = "FAILED" in statuses
+            other_statuses = [s for s in statuses if s != "FAILED"]
+
+            if has_failed and other_statuses:
+                query = query.where(
+                    or_(
+                        RecordingModel.status.in_(other_statuses),
+                        RecordingModel.failed == True,  # noqa: E712
+                    )
+                )
+            elif has_failed:
+                query = query.where(RecordingModel.failed == True)  # noqa: E712
+            else:
+                query = query.where(RecordingModel.status.in_(other_statuses))
+
+        if failed is not None:
+            query = query.where(RecordingModel.failed == failed)
+
+        if is_mapped is not None:
+            query = query.where(RecordingModel.is_mapped == is_mapped)
+
+        if exclude_blank:
+            query = query.where(~RecordingModel.blank_record)
+
+        if from_dt is not None:
+            query = query.where(RecordingModel.start_time >= from_dt)
+
+        if to_dt is not None:
+            query = query.where(RecordingModel.start_time <= to_dt)
+
+        if search:
+            query = query.where(RecordingModel.display_name.ilike(f"%{search}%"))
+
+        return query
+
+    async def list_filtered(
+        self,
+        user_id: str,
+        *,
+        template_id: int | None = None,
+        source_id: int | None = None,
+        statuses: list[str] | None = None,
+        failed: bool | None = None,
+        is_mapped: bool | None = None,
+        exclude_blank: bool = True,
+        include_deleted: bool = False,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
+        search: str | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+        page: int = 1,
+        per_page: int = 20,
+    ) -> tuple[list[RecordingModel], int]:
+        """
+        Get paginated, filtered recordings with total count.
+
+        All filters are applied at the SQL level for correct results regardless
+        of total record count.
+        """
+        filter_kwargs = {
+            "template_id": template_id,
+            "source_id": source_id,
+            "statuses": statuses,
+            "failed": failed,
+            "is_mapped": is_mapped,
+            "exclude_blank": exclude_blank,
+            "include_deleted": include_deleted,
+            "from_dt": from_dt,
+            "to_dt": to_dt,
+            "search": search,
+        }
+
+        # Total count
+        count_query = select(func.count(RecordingModel.id))
+        count_query = self._apply_filters(count_query, user_id, **filter_kwargs)
+        total = (await self.session.execute(count_query)).scalar() or 0
+
+        # Data query with eager loading
+        data_query = select(RecordingModel).options(
+            selectinload(RecordingModel.source).selectinload(SourceMetadataModel.input_source),
+            selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
+            selectinload(RecordingModel.processing_stages),
+            selectinload(RecordingModel.input_source),
+            selectinload(RecordingModel.template),
+        )
+        data_query = self._apply_filters(data_query, user_id, **filter_kwargs)
+
+        # Sorting
+        allowed_sort_fields = {"created_at", "updated_at", "start_time", "display_name", "status"}
+        effective_sort_by = sort_by if sort_by in allowed_sort_fields else "created_at"
+        order_column = getattr(RecordingModel, effective_sort_by, RecordingModel.created_at)
+        if sort_order == "desc":
+            data_query = data_query.order_by(order_column.desc())
+        else:
+            data_query = data_query.order_by(order_column.asc())
+
+        # Pagination
+        offset = (page - 1) * per_page
+        data_query = data_query.offset(offset).limit(per_page)
+
+        result = await self.session.execute(data_query)
+        recordings = list(result.scalars().all())
+
+        return recordings, total
+
+    async def get_filtered_ids(
+        self,
+        user_id: str,
+        *,
+        template_id: int | None = None,
+        source_id: int | None = None,
+        statuses: list[str] | None = None,
+        failed: bool | None = None,
+        is_mapped: bool | None = None,
+        exclude_blank: bool = True,
+        include_deleted: bool = False,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
+        search: str | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "asc",
+        limit: int = 50,
+    ) -> list[int]:
+        """Get filtered recording IDs for bulk operations."""
+        query = select(RecordingModel.id)
+        query = self._apply_filters(
+            query,
+            user_id,
+            template_id=template_id,
+            source_id=source_id,
+            statuses=statuses,
+            failed=failed,
+            is_mapped=is_mapped,
+            exclude_blank=exclude_blank,
+            include_deleted=include_deleted,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            search=search,
+        )
+
+        order_column = getattr(RecordingModel, sort_by, RecordingModel.created_at)
+        if sort_order == "desc":
+            query = query.order_by(order_column.desc())
+        else:
+            query = query.order_by(order_column.asc())
+
+        query = query.limit(limit)
+
+        result = await self.session.execute(query)
+        return [row[0] for row in result.all()]
 
     async def create(
         self,
@@ -512,28 +697,22 @@ class RecordingRepository:
                 existing.duration = duration
                 existing.video_file_size = kwargs.get("video_file_size", existing.video_file_size)
 
-                # Check if Zoom is still processing
-                zoom_processing_incomplete = kwargs.get("zoom_processing_incomplete", False)
+                source_processing_incomplete = kwargs.get("source_processing_incomplete", False)
 
-                # Update is_mapped and template_id (but don't change status if PENDING_SOURCE)
                 if "is_mapped" in kwargs:
                     old_is_mapped = existing.is_mapped
                     existing.is_mapped = kwargs["is_mapped"]
 
-                    # Update status only if not PENDING_SOURCE and in initial states
                     if existing.status != ProcessingStatus.PENDING_SOURCE and existing.status in [
                         ProcessingStatus.INITIALIZED,
                         ProcessingStatus.SKIPPED,
                     ]:
-                        # Check if this is resync from PENDING_SOURCE (Zoom finished processing)
                         if old_is_mapped != existing.is_mapped:
                             existing.status = (  # type: ignore[assignment]
                                 ProcessingStatus.INITIALIZED if existing.is_mapped else ProcessingStatus.SKIPPED
                             )
 
-                # Handle status transition from PENDING_SOURCE when Zoom finishes processing
-                if existing.status == ProcessingStatus.PENDING_SOURCE and not zoom_processing_incomplete:
-                    # Zoom finished processing - recheck blank and update status
+                if existing.status == ProcessingStatus.PENDING_SOURCE and not source_processing_incomplete:
                     is_blank = kwargs.get("blank_record", False)
                     if is_blank:
                         existing.status = ProcessingStatus.SKIPPED  # type: ignore[assignment]
@@ -542,18 +721,15 @@ class RecordingRepository:
                     else:
                         existing.status = ProcessingStatus.SKIPPED  # type: ignore[assignment]
                     logger.info(
-                        f"Recording {existing.id} processing completed on Zoom side: PENDING_SOURCE → {existing.status}"
+                        f"Recording {existing.id} source processing completed: PENDING_SOURCE → {existing.status}"
                     )
 
-                # Update template_id if passed
                 if "template_id" in kwargs:
                     existing.template_id = kwargs["template_id"]
 
-                # Update blank_record if passed
                 if "blank_record" in kwargs:
                     existing.blank_record = kwargs["blank_record"]
 
-                # Update source metadata
                 if existing.source:
                     existing_meta = existing.source.meta if isinstance(existing.source.meta, dict) else {}
                     merged_meta = dict(existing_meta)
@@ -572,10 +748,9 @@ class RecordingRepository:
         # Create new recording
         is_mapped = kwargs.get("is_mapped", False)
         is_blank = kwargs.get("blank_record", False)
-        zoom_processing_incomplete = kwargs.get("zoom_processing_incomplete", False)
+        source_processing_incomplete = kwargs.get("source_processing_incomplete", False)
 
-        # Determine initial status based on Zoom processing state
-        if zoom_processing_incomplete:
+        if source_processing_incomplete:
             status = ProcessingStatus.PENDING_SOURCE
         elif is_blank:
             status = ProcessingStatus.SKIPPED
@@ -584,11 +759,9 @@ class RecordingRepository:
         else:
             status = ProcessingStatus.SKIPPED
 
-        # Get retention settings
         retention = user_config.get("retention", {}) if isinstance(user_config, dict) else {}
         auto_expire_days = retention.get("auto_expire_days", 90)
 
-        # Set expire_at (can be overridden by Zoom API deleted_at via kwargs)
         expire_at = kwargs.get("expire_at")
         if expire_at is None and auto_expire_days:
             expire_at = datetime.now(UTC) + timedelta(days=auto_expire_days)

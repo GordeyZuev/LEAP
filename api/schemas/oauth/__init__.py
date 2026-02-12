@@ -1,5 +1,13 @@
 """OAuth-related schemas."""
 
-from .responses import OAuthAuthorizeResponse, OAuthImplicitFlowResponse
+from .responses import (
+    OAuthAuthorizeResponse,
+    OAuthImplicitFlowResponse,
+    VKImplicitFlowCallbackResponse,
+)
 
-__all__ = ["OAuthAuthorizeResponse", "OAuthImplicitFlowResponse"]
+__all__ = [
+    "OAuthAuthorizeResponse",
+    "OAuthImplicitFlowResponse",
+    "VKImplicitFlowCallbackResponse",
+]

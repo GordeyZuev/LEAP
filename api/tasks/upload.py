@@ -1,5 +1,6 @@
 """Celery tasks for uploading videos with multi-tenancy support."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -13,6 +14,7 @@ from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
 from api.services.config_resolver import ConfigResolver
+from api.services.timing_service import TimingService
 from api.shared.exceptions import CredentialError, ResourceNotFoundError
 from api.tasks.base import UploadTask
 from config.settings import get_settings
@@ -191,6 +193,7 @@ async def _async_upload_recording(
         target_type_map = {
             "youtube": "YOUTUBE",
             "vk": "VK",
+            "yandex_disk": "YANDEX_DISK",
         }
         target_type = target_type_map.get(platform.lower(), platform.upper())
 
@@ -271,7 +274,12 @@ async def _async_upload_recording(
                 preset_metadata = config_resolver._merge_configs(preset_metadata, metadata_override)
                 logger.info(f"After override - preset_metadata has keys: {list(preset_metadata.keys())}")
 
-            platform_map = {"YOUTUBE": "youtube", "VK": "vk_video", "VK_VIDEO": "vk_video"}
+            platform_map = {
+                "YOUTUBE": "youtube",
+                "VK": "vk_video",
+                "VK_VIDEO": "vk_video",
+                "YANDEX_DISK": "yandex_disk",
+            }
             mapped_platform = platform_map.get(preset.platform.upper(), preset.platform.lower())
 
             uploader = await create_uploader_from_db(
@@ -454,8 +462,34 @@ async def _async_upload_recording(
                     if key in preset_metadata:
                         upload_params[key] = preset_metadata[key]
 
+            elif platform.lower() == "yandex_disk":
+                # Resolve folder path template
+                folder_path_template = preset_metadata.get("yandex_disk", {}).get(
+                    "folder_path_template"
+                ) or preset_metadata.get("folder_path_template", "/Video/Uploads")
+                folder_path = TemplateRenderer.render(folder_path_template, template_context)
+                upload_params["folder_path"] = folder_path
+
+                filename_template = preset_metadata.get("yandex_disk", {}).get(
+                    "filename_template"
+                ) or preset_metadata.get("filename_template")
+                if filename_template:
+                    filename = TemplateRenderer.render(filename_template, template_context)
+                    upload_params["filename"] = filename
+
+                if "overwrite" in preset_metadata:
+                    upload_params["overwrite"] = preset_metadata["overwrite"]
+
+                logger.debug(f"[Upload YaDisk] folder_path={folder_path}")
+
+            # Start upload timing
+            timing_service = TimingService(session)
+            stage_name = f"UPLOAD:{target_type}"
+            timing = await timing_service.start_stage(recording_id, user_id, stage_name)
+
             # Mark output as UPLOADING RIGHT BEFORE actual upload starts
             logger.info(f"[Upload {platform}] Marking recording {recording_id} as UPLOADING")
+            output_target.started_at = datetime.now(UTC)
             await recording_repo.mark_output_uploading(output_target)
             await session.commit()
 
@@ -463,6 +497,7 @@ async def _async_upload_recording(
 
             if not upload_result or upload_result.error_message:
                 error_message = upload_result.error_message if upload_result else "Unknown error"
+                await timing_service.fail_stage(timing, f"Upload failed: {error_message}")
                 await recording_repo.mark_output_failed(output_target, f"Upload failed: {error_message}")
                 await session.commit()
                 raise Exception(f"Upload failed: {error_message}")
@@ -490,6 +525,14 @@ async def _async_upload_recording(
                 },
             )
 
+            await timing_service.complete_stage(timing, meta={"platform": platform})
+
+            # Update pipeline timing
+            now = datetime.now(UTC)
+            recording.pipeline_completed_at = now
+            if recording.pipeline_started_at:
+                recording.pipeline_duration_seconds = (now - recording.pipeline_started_at).total_seconds()
+
             await session.commit()
 
             return {
@@ -500,6 +543,13 @@ async def _async_upload_recording(
             }
 
         except Exception as e:
+            # Fail timing if it was started but not yet completed/failed
+            if "timing" in locals() and timing.status == "IN_PROGRESS":
+                try:
+                    await timing_service.fail_stage(timing, str(e))
+                except Exception:
+                    logger.debug(f"[Upload] Failed to record timing failure: {e}")
+
             if output_target.status not in (TargetStatus.FAILED, TargetStatus.UPLOADED):
                 await recording_repo.mark_output_failed(output_target, str(e))
                 await session.commit()

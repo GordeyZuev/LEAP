@@ -1,5 +1,174 @@
 # Change Log
 
+## 2026-02-12: Pipeline Timing & Audit
+
+Added per-stage timing and audit for the entire processing pipeline. Every stage execution (including retries and substeps) is recorded in a new `stage_timings` table for analytics.
+
+### New: `stage_timings` table (append-only audit)
+- Records `started_at`, `completed_at`, `duration_seconds` for every pipeline stage
+- Supports substeps (e.g. trim → extract_audio, analyze_silence, trim_video, trim_audio)
+- Tracks retry attempts separately (attempt=1, 2, ...)
+- Stores error messages for failed stages
+- JSONB `meta` for stage-specific context (language, model, file_size, etc.)
+
+### Pipeline timing on recordings
+- `pipeline_started_at`, `pipeline_completed_at`, `pipeline_duration_seconds` columns
+- Set automatically by `run_recording_task` and updated after each stage
+
+### `started_at` on existing models
+- `ProcessingStageModel.started_at` — set when stage transitions to IN_PROGRESS
+- `OutputTargetModel.started_at` — set when upload begins
+
+### New: `TimingService` (DRY)
+- Centralized service for all timing writes (`api/services/timing_service.py`)
+- `start_stage/complete_stage/fail_stage` + substep variants
+
+### API response changes
+- `ProcessingStageResponse`: added `started_at`
+- `OutputTargetResponse` / `UploadInfo`: added `started_at`
+- `RecordingResponse`: added `pipeline_started_at`, `pipeline_completed_at`, `pipeline_duration_seconds`
+
+### New enum value
+- `ProcessingStageType.DOWNLOAD` — for uniform timing of download stage
+
+### Migration `014_add_stage_timings_and_pipeline_timing`
+- CREATE TABLE `stage_timings` with indexes
+- ADD COLUMN `started_at` to `processing_stages`, `output_targets`
+- ADD COLUMNS pipeline timing to `recordings`
+- ADD VALUE `DOWNLOAD` to `processingstagetype` enum
+
+### Files changed
+- `database/models.py`, `models/recording.py`, `api/services/timing_service.py` (new)
+- `api/tasks/processing.py`, `api/tasks/upload.py`
+- `api/schemas/recording/response.py`, `database/__init__.py`
+- `alembic/versions/014_add_stage_timings_and_pipeline_timing.py` (new)
+
+---
+
+## 2026-02-12: Source-Agnostic Architecture Cleanup
+
+Removed hardcoded Zoom assumptions from all generic code paths. Download, reset, and pipeline endpoints now work uniformly for all source types (Zoom, yt-dlp, Yandex Disk).
+
+### Download Endpoint (`POST /{id}/download`)
+- Removed Zoom-only `download_url` check — now validates all source metadata keys (`url`, `path`, `public_key`)
+- Generic error message instead of "Please sync from Zoom first"
+
+### Metadata Key Rename
+- `zoom_processing_incomplete` → `source_processing_incomplete` across all code and DB records
+- Data migration `013` renames key in existing JSONB metadata (455 records migrated)
+- Zoom sync now writes `source_processing_incomplete` in metadata
+
+### Dead Code Removal (~400 lines)
+- `database/manager.py` — removed `save_recordings`, `get_recordings`, `update_recording`, and all helpers (`_parse_start_time`, `_build_source_metadata_payload`, `_find_existing_recording`, `_update_existing_recording`, `_create_new_recording`, `_convert_db_to_model`). Only lifecycle methods remain
+- `utils/formatting.py` — deleted (unused `normalize_datetime_string`)
+- `transcription_module/__init__.py` — cleaned dead comments
+
+### Code Quality
+- Removed all "legacy" labels from code, comments, and docstrings
+- VK uploader: `_authenticate_legacy` → `_authenticate_with_token`
+- Cleaned "what" comments per INSTRUCTIONS.md (only "why" comments remain)
+- Consolidated redundant `ProcessingStageStatus` import in `api/tasks/processing.py`
+
+### Files Changed
+- `api/routers/recordings.py`, `api/tasks/processing.py`, `api/repositories/recording_repos.py`
+- `api/routers/input_sources.py`, `api/routers/oauth.py`, `api/services/oauth_platforms.py`
+- `api/schemas/recording/request.py`, `api/schemas/credentials/platform_credentials.py`
+- `models/recording.py`, `database/manager.py`, `utils/__init__.py`
+- `video_download_module/downloader.py`, `video_upload_module/platforms/vk/uploader.py`
+- `alembic/versions/013_rename_zoom_processing_incomplete_key.py`
+
+---
+
+## 2026-02-12: Direct Add-by-URL API Endpoints
+
+Added direct API endpoints for adding videos by URL without creating InputSource. One API call = video added + optionally pipeline started.
+
+### New Endpoints
+- `POST /api/v1/recordings/add-url` — add single video by URL (YouTube, VK, Rutube, etc.)
+- `POST /api/v1/recordings/add-playlist` — add all videos from a playlist/channel URL
+- `POST /api/v1/recordings/add-yadisk` — add video(s) from public Yandex Disk link
+
+### New Schemas
+- `api/schemas/recording/request.py` — `AddVideoByUrlRequest`, `AddPlaylistByUrlRequest`, `AddYandexDiskUrlRequest`, response schemas
+
+### Key Features
+- No InputSource or credentials required
+- `auto_run: true` starts full pipeline immediately (download → process → upload)
+- `template_id` to bind recordings to templates
+- Playlist deduplication via `source_key`
+
+### Bug Fixes & Code Review
+- Fixed `_ensure_folder_exists` in `yandex_disk_module/client.py` (root path handling)
+- Removed `oauth_token` from plaintext `source_metadata` (security fix)
+- Fixed OAuth token retrieval in `_download_via_external` to use encrypted credentials
+- Added `db_id` null guard in `ZoomDownloader.download_recording`
+- Added `folder_path` null guard in `_sync_yandex_disk_source`
+
+---
+
+## 2026-02-11: External Video Sources (yt-dlp + Yandex Disk)
+
+Added ability to download and sync videos from external sources: YouTube, VK, Rutube (via yt-dlp), and Yandex Disk (via REST API). Yandex Disk also added as an upload target with path templates.
+
+### Architecture
+- `video_download_module/core/base.py` — new `BaseDownloader` ABC with shared httpx streaming, resume, and file validation
+- `video_download_module/factory.py` — downloader factory dispatching by `SourceType`
+- `video_download_module/downloader.py` — `ZoomDownloader` refactored to inherit `BaseDownloader`
+
+### yt-dlp Integration (Phase 1)
+- `video_download_module/platforms/ytdlp/downloader.py` — `YtDlpDownloader` for downloading via yt-dlp
+- `video_download_module/platforms/ytdlp/metadata.py` — metadata extraction, playlist enumeration, platform detection
+- `api/schemas/template/source_config.py` — added `VideoUrlSourceConfig` (url, video_platform, is_playlist, quality)
+- `api/schemas/template/input_source.py` — `VIDEO_URL` platform support, relaxed credential requirements
+- `api/routers/input_sources.py` — `_sync_video_url_source` for single video and playlist sync
+- `pyproject.toml` — added `yt-dlp` dependency
+
+### Yandex Disk Integration (Phase 2-3)
+- `yandex_disk_module/client.py` — `YandexDiskClient` for REST API (list folders, download, upload, public resources)
+- `video_download_module/platforms/yadisk/downloader.py` — `YandexDiskDownloader` (API + public links)
+- `video_upload_module/platforms/yadisk/uploader.py` — `YandexDiskUploader` with folder path templates
+- `api/schemas/credentials/platform_credentials.py` — added `YandexDiskCredentialsManual`
+- `api/schemas/template/source_config.py` — updated `YandexDiskSourceConfig` with `public_url` support
+- `api/schemas/template/preset_metadata.py` — added `YandexDiskPresetMetadata` (folder_path_template)
+- `api/schemas/template/metadata_config.py` — added `yandex_disk` field to `TemplateMetadataConfig`
+- `video_upload_module/uploader_factory.py` — added `create_yadisk_uploader_from_db`
+- `api/tasks/upload.py` — Yandex Disk upload handling with folder path rendering
+
+### Download Task Refactoring
+- `api/tasks/processing.py` — `_async_download_recording` refactored to dispatch by source type: Zoom (legacy path with token refresh), yt-dlp, Yandex Disk
+
+---
+
+## 2026-02-10: Zoom Master Account Support
+
+Added ability to sync recordings from multiple Zoom sub-account users using a single Server-to-Server OAuth app. Master Account uses one token and queries recordings per user email via `GET /v2/users/{email}/recordings`.
+
+### Changes
+- `api/zoom_api.py` — added `user_id` parameter to `get_recordings` (default `"me"`)
+- `api/schemas/credentials/platform_credentials.py` — added `is_master_account` field to `ZoomCredentialsManual` (requires S2S OAuth)
+- `api/schemas/template/source_config.py` — added `is_master_account` and `user_emails` fields to `ZoomSourceConfig`
+- `api/routers/input_sources.py` — sync logic iterates through `user_emails` for Master Account sources; `source_user_email` stored in metadata
+- `docs/examples/credentials_examples.json` — added Master Account examples
+- `docs/ZOOM_CREDS_GUIDE.md` — full guide for all Zoom credential methods
+
+---
+
+## 2026-02-10: Fixed Zoom UUID Encoding in Recording Details API
+
+### Problem
+Recording with UUID starting with `/` (`/UDdaTZeTHS6vCOw0L+ZfA==`) permanently stuck in `PENDING_SOURCE` status. Zoom API returned error 3301 ("Эта запись не существует") because the UUID was inserted into the URL path without encoding, breaking the path structure (`/v2/meetings//UDda...`).
+
+### Root Cause
+`get_recording_details` built the URL via f-string without encoding special characters. Per Zoom API docs, UUIDs beginning with `/` or containing `//` must be double URL-encoded. This was the first UUID with a leading `/`, so the issue had never occurred before.
+
+### Solution
+Added `_encode_meeting_uuid()` helper that double-encodes UUIDs starting with `/` or containing `//` (per Zoom API requirements). Applied to `get_recording_details` URL construction.
+
+### Files
+- `api/zoom_api.py` — added `_encode_meeting_uuid()`, applied to `get_recording_details`
+
+---
+
 ## 2026-02-09: API Consistency Fix (pre-UI)
 
 ### Summary

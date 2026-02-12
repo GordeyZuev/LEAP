@@ -129,7 +129,7 @@ async def _async_sync_single_source(
                 "status": "success",
                 "source_id": source_id,
                 "source_name": source.name if source else None,
-                "source_type": source.source_type.value if source else "UNKNOWN",
+                "source_type": source.source_type if source else "UNKNOWN",
                 "recordings_found": result.get("recordings_found", 0),
                 "recordings_saved": result.get("recordings_saved", 0),
                 "recordings_updated": result.get("recordings_updated", 0),

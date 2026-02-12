@@ -3,9 +3,9 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,11 @@ from api.auth.encryption import get_encryption
 from api.dependencies import get_db_session, get_redis
 from api.repositories.auth_repos import UserCredentialRepository
 from api.schemas.auth import UserCredentialCreate, UserInDB
-from api.schemas.oauth import OAuthAuthorizeResponse, OAuthImplicitFlowResponse
+from api.schemas.oauth import (
+    OAuthAuthorizeResponse,
+    OAuthImplicitFlowResponse,
+    VKImplicitFlowCallbackResponse,
+)
 from api.services.oauth_platforms import OAuthPlatformConfig, get_platform_config
 from api.services.oauth_service import OAuthService
 from api.services.oauth_state import OAuthStateManager
@@ -97,7 +101,7 @@ def _build_oauth_credentials(platform: str, token_data: dict, config: OAuthPlatf
     """Build platform-specific credential structure."""
     expires_in = token_data.get("expires_in", 3600 if platform != "vk_video" else 86400)
     expiry = datetime.now(UTC) + timedelta(seconds=expires_in)
-    expiry_str = expiry.isoformat() + "Z"
+    expiry_str = expiry.isoformat().replace("+00:00", "Z")
 
     if platform == "youtube":
         return {
@@ -298,9 +302,9 @@ async def vk_authorize_implicit(
     current_user: UserInDB = Depends(get_current_user),
 ) -> OAuthImplicitFlowResponse:
     """
-       Generate VK Implicit Flow URL (legacy method, no refresh token).
+       Generate VK Implicit Flow URL (no refresh token).
 
-       Uses separate VK app (54249533) configured for Implicit Flow.
+       Uses separate VK app configured for Implicit Flow.
 
        **How to use:**
        1. Redirect user to `redirect_uri` URL
@@ -333,7 +337,6 @@ async def vk_authorize_implicit(
     config_path = os.getenv("VK_OAUTH_CONFIG", "config/oauth_vk.json")
     vk_config = load_oauth_config(config_path)
 
-    # Use separate app_id for Implicit Flow (legacy VK app)
     implicit_app_id = vk_config.get("implicit_flow_app_id", "54249533")
 
     scope = "video,groups,wall"
@@ -361,6 +364,104 @@ async def vk_authorize_implicit(
         response_type=response_type,
         blank_redirect_uri=blank_redirect,
     )
+
+
+@router.post("/vk/authorize/implicit", response_model=VKImplicitFlowCallbackResponse)
+async def vk_implicit_callback(
+    redirect_url: str = Body(..., media_type="text/plain", description="Full VK redirect URL with #access_token=..."),
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> VKImplicitFlowCallbackResponse:
+    """Parse VK Implicit Flow redirect URL and upsert credentials, matching by VK user_id."""
+    from api.schemas.auth import UserCredentialUpdate
+
+    try:
+        parsed = urlparse(redirect_url.strip())
+        if not parsed.fragment:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No URL fragment found. Expected #access_token=...&expires_in=...&user_id=...",
+            )
+
+        params = parse_qs(parsed.fragment)
+        if not params.get("access_token"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="access_token not found in URL fragment",
+            )
+
+        access_token = params["access_token"][0]
+        expires_in = int(params["expires_in"][0]) if params.get("expires_in") else 86400
+        vk_user_id = int(params["user_id"][0]) if params.get("user_id") else None
+
+        encryption = get_encryption()
+        cred_repo = UserCredentialRepository(session)
+        expiry = (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat().replace("+00:00", "Z")
+
+        # Find existing VK credential by user_id in decrypted data
+        existing_cred = None
+        if vk_user_id:
+            for platform in ("vk", "vk_video"):
+                for cred in await cred_repo.list_by_platform(current_user.id, platform):
+                    try:
+                        data = encryption.decrypt_credentials(cred.encrypted_data)
+                        if data.get("user_id") == vk_user_id:
+                            existing_cred = cred
+                            break
+                    except Exception:
+                        logger.debug("Failed to decrypt credential %s", cred.id)
+                        continue
+                if existing_cred:
+                    break
+
+        new_creds = {
+            "access_token": access_token,
+            "user_id": vk_user_id,
+            "expires_in": expires_in,
+            "expiry": expiry,
+        }
+
+        if existing_cred:
+            # Merge new token into existing credentials (preserve client_id, client_secret, etc.)
+            merged = encryption.decrypt_credentials(existing_cred.encrypted_data)
+            merged.update(new_creds)
+            encrypted = encryption.encrypt_credentials(merged)
+            await cred_repo.update(existing_cred.id, UserCredentialUpdate(encrypted_data=encrypted, is_active=True))
+            credential_id = existing_cred.id
+            account_name = existing_cred.account_name or "unknown"
+            logger.info(f"VK implicit token updated: credential_id={credential_id}")
+        else:
+            config = get_platform_config("vk_video")
+            new_creds.update({"client_id": config.client_id, "client_secret": config.client_secret})
+            encrypted = encryption.encrypt_credentials(new_creds)
+            account_name = await get_account_identifier("vk_video", access_token)
+            created = await cred_repo.create(
+                UserCredentialCreate(
+                    user_id=current_user.id,
+                    platform="vk_video",
+                    account_name=account_name,
+                    encrypted_data=encrypted,
+                )
+            )
+            credential_id = created.id
+            logger.info(f"VK implicit token created: credential_id={credential_id} account={account_name}")
+
+        return VKImplicitFlowCallbackResponse(
+            credential_id=credential_id,
+            account_name=account_name,
+            user_id=vk_user_id,
+            expires_in=expires_in,
+            message=f"VK credentials saved (expires in {expires_in}s, no refresh token)",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"VK implicit flow save failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save VK implicit flow credentials: {e}",
+        )
 
 
 @router.get("/vk/callback")

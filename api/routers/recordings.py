@@ -30,6 +30,11 @@ from api.schemas.recording.operations import (
     TemplateUnbindResponse,
 )
 from api.schemas.recording.request import (
+    AddPlaylistByUrlRequest,
+    AddPlaylistResponse,
+    AddVideoByUrlRequest,
+    AddVideoByUrlResponse,
+    AddYandexDiskUrlRequest,
     BulkDeleteRequest,
     BulkDownloadRequest,
     BulkPauseRequest,
@@ -110,53 +115,11 @@ async def _query_recordings_by_filters(
     limit: int,
     ctx: ServiceContext,
 ) -> list[int]:
-    """Build query by filters and return list of recording IDs."""
-    from sqlalchemy import select
+    """Build query by filters and return list of recording IDs (delegates to repository)."""
+    # Parse date strings to datetime
+    from_dt = None
+    to_dt = None
 
-    from database.models import RecordingModel
-
-    query = select(RecordingModel.id).where(RecordingModel.user_id == ctx.user_id)
-
-    if not filters.include_deleted:
-        query = query.where(RecordingModel.deleted == False)  # noqa: E712
-
-    if filters.template_id:
-        query = query.where(RecordingModel.template_id == filters.template_id)
-
-    if filters.source_id:
-        query = query.where(RecordingModel.input_source_id == filters.source_id)
-
-    if filters.status:
-        has_failed = "FAILED" in filters.status
-        other_statuses = [s for s in filters.status if s != "FAILED"]
-
-        if has_failed and other_statuses:
-            from sqlalchemy import or_
-
-            query = query.where(
-                or_(
-                    RecordingModel.status.in_(other_statuses),
-                    RecordingModel.failed == True,  # noqa: E712
-                )
-            )
-        elif has_failed:
-            query = query.where(RecordingModel.failed == True)  # noqa: E712
-        else:
-            query = query.where(RecordingModel.status.in_(other_statuses))
-
-    if filters.is_mapped is not None:
-        query = query.where(RecordingModel.is_mapped == filters.is_mapped)
-
-    if filters.failed is not None:
-        query = query.where(RecordingModel.failed == filters.failed)
-
-    if filters.exclude_blank:
-        query = query.where(~RecordingModel.blank_record)
-
-    if filters.search:
-        query = query.where(RecordingModel.display_name.ilike(f"%{filters.search}%"))
-
-    # Date filters
     if filters.from_date:
         from utils.date_utils import InvalidDateFormatError, parse_from_date_to_datetime
 
@@ -164,7 +127,6 @@ async def _query_recordings_by_filters(
             from_dt = parse_from_date_to_datetime(filters.from_date)
         except InvalidDateFormatError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        query = query.where(RecordingModel.start_time >= from_dt)
 
     if filters.to_date:
         from utils.date_utils import InvalidDateFormatError, parse_to_date_to_datetime
@@ -173,18 +135,24 @@ async def _query_recordings_by_filters(
             to_dt = parse_to_date_to_datetime(filters.to_date)
         except InvalidDateFormatError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        query = query.where(RecordingModel.start_time <= to_dt)
 
-    order_column = getattr(RecordingModel, filters.order_by, RecordingModel.created_at)
-    if filters.order == "desc":
-        query = query.order_by(order_column.desc())
-    else:
-        query = query.order_by(order_column.asc())
-
-    query = query.limit(limit)
-
-    result = await ctx.session.execute(query)
-    return [row[0] for row in result.all()]
+    recording_repo = RecordingRepository(ctx.session)
+    return await recording_repo.get_filtered_ids(
+        ctx.user_id,
+        template_id=filters.template_id,
+        source_id=filters.source_id,
+        statuses=filters.status,
+        failed=filters.failed,
+        is_mapped=filters.is_mapped,
+        exclude_blank=filters.exclude_blank,
+        include_deleted=filters.include_deleted,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        search=filters.search,
+        sort_by=filters.order_by,
+        sort_order=filters.order,
+        limit=limit,
+    )
 
 
 def _build_source_info(recording) -> SourceInfo | None:
@@ -213,6 +181,7 @@ def _build_uploads_dict(outputs) -> dict:
         uploads[platform] = UploadInfo(
             status=output.status.value.lower(),
             url=url,
+            started_at=output.started_at,
             uploaded_at=output.uploaded_at,
             error=output.failed_reason if output.failed else None,
         )
@@ -229,6 +198,7 @@ def _build_processing_stages(stages) -> list[ProcessingStageResponse]:
             failed_at=stage.failed_at,
             failed_reason=stage.failed_reason,
             retry_count=stage.retry_count,
+            started_at=stage.started_at,
             completed_at=stage.completed_at,
         )
         for stage in stages
@@ -522,34 +492,9 @@ async def list_recordings(
     ctx: ServiceContext = Depends(get_service_context),
 ):
     """Get paginated list of recordings with filtering, search and sorting."""
-    recording_repo = RecordingRepository(ctx.session)
-    recordings = await recording_repo.list_by_user(ctx.user_id, include_deleted=include_deleted)
-
-    if template_id is not None:
-        recordings = [r for r in recordings if r.template_id == template_id]
-
-    if source_id is not None:
-        recordings = [r for r in recordings if r.input_source_id == source_id]
-
-    if status_filter:
-        has_failed = "FAILED" in status_filter
-        other_statuses = [s for s in status_filter if s != "FAILED"]
-
-        if has_failed and other_statuses:
-            recordings = [r for r in recordings if r.status.value in other_statuses or r.failed]
-        elif has_failed:
-            recordings = [r for r in recordings if r.failed]
-        else:
-            recordings = [r for r in recordings if r.status.value in other_statuses]
-
-    if failed is not None:
-        recordings = [r for r in recordings if r.failed == failed]
-
-    if is_mapped is not None:
-        recordings = [r for r in recordings if r.is_mapped == is_mapped]
-
-    if not include_blank:
-        recordings = [r for r in recordings if not r.blank_record]
+    # Parse date strings to datetime
+    from_dt = None
+    to_dt = None
 
     if from_date:
         from utils.date_utils import InvalidDateFormatError, parse_from_date_to_datetime
@@ -558,7 +503,6 @@ async def list_recordings(
             from_dt = parse_from_date_to_datetime(from_date)
         except InvalidDateFormatError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        recordings = [r for r in recordings if r.start_time >= from_dt]
 
     if to_date:
         from utils.date_utils import InvalidDateFormatError, parse_to_date_to_datetime
@@ -567,30 +511,30 @@ async def list_recordings(
             to_dt = parse_to_date_to_datetime(to_date)
         except InvalidDateFormatError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        recordings = [r for r in recordings if r.start_time <= to_dt]
 
-    if search:
-        search_lower = search.lower()
-        recordings = [r for r in recordings if search_lower in r.display_name.lower()]
-
-    # Apply sorting
-    allowed_sort_fields = {"created_at", "updated_at", "start_time", "display_name", "status"}
-    effective_sort_by = sort_by if sort_by in allowed_sort_fields else "created_at"
-    recordings.sort(
-        key=lambda item: (0, "")
-        if getattr(item, effective_sort_by, None) is None
-        else (1, getattr(item, effective_sort_by)),
-        reverse=(sort_order == "desc"),
+    recording_repo = RecordingRepository(ctx.session)
+    recordings, total = await recording_repo.list_filtered(
+        ctx.user_id,
+        template_id=template_id,
+        source_id=source_id,
+        statuses=status_filter or None,
+        failed=failed,
+        is_mapped=is_mapped,
+        exclude_blank=not include_blank,
+        include_deleted=include_deleted,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        per_page=per_page,
     )
 
-    total = len(recordings)
-    start = (page - 1) * per_page
-    end = start + per_page
-    paginated_recordings = recordings[start:end]
     total_pages = (total + per_page - 1) // per_page if total > 0 else 1
 
     items = []
-    for r in paginated_recordings:
+    for r in recordings:
         items.append(
             RecordingListItem(
                 id=r.id,
@@ -601,6 +545,7 @@ async def list_recordings(
                 failed=r.failed,
                 failed_at_stage=r.failed_at_stage,
                 is_mapped=r.is_mapped,
+                on_pause=r.on_pause,
                 template_id=r.template_id,
                 template_name=r.template.name if r.template else None,
                 source=_build_source_info(r),
@@ -653,6 +598,7 @@ async def get_recording(
             failed=recording.failed,
             failed_at_stage=recording.failed_at_stage,
             is_mapped=recording.is_mapped,
+            on_pause=recording.on_pause,
             template_id=recording.template_id,
             template_name=recording.template.name if recording.template else None,
             source=_build_source_info(recording),
@@ -699,6 +645,7 @@ async def get_recording(
                 target_type=output.target_type,
                 status=output.status,
                 target_meta=output.target_meta or {},
+                started_at=output.started_at,
                 uploaded_at=output.uploaded_at,
                 failed=output.failed,
                 failed_at=output.failed_at,
@@ -716,14 +663,20 @@ async def get_recording(
                 failed_at=stage.failed_at,
                 failed_reason=stage.failed_reason,
                 retry_count=stage.retry_count,
+                started_at=stage.started_at,
                 completed_at=stage.completed_at,
             )
             for stage in recording.processing_stages
         ],
+        "on_pause": recording.on_pause,
+        "pause_requested_at": recording.pause_requested_at,
         "failed": recording.failed,
         "failed_at": recording.failed_at,
         "failed_reason": recording.failed_reason,
         "failed_at_stage": recording.failed_at_stage,
+        "pipeline_started_at": recording.pipeline_started_at,
+        "pipeline_completed_at": recording.pipeline_completed_at,
+        "pipeline_duration_seconds": recording.pipeline_duration_seconds,
         "video_file_size": recording.video_file_size,
         "deleted": recording.deleted,
         "deleted_at": recording.deleted_at,
@@ -840,6 +793,7 @@ async def get_recording(
                 "type": stage.stage_type.value if hasattr(stage.stage_type, "value") else str(stage.stage_type),
                 "status": stage.status.value if hasattr(stage.status, "value") else str(stage.status),
                 "created_at": stage.created_at.isoformat() if stage.created_at else None,
+                "started_at": stage.started_at.isoformat() if stage.started_at else None,
                 "completed_at": stage.completed_at.isoformat() if stage.completed_at else None,
                 "meta": stage.stage_meta,
             }
@@ -859,6 +813,7 @@ async def get_recording(
                 if target.target_meta
                 else None,
                 "video_id": target.target_meta.get("video_id") if target.target_meta else None,
+                "started_at": target.started_at.isoformat() if target.started_at else None,
                 "uploaded_at": target.uploaded_at.isoformat() if target.uploaded_at else None,
                 "failed": target.failed,
                 "retry_count": target.retry_count,
@@ -985,6 +940,357 @@ async def add_local_recording(
 
 
 # ============================================================================
+# Add by URL Endpoints
+# ============================================================================
+
+
+@router.post("/add-url", response_model=AddVideoByUrlResponse, status_code=status.HTTP_201_CREATED)
+async def add_video_by_url(
+    data: AddVideoByUrlRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> AddVideoByUrlResponse:
+    """Add single video by URL (YouTube, VK, Rutube, etc.).
+
+    Extracts metadata via yt-dlp, creates a Recording, and optionally
+    starts the full pipeline (download → process → upload).
+    No InputSource or credentials required.
+    """
+    from video_download_module.platforms.ytdlp.metadata import detect_platform, extract_video_info
+
+    try:
+        info = await extract_video_info(data.url)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to extract video info from URL: {e}",
+        )
+
+    platform = info.get("platform") or detect_platform(data.url)
+    display_name = data.display_name or info.get("title", "Unknown")
+    video_id = info.get("id", "")
+    duration = info.get("duration") or 0
+    video_url = info.get("url") or data.url
+
+    source_key = f"{platform}:{video_id}" if video_id else video_url
+    source_metadata = {
+        "url": video_url,
+        "platform": platform,
+        "video_id": video_id,
+        "title": display_name,
+        "duration": duration,
+        "thumbnail": info.get("thumbnail"),
+        "uploader": info.get("uploader"),
+        "upload_date": info.get("upload_date"),
+        "quality": data.quality,
+        "format_preference": data.format_preference,
+    }
+
+    from models.recording import SourceType
+
+    recording_repo = RecordingRepository(ctx.session)
+    user_config_repo = UserConfigRepository(ctx.session)
+    user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    recording = await recording_repo.create(
+        user_id=ctx.user_id,
+        input_source_id=None,
+        display_name=display_name,
+        start_time=datetime.now(UTC),
+        duration=duration,
+        source_type=SourceType.EXTERNAL_URL,
+        source_key=source_key,
+        source_metadata=source_metadata,
+        user_config=user_config,
+        is_mapped=data.template_id is not None,
+    )
+
+    await ctx.session.flush()
+
+    # Bind template if specified
+    if data.template_id:
+        recording.template_id = data.template_id
+        recording.is_mapped = True
+
+    await ctx.session.commit()
+
+    task_id = None
+    if data.auto_run:
+        task_id = await _auto_run_recording(recording.id, ctx.user_id)
+
+    logger.info(f"Added video by URL: recording {recording.id}, platform={platform}, auto_run={data.auto_run}")
+
+    return AddVideoByUrlResponse(
+        success=True,
+        recording_id=recording.id,
+        display_name=display_name,
+        platform=platform,
+        task_id=task_id,
+        message=f"Video added from {platform}" + (" — pipeline started" if task_id else ""),
+    )
+
+
+@router.post("/add-playlist", response_model=AddPlaylistResponse, status_code=status.HTTP_201_CREATED)
+async def add_playlist_by_url(
+    data: AddPlaylistByUrlRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> AddPlaylistResponse:
+    """Add all videos from a playlist or channel URL.
+
+    Extracts playlist entries via yt-dlp, creates a Recording per video,
+    and optionally starts the pipeline for each.
+    """
+    from video_download_module.platforms.ytdlp.metadata import detect_platform, extract_playlist_entries
+
+    try:
+        entries = await extract_playlist_entries(data.url)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to extract playlist from URL: {e}",
+        )
+
+    if not entries:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No videos found in playlist",
+        )
+
+    from models.recording import SourceType
+
+    platform = detect_platform(data.url)
+    recording_repo = RecordingRepository(ctx.session)
+    user_config_repo = UserConfigRepository(ctx.session)
+    user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    created_recordings: list[dict] = []
+    created_count = 0
+    updated_count = 0
+    task_ids: list[str] = []
+
+    for entry in entries:
+        try:
+            video_id = entry.get("id", "")
+            title = entry.get("title", "Unknown")
+            duration = entry.get("duration") or 0
+            video_url = entry.get("url", data.url)
+            entry_platform = entry.get("platform", platform)
+
+            source_key = f"{entry_platform}:{video_id}" if video_id else video_url
+            source_metadata = {
+                "url": video_url,
+                "platform": entry_platform,
+                "video_id": video_id,
+                "title": title,
+                "duration": duration,
+                "quality": data.quality,
+                "format_preference": data.format_preference,
+                "playlist_url": data.url,
+            }
+
+            recording, is_new = await recording_repo.create_or_update(
+                user_id=ctx.user_id,
+                input_source_id=None,
+                display_name=title,
+                start_time=datetime.now(UTC),
+                duration=duration,
+                source_type=SourceType.EXTERNAL_URL,
+                source_key=source_key,
+                source_metadata=source_metadata,
+                user_config=user_config,
+                is_mapped=data.template_id is not None,
+                template_id=data.template_id,
+            )
+
+            if is_new:
+                created_count += 1
+            else:
+                updated_count += 1
+
+            created_recordings.append(
+                {
+                    "recording_id": recording.id,
+                    "display_name": title,
+                    "is_new": is_new,
+                }
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to add playlist entry '{entry.get('title', '?')}': {e}")
+            continue
+
+    await ctx.session.commit()
+
+    # Auto-run all newly created recordings
+    if data.auto_run:
+        for rec in created_recordings:
+            if rec.get("is_new"):
+                try:
+                    tid = await _auto_run_recording(rec["recording_id"], ctx.user_id)
+                    if tid:
+                        task_ids.append(tid)
+                except Exception as e:
+                    logger.warning(f"Failed to auto-run recording {rec['recording_id']}: {e}")
+
+    logger.info(
+        f"Added playlist: {len(entries)} videos, created={created_count}, "
+        f"updated={updated_count}, auto_run={data.auto_run}"
+    )
+
+    return AddPlaylistResponse(
+        success=True,
+        total_videos=len(entries),
+        recordings_created=created_count,
+        recordings_updated=updated_count,
+        recordings=created_recordings,
+        task_ids=task_ids,
+        message=f"Playlist processed: {created_count} new, {updated_count} updated"
+        + (f", {len(task_ids)} pipelines started" if task_ids else ""),
+    )
+
+
+@router.post("/add-yadisk", response_model=AddPlaylistResponse, status_code=status.HTTP_201_CREATED)
+async def add_yandex_disk_by_url(
+    data: AddYandexDiskUrlRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> AddPlaylistResponse:
+    """Add video file(s) from a public Yandex Disk link.
+
+    Scans the public resource for video files and creates a Recording for each.
+    No OAuth credentials required for public links.
+    """
+    from yandex_disk_module.client import YandexDiskClient, YandexDiskError
+
+    client = YandexDiskClient()
+
+    try:
+        video_files = await client.list_public_video_files(
+            public_key=data.public_url,
+            file_pattern=data.file_pattern,
+        )
+    except YandexDiskError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to access Yandex Disk link: {e}",
+        )
+
+    if not video_files:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No video files found at the provided link",
+        )
+
+    from models.recording import SourceType
+
+    recording_repo = RecordingRepository(ctx.session)
+    user_config_repo = UserConfigRepository(ctx.session)
+    user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    created_recordings: list[dict] = []
+    created_count = 0
+    updated_count = 0
+    task_ids: list[str] = []
+
+    for file_info in video_files:
+        try:
+            file_path = file_info.get("path", "")
+            file_name = file_info.get("name", "Unknown")
+            file_size = file_info.get("size", 0)
+
+            source_key = f"yadisk_pub:{file_path}" if file_path else f"yadisk_pub:{file_name}"
+            source_metadata = {
+                "path": file_path,
+                "name": file_name,
+                "size": file_size,
+                "mime_type": file_info.get("mime_type"),
+                "download_method": "public",
+                "public_key": data.public_url,
+                "modified": file_info.get("modified"),
+            }
+
+            modified_str = file_info.get("modified")
+            if modified_str:
+                try:
+                    start_time = datetime.fromisoformat(modified_str)
+                except (ValueError, TypeError):
+                    start_time = datetime.now(UTC)
+            else:
+                start_time = datetime.now(UTC)
+
+            recording, is_new = await recording_repo.create_or_update(
+                user_id=ctx.user_id,
+                input_source_id=None,
+                display_name=file_name,
+                start_time=start_time,
+                duration=0,
+                source_type=SourceType.YANDEX_DISK,
+                source_key=source_key,
+                source_metadata=source_metadata,
+                user_config=user_config,
+                is_mapped=data.template_id is not None,
+                template_id=data.template_id,
+            )
+
+            if is_new:
+                created_count += 1
+            else:
+                updated_count += 1
+
+            created_recordings.append(
+                {
+                    "recording_id": recording.id,
+                    "display_name": file_name,
+                    "is_new": is_new,
+                }
+            )
+
+        except Exception as e:
+            logger.warning(f"Failed to add Yandex Disk file '{file_info.get('name', '?')}': {e}")
+            continue
+
+    await ctx.session.commit()
+
+    if data.auto_run:
+        for rec in created_recordings:
+            if rec.get("is_new"):
+                try:
+                    tid = await _auto_run_recording(rec["recording_id"], ctx.user_id)
+                    if tid:
+                        task_ids.append(tid)
+                except Exception as e:
+                    logger.warning(f"Failed to auto-run recording {rec['recording_id']}: {e}")
+
+    logger.info(
+        f"Added Yandex Disk files: {len(video_files)} found, created={created_count}, "
+        f"updated={updated_count}, auto_run={data.auto_run}"
+    )
+
+    return AddPlaylistResponse(
+        success=True,
+        total_videos=len(video_files),
+        recordings_created=created_count,
+        recordings_updated=updated_count,
+        recordings=created_recordings,
+        task_ids=task_ids,
+        message=f"Yandex Disk: {created_count} new, {updated_count} updated"
+        + (f", {len(task_ids)} pipelines started" if task_ids else ""),
+    )
+
+
+async def _auto_run_recording(recording_id: int, user_id: str) -> str | None:
+    """Start full pipeline for a recording. Returns task_id or None."""
+    from api.tasks.processing import run_recording_task
+
+    task = run_recording_task.apply_async(
+        kwargs={
+            "recording_id": recording_id,
+            "user_id": user_id,
+        }
+    )
+    logger.info(f"Auto-run pipeline for recording {recording_id}: task {task.id}")
+    return task.id
+
+
+# ============================================================================
 # Processing Endpoints
 # ============================================================================
 
@@ -995,7 +1301,7 @@ async def download_recording(
     force: bool = Query(False, description="Re-download if already downloaded"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """Download recording from Zoom (async task)."""
+    """Download recording from source (Zoom, yt-dlp, Yandex Disk, etc.)."""
     from api.helpers.status_manager import should_allow_download
     from api.tasks.processing import download_recording_task
 
@@ -1015,18 +1321,23 @@ async def download_recording(
             detail=f"Download not allowed for recording with status {recording.status}.",
         )
 
-    # Check if we have download_url in source metadata
-    download_url = None
-    if recording.source and recording.source.meta:
-        download_url = recording.source.meta.get("download_url")
+    source_meta = recording.source.meta if recording.source and recording.source.meta else {}
+    source_type = recording.source.source_type if recording.source else None
 
-    if not download_url:
+    # Each source type stores download info under a different metadata key
+    has_download_info = bool(
+        source_meta.get("download_url")
+        or source_meta.get("url")
+        or source_meta.get("path")
+        or source_meta.get("public_key")
+    )
+
+    if not has_download_info:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No download URL available for this recording. Please sync from Zoom first.",
+            detail=f"No download source available for this recording (source_type={source_type}).",
         )
 
-    # Check if not already downloaded
     if not force and recording.status == ProcessingStatus.DOWNLOADED and recording.local_video_path:
         if Path(recording.local_video_path).exists():
             return {
@@ -1037,7 +1348,6 @@ async def download_recording(
                 "task_id": None,
             }
 
-    # Start async task
     task = download_recording_task.delay(
         recording_id=recording_id,
         user_id=ctx.user_id,
@@ -2188,20 +2498,19 @@ async def reset_recording(
     recording.on_pause = False
     recording.pause_requested_at = None
 
-    # Set status based on source processing state and is_mapped
-    if recording.source and recording.source.meta:
-        zoom_processing_incomplete = recording.source.meta.get("zoom_processing_incomplete", False)
-    else:
-        zoom_processing_incomplete = False
+    source_processing_incomplete = (
+        recording.source.meta.get("source_processing_incomplete", False)
+        if recording.source and recording.source.meta
+        else False
+    )
 
-    if zoom_processing_incomplete:
+    if source_processing_incomplete:
         recording.status = ProcessingStatus.PENDING_SOURCE
     elif recording.is_mapped:
         recording.status = ProcessingStatus.INITIALIZED
     else:
         recording.status = ProcessingStatus.SKIPPED
 
-    # Update expire_at from user config (merged with defaults)
     user_config_repo = UserConfigRepository(ctx.session)
     user_config = await user_config_repo.get_effective_config(ctx.user_id)
 
@@ -2326,7 +2635,7 @@ async def bulk_download_recordings(
     data: BulkDownloadRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingBulkOperationResponse:
-    """Bulk download recordings from Zoom."""
+    """Bulk download recordings from source."""
     from api.tasks.processing import download_recording_task
 
     # Resolve recording IDs

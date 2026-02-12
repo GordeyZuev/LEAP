@@ -19,6 +19,11 @@ from .operations import (
     TemplateUnbindResponse,
 )
 from .request import (
+    AddPlaylistByUrlRequest,
+    AddPlaylistResponse,
+    AddVideoByUrlRequest,
+    AddVideoByUrlResponse,
+    AddYandexDiskUrlRequest,
     BulkDeleteRequest,
     BulkDownloadRequest,
     BulkRunRequest,
@@ -38,6 +43,12 @@ from .response import (
 )
 
 __all__ = [
+    # Add-by-URL schemas
+    "AddPlaylistByUrlRequest",
+    "AddPlaylistResponse",
+    "AddVideoByUrlRequest",
+    "AddVideoByUrlResponse",
+    "AddYandexDiskUrlRequest",
     # Request schemas
     "BulkDeleteRequest",
     "BulkDownloadRequest",
