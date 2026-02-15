@@ -18,7 +18,7 @@ from api.schemas.template import (
 )
 from api.schemas.template.operations import RematchTaskResponse, TemplatePreviewResponse, TemplateStatsResponse
 from database.auth_models import UserModel
-from logger import get_logger
+from logger import format_details, get_logger, short_task_id, short_user_id
 from models.recording import ProcessingStatus
 
 router = APIRouter(prefix="/api/v1/templates", tags=["Templates"])
@@ -103,11 +103,15 @@ async def create_template(
             user_id=current_user.id,
             only_unmapped=True,
         )
-        logger.info(f"Queued auto re-match task {task.id} for template {template.id} '{template.name}'")
+        logger.info(
+            f"Queued auto re-match task | {format_details(task=short_task_id(task.id), template_id=template.id, user_id=short_user_id(current_user.id))}"
+        )
+        logger.debug(
+            f"Queued rematch for template | {format_details(template_id=template.id, template_name=template.name)}"
+        )
     else:
         logger.info(
-            f"Template {template.id} created without auto-rematch: "
-            f"auto_rematch={auto_rematch}, is_draft={template.is_draft}, is_active={template.is_active}"
+            f"Template created without auto-rematch | {format_details(template_id=template.id, auto_rematch=auto_rematch, is_draft=template.is_draft, is_active=template.is_active)}"
         )
 
     return template
@@ -265,7 +269,8 @@ async def delete_template(
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
 
-    # Get number of mapped recordings for logging
+    # Get number of mapped recordings for logging (capture name before delete for debug log)
+    template_name = template.name
     from sqlalchemy import select, update
 
     from database.models import RecordingModel
@@ -288,9 +293,9 @@ async def delete_template(
     await session.commit()
 
     logger.info(
-        f"Deleted template {template_id} '{template.name}' and unmapped {affected_count} recordings "
-        f"(user {current_user.id})"
+        f"Deleted template | {format_details(template_id=template_id, unmapped_count=affected_count, user_id=short_user_id(current_user.id))}"
     )
+    logger.debug(f"Deleted template | {format_details(template_id=template_id, template_name=template_name)}")
 
 
 @router.post("/bulk/delete", response_model=BulkDeleteResult)
@@ -335,7 +340,9 @@ async def bulk_delete_templates(
 
     await session.commit()
 
-    logger.info(f"Bulk deleted {deleted_count} templates (skipped {skipped_count}) for user {current_user.id}")
+    logger.info(
+        f"Bulk deleted templates | {format_details(deleted_count=deleted_count, skipped_count=skipped_count, user_id=short_user_id(current_user.id))}"
+    )
 
     return BulkDeleteResult(
         deleted_count=deleted_count,
@@ -525,7 +532,9 @@ async def rematch_template_recordings(
         only_unmapped=only_unmapped,
     )
 
-    logger.info(f"Queued manual re-match task {task.id} for template {template_id} (only_unmapped={only_unmapped})")
+    logger.info(
+        f"Queued manual re-match task | {format_details(task=short_task_id(task.id), template_id=template_id, only_unmapped=only_unmapped, user_id=short_user_id(current_user.id))}"
+    )
 
     return RematchTaskResponse(
         message="Re-match task queued successfully",

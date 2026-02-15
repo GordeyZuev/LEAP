@@ -124,11 +124,12 @@ class ZoomDownloader(BaseDownloader):
             and recording.local_video_path
             and Path(recording.local_video_path).exists()
         ):
-            logger.info(f"Recording {recording.db_id} already downloaded, skipping")
+            logger.info(f"Skipped: already downloaded | rec={recording.db_id}")
             return False
 
         recording.update_status(ProcessingStatus.DOWNLOADING)
-        logger.info(f"Downloading recording {recording.db_id}: {recording.display_name}")
+        logger.info(f"Downloading | rec={recording.db_id}")
+        logger.debug(f"Recording name: {recording.display_name}")
 
         encoded_url = self._encode_download_url(recording.video_file_download_url)
         headers, params = self._build_zoom_auth(
@@ -161,5 +162,5 @@ class ZoomDownloader(BaseDownloader):
             recording.local_video_path = str(final_path)
         recording.update_status(ProcessingStatus.DOWNLOADED)
         recording.downloaded_at = datetime.now()
-        logger.info(f"Recording {recording.db_id} downloaded successfully")
+        logger.info(f"Downloaded | rec={recording.db_id}")
         return True

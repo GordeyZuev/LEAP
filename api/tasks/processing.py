@@ -22,7 +22,7 @@ from database.models import RecordingModel
 from deepseek_module import DeepSeekConfig, TopicExtractor
 from file_storage.path_builder import StoragePathBuilder
 from fireworks_module import FireworksConfig, FireworksTranscriptionService
-from logger import get_logger
+from logger import format_details, format_status_change, get_logger, short_task_id, short_user_id
 from models import MeetingRecording, ProcessingStageStatus, ProcessingStageType, ProcessingStatus
 from transcription_module.manager import get_transcription_manager
 from video_download_module.downloader import ZoomDownloader
@@ -70,27 +70,32 @@ def download_recording_task(
     Returns:
         Result of download
     """
-    try:
-        logger.info(f"[Task {self.request.id}] Downloading recording {recording_id} for user {user_id}")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info("Downloading")
 
-        self.update_progress(user_id=user_id, progress=10, status="Initializing download...", step="download")
+            self.update_progress(user_id=user_id, progress=10, status="Initializing download...", step="download")
 
-        result = self.run_async(_async_download_recording(self, recording_id, user_id, force, manual_override))
+            result = self.run_async(_async_download_recording(self, recording_id, user_id, force, manual_override))
 
-        return self.build_result(
-            user_id=user_id,
-            status="completed",
-            recording_id=recording_id,
-            result=result,
-        )
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                recording_id=recording_id,
+                result=result,
+            )
 
-    except SoftTimeLimitExceeded:
-        logger.error(f"[Task {self.request.id}] Soft time limit exceeded")
-        raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
+        except SoftTimeLimitExceeded:
+            logger.error("Soft time limit exceeded")
+            raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
 
-    except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error downloading: {exc!r}", exc_info=True)
-        raise self.retry(exc=exc)
+        except Exception as exc:
+            logger.error(f"Error downloading: {exc!r}", exc_info=True)
+            raise self.retry(exc=exc)
 
 
 async def _refresh_download_token_if_needed(
@@ -99,10 +104,8 @@ async def _refresh_download_token_if_needed(
     user_id: str,
     meeting_id: str,
     force: bool,
-    task_id: str,
 ) -> str | None:
-    """
-    Refresh download_access_token if needed (old/missing/force).
+    """Refresh download_access_token if needed (old/missing/force).
 
     Returns fresh token or None if refresh failed.
     """
@@ -124,22 +127,19 @@ async def _refresh_download_token_if_needed(
     if not (force or not current_token or (token_age_days and token_age_days > 1)):
         return current_token
 
-    logger.info(
-        f"[Task {task_id}] Refreshing download_access_token for recording {recording.id} "
-        f"(age={token_age_days} days, force={force}, has_token={bool(current_token)})"
-    )
+    logger.info(f"Refreshing download token | {format_details(age_days=token_age_days, force=force)}")
 
     try:
         # Get input source
         if not recording.source or not recording.source.input_source_id:
-            logger.warning(f"[Task {task_id}] No input source for recording {recording.id}")
+            logger.warning("No input source for token refresh")
             return current_token
 
         source_repo = InputSourceRepository(session)
         source = await source_repo.find_by_id(recording.source.input_source_id, user_id)
 
         if not source or not source.credential_id:
-            logger.warning(f"[Task {task_id}] Source not found or no credential for recording {recording.id}")
+            logger.warning("Source not found or no credential for token refresh")
             return current_token
 
         # Get credentials
@@ -147,7 +147,7 @@ async def _refresh_download_token_if_needed(
         credential = await cred_repo.get_by_id(source.credential_id)
 
         if not credential:
-            logger.warning(f"[Task {task_id}] Credential {source.credential_id} not found")
+            logger.warning(f"Credential not found | credential={source.credential_id}")
             return current_token
 
         # Decrypt credentials
@@ -161,7 +161,7 @@ async def _refresh_download_token_if_needed(
         fresh_token = meeting_details.get("download_access_token")
 
         if fresh_token:
-            logger.info(f"[Task {task_id}] Successfully refreshed download_access_token (length={len(fresh_token)})")
+            logger.info(f"Download token refreshed | {format_details(length=len(fresh_token))}")
 
             # Update in source.meta for future use
             if recording.source and recording.source.meta:
@@ -171,11 +171,11 @@ async def _refresh_download_token_if_needed(
 
             return fresh_token
 
-        logger.warning(f"[Task {task_id}] No fresh token received, using existing")
+        logger.warning("No fresh token received, using existing")
         return current_token
 
     except Exception as e:
-        logger.warning(f"[Task {task_id}] Error refreshing token: {e}. Using existing")
+        logger.warning(f"Error refreshing token: {e}, using existing")
         return current_token
 
 
@@ -197,7 +197,7 @@ async def _async_download_recording(
 
         # Check pause flag before starting
         if recording.on_pause:
-            logger.info(f"[Task {task_self.request.id}] Skipping download: recording {recording_id} is paused")
+            logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
         recording_repo = RecordingRepository(session)
@@ -215,8 +215,7 @@ async def _async_download_recording(
         retry_attempts = download_config.get("retry_attempts", 3)
 
         logger.debug(
-            f"Download config for recording {recording_id}: "
-            f"max_file_size_mb={max_file_size_mb}, retry_attempts={retry_attempts}"
+            f"Download config | {format_details(max_file_size_mb=max_file_size_mb, retry_attempts=retry_attempts)}"
         )
 
         # Check if not already downloaded
@@ -234,7 +233,7 @@ async def _async_download_recording(
 
         source_type = recording.source.source_type if recording.source else SourceType.ZOOM
         if not recording.source:
-            logger.warning(f"Recording {recording_id} has no source, defaulting to ZOOM")
+            logger.warning("No source, defaulting to ZOOM")
 
         # Start download timing (stage_timings only, not processing_stages)
         timing_service = TimingService(session)
@@ -317,7 +316,9 @@ async def _download_via_external(
         oauth_token=oauth_token,
     )
 
+    old_status = recording.status
     recording.status = ProcessingStatus.DOWNLOADING
+    logger.info(format_status_change("Recording", old_status, recording.status))
     await recording_repo.update(recording)
     await session.commit()
 
@@ -335,9 +336,13 @@ async def _download_via_external(
         recording.local_video_path = str(result.file_path.relative_to(Path.cwd()))
     except ValueError:
         recording.local_video_path = str(result.file_path)
+    old_status = recording.status
     recording.status = ProcessingStatus.DOWNLOADED
     recording.downloaded_at = datetime.now(UTC)
     recording.video_file_size = result.file_size
+    logger.info(
+        f"{format_status_change('Recording', old_status, recording.status)} | {format_details(size=result.file_size)}"
+    )
     await recording_repo.update(recording)
     await session.commit()
 
@@ -379,9 +384,7 @@ async def _download_via_zoom(
     password = recording.source.meta.get("password") if recording.source and recording.source.meta else None
     account = recording.source.meta.get("account") if recording.source and recording.source.meta else None
 
-    download_access_token = await _refresh_download_token_if_needed(
-        session, recording, user_id, meeting_id, force, task_self.request.id
-    )
+    download_access_token = await _refresh_download_token_if_needed(session, recording, user_id, meeting_id, force)
 
     meeting_recording = MeetingRecording(
         {
@@ -409,7 +412,9 @@ async def _download_via_zoom(
     task_self.update_progress(user_id, 40, "Starting download...", step="download")
 
     # Set DOWNLOADING status BEFORE actual download starts
+    old_status = recording.status
     recording.status = ProcessingStatus.DOWNLOADING
+    logger.info(format_status_change("Recording", old_status, recording.status))
     await recording_repo.update(recording)
     await session.commit()
 
@@ -418,11 +423,22 @@ async def _download_via_zoom(
     # Download
     success = await downloader.download_recording(meeting_recording, force_download=force)
 
+    # On failure, retry once with force-refreshed token (handles expired download_access_token)
+    if not success:
+        logger.warning("Download failed, retrying with fresh token")
+        fresh_token = await _refresh_download_token_if_needed(session, recording, user_id, meeting_id, True)
+        if fresh_token and fresh_token != download_access_token:
+            meeting_recording.download_access_token = fresh_token
+            task_self.update_progress(user_id, 55, "Retrying with fresh token...", step="download")
+            success = await downloader.download_recording(meeting_recording, force_download=True)
+
     if success:
         task_self.update_progress(user_id, 90, "Updating database...", step="download")
 
         recording.local_video_path = meeting_recording.local_video_path
+        old_status = recording.status
         recording.status = ProcessingStatus.DOWNLOADED
+        logger.info(format_status_change("Recording", old_status, recording.status))
         await recording_repo.update(recording)
         await session.commit()
 
@@ -430,6 +446,7 @@ async def _download_via_zoom(
             "success": True,
             "local_video_path": recording.local_video_path,
         }
+
     raise Exception("Download failed")
 
 
@@ -463,27 +480,32 @@ def trim_video_task(
     Returns:
         Result of processing
     """
-    try:
-        logger.info(f"[Task {self.request.id}] Trimming video {recording_id} for user {user_id}")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info("Trimming")
 
-        self.update_progress(user_id, 10, "Initializing video trimming...", step="trim")
+            self.update_progress(user_id, 10, "Initializing video trimming...", step="trim")
 
-        result = self.run_async(_async_process_video(self, recording_id, user_id, manual_override))
+            result = self.run_async(_async_process_video(self, recording_id, user_id, manual_override))
 
-        return self.build_result(
-            user_id=user_id,
-            status="completed",
-            recording_id=recording_id,
-            result=result,
-        )
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                recording_id=recording_id,
+                result=result,
+            )
 
-    except SoftTimeLimitExceeded:
-        logger.error(f"[Task {self.request.id}] Soft time limit exceeded")
-        raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
+        except SoftTimeLimitExceeded:
+            logger.error("Soft time limit exceeded")
+            raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
 
-    except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error processing: {exc!r}", exc_info=True)
-        raise self.retry(exc=exc)
+        except Exception as exc:
+            logger.error(f"Error trimming: {exc!r}", exc_info=True)
+            raise self.retry(exc=exc)
 
 
 async def _async_process_video(
@@ -511,7 +533,7 @@ async def _async_process_video(
 
         # Check pause flag before starting
         if recording.on_pause:
-            logger.info(f"[Task {task_self.request.id}] Skipping trim: recording {recording_id} is paused")
+            logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
         recording_repo = RecordingRepository(session)
@@ -530,8 +552,7 @@ async def _async_process_video(
         padding_after = trimming_config.get("padding_after", 5.0)
 
         logger.debug(
-            f"Trimming config for recording {recording_id}: "
-            f"silence_threshold={silence_threshold}, min_silence_duration={min_silence_duration}"
+            f"Trim config | {format_details(silence_threshold=silence_threshold, min_silence_duration=min_silence_duration)}"
         )
 
         recording_repo = RecordingRepository(session)
@@ -559,6 +580,9 @@ async def _async_process_video(
 
         # Mark TRIM stage as IN_PROGRESS
         recording.mark_stage_in_progress(ProcessingStageType.TRIM)
+        logger.info(
+            format_status_change("Stage TRIM", ProcessingStageStatus.PENDING, ProcessingStageStatus.IN_PROGRESS)
+        )
         update_aggregate_status(recording)
 
         timing_service = TimingService(session)
@@ -575,7 +599,7 @@ async def _async_process_video(
             temp_audio_path = Path(temp_dir) / f"{recording_id}_full_audio.mp3"
             temp_audio_path.parent.mkdir(parents=True, exist_ok=True)
 
-            logger.info(f"Extracting full audio: id={recording_id}")
+            logger.debug("Extracting full audio")
 
             success = await processor.extract_audio_full(recording.local_video_path, str(temp_audio_path))
 
@@ -610,16 +634,16 @@ async def _async_process_video(
 
             # Sound throughout entire video - skip trimming, reference original
             if last_sound is None and first_sound == 0.0:
-                logger.info("Sound throughout entire video, skipping trim")
+                logger.info("Skipped: sound throughout entire video")
                 task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
 
                 output_video_path = recording.local_video_path
-                logger.info(f"Processed video path references original: {output_video_path}")
+                logger.debug(f"Processed video references original: {output_video_path}")
 
                 if Path(final_audio_path).exists():
                     Path(final_audio_path).unlink()
                 shutil.move(str(temp_audio_path), final_audio_path)
-                logger.info(f"Full audio saved: {final_audio_path}")
+                logger.debug(f"Full audio saved: {final_audio_path}")
 
             else:
                 # Normal case: trim video and audio
@@ -631,7 +655,7 @@ async def _async_process_video(
                 start_trim = max(0, first_sound - padding_before)
                 end_trim = last_sound + padding_after
 
-                logger.info(f"Audio boundaries detected: {start_trim:.1f}s - {end_trim:.1f}s")
+                logger.info(f"Audio boundaries | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s')}")
 
                 # Step 3: Trim video
                 task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
@@ -669,7 +693,7 @@ async def _async_process_video(
 
                 if temp_audio_path.exists():
                     temp_audio_path.unlink()
-                    logger.info(f"Temp audio cleaned: {temp_audio_path}")
+                    logger.debug(f"Temp audio cleaned: {temp_audio_path}")
 
             # Step 5: Update database
             task_self.update_progress(user_id, 90, "Updating database...", step="trim")
@@ -684,10 +708,15 @@ async def _async_process_video(
             await timing_service.complete_stage(timing)
             _update_pipeline_completed(recording)
 
+            logger.success(
+                f"{format_status_change('Stage TRIM', ProcessingStageStatus.IN_PROGRESS, ProcessingStageStatus.COMPLETED)}"
+                f" | {format_details(elapsed=f'{timing.duration_seconds:.1f}s')}"
+            )
+
             await recording_repo.update(recording)
             await session.commit()
 
-            logger.info(f"Trimming complete: id={recording_id}, video={output_video_path}, audio={final_audio_path}")
+            logger.debug(f"Trim output | video={output_video_path} • audio={final_audio_path}")
 
             return {
                 "success": True,
@@ -733,27 +762,32 @@ def transcribe_recording_task(
     Returns:
         Results of transcription (without topics)
     """
-    try:
-        logger.info(f"[Task {self.request.id}] Transcribing recording {recording_id} for user {user_id}")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info("Transcribing")
 
-        self.update_progress(user_id, 10, "Initializing transcription...", step="transcribe")
+            self.update_progress(user_id, 10, "Initializing transcription...", step="transcribe")
 
-        result = self.run_async(_async_transcribe_recording(self, recording_id, user_id, manual_override))
+            result = self.run_async(_async_transcribe_recording(self, recording_id, user_id, manual_override))
 
-        return self.build_result(
-            user_id=user_id,
-            status="completed",
-            recording_id=recording_id,
-            result=result,
-        )
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                recording_id=recording_id,
+                result=result,
+            )
 
-    except SoftTimeLimitExceeded:
-        logger.error(f"[Task {self.request.id}] Soft time limit exceeded")
-        raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
+        except SoftTimeLimitExceeded:
+            logger.error("Soft time limit exceeded")
+            raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
 
-    except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error transcribing: {exc!r}", exc_info=True)
-        raise self.retry(exc=exc)
+        except Exception as exc:
+            logger.error(f"Error transcribing: {exc!r}", exc_info=True)
+            raise self.retry(exc=exc)
 
 
 async def _async_transcribe_recording(
@@ -785,7 +819,7 @@ async def _async_transcribe_recording(
 
         # Check pause flag before starting
         if recording.on_pause:
-            logger.info(f"[Task {task_self.request.id}] Skipping transcribe: recording {recording_id} is paused")
+            logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
         transcription_config = full_config.get("transcription", {})
@@ -797,10 +831,7 @@ async def _async_transcribe_recording(
             (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.TRANSCRIBE), None
         )
         if transcribe_stage and transcribe_stage.status == ProcessingStageStatus.FAILED:
-            logger.info(
-                f"Retrying transcription after failure for recording {recording_id} "
-                f"(attempt {transcribe_stage.retry_count + 1})"
-            )
+            logger.info(f"Retrying transcription | {format_details(attempt=transcribe_stage.retry_count + 1)}")
 
         # Extract transcription parameters
         language = transcription_config.get("language", "ru")
@@ -808,8 +839,7 @@ async def _async_transcribe_recording(
         temperature = transcription_config.get("temperature", 0.0)
 
         logger.debug(
-            f"Transcription config for recording {recording_id}: "
-            f"language={language}, has_prompt={bool(user_prompt)}, temperature={temperature}"
+            f"Transcription config | {format_details(language=language, has_prompt=bool(user_prompt), temperature=temperature)}"
         )
 
         # Priority: processed audio > processed video > original video
@@ -827,7 +857,7 @@ async def _async_transcribe_recording(
         if not audio_path:
             audio_path = recording.processed_video_path or recording.local_video_path
             if audio_path:
-                logger.info(f"🎬 Use video file (audio not found): {audio_path}")
+                logger.debug(f"Using video file (audio not found): {audio_path}")
 
         if not audio_path:
             raise ValueError("No audio or video file available for transcription")
@@ -845,6 +875,9 @@ async def _async_transcribe_recording(
 
         # Mark TRANSCRIBE stage as IN_PROGRESS BEFORE actual transcription
         recording.mark_stage_in_progress(ProcessingStageType.TRANSCRIBE)
+        logger.info(
+            format_status_change("Stage TRANSCRIBE", ProcessingStageStatus.PENDING, ProcessingStageStatus.IN_PROGRESS)
+        )
         update_aggregate_status(recording)
 
         timing_service = TimingService(session)
@@ -943,9 +976,9 @@ async def _async_transcribe_recording(
             await recording_repo.update(recording)
             await session.commit()
 
-            logger.info(
-                f"Transcription completed for recording {recording_id}: "
-                f"words={len(words)}, segments={len(segments)}, language={language}"
+            logger.success(
+                f"Transcription complete | "
+                f"{format_details(words=len(words), segments=len(segments), lang=language, elapsed=f'{timing.duration_seconds:.1f}s')}"
             )
 
             return {
@@ -1003,42 +1036,49 @@ def _launch_uploads_task(
             recording = await recording_repo.get_by_id(recording_id, user_id)
             return recording.on_pause if recording else False
 
-    if self.run_async(_check_pause()):
-        logger.info(f"[Task {self.request.id}] Skipping uploads: recording {recording_id} is paused")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    ):
+        if self.run_async(_check_pause()):
+            logger.info("Skipped: recording paused")
+            return self.build_result(
+                user_id=user_id,
+                status="paused",
+                recording_id=recording_id,
+                result={"message": "Pipeline paused by user"},
+            )
+
+        logger.info(f"Launching uploads | {format_details(platforms=platforms)}")
+
+        upload_task_ids = []
+        for platform in platforms:
+            try:
+                preset_id = preset_map.get(platform)
+                upload_task = upload_recording_to_platform.delay(
+                    recording_id, user_id, platform, preset_id, None, metadata_override
+                )
+
+                upload_task_ids.append(
+                    {
+                        "platform": platform,
+                        "task_id": upload_task.id,
+                        "preset_id": preset_id,
+                    }
+                )
+                logger.info(
+                    f"Upload task launched | {format_details(platform=platform, upload_task=short_task_id(upload_task.id))}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to launch upload | {format_details(platform=platform, error=e)}")
+
         return self.build_result(
             user_id=user_id,
-            status="paused",
+            status="completed",
             recording_id=recording_id,
-            result={"message": "Pipeline paused by user"},
+            result={"upload_tasks": upload_task_ids},
         )
-
-    logger.info(f"[Task {self.request.id}] Launching uploads for recording {recording_id}: platforms={platforms}")
-
-    upload_task_ids = []
-    for platform in platforms:
-        try:
-            preset_id = preset_map.get(platform)
-            upload_task = upload_recording_to_platform.delay(
-                recording_id, user_id, platform, preset_id, None, metadata_override
-            )
-
-            upload_task_ids.append(
-                {
-                    "platform": platform,
-                    "task_id": upload_task.id,
-                    "preset_id": preset_id,
-                }
-            )
-            logger.info(f"Upload task for {platform} launched: {upload_task.id}")
-        except Exception as e:
-            logger.error(f"Failed to launch upload to {platform}: {e}")
-
-    return self.build_result(
-        user_id=user_id,
-        status="completed",
-        recording_id=recording_id,
-        result={"upload_tasks": upload_task_ids},
-    )
 
 
 @celery_app.task(
@@ -1070,8 +1110,14 @@ def run_recording_task(
     Returns:
         Task chain signature (not blocking)
     """
+    _ctx = logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    )
+    _ctx.__enter__()
     try:
-        logger.info(f"[Task {self.request.id}] Orchestrating pipeline for recording {recording_id}, user {user_id}")
+        logger.info("Orchestrating pipeline")
 
         from api.dependencies import get_async_session_maker
         from api.services.config_utils import resolve_full_config
@@ -1087,7 +1133,7 @@ def run_recording_task(
                 return rec.on_pause if rec else False
 
         if self.run_async(_check_pause_before_pipeline()):
-            logger.info(f"[Task {self.request.id}] Skipping pipeline: recording {recording_id} is paused")
+            logger.info("Skipped: recording paused")
             return self.build_result(
                 user_id=user_id,
                 status="paused",
@@ -1128,8 +1174,7 @@ def run_recording_task(
         # Check blank_record
         if recording.blank_record:
             logger.info(
-                f"[Task {self.request.id}] Skipping pipeline for blank_record {recording_id}: "
-                f"duration={recording.duration}min, size={recording.video_file_size} bytes"
+                f"Skipped: blank record | {format_details(duration=f'{recording.duration}min', size=recording.video_file_size)}"
             )
 
             async def _mark_skipped():
@@ -1167,9 +1212,7 @@ def run_recording_task(
         subtitle_formats = transcription.get("subtitle_formats", ["srt", "vtt"])
 
         logger.info(
-            f"[Task {self.request.id}] Pipeline config: download={download_enabled}, "
-            f"trim={trim_enabled}, transcribe={transcribe_enabled}, "
-            f"topics={extract_topics_enabled}, subs={generate_subs_enabled}, upload={upload_enabled}"
+            f"Pipeline config | {format_details(download=download_enabled, trim=trim_enabled, transcribe=transcribe_enabled, topics=extract_topics_enabled, subs=generate_subs_enabled, upload=upload_enabled)}"
         )
 
         # Build task chain based on enabled steps
@@ -1198,16 +1241,13 @@ def run_recording_task(
             if len(parallel_after_transcribe) > 1:
                 # Multiple tasks - run in parallel
                 task_chain.append(group(*parallel_after_transcribe))
-                logger.info(
-                    f"[Task {self.request.id}] Added parallel group: {len(parallel_after_transcribe)} tasks "
-                    f"(topics + subtitles)"
-                )
+                logger.debug(f"Added parallel group | {format_details(tasks=len(parallel_after_transcribe))}")
             else:
                 # Single task - just append normally
                 task_chain.append(parallel_after_transcribe[0])
 
         if not task_chain:
-            logger.warning(f"[Task {self.request.id}] No processing steps enabled for recording {recording_id}")
+            logger.warning("No processing steps enabled")
             return self.build_result(
                 user_id=user_id,
                 status="completed",
@@ -1236,14 +1276,14 @@ def run_recording_task(
                 )
             )
 
-            logger.info(f"[Task {self.request.id}] Added upload launcher for platforms: {platforms}")
+            logger.debug(f"Added upload launcher | {format_details(platforms=platforms)}")
 
         # Launch chain
         chain_signature = chain(*task_chain)
         chain_result = chain_signature.apply_async()
 
         logger.info(
-            f"[Task {self.request.id}] Pipeline chain launched: {len(task_chain)} tasks, root_id={chain_result.id}"
+            f"Pipeline launched | {format_details(tasks=len(task_chain), chain_id=short_task_id(chain_result.id))}"
         )
 
         return self.build_result(
@@ -1259,8 +1299,10 @@ def run_recording_task(
         )
 
     except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Pipeline orchestration failed: {exc!r}", exc_info=True)
+        logger.error(f"Pipeline orchestration failed: {exc!r}", exc_info=True)
         raise
+    finally:
+        _ctx.__exit__(None, None, None)
 
 
 @celery_app.task(
@@ -1293,27 +1335,32 @@ def extract_topics_task(
     Returns:
         Results of topic extraction
     """
-    try:
-        logger.info(f"[Task {self.request.id}] Extracting topics for recording {recording_id}, user {user_id}")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info("Extracting topics")
 
-        self.update_progress(user_id, 10, "Initializing topic extraction...", step="extract_topics")
+            self.update_progress(user_id, 10, "Initializing topic extraction...", step="extract_topics")
 
-        result = self.run_async(_async_extract_topics(self, recording_id, user_id, granularity, version_id))
+            result = self.run_async(_async_extract_topics(self, recording_id, user_id, granularity, version_id))
 
-        return self.build_result(
-            user_id=user_id,
-            status="completed",
-            recording_id=recording_id,
-            result=result,
-        )
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                recording_id=recording_id,
+                result=result,
+            )
 
-    except SoftTimeLimitExceeded:
-        logger.error(f"[Task {self.request.id}] Soft time limit exceeded")
-        raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
+        except SoftTimeLimitExceeded:
+            logger.error("Soft time limit exceeded")
+            raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
 
-    except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error extracting topics: {exc!r}", exc_info=True)
-        raise self.retry(exc=exc)
+        except Exception as exc:
+            logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
+            raise self.retry(exc=exc)
 
 
 async def _async_extract_topics(
@@ -1337,7 +1384,7 @@ async def _async_extract_topics(
 
         # Check pause flag before starting
         if recording.on_pause:
-            logger.info(f"[Task {task_self.request.id}] Skipping topics: recording {recording_id} is paused")
+            logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
         # Get user_slug for path generation
@@ -1359,6 +1406,11 @@ async def _async_extract_topics(
         from api.helpers.status_manager import update_aggregate_status
 
         recording.mark_stage_in_progress(ProcessingStageType.EXTRACT_TOPICS)
+        logger.info(
+            format_status_change(
+                "Stage EXTRACT_TOPICS", ProcessingStageStatus.PENDING, ProcessingStageStatus.IN_PROGRESS
+            )
+        )
         update_aggregate_status(recording)
 
         timing_service = TimingService(session)
@@ -1374,7 +1426,7 @@ async def _async_extract_topics(
 
             # Strategy 1: DeepSeek (primary model)
             try:
-                logger.info(f"[Topics] Trying primary model: deepseek for recording {recording_id}")
+                logger.info("Topics: trying primary model deepseek")
                 task_self.update_progress(user_id, 40, "Extracting topics (deepseek)...", step="extract_topics")
 
                 deepseek_config = DeepSeekConfig.from_file("config/deepseek_creds.json")
@@ -1386,15 +1438,15 @@ async def _async_extract_topics(
                     granularity=granularity,
                 )
                 model_used = "deepseek"
-                logger.info(f"[Topics] Successfully extracted with deepseek for recording {recording_id}")
+                logger.info("Topics extracted with deepseek")
 
             except Exception as e:
-                logger.warning(f"[Topics] DeepSeek failed for recording {recording_id}: {e}. Trying fallback...")
+                logger.warning(f"DeepSeek failed: {e}, trying fallback")
                 last_error = e
 
                 # Strategy 2: Fireworks DeepSeek (fallback)
                 try:
-                    logger.info(f"[Topics] Trying fallback model: fireworks_deepseek for recording {recording_id}")
+                    logger.info("Topics: trying fallback model fireworks_deepseek")
                     task_self.update_progress(user_id, 50, "Extracting topics (fallback)...", step="extract_topics")
 
                     deepseek_config = DeepSeekConfig.from_file("config/deepseek_fireworks_creds.json")
@@ -1406,10 +1458,10 @@ async def _async_extract_topics(
                         granularity=granularity,
                     )
                     model_used = "fireworks_deepseek"
-                    logger.info(f"[Topics] Successfully extracted with fireworks_deepseek for recording {recording_id}")
+                    logger.info("Topics extracted with fireworks_deepseek")
 
                 except Exception as e2:
-                    logger.error(f"[Topics] All models failed for recording {recording_id}. Last error: {e2}")
+                    logger.error(f"All topic models failed | primary={last_error} • fallback={e2}")
                     raise ValueError(f"Failed to extract topics with all models. Primary: {last_error}, Fallback: {e2}")
 
             if not topics_result:
@@ -1463,10 +1515,15 @@ async def _async_extract_topics(
             await recording_repo.update(recording)
             await session.commit()
 
+            topics_count = len(topics_result.get("topic_timestamps", []))
+            logger.success(
+                f"Topics extracted | {format_details(model=model_used, topics=topics_count, elapsed=f'{timing.duration_seconds:.1f}s')}"
+            )
+
             return {
                 "success": True,
                 "version_id": version_id,
-                "topics_count": len(topics_result.get("topic_timestamps", [])),
+                "topics_count": topics_count,
                 "main_topics": topics_result.get("main_topics", []),
             }
 
@@ -1500,25 +1557,30 @@ def generate_subtitles_task(
     Returns:
         Results of subtitle generation
     """
-    try:
-        logger.info(f"[Task {self.request.id}] Generating subtitles for recording {recording_id}, user {user_id}")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info("Generating subtitles")
 
-        formats = formats or ["srt", "vtt"]
+            formats = formats or ["srt", "vtt"]
 
-        self.update_progress(user_id, 20, "Initializing subtitle generation...", step="generate_subtitles")
+            self.update_progress(user_id, 20, "Initializing subtitle generation...", step="generate_subtitles")
 
-        result = self.run_async(_async_generate_subtitles(self, recording_id, user_id, formats))
+            result = self.run_async(_async_generate_subtitles(self, recording_id, user_id, formats))
 
-        return self.build_result(
-            user_id=user_id,
-            status="completed",
-            recording_id=recording_id,
-            result=result,
-        )
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                recording_id=recording_id,
+                result=result,
+            )
 
-    except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error generating subtitles: {exc!r}", exc_info=True)
-        raise self.retry(exc=exc)
+        except Exception as exc:
+            logger.error(f"Error generating subtitles: {exc!r}", exc_info=True)
+            raise self.retry(exc=exc)
 
 
 async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, formats: list[str]) -> dict:
@@ -1534,7 +1596,7 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
 
         # Check pause flag before starting
         if recording.on_pause:
-            logger.info(f"[Task {task_self.request.id}] Skipping subtitles: recording {recording_id} is paused")
+            logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
         # Get user_slug for path generation
@@ -1551,6 +1613,9 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         from api.helpers.status_manager import update_aggregate_status
 
         recording.mark_stage_in_progress(ProcessingStageType.GENERATE_SUBTITLES)
+        logger.info(
+            format_status_change("Stage SUBTITLES", ProcessingStageStatus.PENDING, ProcessingStageStatus.IN_PROGRESS)
+        )
         update_aggregate_status(recording)
 
         timing_service = TimingService(session)
@@ -1584,6 +1649,11 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
             await recording_repo.update(recording)
             await session.commit()
 
+            logger.info(
+                f"{format_status_change('Stage SUBTITLES', ProcessingStageStatus.IN_PROGRESS, ProcessingStageStatus.COMPLETED)}"
+                f" | {format_details(formats=formats, elapsed=f'{timing.duration_seconds:.1f}s')}"
+            )
+
             return {
                 "success": True,
                 "formats": formats,
@@ -1616,45 +1686,47 @@ def batch_transcribe_recording_task(
     When batch_id is provided (single endpoint), skips submission and polls directly.
     When batch_id is None (bulk endpoint), submits the batch job first.
     """
-    try:
-        logger.info(
-            f"[Task {self.request.id}] Batch transcription | recording={recording_id} | "
-            f"user={user_id} | batch_id={batch_id or 'will_submit'}"
-        )
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        recording_id=recording_id,
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info(f"Batch transcription | {format_details(batch_id=batch_id or 'will_submit')}")
 
-        self.update_progress(user_id, 5, "Starting batch transcription...", step="batch_transcribe")
+            self.update_progress(user_id, 5, "Starting batch transcription...", step="batch_transcribe")
 
-        result = self.run_async(
-            _async_poll_batch_transcription(
-                self,
-                recording_id,
-                user_id,
-                batch_id,
-                poll_interval,
-                max_wait_time,
+            result = self.run_async(
+                _async_poll_batch_transcription(
+                    self,
+                    recording_id,
+                    user_id,
+                    batch_id,
+                    poll_interval,
+                    max_wait_time,
+                )
             )
-        )
 
-        return self.build_result(
-            user_id=user_id,
-            status="completed",
-            recording_id=recording_id,
-            **result,
-        )
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                recording_id=recording_id,
+                **result,
+            )
 
-    except TimeoutError as exc:
-        logger.error(
-            f"[Task {self.request.id}] Batch transcription timeout | batch_id={batch_id} | max_wait={max_wait_time}s"
-        )
-        raise self.retry(countdown=600, exc=exc)
+        except TimeoutError as exc:
+            logger.error(
+                f"Batch transcription timeout | {format_details(batch_id=batch_id, max_wait=f'{max_wait_time}s')}"
+            )
+            raise self.retry(countdown=600, exc=exc)
 
-    except SoftTimeLimitExceeded:
-        logger.error(f"[Task {self.request.id}] Soft time limit exceeded")
-        raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
+        except SoftTimeLimitExceeded:
+            logger.error("Soft time limit exceeded")
+            raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
 
-    except Exception as exc:
-        logger.error(f"[Task {self.request.id}] Error in batch transcription: {exc!r}", exc_info=True)
-        raise self.retry(exc=exc)
+        except Exception as exc:
+            logger.error(f"Error in batch transcription: {exc!r}", exc_info=True)
+            raise self.retry(exc=exc)
 
 
 async def _async_poll_batch_transcription(
@@ -1708,7 +1780,7 @@ async def _async_poll_batch_transcription(
             if not batch_id:
                 raise ValueError("Batch API did not return batch_id")
 
-            logger.info(f"[Batch Transcription] Submitted | batch_id={batch_id} | recording={recording_id}")
+            logger.info(f"Batch submitted | {format_details(batch_id=batch_id)}")
 
         # Mark TRANSCRIBE stage as IN_PROGRESS
         recording_db.mark_stage_in_progress(ProcessingStageType.TRANSCRIBE)
@@ -1797,8 +1869,8 @@ async def _batch_transcribe_poll_and_save(
 
         if batch_status == "completed":
             completed_response = status_response
-            logger.info(
-                f"[Batch Transcription] Completed | batch_id={batch_id} | elapsed={elapsed:.1f}s | attempts={attempt}"
+            logger.success(
+                f"Batch transcription complete | {format_details(batch_id=batch_id, elapsed=f'{elapsed:.1f}s', attempts=attempt)}"
             )
             break
 
@@ -1808,8 +1880,7 @@ async def _batch_transcribe_poll_and_save(
             )
 
         logger.debug(
-            f"[Batch Transcription] Polling | batch_id={batch_id} | "
-            f"status={batch_status} | attempt={attempt} | elapsed={elapsed:.1f}s"
+            f"Batch polling | {format_details(batch_id=batch_id, status=batch_status, attempt=attempt, elapsed=f'{elapsed:.1f}s')}"
         )
         await asyncio.sleep(poll_interval)
 
@@ -1893,9 +1964,8 @@ async def _batch_transcribe_poll_and_save(
         await recording_repo.update(recording_db)
         await session.commit()
 
-    logger.info(
-        f"[Batch Transcription] Saved | recording={recording_id} | "
-        f"words={len(words)} | segments={len(segments)} | language={language}"
+    logger.success(
+        f"Batch transcription saved | {format_details(words=len(words), segments=len(segments), lang=language, elapsed=f'{elapsed:.1f}s')}"
     )
 
     return {

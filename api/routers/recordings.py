@@ -58,7 +58,7 @@ from api.schemas.recording.response import (
     SourceResponse,
     UploadInfo,
 )
-from logger import get_logger
+from logger import format_details, get_logger, short_task_id, short_user_id
 from models import ProcessingStatus
 from models.recording import TargetStatus
 
@@ -746,7 +746,7 @@ async def get_recording(
                 },
             }
         except Exception as e:
-            logger.warning(f"Failed to load transcription for recording {recording_id}: {e}")
+            logger.warning(f"Failed to load transcription | {format_details(rec=recording_id, error=str(e))}")
             transcription_data = {"exists": False}
     else:
         transcription_data = {"exists": False}
@@ -769,7 +769,7 @@ async def get_recording(
                 "versions": versions_clean,
             }
         except Exception as e:
-            logger.warning(f"Failed to load topics for recording {recording_id}: {e}")
+            logger.warning(f"Failed to load topics | {format_details(rec=recording_id, error=str(e))}")
             topics_data = {"exists": False}
     else:
         topics_data = {"exists": False}
@@ -876,7 +876,7 @@ async def add_local_recording(
 
         actual_size = temp_path.stat().st_size
         if actual_size != total_size:
-            logger.warning(f"File size mismatch: expected {total_size}, got {actual_size}")
+            logger.warning(f"File size mismatch | {format_details(expected=total_size, got=actual_size)}")
 
         # Get user to access user_slug
         from sqlalchemy import select
@@ -930,7 +930,7 @@ async def add_local_recording(
         }
 
     except Exception as e:
-        logger.error(f"Failed to upload file: {e}", exc_info=True)
+        logger.error(f"Failed to upload file | {format_details(error=str(e))}", exc_info=True)
         if temp_path.exists():
             temp_path.unlink()
         raise HTTPException(
@@ -1017,7 +1017,7 @@ async def add_video_by_url(
     if data.auto_run:
         task_id = await _auto_run_recording(recording.id, ctx.user_id)
 
-    logger.info(f"Added video by URL: recording {recording.id}, platform={platform}, auto_run={data.auto_run}")
+    logger.info(f"Added video by URL | {format_details(rec=recording.id, platform=platform, auto_run=data.auto_run)}")
 
     return AddVideoByUrlResponse(
         success=True,
@@ -1115,7 +1115,9 @@ async def add_playlist_by_url(
             )
 
         except Exception as e:
-            logger.warning(f"Failed to add playlist entry '{entry.get('title', '?')}': {e}")
+            logger.warning(
+                f"Failed to add playlist entry | {format_details(title=entry.get('title', '?'), error=str(e))}"
+            )
             continue
 
     await ctx.session.commit()
@@ -1129,11 +1131,10 @@ async def add_playlist_by_url(
                     if tid:
                         task_ids.append(tid)
                 except Exception as e:
-                    logger.warning(f"Failed to auto-run recording {rec['recording_id']}: {e}")
+                    logger.warning(f"Failed to auto-run | {format_details(rec=rec['recording_id'], error=str(e))}")
 
     logger.info(
-        f"Added playlist: {len(entries)} videos, created={created_count}, "
-        f"updated={updated_count}, auto_run={data.auto_run}"
+        f"Added playlist | {format_details(total=len(entries), created=created_count, updated=updated_count, auto_run=data.auto_run)}"
     )
 
     return AddPlaylistResponse(
@@ -1244,7 +1245,9 @@ async def add_yandex_disk_by_url(
             )
 
         except Exception as e:
-            logger.warning(f"Failed to add Yandex Disk file '{file_info.get('name', '?')}': {e}")
+            logger.warning(
+                f"Failed to add Yandex Disk file | {format_details(name=file_info.get('name', '?'), error=str(e))}"
+            )
             continue
 
     await ctx.session.commit()
@@ -1257,11 +1260,10 @@ async def add_yandex_disk_by_url(
                     if tid:
                         task_ids.append(tid)
                 except Exception as e:
-                    logger.warning(f"Failed to auto-run recording {rec['recording_id']}: {e}")
+                    logger.warning(f"Failed to auto-run | {format_details(rec=rec['recording_id'], error=str(e))}")
 
     logger.info(
-        f"Added Yandex Disk files: {len(video_files)} found, created={created_count}, "
-        f"updated={updated_count}, auto_run={data.auto_run}"
+        f"Added Yandex Disk files | {format_details(found=len(video_files), created=created_count, updated=updated_count, auto_run=data.auto_run)}"
     )
 
     return AddPlaylistResponse(
@@ -1286,7 +1288,7 @@ async def _auto_run_recording(recording_id: int, user_id: str) -> str | None:
             "user_id": user_id,
         }
     )
-    logger.info(f"Auto-run pipeline for recording {recording_id}: task {task.id}")
+    logger.info(f"Auto-run pipeline | {format_details(rec=recording_id, task=short_task_id(task.id))}")
     return task.id
 
 
@@ -1354,7 +1356,9 @@ async def download_recording(
         force=force,
     )
 
-    logger.info(f"Download task {task.id} created for recording {recording_id}, user {ctx.user_id}")
+    logger.info(
+        f"Download task created | {format_details(task=short_task_id(task.id), rec=recording_id, user=short_user_id(ctx.user_id))}"
+    )
 
     return {
         "success": True,
@@ -1421,7 +1425,9 @@ async def trim_recording(
         manual_override=manual_override,
     )
 
-    logger.info(f"Trim task {task.id} created for recording {recording_id}, user {ctx.user_id}")
+    logger.info(
+        f"Trim task created | {format_details(task=short_task_id(task.id), rec=recording_id, user=short_user_id(ctx.user_id))}"
+    )
 
     return {
         "success": True,
@@ -1537,7 +1543,7 @@ async def bulk_run_recordings(
             )
 
         except Exception as e:
-            logger.error(f"Failed to create task for recording {recording_id}: {e}")
+            logger.error(f"Failed to create task | {format_details(rec=recording_id, error=str(e))}")
             tasks.append(
                 {
                     "recording_id": recording_id,
@@ -1553,7 +1559,7 @@ async def bulk_run_recordings(
     # Commit template bindings if any
     if data.template_id and data.bind_template:
         await ctx.session.commit()
-        logger.info(f"Bound template {data.template_id} to {queued_count} recordings")
+        logger.info(f"Bound template | {format_details(template=data.template_id, queued=queued_count)}")
 
     return RecordingBulkOperationResponse(
         total=len(recording_ids),
@@ -1615,7 +1621,7 @@ async def run_recording(
             recording.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
 
         await ctx.session.commit()
-        logger.info(f"Bound template (id={config.template_id}) to recording {recording_id}")
+        logger.info(f"Bound template | {format_details(template=config.template_id, rec=recording_id)}")
 
     manual_override = _build_override_from_flexible(config)
 
@@ -1662,7 +1668,7 @@ async def _execute_smart_run(
             recording.on_pause = False
             recording.pause_requested_at = None
             await ctx.session.commit()
-            logger.info(f"Smart run: cleared pause flag for recording {recording_id} (status={current_status})")
+            logger.info(f"Smart run: cleared pause flag | {format_details(rec=recording_id, status=current_status)}")
             return RecordingOperationResponse(
                 success=True,
                 recording_id=recording_id,
@@ -1687,7 +1693,7 @@ async def _execute_smart_run(
             user_id=ctx.user_id,
             manual_override=manual_override,
         )
-        logger.info(f"Smart run: starting full pipeline for recording {recording_id} (status={current_status})")
+        logger.info(f"Smart run: starting full pipeline | {format_details(rec=recording_id, status=current_status)}")
         return RecordingOperationResponse(
             success=True,
             task_id=task.id,
@@ -1702,7 +1708,7 @@ async def _execute_smart_run(
             user_id=ctx.user_id,
             manual_override=manual_override,
         )
-        logger.info(f"Smart run: continuing processing for recording {recording_id}")
+        logger.info(f"Smart run: continuing processing | {format_details(rec=recording_id)}")
         return RecordingOperationResponse(
             success=True,
             task_id=task.id,
@@ -1753,7 +1759,7 @@ async def _execute_smart_run(
                 metadata_override=full_config.get("metadata_config"),
             )
 
-            logger.info(f"Smart run: uploading {len(targets)} target(s) for recording {recording_id}")
+            logger.info(f"Smart run: uploading targets | {format_details(count=len(targets), rec=recording_id)}")
             return RecordingOperationResponse(
                 success=True,
                 task_id=task.id,
@@ -1831,7 +1837,9 @@ async def transcribe_recording(
             user_id=ctx.user_id,
         )
 
-        logger.info(f"Batch transcription task {task.id} created for recording {recording_id}, user {ctx.user_id}")
+        logger.info(
+            f"Batch transcription task created | {format_details(task=short_task_id(task.id), rec=recording_id, user=short_user_id(ctx.user_id))}"
+        )
 
         return {
             "success": True,
@@ -1849,7 +1857,9 @@ async def transcribe_recording(
         user_id=ctx.user_id,
     )
 
-    logger.info(f"Transcription task {task.id} created for recording {recording_id}, user {ctx.user_id}")
+    logger.info(
+        f"Transcription task created | {format_details(task=short_task_id(task.id), rec=recording_id, user=short_user_id(ctx.user_id))}"
+    )
 
     return {
         "success": True,
@@ -1922,7 +1932,9 @@ async def upload_recording(
         preset_id=preset_id,
     )
 
-    logger.info(f"Upload task {task.id} created for recording {recording_id} to {platform}, user {ctx.user_id}")
+    logger.info(
+        f"Upload task created | {format_details(task=short_task_id(task.id), rec=recording_id, platform=platform, user=short_user_id(ctx.user_id))}"
+    )
 
     return {
         "success": True,
@@ -1980,8 +1992,7 @@ async def extract_topics(
     )
 
     logger.info(
-        f"Extract topics task {task.id} created for recording {recording_id}, "
-        f"user {ctx.user_id}, granularity={granularity}"
+        f"Extract topics task created | {format_details(task=short_task_id(task.id), rec=recording_id, user=short_user_id(ctx.user_id), granularity=granularity)}"
     )
 
     return {
@@ -2032,7 +2043,7 @@ async def generate_subtitles(
     )
 
     logger.info(
-        f"Generate subtitles task {task.id} created for recording {recording_id}, user {ctx.user_id}, formats={formats}"
+        f"Generate subtitles task created | {format_details(task=short_task_id(task.id), rec=recording_id, user=short_user_id(ctx.user_id), formats=formats)}"
     )
 
     return {
@@ -2148,7 +2159,7 @@ async def bulk_transcribe_recordings(
             tasks.append(task_info)
 
         except Exception as e:
-            logger.error(f"Failed to create transcribe task for recording {recording_id}: {e}")
+            logger.error(f"Failed to create transcribe task | {format_details(rec=recording_id, error=str(e))}")
             tasks.append(
                 {
                     "recording_id": recording_id,
@@ -2250,7 +2261,7 @@ async def update_recording_config(
 
     await ctx.session.commit()
 
-    logger.info(f"Updated manual config for recording {recording_id}")
+    logger.info(f"Updated manual config | {format_details(rec=recording_id)}")
 
     return ConfigUpdateResponse(
         recording_id=recording_id,
@@ -2284,7 +2295,7 @@ async def reset_to_template(
     config_resolver = ConfigResolver(ctx.session)
     effective_config = await config_resolver.resolve_processing_config(recording, ctx.user_id)
 
-    logger.info(f"Reset recording {recording_id} to template configuration")
+    logger.info(f"Reset to template configuration | {format_details(rec=recording_id)}")
 
     return ConfigSaveResponse(
         recording_id=recording_id,
@@ -2330,7 +2341,7 @@ async def pause_recording(
     recording.pause_requested_at = datetime.now(UTC)
     await ctx.session.commit()
 
-    logger.info(f"Pause requested for recording {recording_id} (status={recording.status})")
+    logger.info(f"Pause requested | {format_details(rec=recording_id, status=recording.status)}")
 
     return PauseRecordingResponse(
         success=True,
@@ -2404,7 +2415,7 @@ async def bulk_pause_recordings(
     if paused_count > 0:
         await ctx.session.commit()
 
-    logger.info(f"Bulk pause: {paused_count}/{len(recording_ids)} recordings paused")
+    logger.info(f"Bulk pause | {format_details(paused=paused_count, total=len(recording_ids))}")
 
     return RecordingBulkOperationResponse(
         total=len(recording_ids),
@@ -2483,7 +2494,7 @@ async def reset_recording(
                         deleted_files.append({"type": file_type, "path": str(path), "is_dir": False})
             except Exception as e:
                 errors.append({"type": file_type, "path": file_path, "error": str(e)})
-                logger.error(f"Failed to delete {file_type} at {file_path}: {e}")
+                logger.error(f"Failed to delete file | {format_details(type=file_type, path=file_path, error=str(e))}")
 
     # Clear recording metadata
     recording.local_video_path = None
@@ -2528,8 +2539,7 @@ async def reset_recording(
     await ctx.session.commit()
 
     logger.info(
-        f"Reset recording {recording_id}: deleted {len(deleted_files)} files, "
-        f"{len(errors)} errors, status -> {recording.status}"
+        f"Reset | {format_details(rec=recording_id, deleted=len(deleted_files), errors=len(errors), status=recording.status)}"
     )
 
     return ResetRecordingResponse(
@@ -2582,8 +2592,7 @@ async def bind_template_to_recording(
     await ctx.session.commit()
 
     logger.info(
-        f"Template {template_id} ('{template.name}') bound to recording {recording_id}, "
-        f"reset_preferences={reset_preferences}"
+        f"Template bound | {format_details(template=template_id, rec=recording_id, reset_preferences=reset_preferences)}"
     )
 
     return TemplateBindResponse(
@@ -2616,7 +2625,7 @@ async def unbind_template_from_recording(
 
     await ctx.session.commit()
 
-    logger.info(f"Template unbound from recording {recording_id}")
+    logger.info(f"Template unbound | {format_details(rec=recording_id)}")
 
     return TemplateUnbindResponse(
         success=True,
@@ -2688,7 +2697,7 @@ async def bulk_download_recordings(
             )
 
         except Exception as e:
-            logger.error(f"Failed to queue download for recording {recording_id}: {e}")
+            logger.error(f"Failed to queue download | {format_details(rec=recording_id, error=str(e))}")
             tasks.append(
                 {
                     "recording_id": recording_id,
@@ -2754,7 +2763,7 @@ async def bulk_trim_recordings(
             )
 
         except Exception as e:
-            logger.error(f"Failed to queue trim for recording {recording_id}: {e}")
+            logger.error(f"Failed to queue trim | {format_details(rec=recording_id, error=str(e))}")
 
     queued_count = len([t for t in tasks if t["status"] == "queued"])
     skipped_count = len([t for t in tasks if t["status"] == "skipped"])
@@ -2804,7 +2813,7 @@ async def bulk_extract_topics(
             )
 
         except Exception as e:
-            logger.error(f"Failed to queue topics for recording {recording_id}: {e}")
+            logger.error(f"Failed to queue topics | {format_details(rec=recording_id, error=str(e))}")
 
     queued_count = len([t for t in tasks if t["status"] == "queued"])
     skipped_count = len([t for t in tasks if t["status"] == "skipped"])
@@ -2853,7 +2862,7 @@ async def bulk_generate_subtitles(
             )
 
         except Exception as e:
-            logger.error(f"Failed to queue subtitles for recording {recording_id}: {e}")
+            logger.error(f"Failed to queue subtitles | {format_details(rec=recording_id, error=str(e))}")
 
     queued_count = len([t for t in tasks if t["status"] == "queued"])
     skipped_count = len([t for t in tasks if t["status"] == "skipped"])
@@ -2909,7 +2918,7 @@ async def bulk_upload_recordings(
                 )
 
         except Exception as e:
-            logger.error(f"Failed to queue upload for recording {recording_id}: {e}")
+            logger.error(f"Failed to queue upload | {format_details(rec=recording_id, error=str(e))}")
 
     queued_count = len([t for t in tasks if t["status"] == "queued"])
     skipped_count = len([t for t in tasks if t["status"] == "skipped"])
@@ -2948,7 +2957,7 @@ async def delete_recording(
     await recording_repo.soft_delete(recording, user_config)
     await ctx.session.commit()
 
-    logger.info(f"Soft deleted recording {recording_id} by user {ctx.user_id}")
+    logger.info(f"Soft deleted | {format_details(rec=recording_id, user=short_user_id(ctx.user_id))}")
 
     return DeleteRecordingResponse(
         message="Recording deleted successfully",
@@ -3025,21 +3034,20 @@ async def bulk_delete_recordings(
                     "message": str(e),
                 }
             )
-            logger.error(f"Failed to delete recording {recording_id}: {e}")
+            logger.error(f"Failed to delete recording | {format_details(rec=recording_id, error=str(e))}")
 
     # Commit all changes
     try:
         await ctx.session.commit()
     except Exception as e:
-        logger.error(f"Failed to commit bulk delete: {e}")
+        logger.error(f"Failed to commit bulk delete | {format_details(error=str(e))}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to commit bulk delete: {e!s}",
         )
 
     logger.info(
-        f"Bulk delete completed by user {ctx.user_id}: "
-        f"{deleted_count} deleted, {skipped_count} skipped, {error_count} errors"
+        f"Bulk delete completed | {format_details(user=short_user_id(ctx.user_id), deleted=deleted_count, skipped=skipped_count, errors=error_count)}"
     )
 
     return RecordingBulkDeleteResponse(
@@ -3079,7 +3087,7 @@ async def restore_recording(
     await recording_repo.restore(recording, user_config)
     await ctx.session.commit()
 
-    logger.info(f"Restored recording {recording_id} by user {ctx.user_id}")
+    logger.info(f"Restored | {format_details(rec=recording_id, user=short_user_id(ctx.user_id))}")
 
     return RestoreRecordingResponse(
         message="Recording restored successfully",

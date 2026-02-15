@@ -144,7 +144,8 @@ class VKUploader(BaseUploader):
                 return None
 
         try:
-            logger.info(f"Uploading video to VK: {title}")
+            logger.info("Uploading video")
+            logger.debug(f"Upload title: {title}")
 
             upload_url = await self._get_upload_url(title, description, album_id, **kwargs)
             if not upload_url:
@@ -162,7 +163,7 @@ class VKUploader(BaseUploader):
             if video_id and owner_id:
                 video_url = f"https://vk.com/video{owner_id}_{video_id}"
 
-                logger.info(f"Video uploaded: {video_url}")
+                logger.info(f"Video uploaded | url={video_url}")
 
                 result = self._create_result(video_id=video_id, video_url=video_url, title=title, platform="vk")
                 result.metadata["owner_id"] = owner_id
@@ -171,7 +172,7 @@ class VKUploader(BaseUploader):
                 if album_id:
                     result.metadata["album_id"] = album_id
                     result.metadata["added_to_album"] = True
-                    logger.info(f"Video added to album: {album_id}")
+                    logger.info(f"Added to album | album={album_id}")
 
                 if thumbnail_path and Path(thumbnail_path).exists():
                     try:
@@ -182,7 +183,7 @@ class VKUploader(BaseUploader):
                         success = await thumbnail_manager.set_video_thumbnail(video_id, owner_id, thumbnail_path)
                         if success:
                             result.metadata["thumbnail_set"] = True
-                            logger.info(f"Thumbnail set for video {video_id}")
+                            logger.info(f"Thumbnail set | video={video_id}")
                         else:
                             result.metadata["thumbnail_error"] = "Failed to set thumbnail"
                     except Exception as e:
@@ -242,7 +243,7 @@ class VKUploader(BaseUploader):
             response = await asyncio.wait_for(self._make_request("video.delete", params), timeout=30.0)
 
             if response:
-                logger.info(f"Video deleted: {video_id}")
+                logger.info(f"Video deleted | video={video_id}")
                 return True
             logger.error(f"Video deletion error: {video_id}")
             return False
@@ -292,7 +293,7 @@ class VKUploader(BaseUploader):
         """Upload video file to VK using streaming for large files."""
         try:
             file_size = Path(video_path).stat().st_size
-            logger.info(f"Uploading video file: {Path(video_path).name} ({file_size / (1024**2):.1f} MB)")
+            logger.info(f"Uploading video file | size={file_size / (1024**2):.1f}MB")
 
             # Dynamic timeout based on file size: 10 min base + 2 min per GB
             timeout_seconds = 600 + (file_size // (1024**3)) * 120
@@ -318,7 +319,7 @@ class VKUploader(BaseUploader):
                             except Exception as e:
                                 logger.warning(f"Progress update failed: {e}")
 
-                        logger.info(f"Video uploaded successfully: video_id={result_data.get('video_id')}")
+                        logger.info(f"Video uploaded | video={result_data.get('video_id')}")
                         return result_data
 
                     error_text = response.text

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database.models import OutputTargetModel, RecordingModel, SourceMetadataModel
-from logger import get_logger
+from logger import format_details, format_status_change, get_logger
 from models.recording import ProcessingStatus, SourceType, TargetStatus
 
 logger = get_logger()
@@ -407,7 +407,7 @@ class RecordingRepository:
         self.session.add(source)
         await self.session.flush()
 
-        logger.info(f"Created recording {recording.id} for user {user_id} from source {input_source_id}")
+        logger.info(f"Created recording | {format_details(id=recording.id, source=input_source_id)}")
 
         return recording
 
@@ -479,7 +479,7 @@ class RecordingRepository:
         self.session.add(output)
         await self.session.flush()
 
-        logger.info(f"Created output_target for recording {recording.id} to {target_type}")
+        logger.info(f"Created output target | {format_details(rec=recording.id, target=target_type)}")
         return output
 
     async def mark_output_uploading(
@@ -503,9 +503,7 @@ class RecordingRepository:
         # Update aggregate recording status (PROCESSED → UPLOADING)
         update_aggregate_status(recording)
 
-        logger.debug(
-            f"Marked output_target {output_target.id} as UPLOADING, recording {recording.id} status: {recording.status}"
-        )
+        logger.debug(f"Marked output UPLOADING | {format_details(target=output_target.id, rec=recording.id)}")
 
     async def mark_output_failed(
         self,
@@ -537,7 +535,7 @@ class RecordingRepository:
         update_aggregate_status(recording)
 
         logger.warning(
-            f"Marked output_target {output_target.id} as FAILED: {error_message[:100]}, recording {recording.id} status: {recording.status}"
+            f"Marked output FAILED | {format_details(target=output_target.id, rec=recording.id, error=error_message[:100])}"
         )
 
     async def save_upload_result(
@@ -588,7 +586,7 @@ class RecordingRepository:
             existing_output.updated_at = datetime.now(UTC)
             await self.session.flush()
 
-            logger.info(f"Updated upload result for recording {recording.id} to {target_type}")
+            logger.info(f"Upload result saved | {format_details(rec=recording.id, target=target_type)}")
             output = existing_output
         else:
             # Create new
@@ -609,14 +607,14 @@ class RecordingRepository:
             self.session.add(output)
             await self.session.flush()
 
-            logger.info(f"Created upload result for recording {recording.id} to {target_type}")
+            logger.info(f"Upload result created | {format_details(rec=recording.id, target=target_type)}")
 
         # Refresh recording to ensure outputs are loaded
         await self.session.refresh(recording, ["outputs"])
 
         # Update aggregate recording status (UPLOADING → READY or PROCESSED → READY)
         update_aggregate_status(recording)
-        logger.info(f"Updated recording {recording.id} aggregate status to {recording.status}")
+        logger.info(f"Aggregate status updated | {format_details(rec=recording.id, status=recording.status)}")
 
         return output
 
@@ -688,7 +686,7 @@ class RecordingRepository:
         if existing:
             # Don't update deleted recordings (user deleted manually)
             if existing.deleted:
-                logger.info(f"Skipped updating recording {existing.id} - marked as deleted")
+                logger.info(f"Skipped: recording deleted | {format_details(rec=existing.id)}")
                 return existing, False
 
             # Update existing recording, but only if status is not UPLOADED
@@ -721,7 +719,7 @@ class RecordingRepository:
                     else:
                         existing.status = ProcessingStatus.SKIPPED  # type: ignore[assignment]
                     logger.info(
-                        f"Recording {existing.id} source processing completed: PENDING_SOURCE → {existing.status}"
+                        f"{format_status_change('Recording', 'PENDING_SOURCE', existing.status)} | {format_details(rec=existing.id)}"
                     )
 
                 if "template_id" in kwargs:
@@ -738,12 +736,12 @@ class RecordingRepository:
 
                 existing.updated_at = datetime.now(UTC)
 
-                logger.info(f"Updated existing recording {existing.id} for user {user_id} (status={existing.status})")
+                logger.info(f"Updated recording | {format_details(rec=existing.id, status=existing.status)}")
 
                 await self.session.flush()
                 return existing, False
             # Recording already uploaded, don't update
-            logger.info(f"Skipped updating recording {existing.id} - already uploaded")
+            logger.info(f"Skipped: already uploaded | {format_details(rec=existing.id)}")
             return existing, False
         # Create new recording
         is_mapped = kwargs.get("is_mapped", False)
@@ -799,7 +797,7 @@ class RecordingRepository:
         self.session.add(source)
         await self.session.flush()
 
-        logger.info(f"Created new recording {recording.id} for user {user_id} (is_mapped={is_mapped}, status={status})")
+        logger.info(f"Created recording | {format_details(rec=recording.id, mapped=is_mapped, status=status)}")
 
         return recording, True
 
@@ -830,10 +828,7 @@ class RecordingRepository:
 
         await self.session.flush()
 
-        logger.info(
-            f"Soft deleted recording {recording.id} (manual), "
-            f"files cleanup at {recording.soft_deleted_at}, hard delete at {recording.hard_delete_at}"
-        )
+        logger.info(f"Soft deleted recording | {format_details(rec=recording.id)}")
 
     async def auto_expire(self, recording: RecordingModel, user_config: dict) -> None:
         """
@@ -862,10 +857,7 @@ class RecordingRepository:
 
         await self.session.flush()
 
-        logger.info(
-            f"Auto-expired recording {recording.id}, "
-            f"files cleanup at {recording.soft_deleted_at}, hard delete at {recording.hard_delete_at}"
-        )
+        logger.info(f"Auto-expired recording | {format_details(rec=recording.id)}")
 
     async def restore(self, recording: RecordingModel, user_config: dict) -> None:
         """
@@ -901,7 +893,7 @@ class RecordingRepository:
 
         await self.session.flush()
 
-        logger.info(f"Restored recording {recording.id}, will expire at {recording.expire_at}")
+        logger.info(f"Restored recording | {format_details(rec=recording.id)}")
 
     async def cleanup_recording_files(self, recording: RecordingModel) -> int:
         """
@@ -919,7 +911,7 @@ class RecordingRepository:
         # CRITICAL: Check state before cleanup to prevent race conditions
         if recording.delete_state != "soft":
             logger.warning(
-                f"Skipped cleanup for recording {recording.id}: delete_state={recording.delete_state} (expected 'soft')"
+                f"Skipped cleanup: unexpected delete_state | {format_details(rec=recording.id, state=recording.delete_state)}"
             )
             return 0
 
@@ -1002,4 +994,4 @@ class RecordingRepository:
         #     quota_service = QuotaService(self.session)
         #     await quota_service.track_storage_removed(recording.user_id, total_bytes)
 
-        logger.info(f"Hard deleted recording {recording.id}, freed {total_bytes} bytes")
+        logger.info(f"Hard deleted recording | {format_details(rec=recording.id, freed_bytes=total_bytes)}")

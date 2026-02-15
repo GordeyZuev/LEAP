@@ -1,5 +1,11 @@
 # Change Log
 
+## 2026-02-14: Zoom download token refresh on 401
+
+Added retry-with-refresh logic in `_download_via_zoom`: if download fails, force-refresh `download_access_token` via Zoom API and retry once before escalating to Celery retries.
+
+- `api/tasks/processing.py` — token refresh retry in `_download_via_zoom`
+
 ## 2026-02-12: Pipeline Timing & Audit
 
 Added per-stage timing and audit for the entire processing pipeline. Every stage execution (including retries and substeps) is recorded in a new `stage_timings` table for analytics.

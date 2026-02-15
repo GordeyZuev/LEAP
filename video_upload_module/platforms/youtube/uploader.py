@@ -161,7 +161,8 @@ class YouTubeUploader(BaseUploader):
             # Use 25MB chunks for resumable uploads
             media = MediaFileUpload(video_path, chunksize=25 * 1024 * 1024, resumable=True, mimetype="video/*")
 
-            logger.info(f"Uploading video to YouTube: {title}")
+            logger.info("Uploading video")
+            logger.debug(f"Upload title: {title}")
 
             assert self.service is not None, "Service not initialized"
             request = self.service.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
@@ -182,7 +183,7 @@ class YouTubeUploader(BaseUploader):
                 video_id = response["id"]
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
 
-                logger.info(f"Video uploaded: {video_url}")
+                logger.info(f"Video uploaded | url={video_url}")
 
                 result = self._create_result(video_id=video_id, video_url=video_url, title=title, platform="youtube")
 
@@ -199,7 +200,7 @@ class YouTubeUploader(BaseUploader):
                         if success:
                             result.metadata["playlist_id"] = playlist_id
                             result.metadata["added_to_playlist"] = True
-                            logger.info(f"Video added to playlist: {playlist_id}")
+                            logger.info(f"Added to playlist | playlist={playlist_id}")
                         else:
                             result.metadata["playlist_error"] = "Failed to add to playlist"
                             result.metadata["added_to_playlist"] = False
@@ -277,7 +278,7 @@ class YouTubeUploader(BaseUploader):
 
             media = MediaFileUpload(caption_path, mimetype=mime_type, resumable=True)
 
-            logger.info(f"Uploading captions to YouTube for video {video_id} ({language})")
+            logger.info(f"Uploading captions | video={video_id} • lang={language}")
 
             assert self.service is not None, "Service not initialized"
             request = self.service.captions().insert(part="snippet", body=body, media_body=media)
@@ -286,7 +287,7 @@ class YouTubeUploader(BaseUploader):
             response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=120.0)
 
             if response and response.get("id"):
-                logger.info(f"Captions uploaded: caption_id={response['id']}")
+                logger.info(f"Captions uploaded | caption={response['id']}")
                 return True
 
             logger.error(f"Failed to upload captions: {response}")
@@ -353,7 +354,7 @@ class YouTubeUploader(BaseUploader):
             loop = asyncio.get_event_loop()
             await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
-            logger.info(f"Video deleted: {video_id}")
+            logger.info(f"Video deleted | video={video_id}")
             return True
 
         except TimeoutError:

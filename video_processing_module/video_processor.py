@@ -244,10 +244,11 @@ class VideoProcessor:
             duration = video_info["duration"]
 
             logger.info(
-                f"Processing video: {title} | {duration / 60:.1f}min | "
+                f"Processing video | duration={duration / 60:.1f}min | "
                 f"{video_info['size'] / 1024 / 1024:.1f}MB | "
                 f"{video_info['width']}x{video_info['height']}"
             )
+            logger.debug(f"Video title: {title}")
 
             if custom_segments:
                 segments = self.segment_processor.create_segments_from_timestamps(custom_segments, title)

@@ -23,7 +23,7 @@ from api.schemas.template import (
 from api.schemas.template.sync import BulkSyncTaskResponse, SourceSyncTaskResponse
 from api.zoom_api import ZoomAPI, ZoomRecordingProcessingError
 from database.auth_models import UserModel
-from logger import get_logger
+from logger import format_details, get_logger, short_task_id, short_user_id
 from models.recording import SourceType
 from models.zoom_auth import create_zoom_credentials
 
@@ -47,19 +47,17 @@ def _get_best_video_file(recording_files: list | None) -> dict | None:
     return None
 
 
-async def _fetch_zoom_recording_details(
-    zoom_api, meeting_id: str, display_name: str
-) -> tuple[dict | None, str | None, bool]:
+async def _fetch_zoom_recording_details(zoom_api, meeting_id: str) -> tuple[dict | None, str | None, bool]:
     """Fetch recording details from Zoom API. Returns (details, token, is_incomplete)."""
     try:
         meeting_details = await zoom_api.get_recording_details(meeting_id, include_download_token=True)
         download_access_token = meeting_details.get("download_access_token")
         return meeting_details, download_access_token, False
     except ZoomRecordingProcessingError:
-        logger.info(f"Recording '{display_name}' still being processed by Zoom (meeting_id={meeting_id})")
+        logger.info(f"Skipped: still being processed | {format_details(meeting=meeting_id)}")
         return None, None, True
     except Exception as e:
-        logger.warning(f"Failed to get download_access_token for meeting {meeting_id}: {e}")
+        logger.warning(f"Failed to get download_access_token | {format_details(meeting=meeting_id, error=str(e))}")
         return None, None, False
 
 
@@ -193,7 +191,7 @@ async def _sync_single_source(
                 # Master Account: one token, query recordings per user email
                 zoom_api = ZoomAPI(zoom_config)
                 logger.info(
-                    f"Master Account sync: {len(user_emails)} users for source {source_id}",
+                    f"Master Account sync | {format_details(users=len(user_emails), source=source_id)}",
                 )
                 for email in user_emails:
                     try:
@@ -203,20 +201,20 @@ async def _sync_single_source(
                             user_id=email,
                         )
                     except Exception as e:
-                        logger.warning(f"Failed to sync user {email}: {e}")
+                        logger.warning(f"Failed to sync user | {format_details(email=email, error=str(e))}")
                         continue
                     user_meetings = recordings_data.get("meetings") or []
                     for m in user_meetings:
                         m["_source_user_email"] = email
                     meetings.extend(user_meetings)
-                    logger.info(f"User {email}: {len(user_meetings)} recordings")
+                    logger.info(f"User recordings | {format_details(email=email, recordings=len(user_meetings))}")
             else:
                 # Regular account: single sync
                 zoom_api = ZoomAPI(zoom_config)
                 recordings_data = await zoom_api.get_recordings(from_date=from_date, to_date=to_date)
                 meetings = recordings_data.get("meetings") or []
 
-            logger.info(f"Found {len(meetings)} recordings from Zoom source {source_id}")
+            logger.info(f"Found recordings | {format_details(source=source_id, count=len(meetings))}")
 
             # Получаем шаблоны
             template_repo = RecordingTemplateRepository(session)
@@ -237,7 +235,7 @@ async def _sync_single_source(
                     duration = meeting.get("duration", 0)
 
                     if not start_time_str:
-                        logger.warning(f"Meeting {meeting_id} has no start_time, skipping")
+                        logger.info(f"Skipped: no start_time | {format_details(meeting=meeting_id)}")
                         continue
 
                     if start_time_str.endswith("Z"):
@@ -251,7 +249,7 @@ async def _sync_single_source(
                         meeting_details,
                         download_access_token,
                         zoom_processing_incomplete,
-                    ) = await _fetch_zoom_recording_details(meeting_zoom_api, meeting_id, display_name)
+                    ) = await _fetch_zoom_recording_details(meeting_zoom_api, meeting_id)
 
                     source_metadata = _build_zoom_metadata(
                         meeting,
@@ -289,16 +287,15 @@ async def _sync_single_source(
                         updated_count += 1
 
                 except Exception as e:
-                    logger.warning(f"Failed to save recording {meeting.get('id')}: {e}")
+                    logger.warning(f"Failed to save recording | {format_details(meeting=meeting_id, error=str(e))}")
                     continue
 
             logger.info(
-                f"Synced {saved_count + updated_count} recordings from source {source_id} "
-                f"(new={saved_count}, updated={updated_count})"
+                f"Synced recordings | {format_details(source=source_id, total=saved_count + updated_count, new=saved_count, updated=updated_count)}"
             )
 
         except Exception as e:
-            logger.error(f"Zoom sync failed for source {source_id}: {e}", exc_info=True)
+            logger.error(f"Zoom sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
             return {
                 "status": "error",
                 "error": str(e),
@@ -315,7 +312,7 @@ async def _sync_single_source(
             updated_count = result.get("updated", 0)
             meetings = [None] * result.get("found", 0)  # placeholder for count
         except Exception as e:
-            logger.error(f"VIDEO_URL sync failed for source {source_id}: {e}", exc_info=True)
+            logger.error(f"VIDEO_URL sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
             return {"status": "error", "error": str(e)}
 
     elif source.source_type == "YANDEX_DISK":
@@ -330,7 +327,7 @@ async def _sync_single_source(
             updated_count = result.get("updated", 0)
             meetings = [None] * result.get("found", 0)
         except Exception as e:
-            logger.error(f"Yandex Disk sync failed for source {source_id}: {e}", exc_info=True)
+            logger.error(f"Yandex Disk sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
             return {"status": "error", "error": str(e)}
 
     elif source.source_type == "LOCAL":
@@ -429,11 +426,13 @@ async def _sync_video_url_source(
                 updated_count += 1
 
         except Exception as e:
-            logger.warning(f"Failed to save video entry '{entry.get('title', '?')}': {e}")
+            logger.warning(
+                f"Failed to save video entry | {format_details(video_id=entry.get('id', '?'), error=str(e))}"
+            )
             continue
 
     logger.info(
-        f"VIDEO_URL sync for source {source.id}: found={len(entries)}, saved={saved_count}, updated={updated_count}"
+        f"VIDEO_URL sync | {format_details(source=source.id, found=len(entries), saved=saved_count, updated=updated_count)}"
     )
     return {"found": len(entries), "saved": saved_count, "updated": updated_count}
 
@@ -530,12 +529,13 @@ async def _sync_yandex_disk_source(
                 updated_count += 1
 
         except Exception as e:
-            logger.warning(f"Failed to save Yandex Disk file '{file_info.get('name', '?')}': {e}")
+            logger.warning(
+                f"Failed to save Yandex Disk file | {format_details(path=file_info.get('path', '?'), error=str(e))}"
+            )
             continue
 
     logger.info(
-        f"Yandex Disk sync for source {source.id}: "
-        f"found={len(video_files)}, saved={saved_count}, updated={updated_count}"
+        f"Yandex Disk sync | {format_details(source=source.id, found=len(video_files), saved=saved_count, updated=updated_count)}"
     )
     return {"found": len(video_files), "saved": saved_count, "updated": updated_count}
 
@@ -567,7 +567,7 @@ def _check_exclude_items(items: list | None, display_name: str, case_sensitive: 
                 if re.search(item, display_name, flags):
                     return True
             except re.error as e:
-                logger.warning(f"Invalid regex pattern '{item}': {e}")
+                logger.warning(f"Invalid regex pattern | {format_details(pattern=item, error=str(e))}")
         else:
             item_compare = _normalize_string(item, case_sensitive)
             display_compare = _normalize_string(display_name, case_sensitive)
@@ -598,7 +598,7 @@ def _check_match_items(
                 if re.search(item, display_name, flags):
                     return True
             except re.error as e:
-                logger.warning(f"Invalid regex pattern '{item}': {e}")
+                logger.warning(f"Invalid regex pattern | {format_details(pattern=item, error=str(e))}")
         elif exact:
             item_compare = _normalize_string(item, case_sensitive)
             if item_compare == display_compare:
@@ -630,15 +630,18 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
             continue
 
         if _check_match_items(matching_rules.get("exact_matches"), display_name, case_sensitive, exact=True):
-            logger.info(f"Recording '{display_name}' matched template '{template.name}' (exact)")
+            logger.debug(f"Matched template | {format_details(display_name=display_name, template_name=template.name)}")
+            logger.info(f"Matched template | {format_details(source=source_id, template=template.id, match='exact')}")
             return template
 
         if _check_match_items(matching_rules.get("keywords"), display_name, case_sensitive):
-            logger.info(f"Recording '{display_name}' matched template '{template.name}' (keyword)")
+            logger.debug(f"Matched template | {format_details(display_name=display_name, template_name=template.name)}")
+            logger.info(f"Matched template | {format_details(source=source_id, template=template.id, match='keyword')}")
             return template
 
         if _check_match_items(matching_rules.get("patterns"), display_name, case_sensitive, use_regex=True):
-            logger.info(f"Recording '{display_name}' matched template '{template.name}' (pattern)")
+            logger.debug(f"Matched template | {format_details(display_name=display_name, template_name=template.name)}")
+            logger.info(f"Matched template | {format_details(source=source_id, template=template.id, match='pattern')}")
             return template
 
     return None
@@ -786,7 +789,9 @@ async def bulk_sync_sources(
         }
     )
 
-    logger.info(f"Started batch sync task {task.id} for {len(data.source_ids)} sources (user {current_user.id})")
+    logger.info(
+        f"Started batch sync task | {format_details(task=short_task_id(task.id), sources=len(data.source_ids), user=short_user_id(current_user.id))}"
+    )
 
     return BulkSyncTaskResponse(
         task_id=task.id,
@@ -910,7 +915,9 @@ async def sync_source(
         }
     )
 
-    logger.info(f"Started sync task {task.id} for source {source_id} (user {current_user.id})")
+    logger.info(
+        f"Started sync task | {format_details(task=short_task_id(task.id), source=source_id, user=short_user_id(current_user.id))}"
+    )
 
     return SourceSyncTaskResponse(
         task_id=task.id,

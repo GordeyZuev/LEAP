@@ -104,13 +104,16 @@ class OutputTarget:
     def get_link(self) -> str | None:
         return self.target_meta.get("target_link") or self.target_meta.get("video_url")
 
-    def mark_uploaded(self, link: str | None = None, meta: dict[str, Any] | None = None):
+    def mark_uploaded(self, link: str | None = None, meta: dict[str, Any] | None = None) -> TargetStatus:
+        """Mark target as uploaded. Returns previous status for transition logging."""
+        old_status = self.status
         if link:
             self.target_meta["target_link"] = link
         if meta:
             self.target_meta.update(meta)
         self.status = TargetStatus.UPLOADED
         self.uploaded_at = datetime.now(UTC)
+        return old_status
 
 
 class ProcessingStage:
@@ -138,31 +141,39 @@ class ProcessingStage:
         self.completed_at = completed_at
         self.started_at = started_at
 
-    def mark_completed(self, meta: dict[str, Any] | None = None):
-        """Mark stage as completed (FSM: transition to COMPLETED)."""
+    def mark_completed(self, meta: dict[str, Any] | None = None) -> ProcessingStageStatus:
+        """Mark stage as completed (FSM: transition to COMPLETED). Returns previous status."""
+        old_status = self.status
         self.status = ProcessingStageStatus.COMPLETED
         self.failed = False
         self.completed_at = datetime.now(UTC)
         if meta:
             self.stage_meta.update(meta)
+        return old_status
 
-    def mark_in_progress(self):
-        """Mark stage as in progress (FSM: transition to IN_PROGRESS)."""
+    def mark_in_progress(self) -> ProcessingStageStatus:
+        """Mark stage as in progress (FSM: transition to IN_PROGRESS). Returns previous status."""
+        old_status = self.status
         self.status = ProcessingStageStatus.IN_PROGRESS
         self.started_at = datetime.now(UTC)
         self.failed = False  # Reset failed on new start
+        return old_status
 
-    def mark_failed(self, reason: str):
-        """Mark stage as failed (FSM: transition to FAILED)."""
+    def mark_failed(self, reason: str) -> ProcessingStageStatus:
+        """Mark stage as failed (FSM: transition to FAILED). Returns previous status."""
+        old_status = self.status
         self.status = ProcessingStageStatus.FAILED
         self.failed = True
         self.failed_at = datetime.now(UTC)
         self.failed_reason = reason
         self.retry_count += 1
+        return old_status
 
-    def mark_skipped(self):
-        """Mark stage as skipped (FSM: transition to SKIPPED)."""
+    def mark_skipped(self) -> ProcessingStageStatus:
+        """Mark stage as skipped (FSM: transition to SKIPPED). Returns previous status."""
+        old_status = self.status
         self.status = ProcessingStageStatus.SKIPPED
+        return old_status
 
     def can_retry(self, max_retries: int = 2) -> bool:
         """Check if stage can be retried (FSM: check transitions)."""
@@ -371,15 +382,20 @@ class MeetingRecording:
         reason: str,
         rollback_to_status: ProcessingStatus | None = None,
         failed_at_stage: str | None = None,
-    ) -> None:
+    ) -> ProcessingStatus:
         """
         Mark recording as failed with status rollback (ADR-015).
+        Returns the old status before rollback for transition logging.
 
         Args:
             reason: Error reason
             rollback_to_status: Rollback status (auto-determined if None)
             failed_at_stage: Stage where error occurred
+
+        Returns:
+            Previous status before rollback
         """
+        old_status = self.status
         if rollback_to_status is None:
             # Auto-determine previous status
             rollback_map = {
@@ -395,6 +411,7 @@ class MeetingRecording:
         self.failed_reason = reason
         if failed_at_stage:
             self.failed_at_stage = failed_at_stage
+        return old_status
 
     def has_video(self) -> bool:
         """Check if video file exists"""
@@ -456,16 +473,18 @@ class MeetingRecording:
         self.processing_stages.append(new_stage)
         return new_stage
 
-    def mark_stage_completed(self, stage_type: ProcessingStageType, meta: dict[str, Any] | None = None) -> None:
-        """Mark stage as completed (FSM: successful transition)."""
+    def mark_stage_completed(
+        self, stage_type: ProcessingStageType, meta: dict[str, Any] | None = None
+    ) -> ProcessingStageStatus:
+        """Mark stage as completed (FSM: successful transition). Returns old status."""
         stage = self.ensure_stage(stage_type)
-        stage.mark_completed(meta=meta)
+        return stage.mark_completed(meta=meta)
         # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
-    def mark_stage_in_progress(self, stage_type: ProcessingStageType) -> None:
-        """Mark stage as in progress (FSM: transition to IN_PROGRESS)."""
+    def mark_stage_in_progress(self, stage_type: ProcessingStageType) -> ProcessingStageStatus:
+        """Mark stage as in progress (FSM: transition to IN_PROGRESS). Returns old status."""
         stage = self.ensure_stage(stage_type)
-        stage.mark_in_progress()
+        return stage.mark_in_progress()
         # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
     def mark_stage_failed(
@@ -473,9 +492,9 @@ class MeetingRecording:
         stage_type: ProcessingStageType,
         reason: str,
         rollback_to_status: ProcessingStatus | None = None,
-    ) -> None:
+    ) -> ProcessingStageStatus:
         """
-        Mark stage as failed (FSM: transition to FAILED with rollback).
+        Mark stage as failed (FSM: transition to FAILED with rollback). Returns old stage status.
 
         Args:
             stage_type: Stage type
@@ -483,7 +502,7 @@ class MeetingRecording:
             rollback_to_status: Rollback status (auto-determined if None)
         """
         stage = self.ensure_stage(stage_type)
-        stage.mark_failed(reason)
+        old_status = stage.mark_failed(reason)
 
         # Rollback aggregate status
         rollback_to_status = rollback_to_status or self._get_previous_status_for_stage(stage_type)
@@ -495,11 +514,12 @@ class MeetingRecording:
         self.failed_at = datetime.now(UTC)
         self.failed_reason = reason
         self.failed_at_stage = stage_type.value
+        return old_status
 
-    def mark_stage_skipped(self, stage_type: ProcessingStageType) -> None:
-        """Mark stage as skipped (FSM: transition to SKIPPED)."""
+    def mark_stage_skipped(self, stage_type: ProcessingStageType) -> ProcessingStageStatus:
+        """Mark stage as skipped (FSM: transition to SKIPPED). Returns old status."""
         stage = self.ensure_stage(stage_type)
-        stage.mark_skipped()
+        return stage.mark_skipped()
         # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 
     def can_retry_stage(self, stage_type: ProcessingStageType, max_retries: int = 2) -> bool:

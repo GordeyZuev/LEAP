@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 from database.models import RecordingModel
-from logger import get_logger
+from logger import format_details, format_status_change, get_logger
 from models.recording import ProcessingStageStatus, ProcessingStageType, ProcessingStatus
 
 logger = get_logger(__name__)
@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 
 async def handle_download_failure(recording: RecordingModel, error: str) -> None:
     """Handle download failure: rollback to INITIALIZED if mapped, else SKIPPED."""
+    old_status = recording.status
     recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED  # type: ignore[assignment]
     recording.failed = True
     recording.failed_at_stage = "download"
@@ -23,11 +24,15 @@ async def handle_download_failure(recording: RecordingModel, error: str) -> None
     recording.failed_at = datetime.now(UTC)
 
     status = cast("ProcessingStatus", recording.status)
-    logger.error(f"Download failed {recording.id}: {status.value}")
+    logger.error(
+        f"Download failed | {format_status_change('Recording', old_status, status)} | "
+        f"{format_details(rec=recording.id)}"
+    )
 
 
 async def handle_trim_failure(recording: RecordingModel, error: str) -> None:
     """Handle trim failure: rollback to DOWNLOADED for manual intervention."""
+    old_status = recording.status
     recording.status = ProcessingStatus.DOWNLOADED  # type: ignore[assignment]
     recording.failed = True
     recording.failed_at_stage = "trim"
@@ -35,7 +40,10 @@ async def handle_trim_failure(recording: RecordingModel, error: str) -> None:
     recording.failed_at = datetime.now(UTC)
     recording.mark_stage_failed(ProcessingStageType.TRIM, error[:1000])
 
-    logger.error(f"Trim failed {recording.id}")
+    logger.error(
+        f"Trim failed | {format_status_change('Recording', old_status, ProcessingStatus.DOWNLOADED)} | "
+        f"{format_details(rec=recording.id)}"
+    )
 
 
 async def handle_transcribe_failure(
@@ -59,8 +67,9 @@ async def handle_transcribe_failure(
         recording.failed_at_stage = stage_type.value.lower()
         recording.failed_reason = f"Skipped (allow_errors=True): {error[:500]}"
 
-        logger.warning(f"{stage_type.value} failed {recording.id}: skipped, continue")
+        logger.warning(f"{stage_type.value} failed, skipped (allow_errors) | {format_details(rec=recording.id)}")
     else:
+        old_status = recording.status
         recording.status = ProcessingStatus.DOWNLOADED  # type: ignore[assignment]
         recording.failed = True
         recording.failed_at_stage = stage_type.value.lower()
@@ -68,7 +77,10 @@ async def handle_transcribe_failure(
         recording.failed_at = datetime.now(UTC)
         recording.mark_stage_failed(stage_type, error[:1000])
 
-        logger.error(f"{stage_type.value} failed {recording.id}: rollback")
+        logger.error(
+            f"{stage_type.value} failed | {format_status_change('Recording', old_status, ProcessingStatus.DOWNLOADED)} | "
+            f"{format_details(rec=recording.id)}"
+        )
 
 
 def _cascade_skip_dependent_stages(recording: RecordingModel, parent_stage: ProcessingStageType) -> None:
@@ -92,15 +104,19 @@ async def handle_upload_failure(recording: RecordingModel, platform: str, error:
     target_found = False
     for output in recording.outputs:
         if output.target_type.lower() == platform.lower():
+            old_status = output.status
             output.status = TargetStatus.FAILED  # type: ignore[assignment]
             output.failed = True
             output.failed_reason = error[:1000]
             target_found = True
-            logger.error(f"Upload {platform} failed {recording.id}")
+            logger.error(
+                f"Upload failed | {format_status_change('Output', old_status, TargetStatus.FAILED)} | "
+                f"{format_details(rec=recording.id, platform=platform)}"
+            )
             break
 
     if not target_found:
-        logger.warning(f"Output target {platform} not found {recording.id}")
+        logger.warning(f"Output target not found | {format_details(rec=recording.id, platform=platform)}")
         return
 
     from api.helpers.status_manager import update_aggregate_status
@@ -112,4 +128,4 @@ async def handle_upload_failure(recording: RecordingModel, platform: str, error:
         recording.failed = True
         recording.failed_at_stage = "upload"
         recording.status = ProcessingStatus.PROCESSED  # type: ignore[assignment]
-        logger.error(f"All uploads failed {recording.id}")
+        logger.error(f"All uploads failed | {format_details(rec=recording.id)}")

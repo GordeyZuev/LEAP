@@ -9,7 +9,7 @@ from api.routers.input_sources import _find_matching_template
 from api.tasks.base import TemplateTask
 from config.settings import get_settings
 from database.models import RecordingModel
-from logger import format_task_context, get_logger
+from logger import format_details, format_status_change, get_logger, short_task_id, short_user_id
 from models.recording import ProcessingStatus
 
 logger = get_logger()
@@ -48,31 +48,32 @@ def rematch_recordings_task(
         - updated: number of updated recordings
         - recordings: list of IDs of updated recordings
     """
-    try:
-        ctx = format_task_context(task_id=self.request.id, user_id=user_id, template_id=template_id)
-        logger.info(f"{ctx} | Starting re-match: only_unmapped={only_unmapped}")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info(f"Starting re-match | {format_details(template=template_id, only_unmapped=only_unmapped)}")
 
-        self.update_progress(user_id, 10, "Loading template...", step="rematch")
+            self.update_progress(user_id, 10, "Loading template...", step="rematch")
 
-        # Use run_async for proper event loop isolation
-        result = self.run_async(_async_rematch_recordings(self, template_id, user_id, only_unmapped))
+            # Use run_async for proper event loop isolation
+            result = self.run_async(_async_rematch_recordings(self, template_id, user_id, only_unmapped))
 
-        ctx = format_task_context(task_id=self.request.id, user_id=user_id, template_id=template_id)
-        logger.info(
-            f"{ctx} | Re-match completed: checked={result['checked']} | "
-            f"matched={result['matched']} | updated={result['updated']}"
-        )
+            logger.info(
+                f"Re-match completed | "
+                f"{format_details(template=template_id, checked=result['checked'], matched=result['matched'], updated=result['updated'])}"
+            )
 
-        return self.build_result(
-            user_id=user_id,
-            status="completed",
-            result=result,
-        )
+            return self.build_result(
+                user_id=user_id,
+                status="completed",
+                result=result,
+            )
 
-    except Exception as exc:
-        ctx = format_task_context(task_id=self.request.id, user_id=user_id, template_id=template_id)
-        logger.error(f"{ctx} | Error in re-match: {exc!r}", exc_info=True)
-        raise self.retry(exc=exc)
+        except Exception as exc:
+            logger.error(f"Error in re-match | {format_details(template=template_id, error=repr(exc))}", exc_info=True)
+            raise self.retry(exc=exc)
 
 
 async def _async_rematch_recordings(task_self, template_id: int, user_id: str, only_unmapped: bool) -> dict:
@@ -128,7 +129,7 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
         result = await session.execute(query)
         recordings = result.scalars().all()
 
-        logger.info(f"[Re-match] Found {len(recordings)} recordings to check for template {template_id}")
+        logger.info(f"Re-match candidates | {format_details(recordings=len(recordings), template=template_id)}")
 
         task_self.update_progress(
             user_id,
@@ -169,8 +170,8 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
                     updated_recording_ids.append(recording.id)
 
                     logger.info(
-                        f"[Re-match] Updated recording {recording.id} '{recording.display_name}': "
-                        f"{old_status} → {new_status} (template={template.id})"
+                        f"{format_status_change('Recording', old_status, new_status)} | "
+                        f"{format_details(rec=recording.id, template=template.id)}"
                     )
 
             # Update progress
@@ -190,7 +191,7 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
 
             await session.commit()
 
-            logger.info(f"[Re-match] Committed {updated_count} updates for template {template_id}")
+            logger.info(f"Re-match committed | {format_details(updates=updated_count, template=template_id)}")
 
         return {
             "success": True,

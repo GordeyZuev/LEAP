@@ -5,7 +5,7 @@ from api.dependencies import get_async_session_maker
 from api.repositories.template_repos import InputSourceRepository
 from api.tasks.base import SyncTask
 from config.settings import get_settings
-from logger import format_task_context, get_logger
+from logger import format_details, get_logger, short_task_id, short_user_id
 
 logger = get_logger()
 settings = get_settings()
@@ -37,19 +37,22 @@ def sync_single_source_task(
     Returns:
         Result of syncing
     """
-    try:
-        ctx = format_task_context(task_id=self.request.id, user_id=user_id, source_id=source_id)
-        logger.info(f"{ctx} | Syncing source")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info(f"Syncing source | {format_details(source=source_id)}")
 
-        self.update_progress(user_id, 10, f"Syncing source {source_id}...", step="sync")
+            self.update_progress(user_id, 10, f"Syncing source {source_id}...", step="sync")
 
-        # Use run_async for proper event loop isolation
-        result = self.run_async(_async_sync_single_source(self, source_id, user_id, from_date, to_date))
-        return self.build_result(user_id=user_id, **result)
+            # Use run_async for proper event loop isolation
+            result = self.run_async(_async_sync_single_source(self, source_id, user_id, from_date, to_date))
+            return self.build_result(user_id=user_id, **result)
 
-    except Exception as e:
-        logger.error("Sync task failed for source {}: {}", source_id, str(e), exc_info=True)
-        raise
+        except Exception as e:
+            logger.error(f"Sync task failed | {format_details(source=source_id, error=e)}", exc_info=True)
+            raise
 
 
 @celery_app.task(
@@ -78,24 +81,27 @@ def bulk_sync_sources_task(
     Returns:
         Results of syncing all sources
     """
-    try:
-        ctx = format_task_context(task_id=self.request.id, user_id=user_id)
-        logger.info(f"{ctx} | Batch syncing {len(source_ids)} sources")
+    with logger.contextualize(
+        task_id=short_task_id(self.request.id),
+        user_id=short_user_id(user_id),
+    ):
+        try:
+            logger.info(f"Batch syncing | {format_details(sources=len(source_ids))}")
 
-        self.update_progress(
-            user_id,
-            5,
-            f"Starting batch sync of {len(source_ids)} sources...",
-            step="batch_sync",
-        )
+            self.update_progress(
+                user_id,
+                5,
+                f"Starting batch sync of {len(source_ids)} sources...",
+                step="batch_sync",
+            )
 
-        # Use run_async for proper event loop isolation
-        result = self.run_async(_async_batch_sync_sources(self, source_ids, user_id, from_date, to_date))
-        return self.build_result(user_id=user_id, **result)
+            # Use run_async for proper event loop isolation
+            result = self.run_async(_async_batch_sync_sources(self, source_ids, user_id, from_date, to_date))
+            return self.build_result(user_id=user_id, **result)
 
-    except Exception as e:
-        logger.error("Batch sync task failed for sources {}: {}", source_ids, str(e), exc_info=True)
-        raise
+        except Exception as e:
+            logger.error(f"Batch sync failed | {format_details(sources=source_ids, error=e)}", exc_info=True)
+            raise
 
 
 async def _async_sync_single_source(
@@ -201,7 +207,7 @@ async def _async_batch_sync_sources(
                     )
 
             except Exception as e:
-                logger.error("Unexpected error during sync of source {}: {}", source_id, str(e), exc_info=True)
+                logger.error(f"Unexpected sync error | {format_details(source=source_id, error=e)}", exc_info=True)
                 failed += 1
                 results.append(
                     {
