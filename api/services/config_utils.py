@@ -116,6 +116,19 @@ async def resolve_full_config(
         full_config = config_resolver._merge_configs(full_config, nested_config)
         logger.debug(f"Flattened nested processing_config for recording {recording_id}")
 
+    # Merge transcription_vocabulary (template-level field) into transcription.vocabulary
+    if "transcription_vocabulary" in full_config:
+        vocab = full_config.pop("transcription_vocabulary")
+        if isinstance(vocab, list) and vocab:
+            trans = full_config.setdefault("transcription", {})
+            if isinstance(trans, dict):
+                existing = trans.get("vocabulary") or []
+                merged = list(existing) if isinstance(existing, list) else []
+                for v in vocab:
+                    if isinstance(v, str) and v.strip() and v.strip() not in merged:
+                        merged.append(v.strip())
+                trans["vocabulary"] = merged
+
     logger.info(
         f"Resolved config for recording {recording_id}: "
         f"template_id={recording.template_id}, "

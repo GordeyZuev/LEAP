@@ -13,23 +13,23 @@ logger = get_logger()
 
 
 class ZoomAPIError(Exception):
-    """Базовая ошибка Zoom API."""
+    """Base Zoom API error."""
 
 
 class ZoomAuthenticationError(ZoomAPIError):
-    """Ошибка аутентификации."""
+    """Authentication error."""
 
 
 class ZoomRequestError(ZoomAPIError):
-    """Ошибка выполнения запроса."""
+    """Request execution error."""
 
 
 class ZoomResponseError(ZoomAPIError):
-    """Ошибка ответа API."""
+    """API response error."""
 
 
 class ZoomRecordingProcessingError(ZoomAPIError):
-    """Запись ещё обрабатывается на стороне Zoom (код 3301)."""
+    """Recording still processing on Zoom side (code 3301)."""
 
 
 def _encode_meeting_uuid(meeting_id: str) -> str:
@@ -86,7 +86,7 @@ class ZoomAPI:
         """Fetch recordings list. user_id can be 'me', email, or Zoom user ID."""
         access_token = await self.get_access_token()
         if not access_token:
-            raise ZoomAuthenticationError("Не удалось получить access token")
+            raise ZoomAuthenticationError("Failed to obtain access token")
 
         params = {"page_size": str(page_size), "from": from_date, "trash": "false"}
 
@@ -116,11 +116,8 @@ class ZoomAPI:
                         f"Fetched recordings: count={len(data.get('meetings', []))}",
                         count=len(data.get("meetings", [])),
                     )
-                    # Логируем сырые данные от Zoom API
-                    import json
-
                     logger.debug(
-                        f"Сырые данные от Zoom API (get_recordings):\n{json.dumps(data, indent=2, ensure_ascii=False)}"
+                        f"Raw Zoom API data (get_recordings):\n{json.dumps(data, indent=2, ensure_ascii=False)}"
                     )
                     return data
                 account = self.config.account if isinstance(self.config, ZoomServerToServerCredentials) else "oauth"
@@ -130,7 +127,7 @@ class ZoomAPI:
                     status_code=response.status_code,
                     response_preview=response.text[:200],
                 )
-                raise ZoomResponseError(f"Ошибка API: {response.status_code} - {response.text}")
+                raise ZoomResponseError(f"API error: {response.status_code} - {response.text}")
 
         except httpx.RequestError as e:
             error_type = type(e).__name__
@@ -142,7 +139,7 @@ class ZoomAPI:
                 error=str(e),
                 exc_info=True,
             )
-            raise ZoomRequestError(f"Ошибка сетевого запроса: {e}") from e
+            raise ZoomRequestError(f"Network request error: {e}") from e
         except ZoomAPIError:
             raise
         except Exception as e:
@@ -155,13 +152,13 @@ class ZoomAPI:
                 error=str(e),
                 exc_info=True,
             )
-            raise ZoomAPIError(f"Неожиданная ошибка: {e}") from e
+            raise ZoomAPIError(f"Unexpected error: {e}") from e
 
     async def get_recording_details(self, meeting_id: str, include_download_token: bool = True) -> dict[str, Any]:
-        """Получение детальной информации о конкретной записи."""
+        """Get detailed info for a specific recording."""
         access_token = await self.get_access_token()
         if not access_token:
-            raise ZoomAuthenticationError("Не удалось получить access token")
+            raise ZoomAuthenticationError("Failed to obtain access token")
 
         try:
             params = {}
@@ -179,9 +176,8 @@ class ZoomAPI:
 
                 if response.status_code == 200:
                     data = response.json()
-                    # Логируем сырые данные от Zoom API
                     logger.debug(
-                        f"Сырые данные от Zoom API (get_recording_details для meeting_id={meeting_id}):\n{json.dumps(data, indent=2, ensure_ascii=False)}"
+                        f"Raw Zoom API data (get_recording_details meeting_id={meeting_id}):\n{json.dumps(data, indent=2, ensure_ascii=False)}"
                     )
                     return data
 
@@ -206,7 +202,7 @@ class ZoomAPI:
                         meeting_id=meeting_id,
                         zoom_code=error_code,
                     )
-                    raise ZoomRecordingProcessingError(f"Запись ещё обрабатывается: {error_message}")
+                    raise ZoomRecordingProcessingError(f"Recording still processing: {error_message}")
 
                 # Log other errors as ERROR
                 logger.error(
@@ -217,7 +213,7 @@ class ZoomAPI:
                     zoom_code=error_code,
                     response_preview=error_message[:200] if error_message else response.text[:200],
                 )
-                raise ZoomResponseError(f"Ошибка API: {response.status_code} - {error_message}")
+                raise ZoomResponseError(f"API error: {response.status_code} - {error_message}")
 
         except httpx.RequestError as e:
             error_type = type(e).__name__
@@ -230,7 +226,7 @@ class ZoomAPI:
                 error=str(e),
                 exc_info=True,
             )
-            raise ZoomRequestError(f"Ошибка сетевого запроса: {e}") from e
+            raise ZoomRequestError(f"Network request error: {e}") from e
         except ZoomAPIError:
             raise
         except Exception as e:
@@ -244,4 +240,4 @@ class ZoomAPI:
                 error=str(e),
                 exc_info=True,
             )
-            raise ZoomAPIError(f"Неожиданная ошибка: {e}") from e
+            raise ZoomAPIError(f"Unexpected error: {e}") from e

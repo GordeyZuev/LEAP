@@ -1,5 +1,164 @@
 # Change Log
 
+## v0.9.6 (2026-02-16)
+
+**Ключевые изменения релиза:**
+- **Templates & Vocabulary:** `transcription_vocabulary`, granularity (short/medium/long), `{summary}` в шаблонах
+- **Промпты транскрайбера:** централизация в `fireworks_module/prompts.py`, единый русский язык
+- **topics.json → extracted.json:** топики и summary в одном файле, master.json — только транскрипция
+- **Entity Uniqueness Constraints:** уникальность templates, presets, automations, credentials (миграция 015)
+- **Structured Logging:** loguru contextualize, SUCCESS уровень, JSON sink
+- **Zoom token refresh on 401:** retry с обновлением токена при ошибке скачивания
+- **Pipeline Timing:** `stage_timings` table, pipeline_started_at/completed_at на recordings
+- **Source-Agnostic Architecture Cleanup:** zoom_processing_incomplete → source_processing_incomplete
+
+---
+
+## 2026-02-15: Обновление примеров и документации (templates, vocabulary, summary)
+
+Синхронизация примеров шаблонов и документации с последними изменениями.
+
+### Примеры шаблонов
+- **hse_templates.json** — добавлен `transcription_vocabulary` для каждого шаблона (термины по предмету). Регенерация через `generate_templates.py`.
+- **template_detailed_example.json** — добавлен `transcription_vocabulary` с ML-терминами, обновлён `granularity` (short/medium/long), tip про дефолтный промпт.
+
+### generate_templates.py
+- Добавлен `SUBJECT_VOCABULARY` — словарь терминов по предметам для `transcription_vocabulary`.
+- Каждый генерируемый шаблон получает `transcription_vocabulary` по subject.
+
+### Документация
+- **TEMPLATES.md** — переменная `{summary}`, `transcription_vocabulary` в примере, подсказка про пустой prompt.
+- **TEMPLATES_PRESETS_SOURCES_GUIDE.md** — `transcription_vocabulary`, granularity (short/medium/long), дефолтный prompt при пустом, пример `description_template` с `{summary}`.
+
+### Файлы
+- docs/examples/hse_templates.json, template_detailed_example.json, generate_templates.py
+- docs/TEMPLATES.md, docs/TEMPLATES_PRESETS_SOURCES_GUIDE.md
+
+---
+
+## 2026-02-15: Промпты транскрайбера — централизация и единый язык
+
+Централизация промптов транскрайбера, единый русский язык, уточнение формулировки vocabulary.
+
+### Централизация
+- **TRANSCRIPTION_DEFAULT_PROMPT** в `fireworks_module/prompts.py` — единый дефолтный промпт транскрайбера
+- Если в шаблоне `transcription.prompt` пуст — подставляется этот промпт с `{topic}` (название записи/курса)
+- `generate_templates.py` берёт промпт из `fireworks_module.prompts` (с fallback при отсутствии зависимостей)
+- Удалён дублирующий PROMPT_TEMPLATE из `generate_templates.py`
+
+### Логика compose_fireworks_prompt
+- При пустом base и (topic или vocab) — используется TRANSCRIPTION_DEFAULT_PROMPT
+- При использовании дефолта TRANSCRIPTION_TOPIC не дублируется (topic уже в дефолте)
+- Vocabulary всегда добавляется отдельным блоком при наличии
+
+### Единый русский язык
+- TRANSCRIPTION_TOPIC: «Курс: «{topic}». Учитывай специфику курса при распознавании терминов.»
+- TRANSCRIPTION_VOCABULARY: «Дополнительные термины для учёта при распознавании: {vocabulary}.»
+- Раньше TOPIC и VOCABULARY были на английском
+
+### Формулировка vocabulary
+- «Дополнительные термины для учёта» вместо «Ключевые термины для распознавания»
+- Подчёркивает вспомогательность списка (помогают при распознавании), а не «ключевость»
+
+### Файлы
+- fireworks_module/prompts.py — TRANSCRIPTION_DEFAULT_PROMPT, TRANSCRIPTION_TOPIC, TRANSCRIPTION_VOCABULARY
+- fireworks_module/service.py — compose_fireworks_prompt
+- docs/examples/generate_templates.py
+
+---
+
+## 2026-02-15: vocabulary только для транскрайбера
+
+Vocabulary (доп. слова) передаётся только в Whisper/Fireworks для распознавания терминов. DeepSeek (topic extraction) не получает vocabulary.
+
+---
+
+## 2026-02-15: topics.json → extracted.json
+
+Переименование: topics.json → extracted.json. master.json — только транскрипция.
+
+### Изменения
+- `topics.json` → `extracted.json` (топики + summary в одном файле)
+- `master.json` — только транскрипция (words, segments), без summary
+- TranscriptionManager: `has_topics`→`has_extracted`, `load_topics`→`load_extracted`, `get_active_topics`→`get_active_extracted`, `add_topics_version`→`add_extracted_version`
+- Удалён `update_master_summary` (summary только в extracted.json)
+- PathBuilder: `transcription_topics`→`transcription_extracted`
+- prepare_recording_context: summary только из extracted.json (без fallback на master)
+
+### Файлы
+- transcription_module/manager.py, file_storage/path_builder.py
+- api/helpers/template_renderer.py, api/tasks/processing.py, api/routers/recordings.py
+- docs/*
+
+### Миграция
+- Существующие topics.json нужно переименовать в extracted.json вручную (или скриптом) при деплое
+
+---
+
+## 2026-02-15: Topic Extraction — Medium Granularity & Final Fixes
+
+Три уровня топиков (short/medium/long), topics+summary в extracted.json.
+
+### Medium granularity
+- Новый уровень `medium`: 6–18 топиков, 4–20 мин на тему, min_spacing 6–10 мин
+- Единый промпт `TOPIC_EXTRACTION_PROMPT` + `DURATION_CONFIG` в deepseek_module/prompts.py
+- `_calculate_topic_range`, `_analyze_full_transcript` — поддержка medium
+- Schemas: `Literal["short", "medium", "long"]` (processing_config, user_config)
+- API: Query и Field descriptions обновлены
+
+### Summary без update_master_summary
+- Summary только в extracted.json (master.json = только транскрипция)
+- prepare_recording_context: summary из extracted.json
+- Удалён вызов update_master_summary
+
+### Язык
+- «Язык: ru» вместо длинных инструкций
+
+### Файлы
+- deepseek_module/prompts.py, topic_extractor.py
+- api/schemas/* (processing_config, user_config, transcription, preferences, request)
+- api/tasks/processing.py, api/helpers/template_renderer.py
+- api/routers/recordings.py
+
+---
+
+## 2026-02-15: Topic Extraction & Transcription Improvements
+
+Улучшения извлечения тем и транскрипции: исправления, промпты в файлы, summary, vocabulary, язык для саммари.
+
+### Исправления (topic_extractor, prompts)
+- System prompt вынесен в константу, устранено дублирование
+- long_pauses в except, согласованность 5 vs 8 минут в промптах, MAIN_TOPIC_MAX_WORDS
+- Эвристика таймстампов MM:SS vs HH:MM при total_duration > 1h
+- total_duration из max(seg.end, seg.start)
+- Валидация granularity (unknown → long)
+- Промпты в deepseek_module/prompts.py
+
+### Summary
+- Секция САММАРИ в промптах, парсинг, сохранение в extracted.json
+- TranscriptionManager.update_master_summary(), prepare_recording_context читает из master.json
+
+### Vocabulary
+- compose_fireworks_prompt с vocabulary
+- transcription_vocabulary — отдельное поле в TemplateProcessingConfig
+- Мерж transcription_vocabulary → transcription.vocabulary при резолве конфига
+
+### Язык для саммари
+- extract_topics( language= ) — язык из master.json
+- Промпт: "Пиши на русском/английском" в зависимости от языка транскрипции
+
+### Файлы
+- deepseek_module/topic_extractor.py, deepseek_module/prompts.py
+- fireworks_module/service.py
+- api/schemas/template/processing_config.py, api/services/config_utils.py
+- transcription_module/manager.py, api/helpers/template_renderer.py
+- api/tasks/processing.py, config/settings.py
+
+### Миграции
+- Не требуются: transcription_vocabulary в JSONB (processing_config), summary в master.json (файл)
+
+---
+
 ## 2026-02-15: Entity Uniqueness Constraints
 
 Добавлены ограничения уникальности для предотвращения дубликатов сущностей.

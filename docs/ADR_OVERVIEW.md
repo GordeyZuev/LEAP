@@ -70,7 +70,7 @@
 4. **v0.8** - REST API + JWT authentication
 5. **v0.9** - Celery, OAuth 2.0, Templates, Subscriptions
 
-### Текущее состояние (v0.9.3)
+### Текущее состояние (v0.9.6)
 
 **Production-Ready SaaS платформа:**
 - REST API endpoints

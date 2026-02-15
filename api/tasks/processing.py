@@ -836,10 +836,11 @@ async def _async_transcribe_recording(
         # Extract transcription parameters
         language = transcription_config.get("language", "ru")
         user_prompt = transcription_config.get("prompt", "")
+        vocabulary = transcription_config.get("vocabulary") or []
         temperature = transcription_config.get("temperature", 0.0)
 
         logger.debug(
-            f"Transcription config | {format_details(language=language, has_prompt=bool(user_prompt), temperature=temperature)}"
+            f"Transcription config | {format_details(language=language, has_prompt=bool(user_prompt), vocabulary=len(vocabulary), temperature=temperature)}"
         )
 
         # Priority: processed audio > processed video > original video
@@ -893,8 +894,10 @@ async def _async_transcribe_recording(
         try:
             task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
 
-            # Compose prompt: user_prompt (from config) + display_name
-            fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording.display_name)
+            # Compose prompt: user_prompt + display_name + vocabulary
+            fireworks_prompt = fireworks_service.compose_fireworks_prompt(
+                user_prompt, recording.display_name, vocabulary
+            )
 
             # Transcription through Fireworks API (ONLY transcription, WITHOUT topic extraction)
             transcription_result = await fireworks_service.transcribe_audio(
@@ -905,7 +908,7 @@ async def _async_transcribe_recording(
 
             task_self.update_progress(user_id, 70, "Saving transcription...", step="transcribe")
 
-            # Save only master.json (WITHOUT topics.json)
+            # Save only master.json (WITHOUT extracted.json)
             transcription_manager = get_transcription_manager()
             user_slug = recording.owner.user_slug
             transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
@@ -1329,7 +1332,7 @@ def extract_topics_task(
     Args:
         recording_id: ID of recording
         user_id: ID of user
-        granularity: Extraction mode ("short" | "long")
+        granularity: Extraction mode ("short" | "medium" | "long")
         version_id: ID of version (if None, generated automatically)
 
     Returns:
@@ -1400,6 +1403,10 @@ async def _async_extract_topics(
         # Ensure presence of segments.txt
         segments_path = transcription_manager.ensure_segments_txt(recording_id, user_slug)
 
+        # Get language from master.json (from transcription)
+        master = transcription_manager.load_master(recording_id, user_slug)
+        transcript_language = master.get("language") or "ru"
+
         task_self.update_progress(user_id, 30, "Starting topic extraction...", step="extract_topics")
 
         # Mark EXTRACT_TOPICS stage as IN_PROGRESS BEFORE extraction
@@ -1436,6 +1443,7 @@ async def _async_extract_topics(
                     segments_file_path=str(segments_path),
                     recording_topic=recording.display_name,
                     granularity=granularity,
+                    language=transcript_language,
                 )
                 model_used = "deepseek"
                 logger.info("Topics extracted with deepseek")
@@ -1456,6 +1464,7 @@ async def _async_extract_topics(
                         segments_file_path=str(segments_path),
                         recording_topic=recording.display_name,
                         granularity=granularity,
+                        language=transcript_language,
                     )
                     model_used = "fireworks_deepseek"
                     logger.info("Topics extracted with fireworks_deepseek")
@@ -1483,8 +1492,9 @@ async def _async_extract_topics(
                 },
             }
 
-            # Save in topics.json
-            transcription_manager.add_topics_version(
+            # Save in extracted.json (topics + summary from single DeepSeek call)
+            summary_value = topics_result.get("summary", "") or ""
+            transcription_manager.add_extracted_version(
                 recording_id=recording_id,
                 version_id=version_id,
                 model=model_used,
@@ -1492,6 +1502,7 @@ async def _async_extract_topics(
                 main_topics=topics_result.get("main_topics", []),
                 topic_timestamps=topics_result.get("topic_timestamps", []),
                 pauses=topics_result.get("long_pauses", []),
+                summary=summary_value,
                 is_active=True,
                 usage_metadata=usage_metadata,
                 user_slug=user_slug,
@@ -1767,7 +1778,10 @@ async def _async_poll_batch_transcription(
             transcription_config = full_config.get("transcription", {})
             language = transcription_config.get("language", "ru")
             user_prompt = transcription_config.get("prompt", "")
-            fireworks_prompt = fireworks_service.compose_fireworks_prompt(user_prompt, recording_db.display_name)
+            vocabulary = transcription_config.get("vocabulary") or []
+            fireworks_prompt = fireworks_service.compose_fireworks_prompt(
+                user_prompt, recording_db.display_name, vocabulary
+            )
 
             task_self.update_progress(user_id, 10, "Submitting batch job...", step="batch_transcribe")
 

@@ -46,6 +46,7 @@ class TranscriptionConfigData(BaseModel):
 
     temperature: float = Field(0.0, ge=0.0, le=1.0, description="Model temperature")
     prompt: str | None = Field(None, description="Context prompt")
+    vocabulary: list[str] | None = Field(None, description="Key terms for transcriber to improve recognition")
 
     @field_validator("subtitle_formats")
     @classmethod
@@ -112,7 +113,7 @@ class ZoomSyncConfigData(BaseModel):
 
 
 class YandexDiskSyncConfigData(BaseModel):
-    """Конфигурация для синхронизации Yandex Disk."""
+    """Configuration for Yandex Disk sync."""
 
     folder_path: str | None = Field(None, description="Path to folder on Yandex Disk")
     folder_url: str | None = Field(None, description="Public link to folder")

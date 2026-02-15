@@ -157,8 +157,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application code
 COPY . .
 
-# Create media directories
-RUN mkdir -p media/video media/processed_audio media/transcriptions
+# Create storage directory
+RUN mkdir -p storage
 
 # Entrypoint: database initialization + migration
 ENTRYPOINT ["/entrypoint.sh"]
@@ -252,7 +252,7 @@ api:
   ports:
     - "8000:8000"
   volumes:
-    - ./media:/app/media
+    - ./storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -280,7 +280,7 @@ celery_worker:
     CELERY_BROKER_URL: redis://redis:6379/0
     CELERY_RESULT_BACKEND: redis://redis:6379/0
   volumes:
-    - ./media:/app/media
+    - ./storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -306,7 +306,7 @@ celery_cpu:
   environment:
     # ... same as above ...
   volumes:
-    - ./media:/app/media
+    - ./storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -321,7 +321,7 @@ celery_async:
   environment:
     # ... same as above ...
   volumes:
-    - ./media:/app/media
+    - ./storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -426,9 +426,8 @@ celery_async:
 - **Both formats are supported** via backward compatibility in `config/settings.py`
 
 **Storage Paths:**
-- Docker: `./media:/app/media` (mapped to host `./media`)
-- Local dev: `storage/` (configurable via `STORAGE_LOCAL_PATH`)
-- **Recommendation:** Use `STORAGE_TYPE=LOCAL` and `STORAGE_LOCAL_PATH=media` in Docker to match volume mount
+- Docker: `./storage:/app/storage` (mapped to host `./storage`)
+- Local dev: `storage/` (configurable via `STORAGE_LOCAL_PATH`, default: `storage`)
 
 **Container Names:**
 All containers use `leap_` prefix:
@@ -777,8 +776,8 @@ docker exec leap_redis redis-cli INFO stats
 docker exec leap_redis redis-cli LLEN celery
 
 # Disk usage (Docker)
-docker exec leap_api df -h /app/media
-docker exec leap_api du -sh /app/media/*
+docker exec leap_api df -h /app/storage
+docker exec leap_api du -sh /app/storage/*
 
 # Disk usage (local)
 df -h storage/
@@ -823,8 +822,8 @@ docker exec leap_postgres pg_dump -U postgres leap_platform | gzip | aws s3 cp -
 ### Media Files Backup
 
 ```bash
-# Backup media directory (Docker)
-tar -czf media_backup_$(date +%Y%m%d).tar.gz -C . media/
+# Backup storage directory (Docker)
+tar -czf storage_backup_$(date +%Y%m%d).tar.gz -C . storage/
 
 # Backup storage directory (local)
 tar -czf storage_backup_$(date +%Y%m%d).tar.gz -C . storage/
@@ -850,7 +849,7 @@ RETENTION_DAYS=7
 docker exec leap_postgres pg_dump -U postgres leap_platform | gzip > "$BACKUP_DIR/db_$DATE.sql.gz"
 
 # Media backup
-tar -czf "$BACKUP_DIR/media_$DATE.tar.gz" -C /path/to/project media/
+tar -czf "$BACKUP_DIR/storage_$DATE.tar.gz" -C /path/to/project storage/
 
 # Remove old backups (keep last 7 days)
 find "$BACKUP_DIR" -name "*.gz" -mtime +$RETENTION_DAYS -delete
@@ -879,8 +878,8 @@ docker-compose stop api celery_worker celery_beat
 # 2. Restore database
 gunzip -c backup_20260205.sql.gz | docker exec -i leap_postgres psql -U postgres leap_platform
 
-# 3. Restore media files
-tar -xzf media_backup_20260205.tar.gz
+# 3. Restore storage files
+tar -xzf storage_backup_20260205.tar.gz
 
 # 4. Restart services
 docker-compose start api celery_worker celery_beat
@@ -1454,12 +1453,12 @@ docker exec leap_postgres psql -U postgres -c "EXPLAIN ANALYZE <your_query>;"
 # Check disk usage
 docker exec leap_api df -h
 du -sh storage/*
-du -sh media/*
+du -sh storage/*
 
 # Clean temp files (safe)
 find storage/temp -name "*" -mtime +1 -delete
 # Or in Docker:
-docker exec leap_api find /app/media/temp -name "*" -mtime +1 -delete
+docker exec leap_api find /app/storage/temp -name "*" -mtime +1 -delete
 
 # Clean old processed audio files (created during transcription)
 find storage/users/*/recordings/*/processed_audio.wav -mtime +7 -delete
@@ -1565,7 +1564,7 @@ docker exec leap_redis redis-cli ping
 docker exec leap_celery_worker ffmpeg -version
 
 # Test FFmpeg
-docker exec leap_celery_worker ffmpeg -i /app/media/test.mp4 -f null -
+docker exec leap_celery_worker ffmpeg -i /app/storage/test.mp4 -f null -
 
 # Common FFmpeg errors:
 # - "Invalid data found": Corrupted video file
@@ -1573,7 +1572,7 @@ docker exec leap_celery_worker ffmpeg -i /app/media/test.mp4 -f null -
 # - "Permission denied": Volume mount issue
 
 # Check file permissions
-docker exec leap_celery_worker ls -la /app/media/
+docker exec leap_celery_worker ls -la /app/storage/
 ```
 
 ### Redis Connection Errors
@@ -1742,8 +1741,8 @@ ZoomUploader/
 
 ### Version Info
 
-- **Current Version:** 0.9.3 (February 2026)
-- **Last Updated:** 2026-02-05
+- **Current Version:** 0.9.6 (February 2026)
+- **Last Updated:** 2026-02-16
 - **Python:** 3.11 (Dockerfile uses 3.11-slim; pyproject.toml has typo `>=3.14`)
 - **PostgreSQL:** 15
 - **Redis:** 7
@@ -1861,7 +1860,7 @@ docker logs leap_api -f
 - [ ] Generate `SECURITY_ENCRYPTION_KEY` (Fernet: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
 - [ ] Configure OAuth redirect URIs (HTTPS) - must use `/api/v1/oauth/{platform}/callback`
 - [ ] Enable rate limiting (`SECURITY_RATE_LIMIT_ENABLED=true`)
-- [ ] Configure backups (database + media)
+- [ ] Configure backups (database + storage)
 - [ ] Set up monitoring (Sentry, Prometheus)
 - [ ] Configure SSL/HTTPS (Let's Encrypt or Cloudflare)
 - [ ] Set up firewall (ufw allow 22,80,443/tcp)

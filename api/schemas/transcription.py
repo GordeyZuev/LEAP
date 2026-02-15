@@ -12,7 +12,7 @@ class ExtractTopicsRequest(BaseModel):
     )
     granularity: str = Field(
         default="long",
-        description="Extraction mode: 'short' (large topics) or 'long' (detailed topics)",
+        description="Extraction mode: 'short' (large), 'medium', or 'long' (detailed)",
     )
     version_id: str | None = Field(
         default=None,
@@ -35,7 +35,7 @@ class BatchTranscribeRequest(BaseModel):
     recording_ids: list[int] = Field(..., description="List of recording IDs for transcription")
     granularity: str = Field(
         default="long",
-        description="Extraction mode: 'short' or 'long'",
+        description="Extraction mode: 'short', 'medium', or 'long'",
     )
 
 

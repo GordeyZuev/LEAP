@@ -3,6 +3,16 @@
 import json
 from pathlib import Path
 
+try:
+    from fireworks_module.prompts import TRANSCRIPTION_DEFAULT_PROMPT
+except ImportError:
+    TRANSCRIPTION_DEFAULT_PROMPT = (
+        "Это видео-семинар по курсу «{topic}». "
+        "Сохраняй правильное написание профильных терминов (включая английские), "
+        "аббревиатур и имён собственных. "
+        "Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации."
+    )
+
 TEMPLATES_DATA = [
     # (exact_match, subject, faculty_short, teacher_last, group_str, album_id)
     # kakaeva@hse.ru
@@ -339,6 +349,33 @@ TEMPLATES_DATA = [
     ),
 ]
 
+# Vocabulary for transcriber by subject (transcription_vocabulary)
+SUBJECT_VOCABULARY: dict[str, list[str]] = {
+    "Основы программирования на Python": ["NumPy", "Pandas", "pip", "virtualenv", "декоратор", "итератор", "генератор"],
+    "Анализ данных": ["NumPy", "Pandas", "DataFrame", "корреляция", "визуализация", "статистика"],
+    "Машинное обучение": [
+        "gradient descent",
+        "overfitting",
+        "accuracy",
+        "NumPy",
+        "Pandas",
+        "Scikit-learn",
+        "нейронная сеть",
+    ],
+    "Программирование и компьютерные науки": ["NumPy", "Pandas", "синтаксис", "переменная", "функция", "цикл"],
+    "Анализ данных в Python": ["NumPy", "Pandas", "DataFrame", "Jupyter", "EDA"],
+    "Анализ данных на Python": ["NumPy", "Pandas", "DataFrame", "Jupyter", "EDA"],
+    "Программирование на языке Python": ["NumPy", "Pandas", "синтаксис", "переменная", "функция"],
+    "Python для анализа данных": ["NumPy", "Pandas", "Matplotlib", "корреляция", "статистика"],
+    "Программирование на Python": ["NumPy", "Pandas", "синтаксис", "декоратор", "итератор"],
+    "ИИ для бизнеса: автоматизация без разработчиков": ["ChatGPT", "LLM", "no-code", "автоматизация"],
+    "Быстрое создание MVP в Data Science": ["MVP", "Data Science", "NumPy", "Pandas", "Jupyter"],
+    "Анализ данных, ИИ и генеративные модели": ["NumPy", "Pandas", "LLM", "transformer", "генеративные модели"],
+    "AI и no-code для менеджмента": ["ChatGPT", "LLM", "no-code", "автоматизация"],
+    "ИИ в маркетинге, СМИ и PR": ["ChatGPT", "LLM", "генеративные модели", "контент"],
+    "Автоматизация задач с ИИ": ["ChatGPT", "LLM", "автоматизация", "API"],
+}
+
 # Map subject to discipline name for prompt
 DISCIPLINE_MAP = {
     "Основы программирования на Python": "Основы программирования на Python",
@@ -358,13 +395,6 @@ DISCIPLINE_MAP = {
     "Автоматизация задач с ИИ": "Автоматизация задач с использованием ИИ",
 }
 
-PROMPT_TEMPLATE = (
-    "Это видео-семинар по дисциплине {discipline}. "
-    "Сохраняй правильное написание профильных терминов (включая английские), "
-    "аббревиатур и имён собственных. "
-    "Учитывай особенности устной речи: неполные предложения, паузы, естественные интонации."
-)
-
 
 def build_template(exact_match, subject, faculty, teacher, group_str, album_id):
     if group_str:
@@ -373,7 +403,7 @@ def build_template(exact_match, subject, faculty, teacher, group_str, album_id):
         name = f"{subject} – {faculty}, {teacher}"
 
     discipline = DISCIPLINE_MAP.get(subject, subject)
-    prompt = PROMPT_TEMPLATE.format(discipline=discipline)
+    prompt = TRANSCRIPTION_DEFAULT_PROMPT.format(topic=discipline)
 
     title_template = name + " | {themes} ({record_time:DD.MM.YY})"
 
@@ -398,7 +428,8 @@ def build_template(exact_match, subject, faculty, teacher, group_str, album_id):
                 "enable_topics": True,
                 "granularity": "long",
                 "enable_subtitles": True,
-            }
+            },
+            "transcription_vocabulary": SUBJECT_VOCABULARY.get(subject, []),
         },
         "metadata_config": {
             "vk": {

@@ -9,7 +9,7 @@ from typing import Any
 
 try:
     from fireworks.client.audio import AudioInference
-except ImportError as exc:  # pragma: no cover - среда без зависимости
+except ImportError as exc:  # pragma: no cover - environment without dependency
     raise ImportError(
         "Package 'fireworks-ai' is not installed. Install it with the command "
         "`pip install fireworks-ai` or add it to requirements, "
@@ -18,7 +18,7 @@ except ImportError as exc:  # pragma: no cover - среда без зависи�
 
 try:
     import httpx
-except ImportError as exc:  # pragma: no cover - среда без зависимости
+except ImportError as exc:  # pragma: no cover - environment without dependency
     raise ImportError(
         "Package 'httpx' is not installed. Install it with the command `pip install httpx` to use Batch API."
     ) from exc
@@ -27,6 +27,11 @@ except ImportError as exc:  # pragma: no cover - среда без зависи�
 from logger import get_logger
 
 from .config import FireworksConfig
+from .prompts import (
+    TRANSCRIPTION_DEFAULT_PROMPT,
+    TRANSCRIPTION_TOPIC,
+    TRANSCRIPTION_VOCABULARY,
+)
 
 logger = get_logger()
 
@@ -43,18 +48,34 @@ class FireworksTranscriptionService:
         )
 
     @staticmethod
-    def compose_fireworks_prompt(base_prompt: str | None, recording_topic: str | None) -> str:
-        """Compose prompt combining base template with recording topic."""
+    def compose_fireworks_prompt(
+        base_prompt: str | None,
+        recording_topic: str | None,
+        vocabulary: list[str] | None = None,
+    ) -> str:
+        """Compose prompt from base (user), topic, vocabulary. Templates in fireworks_module/prompts.py."""
         base = (base_prompt or "").strip()
         topic = (recording_topic or "").strip()
+        vocab = [v.strip() for v in (vocabulary or []) if v and v.strip()]
 
-        if not base and not topic:
+        if not base and not topic and not vocab:
             return ""
-        if not topic:
+
+        use_default = not base and (topic or vocab)
+        if use_default:
+            base = TRANSCRIPTION_DEFAULT_PROMPT.format(topic=topic or "запись")
+
+        if not vocab and (not topic or use_default):
             return base
 
-        topic_suffix = f'Topic name: "{topic}". Consider the specifics of this course when recognizing terms.'
-        return f"{base} {topic_suffix}" if base else topic_suffix
+        parts: list[str] = [base]
+        if not use_default and topic:
+            parts.append(TRANSCRIPTION_TOPIC.format(topic=topic))
+        if vocab:
+            vocab_str = ", ".join(vocab[:50])  # Limit to avoid prompt overflow
+            parts.append(TRANSCRIPTION_VOCABULARY.format(vocabulary=vocab_str))
+
+        return " ".join(parts).strip()
 
     async def transcribe_audio(
         self,

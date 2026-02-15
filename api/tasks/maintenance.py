@@ -151,7 +151,7 @@ def cleanup_recording_files_task():
     """
     Level 1: Clean up files for soft deleted recordings.
 
-    Deletes videos/audio, keeps master.json and topics.json.
+    Deletes videos/audio, keeps master.json and extracted.json.
     Runs daily at 4:00 UTC (configured in Celery Beat).
     """
     try:

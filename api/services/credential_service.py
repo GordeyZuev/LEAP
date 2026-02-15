@@ -1,7 +1,7 @@
-"""User credentials service
+"""User credentials service.
 
-Обеспечивает удобный интерфейс для получения расшифрованных credentials
-и их использования в API запросах к внешним сервисам.
+Provides convenient interface for retrieving decrypted credentials
+and using them in API requests to external services.
 """
 
 from typing import Any
@@ -16,15 +16,10 @@ logger = get_logger()
 
 
 class CredentialService:
-    """Сервис для работы с учетными данными."""
+    """Service for working with credentials."""
 
     def __init__(self, session: AsyncSession):
-        """
-        Инициализация сервиса.
-
-        Args:
-            session: Async database session
-        """
+        """Initialize service."""
         self.session = session
         self.repo = UserCredentialRepository(session)
         self.encryption = get_encryption()
@@ -33,19 +28,19 @@ class CredentialService:
         self, user_id: str, platform: str, account_name: str | None = None, raise_if_not_found: bool = True
     ) -> dict[str, Any] | None:
         """
-        Получить расшифрованные учетные данные для платформы.
+        Get decrypted credentials for platform.
 
         Args:
-            user_id: ID пользователя
-            platform: Платформа (zoom, youtube, vk, etc)
-            account_name: Имя аккаунта (для множественных аккаунтов на одной платформе)
-            raise_if_not_found: Выбрасывать ошибку если не найдено
+            user_id: User ID
+            platform: Platform (zoom, youtube, vk, etc)
+            account_name: Account name (for multiple accounts on one platform)
+            raise_if_not_found: Raise error if not found
 
         Returns:
-            Расшифрованные учетные данные или None
+            Decrypted credentials or None
 
         Raises:
-            ValueError: Если credentials не найдены (при raise_if_not_found=True)
+            ValueError: If credentials not found (when raise_if_not_found=True)
         """
         credential = await self.repo.get_by_platform(user_id, platform, account_name)
 
@@ -73,44 +68,18 @@ class CredentialService:
             logger.error(f"Failed to decrypt credentials for platform '{platform}': {e}")
             raise ValueError(f"Failed to decrypt credentials: {e}") from e
 
-    async def get_zoom_credentials(self, user_id: str, account_name: str | None = None) -> dict[str, str]:
-        """
-        Получить учетные данные Zoom.
-
-        Args:
-            user_id: ID пользователя
-            account_name: Имя аккаунта (опционально, для множественных аккаунтов)
-
-        Returns:
-            Словарь с account_id, client_id, client_secret
-
-        Raises:
-            ValueError: Если credentials не найдены или невалидны
-        """
-        creds = await self.get_decrypted_credentials(user_id, "zoom", account_name)
-        if not creds:
-            raise ValueError("Zoom credentials not found")
-
-        # Валидация структуры
-        required_fields = ["account_id", "client_id", "client_secret"]
-        missing = [f for f in required_fields if f not in creds]
-        if missing:
-            raise ValueError(f"Zoom credentials missing required fields: {missing}")
-
-        return creds
-
     async def get_credentials_by_id(self, credential_id: int) -> dict[str, Any]:
         """
-        Получить расшифрованные учетные данные по ID.
+        Get decrypted credentials by ID.
 
         Args:
-            credential_id: ID credential
+            credential_id: Credential ID
 
         Returns:
-            Расшифрованные учетные данные
+            Decrypted credentials
 
         Raises:
-            ValueError: Если credentials не найдены или невалидны
+            ValueError: If credentials not found or invalid
         """
         credential = await self.repo.get_by_id(credential_id)
 
@@ -130,23 +99,23 @@ class CredentialService:
 
     async def get_youtube_credentials(self, user_id: str) -> dict[str, Any]:
         """
-        Получить учетные данные YouTube (OAuth bundle).
+        Get YouTube credentials (OAuth bundle).
 
         Args:
-            user_id: ID пользователя
+            user_id: User ID
 
         Returns:
-            Полный OAuth bundle (client_secrets, token, scopes)
+            Full OAuth bundle (client_secrets, token, scopes)
 
         Raises:
-            ValueError: Если credentials не найдены или невалидны
+            ValueError: If credentials not found or invalid
         """
         creds = await self.get_decrypted_credentials(user_id, "youtube")
         if not creds:
             raise ValueError("YouTube credentials not found")
 
-        # YouTube хранит весь bundle как есть
-        # Проверяем наличие client_secrets или token
+        # YouTube stores the whole bundle as-is
+        # Check for client_secrets or token
         if "client_secrets" not in creds and "token" not in creds:
             raise ValueError("YouTube credentials missing client_secrets or token")
 
@@ -154,16 +123,16 @@ class CredentialService:
 
     async def get_vk_credentials(self, user_id: str) -> dict[str, Any]:
         """
-        Получить учетные данные VK.
+        Get VK credentials.
 
         Args:
-            user_id: ID пользователя
+            user_id: User ID
 
         Returns:
-            Словарь с access_token и опционально group_id
+            Dict with access_token and optionally group_id
 
         Raises:
-            ValueError: Если credentials не найдены или невалидны
+            ValueError: If credentials not found or invalid
         """
         creds = await self.get_decrypted_credentials(user_id, "vk")
         if not creds:
@@ -173,70 +142,3 @@ class CredentialService:
             raise ValueError("VK credentials missing access_token")
 
         return creds
-
-    async def get_api_key_credentials(self, user_id: str, platform: str) -> str:
-        """
-        Получить API ключ для сервисов (fireworks, deepseek, openai).
-
-        Args:
-            user_id: ID пользователя
-            platform: Платформа (fireworks, deepseek, openai)
-
-        Returns:
-            API ключ
-
-        Raises:
-            ValueError: Если credentials не найдены или невалидны
-        """
-        creds = await self.get_decrypted_credentials(user_id, platform)
-        if not creds:
-            raise ValueError(f"{platform} credentials not found")
-
-        api_key = creds.get("api_key")
-        if not api_key:
-            raise ValueError(f"{platform} credentials missing api_key")
-
-        return api_key
-
-    async def validate_credentials(self, user_id: str, platform: str) -> bool:
-        """
-        Проверить существование и валидность credentials.
-
-        Args:
-            user_id: ID пользователя
-            platform: Платформа
-
-        Returns:
-            True если credentials валидны
-        """
-        try:
-            await self.get_decrypted_credentials(user_id, platform, raise_if_not_found=True)
-            return True
-        except ValueError:
-            return False
-
-    async def list_available_platforms(self, user_id: str) -> list[str]:
-        """
-        Получить список доступных платформ для пользователя.
-
-        Args:
-            user_id: ID пользователя
-
-        Returns:
-            Список названий платформ
-        """
-        credentials = await self.repo.find_by_user(user_id)
-        return [cred.platform for cred in credentials if cred.is_active]
-
-    async def update_last_used(self, user_id: str, platform: str) -> None:
-        """
-        Обновить время последнего использования credentials.
-
-        Args:
-            user_id: ID пользователя
-            platform: Платформа
-        """
-        credential = await self.repo.get_by_platform(user_id, platform)
-        if credential:
-            await self.repo.update_last_used(credential.id)
-            logger.debug(f"Updated last_used_at for platform '{platform}' for user {user_id}")

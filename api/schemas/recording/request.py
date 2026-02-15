@@ -195,7 +195,7 @@ class ProcessRecordingRequest(BaseModel):
     """Request for processing recording."""
 
     transcription_model: str = Field("fireworks", description="Transcription model")
-    granularity: str = Field("long", description="Topic extraction detail level (short/long)")
+    granularity: str = Field("long", description="Topic extraction: short, medium, or long")
     topic_model: str = Field("deepseek", description="Topic extraction model")
     platforms: list[str] = Field(default_factory=list, description="Upload platforms")
     no_transcription: bool = Field(False, description="Skip transcription")
@@ -434,7 +434,7 @@ class BulkTranscribeRequest(BulkOperationRequest):
 class BulkTopicsRequest(BulkOperationRequest):
     """Bulk topic extraction from transcriptions."""
 
-    granularity: str = Field("long", description="Extraction mode ('short' - large topics | 'long' - detailed)")
+    granularity: str = Field("long", description="Extraction mode: short (large), medium, or long (detailed)")
     version_id: str | None = Field(None, description="Version ID (if not specified, generated automatically)")
 
     model_config = ConfigDict(

@@ -1,6 +1,6 @@
 [project]
 name = "leap"
-version = "0.9.5"
+version = "0.9.6"
 description = "LEAP - Lecture Enhancement & Automation Platform for intelligent video content processing"
 readme = "README.md"
 license = {text = "Business Source License 1.1"}

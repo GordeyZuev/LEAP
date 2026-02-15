@@ -179,7 +179,7 @@ Available Buffer:    2 GB RAM
 /var/lib/postgresql    30 GB    (database)
 /var/lib/redis          5 GB    (Redis persistence)
 /var/lib/docker        10 GB    (Docker images/containers)
-/app/media             85 GB    (video processing)
+/app/storage             85 GB    (video processing)
   ├─ temporary/        60 GB    (processing files, 0-14 days)
   └─ permanent/        25 GB    (transcriptions, metadata)
 /var/log               5 GB     (application logs)
@@ -191,8 +191,8 @@ Reserve                1 GB     (emergency buffer)
 ```bash
 # Automated cleanup via cron
 # Delete temporary files older than 7 days
-0 3 * * * find /app/media/user_*/video -mtime +7 -delete
-0 3 * * * find /app/media/user_*/audio -mtime +7 -delete
+0 3 * * * find /app/storage/user_*/video -mtime +7 -delete
+0 3 * * * find /app/storage/user_*/audio -mtime +7 -delete
 
 # Keep only last 30 days of logs
 0 4 * * * find /var/log -name "*.log" -mtime +30 -delete
@@ -213,8 +213,8 @@ Reserve                1 GB     (emergency buffer)
 #### Application Data Backups
 ```bash
 # Weekly backup of permanent transcriptions
-0 3 * * 0 tar -czf /backups/media_$(date +\%Y\%m\%d).tar.gz \
-  /app/media/user_*/transcriptions
+0 3 * * 0 tar -czf /backups/storage_$(date +\%Y\%m\%d).tar.gz \
+  /app/storage/user_*/transcriptions
 
 # Upload to object storage
 ```
@@ -420,7 +420,7 @@ htop
 
 # Disk usage
 df -h
-ncdu /app/media
+ncdu /app/storage
 
 # Docker stats
 docker stats
@@ -438,5 +438,5 @@ docker-compose restart celery_worker
 docker exec leap_postgres pg_dump -U postgres leap_platform > backup.sql
 
 # Clean old files
-find /app/media -name "*.mp4" -mtime +7 -delete
+find /app/storage -name "*.mp4" -mtime +7 -delete
 ```

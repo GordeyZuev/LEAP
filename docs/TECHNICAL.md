@@ -2,7 +2,7 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.5 (February 2026)
+**Version:** v0.9.6 (February 2026)
 **Status:** ✅ Production Ready
 
 ---
@@ -184,9 +184,9 @@ class RecordingRepository:
 **Purpose:** Создание сервисов с правильными credentials
 
 ```python
-# FireworksTranscriptionService via ConfigService
-config_service = ConfigService(session, user_id)
-fireworks_config = await config_service.get_fireworks_config()
+# FireworksTranscriptionService (uses config file)
+from fireworks_module import FireworksConfig
+fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
 service = FireworksTranscriptionService(fireworks_config)
 
 # UploaderFactory
@@ -268,8 +268,8 @@ async def process_recording(
     id: int,
     ctx: ServiceContext = Depends(get_service_context)
 ):
-    # ctx содержит: session, user_id, config_helper
-    config = await ctx.config_helper.get_fireworks_config()
+    # ctx содержит: session, user_id, config_helper (ConfigService)
+    # Используйте ctx.config_helper для get_youtube_credentials, get_vk_credentials и др.
     # ...
 ```
 
@@ -287,17 +287,12 @@ async def process_recording(
 ```python
 config_service = ConfigService(session, user_id)
 
-# Platform credentials
-zoom_config = await config_service.get_zoom_config(account_name="myaccount")
+# Platform credentials (YouTube, VK)
 youtube_creds = await config_service.get_youtube_credentials()
 vk_creds = await config_service.get_vk_credentials()
 
-# AI service credentials
-fireworks_config = await config_service.get_fireworks_config()
-deepseek_config = await config_service.get_deepseek_config()
-
-# Generic access
-creds = await config_service.get_credentials_for_platform("zoom", "myaccount")
+# Zoom: используйте cred_service.get_credentials_by_id() и create_zoom_credentials()
+# AI (Fireworks/DeepSeek): используйте *Config.from_file() из config/
 ```
 
 **Key Features:**
@@ -314,11 +309,10 @@ creds = await config_service.get_credentials_for_platform("zoom", "myaccount")
 
 ```python
 from fireworks_module.service import FireworksTranscriptionService
-from api.services.config_service import ConfigService
+from fireworks_module import FireworksConfig
 
-# Получение конфигурации через ConfigService
-config_service = ConfigService(session, user_id)
-fireworks_config = await config_service.get_fireworks_config()
+# Получение конфигурации из файла
+fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
 
 # Создание сервиса транскрибации
 service = FireworksTranscriptionService(fireworks_config)
@@ -381,19 +375,16 @@ creds = await cred_service.get_decrypted_credentials(
 )
 
 # Platform-specific методы
-zoom_creds = await cred_service.get_zoom_credentials(user_id, "myaccount")
 youtube_creds = await cred_service.get_youtube_credentials(user_id)
-api_key = await cred_service.get_api_key_credentials(user_id, "fireworks")
+vk_creds = await cred_service.get_vk_credentials(user_id)
 
-# Валидация
-is_valid = await cred_service.validate_credentials(user_id, "zoom")
-platforms = await cred_service.list_available_platforms(user_id)
+# По credential_id
+creds = await cred_service.get_credentials_by_id(credential_id)
 ```
 
 **Key Features:**
 - Автоматическое дешифрование (Fernet)
 - Валидация структуры credentials
-- Обновление `last_used_at`
 - Multi-tenant изоляция
 
 ---
@@ -489,7 +480,7 @@ POST /api/v1/recordings/add-yadisk    — добавить с Яндекс Ди�
 **Architecture:**
 ```
 TranscriptionManager (transcription_module/manager.py)
-    ↓ (file operations: save/load master.json, topics.json)
+    ↓ (file operations: save/load master.json, extracted.json)
 
 ConfigService (api/services/config_service.py)
     ↓ (get credentials)
@@ -506,7 +497,7 @@ FireworksTranscriptionService (fireworks_module/service.py)
 
 **Output:** `storage/users/user_XXXXXX/recordings/{id}/transcriptions/`
 - `master.json` - Метаданные транскрипции с words и segments
-- `topics.json` - Извлеченные темы с таймкодами (опционально)
+- `extracted.json` - Извлечённые темы + summary (опционально)
 
 **Documentation:** [Fireworks Audio API](https://fireworks.ai/docs/api-reference/audio-transcriptions)
 
@@ -523,7 +514,7 @@ FireworksTranscriptionService (fireworks_module/service.py)
 - Динамический расчёт количества тем по длительности
 - Поддержка двух провайдеров: DeepSeek, Fireworks DeepSeek
 
-**Output:** `topics.json` с версионированием (v1, v2, ...)
+**Output:** `extracted.json` с версионированием (v1, v2, ...)
 
 **Example:**
 ```json
@@ -1327,6 +1318,6 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 
 ---
 
-**Version:** v0.9.5 (February 2026)
+**Version:** v0.9.6 (February 2026)
 **Status:** Development
 **License:** Business Source License 1.1

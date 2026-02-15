@@ -19,7 +19,7 @@ from api.schemas.auth import (
 
 
 class QuotaService:
-    """Сервис для проверки и управления квотами."""
+    """Service for checking and managing quotas."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -33,7 +33,7 @@ class QuotaService:
 
     async def get_effective_quotas(self, user_id: str) -> dict[str, int | None]:
         """
-        Получить эффективные квоты пользователя (с учетом custom overrides).
+        Get effective user quotas (including custom overrides).
 
         Returns:
             {
@@ -86,7 +86,7 @@ class QuotaService:
 
     async def check_recordings_quota(self, user_id: str) -> tuple[bool, str | None]:
         """
-        Проверить квоту на создание записи.
+        Check recording creation quota.
 
         Returns:
             (allowed, error_message)
@@ -114,18 +114,18 @@ class QuotaService:
                     if overage_cost >= subscription.pay_as_you_go_monthly_limit:
                         return (
                             False,
-                            f"Достигнут лимит overage ${subscription.pay_as_you_go_monthly_limit}",
+                            f"Overage limit reached: ${subscription.pay_as_you_go_monthly_limit}",
                         )
                 # Allow with overage
                 return True, None
 
-            return False, f"Превышена квота записей: {max_recordings} в месяц"
+            return False, f"Recordings quota exceeded: {max_recordings} per month"
 
         return True, None
 
     async def check_storage_quota(self, user_id: str, bytes_to_add: int) -> tuple[bool, str | None]:
         """
-        Проверить квоту на хранилище.
+        Check storage quota.
 
         Returns:
             (allowed, error_message)
@@ -144,13 +144,13 @@ class QuotaService:
 
         max_bytes = max_storage_gb * 1024 * 1024 * 1024
         if current_bytes + bytes_to_add > max_bytes:
-            return False, f"Превышена квота хранилища: {max_storage_gb} GB"
+            return False, f"Storage quota exceeded: {max_storage_gb} GB"
 
         return True, None
 
     async def check_concurrent_tasks_quota(self, user_id: str) -> tuple[bool, str | None]:
         """
-        Проверить квоту на одновременные задачи.
+        Check concurrent tasks quota.
 
         Returns:
             (allowed, error_message)
@@ -168,31 +168,7 @@ class QuotaService:
         current_tasks = usage.concurrent_tasks_count if usage else 0
 
         if current_tasks >= max_tasks:
-            return False, f"Превышен лимит одновременных задач: {max_tasks}"
-
-        return True, None
-
-    async def check_automation_jobs_quota(self, user_id: str) -> tuple[bool, str | None]:
-        """
-        Проверить квоту на automation jobs.
-
-        Returns:
-            (allowed, error_message)
-        """
-        quotas = await self.get_effective_quotas(user_id)
-        max_jobs = quotas["max_automation_jobs"]
-
-        # NULL = unlimited
-        if max_jobs is None:
-            return True, None
-
-        # Count active automation jobs (this would need to query automation_jobs table)
-        # For now, placeholder
-        # TODO: Implement actual count from automation_jobs table
-        current_jobs = 0
-
-        if current_jobs >= max_jobs:
-            return False, f"Превышен лимит automation jobs: {max_jobs}"
+            return False, f"Concurrent tasks limit exceeded: {max_tasks}"
 
         return True, None
 
@@ -201,22 +177,22 @@ class QuotaService:
     # ========================================
 
     async def track_recording_created(self, user_id: str) -> None:
-        """Записать создание новой записи."""
+        """Record new recording creation."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.increment_recordings(user_id, current_period, count=1)
 
     async def track_storage_added(self, user_id: str, bytes_added: int) -> None:
-        """Записать добавление данных в хранилище."""
+        """Record storage addition."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.increment_storage(user_id, current_period, bytes_added)
 
     async def track_storage_removed(self, user_id: str, bytes_removed: int) -> None:
-        """Записать удаление данных из хранилища."""
+        """Record storage removal."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.increment_storage(user_id, current_period, -bytes_removed)
 
     async def set_concurrent_tasks_count(self, user_id: str, count: int) -> None:
-        """Установить текущее количество одновременных задач."""
+        """Set current concurrent tasks count."""
         current_period = int(datetime.now().strftime("%Y%m"))
         await self.usage_repo.set_concurrent_tasks(user_id, current_period, count)
 
@@ -226,7 +202,7 @@ class QuotaService:
 
     async def get_quota_status(self, user_id: str) -> QuotaStatusResponse:
         """
-        Получить полный статус квот пользователя.
+        Get full user quota status.
 
         Returns:
             QuotaStatusResponse with subscription, usage, and quota status

@@ -1,7 +1,7 @@
 """Service for validating user access to various resources.
 
-Централизованная валидация доступа к ресурсам (credentials, presets, sources)
-для обеспечения изоляции данных между пользователями (multi-tenancy).
+Centralized access validation (credentials, presets, sources)
+for multi-tenant data isolation.
 """
 
 from fastapi import HTTPException, status
@@ -16,26 +16,12 @@ logger = get_logger()
 
 class ResourceAccessValidator:
     """
-    Сервис для валидации доступа к ресурсам.
-
-    Обеспечивает:
-    - Проверку владения credential
-    - Проверку владения source
-    - Проверку владения preset
-    - Легко расширяется на новые типы ресурсов
-
-    Использование:
-        validator = ResourceAccessValidator(session)
-        await validator.validate_credential_access(credential_id, user_id)
+    Validates user ownership of resources (credentials, sources, presets).
+    Extensible for new resource types.
     """
 
     def __init__(self, session: AsyncSession):
-        """
-        Инициализация валидатора.
-
-        Args:
-            session: Database session
-        """
+        """Initialize validator."""
         self.session = session
         self._cred_repo: UserCredentialRepository | None = None
         self._source_repo: InputSourceRepository | None = None
@@ -69,15 +55,10 @@ class ResourceAccessValidator:
         error_detail: str | None = None,
     ) -> None:
         """
-        Проверить, что credential принадлежит пользователю.
-
-        Args:
-            credential_id: ID credential для проверки
-            user_id: ID пользователя
-            error_detail: Кастомное сообщение об ошибке (опционально)
+        Ensure credential belongs to user.
 
         Raises:
-            HTTPException: Если credential не найден или не принадлежит пользователю
+            HTTPException: If credential not found or not owned by user
         """
         credential = await self.cred_repo.get_by_id(credential_id)
 
@@ -106,15 +87,10 @@ class ResourceAccessValidator:
         error_detail: str | None = None,
     ) -> None:
         """
-        Проверить, что source принадлежит пользователю.
-
-        Args:
-            source_id: ID source для проверки
-            user_id: ID пользователя
-            error_detail: Кастомное сообщение об ошибке (опционально)
+        Ensure source belongs to user.
 
         Raises:
-            HTTPException: Если source не найден или не принадлежит пользователю
+            HTTPException: If source not found or not owned by user
         """
         source = await self.source_repo.find_by_id(source_id, user_id)
 
@@ -134,15 +110,10 @@ class ResourceAccessValidator:
         error_detail: str | None = None,
     ) -> None:
         """
-        Проверить, что preset принадлежит пользователю.
-
-        Args:
-            preset_id: ID preset для проверки
-            user_id: ID пользователя
-            error_detail: Кастомное сообщение об ошибке (опционально)
+        Ensure preset belongs to user.
 
         Raises:
-            HTTPException: Если preset не найден или не принадлежит пользователю
+            HTTPException: If preset not found or not owned by user
         """
         preset = await self.preset_repo.find_by_id(preset_id, user_id)
 
@@ -162,21 +133,10 @@ class ResourceAccessValidator:
         resource_name: str = "resource",
     ) -> None:
         """
-        Проверить credential при обновлении ресурса.
-
-        Используется в PATCH endpoints для sources и presets.
-        Если credential_id=None, проверка пропускается (credential не обновляется).
-
-        Args:
-            credential_id: ID credential или None
-            user_id: ID пользователя
-            resource_name: Название ресурса для логирования
-
-        Raises:
-            HTTPException: Если credential не принадлежит пользователю
+        Validate credential when updating resource (PATCH for sources/presets).
+        Skip check if credential_id=None (credential not being updated).
         """
         if credential_id is None:
-            # Credential не обновляется, пропускаем проверку
             return
 
         await self.validate_credential_access(

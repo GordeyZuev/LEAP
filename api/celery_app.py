@@ -8,12 +8,14 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from celery import Celery  # noqa: E402
-from celery.signals import task_failure, task_postrun, task_prerun  # noqa: E402
+from celery.signals import task_prerun  # noqa: E402
 
 from config.settings import get_settings  # noqa: E402
+from logger import get_logger, short_task_id  # noqa: E402
 
 settings = get_settings()
 database_url = settings.database.sync_url
+logger = get_logger(__name__)
 
 celery_app = Celery(
     "zoom_publishing",
@@ -73,14 +75,14 @@ celery_app.conf.task_routes = {
     "maintenance.*": {"queue": "maintenance"},
 }
 
-# Приоритеты очередей
+# Queue priorities
 celery_app.conf.broker_transport_options = {
-    "priority_steps": list(range(10)),  # 0-9, где 9 - наивысший приоритет
+    "priority_steps": list(range(10)),  # 0-9, where 9 is highest priority
     "sep": ":",
     "queue_order_strategy": "priority",
 }
 
-# Celery Beat Schedule для периодических задач
+# Celery Beat schedule for periodic tasks
 from celery.schedules import crontab  # noqa: E402
 
 celery_app.conf.beat_schedule = {
@@ -105,17 +107,6 @@ celery_app.conf.beat_schedule = {
 
 @task_prerun.connect
 def task_prerun_handler(task_id, task, *_args, **_kwargs):
-    """Обработчик перед запуском задачи."""
-    print(f"[CELERY] Starting task {task.name} [{task_id}]")
-
-
-@task_postrun.connect
-def task_postrun_handler(task_id, task, *_args, **_kwargs):
-    """Обработчик после выполнения задачи."""
-    print(f"[CELERY] Completed task {task.name} [{task_id}]")
-
-
-@task_failure.connect
-def task_failure_handler(task_id, exception, *_args, **_kwargs):
-    """Обработчик при ошибке задачи."""
-    print(f"[CELERY] Failed task [{task_id}]: {exception}")
+    """Log task dispatch (DEBUG — Celery already logs 'received' at INFO)."""
+    task_short = task.name.rsplit(".", 1)[-1] if task.name else "unknown"
+    logger.debug(f"Worker executing | task={task_short} • id={short_task_id(task_id)}")

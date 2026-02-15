@@ -235,12 +235,3 @@ class UserCredentialRepository:
         result = await self.session.execute(select(UserCredentialModel).where(UserCredentialModel.user_id == user_id))
         db_credentials = result.scalars().all()
         return [UserCredentialInDB.model_validate(cred) for cred in db_credentials]
-
-    async def update_last_used(self, credential_id: int) -> None:
-        """Update last used time."""
-        await self.session.execute(
-            update(UserCredentialModel)
-            .where(UserCredentialModel.id == credential_id)
-            .values(last_used_at=datetime.now(UTC))
-        )
-        await self.session.commit()

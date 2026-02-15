@@ -1,4 +1,4 @@
-"""Celery tasks для работы с templates."""
+"""Celery tasks for template operations."""
 
 from sqlalchemy import select
 
@@ -78,16 +78,16 @@ def rematch_recordings_task(
 
 async def _async_rematch_recordings(task_self, template_id: int, user_id: str, only_unmapped: bool) -> dict:
     """
-    Async функция для re-match recordings.
+    Async function for re-matching recordings.
 
     Args:
         task_self: Celery task instance
-        template_id: ID template
-        user_id: ID пользователя
-        only_unmapped: Только unmapped recordings
+        template_id: Template ID
+        user_id: User ID
+        only_unmapped: Only unmapped recordings
 
     Returns:
-        Dict с результатами
+        Dict with results
     """
     session_maker = get_async_session_maker()
 

@@ -18,18 +18,18 @@ class TopicsDisplayFormat(StrEnum):
 class TopicsDisplayConfig(BaseModel):
     model_config = BASE_MODEL_CONFIG
 
-    enabled: bool = Field(True, description="Включить отображение тем")
-    format: TopicsDisplayFormat = Field(TopicsDisplayFormat.NUMBERED_LIST, description="Формат списка")
+    enabled: bool = Field(True, description="Enable topics display")
+    format: TopicsDisplayFormat = Field(TopicsDisplayFormat.NUMBERED_LIST, description="List format")
     max_count: int | None = Field(
-        None, ge=1, le=999, description="Максимальное количество тем (None = default из base config)"
+        None, ge=1, le=999, description="Max topics count (None = default from base config)"
     )
     min_length: int | None = Field(
-        None, ge=0, le=500, description="Минимальная длина темы в символах (0 = без фильтрации)"
+        None, ge=0, le=500, description="Min topic length in chars (0 = no filtering)"
     )
-    max_length: int | None = Field(None, ge=10, le=1000, description="Максимальная длина темы в символах")
-    prefix: str | None = Field(None, max_length=200, description="Префикс перед списком тем")
-    separator: str = Field("\n", max_length=10, description="Разделитель между темами")
-    show_timestamps: bool = Field(False, description="Показывать временные метки для тем")
+    max_length: int | None = Field(None, ge=10, le=1000, description="Max topic length in chars")
+    prefix: str | None = Field(None, max_length=200, description="Prefix before topics list")
+    separator: str = Field("\n", max_length=10, description="Separator between topics")
+    show_timestamps: bool = Field(False, description="Show timestamps for topics")
 
     @field_validator("prefix")
     @classmethod

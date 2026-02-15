@@ -16,11 +16,8 @@ settings = get_settings()
 
 def _is_celery_worker() -> bool:
     """Check if running in Celery worker context."""
-    # Check environment variable
     if os.getenv("CELERY_WORKER") == "true":
         return True
-
-    # Check if celery worker command is in sys.argv
     if len(sys.argv) > 0:
         argv_str = " ".join(sys.argv)
         if "celery" in argv_str and "worker" in argv_str:
@@ -30,7 +27,7 @@ def _is_celery_worker() -> bool:
 
 
 def get_async_engine():
-    """Получение async engine для SQLAlchemy.
+    """Get async engine for SQLAlchemy.
 
     Uses NullPool in Celery workers to avoid event loop issues with asyncpg.
     In Celery workers with threads pool, each task may run in a different thread
@@ -54,13 +51,13 @@ def _get_cached_engine():
 
 
 def get_async_session_maker():
-    """Получение session maker для async sessions."""
+    """Get session maker for async sessions."""
     engine = get_async_engine()
     return async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Получение async database session."""
+    """Get async database session."""
     async_session = get_async_session_maker()
     async with async_session() as session:
         try:
@@ -73,7 +70,7 @@ _redis_client = None
 
 
 async def get_redis() -> redis.Redis:
-    """Получение async Redis client."""
+    """Get async Redis client."""
     global _redis_client
     if _redis_client is None:
         _redis_client = redis.from_url(

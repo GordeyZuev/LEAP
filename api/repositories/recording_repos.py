@@ -898,7 +898,7 @@ class RecordingRepository:
     async def cleanup_recording_files(self, recording: RecordingModel) -> int:
         """
         Delete large files (videos, audio) for recording.
-        Keeps: master.json, topics.json (transcription_dir), DB metadata.
+        Keeps: master.json, extracted.json (transcription_dir), DB metadata.
 
         Used by maintenance tasks and hard delete.
 
@@ -974,7 +974,7 @@ class RecordingRepository:
         if recording.delete_state != "hard":
             total_bytes += await self.cleanup_recording_files(recording)
 
-        # Delete transcription directory (master.json, topics.json, etc)
+        # Delete transcription directory (master.json, extracted.json, etc)
         if recording.transcription_dir and Path(recording.transcription_dir).exists():
             try:
                 dir_path = Path(recording.transcription_dir)

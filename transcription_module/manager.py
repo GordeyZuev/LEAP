@@ -1,4 +1,4 @@
-"""Transcription and topics file manager"""
+"""Transcription and extraction file manager"""
 
 import json
 from datetime import datetime
@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 
 class TranscriptionManager:
-    """Manage transcription files (master.json, topics.json, cache)"""
+    """Manage transcription files (master.json) and extraction (extracted.json, cache)"""
 
     def __init__(self):
         """Initialize transcription manager."""
@@ -40,9 +40,9 @@ class TranscriptionManager:
         """Check if master.json exists."""
         return (self.get_dir(recording_id, user_slug) / "master.json").exists()
 
-    def has_topics(self, recording_id: int, user_slug: int) -> bool:
-        """Check if topics.json exists."""
-        return (self.get_dir(recording_id, user_slug) / "topics.json").exists()
+    def has_extracted(self, recording_id: int, user_slug: int) -> bool:
+        """Check if extracted.json exists (topics, summary from DeepSeek)."""
+        return (self.get_dir(recording_id, user_slug) / "extracted.json").exists()
 
     def save_master(
         self,
@@ -100,7 +100,7 @@ class TranscriptionManager:
         with master_path.open(encoding="utf-8") as f:
             return json.load(f)
 
-    def add_topics_version(
+    def add_extracted_version(
         self,
         recording_id: int,
         version_id: str,
@@ -109,30 +109,31 @@ class TranscriptionManager:
         main_topics: list[str],
         topic_timestamps: list[dict],
         pauses: list[dict] | None = None,
+        summary: str | None = None,
         is_active: bool = True,
         usage_metadata: dict | None = None,
         user_slug: int | None = None,
         **meta,
     ) -> str:
-        """Add new topics version to topics.json, managing active version state."""
+        """Add new extraction version to extracted.json (topics, summary from DeepSeek)."""
         if user_slug is None:
             raise ValueError("user_slug is required. Get it from recording.owner.user_slug or user.user_slug")
-        topics_path = self.get_dir(recording_id, user_slug) / "topics.json"
+        extracted_path = self.get_dir(recording_id, user_slug) / "extracted.json"
 
-        if topics_path.exists():
-            with topics_path.open(encoding="utf-8") as f:
-                topics_file = json.load(f)
+        if extracted_path.exists():
+            with extracted_path.open(encoding="utf-8") as f:
+                extracted_file = json.load(f)
         else:
-            topics_file = {
+            extracted_file = {
                 "recording_id": recording_id,
                 "active_version": None,
                 "versions": [],
             }
 
         if is_active:
-            for v in topics_file["versions"]:
+            for v in extracted_file["versions"]:
                 v["is_active"] = False
-            topics_file["active_version"] = version_id
+            extracted_file["active_version"] = version_id
 
         version_data = {
             "id": version_id,
@@ -143,41 +144,42 @@ class TranscriptionManager:
             "main_topics": main_topics,
             "topic_timestamps": topic_timestamps,
             "pauses": pauses or [],
+            "summary": (summary or "").strip(),
             "_metadata": usage_metadata or {},
             **meta,
         }
 
-        topics_file["versions"].append(version_data)
+        extracted_file["versions"].append(version_data)
 
-        topics_path.parent.mkdir(parents=True, exist_ok=True)
-        with topics_path.open("w", encoding="utf-8") as f:
-            json.dump(topics_file, f, ensure_ascii=False, indent=2)
+        extracted_path.parent.mkdir(parents=True, exist_ok=True)
+        with extracted_path.open("w", encoding="utf-8") as f:
+            json.dump(extracted_file, f, ensure_ascii=False, indent=2)
 
         logger.info(
-            f"Added topics version {version_id} for recording {recording_id}: "
+            f"Added extracted version {version_id} for recording {recording_id}: "
             f"topics={len(topic_timestamps)}, model={model}"
         )
-        return str(topics_path)
+        return str(extracted_path)
 
-    def load_topics(self, recording_id: int, user_slug: int) -> dict:
-        """Load topics data from topics.json."""
-        topics_path = self.get_dir(recording_id, user_slug) / "topics.json"
-        if not topics_path.exists():
-            raise FileNotFoundError(f"topics.json not found for recording {recording_id}: {topics_path}")
+    def load_extracted(self, recording_id: int, user_slug: int) -> dict:
+        """Load extraction data from extracted.json."""
+        extracted_path = self.get_dir(recording_id, user_slug) / "extracted.json"
+        if not extracted_path.exists():
+            raise FileNotFoundError(f"extracted.json not found for recording {recording_id}: {extracted_path}")
 
-        with topics_path.open(encoding="utf-8") as f:
+        with extracted_path.open(encoding="utf-8") as f:
             return json.load(f)
 
-    def get_active_topics(self, recording_id: int, user_slug: int) -> dict | None:
-        """Return active topics version or None if not found."""
+    def get_active_extracted(self, recording_id: int, user_slug: int) -> dict | None:
+        """Return active extraction version (topics, summary) or None if not found."""
         try:
-            topics_data = self.load_topics(recording_id, user_slug)
-            active_version_id = topics_data.get("active_version")
+            extracted_data = self.load_extracted(recording_id, user_slug)
+            active_version_id = extracted_data.get("active_version")
 
             if not active_version_id:
                 return None
 
-            for version in topics_data.get("versions", []):
+            for version in extracted_data.get("versions", []):
                 if version.get("id") == active_version_id:
                     return version
 
@@ -237,10 +239,10 @@ class TranscriptionManager:
         return result
 
     def generate_version_id(self, recording_id: int, user_slug: int) -> str:
-        """Generate next version ID (v1, v2, etc.) for topics."""
+        """Generate next version ID (v1, v2, etc.) for extracted.json."""
         try:
-            topics_data = self.load_topics(recording_id, user_slug)
-            version_count = len(topics_data.get("versions", []))
+            extracted_data = self.load_extracted(recording_id, user_slug)
+            version_count = len(extracted_data.get("versions", []))
             return f"v{version_count + 1}"
         except FileNotFoundError:
             return "v1"

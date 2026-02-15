@@ -62,8 +62,9 @@ class StoragePathBuilder:
     def transcription_master(self, user_slug: int, recording_id: int) -> Path:
         return self.transcription_dir(user_slug, recording_id) / "master.json"
 
-    def transcription_topics(self, user_slug: int, recording_id: int) -> Path:
-        return self.transcription_dir(user_slug, recording_id) / "topics.json"
+    def transcription_extracted(self, user_slug: int, recording_id: int) -> Path:
+        """Extraction results: topics, summary (from DeepSeek)."""
+        return self.transcription_dir(user_slug, recording_id) / "extracted.json"
 
     def _can_access_file(self, file_path: Path) -> bool:
         """Check if file is accessible for stat operations"""

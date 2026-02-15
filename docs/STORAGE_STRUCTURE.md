@@ -7,7 +7,7 @@
 **Changes in v2.1:**
 - ✅ Removed `assets/` directory (all metadata in DB)
 - ✅ Removed `temp/` directory (unused, system temp used instead)
-- ✅ Single `topics.json` with internal versioning (not topics_v1, v2...)
+- ✅ Single `extracted.json` with internal versioning (topics, summary from DeepSeek)
 - ✅ Added `user_{slug}/thumbnails/` for user-uploaded thumbnails
 - ✅ Added `STORAGE_TYPE` configuration (LOCAL/S3)
 - ✅ Added storage quota parameters
@@ -59,7 +59,7 @@ storage/                             # Root (configurable: local path or S3 buck
         │       │
         │       └── transcriptions/  # All transcription-related files
         │           ├── master.json          # Full transcription with words & segments
-        │           ├── topics.json          # Topics with versioning (v1, v2, v3...)
+        │           ├── extracted.json       # Topics + summary with versioning (v1, v2...)
         │           ├── subtitles.srt        # Subtitles (SRT format)
         │           └── subtitles.vtt        # Subtitles (VTT format)
         │
@@ -145,8 +145,8 @@ shared/
 - `audio.mp3` - Extracted audio (64kbps, mono, 16kHz for transcription)
 
 ### Transcription Files
-- `master.json` - Full transcription (words + segments + metadata)
-- `topics.json` - Topics extraction with internal versioning (v1, v2, v3...)
+- `master.json` - Full transcription (words, segments, summary, metadata)
+- `extracted.json` - Topics + summary extraction with internal versioning (v1, v2, v3...)
 - `subtitles.{format}` - Subtitles (srt, vtt, etc)
 
 ### User Thumbnails
@@ -301,7 +301,7 @@ def create_storage_backend() -> StorageBackend:
 
 ## 📝 Topics.json Versioning
 
-Instead of separate files (`topics_v1.json`, `topics_v2.json`), we use a **single `topics.json` file with internal versioning**:
+Instead of separate files (`topics_v1.json`, `topics_v2.json`), we use a **single `extracted.json` file with internal versioning**:
 
 ```json
 {
@@ -367,8 +367,8 @@ builder.recording_video(user_id=5, recording_id=142)
 builder.transcription_master(user_id=5, recording_id=142)
 # → "storage/users/5/recordings/142/transcription/master.json"
 
-builder.transcription_topics(user_id=5, recording_id=142)
-# → "storage/users/5/recordings/142/transcriptions/topics.json"
+builder.transcription_extracted(user_slug=5, recording_id=142)
+# → "storage/users/5/recordings/142/transcriptions/extracted.json"
 
 builder.user_thumbnail(user_id=5, filename="custom_thumbnail_1.png")
 # → "storage/users/5/thumbnails/custom_thumbnail_1.png"
@@ -421,7 +421,7 @@ storage/
                 ├── audio.mp3        # From audio/processed
                 └── transcriptions/
                     ├── master.json
-                    └── topics.json  # Versioned internally!
+                    └── extracted.json  # Versioned internally!
 ```
 
 ### Migration Script
@@ -453,7 +453,7 @@ $ du -sh storage/
 | Size Calculation | Walk all dirs | Single directory walk |
 | Encoding Issues | Cyrillic in filenames | Only IDs in paths |
 | Quota Tracking | Manual calculation | Automatic on save/delete |
-| Topics Storage | Multiple files (topics_v1, v2...) | Single topics.json with versioning |
+| Topics/Summary | Multiple files (topics_v1, v2...) | Single extracted.json with versioning |
 | Temp Files | temp/ directory (unused) | System temp (cleaner) |
 | Metadata | metadata.json in assets/ | All in database |
 | Storage Backend | Hardcoded local | Switchable LOCAL/S3 |

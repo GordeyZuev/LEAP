@@ -1,7 +1,7 @@
 # 🎯 Production-Ready Multi-tenant платформа
 
 **Период:** 2-14 января 2026
-**Версия:** v0.9.3
+**Версия:** v0.9.6
 **Статус:** Production Ready
 
 ---
@@ -23,7 +23,7 @@ Day 0:  User DELETE → deleted=true, delete_state="soft"
         hard_delete_at = now + (soft_delete_days + hard_delete_days)
 
 Day 3:  Maintenance → Files cleanup (Level 2)
-        Удалены: video, audio | Сохранены: master.json, topics.json, метаданные БД
+        Удалены: video, audio | Сохранены: master.json, extracted.json, метаданные БД
         delete_state="hard", soft_deleted_at=now
 
 Day 33: Maintenance → Hard delete (Level 3)
@@ -432,7 +432,7 @@ Strategy: **first_match** (по `created_at ASC`)
 
 **Pipeline:**
 1. Transcribe → master.json (words, segments)
-2. Extract topics → topics.json (versioning support)
+2. Extract topics → extracted.json (versioning support)
 3. Generate subtitles → .srt, .vtt
 
 **Admin-only credentials** (security)

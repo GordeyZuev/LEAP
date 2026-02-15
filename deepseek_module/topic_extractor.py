@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 from logger import get_logger
 
 from .config import DeepSeekConfig
+from .prompts import DURATION_CONFIG, SYSTEM_PROMPT, TOPIC_EXTRACTION_PROMPT
 
 logger = get_logger(__name__)
 
@@ -37,10 +38,10 @@ class TopicExtractor:
 
         if not any(domain in base for domain in allowed_domains):
             raise ValueError(
-                "❌ ОШИБКА: Некорректный endpoint для TopicExtractor! "
-                "Ожидается DeepSeek API (https://api.deepseek.com/v1) "
-                "или Fireworks API (https://api.fireworks.ai/inference/v1). "
-                f"Получен: {config.base_url}"
+                "Invalid TopicExtractor endpoint. "
+                "Expected DeepSeek API (https://api.deepseek.com/v1) "
+                "or Fireworks API (https://api.fireworks.ai/inference/v1). "
+                f"Got: {config.base_url}"
             )
 
         self.is_fireworks = "fireworks.ai" in base
@@ -72,7 +73,8 @@ class TopicExtractor:
         self,
         segments: list[dict],
         recording_topic: str | None = None,
-        granularity: str = "long",  # "short" | "long"
+        granularity: str = "long",  # "short" | "medium" | "long"
+        language: str | None = None,
     ) -> dict[str, Any]:
         """
         Extract topics from transcription via DeepSeek/Fireworks.
@@ -88,9 +90,13 @@ class TopicExtractor:
                 long_pauses: [{'start', 'end', 'duration_minutes'}, ...] (pauses >=8 min)
         """
         if not segments:
-            raise ValueError("Сегменты обязательны для извлечения тем")
+            raise ValueError("Segments are required for topic extraction")
 
-        total_duration = segments[-1].get("end", 0) if segments else 0
+        granularity = (granularity or "long").strip().lower()
+        if granularity not in ("short", "medium", "long"):
+            granularity = "long"
+
+        total_duration = max(seg.get("end", seg.get("start", 0)) for seg in segments) if segments else 0.0
         duration_minutes = total_duration / 60
         min_topics, max_topics = self._calculate_topic_range(duration_minutes, granularity=granularity)
 
@@ -111,6 +117,7 @@ class TopicExtractor:
                 max_topics,
                 granularity=granularity,
                 segments=segments,
+                language=language,
             )
 
             main_topics = result.get("main_topics", [])
@@ -127,6 +134,7 @@ class TopicExtractor:
             return {
                 "topic_timestamps": topic_timestamps_with_end,
                 "main_topics": main_topics,
+                "summary": result.get("summary", ""),
                 "long_pauses": result.get("long_pauses", []),
             }
         except Exception as error:
@@ -134,13 +142,16 @@ class TopicExtractor:
             return {
                 "topic_timestamps": [],
                 "main_topics": [],
+                "summary": "",
+                "long_pauses": [],
             }
 
     async def extract_topics_from_file(
         self,
         segments_file_path: str,
         recording_topic: str | None = None,
-        granularity: str = "long",  # "short" | "long"
+        granularity: str = "long",  # "short" | "medium" | "long"
+        language: str | None = None,
     ) -> dict[str, Any]:
         """
         Extract topics from segments.txt file.
@@ -148,21 +159,21 @@ class TopicExtractor:
         Args:
             segments_file_path: Path to segments.txt with format [HH:MM:SS - HH:MM:SS] text.
             recording_topic: Course/subject name for context (optional).
-            granularity: "short" or "long".
+            granularity: "short", "medium", or "long".
 
         Returns:
             Same structure as extract_topics.
         """
         segments_path = Path(segments_file_path)
         if not segments_path.exists():
-            raise FileNotFoundError(f"Файл segments.txt не найден: {segments_file_path}")
+            raise FileNotFoundError(f"segments.txt file not found: {segments_file_path}")
 
         logger.info(f"Reading segments from file: {segments_file_path}")
 
         segments = self._parse_segments_from_file(segments_path)
 
         if not segments:
-            raise ValueError(f"Не удалось извлечь сегменты из файла {segments_file_path}")
+            raise ValueError(f"Failed to extract segments from file {segments_file_path}")
 
         logger.info(f"Read {len(segments)} segments from file {segments_file_path}")
 
@@ -170,6 +181,7 @@ class TopicExtractor:
             segments=segments,
             recording_topic=recording_topic,
             granularity=granularity,
+            language=language,
         )
 
     def _format_transcript_with_timestamps(self, segments: list[dict]) -> str:
@@ -254,11 +266,12 @@ class TopicExtractor:
 
     def _calculate_topic_range(self, duration_minutes: float, granularity: str = "long") -> tuple[int, int]:
         """
-        Dynamic topic range based on duration. long: 10-26 topics, short: 3-12 topics.
+        Dynamic topic range based on duration.
+        short: 3-12 topics, medium: 6-16 topics, long: 10-26 topics.
 
         Args:
             duration_minutes: Session duration in minutes (clamped to 50-180).
-            granularity: "short" or "long".
+            granularity: "short", "medium", or "long".
 
         Returns:
             (min_topics, max_topics)
@@ -270,6 +283,13 @@ class TopicExtractor:
             max_topics = int(5 + (duration_minutes - 50) * 5 / 130)
             min_topics = max(3, min(8, min_topics))
             max_topics = max(5, min(12, max_topics))
+            return min_topics, max_topics
+
+        if granularity == "medium":
+            min_topics = int(6 + (duration_minutes - 50) * 5 / 130)
+            max_topics = int(10 + (duration_minutes - 50) * 8 / 130)
+            min_topics = max(6, min(12, min_topics))
+            max_topics = max(10, min(18, max_topics))
             return min_topics, max_topics
 
         min_topics = int(10 + (duration_minutes - 50) * 8 / 130)
@@ -288,6 +308,7 @@ class TopicExtractor:
         max_topics: int = 30,
         granularity: str = "long",  # "short" | "long"
         segments: list[dict] | None = None,
+        language: str | None = None,
     ) -> dict[str, Any]:
         """
         Analyze transcript via DeepSeek/Fireworks.
@@ -306,6 +327,8 @@ class TopicExtractor:
 
         if granularity == "short":
             min_spacing_minutes = max(10, min(18, total_duration / 60 * 0.12))
+        elif granularity == "medium":
+            min_spacing_minutes = max(6, min(10, total_duration / 60 * 0.08))
         else:  # granularity == "long"
             min_spacing_minutes = max(4, min(6, total_duration / 60 * 0.05))
 
@@ -322,77 +345,29 @@ class TopicExtractor:
                 + "\n\nДля каждой паузы: [HH:MM:SS] - Перерыв (где HH:MM:SS — время начала из списка выше)."
             )
 
-        if granularity == "short":
-            prompt = f"""Проанализируй транскрипцию учебной лекции и выдели структуру:{context_line}{pauses_instruction}
+        recording_topic_hint = ""
+        if recording_topic:
+            recording_topic_hint = (
+                f" Название темы НЕ должно содержать слова из названия курса '{recording_topic}'. "
+                "Если тема содержит такие слова — убери их. Например, если курс называется "
+                "'Прикладной Python', а тема 'Асинхронное программирование Python', "
+                "напиши только 'Асинхронное программирование'."
+            )
 
-## ОСНОВНАЯ ТЕМА ПАРЫ
+        summary_language = (language or "").strip().lower() or "ru"
+        duration = DURATION_CONFIG.get(granularity, DURATION_CONFIG["long"])
 
-Выведи РОВНО ОДНУ тему (2–4 слова):{f" Название темы НЕ должно содержать слова из названия курса '{recording_topic}'. Если тема содержит такие слова — убери их. Например, если курс называется 'Прикладной Python', а тема 'Асинхронное программирование Python', напиши только 'Асинхронное программирование'." if recording_topic else ""}
-Название темы
-
-Примеры: "Stable Diffusion", "Архитектура трансформеров", "Generative Models"
-
-## ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ ({min_topics}-{max_topics} топиков)
-
-Формат: [HH:MM:SS] - Название топика
-
-КРИТИЧЕСКИЕ ПРАВИЛА:
-1. Количество: РОВНО {min_topics}-{max_topics} топиков. Если больше — объедини похожие.
-2. Длительность: МИНИМУМ 5 минут, МАКСИМУМ 40 минут на тему.
-3. Если тема <5 минут — ОБЯЗАТЕЛЬНО объедини с соседней.
-4. Если тема >40 минут — ОБЯЗАТЕЛЬНО разбей на несколько тем по 5–40 минут каждая.
-5. Минимальный шаг между темами: {min_spacing_minutes:.1f} минут.
-6. Названия: 3–6 слов, информативные, на русском или английском (по терминологии).
-7. Хронологический порядок.
-8. Только фактические темы из транскрипции.
-9. ВАЖНО: Используй РЕАЛЬНЫЕ временные метки из транскрипции [HH:MM:SS], не придумывай свои.
-
-ФИНАЛЬНАЯ ПРОВЕРКА:
-- Количество: {min_topics}-{max_topics} тем
-- Длительность: каждая тема 5–40 минут (проверь последнюю тему до конца транскрипции)
-- Перерывы: все >=5 минут добавлены (если были указаны)
-- Нет нарушений: нет тем <5 минут или >40 минут
-
-Если нарушено любое правило — переразметь список до полного соответствия.
-
-Транскрипция:
-{transcript}
-"""
-        else:
-            prompt = f"""Проанализируй транскрипцию учебной лекции и выдели структуру:{context_line}{pauses_instruction}
-
-## ОСНОВНАЯ ТЕМА ПАРЫ
-
-Выведи РОВНО ОДНУ тему (2–4 слова):{f" Название темы НЕ должно содержать слова из названия курса '{recording_topic}'. Если тема содержит такие слова — убери их. Например, если курс называется 'Прикладной Python', а тема 'Асинхронное программирование Python', напиши только 'Асинхронное программирование'." if recording_topic else ""}
-Название темы
-
-Примеры: "Stable Diffusion", "Архитектура трансформеров", "Generative Models"
-
-## ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ ({min_topics}-{max_topics} топиков)
-
-Формат: [HH:MM:SS] - Название топика
-
-КРИТИЧЕСКИЕ ПРАВИЛА:
-1. Количество: РОВНО {min_topics}-{max_topics} топиков. Если больше — объедини похожие.
-2. Длительность: МИНИМУМ 3–4 минуты, МАКСИМУМ 12 минут на тему.
-3. Если тема <3 минут — ОБЯЗАТЕЛЬНО объедини с соседней.
-4. Если тема >12 минут — ОБЯЗАТЕЛЬНО разбей на 2–3 темы.
-5. Минимальный шаг между темами: {min_spacing_minutes:.1f} минут.
-6. Названия: 3–6 слов, информативные, на русском или английском (по терминологии).
-7. Хронологический порядок.
-8. Только фактические темы из транскрипции.
-
-ФИНАЛЬНАЯ ПРОВЕРКА:
-- Количество: {min_topics}-{max_topics} тем
-- Длительность: каждая тема 3–12 минут
-- Перерывы: все >=8 минут добавлены (если были указаны)
-- Нет нарушений: нет тем <3 минут или >12 минут
-
-Если нарушено любое правило — переразметь список до полного соответствия.
-
-Транскрипция:
-{transcript}
-"""
+        prompt = TOPIC_EXTRACTION_PROMPT.format(
+            context_line=context_line,
+            pauses_instruction=pauses_instruction,
+            recording_topic_hint=recording_topic_hint,
+            summary_language=summary_language,
+            min_topics=min_topics,
+            max_topics=max_topics,
+            min_spacing_minutes=min_spacing_minutes,
+            transcript=transcript,
+            **duration,
+        )
 
         try:
             if self.is_fireworks:
@@ -401,27 +376,21 @@ class TopicExtractor:
                 response = await self.client.chat.completions.create(
                     model=self.config.model,
                     messages=[
-                        {
-                            "role": "system",
-                            "content": "Ты — самый лучший аналитик учебных материалов на магистратуре Computer Science. Анализируй транскрипции и выделяй структуру лекций.",
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        },
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
                     ],
                     **self.config.to_request_params(),
                 )
                 if not hasattr(response, "choices") or not response.choices:
                     error_msg = (
-                        f"Неожиданный формат ответа от DeepSeek API: response type={type(response)}, value={response}"
+                        f"Unexpected DeepSeek API response format: type={type(response)}, value={response}"
                     )
                     logger.error(error_msg)
                     raise ValueError(error_msg)
                 content = response.choices[0].message.content.strip()
 
             if not content:
-                return {"main_topics": [], "topic_timestamps": []}
+                return {"main_topics": [], "topic_timestamps": [], "summary": ""}
 
             logger.info(f"DeepSeek response: length={len(content)} | preview={content[:500]}...")
             logger.debug(f"Full DeepSeek response:\n{content}")
@@ -437,7 +406,7 @@ class TopicExtractor:
 
         except Exception as error:
             logger.exception(f"Failed to analyze transcript: error={error}", error=str(error))
-            return {"main_topics": [], "topic_timestamps": []}
+            return {"main_topics": [], "topic_timestamps": [], "summary": "", "long_pauses": []}
 
     async def _fireworks_request(self, prompt: str) -> str:
         """
@@ -477,7 +446,7 @@ class TopicExtractor:
             "messages": [
                 {
                     "role": "system",
-                    "content": "Ты — самый лучший аналитик учебных материалов на магистратуре Computer Science. Анализируй транскрипции и выделяй структуру лекций.",
+                    "content": SYSTEM_PROMPT,
                 },
                 {
                     "role": "user",
@@ -588,19 +557,43 @@ class TopicExtractor:
 
     def _parse_structured_response(self, text: str, total_duration: float) -> dict[str, Any]:
         """
-        Parse LLM response: main topics section and [HH:MM:SS] - topic lines.
+        Parse LLM response: summary, main topics section, and [HH:MM:SS] - topic lines.
 
         Returns:
-            Dict with main_topics and topic_timestamps (start only; end added later).
+            Dict with summary, main_topics, topic_timestamps (start only; end added later).
         """
-        main_topics = []
-        topic_timestamps = []
+        main_topics: list[str] = []
+        topic_timestamps: list[dict] = []
+        summary = ""
 
         lines = text.split("\n")
 
         in_main_topics = False
         in_detailed_topics = False
+        in_summary = False
         main_topics_section_found = False
+        summary_lines: list[str] = []
+
+        for _, line in enumerate(lines):
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            if "САММАРИ" in line_stripped.upper() or "SUMMARY" in line_stripped.upper():
+                in_summary = True
+                continue
+            if in_summary:
+                if (
+                    line_stripped.startswith("##")
+                    or "ОСНОВНАЯ ТЕМА" in line_stripped.upper()
+                    or "ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ" in line_stripped.upper()
+                ):
+                    if summary_lines:
+                        summary = " ".join(summary_lines).strip()
+                    in_summary = False
+                    summary_lines = []
+                else:
+                    summary_lines.append(line_stripped)
+                continue
 
         main_topic = self._find_main_topic_before_section(lines)
         if main_topic:
@@ -643,7 +636,7 @@ class TopicExtractor:
                 in_detailed_topics = True
                 in_main_topics = False
                 hours_str, minutes_str, seconds_str, topic = timestamp_match.groups()
-                total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str)
+                total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str, total_duration)
                 if 0 <= total_seconds <= total_duration:
                     topic_timestamps.append(
                         {
@@ -665,8 +658,8 @@ class TopicExtractor:
 
                 if topic and len(topic) > 3:
                     words = topic.split()
-                    if len(words) > 7:
-                        topic = " ".join(words[:15]) + "..."
+                    if len(words) > MAIN_TOPIC_MAX_WORDS:
+                        topic = " ".join(words[:MAIN_TOPIC_MAX_WORDS]) + "..."
                     elif len(topic) > 150:
                         topic = topic[:150].rsplit(" ", 1)[0] + "..."
                     main_topics.append(topic)
@@ -675,7 +668,9 @@ class TopicExtractor:
                 match = re.match(TIMESTAMP_PATTERN, line)
                 if match:
                     hours_str, minutes_str, seconds_str, topic = match.groups()
-                    total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str)
+                    total_seconds = self._parse_timestamp_to_seconds(
+                        hours_str, minutes_str, seconds_str, total_duration
+                    )
 
                     if 0 <= total_seconds <= total_duration:
                         topic_timestamps.append(
@@ -704,6 +699,9 @@ class TopicExtractor:
             if main_topic:
                 main_topics.append(main_topic)
 
+        if in_summary and summary_lines:
+            summary = " ".join(summary_lines).strip()
+
         processed_main_topics = self._process_main_topics(main_topics)
 
         if processed_main_topics:
@@ -714,6 +712,7 @@ class TopicExtractor:
             )
 
         return {
+            "summary": summary,
             "main_topics": processed_main_topics,
             "topic_timestamps": topic_timestamps,
         }
@@ -726,8 +725,8 @@ class TopicExtractor:
             topic = " ".join(topic.split())
             if topic and len(topic) > MAIN_TOPIC_MIN_LENGTH:
                 words = topic.split()
-                if len(words) > 7:
-                    topic = " ".join(words[:7]) + "..."
+                if len(words) > MAIN_TOPIC_MAX_WORDS:
+                    topic = " ".join(words[:MAIN_TOPIC_MAX_WORDS]) + "..."
                 processed.append(topic)
         return processed
 
@@ -793,11 +792,24 @@ class TopicExtractor:
         return None
 
     @staticmethod
-    def _parse_timestamp_to_seconds(hours_str: str, minutes_str: str, seconds_str: str | None) -> int:
-        """Convert timestamp components to total seconds."""
-        if seconds_str is None:
-            return int(hours_str) * 60 + int(minutes_str)
-        return int(hours_str) * 3600 + int(minutes_str) * 60 + int(seconds_str)
+    def _parse_timestamp_to_seconds(
+        hours_str: str,
+        minutes_str: str,
+        seconds_str: str | None,
+        total_duration_seconds: float = 0.0,
+    ) -> int:
+        """Convert timestamp components to total seconds.
+
+        When seconds_str is None (MM:SS format), interprets as HH:MM if total_duration > 1h
+        and first component >= 1 (likely hour), else MM:SS.
+        """
+        if seconds_str is not None:
+            return int(hours_str) * 3600 + int(minutes_str) * 60 + int(seconds_str)
+        # Two-part: HH:MM or MM:SS
+        h, m = int(hours_str), int(minutes_str)
+        if total_duration_seconds > 3600 and h >= 1:
+            return h * 3600 + m * 60  # HH:MM
+        return h * 60 + m  # MM:SS
 
     def _parse_all_timestamps(self, lines: list[str], total_duration: float) -> list[dict]:
         """Parse all lines with timestamps as fallback."""
@@ -809,7 +821,7 @@ class TopicExtractor:
             match = re.match(TIMESTAMP_PATTERN, line)
             if match:
                 hours_str, minutes_str, seconds_str, topic = match.groups()
-                total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str)
+                total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str, total_duration)
                 if 0 <= total_seconds <= total_duration:
                     timestamps.append({"topic": topic.strip(), "start": float(total_seconds)})
         return timestamps

@@ -751,25 +751,25 @@ async def get_recording(
     else:
         transcription_data = {"exists": False}
 
-    # Topics (all versions) - hide _metadata from user
+    # Topics (all versions) from extracted.json - hide _metadata from user
     topics_data = None
-    if transcription_manager.has_topics(recording_id, user_slug):
+    if transcription_manager.has_extracted(recording_id, user_slug):
         try:
-            topics_file = transcription_manager.load_topics(recording_id, user_slug)
+            extracted_file = transcription_manager.load_extracted(recording_id, user_slug)
 
             # Clean versions from administrative metadata
             versions_clean = []
-            for version in topics_file.get("versions", []):
+            for version in extracted_file.get("versions", []):
                 version_clean = {k: v for k, v in version.items() if k != "_metadata"}
                 versions_clean.append(version_clean)
 
             topics_data = {
                 "exists": True,
-                "active_version": topics_file.get("active_version"),
+                "active_version": extracted_file.get("active_version"),
                 "versions": versions_clean,
             }
         except Exception as e:
-            logger.warning(f"Failed to load topics | {format_details(rec=recording_id, error=str(e))}")
+            logger.warning(f"Failed to load extracted | {format_details(rec=recording_id, error=str(e))}")
             topics_data = {"exists": False}
     else:
         topics_data = {"exists": False}
@@ -1955,7 +1955,7 @@ async def upload_recording(
 @router.post("/{recording_id}/topics", response_model=RecordingOperationResponse)
 async def extract_topics(
     recording_id: int,
-    granularity: str = Query("long", description="Mode: 'short' or 'long'"),
+    granularity: str = Query("long", description="Mode: 'short', 'medium', or 'long'"),
     version_id: str | None = Query(None, description="Version ID (optional)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:

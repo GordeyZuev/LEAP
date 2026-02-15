@@ -9,7 +9,7 @@ class ProcessingPreferences(BaseModel):
     enable_transcription: bool = Field(True, description="Enable transcription")
     enable_subtitles: bool = Field(True, description="Enable generation of subtitles")
     enable_topics: bool = Field(True, description="Enable extraction of topics")
-    granularity: str = Field("long", description="Level of detail of topic extraction (short/long)")
+    granularity: str = Field("long", description="Level of detail: short, medium, or long")
     transcription_model: str = Field("fireworks", description="Model for transcription")
     topic_model: str = Field("deepseek", description="Model for extraction of topics")
 

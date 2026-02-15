@@ -33,7 +33,12 @@
       "granularity": "long",
       "enable_subtitles": true,
       "allow_errors": false
-    }
+    },
+    "transcription_vocabulary": [
+      "NumPy", "Pandas", "Scikit-learn", "TensorFlow", "PyTorch", "Keras",
+      "gradient descent", "SGD", "Adam", "backpropagation", "CNN", "RNN", "LSTM",
+      "transformer", "overfitting", "accuracy", "precision", "recall"
+    ]
   },
 
   "output_config": {
@@ -59,10 +64,11 @@
         "language": "Язык аудио для транскрипции. Поддерживаются: ru, en, es, de, fr, it, pt, ja, ko, zh и другие.",
         "prompt": "Контекст для улучшения качества транскрипции. Укажите тематику, технические термины, имена, аббревиатуры. Чем подробнее - тем лучше результат. Максимум 500 символов.",
         "enable_topics": "Извлекать основные топики из транскрипции с помощью LLM. Default: true",
-        "granularity": "Режим извлечения топиков: 'short' (крупные темы) или 'long' (детальные темы). Default: 'long'",
+        "granularity": "Режим извлечения топиков: 'short', 'medium' или 'long'. Default: 'long'",
         "enable_subtitles": "Генерировать субтитры в формате SRT/VTT для видео. Default: true",
         "allow_errors": "Позволить продолжить обработку при ошибке транскрибации. Default: false"
-      }
+      },
+      "transcription_vocabulary": "Особые слова для транскрайбера (термины, имена, аббревиатуры). Отдельное поле шаблона."
     },
     "output_config": {
       "preset_ids": "Список ID presets для загрузки [1, 2, 3]. Платформа берется из preset.platform (single source of truth). Preset содержит credentials и metadata (title, description, tags).",
@@ -100,11 +106,13 @@
 
   "_best_practices": {
     "prompt_engineering": {
+      "tip_0": "Если prompt пуст — подставляется дефолтный промпт с названием курса (fireworks_module/prompts.py)",
       "tip_1": "Укажите в prompt все технические термины, которые могут встречаться в лекции",
       "tip_2": "Добавьте названия используемых библиотек и фреймворков",
       "tip_3": "Перечислите аббревиатуры и акронимы (CNN, RNN, LSTM, SGD, etc.)",
       "tip_4": "Укажите имена спикеров и экспертов, если они упоминаются",
-      "tip_5": "Добавьте контекст: 'Лекция по...', 'Технический вебинар о...'"
+      "tip_5": "Добавьте контекст: 'Лекция по...', 'Технический вебинар о...'",
+      "tip_6": "Используйте transcription_vocabulary для списка терминов — они добавляются к промпту автоматически"
     },
     "matching_rules": {
       "tip_1": "Начните с exact_matches для тестирования, затем добавьте patterns",

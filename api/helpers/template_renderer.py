@@ -3,6 +3,10 @@
 import re
 from datetime import UTC, datetime
 
+from logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class TemplateRenderer:
     """Renders templates with variable substitution and flexible topics formatting."""
@@ -15,6 +19,7 @@ class TemplateRenderer:
         Supports variable substitution with optional formatting:
         - Simple: {var_name}
         - With format: {var_name:format}
+        - Unknown variables are left as literal (e.g. {unknown} stays "{unknown}")
 
         Time format examples:
         - {publish_time:DD-MM-YY hh:mm}
@@ -221,6 +226,7 @@ class TemplateRenderer:
         - {record_time} - recording start time (datetime)
         - {publish_time} - current time (datetime)
         - {duration} - recording duration
+        - {summary} - lecture summary (from extracted.json only)
         - {themes} - short topics for title (from main_topics)
         - {topics} - detailed formatted topics for description (from topic_timestamps)
 
@@ -243,6 +249,22 @@ class TemplateRenderer:
             "record_time": recording.start_time,
             "publish_time": datetime.now(UTC),
         }
+
+        # Summary: only from extracted.json (master.json = transcription only)
+        summary = ""
+        owner = getattr(recording, "owner", None)
+        if owner is not None:
+            try:
+                from transcription_module.manager import get_transcription_manager
+
+                tm = get_transcription_manager()
+                if tm.has_extracted(recording.id, owner.user_slug):
+                    active = tm.get_active_extracted(recording.id, owner.user_slug)
+                    if active:
+                        summary = (active.get("summary") or "").strip()
+            except Exception as exc:
+                logger.debug("Could not load summary: %s", exc)
+        context["summary"] = summary or ""
 
         if hasattr(recording, "main_topics") and recording.main_topics:
             context["themes"] = ", ".join(recording.main_topics[:3])

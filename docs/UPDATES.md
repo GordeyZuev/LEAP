@@ -4,19 +4,51 @@
 
 ---
 
-## 🔄 Текущая версия: v0.9.5 (February 2026)
+## 🔄 Текущая версия: v0.9.6 (February 2026)
 
 **Статус:** In Active Development • Beta
 
 **Ключевые достижения версии:**
-- 📥 **Multi-Source Ingestion:** yt-dlp (YouTube, VK, Rutube, 1000+ сайтов), Яндекс Диск, плейлисты
-- 📤 **Yandex Disk Upload:** Выгрузка с template-driven folder paths
-- 🏗️ **Source-Agnostic Architecture:** BaseDownloader, factory pattern, clean pipeline
-- 🧹 **Code Cleanup:** ~400 строк мертвого кода удалено, "legacy" метки убраны
+- 📝 **Templates & Transcription:** transcription_vocabulary, granularity (short/medium/long), extracted.json
+- 🔒 **Uniqueness Constraints:** templates, presets, automations, credentials — HTTP 409 при дубликатах
+- 📊 **Structured Logging:** loguru contextualize, SUCCESS уровень, stage_timings table
+- 📥 **Multi-Source Ingestion:** yt-dlp, Яндекс Диск, плейлисты (v0.9.5)
 
 ---
 
 ## 📅 Февраль 2026
+
+### 2026-02-16: v0.9.6 — Templates, extracted.json, Uniqueness, Logging
+
+**Главные изменения:**
+
+#### 📝 Templates & Transcription
+- **transcription_vocabulary** — доп. термины для Fireworks/Whisper (только транскрайбер, не DeepSeek)
+- **granularity** — short/medium/long для извлечения тем
+- **{summary}** — переменная в description_template
+- Промпты в `fireworks_module/prompts.py`, русский язык
+- **topics.json → extracted.json** — топики + summary в одном файле; master.json — только транскрипция
+
+#### 🔒 Entity Uniqueness (миграция 015)
+- `recording_templates`: unique (user_id, name) WHERE is_draft = false
+- `output_presets`, `automation_jobs`, `user_credentials` — unique constraints
+- HTTP 409 при дубликатах (templates, presets, automations, credentials)
+
+#### 📊 Structured Logging
+- `loguru.contextualize()` — Task=8a5d • Rec=486 • User=01KF
+- SUCCESS уровень для milestones (upload complete, pipeline complete)
+- `stage_timings` table — audit каждого этапа pipeline
+- `pipeline_started_at`, `pipeline_completed_at` на recordings
+
+#### Другие исправления
+- Zoom token refresh on 401 при скачивании
+- source_processing_incomplete вместо zoom_processing_incomplete
+
+#### Миграция при деплое
+- Переименовать `topics.json` → `extracted.json` (при наличии)
+- Применить миграцию 015 (uniqueness constraints)
+
+---
 
 ### 2026-02-12: v0.9.5 — Multi-Source Video Ingestion & Yandex Disk
 

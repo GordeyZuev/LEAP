@@ -476,7 +476,8 @@ POST /api/v1/templates
       "language": "ru",
       "enable_topics": true,
       "granularity": "long"
-    }
+    },
+    "transcription_vocabulary": ["NumPy", "Pandas", "Scikit-learn", "ML"]
   },
   "metadata_config": {
     "title_template": "МО | {themes}",
@@ -652,7 +653,8 @@ GET /templates/{id}/stats
 
 **Доступные переменные:**
 - `{display_name}` - оригинальное название
-- `{start_date}` - дата записи
+- `{summary}` - краткое содержание лекции (из extracted.json)
+- `{start_date}`, `{record_time}`, `{date}` - дата записи
 - `{themes}` - извлеченные темы (comma-separated)
 - `{topics}` - список topics (formatted)
 

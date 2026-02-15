@@ -12,7 +12,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.9.5` (In development)
+**Версия:** `v0.9.6` (February 2026)
 **Tech:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 
 ---
@@ -364,13 +364,25 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ---
 
-## 🆕 Version v0.9.5 (February 2026)
+## 🆕 Version v0.9.6 (February 2026)
 
 **Status:** In Active Development • Beta
 
-**Новое в v0.9.5:**
+**Новое в v0.9.6:**
 
-**📥 Multi-Source Video Ingestion**
+**📝 Templates & Transcription**
+- **transcription_vocabulary** — доп. термины для распознавания (Fireworks/Whisper)
+- **granularity** — short/medium/long для извлечения тем (DeepSeek)
+- **{summary}** — переменная в шаблонах описания
+- Промпты транскрайбера в `fireworks_module/prompts.py`, единый русский язык
+- **topics.json → extracted.json** — топики и summary в одном файле
+
+**🔒 Uniqueness & Logging**
+- Entity uniqueness constraints (templates, presets, automations, credentials)
+- Structured logging: loguru contextualize, SUCCESS уровень, JSON sink
+- Pipeline timing: `stage_timings` table, pipeline_started_at/completed_at
+
+**📥 Multi-Source Video Ingestion (v0.9.5)**
 - **yt-dlp** — добавление видео по ссылке с YouTube, VK, Rutube и 1000+ сайтов
 - **Плейлисты** — импорт целых плейлистов/каналов одной командой
 - **Яндекс Диск** — загрузка по публичной ссылке и через OAuth API
@@ -429,4 +441,4 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ---
 
-**Version:** `v0.9.5` (February 2026) • **Status:** In Active Development • Beta
+**Version:** `v0.9.6` (February 2026) • **Status:** In Active Development • Beta

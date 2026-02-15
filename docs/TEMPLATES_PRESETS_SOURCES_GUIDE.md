@@ -1,7 +1,7 @@
 # Templates, Presets & Sources - Complete Guide
 
-**Version:** 0.9.4
-**Last Updated:** January 2026
+**Version:** 0.9.6
+**Last Updated:** February 2026
 
 Complete reference for configuring Recording Templates, Output Presets, and Input Sources in LEAP Platform.
 
@@ -358,25 +358,27 @@ Defines which recordings match this template.
     "enable_topics": true,
     "granularity": "long",
     "enable_subtitles": true
-  }
+  },
+  "transcription_vocabulary": ["NumPy", "Pandas", "Scikit-learn", "термин"]
 }
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `transcription.enable_transcription` | boolean | true | Enable audio transcription |
-| `transcription.prompt` | string | null | Prompt to improve transcription quality |
+| `transcription.prompt` | string | null | Prompt to improve transcription quality. If empty — default prompt with course name from fireworks_module/prompts.py |
 | `transcription.language` | string | null | Audio language ("ru", "en", etc.) |
 | `transcription.enable_topics` | boolean | true | Extract topics from transcription |
-| `transcription.granularity` | enum | "long" | Topic detail: `"short"` or `"long"` |
+| `transcription.granularity` | enum | "long" | Topic detail: `"short"`, `"medium"` or `"long"` |
 | `transcription.enable_subtitles` | boolean | true | Generate subtitles (SRT/VTT) |
+| `transcription_vocabulary` | string[] | null | Additional terms for transcriber (domain terms, names, abbreviations). Merged into transcription.vocabulary at config resolve |
 
 ### Metadata Config
 
 ```json
 {
   "title_template": "Курс ИИ | {themes} ({record_time:DD.MM.YY})",
-  "description_template": "Лекция\n\n{topics}\n\nЗаписано: {record_time}",
+  "description_template": "{summary}\n\n{topics}\n\nЗаписано: {record_time}",
   "thumbnail_name": "python_base.png",
   "topics_display": {
     "enabled": true,

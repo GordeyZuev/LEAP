@@ -21,7 +21,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.9.3", description="Application version")
+    version: str = Field(default="0.9.6", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -647,6 +647,7 @@ DEFAULT_USER_CONFIG = {
         "provider": "fireworks",
         "language": "ru",
         "prompt": "",
+        "vocabulary": [],
         "temperature": 0.0,
         "granularity": "long",
         "enable_topics": True,
@@ -723,12 +724,6 @@ def get_settings() -> Settings:
     if _settings_instance is None:
         _settings_instance = Settings()
     return _settings_instance
-
-
-def reset_settings() -> None:
-    """Reset settings singleton (useful for testing)"""
-    global _settings_instance
-    _settings_instance = None
 
 
 # Convenience instance for direct import

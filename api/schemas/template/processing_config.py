@@ -17,6 +17,11 @@ class TemplateProcessingConfig(BaseModel):
         description="Processing settings: transcription, topics, subtitles",
     )
 
+    transcription_vocabulary: list[str] | None = Field(
+        None,
+        description="Special terms for transcriber (terms, names, abbreviations). Separate template field.",
+    )
+
 
 class TranscriptionProcessingConfig(BaseModel):
     """
@@ -41,7 +46,14 @@ class TranscriptionProcessingConfig(BaseModel):
     )
 
     enable_topics: bool = Field(True, description="Enable topics extraction")
-    granularity: Literal["short", "long"] = Field("long", description="Topics granularity: short or long")
+    granularity: Literal["short", "medium", "long"] = Field(
+        "long", description="Topics granularity: short, medium, or long"
+    )
+
+    vocabulary: list[str] | None = Field(
+        None,
+        description="Key terms for transcriber to improve recognition (e.g. ML terms, names)",
+    )
 
     enable_subtitles: bool = Field(True, description="Enable subtitles generation")
 

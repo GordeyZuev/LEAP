@@ -1,4 +1,4 @@
-"""Service Context для передачи user_id и session через все сервисы.
+"""Service Context for passing user_id and session through all services.
 
 Implements the Context Object pattern to avoid passing many parameters
 through a chain of function calls.
@@ -24,7 +24,7 @@ class ServiceContext:
     user_id: str
 
     def __post_init__(self):
-        """Initialization of config_helper."""
+        """Lazy init for config_helper."""
         self._config_helper: ConfigService | None = None
 
     @property
@@ -38,7 +38,5 @@ class ServiceContext:
 
     @classmethod
     def create(cls, session: AsyncSession, user_id: str) -> "ServiceContext":
-        """
-        Factory method for creating a context.
-        """
+        """Create context instance."""
         return cls(session=session, user_id=user_id)

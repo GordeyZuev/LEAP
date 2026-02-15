@@ -10,7 +10,7 @@ from models import MeetingRecording
 
 
 class TemplateMatcher:
-    """Сервис для автоматического сопоставления записей с шаблонами."""
+    """Service for automatic recording-to-template matching."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -21,7 +21,7 @@ class TemplateMatcher:
         recording: MeetingRecording,
         user_id: str,
     ) -> RecordingTemplateModel | None:
-        """Найти подходящий шаблон для записи."""
+        """Find matching template for recording."""
         templates = await self.repo.find_active_by_user(user_id)
 
         for template in templates:
@@ -35,7 +35,7 @@ class TemplateMatcher:
         recording: MeetingRecording,
         template: RecordingTemplateModel,
     ) -> bool:
-        """Проверить, подходит ли запись под шаблон."""
+        """Check if recording matches template."""
         if not template.matching_rules:
             return False
 
@@ -55,9 +55,9 @@ class TemplateMatcher:
         template: RecordingTemplateModel,
     ) -> MeetingRecording:
         """
-        Применить шаблон к записи.
+        Apply template to recording.
 
-        NOTE: metadata_config больше не используется - metadata настраивается в output_preset.preset_metadata
+        NOTE: metadata_config is no longer used - metadata is configured in output_preset.preset_metadata
         """
         if template.processing_config:
             recording.processing_preferences = self._merge_configs(
@@ -75,7 +75,7 @@ class TemplateMatcher:
         return recording
 
     def _merge_configs(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-        """Глубокое слияние конфигураций (приоритет у override)."""
+        """Deep merge configs (override takes precedence)."""
         result = base.copy()
 
         for key, value in override.items():

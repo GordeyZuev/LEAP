@@ -19,8 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копирование кода
 COPY . .
 
-# Создание директорий для media
-RUN mkdir -p media/video media/processed_audio media/transcriptions
+# Создание директории storage (создаётся при первом запуске через settings, но на всякий случай)
+RUN mkdir -p storage
 
 # Копирование и настройка entrypoint
 COPY entrypoint.sh /entrypoint.sh

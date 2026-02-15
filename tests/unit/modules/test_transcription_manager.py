@@ -1,7 +1,7 @@
 """Unit tests for Transcription Manager.
 
 NOTE: TranscriptionManager is a file manager, not a transcription service.
-It manages transcription files (master.json, topics.json) but doesn't perform transcription.
+It manages transcription files (master.json, extracted.json) but doesn't perform transcription.
 Actual transcription is done by Celery tasks using Fireworks API.
 """
 
@@ -81,8 +81,8 @@ class TestTranscriptionManager:
             # Assert
             assert result is False
 
-    def test_has_topics_returns_true(self):
-        """Test has_topics returns True when file exists."""
+    def test_has_extracted_returns_true(self):
+        """Test has_extracted returns True when file exists."""
         # Arrange
         from transcription_module.manager import TranscriptionManager
 
@@ -90,7 +90,7 @@ class TestTranscriptionManager:
 
         with patch.object(Path, "exists", return_value=True):
             # Act
-            result = manager.has_topics(123, 456789)
+            result = manager.has_extracted(123, 456789)
 
             # Assert
             assert result is True
@@ -175,12 +175,12 @@ class TestTranscriptionManager:
 
 
 @pytest.mark.unit
-@pytest.mark.skip(reason="Topics management uses versioned save_topics_versions method")
-class TestTranscriptionManagerTopics:
-    """Tests for topics management (uses versioned API)."""
+@pytest.mark.skip(reason="Extraction management uses versioned add_extracted_version method")
+class TestTranscriptionManagerExtraction:
+    """Tests for extraction management (uses versioned API)."""
 
-    def test_topics_management_uses_versions(self):
-        """Topics are managed via save_topics_versions and load_topics methods."""
+    def test_extraction_management_uses_versions(self):
+        """Extraction is managed via add_extracted_version and load_extracted methods."""
 
 
 @pytest.mark.unit
