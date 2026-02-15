@@ -1,5 +1,76 @@
 # Change Log
 
+## 2026-02-15: Entity Uniqueness Constraints
+
+Добавлены ограничения уникальности для предотвращения дубликатов сущностей.
+
+### DB constraints / indexes
+- `recording_templates` — partial unique index `(user_id, name) WHERE is_draft = false`. Черновики без ограничений, опубликованные шаблоны строго уникальны.
+- `output_presets` — `UNIQUE (user_id, name, credential_id)`. Одинаковые имена допускаются для разных credentials.
+- `automation_jobs` — `UNIQUE (user_id, name)`
+- `user_credentials` — `UNIQUE (user_id, platform, account_name)`
+
+### Application-level checks (HTTP 409)
+- Проверки при создании и обновлении templates, presets, automations
+- Расширены проверки дубликатов credentials для fireworks, deepseek, yandex_disk (по api_key/token)
+
+### Миграция 015
+- Автоматическая очистка существующих дубликатов перед добавлением constraints
+
+### Файлы
+- `alembic/versions/015_add_uniqueness_constraints.py` — миграция
+- `database/template_models.py`, `database/automation_models.py`, `database/auth_models.py` — модели
+- `api/repositories/template_repos.py`, `api/repositories/automation_repos.py` — методы поиска дубликатов
+- `api/routers/templates.py`, `api/routers/output_presets.py`, `api/routers/credentials.py` — проверки в эндпоинтах
+- `api/services/automation_service.py` — проверка в сервисе
+
+---
+
+## 2026-02-15: Structured Logging Refactor
+
+Полный рефакторинг логирования: контекстные логи через `loguru.contextualize()`, двухуровневые разделители (`|` зоны, `•` группировка), уровень SUCCESS для ключевых событий.
+
+### Архитектура
+
+- **Контекст через `contextualize()`** — `Task=8a5d • Rec=486 • User=01KF • Platform=vk` автоматически добавляется ко всем логам в рамках задачи. Убраны ручные префиксы `[Task {id}]`, `[Upload]`.
+- **Формат `_console_format` / `_file_format`** — динамические форматы с зонами: timestamp | level | module | source | context | message
+- **Timestamp** — `YY-MM-DD HH:mm:ss` (26-02-15 11:23:23)
+- **SUCCESS уровень** — для ключевых milestones (upload complete, transcription complete, pipeline complete)
+- **JSON sink** — опциональный `JSON_LOG_FILE` для машинного парсинга
+
+### Хелперы (logger.py)
+
+- `format_details(**kwargs)` — `key=val • key2=val2` для деталей операции
+- `format_status_change(entity, old, new)` — `Recording: INITIALIZED → DOWNLOADING` для переходов состояний
+- `_build_context(record)` — автоматическое построение context zone из extra-полей
+- `short_task_id()` / `short_user_id()` — принимают `Any`, безопасны для SQLAlchemy Column типов
+
+### Изменения в моделях
+
+- `OutputTarget.mark_uploaded()`, `ProcessingStage.mark_*()`, `MeetingRecording.mark_stage_*()` — возвращают старый статус для логирования переходов
+
+### Аудит логов
+
+- ~250 логов рефакторено: убраны имена/названия из INFO (только ID), имена в DEBUG
+- Уровни пересмотрены: verbose INFO → DEBUG, milestones → SUCCESS
+- Стандартизированы skip-маркеры (`Skipped: recording paused`)
+- Убраны дублирующие manual `time.time()` — используется `TimingService.duration_seconds`
+- Pipeline summary log при завершении записи
+
+### Файлы (18 изменённых)
+
+- `logger.py` — новый формат, хелперы, JSON sink
+- `models/recording.py` — mark_* возвращают old status
+- `api/tasks/processing.py`, `api/tasks/upload.py`, `api/tasks/base.py` — contextualize, SUCCESS, переходы
+- `api/tasks/sync_tasks.py`, `api/tasks/template.py` — миграция на contextualize
+- `api/repositories/recording_repos.py` — pipeline summary, переходы
+- `api/helpers/failure_handler.py` — стандартизированные rollback-логи
+- `api/routers/input_sources.py`, `api/routers/recordings.py`, `api/routers/templates.py` — ID вместо имён
+- `video_download_module/downloader.py`, `video_processing_module/video_processor.py` — убраны имена из INFO
+- `video_upload_module/platforms/vk/uploader.py`, `video_upload_module/platforms/youtube/uploader.py` — убраны title из INFO
+
+---
+
 ## 2026-02-14: Zoom download token refresh on 401
 
 Added retry-with-refresh logic in `_download_via_zoom`: if download fails, force-refresh `download_access_token` via Zoom API and retry once before escalating to Celery retries.

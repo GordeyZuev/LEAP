@@ -48,7 +48,7 @@ class YouTubePrivacy(StrEnum):
 
 class YouTubeLicense(StrEnum):
     YOUTUBE = "youtube"
-    CREATIVE_COMMON = "creativeCommon"
+    CREATIVE_COMMONS = "creativeCommon"
 
 
 class YouTubePresetMetadata(BaseModel):
@@ -99,7 +99,7 @@ class YouTubePresetMetadata(BaseModel):
                 raise ValueError("category_id must be positive")
         except ValueError:
             raise ValueError("category_id must be a number")
-        return v
+        return str(cat_int)
 
 
 class VKPrivacyLevel(int, Enum):
@@ -146,13 +146,6 @@ class VKPresetMetadata(BaseModel):
     repeat: bool = Field(False, description="Loop playback")
     compression: bool = Field(False, description="VK-side video compression")
     wallpost: bool = Field(False, description="Post to wall on upload")
-
-    @field_validator("group_id")
-    @classmethod
-    def validate_group_id(cls, v: int | None) -> int | None:
-        if v is not None and v <= 0:
-            raise ValueError("group_id must be positive")
-        return v
 
 
 class YandexDiskPresetMetadata(BaseModel):

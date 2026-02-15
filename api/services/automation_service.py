@@ -89,6 +89,14 @@ class AutomationService:
 
     async def create_job(self, job_data: dict):
         """Create new automation job with validation."""
+        # Check for duplicate name
+        existing = await self.job_repo.find_by_name(self.user_id, job_data["name"])
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Automation job with name '{job_data['name']}' already exists",
+            )
+
         quota = await self.validate_quota()
         await self.validate_schedule(job_data["schedule"], quota)
         await self.validate_templates(job_data["template_ids"])
@@ -102,6 +110,15 @@ class AutomationService:
         job = await self.job_repo.get_by_id(job_id, self.user_id)
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation job not found")
+
+        # Check for duplicate name if name is being changed
+        if "name" in updates and updates["name"] is not None and updates["name"] != job.name:
+            existing = await self.job_repo.find_by_name(self.user_id, updates["name"])
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Automation job with name '{updates['name']}' already exists",
+                )
 
         if "schedule" in updates:
             quota = await self.get_user_quotas()

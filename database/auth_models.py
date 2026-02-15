@@ -13,6 +13,7 @@ from sqlalchemy import (
     Sequence,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
@@ -76,6 +77,9 @@ class UserCredentialModel(Base):
     """User credentials for external services."""
 
     __tablename__ = "user_credentials"
+    __table_args__ = (
+        UniqueConstraint("user_id", "platform", "account_name", name="uq_credentials_user_platform_account"),
+    )
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

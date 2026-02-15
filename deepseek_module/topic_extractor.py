@@ -27,7 +27,7 @@ MAIN_TOPIC_MIN_LENGTH = 3
 
 
 class TopicExtractor:
-    """Extract topics from transcription using MapReduce approach"""
+    """Extract topics from transcription using DeepSeek or Fireworks API."""
 
     def __init__(self, config: DeepSeekConfig):
         self.config = config
@@ -43,18 +43,13 @@ class TopicExtractor:
                 f"Получен: {config.base_url}"
             )
 
-        # Определяем провайдер
         self.is_fireworks = "fireworks.ai" in base
 
-        # Определяем способ подключения к API
-        # Для Fireworks используем прямой HTTP-запрос через httpx (нужны специфичные параметры)
-        # Для прямого DeepSeek используем OpenAI клиент (OpenAI-compatible API)
         if self.is_fireworks:
-            self.client = None  # Будем использовать httpx напрямую
+            self.client = None  # Use httpx directly for Fireworks-specific params
             self.api_key = config.api_key
             self.base_url = config.base_url
         else:
-            # Для DeepSeek используем AsyncOpenAI (OpenAI-compatible API)
             self.client = AsyncOpenAI(
                 api_key=config.api_key,
                 base_url=config.base_url,
@@ -62,7 +57,6 @@ class TopicExtractor:
             self.api_key = None
             self.base_url = None
 
-        # Определяем провайдер для логирования
         if self.is_fireworks:
             provider = "fireworks_deepseek"
         else:
@@ -81,25 +75,17 @@ class TopicExtractor:
         granularity: str = "long",  # "short" | "long"
     ) -> dict[str, Any]:
         """
-        Извлечение тем из транскрипции через DeepSeek.
+        Extract topics from transcription via DeepSeek/Fireworks.
 
         Args:
-            segments: Список сегментов с временными метками (обязательно)
-            recording_topic: Название курса/предмета для контекста (опционально)
+            segments: List of segments with timestamps (required).
+            recording_topic: Course/subject name for context (optional).
 
         Returns:
-            Словарь с темами:
-            {
-                'topic_timestamps': [
-                    {'topic': str, 'start': float, 'end': float},
-                    ...
-                ],
-                'main_topics': [str, ...]  # Максимум 2 темы
-                'long_pauses': [
-                    {'start': float, 'end': float, 'duration_minutes': float},
-                    ...
-                ]  # Паузы >=8 минут между сегментами
-            }
+            Dict with topics:
+                topic_timestamps: [{'topic', 'start', 'end'}, ...]
+                main_topics: [str] (exactly 1 topic)
+                long_pauses: [{'start', 'end', 'duration_minutes'}, ...] (pauses >=8 min)
         """
         if not segments:
             raise ValueError("Сегменты обязательны для извлечения тем")
@@ -108,7 +94,6 @@ class TopicExtractor:
         duration_minutes = total_duration / 60
         min_topics, max_topics = self._calculate_topic_range(duration_minutes, granularity=granularity)
 
-        # Unified topics extraction start log
         context_info = f" | topic={recording_topic}" if recording_topic else ""
         logger.info(
             f"Extracting topics: segments={len(segments)} | duration={duration_minutes:.1f}min | "
@@ -158,15 +143,15 @@ class TopicExtractor:
         granularity: str = "long",  # "short" | "long"
     ) -> dict[str, Any]:
         """
-        Извлечение тем из файла segments.txt.
+        Extract topics from segments.txt file.
 
         Args:
-            segments_file_path: Путь к файлу segments.txt с форматом [HH:MM:SS - HH:MM:SS] текст
-            recording_topic: Название курса/предмета для контекста (опционально)
-            granularity: Режим извлечения тем: "short" или "long"
+            segments_file_path: Path to segments.txt with format [HH:MM:SS - HH:MM:SS] text.
+            recording_topic: Course/subject name for context (optional).
+            granularity: "short" or "long".
 
         Returns:
-            Словарь с темами (аналогично extract_topics)
+            Same structure as extract_topics.
         """
         segments_path = Path(segments_file_path)
         if not segments_path.exists():
@@ -269,31 +254,18 @@ class TopicExtractor:
 
     def _calculate_topic_range(self, duration_minutes: float, granularity: str = "long") -> tuple[int, int]:
         """
-        Вычисление динамического диапазона топиков на основе длительности пары.
-
-        Режимы:
-        - long (длинный режим, детальнее):
-          - 50 минут -> 10–14
-          - 90 минут -> 14–20
-          - 120 минут -> 18–24
-          - 180 минут -> 22–28
-        - short (короткий режим, крупнее):
-          - 50 минут -> 3–5
-          - 90 минут -> 5–8
-          - 120 минут -> 6–9
-          - 180 минут -> 8–12
+        Dynamic topic range based on duration. long: 10-26 topics, short: 3-12 topics.
 
         Args:
-            duration_minutes: Длительность пары в минутах
-            granularity: "short" или "long"
+            duration_minutes: Session duration in minutes (clamped to 50-180).
+            granularity: "short" or "long".
 
         Returns:
-            Кортеж (min_topics, max_topics)
+            (min_topics, max_topics)
         """
         duration_minutes = max(50, min(180, duration_minutes))
 
         if granularity == "short":
-            # Короткий режим: меньше тем, крупнее (5-10 тем для 90-минутной лекции)
             min_topics = int(3 + (duration_minutes - 50) * 4 / 130)
             max_topics = int(5 + (duration_minutes - 50) * 5 / 130)
             min_topics = max(3, min(8, min_topics))
@@ -318,15 +290,15 @@ class TopicExtractor:
         segments: list[dict] | None = None,
     ) -> dict[str, Any]:
         """
-        Анализ полной транскрипции через DeepSeek.
+        Analyze transcript via DeepSeek/Fireworks.
 
         Args:
-            transcript: Полная транскрипция с временными метками
-            total_duration: Общая длительность видео в секундах
-            recording_topic: Название курса/предмета
+            transcript: Full transcript with timestamps.
+            total_duration: Video duration in seconds.
+            recording_topic: Course/subject name.
 
         Returns:
-            Словарь с основными темами и детализированными топиками
+            Dict with main_topics and topic_timestamps.
         """
         context_line = ""
         if recording_topic:
@@ -351,7 +323,6 @@ class TopicExtractor:
             )
 
         if granularity == "short":
-            # Короткий режим: упрощенный промпт с крупными темами
             prompt = f"""Проанализируй транскрипцию учебной лекции и выдели структуру:{context_line}{pauses_instruction}
 
 ## ОСНОВНАЯ ТЕМА ПАРЫ
@@ -425,10 +396,8 @@ class TopicExtractor:
 
         try:
             if self.is_fireworks:
-                # Для Fireworks используем прямой HTTP-запрос, чтобы поддерживать все параметры
                 content = await self._fireworks_request(prompt)
             else:
-                # Для прямого DeepSeek используем OpenAI клиент (OpenAI-compatible API)
                 response = await self.client.chat.completions.create(
                     model=self.config.model,
                     messages=[
@@ -443,7 +412,6 @@ class TopicExtractor:
                     ],
                     **self.config.to_request_params(),
                 )
-                # Проверяем, что response является объектом с атрибутом choices
                 if not hasattr(response, "choices") or not response.choices:
                     error_msg = (
                         f"Неожиданный формат ответа от DeepSeek API: response type={type(response)}, value={response}"
@@ -473,27 +441,16 @@ class TopicExtractor:
 
     async def _fireworks_request(self, prompt: str) -> str:
         """
-        Прямой HTTP-запрос к Fireworks API.
-
-        Параметры передаются согласно официальной документации Fireworks API:
-          - model
-          - max_tokens
-          - top_p
-          - top_k
-          - presence_penalty
-          - frequency_penalty
-          - temperature
-          - messages
+        Direct HTTP request to Fireworks API with model, max_tokens, top_p, top_k, etc.
 
         Args:
-            prompt: Промпт для отправки
+            prompt: User prompt to send.
 
         Returns:
-            Текст ответа от модели
+            Model response text.
         """
         url = f"{self.base_url}/chat/completions"
 
-        # Собираем параметры согласно спецификации Fireworks API
         params: dict[str, Any] = {
             "max_tokens": self.config.max_tokens,
             "top_k": self.config.top_k,
@@ -502,8 +459,6 @@ class TopicExtractor:
             "temperature": self.config.temperature,
         }
 
-        # Для максимальной детерминированности: если top_k=1, не используем top_p
-        # (top_p и top_k могут конфликтовать при детерминированных настройках)
         if self.config.top_k != 1 and self.config.top_p is not None:
             params["top_p"] = self.config.top_p
 
@@ -515,7 +470,6 @@ class TopicExtractor:
             )
             params["max_tokens"] = FIREWORKS_MAX_TOKENS_NON_STREAM
 
-        # Фильтруем None значения, чтобы не передавать их в API
         params = {k: v for k, v in params.items() if v is not None}
 
         payload = {
@@ -588,14 +542,14 @@ class TopicExtractor:
 
     def _detect_long_pauses(self, segments: list[dict], min_gap_minutes: float = 8.0) -> list[dict]:
         """
-        Поиск длинных пауз между сегментами.
+        Find long pauses between segments.
 
         Args:
-            segments: Список сегментов (ожидается отсортированный список)
-            min_gap_minutes: Минимальная длительность паузы (в минутах) для фиксации
+            segments: List of segments (will be sorted by start).
+            min_gap_minutes: Minimum gap in minutes to report.
 
         Returns:
-            Список словарей с паузами: [{"start": float, "end": float, "duration_minutes": float}, ...]
+            [{"start", "end", "duration_minutes"}, ...]
         """
         if not segments:
             return []
@@ -634,23 +588,10 @@ class TopicExtractor:
 
     def _parse_structured_response(self, text: str, total_duration: float) -> dict[str, Any]:
         """
-        Парсинг структурированного ответа от DeepSeek.
-
-        Формат ответа:
-        ## ОСНОВНЫЕ ТЕМЫ ПАРЫ
-        - Тема 1
-        - Тема 2
-
-        ## ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ С ТАЙМКОДАМИ
-        [HH:MM:SS] - [Название топика]
-        [HH:MM:SS] - [Название топика]
-
-        Args:
-            text: Текст ответа от DeepSeek
-            total_duration: Общая длительность видео в секундах
+        Parse LLM response: main topics section and [HH:MM:SS] - topic lines.
 
         Returns:
-            Словарь с основными темами и детализированными топиками
+            Dict with main_topics and topic_timestamps (start only; end added later).
         """
         main_topics = []
         topic_timestamps = []
@@ -661,7 +602,6 @@ class TopicExtractor:
         in_detailed_topics = False
         main_topics_section_found = False
 
-        # Try to find main topic before detailed topics section
         main_topic = self._find_main_topic_before_section(lines)
         if main_topic:
             main_topics.append(main_topic)
@@ -698,12 +638,10 @@ class TopicExtractor:
                 in_detailed_topics = False
                 continue
 
-            # Timestamp indicates detailed topic
             timestamp_match = re.match(TIMESTAMP_PATTERN, line)
             if timestamp_match:
                 in_detailed_topics = True
                 in_main_topics = False
-                # Парсим топик сразу
                 hours_str, minutes_str, seconds_str, topic = timestamp_match.groups()
                 total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str)
                 if 0 <= total_seconds <= total_duration:
@@ -754,7 +692,6 @@ class TopicExtractor:
                             valid_range=f"0-{round(total_duration / 60, 1)}",
                         )
 
-        # Fallback: parse all lines with timestamps
         if not topic_timestamps:
             topic_timestamps = self._parse_all_timestamps(lines, total_duration)
 
@@ -802,7 +739,6 @@ class TopicExtractor:
                 continue
 
             if "ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ" in line_stripped.upper() or "ТОПИКИ С ТАЙМКОДАМИ" in line_stripped.upper():
-                # Look for topic in previous 10 lines
                 for j in range(max(0, i - 10), i):
                     candidate = lines[j].strip()
                     if not candidate or candidate.startswith(("##", "#")):
@@ -818,7 +754,6 @@ class TopicExtractor:
                         return topic_candidate
                 break
 
-        # Check first 10 lines if not found before section
         for line in lines[:10]:
             line_stripped = line.strip()
             if not line_stripped or line_stripped.startswith(("##", "#")):
@@ -883,49 +818,6 @@ class TopicExtractor:
         """Parse simple timestamp format as fallback."""
         return self._parse_all_timestamps(text.split("\n"), total_duration)
 
-    def _merge_close_topics(self, timestamps: list[dict], min_spacing: float) -> list[dict]:
-        """Merge topics that are too close together."""
-        merged = []
-        for ts in timestamps:
-            start = ts.get("start", 0)
-            topic = ts.get("topic", "").strip()
-
-            if not topic:
-                continue
-
-            if merged and (start - merged[-1].get("start", 0)) < min_spacing:
-                prev_topic = merged[-1].get("topic", "")
-                if len(topic) > len(prev_topic):
-                    merged[-1]["topic"] = topic
-                if start < merged[-1].get("start", 0):
-                    merged[-1]["start"] = start
-            else:
-                merged.append(ts)
-
-        return merged
-
-    def _add_missing_topics(
-        self, merged: list[dict], all_timestamps: list[dict], min_topics: int, min_spacing: float
-    ) -> list[dict]:
-        """Add more topics to reach minimum count."""
-        additional_step = len(all_timestamps) / (min_topics - len(merged))
-        added_indices = set()
-
-        for i in range(min_topics - len(merged)):
-            idx = int(i * additional_step)
-            if idx >= len(all_timestamps) or idx in added_indices:
-                continue
-
-            ts = all_timestamps[idx]
-            start = ts.get("start", 0)
-            topic = ts.get("topic", "").strip()
-
-            if topic and not any(abs(start - existing.get("start", 0)) < min_spacing for existing in merged):
-                merged.append(ts)
-                added_indices.add(idx)
-
-        return sorted(merged, key=lambda x: x.get("start", 0))
-
     def _add_end_timestamps(self, timestamps: list[dict], total_duration: float) -> list[dict]:
         """Add end timestamps to topics."""
         if not timestamps:
@@ -941,10 +833,8 @@ class TopicExtractor:
             if not topic:
                 continue
 
-            # Calculate end time
             if i < len(sorted_timestamps) - 1:
                 end = sorted_timestamps[i + 1].get("start", 0)
-                # Ensure minimum duration
                 if end - start < MIN_TOPIC_DURATION_SECONDS:
                     end = min(start + MIN_TOPIC_DURATION_SECONDS, sorted_timestamps[i + 1].get("start", 0))
             else:

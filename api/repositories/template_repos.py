@@ -184,6 +184,16 @@ class OutputPresetRepository:
         result = await self.session.execute(select(OutputPresetModel).where(OutputPresetModel.user_id == user_id))
         return list(result.scalars().all())
 
+    async def find_by_name(self, user_id: str, name: str) -> OutputPresetModel | None:
+        """Find a preset by user_id and name (for duplicate checking)."""
+        result = await self.session.execute(
+            select(OutputPresetModel).where(
+                OutputPresetModel.user_id == user_id,
+                OutputPresetModel.name == name,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def find_by_platform(self, user_id: str, platform: str) -> list[OutputPresetModel]:
         """Get presets by platform."""
         result = await self.session.execute(
@@ -240,6 +250,16 @@ class RecordingTemplateRepository:
         result = await self.session.execute(
             select(RecordingTemplateModel).where(
                 RecordingTemplateModel.id == template_id, RecordingTemplateModel.user_id == user_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def find_by_name(self, user_id: str, name: str) -> RecordingTemplateModel | None:
+        """Find a template by user_id and name (for duplicate checking)."""
+        result = await self.session.execute(
+            select(RecordingTemplateModel).where(
+                RecordingTemplateModel.user_id == user_id,
+                RecordingTemplateModel.name == name,
             )
         )
         return result.scalar_one_or_none()

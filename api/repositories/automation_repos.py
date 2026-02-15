@@ -23,6 +23,14 @@ class AutomationJobRepository:
         await self.session.refresh(job)
         return job
 
+    async def find_by_name(self, user_id: str, name: str) -> AutomationJobModel | None:
+        """Find a job by user_id and name (for duplicate checking)."""
+        stmt = select(AutomationJobModel).where(
+            and_(AutomationJobModel.user_id == user_id, AutomationJobModel.name == name)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_by_id(self, job_id: int, user_id: str) -> AutomationJobModel | None:
         """Get automation job by ID (with user ownership check)."""
         stmt = select(AutomationJobModel).where(

@@ -1,5 +1,6 @@
 """Input source endpoints"""
 
+import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -172,7 +173,6 @@ async def _sync_single_source(
             encryption = get_encryption()
             credentials = encryption.decrypt_credentials(credential.encrypted_data)
 
-    # Синхронизация в зависимости от типа
     meetings = []
     saved_count = 0
     updated_count = 0
@@ -216,15 +216,12 @@ async def _sync_single_source(
 
             logger.info(f"Found recordings | {format_details(source=source_id, count=len(meetings))}")
 
-            # Получаем шаблоны
             template_repo = RecordingTemplateRepository(session)
             templates = await template_repo.find_active_by_user(user_id)
 
-            # Получаем user config для retention settings (merged with defaults)
             user_config_repo = UserConfigRepository(session)
             user_config = await user_config_repo.get_effective_config(user_id)
 
-            # Сохраняем recordings
             recording_repo = RecordingRepository(session)
 
             for meeting in meetings:
@@ -243,7 +240,6 @@ async def _sync_single_source(
                     start_time = datetime.fromisoformat(start_time_str)
 
                     meeting_zoom_api = ZoomAPI(zoom_config)
-
                     video_file = _get_best_video_file(meeting.get("recording_files") or [])
                     (
                         meeting_details,
@@ -340,7 +336,6 @@ async def _sync_single_source(
             "error": f"Unknown source type: {source.source_type}",
         }
 
-    # Обновляем last_sync_at
     await repo.update_last_sync(source)
 
     return {
@@ -464,6 +459,7 @@ async def _sync_yandex_disk_source(
         video_files = await client.list_public_video_files(
             public_key=config.public_url,
             file_pattern=config.file_pattern,
+            recursive=config.recursive,
         )
     else:
         if not oauth_token:
@@ -552,8 +548,6 @@ def _check_source_filter(source_id: int, template_source_ids: list) -> bool:
 
 def _check_exclude_items(items: list | None, display_name: str, case_sensitive: bool, use_regex: bool = False) -> bool:
     """Check if any exclude item matches (keywords or patterns)."""
-    import re
-
     if not items:
         return False
 
@@ -581,8 +575,6 @@ def _check_match_items(
     items: list | None, display_name: str, case_sensitive: bool, exact: bool = False, use_regex: bool = False
 ) -> bool:
     """Check if any match item matches (exact/keywords/patterns)."""
-    import re
-
     if not items:
         return False
 
@@ -630,18 +622,19 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
             continue
 
         if _check_match_items(matching_rules.get("exact_matches"), display_name, case_sensitive, exact=True):
-            logger.debug(f"Matched template | {format_details(display_name=display_name, template_name=template.name)}")
-            logger.info(f"Matched template | {format_details(source=source_id, template=template.id, match='exact')}")
+            logger.debug(f"Matched template | {format_details(source=source_id, template=template.id, match='exact')}")
             return template
 
         if _check_match_items(matching_rules.get("keywords"), display_name, case_sensitive):
-            logger.debug(f"Matched template | {format_details(display_name=display_name, template_name=template.name)}")
-            logger.info(f"Matched template | {format_details(source=source_id, template=template.id, match='keyword')}")
+            logger.debug(
+                f"Matched template | {format_details(source=source_id, template=template.id, match='keyword')}"
+            )
             return template
 
         if _check_match_items(matching_rules.get("patterns"), display_name, case_sensitive, use_regex=True):
-            logger.debug(f"Matched template | {format_details(display_name=display_name, template_name=template.name)}")
-            logger.info(f"Matched template | {format_details(source=source_id, template=template.id, match='pattern')}")
+            logger.debug(
+                f"Matched template | {format_details(source=source_id, template=template.id, match='pattern')}"
+            )
             return template
 
     return None
@@ -675,9 +668,10 @@ async def list_sources(
         search_lower = search.lower()
         sources = [s for s in sources if search_lower in s.name.lower()]
 
-    # Apply platform filter
+    # Apply platform filter (case-insensitive)
     if platform:
-        sources = [s for s in sources if s.source_type == platform]
+        platform_upper = platform.upper()
+        sources = [s for s in sources if s.source_type.upper() == platform_upper]
 
     items, total, total_pages = paginate_list(sources, page, per_page, sort_by, sort_order, SOURCE_SORT_FIELDS)
 
@@ -717,7 +711,6 @@ async def create_source(
             error_detail=f"Cannot create source: credential {data.credential_id} not found or access denied",
         )
 
-    # Проверка на дубликаты
     duplicate = await repo.find_duplicate(
         user_id=current_user.id,
         name=data.name,
@@ -726,12 +719,10 @@ async def create_source(
     )
 
     if duplicate:
+        cred_part = f"credential_id {data.credential_id}" if data.credential_id else "no credential"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Source with name '{data.name}', type '{source_type}' "
-                f"and credential_id {data.credential_id} already exists"
-            ),
+            detail=f"Source with name '{data.name}', type '{source_type}' and {cred_part} already exists",
         )
 
     source = await repo.create(
@@ -887,8 +878,8 @@ async def sync_source(
 
     Args:
         source_id: Source ID
-        from-date: Start date in format YYYY-MM-DD
-        to-date: End date in format YYYY-MM-DD (optional)
+        from_date: Start date in format YYYY-MM-DD
+        to_date: End date in format YYYY-MM-DD (optional)
 
     Returns:
         task_id for tracking progress via GET /api/v1/tasks/{task_id}

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from logger import get_logger
@@ -22,107 +23,104 @@ class DeepSeekConfig(BaseSettings):
         case_sensitive=False,
     )
 
-    api_key: str = Field(..., description="DeepSeek API ключ")
+    api_key: str = Field(..., description="DeepSeek API key")
     model: str = Field(
         default="deepseek-chat",
-        description="Модель DeepSeek для использования",
+        description="DeepSeek model to use",
     )
     base_url: str = Field(
         default="https://api.deepseek.com/v1",
-        description="Base URL для API (DeepSeek или Fireworks endpoint)",
+        description="Base URL for API (DeepSeek or Fireworks endpoint)",
     )
 
     temperature: float = Field(
         default=0.0,
         ge=0.0,
         le=2.0,
-        description="Температура сэмплирования (0.0-2.0)",
+        description="Sampling temperature (0.0-2.0)",
     )
     max_tokens: int = Field(
         default=8000,
         ge=100,
         le=8192,
-        description="Максимальное количество токенов (ограничение DeepSeek: 8192, используем 8000)",
+        description="Max tokens (DeepSeek limit: 8192, default 8000)",
     )
 
     top_p: float | None = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="Top-p сэмплирование (0.0-1.0)",
+        description="Top-p sampling (0.0-1.0)",
     )
     top_k: int | None = Field(
         default=None,
         ge=1,
-        description="Top-k сэмплирование (Fireworks-специфичный параметр)",
+        description="Top-k sampling (Fireworks-specific)",
     )
     presence_penalty: float | None = Field(
         default=None,
         ge=-2.0,
         le=2.0,
-        description="Presence penalty (-2.0 до 2.0)",
+        description="Presence penalty (-2.0 to 2.0)",
     )
     frequency_penalty: float | None = Field(
         default=None,
         ge=-2.0,
         le=2.0,
-        description="Frequency penalty (-2.0 до 2.0)",
+        description="Frequency penalty (-2.0 to 2.0)",
     )
     reasoning_effort: Literal["low", "medium", "high", "none"] | None = Field(
         default=None,
-        description="Уровень усилий для reasoning (Fireworks-специфичный параметр)",
+        description="Reasoning effort level (Fireworks-specific)",
     )
     seed: int | None = Field(
         default=None,
-        description="Seed для детерминированных ответов",
+        description="Seed for deterministic responses",
     )
 
     timeout: float = Field(
         default=120.0,
         ge=1.0,
-        description="Таймаут для запросов в секундах",
+        description="Request timeout in seconds",
     )
 
     @field_validator("base_url")
     @classmethod
     def validate_base_url(cls, v: str) -> str:
-        """Валидация base_url."""
+        """Ensure base_url starts with http:// or https:// and has no trailing slash."""
         if not v.startswith(("http://", "https://")):
-            raise ValueError("base_url должен начинаться с http:// или https://")
+            raise ValueError("base_url must start with http:// or https://")
         return v.rstrip("/")
 
     @model_validator(mode="after")
     def validate_config(self) -> DeepSeekConfig:
-        """Validate field dependencies."""
+        """Warn when Fireworks-specific params are set without Fireworks endpoint."""
         if (
             self.top_k is not None or self.reasoning_effort is not None
         ) and "fireworks.ai" not in self.base_url.lower():
-            logger.warning("⚠️ Fireworks-specific parameters set without Fireworks endpoint. May not work.")
+            logger.warning("Fireworks-specific parameters set without Fireworks endpoint. May not work.")
         return self
 
     @classmethod
     def from_file(cls, config_file: str = "config/deepseek_creds.json") -> DeepSeekConfig:
         """
-        Загрузка конфигурации DeepSeek из JSON файла.
+        Load DeepSeek config from JSON file.
 
         Args:
-            config_file: Путь к файлу конфигурации
+            config_file: Path to config file
 
         Returns:
-            DeepSeekConfig: Валидированная конфигурация
+            Validated DeepSeekConfig instance
 
         Raises:
-            FileNotFoundError: Если файл не найден
-            ValueError: Если API ключ не указан или валидация не прошла
+            FileNotFoundError: Config file not found
+            ValueError: API key missing or invalid
+            ValidationError: Config field validation failed
         """
-        from pathlib import Path
-
         config_path = Path(config_file)
         if not config_path.exists():
             raise FileNotFoundError(
-                f"Файл конфигурации DeepSeek не найден: {config_file}\n"
-                f"Создайте файл с содержимым:\n"
-                f'{{"api_key": "your-api-key-here"}}'
+                f'DeepSeek config file not found: {config_file}\nCreate file with: {{"api_key": "your-api-key-here"}}'
             )
 
         with config_path.open(encoding="utf-8") as f:
@@ -130,27 +128,27 @@ class DeepSeekConfig(BaseSettings):
 
         api_key = data.get("api_key", "")
         if not api_key:
-            raise ValueError("API ключ DeepSeek не указан в конфигурации")
+            raise ValueError("DeepSeek API key not specified in config")
 
         try:
             return cls(api_key=api_key, **{k: v for k, v in data.items() if k != "api_key"})
-        except Exception as e:
-            logger.error(f"❌ DeepSeek configuration validation error: {e}")
+        except ValidationError as e:
+            logger.error("DeepSeek config validation failed: {}", e)
             raise
 
     def to_request_params(self, use_fireworks_extras: bool = False) -> dict[str, Any]:
         """
-        Формирование словаря параметров для вызова chat.completions.create().
+        Build params dict for chat.completions.create().
 
-        Поддерживает DeepSeek и Fireworks DeepSeek (OpenAI-совместимый API).
+        Supports DeepSeek and Fireworks DeepSeek (OpenAI-compatible API).
+        use_fireworks_extras=False by default since standard OpenAI client
+        does not support top_k, reasoning_effort.
 
         Args:
-            use_fireworks_extras: Если True, включает Fireworks-специфичные параметры
-                                 (top_k, reasoning_effort). По умолчанию False, так как
-                                 стандартный OpenAI клиент их не поддерживает.
+            use_fireworks_extras: If True, include top_k and reasoning_effort
 
         Returns:
-            dict: Параметры для API запроса
+            Params for API request
         """
         params: dict[str, Any] = {
             "temperature": self.temperature,

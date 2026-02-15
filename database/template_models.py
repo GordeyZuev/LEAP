@@ -64,6 +64,7 @@ class OutputPresetModel(Base):
     """Output preset for platform uploads."""
 
     __tablename__ = "output_presets"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_presets_user_name"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -87,6 +88,7 @@ class RecordingTemplateModel(Base):
     """Template for automatic recording processing."""
 
     __tablename__ = "recording_templates"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_templates_user_name"),)
 
     # --- PK & FK ---
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)

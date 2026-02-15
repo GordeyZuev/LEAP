@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import relationship
 
@@ -13,6 +13,7 @@ class AutomationJobModel(Base):
     """Automation job for scheduled recording sync and processing"""
 
     __tablename__ = "automation_jobs"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_automation_jobs_user_name"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

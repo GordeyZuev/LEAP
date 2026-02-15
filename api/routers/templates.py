@@ -81,6 +81,15 @@ async def create_template(
         )
 
     repo = RecordingTemplateRepository(session)
+
+    # Check for duplicate name
+    existing = await repo.find_by_name(current_user.id, data.name)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Template with name '{data.name}' already exists",
+        )
+
     template = await repo.create(
         user_id=current_user.id,
         name=data.name,
@@ -156,6 +165,15 @@ async def create_template_from_recording(
 
     from api.repositories.recording_repos import RecordingRepository
     from database.template_models import RecordingTemplateModel
+
+    # Check for duplicate name
+    template_repo = RecordingTemplateRepository(session)
+    existing = await template_repo.find_by_name(current_user.id, name)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Template with name '{name}' already exists",
+        )
 
     recording_repo = RecordingRepository(session)
 
@@ -240,6 +258,15 @@ async def update_template(
 
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
+
+    # Check for duplicate name if name is being changed
+    if data.name is not None and data.name != template.name:
+        existing = await repo.find_by_name(current_user.id, data.name)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Template with name '{data.name}' already exists",
+            )
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():

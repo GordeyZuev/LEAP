@@ -1,6 +1,6 @@
 # Database Design - LEAP Platform
 
-**Версия БД:** 10 миграций
+**Версия БД:** 15 миграций
 **Последнее обновление:** Февраль 2026
 **Статус:** Production-Ready
 
@@ -28,7 +28,7 @@
 - Templates & Configuration (4 таблицы)
 - Automation (2 таблицы)
 
-**10 миграций** (автоматическая инициализация)
+**15 миграций** (автоматическая инициализация)
 
 **PostgreSQL версия:** 12+
 
@@ -963,7 +963,7 @@ CREATE UNIQUE INDEX unique_source_per_recording
 
 ## Миграции
 
-### Список миграций (10)
+### Список миграций (15)
 
 | # | Filename | Описание |
 |---|----------|----------|
@@ -977,6 +977,11 @@ CREATE UNIQUE INDEX unique_source_per_recording
 | 008 | create_celery_beat_tables | Celery Beat integration |
 | 009 | remove_is_superuser_column | Removed deprecated column |
 | 010 | convert_datetime_columns_to_timezone_aware | All datetime → timezone-aware |
+| 011 | add_pause_fields | Pause fields for recordings |
+| 012 | add_external_source_and_target_types | External source and target types |
+| 013 | rename_zoom_processing_incomplete_key | Rename Zoom processing key |
+| 014 | add_stage_timings_and_pipeline_timing | Stage timings + pipeline timing columns |
+| 015 | add_uniqueness_constraints | Uniqueness constraints for templates, presets, jobs, credentials |
 
 ### Команды
 
@@ -1022,5 +1027,5 @@ alembic downgrade -1
 ---
 
 **Документ обновлен:** Февраль 2026
-**Версия БД:** 10 миграций
+**Версия БД:** 15 миграций
 **Статус:** ✅ Production-Ready

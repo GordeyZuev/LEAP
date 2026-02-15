@@ -6,9 +6,9 @@ from typing import Any
 
 import httpx
 
-from logger import get_logger
+from logger import format_details, get_logger
 
-logger = get_logger()
+logger = get_logger(__name__)
 
 # Video file extensions for filtering
 _VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v", ".ts"}
@@ -121,21 +121,31 @@ class YandexDiskClient:
 
     # --- Public resource listing ---
 
-    async def get_public_meta(self, public_key: str) -> dict[str, Any]:
-        """Get meta information of a public resource.
+    async def get_public_meta(
+        self,
+        public_key: str,
+        path: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Get meta information of a public resource (supports pagination, nested path).
 
-        GET /v1/disk/public/resources?public_key=<key>
+        GET /v1/disk/public/resources?public_key=<key>&path=<path>&limit=&offset=
         """
-        return await self._request(
-            "GET",
-            f"{BASE_URL}/public/resources",
-            params={"public_key": public_key, "limit": 100},
-        )
+        params: dict[str, str | int] = {
+            "public_key": public_key,
+            "limit": limit,
+            "offset": offset,
+        }
+        if path:
+            params["path"] = path
+        return await self._request("GET", f"{BASE_URL}/public/resources", params=params)
 
     async def list_public_video_files(
         self,
         public_key: str,
         file_pattern: str | None = None,
+        recursive: bool = True,
     ) -> list[dict[str, Any]]:
         """List video files from a public resource (file or folder)."""
         meta = await self.get_public_meta(public_key)
@@ -145,15 +155,44 @@ class YandexDiskClient:
                 return [meta]
             return []
 
-        # It's a folder -- collect video files from _embedded.items
         video_files: list[dict[str, Any]] = []
-        embedded = meta.get("_embedded", {})
-        for item in embedded.get("items", []):
-            if item.get("type") == "file" and self._is_video_file(item, file_pattern):
-                video_files.append(item)
-
+        await self._collect_public_video_files(
+            public_key=public_key,
+            path=None,
+            recursive=recursive,
+            file_pattern=file_pattern,
+            result=video_files,
+        )
         logger.info(f"Found {len(video_files)} video files in public resource")
         return video_files
+
+    async def _collect_public_video_files(
+        self,
+        public_key: str,
+        path: str | None,
+        recursive: bool,
+        file_pattern: str | None,
+        result: list[dict[str, Any]],
+    ) -> None:
+        """Collect video files from a public folder with pagination and optional recursion."""
+        offset = 0
+        limit = 100
+
+        while True:
+            meta = await self.get_public_meta(public_key, path=path, limit=limit, offset=offset)
+            embedded = meta.get("_embedded", {})
+            items = embedded.get("items", [])
+
+            for item in items:
+                if item.get("type") == "dir" and recursive:
+                    await self._collect_public_video_files(public_key, item["path"], recursive, file_pattern, result)
+                elif item.get("type") == "file" and self._is_video_file(item, file_pattern):
+                    result.append(item)
+
+            total = embedded.get("total", 0)
+            offset += limit
+            if offset >= total:
+                break
 
     # --- Download ---
 
@@ -288,7 +327,8 @@ class YandexDiskClient:
             try:
                 if not re.search(file_pattern, name, re.IGNORECASE):
                     return False
-            except re.error:
-                pass
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern | {format_details(pattern=file_pattern, error=str(e))}")
+                return False
 
         return True

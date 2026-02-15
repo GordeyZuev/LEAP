@@ -4,7 +4,7 @@ from fastapi import HTTPException, status
 
 
 class APIException(HTTPException):
-    """Базовое исключение для API."""
+    """Base exception for API HTTP errors."""
 
     def __init__(
         self,
@@ -16,7 +16,7 @@ class APIException(HTTPException):
 
 
 class NotFoundError(APIException):
-    """Ресурс не найден."""
+    """Resource not found (HTTP 404)."""
 
     def __init__(self, resource: str, resource_id: int | str):
         super().__init__(
@@ -25,8 +25,8 @@ class NotFoundError(APIException):
         )
 
 
-class ValidationError(APIException):
-    """Ошибка валидации."""
+class APIValidationError(APIException):
+    """Validation error (HTTP 422). Avoids naming clash with Pydantic's ValidationError."""
 
     def __init__(self, detail: str):
         super().__init__(
@@ -36,7 +36,7 @@ class ValidationError(APIException):
 
 
 class ConflictError(APIException):
-    """Конфликт данных."""
+    """Data conflict (HTTP 409)."""
 
     def __init__(self, detail: str):
         super().__init__(
@@ -47,11 +47,11 @@ class ConflictError(APIException):
 
 # Exceptions for Celery tasks (not HTTP-related)
 class TaskError(Exception):
-    """Базовое исключение для Celery задач."""
+    """Base exception for Celery tasks."""
 
 
 class CredentialError(TaskError):
-    """Ошибка валидации credentials (токен невалиден, истек и т.д.)."""
+    """Credential validation failed (token invalid, expired, etc.)."""
 
     def __init__(self, platform: str, reason: str):
         self.platform = platform
@@ -60,7 +60,7 @@ class CredentialError(TaskError):
 
 
 class ResourceNotFoundError(TaskError):
-    """Ресурс не найден (например, файл для загрузки)."""
+    """Resource not found (e.g. file for upload)."""
 
     def __init__(self, resource_type: str, resource_id: int | str):
         self.resource_type = resource_type

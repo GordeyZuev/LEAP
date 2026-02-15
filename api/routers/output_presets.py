@@ -94,6 +94,15 @@ async def create_preset(
     )
 
     repo = OutputPresetRepository(session)
+
+    # Check for duplicate name
+    existing = await repo.find_by_name(current_user.id, data.name)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Output preset with name '{data.name}' already exists",
+        )
+
     preset = await repo.create(
         user_id=current_user.id,
         name=data.name,
@@ -128,6 +137,15 @@ async def update_preset(
 
     if not preset:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset {preset_id} not found")
+
+    # Check for duplicate name if name is being changed
+    if data.name is not None and data.name != preset.name:
+        existing = await repo.find_by_name(current_user.id, data.name)
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Output preset with name '{data.name}' already exists",
+            )
 
     # Validate credential ownership if credential_id is being updated
     if data.credential_id is not None:
