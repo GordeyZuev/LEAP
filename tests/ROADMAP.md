@@ -118,7 +118,6 @@ class TestQuotaService:
 
     # Reset logic
     - test_quota_reset_monthly
-    - test_quota_history_tracking
 
     # Limits enforcement
     - test_concurrent_tasks_limit

@@ -276,8 +276,8 @@ class QuotaUsageResponse(BaseModel):
 class QuotaStatusResponse(BaseModel):
     """Schema of response with quota status of user."""
 
-    # Current subscription
-    subscription: UserSubscriptionResponse
+    # Current subscription (None if user has no explicit subscription, using default plan)
+    subscription: UserSubscriptionResponse | None = None
 
     # Current period usage
     current_usage: QuotaUsageResponse | None

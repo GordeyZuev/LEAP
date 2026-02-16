@@ -6,6 +6,7 @@ from .profile import (
     DeleteAccountRequest,
     UserProfileUpdate,
 )
+from .stats import UserStatsResponse
 
 __all__ = [
     "AccountDeleteResponse",
@@ -13,4 +14,5 @@ __all__ = [
     "DeleteAccountRequest",
     "PasswordChangeResponse",
     "UserProfileUpdate",
+    "UserStatsResponse",
 ]

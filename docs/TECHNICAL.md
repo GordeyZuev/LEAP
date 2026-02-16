@@ -998,10 +998,15 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 - 429 Too Many Requests response
 
 **Quota System:**
-- Monthly recordings limit (by plan)
-- Storage limit (by plan)
-- Concurrent tasks limit
-- Automation jobs limit
+- Default quotas in code (`config/settings.py` → `DEFAULT_QUOTAS`, all `None` = unlimited)
+- Optional subscription plans with custom limits
+- Monthly recordings, storage, concurrent tasks, automation jobs limits
+- Enforcement middleware (`check_user_quotas`)
+
+**User Statistics (`GET /me/stats`):**
+- Recordings count (total, by status, by template)
+- Transcription total seconds (`final_duration`)
+- Storage usage (bytes/GB, calculated from user folder)
 
 ### Security Best Practices
 

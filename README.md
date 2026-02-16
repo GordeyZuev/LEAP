@@ -165,7 +165,7 @@
 - Полная изоляция данных пользователей
 - Шифрование credentials (`Fernet`)
 - User-isolated file storage
-- Квоты и rate limiting
+- Квоты, rate limiting и user statistics
 
 **🔐 Production Security**
 - `OAuth 2.0` интеграция (YouTube, VK, Zoom, Yandex Disk)

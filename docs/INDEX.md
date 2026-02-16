@@ -28,7 +28,10 @@
 
 **Templates & Automation:**
 - [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
-- [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) - Scheduled automation jobs & Celery Beat 🆕
+- [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) - Scheduled automation jobs & Celery Beat
+
+**Quotas & Statistics:**
+- [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) - Quota system, user stats, admin API
 
 **OAuth & Credentials:**
 - [OAUTH.md](OAUTH.md) - Complete OAuth guide
@@ -73,6 +76,9 @@
 ### "I want to understand the architecture"
 → [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Core decisions
 → [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database structure
+
+### "I want to understand quotas & stats"
+→ [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) - Quota system, user statistics, admin endpoints
 
 ### "I want to use the API"
 → [TECHNICAL.md](TECHNICAL.md) - Endpoints reference, schemas & best practices
@@ -134,8 +140,9 @@
 | [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) | 4K | Fireworks Batch API |
 | [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) | 12K | Storage architecture |
 | [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) | 12K | Celery Beat automation |
+| [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) | 14K | Quota system, user stats, admin API |
 
-**Total:** 14 active documents (~180KB)
+**Total:** 15 active documents (~195KB)
 **Roadmap:** 1 technical roadmap (5KB)
 
 ---
@@ -196,7 +203,7 @@ ls -lh docs/*.md | sort -h -k5
 
 ## ✅ Quality Metrics
 
-- ✅ **14 active documents** (core documentation)
+- ✅ **15 active documents** (core documentation)
 - ✅ **Minimal duplication** (reduced by ~750 lines)
 - ✅ **Clear structure** (Architecture, Features, API, Deployment)
 - ✅ **Comprehensive guides** (OAuth, Templates, Technical)
@@ -206,5 +213,5 @@ ls -lh docs/*.md | sort -h -k5
 ---
 
 **Index last updated:** 5 февраля 2026
-**Total docs:** 14 active + 1 roadmap + dev_notes folder
+**Total docs:** 15 active + 1 roadmap + dev_notes folder
 **Status:** ✅ Clean & optimized (removed redundant docs)

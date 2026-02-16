@@ -54,7 +54,7 @@ class RecordingModel(Base):
     # --- Core info ---
     display_name: Mapped[str] = mapped_column(String(500), nullable=False)
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    duration: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(Enum(ProcessingStatus), default=ProcessingStatus.INITIALIZED)
     is_mapped: Mapped[bool] = mapped_column(Boolean, default=False)
     blank_record: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -93,6 +93,7 @@ class RecordingModel(Base):
     pipeline_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pipeline_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pipeline_duration_seconds: Mapped[float | None] = mapped_column(Float)
+    final_duration: Mapped[float | None] = mapped_column(Float)
 
     # --- Pause state ---
     on_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

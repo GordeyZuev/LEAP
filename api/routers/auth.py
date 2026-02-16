@@ -12,10 +12,6 @@ from api.repositories.auth_repos import (
     UserRepository,
 )
 from api.repositories.config_repos import UserConfigRepository
-from api.repositories.subscription_repos import (
-    SubscriptionPlanRepository,
-    UserSubscriptionRepository,
-)
 from api.schemas.auth import (
     LoginRequest,
     LogoutAllResponse,
@@ -26,7 +22,6 @@ from api.schemas.auth import (
     TokenPair,
     UserCreate,
     UserResponse,
-    UserSubscriptionCreate,
     UserUpdate,
 )
 from config.settings import get_settings
@@ -56,8 +51,6 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
         HTTPException: If email already exists
     """
     user_repo = UserRepository(session)
-    subscription_repo = UserSubscriptionRepository(session)
-    plan_repo = SubscriptionPlanRepository(session)
     config_repo = UserConfigRepository(session)
 
     existing_user = await user_repo.get_by_email(request.email)
@@ -76,17 +69,6 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
     )
 
     user = await user_repo.create(user_data=user_create, hashed_password=hashed_password)
-
-    # Create free subscription
-    free_plan = await plan_repo.get_by_name("free")
-    if not free_plan:
-        logger.error("Free plan not found in database! User registered without subscription.")
-    else:
-        subscription_create = UserSubscriptionCreate(
-            user_id=user.id,
-            plan_id=free_plan.id,
-        )
-        await subscription_repo.create(subscription_create)
 
     # Create user config with default settings
     default_config = await config_repo.get_effective_config(user.id)

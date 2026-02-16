@@ -25,93 +25,93 @@ class FireworksConfig(BaseSettings):
     api_key: str = Field(..., description="Fireworks API ключ")
     model: Literal["whisper-v3", "whisper-v3-turbo"] = Field(
         default="whisper-v3-turbo",
-        description="ASR модель для транскрибации",
+        description="ASR model for transcription",
     )
     base_url: str = Field(
         default="https://audio-turbo.api.fireworks.ai",
-        description="Base URL для API (зависит от модели)",
+        description="Base URL for API (depends on model)",
     )
     account_id: str | None = Field(
         default=None,
-        description="Account ID для Batch API (из Fireworks dashboard)",
+        description="Account ID for Batch API (from Fireworks dashboard)",
     )
     batch_base_url: str = Field(
         default="https://audio-batch.api.fireworks.ai",
-        description="Base URL для Batch API",
+        description="Base URL for Batch API",
     )
 
     language: str | None = Field(
         default="ru",
-        description="Язык транскрибации (код языка ISO 639-1)",
+        description="Language for transcription (ISO 639-1 code)",
     )
     response_format: Literal["json", "text", "srt", "verbose_json", "vtt"] = Field(
         default="verbose_json",
-        description="Формат ответа от API",
+        description="Response format from API",
     )
     timestamp_granularities: list[Literal["word", "segment"]] | None = Field(
         default=None,
-        description="Гранулярность временных меток (требуется для verbose_json)",
+        description="Timestamp granularities (required for verbose_json)",
     )
     alignment_model: Literal["mms_fa", "tdnn_ffn", "gentle"] | None = Field(
         default=None,
-        description="Модель выравнивания (mms_fa для мультиязычности, tdnn_ffn/gentle для английского)",
+        description="Alignment model (mms_fa for multilingual, tdnn_ffn/gentle for English)",
     )
     diarize: bool = Field(
         default=False,
-        description="Включить диаризацию спикеров (требует verbose_json и word в timestamp_granularities)",
+        description="Enable speaker diarization (requires verbose_json and word in timestamp_granularities)",
     )
     vad_model: Literal["silero", "whisperx-pyannet"] | None = Field(
         default=None,
-        description="Модель VAD (Voice Activity Detection)",
+        description="VAD model (Voice Activity Detection)",
     )
     temperature: float | list[float] | None = Field(
         default=0.0,
-        description="Температура сэмплирования (0.0-1.0) или список для fallback decoding",
+        description="Sampling temperature (0.0-1.0) or list for fallback decoding",
     )
     prompt: str | None = Field(
         default=None,
-        description="Промпт для улучшения качества транскрибации",
+        description="Prompt for improving transcription quality",
     )
     preprocessing: Literal["none", "dynamic", "soft_dynamic", "bass_dynamic"] | None = Field(
         default=None,
-        description="Режим предобработки аудио",
+        description="Audio preprocessing mode",
     )
 
     min_speakers: int | None = Field(
         default=None,
         ge=1,
-        description="Минимальное количество спикеров (требует diarize=true)",
+        description="Minimum number of speakers (requires diarize=true)",
     )
     max_speakers: int | None = Field(
         default=None,
         ge=1,
-        description="Максимальное количество спикеров (требует diarize=true)",
+        description="Maximum number of speakers (requires diarize=true)",
     )
 
     max_file_size_mb: int = Field(
         default=1024,
         ge=1,
-        description="Максимальный размер файла в МБ",
+        description="Maximum file size in MB",
     )
     audio_bitrate: str = Field(
         default="64k",
-        description="Битрейт аудио для обработки",
+        description="Audio bitrate for processing",
     )
     audio_sample_rate: int = Field(
         default=16000,
         ge=8000,
         le=48000,
-        description="Частота дискретизации аудио (Гц)",
+        description="Audio sample rate (Hz)",
     )
     retry_attempts: int = Field(
         default=3,
         ge=1,
-        description="Количество попыток при ошибке",
+        description="Number of retry attempts on error",
     )
     retry_delay: float = Field(
         default=2.0,
         ge=0.0,
-        description="Базовая задержка для экспоненциальной задержки (секунды)",
+        description="Base delay for exponential backoff (seconds)",
     )
 
     @field_validator("timestamp_granularities", mode="before")

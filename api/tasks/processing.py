@@ -964,6 +964,7 @@ async def _async_transcribe_recording(
             # Update recording in DB (without topics)
             recording.transcription_dir = str(transcription_dir)
             recording.transcription_info = transcription_result
+            recording.final_duration = duration or None
 
             # Mark transcription stage as completed
             recording.mark_stage_completed(
@@ -1177,7 +1178,7 @@ def run_recording_task(
         # Check blank_record
         if recording.blank_record:
             logger.info(
-                f"Skipped: blank record | {format_details(duration=f'{recording.duration}min', size=recording.video_file_size)}"
+                f"Skipped: blank record | {format_details(duration=f'{recording.duration}s', size=recording.video_file_size)}"
             )
 
             async def _mark_skipped():
@@ -1953,6 +1954,7 @@ async def _batch_transcribe_poll_and_save(
         transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
         recording_db.transcription_dir = str(transcription_dir)
         recording_db.transcription_info = transcription_result
+        recording_db.final_duration = duration or None
 
         recording_db.mark_stage_completed(
             ProcessingStageType.TRANSCRIBE,

@@ -468,66 +468,60 @@ API Request → Create Celery Task → Return task_id
 
 ### ADR-007: Subscription & Quota System
 
-**Решение:** План-based subscriptions с flexible quotas
+**Решение:** Code-based defaults + optional plan-based subscriptions
 
 **Архитектура:**
 ```
 ┌──────────────────────────────────────────┐
-│        Subscription System               │
+│        Quota System                      │
 └──────────────────────────────────────────┘
 
-subscription_plans (4 tiers)
+DEFAULT_QUOTAS (config/settings.py, all None = unlimited)
     ↓
-user_subscriptions (user ← plan)
+subscription_plans (optional, for custom limits)
     ↓
-quota_usage (по периодам YYYYMM)
+user_subscriptions (user ← plan + custom overrides)
+    ↓
+quota_usage (tracking по периодам YYYYMM)
     ↓
 Quota checks перед операциями
 ```
 
-**Plans:**
-```
-Free:       10 recordings/mo, 5 GB, 1 task
-Plus:       50 recordings/mo, 25 GB, 2 tasks, 3 automation jobs
-Pro:        200 recordings/mo, 100 GB, 5 tasks, 10 automation jobs
-Enterprise: ∞ recordings, ∞ storage, 10 tasks, ∞ automation jobs
-```
-
-**Обоснование:**
-
-**Требования:**
-- Ограничение ресурсов на user
-- Гибкие планы (Free/Plus/Pro/Enterprise)
-- Custom quotas для VIP
-- Pay-as-you-go ready (overage pricing)
+**Дефолтное поведение:**
+- Все пользователи по умолчанию получают `DEFAULT_QUOTAS` (безлимит)
+- Подписка создаётся только при назначении кастомного плана
+- При регистрации подписка НЕ создаётся автоматически
 
 **Quota Types:**
 - `max_recordings_per_month` - лимит recordings
 - `max_storage_gb` - лимит storage
 - `max_concurrent_tasks` - параллельные задачи
 - `max_automation_jobs` - scheduled jobs
+- `min_automation_interval_hours` - минимальный интервал автоматизации
 
 **Tracking:**
 ```python
 # quota_usage table
 {
-  "user_id": 1,
-  "period": "202601",  # YYYYMM
+  "user_id": "01HQ...",
+  "period": "202602",  # YYYYMM
   "recordings_count": 15,
-  "storage_used_gb": 3.2,
-  "tasks_run": 45
+  "storage_bytes": 3435973837,
+  "concurrent_tasks_count": 2
 }
 ```
 
 **Реализация:**
-- `database/subscription_models.py` - models
-- `api/services/quota_service.py` - quota checks
+- `config/settings.py` - `DEFAULT_QUOTAS` constant (fallback)
+- `database/auth_models.py` - subscription & quota models
+- `api/services/quota_service.py` - quota checks (fallback → DEFAULT_QUOTAS)
+- `api/services/stats_service.py` - user statistics
+- `api/middleware/quota.py` - enforcement middleware
 - `api/routers/admin.py` - admin endpoints
-- Middleware для quota validation
 
 **Endpoints:**
-- `GET /users/me/quota` - current usage
-- `GET /users/me/quota/history` - history
+- `GET /users/me/quota` - current quota status
+- `GET /users/me/stats` - user statistics (recordings, transcription, storage)
 - `POST /admin/users/{id}/quota` - admin override
 
 **Статус:** ✅ Полностью реализовано

@@ -270,10 +270,10 @@ Day 33: Maintenance → Hard delete (Level 3)
 - `user_configs` - unified config (1:1 с users)
 
 ### Subscription & Quotas
-- `subscription_plans` - тарифные планы (Free/Plus/Pro/Enterprise)
-- `user_subscriptions` - подписки пользователей (с custom_quotas)
+- `subscription_plans` - кастомные тарифные планы
+- `user_subscriptions` - подписки пользователей (с custom overrides)
 - `quota_usage` - использование по периодам (YYYYMM)
-- `quota_change_history` - audit trail
+- Дефолтные лимиты: `DEFAULT_QUOTAS` в `config/settings.py` (все `None` = безлимит)
 
 ### Processing
 - `recordings` - записи (status, template_id, processing_preferences)
@@ -295,7 +295,7 @@ Day 33: Maintenance → Hard delete (Level 3)
 ### Core Categories
 
 **Authentication** (5): register, login, refresh, logout, logout-all
-**Users** (6): me, config, quota, quota/history, password, delete
+**Users** (6): me, config, quota, stats, password, delete
 **Admin** (3): stats/overview, stats/users, stats/quotas
 
 **Recordings** (18):
@@ -374,18 +374,14 @@ Strategy: **first_match** (по `created_at ASC`)
 - Dual-mode: OAuth + Server-to-Server
 - Auto-detection credentials type
 
-### 3. Subscription Plans
+### 3. Quota & Stats System
 
-| Plan | Recordings | Storage | Tasks | Automation | Price |
-|------|-----------|---------|-------|-----------|-------|
-| **Free** | 10/mo | 5 GB | 1 | 0 | $0 |
-| **Plus** | 50/mo | 25 GB | 2 | 3 jobs | $10/mo |
-| **Pro** | 200/mo | 100 GB | 5 | 10 jobs | $30/mo |
-| **Enterprise** | ∞ | ∞ | 10 | ∞ | Custom |
-
-- Pay-as-you-go готов (overage_price_per_unit)
-- Custom quotas для VIP
-- История использования по периодам
+- **DEFAULT_QUOTAS** в `config/settings.py` — дефолтные лимиты (все `None` = безлимит)
+- Подписка назначается только вручную (кастомный план)
+- `GET /me/quota` — текущий статус квот
+- `GET /me/stats` — статистика (записи, транскрипции, хранилище) с фильтрацией по датам
+- Usage tracking по периодам (YYYYMM)
+- Custom overrides per-user через `user_subscriptions`
 
 ### 4. Automation System
 
@@ -557,7 +553,8 @@ Strategy: **first_match** (по `created_at ASC`)
 
 ### 9 января 2026 - Subscription System Refactoring
 - ✅ Subscription plans architecture (Free/Plus/Pro/Enterprise)
-- ✅ Quota system (по периодам, история)
+- ✅ Quota system (DEFAULT_QUOTAS, enforcement middleware, usage tracking)
+- ✅ User stats API (recordings, transcription, storage)
 - ✅ Admin Stats API (3 endpoints)
 - ✅ API consistency fixes (100% RESTful)
 

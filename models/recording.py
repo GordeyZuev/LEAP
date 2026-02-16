@@ -200,7 +200,7 @@ class MeetingRecording:
         self.input_source_id: int | None = meeting_data.get("input_source_id")
         self.display_name: str = meeting_data.get("display_name") or meeting_data.get("topic", "")
         self.start_time: str = meeting_data.get("start_time", "")
-        self.duration: int = meeting_data.get("duration", 0)
+        self.duration: float = meeting_data.get("duration", 0)  # seconds
         self.status: ProcessingStatus = meeting_data.get("status", ProcessingStatus.INITIALIZED)
         self.is_mapped: bool = bool(meeting_data.get("is_mapped", False))
         self.expire_at: datetime | None = meeting_data.get("expire_at")
@@ -429,9 +429,9 @@ class MeetingRecording:
         """Check if processing failed (ADR-015: uses failed flag, not status)"""
         return self.failed
 
-    def is_long_enough(self, min_duration_minutes: int = 30) -> bool:
-        """Check if recording duration meets minimum requirement"""
-        return self.duration >= min_duration_minutes
+    def is_long_enough(self, min_duration_seconds: int = 1800) -> bool:
+        """Check if recording duration meets minimum requirement (default 1800s = 30 min)."""
+        return self.duration >= min_duration_seconds
 
     def is_downloaded(self) -> bool:
         """Check if recording is downloaded"""

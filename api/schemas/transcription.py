@@ -127,7 +127,7 @@ class RecordingDetailsResponse(BaseModel):
     display_name: str
     status: str
     start_time: str
-    duration: int | None = None
+    duration: float | None = None
 
     # Video files
     videos: dict[str, VideoFileInfo] | None = None

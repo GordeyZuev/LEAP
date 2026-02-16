@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from api.schemas.user.stats import UserStatsResponse
+
 
 @pytest.mark.unit
 class TestGetCurrentUser:
@@ -77,160 +79,83 @@ class TestGetCurrentUserQuota:
 
 
 @pytest.mark.unit
-class TestGetQuotaHistory:
-    """Tests for GET /api/v1/users/me/quota/history endpoint."""
+class TestGetUserStats:
+    """Tests for GET /api/v1/users/me/stats endpoint."""
 
-    def test_get_quota_history_success(self, client, mocker):
-        """Test successful retrieval of quota usage history."""
-        # Arrange
-        mock_history = [
-            {
-                "period": 202601,
-                "recordings_count": 5,
-                "storage_gb": 2.5,
-                "concurrent_tasks_count": 1,
-                "overage_recordings_count": 0,
-                "overage_cost": 0.0,
-            },
-            {
-                "period": 202512,
-                "recordings_count": 8,
-                "storage_gb": 4.0,
-                "concurrent_tasks_count": 2,
-                "overage_recordings_count": 0,
-                "overage_cost": 0.0,
-            },
-        ]
+    def test_get_stats_success(self, client, mocker):
+        """Test successful retrieval of user statistics."""
+        mock_response = UserStatsResponse(
+            period=None,
+            recordings_total=10,
+            recordings_by_status={"READY": 5, "INITIALIZED": 3, "PROCESSING": 2},
+            recordings_ready_by_template=[],
+            transcription_total_seconds=7200.0,
+            storage_bytes=1073741824,
+            storage_gb=1.0,
+        )
 
-        mock_quota_service = mocker.patch("api.routers.users.QuotaService")
-        mock_service_instance = MagicMock()
+        mock_stats_cls = mocker.patch("api.routers.users.StatsService")
+        mock_instance = MagicMock()
+        mock_instance.get_user_stats = AsyncMock(return_value=mock_response)
+        mock_stats_cls.return_value = mock_instance
 
-        # Mock usage_repo
-        mock_usage_repo = MagicMock()
-        mock_usage_items = []
-        for item in mock_history:
-            mock_usage = MagicMock()
-            mock_usage.period = item["period"]
-            mock_usage.recordings_count = item["recordings_count"]
-            mock_usage.storage_bytes = int(item["storage_gb"] * (1024**3))
-            mock_usage.concurrent_tasks_count = item["concurrent_tasks_count"]
-            mock_usage.overage_recordings_count = item["overage_recordings_count"]
-            mock_usage.overage_cost = item["overage_cost"]
-            mock_usage_items.append(mock_usage)
+        response = client.get("/api/v1/users/me/stats")
 
-        mock_usage_repo.get_history = AsyncMock(return_value=mock_usage_items)
-        mock_service_instance.usage_repo = mock_usage_repo
-        mock_quota_service.return_value = mock_service_instance
-
-        # Act
-        response = client.get("/api/v1/users/me/quota/history")
-
-        # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert data[0]["period"] == 202601
-        assert data[1]["period"] == 202512
+        assert data["recordings_total"] == 10
+        assert data["transcription_total_seconds"] == 7200.0
+        assert data["storage_gb"] == 1.0
+        assert data["period"] is None
 
-    def test_get_quota_history_with_limit(self, client, mocker):
-        """Test quota history with custom limit."""
-        # Arrange
-        mock_quota_service = mocker.patch("api.routers.users.QuotaService")
-        mock_service_instance = MagicMock()
-        mock_usage_repo = MagicMock()
-        mock_usage_repo.get_history = AsyncMock(return_value=[])
-        mock_service_instance.usage_repo = mock_usage_repo
-        mock_quota_service.return_value = mock_service_instance
+    def test_get_stats_with_date_range(self, client, mocker):
+        """Test stats filtered by date range."""
+        mock_response = UserStatsResponse(
+            period={"from": "2026-01-01", "to": "2026-01-31"},
+            recordings_total=3,
+            recordings_by_status={"READY": 3},
+            transcription_total_seconds=1800.5,
+            storage_bytes=0,
+            storage_gb=0.0,
+        )
 
-        # Act
-        response = client.get("/api/v1/users/me/quota/history?limit=6")
+        mock_stats_cls = mocker.patch("api.routers.users.StatsService")
+        mock_instance = MagicMock()
+        mock_instance.get_user_stats = AsyncMock(return_value=mock_response)
+        mock_stats_cls.return_value = mock_instance
 
-        # Assert
-        assert response.status_code == 200
-        # Verify limit was passed to repository
-        mock_usage_repo.get_history.assert_called_once()
-        call_kwargs = mock_usage_repo.get_history.call_args.kwargs
-        assert call_kwargs.get("limit") == 6
+        response = client.get("/api/v1/users/me/stats?from=2026-01-01&to=2026-01-31")
 
-    def test_get_quota_history_for_specific_period(self, client, mocker):
-        """Test quota history for specific period."""
-        # Arrange
-        period = 202601
-        mock_usage = MagicMock()
-        mock_usage.period = period
-        mock_usage.recordings_count = 5
-        mock_usage.storage_bytes = int(2.5 * (1024**3))
-        mock_usage.concurrent_tasks_count = 1
-        mock_usage.overage_recordings_count = 0
-        mock_usage.overage_cost = 0.0
-
-        mock_quota_service = mocker.patch("api.routers.users.QuotaService")
-        mock_service_instance = MagicMock()
-        mock_usage_repo = MagicMock()
-        mock_usage_repo.get_by_user_and_period = AsyncMock(return_value=mock_usage)
-        mock_service_instance.usage_repo = mock_usage_repo
-        mock_quota_service.return_value = mock_service_instance
-
-        # Act
-        response = client.get(f"/api/v1/users/me/quota/history?period={period}")
-
-        # Assert
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 1
-        assert data[0]["period"] == period
+        assert data["recordings_total"] == 3
+        assert data["period"]["from"] == "2026-01-01"
+        assert data["period"]["to"] == "2026-01-31"
 
-    def test_get_quota_history_invalid_period_format(self, client, mocker):
-        """Test validation of period format."""
-        # Arrange
-        from utils.date_utils import InvalidPeriodError
+    def test_get_stats_invalid_date_range(self, client):
+        """Test that from > to returns 400."""
+        response = client.get("/api/v1/users/me/stats?from=2026-02-01&to=2026-01-01")
 
-        mock_quota_service = mocker.patch("api.routers.users.QuotaService")
-        mock_service_instance = MagicMock()
-        mock_usage_repo = MagicMock()
-        mock_service_instance.usage_repo = mock_usage_repo
-        mock_quota_service.return_value = mock_service_instance
-
-        # Mock validate_period in the correct module
-        mocker.patch("utils.date_utils.validate_period", side_effect=InvalidPeriodError("Invalid period format"))
-
-        # Act
-        response = client.get("/api/v1/users/me/quota/history?period=999999")
-
-        # Assert
         assert response.status_code == 400
 
-    def test_get_quota_history_empty(self, client, mocker):
-        """Test quota history when no data available."""
-        # Arrange
-        mock_quota_service = mocker.patch("api.routers.users.QuotaService")
-        mock_service_instance = MagicMock()
-        mock_usage_repo = MagicMock()
-        mock_usage_repo.get_history = AsyncMock(return_value=[])
-        mock_service_instance.usage_repo = mock_usage_repo
-        mock_quota_service.return_value = mock_service_instance
+    def test_get_stats_empty(self, client, mocker):
+        """Test stats for user with no recordings."""
+        mock_response = UserStatsResponse(
+            recordings_total=0,
+            recordings_by_status={},
+            transcription_total_seconds=0.0,
+            storage_bytes=0,
+            storage_gb=0.0,
+        )
 
-        # Act
-        response = client.get("/api/v1/users/me/quota/history")
+        mock_stats_cls = mocker.patch("api.routers.users.StatsService")
+        mock_instance = MagicMock()
+        mock_instance.get_user_stats = AsyncMock(return_value=mock_response)
+        mock_stats_cls.return_value = mock_instance
 
-        # Assert
+        response = client.get("/api/v1/users/me/stats")
+
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 0
-
-    def test_get_quota_history_respects_max_limit(self, client, mocker):
-        """Test that limit is capped at maximum value."""
-        # Arrange
-        mock_quota_service = mocker.patch("api.routers.users.QuotaService")
-        mock_service_instance = MagicMock()
-        mock_usage_repo = MagicMock()
-        mock_usage_repo.get_history = AsyncMock(return_value=[])
-        mock_service_instance.usage_repo = mock_usage_repo
-        mock_quota_service.return_value = mock_service_instance
-
-        # Act - try to request more than max (24)
-        response = client.get("/api/v1/users/me/quota/history?limit=50")
-
-        # Assert - should be capped or rejected
-        # Based on Query validation in endpoint (le=24)
-        assert response.status_code in [200, 422]
+        assert data["recordings_total"] == 0
+        assert data["transcription_total_seconds"] == 0.0

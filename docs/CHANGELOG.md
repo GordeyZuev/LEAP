@@ -1,8 +1,81 @@
 # Change Log
 
+---
+
+## 2026-02-16: User Stats & Quota System Refactor
+
+Статистика для пользователей, упрощённая система квот, перевод duration на float в секундах.
+
+### User Stats API
+
+- **GET /me/stats** — новый эндпоинт со статистикой пользователя:
+  - `recordings_total` — общее количество записей
+  - `recordings_by_status` — разбивка по статусам (READY, PROCESSING и т.д.)
+  - `recordings_by_template` — количество полностью обработанных записей по шаблонам
+  - `transcription_total_seconds` — сумма `final_duration` всех транскрибированных записей
+  - `storage_bytes` / `storage_gb` — размер пользовательской папки на диске
+  - `period` — опциональная фильтрация по `from_date` / `to_date`
+- **StatsService** (новый) — `api/services/stats_service.py`, вычисляет статистику из БД и файловой системы
+
+### Quota Status API
+
+- **GET /me/quota** — эндпоинт текущего состояния квот:
+  - Эффективные лимиты (с учётом подписки и кастомных overrides)
+  - Текущее использование за период (`quota_usage`)
+  - Данные подписки (если есть)
+
+### Duration → float (seconds)
+
+- `RecordingModel.duration` — `Integer` → `Float` (секунды)
+- `RecordingModel.final_duration` — новое поле `Float` (секунды), заполняется после транскрипции
+- Миграция 016: изменение типов, конвертация существующих Zoom-записей из минут в секунды
+- Все схемы (`RecordingResponse`, `RecordingListItem`) обновлены на `float`
+- Celery-задачи (`_async_transcribe_recording`, `_batch_transcribe_poll_and_save`) записывают `final_duration` из последнего сегмента
+
+### Упрощённая система квот
+
+- **`DEFAULT_QUOTAS`** — константа в `config/settings.py`, все лимиты `None` (безлимит)
+- **`QuotaService.get_effective_quotas`** — при отсутствии подписки возвращает `copy.deepcopy(DEFAULT_QUOTAS)`, без обращения к БД
+- **Убрано авто-создание подписки** при регистрации — подписки только для кастомных планов
+- **Удалена миграция 018** (seed default plan) — дефолты определены в коде, не в БД
+- **Удалена таблица `quota_change_history`** (миграция 017) — избыточна
+
+### Quota Enforcement
+
+- `check_user_quotas` dependency — проверяет `recordings`, `storage`, `concurrent_tasks` перед созданием записи
+- При `None` (безлимит) — проверка пропускается, возвращает `(True, None)`
+- `QuotaStatusResponse.subscription` — теперь `Optional` (`None` если подписки нет)
+
+### Тесты
+
+- `test_quota_service.py` — обновлены тесты fallback на `DEFAULT_QUOTAS`, убраны ссылки на DB-план
+- `test_stats_service.py` — новые тесты: all-time stats, date range, empty stats, transcription rounding, helper methods
+- `test_users_get.py` — заменены тесты `/me/quota/history` (удалённый эндпоинт) на `/me/stats`
+
+### Файлы
+
+- `config/settings.py` — `DEFAULT_QUOTAS` constant
+- `api/services/stats_service.py` — NEW: StatsService
+- `api/services/quota_service.py` — refactored fallback logic
+- `api/routers/users.py` — `/me/stats`, `/me/quota` endpoints
+- `api/routers/auth.py` — removed auto-subscription on register
+- `api/schemas/auth/subscription.py` — `subscription: ... | None = None`
+- `api/schemas/user/stats.py` — NEW: UserStatsResponse
+- `database/models.py` — `duration: Float`, `final_duration: Float`
+- `alembic/versions/016_add_final_duration_to_recordings.py` — duration type migration
+- `alembic/versions/017_drop_quota_change_history.py` — drop table migration
+- `tests/unit/services/test_stats_service.py` — NEW
+- `tests/unit/services/test_quota_service.py` — updated
+- `tests/unit/api/test_users_get.py` — updated
+
+---
+
 ## v0.9.6 (2026-02-16)
 
 **Ключевые изменения релиза:**
+- **User Stats API:** эндпоинт `/me/stats` — статистика по записям, транскрипциям, хранилищу с фильтрацией по датам
+- **Quota System:** упрощённая система квот с `DEFAULT_QUOTAS` в коде, enforcement middleware
+- **Duration → float (seconds):** `duration` и `final_duration` — float в секундах (вместо целых минут)
 - **Templates & Vocabulary:** `transcription_vocabulary`, granularity (short/medium/long), `{summary}` в шаблонах
 - **Промпты транскрайбера:** централизация в `fireworks_module/prompts.py`, единый русский язык
 - **topics.json → extracted.json:** топики и summary в одном файле, master.json — только транскрипция

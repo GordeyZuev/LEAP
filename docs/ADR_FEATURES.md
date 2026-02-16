@@ -296,114 +296,125 @@ process_recording_task(recording_id, user_id)
 ## ADR-012: Quotas & Subscriptions
 
 **Статус:** ✅ Полностью реализовано
-**Дата:** Январь 2026
+**Дата:** Февраль 2026
 
 ### Решение
 
-План-based subscriptions с flexible quotas и usage tracking.
+Code-based defaults + optional plan subscriptions с usage tracking и user statistics.
 
 ### Архитектура
 
 ```
 ┌─────────────────────────────────────────┐
-│        Subscription System              │
+│        Quota & Stats System             │
 └─────────────────────────────────────────┘
 
-subscription_plans (4 plans: Free/Plus/Pro/Enterprise)
+DEFAULT_QUOTAS (config/settings.py, all None = unlimited)
     ↓
-user_subscriptions (user ← plan + custom_quotas)
+subscription_plans (optional, for custom limits)
+    ↓
+user_subscriptions (user ← plan + custom overrides)
     ↓
 quota_usage (tracking по периодам YYYYMM)
-    ↓
-quota_change_history (audit trail)
+
+StatsService → recordings, transcription seconds, storage bytes
 ```
 
-### Subscription Plans
+### Default Behavior
 
-| Plan | Recordings/mo | Storage | Tasks | Jobs | Price |
-|------|--------------|---------|-------|------|-------|
-| **Free** | 10 | 5 GB | 1 | 0 | $0 |
-| **Plus** | 50 | 25 GB | 2 | 3 | $10 |
-| **Pro** | 200 | 100 GB | 5 | 10 | $30 |
-| **Enterprise** | ∞ | ∞ | 10 | ∞ | Custom |
+По умолчанию все пользователи получают `DEFAULT_QUOTAS` из `config/settings.py`:
+```python
+DEFAULT_QUOTAS: dict[str, int | None] = {
+    "max_recordings_per_month": None,   # None = unlimited
+    "max_storage_gb": None,
+    "max_concurrent_tasks": None,
+    "max_automation_jobs": None,
+    "min_automation_interval_hours": None,
+}
+```
+
+- Подписка НЕ создаётся автоматически при регистрации
+- Подписка назначается только вручную (кастомный план)
+- При отсутствии подписки → fallback на `DEFAULT_QUOTAS`
 
 ### Quota Types
 
 **Resource Quotas:**
 ```python
 {
-  "max_recordings_per_month": 50,      # Monthly limit
+  "max_recordings_per_month": 50,      # Monthly limit (None = unlimited)
   "max_storage_gb": 25,                # Total storage
   "max_concurrent_tasks": 2,           # Parallel processing
   "max_automation_jobs": 3,            # Scheduled jobs
-  "max_input_sources": 10,             # Input sources
-  "max_output_presets": 10,            # Output presets
-  "max_templates": 20                  # Templates
+  "min_automation_interval_hours": 1   # Min automation interval
 }
 ```
 
-**Custom Quotas:**
+**Custom Overrides (per user):**
 ```python
-# Override for VIP users
+# Override via user_subscriptions.custom_max_*
 {
-  "user_id": 123,
-  "plan_id": 2,  # Plus plan
-  "custom_quotas": {
-    "max_recordings_per_month": 100,  # Override: 50 → 100
-    "max_storage_gb": 50              # Override: 25 → 50
-  }
+  "custom_max_recordings_per_month": 100,  # Override plan: 50 → 100
+  "custom_max_storage_gb": 50              # Override plan: 25 → 50
 }
 ```
 
 ### Usage Tracking
 
-**Period-based tracking:**
+**Period-based tracking (quota_usage):**
 ```python
-# quota_usage table
 {
-  "user_id": 1,
-  "period": "202601",  # YYYYMM
+  "user_id": "01HQ...",
+  "period": "202602",  # YYYYMM
   "recordings_count": 15,
-  "storage_used_gb": 3.2,
-  "tasks_run_count": 45,
-  "automation_runs_count": 12
+  "storage_bytes": 3435973837,
+  "concurrent_tasks_count": 2
 }
 ```
 
-**Quota Checks:**
+**Quota Checks (middleware):**
 ```python
-async def check_quota(user_id: int, quota_type: str):
-    """
-    1. Get user subscription + plan
-    2. Get quota limit (plan + custom overrides)
-    3. Get current usage for period
-    4. Check if under limit
-    5. Raise QuotaExceededError if over
-    """
-    pass
+# QuotaService.get_effective_quotas:
+# 1. Get user subscription (if exists)
+# 2. Get plan limits + custom overrides
+# 3. If no subscription → return DEFAULT_QUOTAS
+# 4. None = unlimited, skip check
 
-# Before operation
-await check_quota(user_id, "max_recordings_per_month")
+# Before creating recording:
+await check_recordings_quota(user_id)
+await check_storage_quota(user_id, user_slug)
 ```
 
-### Admin API
+### User Stats
 
-**Endpoints:**
+**StatsService** предоставляет статистику:
+- `recordings_total` — количество записей (фильтруется по датам)
+- `recordings_by_status` — разбивка по статусам
+- `recordings_by_template` — обработанные записи по шаблонам
+- `transcription_total_seconds` — сумма `final_duration`
+- `storage_bytes` / `storage_gb` — размер папки пользователя
+
+### Endpoints
+
 ```
+GET /users/me/quota - Current quota status
+GET /users/me/stats - User statistics (recordings, transcription, storage)
 GET /admin/stats/overview - Platform stats
 GET /admin/stats/users - User stats
 GET /admin/stats/quotas - Quota usage
 POST /admin/users/{id}/quota - Override quota
-GET /admin/users/{id}/usage - User usage history
 ```
 
 ### Реализация
 
 **Файлы:**
-- `database/subscription_models.py` - models (4 tables)
-- `api/services/quota_service.py` - quota logic
+- `config/settings.py` - `DEFAULT_QUOTAS` constant
+- `database/auth_models.py` - subscription & quota models (3 tables)
+- `api/services/quota_service.py` - quota logic (fallback → DEFAULT_QUOTAS)
+- `api/services/stats_service.py` - user statistics
+- `api/middleware/quota.py` - enforcement checks
 - `api/routers/admin.py` - admin endpoints
-- `api/middleware/quota_middleware.py` - checks
+- `api/routers/users.py` - /me/quota, /me/stats
 
 **Статус:** ✅ Реализовано
 

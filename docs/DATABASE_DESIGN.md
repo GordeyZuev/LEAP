@@ -1,6 +1,6 @@
 # Database Design - LEAP Platform
 
-**Версия БД:** 15 миграций
+**Версия БД:** 17 миграций
 **Последнее обновление:** Февраль 2026
 **Статус:** Production-Ready
 
@@ -21,14 +21,14 @@
 
 ### Статистика
 
-**15 таблиц:**
+**17 таблиц:**
 - Authentication & Users (5 таблиц)
-- Subscription & Quotas (4 таблицы)
-- Processing (4 таблицы)
+- Subscription & Quotas (3 таблицы)
+- Processing (5 таблиц)
 - Templates & Configuration (4 таблицы)
 - Automation (2 таблицы)
 
-**15 миграций** (автоматическая инициализация)
+**17 миграций** (автоматическая инициализация)
 
 **PostgreSQL версия:** 12+
 
@@ -66,8 +66,7 @@
                 │
         user_subscriptions (user ← plan)
                 │
-        ┌───────┴────────┐
-   quota_usage   quota_change_history
+           quota_usage
 
 ┌─────────────────────────────────────────────────────────┐
 │                      PROCESSING                          │
@@ -280,9 +279,12 @@ CREATE INDEX idx_base_configs_type ON base_configs(config_type, is_active);
 
 ### 💰 Subscription & Quotas
 
+**Дефолтные лимиты** определены в `config/settings.py` → `DEFAULT_QUOTAS` (все `None` = безлимит).
+Подписки и планы используются только для кастомных лимитов.
+
 #### 6. `subscription_plans`
 
-**Назначение:** Тарифные планы (Free/Plus/Pro/Enterprise)
+**Назначение:** Кастомные тарифные планы
 
 ```sql
 CREATE TABLE subscription_plans (
@@ -383,29 +385,6 @@ CREATE INDEX idx_quota_usage_user_period ON quota_usage(user_id, period DESC);
 
 ---
 
-#### 9. `quota_change_history`
-
-**Назначение:** Audit trail для изменений квот
-
-```sql
-CREATE TABLE quota_change_history (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    admin_user_id VARCHAR(26) REFERENCES users(id) ON DELETE SET NULL,
-
-    change_type VARCHAR(50) NOT NULL,  -- plan_upgrade, custom_quota_override
-    old_value JSONB,
-    new_value JSONB,
-    reason TEXT,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_quota_history_user ON quota_change_history(user_id, created_at DESC);
-```
-
----
-
 ### 🎬 Processing
 
 #### 10. `recordings`
@@ -425,7 +404,8 @@ CREATE TABLE recordings (
     -- Basic info
     display_name VARCHAR(500) NOT NULL,
     start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    duration INTEGER NOT NULL,  -- seconds
+    duration FLOAT NOT NULL,  -- seconds (float for precise billing)
+    final_duration FLOAT,     -- seconds, set after transcription (actual content duration)
 
     -- Processing status (FSM)
     status VARCHAR(50) NOT NULL DEFAULT 'INITIALIZED',
@@ -963,7 +943,7 @@ CREATE UNIQUE INDEX unique_source_per_recording
 
 ## Миграции
 
-### Список миграций (15)
+### Список миграций (17)
 
 | # | Filename | Описание |
 |---|----------|----------|
@@ -982,6 +962,8 @@ CREATE UNIQUE INDEX unique_source_per_recording
 | 013 | rename_zoom_processing_incomplete_key | Rename Zoom processing key |
 | 014 | add_stage_timings_and_pipeline_timing | Stage timings + pipeline timing columns |
 | 015 | add_uniqueness_constraints | Uniqueness constraints for templates, presets, jobs, credentials |
+| 016 | add_final_duration_to_recordings | Add final_duration (float), duration Integer→Float, convert mins→secs |
+| 017 | drop_quota_change_history | Drop quota_change_history table |
 
 ### Команды
 
@@ -1027,5 +1009,5 @@ alembic downgrade -1
 ---
 
 **Документ обновлен:** Февраль 2026
-**Версия БД:** 15 миграций
+**Версия БД:** 17 миграций
 **Статус:** ✅ Production-Ready

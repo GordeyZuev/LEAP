@@ -104,18 +104,23 @@ def _build_zoom_metadata(
 
 
 def _determine_blank_status(
-    duration: int,
+    duration: float,
     video_file_size: int,
     source_processing_incomplete: bool,
-    min_duration_minutes: int = 20,
+    min_duration_seconds: int = 1200,
     min_file_size_mb: int = 25,
 ) -> bool:
-    """Determine if recording should be marked as blank (skip if source is still processing)."""
+    """Determine if recording should be marked as blank (skip if source is still processing).
+
+    Args:
+        duration: Recording duration in seconds.
+        min_duration_seconds: Minimum duration threshold (default 1200 = 20 min).
+    """
     if source_processing_incomplete:
         return False
 
     min_file_size_bytes = min_file_size_mb * 1024 * 1024
-    return duration < min_duration_minutes or video_file_size < min_file_size_bytes
+    return duration < min_duration_seconds or video_file_size < min_file_size_bytes
 
 
 async def _sync_single_source(
@@ -229,7 +234,7 @@ async def _sync_single_source(
                     meeting_id = meeting.get("uuid", meeting.get("id", ""))
                     display_name = meeting.get("topic", "Untitled")
                     start_time_str = meeting.get("start_time", "")
-                    duration = meeting.get("duration", 0)
+                    duration = meeting.get("duration", 0) * 60  # Zoom API returns minutes, we store seconds
 
                     if not start_time_str:
                         logger.info(f"Skipped: no start_time | {format_details(meeting=meeting_id)}")

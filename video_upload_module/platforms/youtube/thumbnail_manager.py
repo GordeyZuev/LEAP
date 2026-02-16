@@ -133,7 +133,7 @@ class YouTubeThumbnailManager:
             if not thumbnail_info:
                 return False
 
-            # Выбираем размер миниатюры
+            # Select thumbnail size
             thumbnail_url = None
             if size in thumbnail_info.get("available_sizes", []):
                 thumbnail_url = thumbnail_info.get(f"{size}_thumbnail")

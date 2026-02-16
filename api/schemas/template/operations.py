@@ -35,7 +35,7 @@ class TemplatePreviewRecording(BaseModel):
     will_become_status: str
     will_become_is_mapped: bool
     start_time: str
-    duration: int | None = None
+    duration: float | None = None
     input_source_id: int | None = None
 
 

@@ -19,7 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копирование кода
 COPY . .
 
-# Создание директории storage (создаётся при первом запуске через settings, но на всякий случай)
 RUN mkdir -p storage
 
 # Копирование и настройка entrypoint

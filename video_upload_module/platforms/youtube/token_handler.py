@@ -124,7 +124,7 @@ def requires_valid_vk_token(max_retries: int = 1):
                 try:
                     result = await func(self, *args, **kwargs)
 
-                    # VK может вернуть результат с ошибкой внутри
+                    # VK may return result with error inside
                     if isinstance(result, dict) and is_vk_auth_error(result):
                         if attempt >= max_retries:
                             error_info = result.get("error", {})
@@ -153,8 +153,6 @@ def requires_valid_vk_token(max_retries: int = 1):
                     last_error = e
                     if attempt >= max_retries:
                         raise
-
-                    # Для неожиданных ошибок не пытаемся обновить токен
                     raise
 
             if last_error:

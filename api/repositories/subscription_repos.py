@@ -18,7 +18,6 @@ from api.schemas.auth import (
     UserSubscriptionUpdate,
 )
 from database.auth_models import (
-    QuotaChangeHistoryModel,
     QuotaUsageModel,
     SubscriptionPlanModel,
     UserSubscriptionModel,
@@ -151,9 +150,6 @@ class UserSubscriptionRepository:
         if not db_subscription:
             return None
 
-        # Store old values for history
-        old_plan_id = db_subscription.plan_id
-
         update_dict = subscription_data.model_dump(exclude_unset=True)
         for key, value in update_dict.items():
             setattr(db_subscription, key, value)
@@ -161,16 +157,6 @@ class UserSubscriptionRepository:
         db_subscription.updated_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(db_subscription)
-
-        # Log change to history if plan changed
-        if subscription_data.plan_id and subscription_data.plan_id != old_plan_id:
-            await self._log_plan_change(
-                user_id=user_id,
-                old_plan_id=old_plan_id,
-                new_plan_id=subscription_data.plan_id,
-                changed_by=subscription_data.modified_by,
-                notes=subscription_data.notes,
-            )
 
         return UserSubscriptionInDB.model_validate(db_subscription)
 
@@ -186,26 +172,6 @@ class UserSubscriptionRepository:
         await self.session.delete(db_subscription)
         await self.session.commit()
         return True
-
-    async def _log_plan_change(
-        self,
-        user_id: str,
-        old_plan_id: int,
-        new_plan_id: int,
-        changed_by: str | None = None,
-        notes: str | None = None,
-    ):
-        """Log plan change to history."""
-        history = QuotaChangeHistoryModel(
-            user_id=user_id,
-            changed_by=changed_by,
-            change_type="plan_change",
-            old_plan_id=old_plan_id,
-            new_plan_id=new_plan_id,
-            notes=notes,
-        )
-        self.session.add(history)
-        await self.session.commit()
 
 
 class QuotaUsageRepository:

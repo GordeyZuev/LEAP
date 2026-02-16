@@ -382,9 +382,7 @@ class TopicExtractor:
                     **self.config.to_request_params(),
                 )
                 if not hasattr(response, "choices") or not response.choices:
-                    error_msg = (
-                        f"Unexpected DeepSeek API response format: type={type(response)}, value={response}"
-                    )
+                    error_msg = f"Unexpected DeepSeek API response format: type={type(response)}, value={response}"
                     logger.error(error_msg)
                     raise ValueError(error_msg)
                 content = response.choices[0].message.content.strip()

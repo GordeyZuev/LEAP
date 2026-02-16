@@ -1,4 +1,4 @@
-'"""Модуль для транскрибации аудио через Fireworks Audio API"""'
+"""Module for transcription via Fireworks Audio API"""
 
 from .config import FireworksConfig
 from .service import FireworksTranscriptionService
