@@ -66,6 +66,13 @@ class StoragePathBuilder:
         """Extraction results: topics, summary (from DeepSeek)."""
         return self.transcription_dir(user_slug, recording_id) / "extracted.json"
 
+    def calc_user_storage_bytes(self, user_slug: int) -> int:
+        """Calculate total disk usage for a user's storage folder."""
+        user_root = self.user_root(user_slug)
+        if not user_root.exists():
+            return 0
+        return sum(f.stat().st_size for f in user_root.rglob("*") if f.is_file())
+
     def _can_access_file(self, file_path: Path) -> bool:
         """Check if file is accessible for stat operations"""
         try:

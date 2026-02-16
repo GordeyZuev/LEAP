@@ -15,7 +15,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from ulid import ULID
 
@@ -204,25 +203,6 @@ class QuotaUsageModel(Base):
             f"<QuotaUsage(id={self.id}, user_id={self.user_id}, period={self.period}, "
             f"recordings={self.recordings_count})>"
         )
-
-
-class QuotaChangeHistoryModel(Base):
-    """Quota change history for audit trail."""
-
-    __tablename__ = "quota_change_history"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    changed_by = Column(String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    change_type = Column(String(50), nullable=False, index=True)
-    old_plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True)
-    new_plan_id = Column(Integer, ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True)
-    changes = Column(JSONB, nullable=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True)
-
-    def __repr__(self):
-        return f"<QuotaChangeHistory(id={self.id}, user_id={self.user_id}, type='{self.change_type}')>"
 
 
 class RefreshTokenModel(Base):

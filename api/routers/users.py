@@ -1,5 +1,7 @@
 """User profile management endpoints"""
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +14,7 @@ from api.repositories.auth_repos import (
     UserRepository,
 )
 from api.repositories.recording_repos import RecordingRepository
-from api.schemas.auth import QuotaStatusResponse, QuotaUsageResponse, UserInDB, UserResponse, UserUpdate
+from api.schemas.auth import QuotaStatusResponse, UserInDB, UserResponse, UserUpdate
 from api.schemas.auth.response import UserMeResponse
 from api.schemas.user import (
     AccountDeleteResponse,
@@ -21,7 +23,9 @@ from api.schemas.user import (
     PasswordChangeResponse,
     UserProfileUpdate,
 )
+from api.schemas.user.stats import UserStatsResponse
 from api.services.quota_service import QuotaService
+from api.services.stats_service import StatsService
 from database.auth_models import (
     RefreshTokenModel,
     UserCredentialModel,
@@ -64,6 +68,21 @@ async def get_me(
     )
 
 
+@router.get("/me/stats", response_model=UserStatsResponse)
+async def get_my_stats(
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+    from_date: date | None = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
+    to_date: date | None = Query(None, alias="to", description="End date (YYYY-MM-DD)"),
+):
+    """Get usage statistics: recordings, transcription minutes, storage. Optional date range filter."""
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'from' must be <= 'to'")
+
+    stats_service = StatsService(session)
+    return await stats_service.get_user_stats(current_user.id, current_user.user_slug, from_date, to_date)
+
+
 @router.get("/me/quota", response_model=QuotaStatusResponse)
 async def get_my_quota(
     current_user: UserInDB = Depends(get_current_user),
@@ -73,63 +92,13 @@ async def get_my_quota(
     quota_service = QuotaService(session)
 
     try:
-        return await quota_service.get_quota_status(current_user.id)
+        return await quota_service.get_quota_status(current_user.id, current_user.user_slug)
     except ValueError as e:
         logger.error(f"Error getting quota status for user {current_user.id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         )
-
-
-@router.get("/me/quota/history", response_model=list[QuotaUsageResponse])
-async def get_my_quota_history(
-    current_user: UserInDB = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db_session),
-    limit: int = Query(12, ge=1, le=24, description="Number of periods (max 24)"),
-    period: int | None = Query(None, description="Specific period (YYYYMM), if None - last N periods"),
-):
-    """Get quota usage history (default: last 12 periods, or specific period)."""
-    from utils.date_utils import InvalidPeriodError, validate_period
-
-    quota_service = QuotaService(session)
-
-    # If specific period is specified
-    if period:
-        try:
-            period = validate_period(period)
-        except InvalidPeriodError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        usage = await quota_service.usage_repo.get_by_user_and_period(current_user.id, period)
-        if not usage:
-            # Return empty list if period not found
-            return []
-
-        return [
-            QuotaUsageResponse(
-                period=usage.period,
-                recordings_count=usage.recordings_count,
-                storage_gb=usage.storage_bytes / (1024**3),
-                concurrent_tasks_count=usage.concurrent_tasks_count,
-                overage_recordings_count=usage.overage_recordings_count,
-                overage_cost=usage.overage_cost,
-            )
-        ]
-
-    # Otherwise return history
-    usages = await quota_service.usage_repo.get_history(current_user.id, limit=limit)
-
-    return [
-        QuotaUsageResponse(
-            period=usage.period,
-            recordings_count=usage.recordings_count,
-            storage_gb=usage.storage_bytes / (1024**3),
-            concurrent_tasks_count=usage.concurrent_tasks_count,
-            overage_recordings_count=usage.overage_recordings_count,
-            overage_cost=usage.overage_cost,
-        )
-        for usage in usages
-    ]
 
 
 @router.patch("/me", response_model=UserResponse)

@@ -628,6 +628,21 @@ class Settings(BaseSettings):
 
 
 # ============================================================================
+# DEFAULT QUOTAS
+# ============================================================================
+
+# Default quota limits for all users. None = unlimited.
+# Overridden by subscription_plans (if user has a subscription) or custom_max_* per-user.
+DEFAULT_QUOTAS: dict[str, int | None] = {
+    "max_recordings_per_month": None,
+    "max_storage_gb": None,
+    "max_concurrent_tasks": None,
+    "max_automation_jobs": None,
+    "min_automation_interval_hours": None,
+}
+
+
+# ============================================================================
 # DEFAULT USER CONFIGURATION
 # ============================================================================
 

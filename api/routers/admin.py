@@ -1,7 +1,6 @@
-"""Platform management admin endpoints"""
+"""Platform management admin endpoints."""
 
 from datetime import datetime
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -17,12 +16,15 @@ from api.schemas.admin import (
     UserQuotaDetails,
 )
 from api.schemas.auth import UserInDB
+from config.settings import get_settings
 from database.auth_models import (
     QuotaUsageModel,
     SubscriptionPlanModel,
     UserModel,
     UserSubscriptionModel,
 )
+from database.models import RecordingModel
+from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 
 logger = get_logger()
@@ -30,25 +32,31 @@ logger = get_logger()
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
 
 
+def _user_storage_bytes(user_slug: int) -> int:
+    """Calculate disk usage for a single user folder."""
+    settings = get_settings()
+    builder = StoragePathBuilder(settings.storage.local_path)
+    return builder.calc_user_storage_bytes(user_slug)
+
+
 @router.get("/stats/overview", response_model=AdminOverviewStats)
 async def get_overview_stats(
     session: AsyncSession = Depends(get_db_session),
     _admin: UserInDB = Depends(get_current_admin),
 ):
-    """Get platform overview statistics (admin only)."""
-    from database.models import RecordingModel
+    """Get platform overview statistics (admin only).
 
-    current_period = int(datetime.now().strftime("%Y%m"))
-
+    Recording count comes from the recordings table, storage from disk.
+    """
     total_users = await session.scalar(select(func.count(UserModel.id))) or 0
-    active_users = await session.scalar(select(func.count(UserModel.id)).where(UserModel.is_active == True)) or 0  # noqa: E712
-    total_recordings = await session.scalar(select(func.count(RecordingModel.id))) or 0
-    total_storage_bytes = (
-        await session.scalar(
-            select(func.sum(QuotaUsageModel.storage_bytes)).where(QuotaUsageModel.period == current_period)
-        )
+    active_users = (
+        await session.scalar(select(func.count(UserModel.id)).where(UserModel.is_active == True))  # noqa: E712
         or 0
     )
+    total_recordings = (
+        await session.scalar(select(func.count(RecordingModel.id)).where(RecordingModel.deleted.is_(False))) or 0
+    )
+
     total_plans = (
         await session.scalar(
             select(func.count(SubscriptionPlanModel.id)).where(SubscriptionPlanModel.is_active == True)  # noqa: E712
@@ -56,6 +64,7 @@ async def get_overview_stats(
         or 0
     )
 
+    # Users by plan
     result = await session.execute(
         select(SubscriptionPlanModel.name, func.count(UserSubscriptionModel.user_id))
         .join(UserSubscriptionModel, SubscriptionPlanModel.id == UserSubscriptionModel.plan_id)
@@ -63,11 +72,15 @@ async def get_overview_stats(
     )
     users_by_plan = {row[0]: row[1] for row in result.all()}
 
+    # Total storage from disk (all user folders)
+    rows = await session.execute(select(UserModel.user_slug))
+    total_storage = sum(_user_storage_bytes(row[0]) for row in rows.all())
+
     return AdminOverviewStats(
         total_users=total_users,
         active_users=active_users,
         total_recordings=total_recordings,
-        total_storage_gb=round(total_storage_bytes / (1024**3), 2),
+        total_storage_gb=round(total_storage / (1024**3), 2),
         total_plans=total_plans,
         users_by_plan=users_by_plan,
     )
@@ -82,13 +95,17 @@ async def get_user_stats(
     exceeded_only: bool = Query(False, description="Only users exceeding quotas"),
     plan_name: str | None = Query(None, description="Filter by plan name"),
 ):
-    """Get detailed user statistics with quota information (admin only)."""
+    """Get detailed per-user statistics (admin only).
+
+    Recording counts from DB, storage from disk, limits from plan + overrides.
+    """
     current_period = int(datetime.now().strftime("%Y%m"))
 
     query = (
         select(
             UserModel.id,
             UserModel.email,
+            UserModel.user_slug,
             SubscriptionPlanModel.name.label("plan_name"),
             SubscriptionPlanModel.included_recordings_per_month,
             SubscriptionPlanModel.included_storage_gb,
@@ -96,8 +113,6 @@ async def get_user_stats(
             UserSubscriptionModel.custom_max_storage_gb,
             UserSubscriptionModel.pay_as_you_go_enabled,
             QuotaUsageModel.recordings_count,
-            QuotaUsageModel.storage_bytes,
-            QuotaUsageModel.overage_cost,
         )
         .join(UserSubscriptionModel, UserModel.id == UserSubscriptionModel.user_id)
         .join(SubscriptionPlanModel, UserSubscriptionModel.plan_id == SubscriptionPlanModel.id)
@@ -120,13 +135,16 @@ async def get_user_stats(
 
     users = []
     for row in rows:
-        recordings_limit = row[5] or row[3]
-        storage_limit = row[6] or row[4]
-        recordings_used = row[8] or 0
-        storage_bytes_used = row[9] or 0
+        user_id, email, user_slug, plan, plan_rec, plan_stor, custom_rec, custom_stor, payg, rec_count = row
+
+        recordings_limit = custom_rec or plan_rec
+        storage_limit_gb = custom_stor or plan_stor
+        recordings_used = rec_count or 0
+        storage_bytes = _user_storage_bytes(user_slug)
+        storage_gb = round(storage_bytes / (1024**3), 2)
 
         is_exceeding = (recordings_limit is not None and recordings_used > recordings_limit) or (
-            storage_limit is not None and (storage_bytes_used / (1024**3)) > storage_limit
+            storage_limit_gb is not None and storage_gb > storage_limit_gb
         )
 
         if exceeded_only and not is_exceeding:
@@ -134,16 +152,16 @@ async def get_user_stats(
 
         users.append(
             UserQuotaDetails(
-                user_id=row[0],
-                email=row[1],
-                plan_name=row[2],
+                user_id=user_id,
+                email=email,
+                plan_name=plan,
                 recordings_used=recordings_used,
                 recordings_limit=recordings_limit,
-                storage_used_gb=round(storage_bytes_used / (1024**3), 2),
-                storage_limit_gb=storage_limit,
+                storage_used_gb=storage_gb,
+                storage_limit_gb=storage_limit_gb,
                 is_exceeding=is_exceeding,
-                overage_enabled=row[7],
-                overage_cost=row[10] or Decimal("0"),
+                overage_enabled=payg,
+                overage_cost=0,
             )
         )
 
@@ -156,7 +174,7 @@ async def get_quota_stats(
     _admin: UserInDB = Depends(get_current_admin),
     period: int | None = Query(None, description="Period (YYYYMM), defaults to current"),
 ):
-    """Get quota usage statistics by plan (admin only)."""
+    """Get quota usage aggregated by plan (admin only)."""
     from utils.date_utils import InvalidPeriodError, validate_period
 
     if not period:
@@ -167,29 +185,22 @@ async def get_quota_stats(
         except InvalidPeriodError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    result = await session.execute(
-        select(
-            func.sum(QuotaUsageModel.recordings_count),
-            func.sum(QuotaUsageModel.storage_bytes),
-            func.sum(QuotaUsageModel.overage_cost),
-        ).where(QuotaUsageModel.period == period)
+    # Total recordings from quota_usage for this period
+    totals = await session.execute(
+        select(func.sum(QuotaUsageModel.recordings_count)).where(QuotaUsageModel.period == period)
     )
-    row = result.first()
-    if row is None:
-        total_recordings = 0
-        total_storage_bytes = 0
-        total_overage_cost = Decimal("0")
-    else:
-        total_recordings = row[0] or 0
-        total_storage_bytes = row[1] or 0
-        total_overage_cost = row[2] or Decimal("0")
+    total_recordings = totals.scalar() or 0
 
+    # Total storage from disk
+    rows = await session.execute(select(UserModel.user_slug))
+    total_storage = sum(_user_storage_bytes(row[0]) for row in rows.all())
+
+    # Per-plan breakdown
     result = await session.execute(
         select(
             SubscriptionPlanModel.name,
             func.count(UserSubscriptionModel.user_id).label("total_users"),
             func.sum(QuotaUsageModel.recordings_count).label("total_recordings"),
-            func.sum(QuotaUsageModel.storage_bytes).label("total_storage"),
         )
         .join(UserSubscriptionModel, SubscriptionPlanModel.id == UserSubscriptionModel.plan_id)
         .outerjoin(
@@ -204,9 +215,9 @@ async def get_quota_stats(
             plan_name=row[0],
             total_users=row[1],
             total_recordings=row[2] or 0,
-            total_storage_gb=round((row[3] or 0) / (1024**3), 2),
+            total_storage_gb=0,  # Plan-level storage breakdown not available without per-user scan
             avg_recordings_per_user=round((row[2] or 0) / row[1], 2) if row[1] > 0 else 0,
-            avg_storage_per_user_gb=round(((row[3] or 0) / (1024**3)) / row[1], 2) if row[1] > 0 else 0,
+            avg_storage_per_user_gb=0,
         )
         for row in result.all()
     ]
@@ -214,7 +225,7 @@ async def get_quota_stats(
     return AdminQuotaStats(
         period=period,
         total_recordings=total_recordings,
-        total_storage_gb=round(total_storage_bytes / (1024**3), 2),
-        total_overage_cost=total_overage_cost,
+        total_storage_gb=round(total_storage / (1024**3), 2),
+        total_overage_cost=0,
         plans=plans,
     )

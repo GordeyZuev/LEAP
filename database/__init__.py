@@ -1,5 +1,4 @@
 from .auth_models import (
-    QuotaChangeHistoryModel,
     QuotaUsageModel,
     RefreshTokenModel,
     SubscriptionPlanModel,
@@ -34,7 +33,6 @@ __all__ = [
     "OutputPresetModel",
     "OutputTargetModel",
     "ProcessingStageModel",
-    "QuotaChangeHistoryModel",
     "QuotaUsageModel",
     "RecordingModel",
     "RecordingTemplateModel",

@@ -179,7 +179,7 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     id: int
     display_name: str
     start_time: datetime
-    duration: int
+    duration: float
     status: ProcessingStatus
     is_mapped: bool
     template_id: int | None = None
@@ -216,7 +216,7 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     id: int
     display_name: str
     start_time: datetime
-    duration: int
+    duration: float
     status: ProcessingStatus
     is_mapped: bool
     blank_record: bool = Field(False, description="Whether recording is too short/small to process")

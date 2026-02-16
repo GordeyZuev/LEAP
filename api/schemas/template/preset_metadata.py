@@ -20,12 +20,8 @@ class TopicsDisplayConfig(BaseModel):
 
     enabled: bool = Field(True, description="Enable topics display")
     format: TopicsDisplayFormat = Field(TopicsDisplayFormat.NUMBERED_LIST, description="List format")
-    max_count: int | None = Field(
-        None, ge=1, le=999, description="Max topics count (None = default from base config)"
-    )
-    min_length: int | None = Field(
-        None, ge=0, le=500, description="Min topic length in chars (0 = no filtering)"
-    )
+    max_count: int | None = Field(None, ge=1, le=999, description="Max topics count (None = default from base config)")
+    min_length: int | None = Field(None, ge=0, le=500, description="Min topic length in chars (0 = no filtering)")
     max_length: int | None = Field(None, ge=10, le=1000, description="Max topic length in chars")
     prefix: str | None = Field(None, max_length=200, description="Prefix before topics list")
     separator: str = Field("\n", max_length=10, description="Separator between topics")

@@ -8,10 +8,12 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
+from api.auth.dependencies import check_user_quotas
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
+from api.schemas.auth import UserInDB
 from api.schemas.recording.filters import RecordingFilters as RecordingFiltersSchema
 from api.schemas.recording.operations import (
     BulkProcessDryRunResponse,
@@ -846,6 +848,7 @@ async def add_local_recording(
     file: UploadFile = File(...),
     display_name: str = Query(..., description="Recording name"),
     ctx: ServiceContext = Depends(get_service_context),
+    _quota: UserInDB = Depends(check_user_quotas),
 ) -> RecordingOperationResponse:
     """Upload and create local video recording."""
     import shutil
@@ -948,6 +951,7 @@ async def add_local_recording(
 async def add_video_by_url(
     data: AddVideoByUrlRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _quota: UserInDB = Depends(check_user_quotas),
 ) -> AddVideoByUrlResponse:
     """Add single video by URL (YouTube, VK, Rutube, etc.).
 
@@ -1033,6 +1037,7 @@ async def add_video_by_url(
 async def add_playlist_by_url(
     data: AddPlaylistByUrlRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _quota: UserInDB = Depends(check_user_quotas),
 ) -> AddPlaylistResponse:
     """Add all videos from a playlist or channel URL.
 
@@ -1153,6 +1158,7 @@ async def add_playlist_by_url(
 async def add_yandex_disk_by_url(
     data: AddYandexDiskUrlRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _quota: UserInDB = Depends(check_user_quotas),
 ) -> AddPlaylistResponse:
     """Add video file(s) from a public Yandex Disk link.
 

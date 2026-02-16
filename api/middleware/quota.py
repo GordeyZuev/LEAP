@@ -66,10 +66,10 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 )
 
 
-async def check_storage_quota(session: AsyncSession, user_id: str, required_bytes: int) -> bool:
-    """Check storage quota."""
+async def check_storage_quota(session: AsyncSession, user_id: str, user_slug: int) -> bool:
+    """Check storage quota (calculated from disk usage)."""
     quota_service = QuotaService(session)
-    allowed, _ = await quota_service.check_storage_quota(user_id, required_bytes)
+    allowed, _ = await quota_service.check_storage_quota(user_id, user_slug)
     return allowed
 
 
