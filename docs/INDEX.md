@@ -35,10 +35,12 @@
 
 **OAuth & Credentials:**
 - [OAUTH.md](OAUTH.md) - Complete OAuth guide
+- [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md) - Credential encryption, key rotation, troubleshooting
 - [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow
 
 **Processing:**
 - [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) - Fireworks Batch API
+- [BATCH_TESTING.md](BATCH_TESTING.md) - Batch processing tests & metrics
 
 **Storage:**
 - [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) - Storage architecture
@@ -51,6 +53,7 @@
 ### 🚀 Deployment & Operations
 
 **Setup & Deploy:**
+- [FRONTEND_DEVELOPMENT_PLAN.md](FRONTEND_DEVELOPMENT_PLAN.md) - План разработки фронтенда
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment guide
 - [PLAN.md](PLAN.md) - Project roadmap (thesis)
 - [ROADMAP.md](../ROADMAP.md) - Technical roadmap & TODO
@@ -66,6 +69,7 @@
 
 ### "I want to setup OAuth"
 → [OAUTH.md](OAUTH.md) - Complete guide from setup to troubleshooting
+→ [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md) - Encryption & key rotation
 
 ### "I want to deploy to production"
 → [DEPLOYMENT.md](DEPLOYMENT.md) - Infrastructure, configuration, monitoring
@@ -141,8 +145,10 @@
 | [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) | 12K | Storage architecture |
 | [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) | 12K | Celery Beat automation |
 | [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) | 14K | Quota system, user stats, admin API |
+| [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md) | 2K | Credential encryption, key rotation |
+| [BATCH_TESTING.md](BATCH_TESTING.md) | 16K | Batch processing tests & metrics |
 
-**Total:** 15 active documents (~195KB)
+**Total:** 17 active documents (~213KB)
 **Roadmap:** 1 technical roadmap (5KB)
 
 ---
@@ -203,15 +209,15 @@ ls -lh docs/*.md | sort -h -k5
 
 ## ✅ Quality Metrics
 
-- ✅ **15 active documents** (core documentation)
+- ✅ **17 active documents** (core documentation)
 - ✅ **Minimal duplication** (reduced by ~750 lines)
 - ✅ **Clear structure** (Architecture, Features, API, Deployment)
 - ✅ **Comprehensive guides** (OAuth, Templates, Technical)
 - ✅ **Up-to-date** (February 2026)
-- ✅ **Accurate metrics** (verified 5 Feb 2026)
+- ✅ **Accurate metrics** (verified 19 Feb 2026)
 
 ---
 
-**Index last updated:** 5 февраля 2026
-**Total docs:** 15 active + 1 roadmap + dev_notes folder
+**Index last updated:** 19 февраля 2026
+**Total docs:** 17 active + 1 roadmap + dev_notes folder
 **Status:** ✅ Clean & optimized (removed redundant docs)

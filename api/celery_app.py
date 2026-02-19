@@ -8,10 +8,10 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from celery import Celery  # noqa: E402
-from celery.signals import task_prerun  # noqa: E402
+from celery.signals import after_setup_logger, task_prerun, worker_process_init  # noqa: E402
 
 from config.settings import get_settings  # noqa: E402
-from logger import get_logger, short_task_id  # noqa: E402
+from logger import get_logger, setup_logger, short_task_id  # noqa: E402
 
 settings = get_settings()
 database_url = settings.database.sync_url
@@ -103,6 +103,31 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(hour=5, minute=0),  # Every day at 5:00 UTC (Level 2)
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# Loguru re-initialization after Celery daemonization
+# ---------------------------------------------------------------------------
+# When celery runs with --detach, it forks and closes all file descriptors.
+# Loguru handlers created at import time (before fork) become invalid.
+# These signals fire AFTER daemonization, so new handlers get fresh FDs.
+
+
+@after_setup_logger.connect
+def _reinit_loguru_after_celery(**_kwargs):
+    """Re-create loguru handlers after Celery daemonizes (main worker process)."""
+    setup_logger()
+
+
+@worker_process_init.connect
+def _reinit_loguru_in_child(**_kwargs):
+    """Re-create loguru handlers in each prefork child process."""
+    setup_logger()
+
+
+# ---------------------------------------------------------------------------
+# Task signals
+# ---------------------------------------------------------------------------
 
 
 @task_prerun.connect

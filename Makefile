@@ -128,6 +128,8 @@ flower:
 celery-status:
 	@echo "📊 Active workers:"
 	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app inspect active
+	@echo "\n📬 Queue assignment (async_operations = sync tasks):"
+	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app inspect active_queues 2>/dev/null || true
 	@echo "\n📋 Registered tasks:"
 	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app inspect registered
 	@echo "\n📈 Stats:"

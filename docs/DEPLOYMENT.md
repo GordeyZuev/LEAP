@@ -1641,6 +1641,7 @@ All API credentials are managed through the web interface:
 **Security:**
 - Credentials are encrypted using Fernet (AES-128 CBC)
 - Set `SECURITY_ENCRYPTION_KEY` in `.env` (generate with `Fernet.generate_key()`)
+- See [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md) for key rotation and troubleshooting InvalidToken
 - Never commit `.env` or credential files to git
 
 ### OAuth Setup

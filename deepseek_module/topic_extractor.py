@@ -323,7 +323,7 @@ class TopicExtractor:
         """
         context_line = ""
         if recording_topic:
-            context_line = f"\nКонтекст: это лекция по курсу '{recording_topic}'.\n"
+            context_line = f"\nКонтекст: это видео по курсу '{recording_topic}'.\n"
 
         if granularity == "short":
             min_spacing_minutes = max(10, min(18, total_duration / 60 * 0.12))

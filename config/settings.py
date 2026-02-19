@@ -4,8 +4,11 @@ import warnings
 from pathlib import Path
 from typing import Literal
 
+from dotenv import load_dotenv
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+load_dotenv()
 
 # ============================================================================
 # APP SETTINGS
@@ -232,7 +235,10 @@ class SecuritySettings(BaseSettings):
     bcrypt_rounds: int = Field(default=12, ge=4, le=31, description="BCrypt hashing rounds")
 
     # Encryption (Fernet)
-    encryption_key: str = Field(default="", description="Fernet encryption key (base64, 32 bytes)")
+    encryption_key: str = Field(default="", description="Fernet encryption key (base64, 32 bytes). Required.")
+    encryption_key_old: str = Field(
+        default="", description="Previous Fernet key for decrypting old data during rotation"
+    )
 
     # Rate limiting
     rate_limit_enabled: bool = Field(default=True, description="Enable rate limiting")
@@ -252,10 +258,10 @@ class SecuritySettings(BaseSettings):
             raise ValueError("JWT secret key must be at least 32 characters")
         return v
 
-    @field_validator("encryption_key")
+    @field_validator("encryption_key", "encryption_key_old")
     @classmethod
     def validate_encryption_key(cls, v: str) -> str:
-        """Validate Fernet encryption key"""
+        """Validate Fernet encryption key format"""
         if not v:
             return v
         try:
@@ -605,6 +611,13 @@ class Settings(BaseSettings):
             # JWT secret must not be default
             if self.security.jwt_secret_key == "your-secret-key-change-in-production":
                 raise ValueError("JWT secret key must be changed in production!")
+
+            # Credential encryption: dedicated key is mandatory in production
+            if not self.security.encryption_key:
+                raise ValueError(
+                    "SECURITY_ENCRYPTION_KEY must be set in production! "
+                    'Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+                )
 
             # Database password should not be empty (warning only)
             if not self.database.password:

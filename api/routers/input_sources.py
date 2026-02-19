@@ -176,7 +176,13 @@ async def _sync_single_source(
             from api.auth.encryption import get_encryption
 
             encryption = get_encryption()
-            credentials = encryption.decrypt_credentials(credential.encrypted_data)
+            try:
+                credentials = encryption.decrypt_credentials(credential.encrypted_data)
+            except ValueError as e:
+                return {
+                    "status": "error",
+                    "error": str(e),
+                }
 
     meetings = []
     saved_count = 0
@@ -792,7 +798,7 @@ async def bulk_sync_sources(
     return BulkSyncTaskResponse(
         task_id=task.id,
         status="queued",
-        message=f"Batch sync task started for {len(data.source_ids)} sources",
+        message=f"Batch sync task queued for {len(data.source_ids)} sources",
         source_ids=data.source_ids,
         source_names=source_names,
     )
@@ -918,7 +924,7 @@ async def sync_source(
     return SourceSyncTaskResponse(
         task_id=task.id,
         status="queued",
-        message=f"Sync task started for source {source_id}",
+        message=f"Sync task queued for source {source_id}",
         source_id=source_id,
         source_name=source.name,
     )

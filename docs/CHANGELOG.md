@@ -2,6 +2,18 @@
 
 ---
 
+## 2026-02-16: Credential Encryption Upgrade (v0.9.6)
+
+Обязательный `SECURITY_ENCRYPTION_KEY`, ротация ключей, lazy re-encrypt.
+
+- **`api/auth/encryption.py`** — убран JWT fallback, обязательный Fernet key, dual-key decrypt (primary + legacy)
+- **`api/services/credential_service.py`** — lazy re-encrypt: при чтении legacy-формата автоматически перешифрует текущим ключом
+- **`config/settings.py`** — `encryption_key_old` (опциональный), fail-fast в production если `SECURITY_ENCRYPTION_KEY` не задан
+- **`scripts/reencrypt_credentials.py`** — скрипт массовой миграции credentials на новый ключ
+- **`docs/CREDENTIAL_SECURITY.md`** — руководство по шифрованию и ротации ключей
+
+---
+
 ## 2026-02-16: User Stats & Quota System Refactor
 
 Статистика для пользователей, упрощённая система квот, перевод duration на float в секундах.
@@ -70,9 +82,15 @@
 
 ---
 
-## v0.9.6 (2026-02-16)
+## v0.9.6 (2026-02-17)
 
 **Ключевые изменения релиза:**
+- **Credential Encryption Upgrade:** обязательный `SECURITY_ENCRYPTION_KEY`, ротация ключей (dual-key decrypt), lazy re-encrypt, скрипт `reencrypt_credentials.py`, `docs/CREDENTIAL_SECURITY.md`
+- **Celery & Loguru:** re-init loguru после daemonization (after_setup_logger, worker_process_init), colorize=auto для celery --detach
+- **Sync tasks:** обработка ValueError при decrypt в input_sources, логирование status=error в SyncTask.on_success
+- **Topic extraction:** «лекция» → «видео» в промптах (универсальность для любых видео)
+- **docker-compose:** Celery worker — правильные очереди (downloads, uploads, async_operations, processing_cpu, maintenance)
+- **.env.example:** упрощён, добавлен SECURITY_ENCRYPTION_KEY_OLD, убраны дублирующие legacy-переменные
 - **User Stats API:** эндпоинт `/me/stats` — статистика по записям, транскрипциям, хранилищу с фильтрацией по датам
 - **Quota System:** упрощённая система квот с `DEFAULT_QUOTAS` в коде, enforcement middleware
 - **Duration → float (seconds):** `duration` и `final_duration` — float в секундах (вместо целых минут)

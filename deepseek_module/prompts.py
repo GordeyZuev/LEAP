@@ -2,17 +2,17 @@
 
 SYSTEM_PROMPT = (
     "Ты — самый лучший аналитик учебных материалов на магистратуре Computer Science. "
-    "Анализируй транскрипции и выделяй структуру лекций."
+    "Анализируй транскрипции и выделяй структуру видео."
 )
 
 # Single template with duration placeholders: duration_rule, duration_min, duration_max, duration_range, split_instruction
-TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию учебной лекции и выдели структуру:{context_line}{pauses_instruction}
+TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию учебного видео и выдели структуру:{context_line}{pauses_instruction}
 
-## САММАРИ ЛЕКЦИИ
+## САММАРИ ВИДЕО
 
-Краткое содержание в 2–5 предложений: что обсуждалось, основные идеи. Язык: {summary_language}.
+Краткое содержание в 2–4 предложения: что обсуждалось, основные идеи. Язык: {summary_language}.
 
-## ОСНОВНАЯ ТЕМА ПАРЫ
+## ОСНОВНАЯ ТЕМА ВИДЕО
 
 Выведи РОВНО ОДНУ тему (2–4 слова):{recording_topic_hint}
 

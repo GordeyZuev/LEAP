@@ -103,12 +103,13 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
         }
     )
 
-    # Console handler
+    # Console handler (colorize=None → auto-detect via isatty;
+    # True in terminal, False when stderr is redirected to file by celery --detach)
     logger.add(
         sys.stderr,
         format=_console_format,
         level=console_level,
-        colorize=True,
+        colorize=None,
         filter=http_filter,
     )
 

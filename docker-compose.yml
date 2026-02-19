@@ -57,7 +57,7 @@ services:
   celery_worker:
     build: .
     container_name: leap_celery_worker
-    command: celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=8
+    command: celery -A api.celery_app worker --loglevel=info --queues=downloads,uploads,async_operations,processing_cpu,maintenance --concurrency=8
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432

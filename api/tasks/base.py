@@ -12,7 +12,7 @@ from typing import TypeVar
 
 from celery import Task
 
-from logger import get_logger, short_task_id, short_user_id
+from logger import format_details, get_logger, short_task_id, short_user_id
 
 logger = get_logger()
 
@@ -242,6 +242,17 @@ class UploadTask(BaseTask):
 
 class SyncTask(BaseTask):
     """Base class for synchronization tasks."""
+
+    def on_success(self, retval, task_id, args, kwargs):
+        """Log sync result; warn if task returned status=error (e.g. credential decryption failed)."""
+        user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
+        with logger.contextualize(task_id=short_task_id(task_id), user_id=short_user_id(user_id)):
+            if isinstance(retval, dict) and retval.get("status") == "error":
+                logger.warning(
+                    f"Sync completed with error | {format_details(source=retval.get('source_id'), error=retval.get('error'))}"
+                )
+            else:
+                logger.success("Task completed")
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Log sync task failure."""

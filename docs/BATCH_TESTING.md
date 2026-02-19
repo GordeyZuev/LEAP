@@ -471,3 +471,90 @@ Upload ускорился по двум причинам: (1) отдельная
 2. **Download throttling** — эксперимент с ограничением параллельных загрузок (6–8 вместо 12). При 11 файлах разница небольшая, но при 24+ может дать прирост скорости на файл.
 3. **Мониторинг** — Flower/Prometheus для отслеживания queue depth в реальном времени.
 4. **Исправить `Event loop is closed` warning** в httpx/DeepSeek клиенте.
+
+---
+
+# Batch Test #3: 7 записей — выгрузка (17.02.2026)
+
+## 27. Исходная выгрузка логов
+
+Фрагмент из `logs/app.log` (строки 252–263), момент старта батча:
+
+```
+26-02-17 01:25:11 | INFO | api.routers.recordings:_execute_smart_run:1702 | Smart run: starting full pipeline | rec=603 • status=INITIALIZED
+26-02-17 01:25:11 | INFO | api.routers.recordings:_execute_smart_run:1702 | Smart run: starting full pipeline | rec=622 • status=INITIALIZED
+26-02-17 01:25:11 | INFO | api.routers.recordings:_execute_smart_run:1702 | Smart run: starting full pipeline | rec=625 • status=INITIALIZED
+26-02-17 01:25:11 | INFO | api.routers.recordings:_execute_smart_run:1702 | Smart run: starting full pipeline | rec=631 • status=INITIALIZED
+26-02-17 01:25:11 | INFO | api.routers.recordings:_execute_smart_run:1702 | Smart run: starting full pipeline | rec=639 • status=INITIALIZED
+26-02-17 01:25:11 | INFO | api.routers.recordings:_execute_smart_run:1702 | Smart run: starting full pipeline | rec=646 • status=INITIALIZED
+26-02-17 01:25:11 | INFO | api.routers.recordings:_execute_smart_run:1702 | Smart run: starting full pipeline | rec=650 • status=INITIALIZED
+26-02-17 01:25:11 | INFO | api.tasks.processing:run_recording_task:1124 | Task=bc5bba88 • Rec=622 • User=01KGSQMK | Orchestrating pipeline
+26-02-17 01:25:11 | INFO | api.tasks.processing:run_recording_task:1124 | Task=2204a636 • Rec=603 • User=01KGSQMK | Orchestrating pipeline
+26-02-17 01:25:11 | INFO | api.tasks.processing:run_recording_task:1124 | Task=83b3ec60 • Rec=639 • User=01KGSQMK | Orchestrating pipeline
+26-02-17 01:25:11 | INFO | api.tasks.processing:run_recording_task:1124 | Task=d1869026 • Rec=631 • User=01KGSQMK | Orchestrating pipeline
+26-02-17 01:25:11 | INFO | api.tasks.processing:run_recording_task:1124 | Task=dd194a97 • Rec=625 • User=01KGSQMK | Orchestrating pipeline
+26-02-17 01:25:11 | INFO | api.tasks.processing:run_recording_task:1124 | Task=28d5c44d • Rec=646 • User=01KGSQMK | Orchestrating pipeline
+26-02-17 01:25:11 | INFO | api.tasks.processing:run_recording_task:1124 | Task=2a4549e7 • Rec=650 • User=01KGSQMK | Orchestrating pipeline
+```
+
+## 28. Анализ выгрузки
+
+### 28.1 Общая сводка
+
+| Метрика | Значение |
+|---|---|
+| Записей запущено | **7** |
+| Успешно обработано | **7 (100%)** |
+| Ошибок (failed) | 0 |
+| Retry | 1 (rec 622, Fireworks "Bad Gateway" на transcribe, retry успешен) |
+| User | 01KGSQMK |
+| Wall-clock (от первого start до последнего READY) | **~6 мин** (01:25:11 → 01:31:09) |
+| Скачано данных | **~1.96 ГБ** |
+
+### 28.2 Триггер и параллелизм
+
+- Триггер: Smart run для 7 записей в статусе INITIALIZED — одновременный запуск полного пайплайна (вероятно, "Запустить выбранные" или аналогичная операция).
+- Все 7 задач `run_recording_task` стартуют в одну секунду (01:25:11).
+- Orchestration: все 7 оркестраций начинают "Orchestrating pipeline", resolve config, запускают цепочки (download → trim → transcribe → topics + subs → upload) и завершаются в ту же секунду.
+- Сразу после orchestration стартуют 7 download-задач параллельно.
+
+### 28.3 Конфигурация записей
+
+| Rec | Template | Pipeline |
+|---|---|---|
+| 603 | 33 | download, trim, transcribe, topics, subs, upload |
+| 622 | 47 | download, trim, transcribe, topics, subs, upload |
+| 625 | 47 | download, trim, transcribe, topics, subs, upload |
+| 631 | 56 | download, trim, transcribe, topics, subs, upload |
+| 639 | 23 | download, trim, transcribe, topics, subs, upload |
+| 646 | 24 | download, trim, transcribe, topics, subs, upload |
+| 650 | 40 | download, trim, transcribe, topics, subs, upload |
+
+У всех включён полный пайплайн: download, trim, transcribe, topics, subtitles, upload (VK).
+
+### 28.4 Порядок завершения и характеристики
+
+| Порядок | Rec | Размер DL | Время DL | Transcribe | Topics | Upload | READY |
+|---|---|---|---|---|---|---|---|
+| 1 | 639 | 157 MB | 83 сек | 19.4 сек | 15.2 сек | 20.1 сек | 01:27:40 |
+| 2 | 625 | 246.4 MB | 135 сек | 20.6 сек | 14.3 сек | 52.7 сек | 01:29:03 |
+| 3 | 622 | 186.9 MB | 114 сек | **53.4 сек** (retry) | 12.6 сек | 64.5 сек | 01:29:25 |
+| 4 | 603 | 261.5 MB | 147 сек | 15.9 сек | 15.8 сек | 80.4 сек | 01:29:41 |
+| 5 | 650 | 200.4 MB | 167 сек | 20.9 сек | 13.0 сек | 59.7 сек | 01:29:42 |
+| 6 | 646 | 464.6 MB | 212 сек | 38.6 сек | 13.8 сек | 65.5 сек | 01:30:55 |
+| 7 | 631 | 447.1 MB | 209 сек | 42.4 сек | 19.9 сек | 65.3 сек | 01:31:09 |
+
+### 28.5 Наблюдения
+
+1. **Retry транскрипции (rec 622):** Fireworks Bad Gateway на первой попытке, retry через 2 сек успешен. Итоговое время transcribe ~53.4 сек vs ~15–20 сек у остальных.
+2. **Крупные записи (631, 646):** ~447–465 MB, самая длинная транскрипция (rec 631: 15 594 слов, 42.4 сек). Rec 631 — самая долгая по pipeline (~6 мин).
+3. **Параллельное исполнение:** 7 оркестраций и 7 download'ов стартуют одновременно. Очереди downloads/async_operations/processing_cpu/uploads работают штатно.
+4. **Скорость download:** ~1.2–2.2 МБ/с на файл при 7 параллельных загрузках (1.96 ГБ за ~3.5 мин).
+5. **Fireworks:** 7 параллельных transcribe-запросов, 1 retry (Bad Gateway) — остальные без ошибок.
+
+### 28.6 Выводы
+
+- **7/7 записей успешно** обработаны и загружены в VK.
+- **Orchestration** отрабатывает без задержек — все 7 пайплайнов запускаются в одну секунду.
+- Retry Fireworks срабатывает корректно при Bad Gateway.
+- Архитектура с раздельными очередями (downloads, async_operations, processing_cpu, uploads) выдерживает параллельную обработку 7 записей.
