@@ -2,7 +2,7 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.6 (February 2026)
+**Version:** v0.9.6.2 (February 2026)
 **Status:** ✅ Production Ready
 
 ---
@@ -263,8 +263,8 @@ final_config = user_config ← template_config ← recording_override
 ```python
 from api.core.dependencies import get_service_context
 
-@router.post("/recordings/{id}/process")
-async def process_recording(
+@router.post("/recordings/{id}/run")
+async def run_recording(
     id: int,
     ctx: ServiceContext = Depends(get_service_context)
 ):
@@ -352,9 +352,9 @@ uploader = await UploaderFactory.create_uploader_by_preset_id(
 ```
 
 **Поддерживаемые платформы:**
-- `youtube` - YouTube Data API v3
-- `vk_video` - VK Video API
-- `yandex_disk` - Yandex Disk REST API
+- `youtube` / `YOUTUBE` — YouTube Data API v3
+- `vk` / `VK` — VK Video API
+- `yandex_disk` — Yandex Disk REST API (через `create_yadisk_uploader_from_db` в uploader_factory.py)
 
 ### 5. CredentialService
 
@@ -691,20 +691,28 @@ Orchestrator создает chain задач вместо монолитной �
 
 ```python
 # Orchestrator (~0.08s)
-process_recording_task(recording_id, user_id)
+run_recording_task(recording_id, user_id)
   ↓
 # Chain (каждый шаг на любом свободном worker)
-download_task.s()
-  | trim_task.s()
+download_task.s()      # queue: downloads
+  | trim_task.s()      # queue: processing_cpu
   | transcribe_task.s()
   | topics_task.s()
   | subtitles_task.s()
-  | launch_uploads_task.s()
+  | launch_uploads_task.s()  # queue: uploads
 ```
+
+**Queues:**
+- `downloads` — Zoom/yt-dlp/Yandex Disk downloads (threads, isolated)
+- `uploads` — YouTube/VK/Yandex Disk uploads (threads, isolated)
+- `async_operations` — transcription, topics, subtitles, orchestration (threads)
+- `processing_cpu` — FFmpeg trimming (prefork)
+- `maintenance` — periodic cleanup (prefork)
 
 **Benefits:**
 - Worker освобождается за 0.08s (не блокирован на 5+ минут)
 - Параллельная обработка разных recordings
+- Изоляция downloads/uploads — не блокируют друг друга
 - Динамическое распределение шагов между workers
 - Естественные boundaries для retry и мониторинга
 
@@ -816,17 +824,19 @@ POST /api/v1/recordings/add-playlist   # Playlist/channel by URL (yt-dlp)
 POST /api/v1/recordings/add-yadisk     # Yandex Disk public link
 
 # Full pipeline
-POST /api/v1/recordings/{id}/full-pipeline
+POST /api/v1/recordings/{id}/run
 
 # Individual stages
 POST /api/v1/recordings/{id}/download
-POST /api/v1/recordings/{id}/process
+POST /api/v1/recordings/{id}/trim
 POST /api/v1/recordings/{id}/transcribe
+POST /api/v1/recordings/{id}/topics
+POST /api/v1/recordings/{id}/subtitles
 POST /api/v1/recordings/{id}/upload/{platform}
 
 # Batch operations
-POST /api/v1/recordings/batch-process
-POST /api/v1/recordings/batch-upload
+POST /api/v1/recordings/bulk/run
+POST /api/v1/recordings/bulk/upload
 ```
 
 #### Template Management
@@ -840,9 +850,8 @@ PATCH /api/v1/templates/{id}
 DELETE /api/v1/templates/{id}
 
 # Matching
-POST /api/v1/templates/{id}/preview-match
-POST /api/v1/templates/{id}/rematch
-POST /api/v1/templates/{id}/preview-rematch
+POST /api/v1/templates/{id}/preview     # Preview match (dry run)
+POST /api/v1/templates/{id}/rematch    # Apply rematch
 ```
 
 #### OAuth Flows
@@ -854,7 +863,8 @@ GET /api/v1/oauth/youtube/callback
 
 # VK
 GET /api/v1/oauth/vk/authorize
-POST /api/v1/oauth/vk/token/submit  # Implicit Flow
+GET /api/v1/oauth/vk/authorize/implicit   # Implicit Flow URL
+POST /api/v1/oauth/vk/authorize/implicit # Submit token from redirect
 
 # Zoom
 GET /api/v1/oauth/zoom/authorize
@@ -1001,7 +1011,7 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 - Default quotas in code (`config/settings.py` → `DEFAULT_QUOTAS`, all `None` = unlimited)
 - Optional subscription plans with custom limits
 - Monthly recordings, storage, concurrent tasks, automation jobs limits
-- Enforcement middleware (`check_user_quotas`)
+- Quota check via `check_user_quotas` dependency (Depends)
 
 **User Statistics (`GET /me/stats`):**
 - Recordings count (total, by status, by template)
@@ -1323,6 +1333,6 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 
 ---
 
-**Version:** v0.9.6 (February 2026)
-**Status:** Development
+**Version:** v0.9.6.2 (February 2026)
+**Status:** ✅ Production Ready
 **License:** Business Source License 1.1

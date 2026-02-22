@@ -115,21 +115,33 @@ celery_app.conf.task_routes = {
     # CPU-bound: prefork pool (изоляция процессов)
     "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
 
+    # Network-bound downloads: isolated queue
+    "api.tasks.processing.download_recording": {"queue": "downloads"},
+
+    # Network-bound uploads: isolated queue
+    "api.tasks.upload.*": {"queue": "uploads"},
+
     # I/O-bound: threads pool (asyncio-safe)
-    "api.tasks.processing.*": {"queue": "async_operations"},
-    "api.tasks.upload.*": {"queue": "async_operations"},
+    "api.tasks.processing.transcribe_recording": {"queue": "async_operations"},
+    "api.tasks.processing.extract_topics": {"queue": "async_operations"},
+    "api.tasks.processing.generate_subtitles": {"queue": "async_operations"},
+    "api.tasks.processing.run_recording": {"queue": "async_operations"},
+    "api.tasks.processing.launch_uploads": {"queue": "async_operations"},
     "api.tasks.template.*": {"queue": "async_operations"},
     "api.tasks.sync.*": {"queue": "async_operations"},
     "automation.*": {"queue": "async_operations"},
-    "maintenance.*": {"queue": "async_operations"},
+    "maintenance.*": {"queue": "maintenance"},
 }
 ```
 
 **Workers:**
 ```bash
 # Makefile
-celery worker -Q processing_cpu --pool=prefork --concurrency=3
-celery worker -Q async_operations --pool=threads --concurrency=20
+celery worker -Q processing_cpu --pool=prefork --concurrency=4
+celery worker -Q downloads --pool=threads --concurrency=12
+celery worker -Q uploads --pool=threads --concurrency=15
+celery worker -Q async_operations --pool=threads --concurrency=25
+celery worker -Q maintenance --pool=prefork --concurrency=1
 ```
 
 ### Три ключевых компонента

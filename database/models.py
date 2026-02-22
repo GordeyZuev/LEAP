@@ -55,7 +55,7 @@ class RecordingModel(Base):
     display_name: Mapped[str] = mapped_column(String(500), nullable=False)
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     duration: Mapped[float] = mapped_column(Float, nullable=False)
-    status: Mapped[str] = mapped_column(Enum(ProcessingStatus), default=ProcessingStatus.INITIALIZED)
+    status: Mapped[ProcessingStatus] = mapped_column(Enum(ProcessingStatus), default=ProcessingStatus.INITIALIZED)
     is_mapped: Mapped[bool] = mapped_column(Boolean, default=False)
     blank_record: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 

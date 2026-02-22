@@ -43,5 +43,5 @@ async def sync_stages_with_config(
                 reason = "Subtitles disabled in config"
 
         if should_skip:
-            stage.status = ProcessingStageStatus.SKIPPED  # type: ignore[assignment]
+            stage.status = ProcessingStageStatus.SKIPPED
             stage.skip_reason = reason

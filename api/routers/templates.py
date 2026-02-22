@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
 from api.repositories.template_repos import RecordingTemplateRepository
+from api.schemas.auth import UserInDB
 from api.schemas.common.pagination import paginate_list
 from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
 from api.schemas.template import (
@@ -16,8 +17,8 @@ from api.schemas.template import (
     RecordingTemplateUpdate,
     TemplateListResponse,
 )
+from api.schemas.template.from_recording import TemplateFromRecordingRequest
 from api.schemas.template.operations import RematchTaskResponse, TemplatePreviewResponse, TemplateStatsResponse
-from database.auth_models import UserModel
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models.recording import ProcessingStatus
 
@@ -37,7 +38,7 @@ async def list_templates(
     sort_by: str = Query("created_at", description="Sort field"),
     sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Get paginated list of user's templates."""
     repo = RecordingTemplateRepository(session)
@@ -68,7 +69,7 @@ async def create_template(
     data: RecordingTemplateCreate,
     auto_rematch: bool = Query(True, description="Automatically re-match SKIPPED recordings after creating template"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Create new template with optional auto-rematch for SKIPPED recordings.
@@ -131,12 +132,9 @@ async def create_template(
 )
 async def create_template_from_recording(
     recording_id: int,
-    name: str,
-    description: str | None = None,
-    match_pattern: str | None = None,
-    match_source_id: bool = False,
+    data: TemplateFromRecordingRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Create template from existing recording.
@@ -168,11 +166,11 @@ async def create_template_from_recording(
 
     # Check for duplicate name
     template_repo = RecordingTemplateRepository(session)
-    existing = await template_repo.find_by_name(current_user.id, name)
+    existing = await template_repo.find_by_name(current_user.id, data.name)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Template with name '{name}' already exists",
+            detail=f"Template with name '{data.name}' already exists",
         )
 
     recording_repo = RecordingRepository(session)
@@ -183,15 +181,15 @@ async def create_template_from_recording(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
     # Build matching rules
-    matching_rules = {}
+    matching_rules: dict = {}
 
-    if match_pattern:
-        matching_rules["patterns"] = [match_pattern]
+    if data.match_pattern:
+        matching_rules["patterns"] = [data.match_pattern]
     else:
         # Default: exact match
         matching_rules["exact_matches"] = [recording.display_name]
 
-    if match_source_id and recording.input_source_id:
+    if data.match_source_id and recording.input_source_id:
         matching_rules["source_ids"] = [recording.input_source_id]
 
     # Extract configs if recording has manual preferences
@@ -207,8 +205,8 @@ async def create_template_from_recording(
     # Create template
     template = RecordingTemplateModel(
         user_id=current_user.id,
-        name=name,
-        description=description or f"Created from recording '{recording.display_name}'",
+        name=data.name,
+        description=data.description or f"Created from recording '{recording.display_name}'",
         matching_rules=matching_rules,
         processing_config=processing_config,
         metadata_config=metadata_config,
@@ -228,7 +226,7 @@ async def create_template_from_recording(
 async def get_template(
     template_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Get template by ID."""
     repo = RecordingTemplateRepository(session)
@@ -245,7 +243,7 @@ async def update_template(
     template_id: int,
     data: RecordingTemplateUpdate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Update template."""
     if not current_user.can_create_templates:
@@ -282,7 +280,7 @@ async def update_template(
 async def delete_template(
     template_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Delete template and automatically unmap all associated recordings."""
     if not current_user.can_create_templates:
@@ -329,7 +327,7 @@ async def delete_template(
 async def bulk_delete_templates(
     data: BulkIdsRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Bulk delete templates by IDs."""
     if not current_user.can_create_templates:
@@ -382,7 +380,7 @@ async def bulk_delete_templates(
 async def get_template_stats(
     template_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> TemplateStatsResponse:
     """Get template usage statistics (total recordings, by status, last matched)."""
     from sqlalchemy import func, select
@@ -444,7 +442,7 @@ async def preview_template_match(
     source_id: int | None = Query(None, description="Filter by source (optional)"),
     limit: int = Query(100, le=500, description="Maximum recordings to check"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> TemplatePreviewResponse:
     """
     Preview which recordings will match this template (dry-run mode).
@@ -525,7 +523,7 @@ async def rematch_template_recordings(
     template_id: int,
     only_unmapped: bool = Query(True, description="Only unmapped (SKIPPED) recordings. False = check all recordings."),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> RematchTaskResponse:
     """
     Manually trigger re-match for unmapped/SKIPPED recordings (async task).

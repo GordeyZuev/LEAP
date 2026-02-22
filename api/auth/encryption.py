@@ -20,10 +20,7 @@ class CredentialEncryption:
         settings = get_settings()
         enc_key = settings.security.encryption_key
         if not enc_key:
-            raise ValueError(
-                "SECURITY_ENCRYPTION_KEY is not set. "
-                'Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
-            )
+            raise ValueError("SECURITY_ENCRYPTION_KEY is not set.")
         self._fernet = Fernet(enc_key.encode())
 
         old_key = settings.security.encryption_key_old

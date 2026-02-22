@@ -1,3 +1,5 @@
+"""Shared enums: input/output platforms, credential types."""
+
 from enum import StrEnum
 
 

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
 from api.repositories.template_repos import OutputPresetRepository
+from api.schemas.auth import UserInDB
 from api.schemas.common.pagination import paginate_list
 from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
 from api.schemas.template import (
@@ -16,7 +17,6 @@ from api.schemas.template import (
     OutputPresetUpdate,
     PresetListResponse,
 )
-from database.auth_models import UserModel
 
 router = APIRouter(prefix="/api/v1/presets", tags=["Output Presets"])
 
@@ -32,7 +32,7 @@ async def list_presets(
     sort_by: str = Query("created_at", description="Sort field"),
     sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Get paginated list of user's output presets."""
     repo = OutputPresetRepository(session)
@@ -59,7 +59,7 @@ async def list_presets(
 async def get_preset(
     preset_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Get output preset by ID."""
     repo = OutputPresetRepository(session)
@@ -75,7 +75,7 @@ async def get_preset(
 async def create_preset(
     data: OutputPresetCreate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Create new output preset.
@@ -121,7 +121,7 @@ async def update_preset(
     preset_id: int,
     data: OutputPresetUpdate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Update output preset.
@@ -168,7 +168,7 @@ async def update_preset(
 async def bulk_delete_presets(
     data: BulkIdsRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Bulk delete output presets by IDs."""
     repo = OutputPresetRepository(session)
@@ -200,7 +200,7 @@ async def bulk_delete_presets(
 async def delete_preset(
     preset_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Delete output preset."""
     repo = OutputPresetRepository(session)

@@ -1,9 +1,11 @@
 """Unit tests for GET /users/me endpoints."""
 
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from api.schemas.auth.subscription import QuotaStatusResponse
 from api.schemas.user.stats import UserStatsResponse
 
 
@@ -54,9 +56,29 @@ class TestGetCurrentUserQuota:
 
     def test_get_quota_success(self, client, mocker, mock_user):  # noqa: ARG002
         """Test successful retrieval of quota status."""
-        # Skip this test - QuotaStatusResponse has complex nested structure
-        # that requires full mocking of subscription, usage, and overage data
-        pytest.skip("Requires complex QuotaStatusResponse structure")
+        mock_response = QuotaStatusResponse(
+            subscription=None,
+            current_usage=None,
+            recordings={"used": 5, "limit": 10, "available": 5},
+            storage={"used_gb": 2.5, "limit_gb": 5.0, "available_gb": 2.5},
+            concurrent_tasks={"used": 1, "limit": 5, "available": 4},
+            automation_jobs={"used": 0, "limit": 3, "available": 3},
+            is_overage_enabled=False,
+            overage_cost_this_month=Decimal("0"),
+            overage_limit=None,
+        )
+        mock_quota_cls = mocker.patch("api.routers.users.QuotaService")
+        mock_instance = MagicMock()
+        mock_instance.get_quota_status = AsyncMock(return_value=mock_response)
+        mock_quota_cls.return_value = mock_instance
+
+        response = client.get("/api/v1/users/me/quota")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["recordings"]["used"] == 5
+        assert data["recordings"]["limit"] == 10
+        assert data["storage"]["used_gb"] == 2.5
 
     def test_get_quota_user_not_found(self, client, mocker):
         """Test 404 when user quota not found."""
@@ -74,8 +96,29 @@ class TestGetCurrentUserQuota:
 
     def test_get_quota_with_overage(self, client, mocker, mock_user):  # noqa: ARG002
         """Test quota status with overage usage."""
-        # Skip this test - QuotaStatusResponse has complex nested structure
-        pytest.skip("Requires complex QuotaStatusResponse structure")
+        mock_response = QuotaStatusResponse(
+            subscription=None,
+            current_usage=None,
+            recordings={"used": 15, "limit": 10, "available": None},
+            storage={"used_gb": 6.0, "limit_gb": 5.0, "available_gb": None},
+            concurrent_tasks={"used": 3, "limit": 5, "available": 2},
+            automation_jobs={"used": 0, "limit": 3, "available": 3},
+            is_overage_enabled=True,
+            overage_cost_this_month=Decimal("2.50"),
+            overage_limit=Decimal("50"),
+        )
+        mock_quota_cls = mocker.patch("api.routers.users.QuotaService")
+        mock_instance = MagicMock()
+        mock_instance.get_quota_status = AsyncMock(return_value=mock_response)
+        mock_quota_cls.return_value = mock_instance
+
+        response = client.get("/api/v1/users/me/quota")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["recordings"]["available"] is None
+        assert data["is_overage_enabled"] is True
+        assert float(data["overage_cost_this_month"]) == 2.5
 
 
 @pytest.mark.unit

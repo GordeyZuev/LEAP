@@ -1,3 +1,5 @@
+"""User config schemas: trimming, transcription, output defaults."""
+
 from datetime import datetime
 from typing import Literal
 

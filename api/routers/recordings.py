@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
@@ -14,6 +14,7 @@ from api.core.dependencies import get_service_context
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.schemas.auth import UserInDB
+from api.schemas.recording.config_update import RecordingConfigUpdateRequest
 from api.schemas.recording.filters import RecordingFilters as RecordingFiltersSchema
 from api.schemas.recording.operations import (
     BulkProcessDryRunResponse,
@@ -476,8 +477,10 @@ async def list_recordings(
     search: str | None = Query(None, description="Search substring in display_name (case-insensitive)"),
     template_id: int | None = Query(None, description="Filter by template ID"),
     source_id: int | None = Query(None, description="Filter by source ID"),
-    status_filter: list[str] = Query(
-        default=[], description="Filter by statuses (repeat param for multiple: ?status=A&status=B)", alias="status"
+    status_filter: list[ProcessingStatus] = Query(
+        default=[],
+        description="Filter by statuses (repeat param: ?status=READY&status=PROCESSING)",
+        alias="status",
     ),
     failed: bool | None = Query(None, description="Only failed recordings"),
     is_mapped: bool | None = Query(None, description="Filter by is_mapped (true/false/null=all)"),
@@ -485,7 +488,7 @@ async def list_recordings(
     include_deleted: bool = Query(False, description="Include deleted recordings"),
     from_date: str | None = Query(None, description="Filter: start_time >= from_date (YYYY-MM-DD)"),
     to_date: str | None = Query(None, description="Filter: start_time <= to_date (YYYY-MM-DD)"),
-    sort_by: str = Query(
+    sort_by: Literal["created_at", "updated_at", "start_time", "display_name", "status"] = Query(
         "created_at", description="Sort field (created_at, updated_at, start_time, display_name, status)"
     ),
     sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
@@ -515,11 +518,12 @@ async def list_recordings(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     recording_repo = RecordingRepository(ctx.session)
+    statuses_str: list[str] | None = [s.value for s in status_filter] if status_filter else None
     recordings, total = await recording_repo.list_filtered(
         ctx.user_id,
         template_id=template_id,
         source_id=source_id,
-        statuses=status_filter or None,
+        statuses=statuses_str,
         failed=failed,
         is_mapped=is_mapped,
         exclude_blank=not include_blank,
@@ -623,7 +627,7 @@ async def get_recording(
     transcription_manager = get_transcription_manager()
 
     # Base information (common fields)
-    base_data = {
+    base_data: dict[str, Any] = {
         "id": recording.id,
         "display_name": recording.display_name,
         "start_time": recording.start_time,
@@ -1517,7 +1521,7 @@ async def bulk_run_recordings(
                 recording.template_id = data.template_id
                 recording.is_mapped = True
                 if recording.status == ProcessingStatus.SKIPPED:
-                    recording.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
+                    recording.status = ProcessingStatus.INITIALIZED
 
             # Smart run: determine action by current status
             result = await _execute_smart_run(
@@ -1624,7 +1628,7 @@ async def run_recording(
 
         # Update status if currently SKIPPED
         if recording.status == ProcessingStatus.SKIPPED:
-            recording.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
+            recording.status = ProcessingStatus.INITIALIZED
 
         await ctx.session.commit()
         logger.info(f"Bound template | {format_details(template=config.template_id, rec=recording_id)}")
@@ -1961,7 +1965,9 @@ async def upload_recording(
 @router.post("/{recording_id}/topics", response_model=RecordingOperationResponse)
 async def extract_topics(
     recording_id: int,
-    granularity: str = Query("long", description="Mode: 'short', 'medium', or 'long'"),
+    granularity: Literal["short", "medium", "long"] = Query(
+        "long", description="Topics granularity: short, medium, or long"
+    ),
     version_id: str | None = Query(None, description="Version ID (optional)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
@@ -2014,7 +2020,10 @@ async def extract_topics(
 @router.post("/{recording_id}/subtitles", response_model=RecordingOperationResponse)
 async def generate_subtitles(
     recording_id: int,
-    formats: list[str] = Query(["srt", "vtt"], description="Formats: 'srt', 'vtt'"),
+    formats: list[Literal["srt", "vtt"]] = Query(
+        ["srt", "vtt"],
+        description="Subtitle formats to generate: srt, vtt",
+    ),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
     """Generate subtitles from transcription (async task). Requires /transcribe first."""
@@ -2222,8 +2231,7 @@ async def get_recording_config(
 @router.put("/{recording_id}/config", response_model=ConfigUpdateResponse)
 async def update_recording_config(
     recording_id: int,
-    processing_config: dict | None = None,
-    output_config: dict | None = None,
+    data: RecordingConfigUpdateRequest,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> ConfigUpdateResponse:
     """Save user configuration overrides in recording.processing_preferences."""
@@ -2242,18 +2250,21 @@ async def update_recording_config(
     # Save only user overrides (not full config)
     new_preferences = recording.processing_preferences or {}
 
-    if processing_config is not None:
+    if data.processing_config is not None:
+        processing_config_dict = data.processing_config.model_dump(exclude_none=True)
         if "processing_config" not in new_preferences:
             new_preferences["processing_config"] = {}
+        # Flatten: schema has transcription nested, store as {transcription: {...}}
         new_preferences["processing_config"] = config_resolver._merge_configs(
-            new_preferences.get("processing_config", {}), processing_config
+            new_preferences.get("processing_config", {}), processing_config_dict
         )
 
-    if output_config is not None:
+    if data.output_config is not None:
+        output_config_dict = data.output_config.model_dump(exclude_none=True)
         if "output_config" not in new_preferences:
             new_preferences["output_config"] = {}
         new_preferences["output_config"] = config_resolver._merge_configs(
-            new_preferences.get("output_config", {}), output_config
+            new_preferences.get("output_config", {}), output_config_dict
         )
 
     # Save overrides to recording.processing_preferences

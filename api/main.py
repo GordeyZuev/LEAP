@@ -1,5 +1,8 @@
+"""FastAPI application entrypoint and router configuration."""
+
 import shutil
 import subprocess
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
@@ -48,6 +51,37 @@ from logger import get_logger
 settings = get_settings()
 logger = get_logger()
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Lifespan: startup and shutdown."""
+    logger.info("🚀 Initializing database...")
+
+    db_config = DatabaseConfig.from_env()
+    db_manager = DatabaseManager(db_config)
+    await db_manager.create_database_if_not_exists()
+    await db_manager.close()
+
+    logger.info("✅ Database created (if not existed)")
+
+    logger.info("🔄 Applying Alembic migrations...")
+    alembic_cmd = shutil.which("alembic") or "alembic"
+    result = subprocess.run(
+        [alembic_cmd, "upgrade", "head"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        logger.error(f"❌ Error applying migrations: {result.stderr}")
+        raise RuntimeError(f"Migrations failed: {result.stderr}")
+
+    logger.info("✅ Migrations applied successfully")
+
+    yield
+
+
 app = FastAPI(
     title=settings.app.name,
     version=settings.app.version,
@@ -55,43 +89,9 @@ app = FastAPI(
     docs_url=settings.server.docs_url,
     redoc_url=settings.server.redoc_url,
     openapi_url=settings.server.openapi_url,
+    lifespan=lifespan,
 )
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initializing database on application startup."""
-    try:
-        logger.info("🚀 Initializing database...")
-
-        # Create database if it doesn't exist
-        db_config = DatabaseConfig.from_env()
-        db_manager = DatabaseManager(db_config)
-        await db_manager.create_database_if_not_exists()
-        await db_manager.close()
-
-        logger.info("✅ Database created (if not existed)")
-
-        # Apply Alembic migrations
-        logger.info("🔄 Applying Alembic migrations...")
-        alembic_cmd = shutil.which("alembic") or "alembic"
-        result = subprocess.run(
-            [alembic_cmd, "upgrade", "head"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
-            logger.info("✅ Migrations applied successfully")
-        else:
-            logger.error(f"❌ Error applying migrations: {result.stderr}")
-
-    except Exception as e:
-        logger.error(f"❌ Error initializing database: {e}")
-
-
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,  # type: ignore[arg-type]
     allow_origins=settings.server.cors_origins,
@@ -99,14 +99,8 @@ app.add_middleware(
     allow_methods=settings.server.cors_allow_methods,
     allow_headers=settings.server.cors_allow_headers,
 )
-
-# Rate limiting middleware
 app.add_middleware(RateLimitMiddleware)  # type: ignore[arg-type]
-
-# Logging middleware
 app.add_middleware(LoggingMiddleware)  # type: ignore[arg-type]
-
-# Exception handlers (order matters: specific first, generic last)
 app.add_exception_handler(APIException, api_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
@@ -114,7 +108,6 @@ app.add_exception_handler(ResponseValidationError, response_validation_exception
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, global_exception_handler)
 
-# Routers
 app.include_router(health.router)
 
 app.include_router(auth.router)

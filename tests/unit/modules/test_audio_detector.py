@@ -31,39 +31,6 @@ class TestAudioDetector:
         assert detector.silence_threshold is not None
         assert detector.min_silence_duration is not None
 
-    @pytest.mark.skip(reason="AudioDetector doesn't have detect_silence_periods method")
-    @pytest.mark.asyncio
-    async def test_detect_silence_periods_success(self):
-        """Test successful silence detection."""
-        # Arrange
-        from video_processing_module.audio_detector import AudioDetector
-
-        detector = AudioDetector(silence_threshold=-40.0, min_silence_duration=1.0)
-        audio_path = "/path/to/audio.mp3"
-
-        # Mock ffmpeg silence detection output
-        mock_output = """
-        [silencedetect @ 0x123] silence_start: 10.5
-        [silencedetect @ 0x123] silence_end: 15.2 | silence_duration: 4.7
-        [silencedetect @ 0x123] silence_start: 30.0
-        [silencedetect @ 0x123] silence_end: 35.5 | silence_duration: 5.5
-        """
-
-        mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", mock_output.encode()))
-        mock_process.returncode = 0
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            # Act
-            silence_periods = await detector.detect_silence_periods(audio_path)
-
-            # Assert
-            assert len(silence_periods) == 2
-            assert silence_periods[0]["start"] == 10.5
-            assert silence_periods[0]["end"] == 15.2
-            assert silence_periods[1]["start"] == 30.0
-            assert silence_periods[1]["end"] == 35.5
-
     @pytest.mark.asyncio
     async def test_detect_audio_boundaries_no_silence(self):
         """Test when no silence is detected."""

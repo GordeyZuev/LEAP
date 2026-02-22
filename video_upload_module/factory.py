@@ -22,7 +22,7 @@ class UploaderFactory:
 
     @staticmethod
     async def create_youtube_uploader(
-        session: AsyncSession, user_id: int, credential_id: int | None = None
+        session: AsyncSession, user_id: str, credential_id: int | None = None
     ) -> YouTubeUploader:
         """Create YouTubeUploader for user."""
         config_helper = ConfigService(session, user_id)
@@ -59,7 +59,7 @@ class UploaderFactory:
         return YouTubeUploader(config)
 
     @staticmethod
-    async def create_vk_uploader(session: AsyncSession, user_id: int, credential_id: int | None = None) -> VKUploader:
+    async def create_vk_uploader(session: AsyncSession, user_id: str, credential_id: int | None = None) -> VKUploader:
         """Create VKUploader for user."""
         config_helper = ConfigService(session, user_id)
 
@@ -81,7 +81,10 @@ class UploaderFactory:
 
     @staticmethod
     async def create_uploader(
-        session: AsyncSession, user_id: int, platform: Literal["youtube", "vk"], credential_id: int | None = None
+        session: AsyncSession,
+        user_id: str,
+        platform: Literal["youtube", "vk"],
+        credential_id: int | None = None,
     ) -> YouTubeUploader | VKUploader:
         """Create uploader for any platform."""
         if platform == "youtube":
@@ -92,7 +95,7 @@ class UploaderFactory:
 
     @staticmethod
     async def create_uploader_by_preset_id(
-        session: AsyncSession, user_id: int, preset_id: int
+        session: AsyncSession, user_id: str, preset_id: int
     ) -> YouTubeUploader | VKUploader:
         """Create uploader from output preset."""
         from api.repositories.template_repos import OutputPresetRepository

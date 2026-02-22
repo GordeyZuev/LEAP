@@ -6,7 +6,7 @@ SYSTEM_PROMPT = (
 )
 
 # Single template with duration placeholders: duration_rule, duration_min, duration_max, duration_range, split_instruction
-TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию учебного видео и выдели структуру:{context_line}{pauses_instruction}
+TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию видео и выдели структуру:{context_line}{pauses_instruction}
 
 ## САММАРИ ВИДЕО
 

@@ -12,7 +12,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.9.6` (February 2026)
+**Версия:** `v0.9.6.2` (February 2026)
 **Tech:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 
 ---
@@ -364,7 +364,7 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ---
 
-## 🆕 Version v0.9.6 (February 2026)
+## 🆕 Version v0.9.6.2 (February 2026)
 
 **Status:** In Active Development • Beta
 
@@ -441,4 +441,4 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ---
 
-**Version:** `v0.9.6` (February 2026) • **Status:** In Active Development • Beta
+**Version:** `v0.9.6.2` (February 2026) • **Status:** In Active Development • Beta

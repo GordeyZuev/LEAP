@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import TypedDict
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
@@ -22,6 +22,7 @@ from api.schemas.oauth import (
 from api.services.oauth_platforms import OAuthPlatformConfig, get_platform_config
 from api.services.oauth_service import OAuthService
 from api.services.oauth_state import OAuthStateManager
+from config.settings import get_settings
 from logger import get_logger
 
 logger = get_logger()
@@ -32,6 +33,15 @@ router = APIRouter(prefix="/api/v1/oauth", tags=["OAuth"])
 def get_state_manager(redis=Depends(get_redis)) -> OAuthStateManager:
     """Dependency to get OAuth state manager."""
     return OAuthStateManager(redis)
+
+
+class _PlatformAccountConfig(TypedDict, total=False):
+    """Config for OAuth account identifier fetch."""
+
+    url: str
+    headers: dict[str, str]
+    params: dict[str, str]
+    extract: Callable[[dict], str]
 
 
 async def _fetch_api_data(
@@ -59,7 +69,7 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
     """Get unique account identifier from OAuth provider (supports multiple accounts per platform)."""
     logger.info(f"Getting account identifier for platform={platform}")
 
-    platform_configs = {
+    platform_configs: dict[str, _PlatformAccountConfig] = {
         "youtube": {
             "url": "https://www.googleapis.com/oauth2/v2/userinfo",
             "headers": {"Authorization": f"Bearer {access_token}"},
@@ -78,7 +88,7 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
     }
 
     config = platform_configs.get(platform)
-    if not config:
+    if not config or "url" not in config:
         logger.warning(f"Unknown platform {platform}, returning fallback")
         return "oauth_auto"
 
@@ -88,9 +98,8 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
         params=config.get("params"),
     )
 
-    if success and data:
-        extract_func = cast("Callable[[dict], str]", config["extract"])
-        account_id = extract_func(data)
+    if success and data and (extract := config.get("extract")):
+        account_id = extract(data)
         logger.info(f"Retrieved {platform} account identifier: {account_id}")
         return account_id
 
@@ -233,11 +242,11 @@ async def youtube_callback(
     state_manager: OAuthStateManager = Depends(get_state_manager),
 ):
     """Handle YouTube OAuth callback (exchange code for token)."""
-    base_redirect = "http://localhost:8080"
+    frontend_url = get_settings().oauth.frontend_redirect_url.rstrip("/")
 
     if error:
         logger.error(f"YouTube OAuth error: {error}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error={error}")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
 
     try:
         # Validate state to get user_id and code_verifier (if PKCE was used)
@@ -262,14 +271,14 @@ async def youtube_callback(
         await save_oauth_credentials(user_id, "youtube", token_data, config, session)
 
         logger.info(f"YouTube OAuth completed successfully: user_id={user_id}")
-        return RedirectResponse(url=f"{base_redirect}/settings/platforms?oauth_success=true&platform=youtube")
+        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=youtube")
 
     except ValueError as e:
         logger.error(f"YouTube OAuth callback error: {e}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
     except Exception as e:
         logger.error(f"YouTube OAuth callback failed: {e}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error=token_exchange_failed")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")
 
 
 @router.get("/vk/authorize", response_model=OAuthAuthorizeResponse)
@@ -474,11 +483,11 @@ async def vk_callback(
     state_manager: OAuthStateManager = Depends(get_state_manager),
 ):
     """Handle VK OAuth callback with VK ID support."""
-    base_redirect = "http://localhost:8080"
+    frontend_url = get_settings().oauth.frontend_redirect_url.rstrip("/")
 
     if error:
         logger.error(f"VK OAuth error: {error}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error={error}")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
 
     try:
         # Validate state to get user_id and code_verifier (for PKCE)
@@ -503,14 +512,14 @@ async def vk_callback(
         await save_oauth_credentials(user_id, "vk_video", token_data, config, session)
 
         logger.info(f"VK OAuth completed successfully: user_id={user_id}")
-        return RedirectResponse(url=f"{base_redirect}/settings/platforms?oauth_success=true&platform=vk")
+        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=vk")
 
     except ValueError as e:
         logger.error(f"VK OAuth callback error: {e}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
     except Exception as e:
         logger.error(f"VK OAuth callback failed: {e}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error=token_exchange_failed")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")
 
 
 @router.get("/zoom/authorize", response_model=OAuthAuthorizeResponse)
@@ -547,11 +556,11 @@ async def zoom_callback(
     state_manager: OAuthStateManager = Depends(get_state_manager),
 ):
     """Handle Zoom OAuth callback (exchange code for token)."""
-    base_redirect = "http://localhost:8080"
+    frontend_url = get_settings().oauth.frontend_redirect_url.rstrip("/")
 
     if error:
         logger.error(f"Zoom OAuth error: {error}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error={error}")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
 
     try:
         # Validate state to get user_id
@@ -575,11 +584,11 @@ async def zoom_callback(
         await save_oauth_credentials(user_id, "zoom", token_data, config, session)
 
         logger.info(f"Zoom OAuth completed successfully: user_id={user_id}")
-        return RedirectResponse(url=f"{base_redirect}/settings/platforms?oauth_success=true&platform=zoom")
+        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=zoom")
 
     except ValueError as e:
         logger.error(f"Zoom OAuth callback error: {e}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
     except Exception as e:
         logger.error(f"Zoom OAuth callback failed: {e}")
-        return RedirectResponse(url=f"{base_redirect}/?oauth_error=token_exchange_failed")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")

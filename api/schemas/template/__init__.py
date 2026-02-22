@@ -1,6 +1,7 @@
 """Template, config, source and preset schemas (fully typed)"""
 
 from .config import BaseConfigCreate, BaseConfigResponse, BaseConfigUpdate
+from .from_recording import TemplateFromRecordingRequest
 from .input_source import (
     BatchSyncResponse,
     BulkSyncRequest,
@@ -79,6 +80,7 @@ __all__ = [
     "SourceSyncTaskResponse",
     "SyncSourceResponse",
     "SyncTaskResponse",
+    "TemplateFromRecordingRequest",
     "TemplateListResponse",
     "TemplateMetadataConfig",
     "TemplateOutputConfig",

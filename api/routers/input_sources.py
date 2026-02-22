@@ -13,6 +13,7 @@ from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
+from api.schemas.auth import UserInDB
 from api.schemas.common.pagination import paginate_list
 from api.schemas.template import (
     BulkSyncRequest,
@@ -23,7 +24,6 @@ from api.schemas.template import (
 )
 from api.schemas.template.sync import BulkSyncTaskResponse, SourceSyncTaskResponse
 from api.zoom_api import ZoomAPI, ZoomRecordingProcessingError
-from database.auth_models import UserModel
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models.recording import SourceType
 from models.zoom_auth import create_zoom_credentials
@@ -267,7 +267,7 @@ async def _sync_single_source(
                         credentials,
                     )
 
-                    video_file_size = video_file.get("file_size") if video_file else 0
+                    video_file_size = int(video_file.get("file_size", 0) or 0) if video_file else 0
                     matched_template = _find_matching_template(display_name, source_id, templates)
                     is_blank = _determine_blank_status(duration, video_file_size, zoom_processing_incomplete)
 
@@ -664,7 +664,7 @@ async def list_sources(
     sort_by: str = Query("created_at", description="Sort field"),
     sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Get paginated list of user's input sources."""
     repo = InputSourceRepository(session)
@@ -699,7 +699,7 @@ async def list_sources(
 async def create_source(
     data: InputSourceCreate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Create new input source.
@@ -753,7 +753,7 @@ async def create_source(
 async def bulk_sync_sources(
     data: BulkSyncRequest,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Bulk sync multiple sources (async via Celery).
@@ -808,7 +808,7 @@ async def bulk_sync_sources(
 async def get_source(
     source_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Get input source by ID."""
     repo = InputSourceRepository(session)
@@ -825,7 +825,7 @@ async def update_source(
     source_id: int,
     data: InputSourceUpdate,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Update input source.
@@ -863,7 +863,7 @@ async def update_source(
 async def delete_source(
     source_id: int,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """Delete input source."""
     repo = InputSourceRepository(session)
@@ -882,7 +882,7 @@ async def sync_source(
     from_date: str = "2025-01-01",
     to_date: str | None = None,
     session: AsyncSession = Depends(get_db_session),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """
     Sync recordings from one source (async via Celery).

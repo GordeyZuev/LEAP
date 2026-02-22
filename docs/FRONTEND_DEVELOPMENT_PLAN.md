@@ -2,7 +2,7 @@
 
 **Цель:** Запустить разработку веб-интерфейса и обеспечить возможность тестирования на production.
 
-**Версия:** v1.0  
+**Версия:** v1.0
 **Дата:** February 2026
 
 ---
@@ -89,7 +89,7 @@ frontend/                 # или web/, client/
 | `/api/v1/recordings` | GET | Список записей |
 | `/api/v1/recordings/add-url` | POST | Добавить видео по ссылке |
 | `/api/v1/recordings/{id}` | GET | Детали записи |
-| `/api/v1/recordings/{id}/full-pipeline` | POST | Запуск пайплайна |
+| `/api/v1/recordings/{id}/run` | POST | Запуск пайплайна |
 
 ### 1.4 Результат фазы
 
@@ -118,7 +118,7 @@ frontend/                 # или web/, client/
 | 1 | Список templates | 2 ч | `GET /api/v1/templates` |
 | 2 | Создание / редактирование template | 4 ч | `POST`, `PATCH /api/v1/templates` |
 | 3 | Output presets в template | 2 ч | `GET /api/v1/output-presets` |
-| 4 | Preview match | 2 ч | `POST /api/v1/templates/{id}/preview-match` |
+| 4 | Preview match | 2 ч | `POST /api/v1/templates/{id}/preview` |
 
 ### 2.3 Recordings (расширение)
 

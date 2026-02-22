@@ -1,5 +1,6 @@
 """Recording-related schemas."""
 
+from .config_update import RecordingConfigUpdateRequest
 from .filters import RecordingFilters
 from .operations import (
     ConfigSaveResponse,
@@ -43,13 +44,11 @@ from .response import (
 )
 
 __all__ = [
-    # Add-by-URL schemas
     "AddPlaylistByUrlRequest",
     "AddPlaylistResponse",
     "AddVideoByUrlRequest",
     "AddVideoByUrlResponse",
     "AddYandexDiskUrlRequest",
-    # Request schemas
     "BulkDeleteRequest",
     "BulkDownloadRequest",
     "BulkRunRequest",
@@ -62,16 +61,14 @@ __all__ = [
     "ConfigSaveResponse",
     "ConfigUpdateResponse",
     "DeleteRecordingResponse",
-    # Response schemas
     "DetailedRecordingResponse",
-    # Operations schemas
     "DryRunResponse",
     "MappingStatusResponse",
     "PauseRecordingResponse",
     "RecordingBulkDeleteResponse",
     "RecordingBulkOperationResponse",
     "RecordingConfigResponse",
-    # Filters
+    "RecordingConfigUpdateRequest",
     "RecordingFilters",
     "RecordingListItem",
     "RecordingListResponse",

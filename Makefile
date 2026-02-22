@@ -1,3 +1,9 @@
+# Цель по умолчанию при запуске make без аргументов
+.DEFAULT_GOAL := help
+
+# Docker: предпочитаем Compose v2 (docker compose), fallback на docker-compose
+DOCKER_COMPOSE := $(strip $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose"))
+
 .PHONY: clean-pycache
 
 clean-pycache:
@@ -92,6 +98,7 @@ celery-start:
 	@brew services start redis
 	@sleep 2
 	@echo "🚀 Starting all Celery workers in background..."
+	@mkdir -p logs
 	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker -Q downloads --pool=threads --concurrency=12 -n downloads@%h --loglevel=info --logfile=logs/celery-downloads.log --detach --pidfile=logs/celery-downloads.pid
 	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker -Q uploads --pool=threads --concurrency=15 -n uploads@%h --loglevel=info --logfile=logs/celery-uploads.log --detach --pidfile=logs/celery-uploads.pid
 	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app worker -Q async_operations --pool=threads --concurrency=25 -n async@%h --loglevel=info --logfile=logs/celery-async.log --detach --pidfile=logs/celery-async.pid
@@ -119,9 +126,14 @@ celery-stop:
 # ==================== Monitoring ====================
 
 # Flower: Web UI for monitoring Celery
-.PHONY: flower
+.PHONY: flower flower-stop
 flower:
 	PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app flower --port=5555
+
+flower-stop:
+	@echo "🛑 Stopping Flower..."
+	@-pkill -f "celery.*flower" 2>/dev/null || true
+	@echo "✅ Flower stopped"
 
 # Celery: Проверить активные tasks
 .PHONY: celery-status
@@ -142,15 +154,15 @@ celery-purge:
 	@PYTHONPATH=$$PWD:$$PYTHONPATH uv run celery -A api.celery_app purge -f
 	@echo "✅ Очереди очищены!"
 
-# Docker: Запуск PostgreSQL и Redis
+# Docker: Запуск PostgreSQL и Redis (Compose v2)
 .PHONY: docker-up
 docker-up:
-	docker-compose up -d postgres redis
+	$(DOCKER_COMPOSE) up -d postgres redis
 
 # Docker: Остановка всех сервисов
 .PHONY: docker-down
 docker-down:
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 # Database: Инициализация (создание БД + миграции)
 .PHONY: init-db
@@ -164,7 +176,7 @@ async def init(): \
     db = DatabaseManager(DatabaseConfig.from_env()); \
     await db.create_database_if_not_exists(); \
     await db.close(); \
-asyncio.run(init())" 2>/dev/null || true
+asyncio.run(init())"
 	@echo "✅ База данных создана"
 	@echo "🔄 Применение миграций..."
 	@uv run alembic upgrade head
@@ -183,8 +195,7 @@ migrate-down:
 # Database: Создать новую миграцию
 .PHONY: migration
 migration:
-	@read -p "Enter migration name: " name; \
-	uv run alembic revision --autogenerate -m "$$name"
+	@printf "Enter migration name: " >&2; read -r name && uv run alembic revision --autogenerate -m "$$name"
 
 # Database: Проверить текущую версию БД
 .PHONY: db-version
@@ -254,6 +265,7 @@ help:
 	@echo "  make celery-maintenance - Maintenance воркер (cleanup, prefork, 1)"
 	@echo "  make celery-beat        - Beat scheduler (periodic tasks)"
 	@echo "  make flower             - Flower UI (мониторинг Celery)"
+	@echo "  make flower-stop       - Остановить Flower"
 	@echo ""
 	@echo "🐳 Docker:"
 	@echo "  make docker-up      - Запуск PostgreSQL + Redis"
@@ -327,7 +339,7 @@ typecheck-verbose:
 .PHONY: pre-commit-install
 pre-commit-install:
 	@echo "🪝 Installing pre-commit hooks..."
-	@uv add --dev pre-commit
+	@uv add --group dev pre-commit
 	@uv run pre-commit install
 	@echo "✅ Pre-commit hooks installed"
 
@@ -344,7 +356,7 @@ quality: lint typecheck tests-quality
 
 .PHONY: clean-logs
 clean-logs:
-	@rm -rf logs/*
+	@rm -rf logs
 
 .PHONY: clean
 clean: clean-pycache clean-logs

@@ -1,3 +1,5 @@
+"""Zoom API client for recordings, meetings, and OAuth operations."""
+
 import json
 from typing import Any
 from urllib.parse import quote

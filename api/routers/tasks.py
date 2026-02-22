@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.auth.dependencies import get_current_user
+from api.schemas.auth import UserInDB
 from api.schemas.task import TaskCancelResponse, TaskStatusResponse
 from api.services.task_access_service import TaskAccessService
-from database.auth_models import UserModel
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["Tasks"])
 
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/v1/tasks", tags=["Tasks"])
 @router.get("/{task_id}", response_model=TaskStatusResponse)
 async def get_task_status(
     task_id: str,
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> TaskStatusResponse:
     """
     Get task status by ID.
@@ -110,7 +110,7 @@ async def get_task_status(
 @router.delete("/{task_id}", response_model=TaskCancelResponse)
 async def cancel_task(
     task_id: str,
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> TaskCancelResponse:
     """
     Cancel task.

@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ulid import ULID
 
 from database.models import Base
@@ -27,34 +27,39 @@ class UserModel(Base):
     __tablename__ = "users"
 
     # --- PK & identity ---
-    id = Column(String(26), primary_key=True, default=lambda: str(ULID()))
-    user_slug = Column(Integer, Sequence("user_slug_seq"), unique=True, nullable=False, index=True)
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=lambda: str(ULID()))
+    user_slug: Mapped[int] = mapped_column(Integer, Sequence("user_slug_seq"), unique=True, nullable=False, index=True)
 
     # --- Core info ---
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
-    full_name = Column(String(255), nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    is_verified = Column(Boolean, default=False, nullable=False)
-    role = Column(String(50), default="user", nullable=False)
-    timezone = Column(String(50), default="UTC", nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="user", nullable=False)
+    timezone: Mapped[str] = mapped_column(String(50), default="UTC", nullable=False)
 
     # --- Permissions ---
-    can_transcribe = Column(Boolean, default=True, nullable=False)
-    can_process_video = Column(Boolean, default=True, nullable=False)
-    can_upload = Column(Boolean, default=True, nullable=False)
-    can_create_templates = Column(Boolean, default=True, nullable=False)
-    can_delete_recordings = Column(Boolean, default=True, nullable=False)
-    can_update_uploaded_videos = Column(Boolean, default=True, nullable=False)
-    can_manage_credentials = Column(Boolean, default=True, nullable=False)
-    can_export_data = Column(Boolean, default=True, nullable=False)
+    can_transcribe: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_process_video: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_upload: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_create_templates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_delete_recordings: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_update_uploaded_videos: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_manage_credentials: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_export_data: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # --- Timestamps ---
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
-    updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
-    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     credentials = relationship("UserCredentialModel", back_populates="user", cascade="all, delete-orphan")
     recordings = relationship("RecordingModel", back_populates="owner", cascade="all, delete-orphan")
     subscription = relationship(

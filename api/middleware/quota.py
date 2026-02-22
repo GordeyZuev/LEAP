@@ -10,11 +10,9 @@ from api.services.quota_service import QuotaService
 class QuotaMiddleware(BaseHTTPMiddleware):
     """Middleware for checking quotas before executing operations."""
 
-    # Endpoints requiring quota checks
+    # Endpoints requiring quota checks (Note: not mounted in main.py — quota via check_user_quotas Depends)
     QUOTA_ENDPOINTS = {
-        "/api/v1/recordings/sync": "recordings",
-        "/api/v1/recordings/batch-process": "tasks",
-        "/api/v1/recordings/{id}/process": "tasks",
+        "/api/v1/recordings/bulk/run": "tasks",
     }
 
     async def dispatch(self, request: Request, call_next):

@@ -1,6 +1,6 @@
 # Templates, Presets & Sources - Complete Guide
 
-**Version:** 0.9.6
+**Version:** 0.9.6.2
 **Last Updated:** February 2026
 
 Complete reference for configuring Recording Templates, Output Presets, and Input Sources in LEAP Platform.

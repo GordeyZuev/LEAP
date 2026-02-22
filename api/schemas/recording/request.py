@@ -195,7 +195,9 @@ class ProcessRecordingRequest(BaseModel):
     """Request for processing recording."""
 
     transcription_model: str = Field("fireworks", description="Transcription model")
-    granularity: str = Field("long", description="Topic extraction: short, medium, or long")
+    granularity: Literal["short", "medium", "long"] = Field(
+        "long", description="Topic extraction: short, medium, or long"
+    )
     topic_model: str = Field("deepseek", description="Topic extraction model")
     platforms: list[str] = Field(default_factory=list, description="Upload platforms")
     no_transcription: bool = Field(False, description="Skip transcription")
@@ -269,7 +271,10 @@ class GenerateSubtitlesRequest(BaseModel):
     """Request for subtitle generation."""
 
     recording_ids: list[int] = Field(..., description="Recording IDs", min_length=1)
-    formats: list[str] = Field(default=["srt", "vtt"], description="Subtitle formats")
+    formats: list[Literal["srt", "vtt"]] = Field(
+        default=["srt", "vtt"],
+        description="Subtitle formats: srt, vtt",
+    )
 
     model_config = ConfigDict(json_schema_extra={"example": {"recording_ids": [1, 2, 3], "formats": ["srt", "vtt"]}})
 
@@ -434,7 +439,9 @@ class BulkTranscribeRequest(BulkOperationRequest):
 class BulkTopicsRequest(BulkOperationRequest):
     """Bulk topic extraction from transcriptions."""
 
-    granularity: str = Field("long", description="Extraction mode: short (large), medium, or long (detailed)")
+    granularity: Literal["short", "medium", "long"] = Field(
+        "long", description="Extraction mode: short (large), medium, or long (detailed)"
+    )
     version_id: str | None = Field(None, description="Version ID (if not specified, generated automatically)")
 
     model_config = ConfigDict(
@@ -455,7 +462,10 @@ class BulkTopicsRequest(BulkOperationRequest):
 class BulkSubtitlesRequest(BulkOperationRequest):
     """Bulk subtitle generation."""
 
-    formats: list[str] = Field(default=["srt", "vtt"], description="Subtitle formats to generate")
+    formats: list[Literal["srt", "vtt"]] = Field(
+        default=["srt", "vtt"],
+        description="Subtitle formats to generate: srt, vtt",
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

@@ -244,22 +244,22 @@ class RecordingRepository:
         All filters are applied at the SQL level for correct results regardless
         of total record count.
         """
-        filter_kwargs = {
-            "template_id": template_id,
-            "source_id": source_id,
-            "statuses": statuses,
-            "failed": failed,
-            "is_mapped": is_mapped,
-            "exclude_blank": exclude_blank,
-            "include_deleted": include_deleted,
-            "from_dt": from_dt,
-            "to_dt": to_dt,
-            "search": search,
-        }
-
         # Total count
         count_query = select(func.count(RecordingModel.id))
-        count_query = self._apply_filters(count_query, user_id, **filter_kwargs)
+        count_query = self._apply_filters(
+            count_query,
+            user_id,
+            template_id=template_id,
+            source_id=source_id,
+            statuses=statuses,
+            failed=failed,
+            is_mapped=is_mapped,
+            exclude_blank=exclude_blank,
+            include_deleted=include_deleted,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            search=search,
+        )
         total = (await self.session.execute(count_query)).scalar() or 0
 
         # Data query with eager loading
@@ -270,7 +270,20 @@ class RecordingRepository:
             selectinload(RecordingModel.input_source),
             selectinload(RecordingModel.template),
         )
-        data_query = self._apply_filters(data_query, user_id, **filter_kwargs)
+        data_query = self._apply_filters(
+            data_query,
+            user_id,
+            template_id=template_id,
+            source_id=source_id,
+            statuses=statuses,
+            failed=failed,
+            is_mapped=is_mapped,
+            exclude_blank=exclude_blank,
+            include_deleted=include_deleted,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            search=search,
+        )
 
         # Sorting
         allowed_sort_fields = {"created_at", "updated_at", "start_time", "display_name", "status"}
@@ -491,7 +504,7 @@ class RecordingRepository:
         """
         from api.helpers.status_manager import update_aggregate_status
 
-        output_target.status = TargetStatus.UPLOADING  # type: ignore[assignment]
+        output_target.status = TargetStatus.UPLOADING
         output_target.failed = False
         output_target.updated_at = datetime.now(UTC)
         await self.session.flush()
@@ -519,7 +532,7 @@ class RecordingRepository:
         """
         from api.helpers.status_manager import update_aggregate_status
 
-        output_target.status = TargetStatus.FAILED  # type: ignore[assignment]
+        output_target.status = TargetStatus.FAILED
         output_target.failed = True
         output_target.failed_at = datetime.now(UTC)
         output_target.failed_reason = error_message[:1000]  # Length limit
@@ -573,7 +586,7 @@ class RecordingRepository:
 
         if existing_output:
             # Update existing
-            existing_output.status = TargetStatus.UPLOADED  # type: ignore[assignment]
+            existing_output.status = TargetStatus.UPLOADED
             existing_output.preset_id = preset_id
             existing_output.target_meta = {
                 **(existing_output.target_meta or {}),
@@ -706,18 +719,18 @@ class RecordingRepository:
                         ProcessingStatus.SKIPPED,
                     ]:
                         if old_is_mapped != existing.is_mapped:
-                            existing.status = (  # type: ignore[assignment]
+                            existing.status = (
                                 ProcessingStatus.INITIALIZED if existing.is_mapped else ProcessingStatus.SKIPPED
                             )
 
                 if existing.status == ProcessingStatus.PENDING_SOURCE and not source_processing_incomplete:
                     is_blank = kwargs.get("blank_record", False)
                     if is_blank:
-                        existing.status = ProcessingStatus.SKIPPED  # type: ignore[assignment]
+                        existing.status = ProcessingStatus.SKIPPED
                     elif existing.is_mapped:
-                        existing.status = ProcessingStatus.INITIALIZED  # type: ignore[assignment]
+                        existing.status = ProcessingStatus.INITIALIZED
                     else:
-                        existing.status = ProcessingStatus.SKIPPED  # type: ignore[assignment]
+                        existing.status = ProcessingStatus.SKIPPED
                     logger.info(
                         f"{format_status_change('Recording', 'PENDING_SOURCE', existing.status)} | {format_details(rec=existing.id)}"
                     )

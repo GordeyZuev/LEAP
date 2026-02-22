@@ -3,7 +3,7 @@
 Provides reusable config resolution logic for template-driven pipeline.
 """
 
-from typing import Any, cast
+from typing import Any, Literal, cast, overload
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,28 @@ from database.models import RecordingModel
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@overload
+async def resolve_full_config(
+    session: AsyncSession,
+    recording_id: int,
+    user_id: str,
+    manual_override: dict[str, Any] | None = None,
+    *,
+    include_output_config: Literal[True],
+) -> tuple[dict[str, Any], dict[str, Any], RecordingModel]: ...
+
+
+@overload
+async def resolve_full_config(
+    session: AsyncSession,
+    recording_id: int,
+    user_id: str,
+    manual_override: dict[str, Any] | None = None,
+    *,
+    include_output_config: Literal[False] = False,
+) -> tuple[dict[str, Any], RecordingModel]: ...
 
 
 async def resolve_full_config(

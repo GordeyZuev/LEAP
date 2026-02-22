@@ -1,7 +1,7 @@
 """Unit tests for VideoProcessor module."""
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -220,8 +220,11 @@ class TestExtractAudio:
         processor = VideoProcessor(config)
 
         mock_process = AsyncMock()
-        mock_process.communicate = AsyncMock(return_value=(b"", b"FFmpeg error: No audio stream"))
+        mock_process.wait = AsyncMock(return_value=None)
         mock_process.returncode = 1
+        # extract_audio_full uses process.stderr.read() when returncode != 0
+        mock_process.stderr = MagicMock()
+        mock_process.stderr.read = AsyncMock(return_value=b"FFmpeg error: No audio stream")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             # Act

@@ -2,6 +2,47 @@
 
 ---
 
+## 2026-02-22: API Audit — Typed Schemas, OAuth Redirect, Best Practices
+
+Типизация параметров по INSTRUCTIONS.md, OAuth redirect из настроек, REST best practices.
+
+### P0: OAuth Frontend Redirect
+
+- **`config/settings.py`** — `OAUTH_FRONTEND_REDIRECT_URL` (default: http://localhost:8080)
+- **`api/routers/oauth.py`** — все callback redirects используют `get_settings().oauth.frontend_redirect_url`
+- **`.env.example`** — добавлена переменная OAUTH_FRONTEND_REDIRECT_URL
+
+### P1: Typed Schemas
+
+- **`api/schemas/recording/config_update.py`** — NEW: RecordingConfigUpdateRequest, ProcessingConfigUpdate, OutputConfigUpdate (typed config override)
+- **`PUT /recordings/{id}/config`** — принимает RecordingConfigUpdateRequest вместо dict
+- **`api/schemas/template/from_recording.py`** — NEW: TemplateFromRecordingRequest
+- **`POST /templates/from-recording/{id}`** — body schema вместо Query params
+- **granularity** — Literal["short", "medium", "long"] в topics/subtitles endpoints и BulkTopicsRequest
+- **formats** — list[Literal["srt", "vtt"]] в subtitles endpoints и BulkSubtitlesRequest, GenerateSubtitlesRequest
+
+### P2: Sort and Status Filter
+
+- **GET /recordings** — sort_by: Literal["created_at", "updated_at", "start_time", "display_name", "status"]
+- **GET /recordings** — status_filter: list[ProcessingStatus] (валидация enum)
+
+### Tests
+
+- **`tests/unit/api/test_api_audit_endpoints.py`** — NEW: 11 тестов для OAuth redirect, PUT config, from-recording body, granularity/formats validation, sort_by/status_filter
+
+### Files
+
+- `config/settings.py` — frontend_redirect_url
+- `api/routers/oauth.py` — get_settings().oauth.frontend_redirect_url
+- `api/routers/recordings.py` — RecordingConfigUpdateRequest, Literal params
+- `api/routers/templates.py` — TemplateFromRecordingRequest body
+- `api/schemas/recording/config_update.py` — NEW
+- `api/schemas/recording/request.py` — granularity, formats Literal
+- `api/schemas/template/from_recording.py` — NEW
+- `docs/API_AUDIT.md` — аудит отчёт
+
+---
+
 ## 2026-02-16: Credential Encryption Upgrade (v0.9.6)
 
 Обязательный `SECURITY_ENCRYPTION_KEY`, ротация ключей, lazy re-encrypt.

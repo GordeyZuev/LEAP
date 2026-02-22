@@ -11,7 +11,7 @@ so template updates automatically apply to all recordings using that template
 """
 
 import copy
-from typing import Any, cast
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +61,7 @@ class ConfigResolver:
             template = await self.template_repo.find_by_id(recording.template_id, user_id)
             if template and template.processing_config:
                 logger.debug(f"Merging template '{template.name}' config for recording {recording.id}")
-                processing_config = self._merge_configs(processing_config, cast("dict", template.processing_config))
+                processing_config = self._merge_configs(processing_config, template.processing_config)
             else:
                 logger.warning(
                     f"Recording {recording.id} has template_id={recording.template_id} "
@@ -156,7 +156,7 @@ class ConfigResolver:
         if recording.template_id:
             template = await self.template_repo.find_by_id(recording.template_id, user_id)
             if template and template.output_config:
-                output_config = self._merge_configs(output_config, cast("dict", template.output_config))
+                output_config = self._merge_configs(output_config, template.output_config)
 
         return output_config
 
@@ -188,7 +188,7 @@ class ConfigResolver:
         if recording.template_id:
             template = await self.template_repo.find_by_id(recording.template_id, user_id)
             if template and template.metadata_config:
-                metadata_config = self._merge_configs(metadata_config, cast("dict", template.metadata_config))
+                metadata_config = self._merge_configs(metadata_config, template.metadata_config)
 
         # Apply manual override (highest priority)
         if recording.processing_preferences and "metadata_config" in recording.processing_preferences:
@@ -270,14 +270,16 @@ class ConfigResolver:
                     final_metadata = self._merge_configs(final_metadata, common_fields)
 
                 # Step 2: Merge 'common' block (if exists)
-                if "common" in template_meta:
+                common_block = template_meta.get("common")
+                if isinstance(common_block, dict):
                     logger.debug("[Metadata Resolution] Merging template 'common' metadata")
-                    final_metadata = self._merge_configs(final_metadata, cast("dict", template_meta["common"]))
+                    final_metadata = self._merge_configs(final_metadata, common_block)
 
                 # Step 3: Merge platform-specific fields (if exists) - highest priority in template
-                if platform_key in template_meta:
+                platform_block = template_meta.get(platform_key)
+                if isinstance(platform_block, dict):
                     logger.debug(f"[Metadata Resolution] Merging template '{platform_key}' specific metadata")
-                    final_metadata = self._merge_configs(final_metadata, cast("dict", template_meta[platform_key]))
+                    final_metadata = self._merge_configs(final_metadata, platform_block)
 
             elif template:
                 logger.debug(
@@ -292,8 +294,9 @@ class ConfigResolver:
         # 3. Merge with manual override if exists
         if recording.processing_preferences and "metadata_config" in recording.processing_preferences:
             manual_meta = recording.processing_preferences["metadata_config"]
-            logger.debug("[Metadata Resolution] Applying manual override metadata_config")
-            final_metadata = self._merge_configs(final_metadata, cast("dict", manual_meta))
+            if isinstance(manual_meta, dict):
+                logger.debug("[Metadata Resolution] Applying manual override metadata_config")
+                final_metadata = self._merge_configs(final_metadata, manual_meta)
 
         logger.debug(
             f"[Metadata Resolution] Final metadata keys for recording {recording.id}: {list(final_metadata.keys())}"

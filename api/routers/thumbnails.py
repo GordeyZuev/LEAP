@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.responses import FileResponse
 
 from api.auth.dependencies import get_current_user
+from api.schemas.auth import UserInDB
 from api.schemas.thumbnail import (
     ThumbnailInfo,
     ThumbnailListResponse,
     ThumbnailUploadResponse,
 )
-from database.auth_models import UserModel
 from logger import get_logger
 from utils.thumbnail_manager import get_thumbnail_manager
 
@@ -143,7 +143,7 @@ async def _validate_and_read_file(file: UploadFile) -> tuple[bytes, str]:
 
 @router.get("", response_model=ThumbnailListResponse)
 async def list_thumbnails(
-    current_user: Annotated[UserModel, Depends(get_current_user)],
+    current_user: Annotated[UserInDB, Depends(get_current_user)],
 ) -> ThumbnailListResponse:
     """
     Get list of user thumbnails.
@@ -163,7 +163,7 @@ async def list_thumbnails(
 
 @router.post("", response_model=ThumbnailUploadResponse, status_code=status.HTTP_201_CREATED)
 async def create_thumbnail(
-    current_user: Annotated[UserModel, Depends(get_current_user)],
+    current_user: Annotated[UserInDB, Depends(get_current_user)],
     file: UploadFile = File(...),
     custom_filename: str | None = Form(None),
 ) -> ThumbnailUploadResponse:
@@ -242,7 +242,7 @@ async def create_thumbnail(
 @router.put("/{thumbnail_name}", response_model=ThumbnailUploadResponse)
 async def update_thumbnail(
     thumbnail_name: str,
-    current_user: Annotated[UserModel, Depends(get_current_user)],
+    current_user: Annotated[UserInDB, Depends(get_current_user)],
     file: UploadFile = File(...),
 ) -> ThumbnailUploadResponse:
     """
@@ -313,7 +313,7 @@ async def update_thumbnail(
 @router.get("/{thumbnail_name}")
 async def get_thumbnail_file(
     thumbnail_name: str,
-    current_user: Annotated[UserModel, Depends(get_current_user)],
+    current_user: Annotated[UserInDB, Depends(get_current_user)],
     use_template: bool = True,
 ) -> FileResponse:
     """
@@ -356,7 +356,7 @@ async def get_thumbnail_file(
 @router.delete("/{thumbnail_name}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_thumbnail(
     thumbnail_name: str,
-    current_user: Annotated[UserModel, Depends(get_current_user)],
+    current_user: Annotated[UserInDB, Depends(get_current_user)],
 ) -> None:
     """
     Delete user thumbnail.

@@ -7,6 +7,8 @@ class YouTubeConfig(BaseModel):
     enabled: bool = True
     default_privacy: str = "unlisted"
     default_language: str = "ru"
+    default_category: str = "22"
+    playlist_id: str | None = None
     scopes: list[str] = Field(
         default_factory=lambda: [
             "https://www.googleapis.com/auth/youtube.upload",
@@ -26,6 +28,8 @@ class VKConfig(BaseModel):
     no_comments: bool = False
     repeat: bool = False
     album_id: int | None = None
+    app_id: str = "54249533"
+    scope: str = "video,groups,wall"
 
 
 class YouTubeUploadConfig(YouTubeConfig):

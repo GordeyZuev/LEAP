@@ -24,7 +24,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.9.6", description="Application version")
+    version: str = Field(default="0.9.6.2", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -446,7 +446,13 @@ class OAuthSettings(BaseSettings):
         default="http://localhost:8000/oauth/zoom/callback", description="Zoom OAuth redirect URI"
     )
 
-    @field_validator("youtube_redirect_uri", "vk_redirect_uri", "zoom_redirect_uri")
+    # Frontend URL to redirect user after OAuth callback (e.g. http://localhost:3000 or https://app.example.com)
+    frontend_redirect_url: str = Field(
+        default="http://localhost:8080",
+        description="Frontend URL for post-OAuth redirect (success/error pages)",
+    )
+
+    @field_validator("youtube_redirect_uri", "vk_redirect_uri", "zoom_redirect_uri", "frontend_redirect_url")
     @classmethod
     def validate_redirect_uri(cls, v: str) -> str:
         """Validate redirect URI format"""
