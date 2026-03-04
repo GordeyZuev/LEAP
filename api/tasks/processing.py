@@ -901,7 +901,7 @@ async def _async_transcribe_recording(
 
             # Transcription through Fireworks API (ONLY transcription, WITHOUT topic extraction)
             transcription_result = await fireworks_service.transcribe_audio(
-                audio_path=audio_path,
+                audio_path=str(audio_path),
                 language=language,
                 prompt=fireworks_prompt,
             )
@@ -1408,6 +1408,13 @@ async def _async_extract_topics(
         master = transcription_manager.load_master(recording_id, user_slug)
         transcript_language = master.get("language") or "ru"
 
+        # Get questions_count from resolved config (transcription.questions_count, default 3)
+        from api.services.config_utils import resolve_full_config
+
+        full_config, _ = await resolve_full_config(session, recording_id, user_id, None)
+        transcription_config = full_config.get("transcription", {})
+        questions_count = max(1, min(10, int(transcription_config.get("questions_count", 3))))
+
         task_self.update_progress(user_id, 30, "Starting topic extraction...", step="extract_topics")
 
         # Mark EXTRACT_TOPICS stage as IN_PROGRESS BEFORE extraction
@@ -1445,6 +1452,7 @@ async def _async_extract_topics(
                     recording_topic=recording.display_name,
                     granularity=granularity,
                     language=transcript_language,
+                    questions_count=questions_count,
                 )
                 model_used = "deepseek"
                 logger.info("Topics extracted with deepseek")
@@ -1466,6 +1474,7 @@ async def _async_extract_topics(
                         recording_topic=recording.display_name,
                         granularity=granularity,
                         language=transcript_language,
+                        questions_count=questions_count,
                     )
                     model_used = "fireworks_deepseek"
                     logger.info("Topics extracted with fireworks_deepseek")
@@ -1483,7 +1492,7 @@ async def _async_extract_topics(
             if not version_id:
                 version_id = transcription_manager.generate_version_id(recording_id, user_slug)
 
-            # Collect metadata for admin
+            # Collect metadata for admin (includes token usage if API returned it)
             usage_metadata = {
                 "model": model_used,
                 "prompt_used": "See TopicExtractor code for prompt generation",
@@ -1492,8 +1501,10 @@ async def _async_extract_topics(
                     "max_tokens": deepseek_config.max_tokens if deepseek_config else None,
                 },
             }
+            if topics_result.get("usage"):
+                usage_metadata["tokens"] = topics_result["usage"]
 
-            # Save in extracted.json (topics + summary from single DeepSeek call)
+            # Save in extracted.json (topics + summary + questions from single DeepSeek call)
             summary_value = topics_result.get("summary", "") or ""
             transcription_manager.add_extracted_version(
                 recording_id=recording_id,
@@ -1504,6 +1515,7 @@ async def _async_extract_topics(
                 topic_timestamps=topics_result.get("topic_timestamps", []),
                 pauses=topics_result.get("long_pauses", []),
                 summary=summary_value,
+                questions=topics_result.get("questions", []),
                 is_active=True,
                 usage_metadata=usage_metadata,
                 user_slug=user_slug,

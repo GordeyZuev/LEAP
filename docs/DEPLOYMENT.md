@@ -1742,8 +1742,8 @@ ZoomUploader/
 
 ### Version Info
 
-- **Current Version:** 0.9.6.2 (February 2026)
-- **Last Updated:** 2026-02-16
+- **Current Version:** 0.9.6.3 (March 2026)
+- **Last Updated:** 2026-03-04
 - **Python:** 3.11 (Dockerfile uses 3.11-slim; pyproject.toml has typo `>=3.14`)
 - **PostgreSQL:** 15
 - **Redis:** 7

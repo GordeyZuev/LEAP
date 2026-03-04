@@ -1,10 +1,9 @@
 """Typed schemas for recording config partial update (PUT /recordings/{id}/config)."""
 
-from typing import Literal
-
 from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
+from api.shared.enums import Granularity
 
 
 class TranscriptionProcessingConfigUpdate(BaseModel):
@@ -20,9 +19,12 @@ class TranscriptionProcessingConfigUpdate(BaseModel):
         description="Allow processing to continue on transcription error",
     )
     enable_topics: bool | None = Field(None, description="Enable topics extraction")
-    granularity: Literal["short", "medium", "long"] | None = Field(
+    granularity: Granularity | None = Field(None, description="Topics granularity: short, medium, or long")
+    questions_count: int | None = Field(
         None,
-        description="Topics granularity: short, medium, or long",
+        ge=1,
+        le=10,
+        description="Number of self-check questions to generate",
     )
     vocabulary: list[str] | None = Field(None, description="Key terms for transcriber")
     enable_subtitles: bool | None = Field(None, description="Enable subtitles generation")

@@ -1,6 +1,7 @@
 """Recording-related schemas."""
 
 from .config_update import RecordingConfigUpdateRequest
+from .export import ExportRecordingsRequest
 from .filters import RecordingFilters
 from .operations import (
     ConfigSaveResponse,
@@ -63,6 +64,7 @@ __all__ = [
     "DeleteRecordingResponse",
     "DetailedRecordingResponse",
     "DryRunResponse",
+    "ExportRecordingsRequest",
     "MappingStatusResponse",
     "PauseRecordingResponse",
     "RecordingBulkDeleteResponse",

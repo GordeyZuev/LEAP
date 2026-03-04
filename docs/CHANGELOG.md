@@ -2,6 +2,71 @@
 
 ---
 
+## v0.9.6.3 (2026-03-04)
+
+**Релиз:** Вопросы для самопроверки, экспорт записей, улучшения topic extraction и upload.
+
+- **Self-Check Questions** — см. 2026-03-03 ниже
+- **POST /recordings/export** — JSON/CSV/XLSX с фильтрами, verbosity short/long
+- **Upload** — обрезка title/description до лимитов YouTube (100) и VK (128)
+- **Granularity** — enum в api/shared/enums.py, типизация во всех schemas
+- **Topic extraction** — GRANULARITY_CONFIG, questions_count, usage metadata
+- **transcription_module** — questions в extracted.json, убран auto_segments.txt из cache
+
+---
+
+## 2026-03-03: Self-Check Questions Feature
+
+Вопросы для самопроверки: DeepSeek генерирует 3–4 вопроса по транскрипции, вывод через `{questions}` в description.
+
+### Новое
+
+- **DeepSeek** — новая секция «ВОПРОСЫ ДЛЯ САМОПРОВЕРКИ» в промпте topic extraction, парсинг 1.–3.
+- **Конфиг** — `transcription.questions_count` в `DEFAULT_USER_CONFIG` (config/settings.py), по умолчанию 3
+- **extracted.json** — поле `questions` в version_data
+- **API schemas** — `QuestionsDisplayConfig` (аналогично `TopicsDisplayConfig`), `questions_display` в preset/template metadata
+- **Template variables** — `{questions}` в description_template, форматирование через `questions_display` (format, prefix, separator, max_count и т.д.)
+- **Backward compatibility** — `questions_display.enabled: false` по умолчанию, старые пресеты и записи без вопросов → пустая строка
+
+### Файлы
+
+- `api/schemas/template/preset_metadata.py` — QuestionsDisplayConfig, questions_display
+- `api/schemas/template/metadata_config.py` — questions_display
+- `deepseek_module/prompts.py` — секция вопросов в промпте
+- `deepseek_module/topic_extractor.py` — парсинг questions, возврат в результате
+- `transcription_module/manager.py` — questions в add_extracted_version
+- `api/tasks/processing.py` — передача questions в add_extracted_version
+- `api/helpers/template_renderer.py` — _format_questions_list, prepare_recording_context(questions_display)
+- `api/tasks/upload.py` — topics_display + questions_display в prepare_recording_context, fallback description
+- `config/settings.py` — questions_display в DEFAULT_USER_CONFIG.metadata
+- `docs/TEMPLATES_PRESETS_SOURCES_GUIDE.md` — описание {questions}, questions_display
+
+---
+
+## 2026-03-04: Export Recordings & Platform Limits
+
+### Export API
+
+- **POST /recordings/export** — экспорт записей в JSON, CSV или XLSX
+- Схема `ExportRecordingsRequest`: `recording_ids` или `filters`, `format`, `verbosity` (short/long)
+- Short: id, display_name, start_time, duration, status, platform URLs, main_topics
+- Long: + questions, failed, template, source, timestamps
+- Зависимость: `openpyxl` для XLSX
+
+### Upload Platform Limits
+
+- Title/description обрезаются до лимитов YouTube (100 chars) и VK (128 для title, 5000 для description)
+- `_truncate_title_for_platform`, `_truncate_description_for_platform` в `api/tasks/upload.py`
+
+### Файлы
+
+- `api/routers/recordings.py` — export_recordings, _build_export_row, _generate_csv/xlsx
+- `api/schemas/recording/export.py` — ExportRecordingsRequest
+- `api/repositories/recording_repos.py` — selectinload(RecordingModel.owner) для export
+- `pyproject.toml` — openpyxl>=3.1.0
+
+---
+
 ## 2026-02-22: API Audit — Typed Schemas, OAuth Redirect, Best Practices
 
 Типизация параметров по INSTRUCTIONS.md, OAuth redirect из настроек, REST best practices.

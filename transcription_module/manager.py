@@ -110,6 +110,7 @@ class TranscriptionManager:
         topic_timestamps: list[dict],
         pauses: list[dict] | None = None,
         summary: str | None = None,
+        questions: list[str] | None = None,
         is_active: bool = True,
         usage_metadata: dict | None = None,
         user_slug: int | None = None,
@@ -131,8 +132,11 @@ class TranscriptionManager:
             }
 
         if is_active:
-            for v in extracted_file["versions"]:
-                v["is_active"] = False
+            versions = extracted_file.get("versions", [])
+            if isinstance(versions, list):
+                for v in versions:
+                    if isinstance(v, dict):
+                        v["is_active"] = False
             extracted_file["active_version"] = version_id
 
         version_data = {
@@ -145,11 +149,16 @@ class TranscriptionManager:
             "topic_timestamps": topic_timestamps,
             "pauses": pauses or [],
             "summary": (summary or "").strip(),
+            "questions": questions or [],
             "_metadata": usage_metadata or {},
             **meta,
         }
 
-        extracted_file["versions"].append(version_data)
+        versions_list = extracted_file.get("versions")
+        if not isinstance(versions_list, list):
+            versions_list = []
+            extracted_file["versions"] = versions_list
+        versions_list.append(version_data)
 
         extracted_path.parent.mkdir(parents=True, exist_ok=True)
         with extracted_path.open("w", encoding="utf-8") as f:
@@ -188,7 +197,7 @@ class TranscriptionManager:
             return None
 
     def generate_cache_files(self, recording_id: int, user_slug: int) -> dict[str, str]:
-        """Generate cache files (segments.txt, words.txt, auto_segments.txt) from master.json."""
+        """Generate cache files (segments.txt, words.txt) from master.json."""
         master = self.load_master(recording_id, user_slug)
         cache_dir = self.get_dir(recording_id, user_slug) / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -202,10 +211,6 @@ class TranscriptionManager:
         words_path = cache_dir / "words.txt"
         self._generate_words_txt(master["words"], words_path)
         files["words_txt"] = str(words_path)
-
-        auto_segments_path = cache_dir / "auto_segments.txt"
-        self._generate_segments_txt(master["segments"], auto_segments_path)
-        files["auto_segments_txt"] = str(auto_segments_path)
 
         logger.info(f"Generated cache files for recording {recording_id}: {list(files.keys())}")
         return files

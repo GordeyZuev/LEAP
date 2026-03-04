@@ -9,6 +9,7 @@ from api.schemas.common.validators import validate_regex_pattern
 from api.schemas.processing.preferences import ProcessingPreferences
 from api.schemas.recording.filters import RecordingFilters
 from api.schemas.validators import DateRangeMixin
+from api.shared.enums import Granularity
 
 # ============================================================================
 # Add by URL / Playlist / Yandex Disk
@@ -195,9 +196,7 @@ class ProcessRecordingRequest(BaseModel):
     """Request for processing recording."""
 
     transcription_model: str = Field("fireworks", description="Transcription model")
-    granularity: Literal["short", "medium", "long"] = Field(
-        "long", description="Topic extraction: short, medium, or long"
-    )
+    granularity: Granularity = Field(Granularity.LONG, description="Topic extraction: short, medium, or long")
     topic_model: str = Field("deepseek", description="Topic extraction model")
     platforms: list[str] = Field(default_factory=list, description="Upload platforms")
     no_transcription: bool = Field(False, description="Skip transcription")
@@ -439,8 +438,8 @@ class BulkTranscribeRequest(BulkOperationRequest):
 class BulkTopicsRequest(BulkOperationRequest):
     """Bulk topic extraction from transcriptions."""
 
-    granularity: Literal["short", "medium", "long"] = Field(
-        "long", description="Extraction mode: short (large), medium, or long (detailed)"
+    granularity: Granularity = Field(
+        Granularity.LONG, description="Extraction mode: short (large), medium, or long (detailed)"
     )
     version_id: str | None = Field(None, description="Version ID (if not specified, generated automatically)")
 

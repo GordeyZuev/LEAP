@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.shared.enums import Granularity
+
 
 class ProcessingPreferences(BaseModel):
     """Settings of processing of recording."""
@@ -9,7 +11,7 @@ class ProcessingPreferences(BaseModel):
     enable_transcription: bool = Field(True, description="Enable transcription")
     enable_subtitles: bool = Field(True, description="Enable generation of subtitles")
     enable_topics: bool = Field(True, description="Enable extraction of topics")
-    granularity: str = Field("long", description="Level of detail: short, medium, or long")
+    granularity: Granularity = Field(Granularity.LONG, description="Level of detail: short, medium, or long")
     transcription_model: str = Field("fireworks", description="Model for transcription")
     topic_model: str = Field("deepseek", description="Model for extraction of topics")
 
@@ -19,7 +21,7 @@ class ProcessingPreferences(BaseModel):
                 "enable_transcription": True,
                 "enable_subtitles": True,
                 "enable_topics": True,
-                "granularity": "long",
+                "granularity": Granularity.LONG,
                 "transcription_model": "fireworks",
                 "topic_model": "deepseek",
             }

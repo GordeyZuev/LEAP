@@ -1,11 +1,5 @@
-"""Prompt templates for topic extraction. All prompts use .format() placeholders."""
+SYSTEM_PROMPT = "Ты — самый лучший аналитик учебных материалов. Анализируй транскрипции и выделяй структуру видео."
 
-SYSTEM_PROMPT = (
-    "Ты — самый лучший аналитик учебных материалов на магистратуре Computer Science. "
-    "Анализируй транскрипции и выделяй структуру видео."
-)
-
-# Single template with duration placeholders: duration_rule, duration_min, duration_max, duration_range, split_instruction
 TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию видео и выдели структуру:{context_line}{pauses_instruction}
 
 ## САММАРИ ВИДЕО
@@ -14,11 +8,11 @@ TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию
 
 ## ОСНОВНАЯ ТЕМА ВИДЕО
 
-Выведи РОВНО ОДНУ тему (2–4 слова):{recording_topic_hint}
+Выведи РОВНО ОДНУ тему (2–5 слова, не более):{recording_topic_hint}
 
 Название темы
 
-Примеры: "Stable Diffusion", "Архитектура трансформеров", "Generative Models"
+Примеры: "Stable Diffusion", "Архитектура трансформеров", "SQL и ORM в Python"
 
 ## ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ ({min_topics}-{max_topics} топиков)
 
@@ -38,31 +32,42 @@ TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию
 Перед отправкой проверь: количество тем, длительность каждой ({duration_range} мин), перерывы >=8 мин.
 Если нарушено — переразметь до полного соответствия.
 
+## ВОПРОСЫ ДЛЯ САМОПРОВЕРКИ
+
+Сформулируй вопросы для самопроверки. Количество: {questions_count}. Критерии:
+- Опираться на ключевые идеи из транскрипции
+- Открытая форма (что? как? почему?)
+- Покрывать разные части материала
+- Язык: {summary_language}
+
+Формат: по одному вопросу на строку с номером (1. 2. 3.)
+
 Транскрипция:
 {transcript}
 """
 
-# Duration config per granularity
-DURATION_CONFIG = {
+# Keys match Granularity enum. Prompt text derived in topic_extractor from duration_min/max.
+GRANULARITY_CONFIG = {
     "short": {
-        "duration_rule": "МИНИМУМ 5 минут, МАКСИМУМ 40 минут на тему.",
         "duration_min": 5,
         "duration_max": 40,
-        "duration_range": "5–40",
-        "split_instruction": "разбей на несколько тем по 5–40 минут каждая",
+        "spacing_min": 10,
+        "spacing_max": 18,
+        "spacing_factor": 0.12,
     },
     "medium": {
-        "duration_rule": "МИНИМУМ 4 минуты, МАКСИМУМ 20 минут на тему.",
         "duration_min": 4,
         "duration_max": 20,
-        "duration_range": "4–20",
-        "split_instruction": "разбей на несколько тем по 4–20 минут каждая",
+        "spacing_min": 6,
+        "spacing_max": 10,
+        "spacing_factor": 0.08,
     },
     "long": {
-        "duration_rule": "МИНИМУМ 3–4 минуты, МАКСИМУМ 12 минут на тему.",
         "duration_min": 3,
         "duration_max": 12,
-        "duration_range": "3–12",
         "split_instruction": "разбей на 2–3 темы",
+        "spacing_min": 4,
+        "spacing_max": 6,
+        "spacing_factor": 0.05,
     },
 }

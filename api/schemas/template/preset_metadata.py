@@ -36,6 +36,31 @@ class TopicsDisplayConfig(BaseModel):
         return v
 
 
+class QuestionsDisplayConfig(BaseModel):
+    """Display settings for self-check questions in description templates."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    enabled: bool = Field(False, description="Enable questions display (opt-in for backward compatibility)")
+    format: TopicsDisplayFormat = Field(
+        TopicsDisplayFormat.NUMBERED_LIST,
+        description="List format (numbered_list, bullet_list, dash_list, comma_separated, inline)",
+    )
+    max_count: int | None = Field(None, ge=1, le=20, description="Max questions count (None = all)")
+    min_length: int | None = Field(None, ge=0, le=500, description="Min question length in chars (0 = no filtering)")
+    max_length: int | None = Field(None, ge=10, le=1000, description="Max question length in chars")
+    prefix: str | None = Field(None, max_length=200, description="Prefix before questions list")
+    separator: str = Field("\n", max_length=10, description="Separator between questions")
+
+    @field_validator("prefix")
+    @classmethod
+    def validate_prefix(cls, v: str | None) -> str | None:
+        if v is not None:
+            v = v.strip()
+            return v if v else None
+        return v
+
+
 class YouTubePrivacy(StrEnum):
     PUBLIC = "public"
     PRIVATE = "private"
@@ -58,7 +83,7 @@ class YouTubePresetMetadata(BaseModel):
     description_template: str | None = Field(
         None,
         max_length=5000,
-        description="Description template with variables (e.g. '{summary}\\n\\n{topics}')",
+        description="Description template with variables (e.g. '{summary}\\n\\n{topics}\\n\\n{questions}')",
     )
 
     privacy: YouTubePrivacy = Field(YouTubePrivacy.UNLISTED, description="Privacy status")
@@ -80,6 +105,7 @@ class YouTubePresetMetadata(BaseModel):
     publish_at: str | None = Field(None, description="ISO 8601 publish date/time (for scheduled publishing)")
 
     topics_display: TopicsDisplayConfig | None = Field(None, description="Topics display settings")
+    questions_display: QuestionsDisplayConfig | None = Field(None, description="Questions display settings")
 
     disable_comments: bool = Field(False, description="Disable comments")
     rating_disabled: bool = Field(False, description="Disable like/dislike ratings")
@@ -116,7 +142,7 @@ class VKPresetMetadata(BaseModel):
     description_template: str | None = Field(
         None,
         max_length=5000,
-        description="Description template with variables (e.g. '{summary}\\n\\n{topics}')",
+        description="Description template with variables (e.g. '{summary}\\n\\n{topics}\\n\\n{questions}')",
     )
 
     privacy_view: VKPrivacyLevel = Field(
@@ -137,6 +163,7 @@ class VKPresetMetadata(BaseModel):
     )
 
     topics_display: TopicsDisplayConfig | None = Field(None, description="Topics display settings")
+    questions_display: QuestionsDisplayConfig | None = Field(None, description="Questions display settings")
 
     disable_comments: bool = Field(False, description="Disable comments completely")
     repeat: bool = Field(False, description="Loop playback")

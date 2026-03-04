@@ -1,6 +1,7 @@
 from .user_config import (
     DownloadConfig,
     MetadataConfig,
+    QuestionsDisplayConfig,
     TranscriptionConfig,
     TrimmingConfig,
     UploadConfig,
@@ -12,6 +13,7 @@ from .user_config import (
 __all__ = [
     "DownloadConfig",
     "MetadataConfig",
+    "QuestionsDisplayConfig",
     "TranscriptionConfig",
     "TrimmingConfig",
     "UploadConfig",

@@ -28,6 +28,50 @@ from video_upload_module.uploader_factory import create_uploader_from_db
 logger = get_logger()
 settings = get_settings()
 
+# Platform limits (API constraints)
+# vk_video is normalized to vk for lookup
+TITLE_MAX_LENGTH: dict[str, int] = {
+    "youtube": 100,
+    "vk": 128,
+}
+DESCRIPTION_MAX_LENGTH: dict[str, int] = {
+    "youtube": 5000,
+    "vk": 5000,
+}
+
+ELLIPSIS = "..."
+
+
+def _platform_key(platform: str) -> str:
+    """Normalize platform for limit lookup (vk_video -> vk)."""
+    p = platform.lower()
+    return "vk" if p == "vk_video" else p
+
+
+def _truncate_with_ellipsis(text: str, max_len: int, suffix: str = ELLIPSIS) -> str:
+    """Truncate text to max_len, appending suffix if needed."""
+    if len(text) <= max_len:
+        return text
+    if max_len <= len(suffix):
+        return text[:max_len]
+    return text[: max_len - len(suffix)] + suffix
+
+
+def _truncate_title_for_platform(title: str, platform: str) -> str:
+    """Truncate title to platform limit."""
+    max_len = TITLE_MAX_LENGTH.get(_platform_key(platform))
+    if max_len is None:
+        return title
+    return _truncate_with_ellipsis(title, max_len)
+
+
+def _truncate_description_for_platform(description: str, platform: str) -> str:
+    """Truncate description to platform limit."""
+    max_len = DESCRIPTION_MAX_LENGTH.get(_platform_key(platform))
+    if max_len is None:
+        return description
+    return _truncate_with_ellipsis(description, max_len)
+
 
 @celery_app.task(
     bind=True,
@@ -143,13 +187,14 @@ async def _async_upload_recording(
 
     Args:
         recording_id: ID of recording
-        user_id: ID of user
-        platform: Platform
-        preset_id: ID of output preset
-        credential_id: ID of credential
+        user_id: ID of user (all DB queries filtered by this)
+        platform: Target platform (youtube, vk, vk_video, yandex_disk)
+        preset_id: ID of output preset (optional)
+        credential_id: ID of credential (optional)
+        metadata_override: Override for preset metadata (optional)
 
-        Returns:
-            Upload results
+    Returns:
+        Upload results (success, video_id, video_url, metadata)
     """
     session_maker = get_async_session_maker()
 
@@ -281,7 +326,10 @@ async def _async_upload_recording(
             )
 
         topics_display = preset_metadata.get("topics_display") if preset_metadata else None
-        template_context = TemplateRenderer.prepare_recording_context(recording, topics_display)
+        questions_display = preset_metadata.get("questions_display") if preset_metadata else None
+        template_context = TemplateRenderer.prepare_recording_context(
+            recording, topics_display=topics_display, questions_display=questions_display
+        )
 
         logger.debug(f"Preset metadata keys: {list(preset_metadata.keys()) if preset_metadata else 'None'}")
         logger.debug(f"Template context keys: {list(template_context.keys())}")
@@ -319,9 +367,23 @@ async def _async_upload_recording(
                     else:
                         topics_str = ", ".join(recording.main_topics[:5])
                     description += f"\n\n{topics_str}"
+                if questions_display and questions_display.get("enabled") and template_context.get("questions"):
+                    description += f"\n\n{template_context['questions']}"
 
             logger.debug(f"Final title: {title[:50]}...")
             logger.debug(f"Final description length: {len(description)}")
+
+            original_title_len = len(title)
+            title = _truncate_title_for_platform(title, platform)
+            if len(title) < original_title_len:
+                logger.info(f"Title truncated from {original_title_len} to {len(title)} chars for {platform}")
+
+            original_desc_len = len(description)
+            description = _truncate_description_for_platform(description, platform)
+            if len(description) < original_desc_len:
+                logger.info(
+                    f"Description truncated from {original_desc_len} to {len(description)} chars for {platform}"
+                )
 
             upload_params = {
                 "video_path": video_path,
@@ -521,7 +583,16 @@ def batch_upload_recordings(
     preset_ids: dict[str, int] | None = None,
 ) -> dict:
     """
-    Batch uploading recordings to platforms.
+    Batch upload recordings to multiple platforms.
+
+    Args:
+        recording_ids: List of recording IDs
+        user_id: ID of user
+        platforms: Target platforms (youtube, vk, etc.)
+        preset_ids: Optional mapping platform -> preset_id per platform
+
+    Returns:
+        Result with status and list of queued subtasks
     """
     with logger.contextualize(
         task_id=short_task_id(self.request.id),

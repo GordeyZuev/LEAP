@@ -2,7 +2,7 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.6.2 (February 2026)
+**Version:** v0.9.6.3 (March 2026)
 **Status:** ✅ Production Ready
 
 ---
@@ -1333,6 +1333,6 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 
 ---
 
-**Version:** v0.9.6.2 (February 2026)
+**Version:** v0.9.6.3 (March 2026)
 **Status:** ✅ Production Ready
 **License:** Business Source License 1.1

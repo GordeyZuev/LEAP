@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response, StreamingResponse
 
 from api.auth.dependencies import check_user_quotas
 from api.core.context import ServiceContext
@@ -15,6 +19,7 @@ from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.schemas.auth import UserInDB
 from api.schemas.recording.config_update import RecordingConfigUpdateRequest
+from api.schemas.recording.export import ExportRecordingsRequest
 from api.schemas.recording.filters import RecordingFilters as RecordingFiltersSchema
 from api.schemas.recording.operations import (
     BulkProcessDryRunResponse,
@@ -61,6 +66,7 @@ from api.schemas.recording.response import (
     SourceResponse,
     UploadInfo,
 )
+from api.shared.enums import Granularity
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models import ProcessingStatus
 from models.recording import TargetStatus
@@ -206,6 +212,176 @@ def _build_processing_stages(stages) -> list[ProcessingStageResponse]:
         )
         for stage in stages
     ]
+
+
+# ============================================================================
+# Export Helpers
+# ============================================================================
+
+PLATFORM_ORDER = [
+    "youtube",
+    "vk",
+    "yandex_disk",
+    "rutube",
+    "google_drive",
+    "local_storage",
+    "other",
+]
+
+
+def _collect_platforms_from_recordings(recordings: list[Any]) -> list[str]:
+    """Collect unique target types from recordings' outputs, sorted by canonical order."""
+    seen: set[str] = set()
+    for r in recordings:
+        for output in r.outputs or []:
+            tt = output.target_type
+            platform = (getattr(tt, "value", tt) or "").lower()
+            if platform:
+                seen.add(platform)
+    return [p for p in PLATFORM_ORDER if p in seen]
+
+
+def _extract_output_url(output: Any) -> str | None:
+    """Extract video URL from output target_meta."""
+    if not output.target_meta:
+        return None
+    return output.target_meta.get("video_url") or output.target_meta.get("target_link") or output.target_meta.get("url")
+
+
+def _build_export_row(
+    recording: Any,
+    platforms: list[str],
+    verbosity: Literal["short", "long"],
+    questions: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Build single export row as dict.
+
+    Args:
+        recording: Recording model with outputs, main_topics, etc.
+        platforms: List of platform keys (youtube, vk, ...) to include.
+        verbosity: short (core + urls) or long (full details).
+        questions: Self-check questions from extracted.json (for verbosity=long).
+
+    Returns:
+        Flat dict suitable for JSON/CSV/XLSX export.
+    """
+    outputs_by_platform: dict[str, Any] = {}
+    for output in recording.outputs or []:
+        tt = output.target_type
+        platform = (getattr(tt, "value", tt) or "").lower()
+        if platform:
+            st = output.status
+            outputs_by_platform[platform] = {
+                "url": _extract_output_url(output),
+                "status": (getattr(st, "value", st) or "").lower(),
+            }
+
+    row: dict[str, Any] = {
+        "id": recording.id,
+        "display_name": recording.display_name,
+        "start_time": recording.start_time.isoformat() if recording.start_time else None,
+        "duration": recording.duration,
+        "status": (getattr(recording.status, "value", recording.status) if recording.status else None),
+    }
+
+    for platform in platforms:
+        info = outputs_by_platform.get(platform, {})
+        row[f"{platform}_url"] = info.get("url")
+        if verbosity == "long":
+            row[f"{platform}_status"] = info.get("status")
+
+    if recording.main_topics:
+        row["main_topics"] = recording.main_topics
+    else:
+        row["main_topics"] = None
+
+    if verbosity == "long":
+        row["questions"] = questions if questions else None
+        row["failed"] = recording.failed
+        row["failed_reason"] = recording.failed_reason
+        row["failed_at_stage"] = recording.failed_at_stage
+        row["is_mapped"] = recording.is_mapped
+        row["template_id"] = recording.template_id
+        row["template_name"] = recording.template.name if recording.template else None
+        stype = recording.source.source_type if recording.source else None
+        row["source_type"] = getattr(stype, "value", stype) if stype else None
+        row["source_name"] = (
+            recording.source.input_source.name if recording.source and recording.source.input_source else None
+        )
+        row["deleted"] = recording.deleted
+        row["deleted_at"] = recording.deleted_at.isoformat() if recording.deleted_at else None
+        row["on_pause"] = recording.on_pause
+        row["created_at"] = recording.created_at.isoformat() if recording.created_at else None
+        row["updated_at"] = recording.updated_at.isoformat() if recording.updated_at else None
+
+    return row
+
+
+def _get_export_column_order(platforms: list[str], verbosity: Literal["short", "long"]) -> list[str]:
+    """Return ordered column names for export."""
+    if verbosity == "short":
+        base = ["id", "display_name", "start_time", "duration", "status"]
+        platform_cols = [f"{p}_url" for p in platforms]
+        return base + platform_cols + ["main_topics"]
+    base = [
+        "id",
+        "display_name",
+        "start_time",
+        "duration",
+        "status",
+        "failed",
+        "failed_reason",
+        "failed_at_stage",
+        "is_mapped",
+        "template_id",
+        "template_name",
+        "source_type",
+        "source_name",
+    ]
+    platform_cols = []
+    for p in platforms:
+        platform_cols.extend([f"{p}_url", f"{p}_status"])
+    return (
+        base
+        + platform_cols
+        + ["main_topics", "questions", "deleted", "deleted_at", "on_pause", "created_at", "updated_at"]
+    )
+
+
+def _format_cell_value(value: Any) -> str:
+    """Format value for CSV (handle lists, None, datetime)."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "; ".join(str(v) for v in value)
+    return str(value)
+
+
+def _generate_csv(rows: list[dict], columns: list[str]) -> str:
+    """Generate CSV content as string (UTF-8 with BOM)."""
+    buf = StringIO()
+    buf.write("\ufeff")  # BOM for Excel
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([_format_cell_value(row.get(c)) for c in columns])
+    return buf.getvalue()
+
+
+def _generate_xlsx_bytes(rows: list[dict], columns: list[str]) -> bytes:
+    """Generate XLSX file as bytes."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Recordings"
+    ws.append(columns)
+    for row in rows:
+        ws.append([_format_cell_value(row.get(c)) for c in columns])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 async def _execute_dry_run_single(
@@ -576,6 +752,71 @@ async def list_recordings(
         total_pages=total_pages,
         items=items,
     )
+
+
+@router.post("/export")
+async def export_recordings(
+    data: ExportRecordingsRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    """Export recordings in JSON, CSV, or XLSX format with filters."""
+    recording_ids = await _resolve_recording_ids(
+        data.recording_ids,
+        data.filters,
+        data.limit,
+        ctx,
+    )
+    include_deleted = data.filters.include_deleted if data.filters else False
+    recording_repo = RecordingRepository(ctx.session)
+    recordings_map = await recording_repo.get_by_ids(recording_ids, ctx.user_id, include_deleted=include_deleted)
+    recordings = [recordings_map[rid] for rid in recording_ids if rid in recordings_map]
+
+    platforms = _collect_platforms_from_recordings(recordings)
+    questions_by_id: dict[int, list[str] | None] = {}
+    if data.verbosity == "long":
+        from transcription_module.manager import get_transcription_manager
+
+        txn_mgr = get_transcription_manager()
+        for r in recordings:
+            try:
+                active = txn_mgr.get_active_extracted(r.id, r.owner.user_slug)
+                q = active.get("questions") if active else None
+                questions_by_id[r.id] = q if isinstance(q, list) else None
+            except Exception:
+                questions_by_id[r.id] = None
+    rows = [
+        _build_export_row(
+            r, platforms, data.verbosity, questions=questions_by_id.get(r.id) if data.verbosity == "long" else None
+        )
+        for r in recordings
+    ]
+    columns = _get_export_column_order(platforms, data.verbosity)
+
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H%M%S")
+    filename_base = f"recordings_export_{timestamp}"
+
+    logger.info(f"Export | {format_details(total=len(rows), format=data.format, user=short_user_id(ctx.user_id))}")
+
+    if data.format == "json":
+        return {"total": len(rows), "items": rows}
+
+    if data.format == "csv":
+        csv_content = _generate_csv(rows, columns)
+        return StreamingResponse(
+            iter([csv_content.encode("utf-8")]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.csv"'},
+        )
+
+    if data.format == "xlsx":
+        xlsx_bytes = _generate_xlsx_bytes(rows, columns)
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename_base}.xlsx"'},
+        )
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid format")
 
 
 @router.get("/{recording_id}", response_model=RecordingListItem | DetailedRecordingResponse)
@@ -1965,9 +2206,7 @@ async def upload_recording(
 @router.post("/{recording_id}/topics", response_model=RecordingOperationResponse)
 async def extract_topics(
     recording_id: int,
-    granularity: Literal["short", "medium", "long"] = Query(
-        "long", description="Topics granularity: short, medium, or long"
-    ),
+    granularity: Granularity = Query(Granularity.LONG, description="Topics granularity: short, medium, or long"),
     version_id: str | None = Query(None, description="Version ID (optional)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:

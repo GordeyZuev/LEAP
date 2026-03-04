@@ -1,6 +1,6 @@
 [project]
 name = "leap"
-version = "0.9.6.2"
+version = "0.9.6.3"
 description = "LEAP - Lecture Enhancement & Automation Platform for intelligent video content processing"
 readme = "README.md"
 license = {text = "Business Source License 1.1"}
@@ -52,6 +52,8 @@ dependencies = [
     # AI/Transcription
     "fireworks-ai>=0.15.15",
     "openai>=2.8.1",
+    # Export
+    "openpyxl>=3.1.0",
     # Dev tools
     "ruff>=0.14.1",
     "ulid>=1.1",

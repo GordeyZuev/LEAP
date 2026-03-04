@@ -102,3 +102,14 @@ celerybeat.pid
 
 # UV lock file (optional - you might want to keep it)
 # uv.lock
+
+exp_803/*
+PRICING_ANALYSIS.md
+docs/STRATEGIC_PRICING_FRAMEWORK.md
+docs/PAPER_ENHANCEMENTS.md
+.gitignore
+docs/MONETIZATION_AND_FINANCIAL_MODEL.md
+.gitignore
+docs/CONFERENCE_THESIS.md
+docs/MARKET_RESEARCH.md
+docs/NEGOTIATION_BRIEF.md

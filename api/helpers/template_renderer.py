@@ -209,6 +209,69 @@ class TemplateRenderer:
         return formatted
 
     @staticmethod
+    def _format_questions_list(questions: list[str], config: dict) -> str:
+        """
+        Format questions list according to configuration (no timestamps).
+
+        Args:
+            questions: List of question strings
+            config: questions_display configuration dict
+
+        Returns:
+            Formatted questions string
+
+        Example config:
+            {
+                "enabled": true,
+                "format": "numbered_list",  # numbered_list, bullet_list, dash_list, comma_separated, inline
+                "max_count": 4,
+                "min_length": 0,
+                "max_length": 1000,
+                "prefix": "Вопросы для самопроверки:",
+                "separator": "\\n"
+            }
+        """
+        if not isinstance(config, dict):
+            config = {}
+
+        if not config.get("enabled", False) or not questions:
+            return ""
+        if not isinstance(questions, list):
+            return ""
+
+        min_length = config.get("min_length") or 0
+        max_length = config.get("max_length") or 1000
+
+        filtered = [q.strip() for q in questions if q and min_length <= len(q.strip()) <= max_length]
+
+        max_count = config.get("max_count") or 20
+        if max_count > 0:
+            filtered = filtered[:max_count]
+
+        if not filtered:
+            return ""
+
+        format_type = config.get("format", "numbered_list")
+        separator = config.get("separator", "\n")
+
+        format_map = {
+            "numbered_list": lambda: separator.join(f"{i + 1}. {q}" for i, q in enumerate(filtered)),
+            "bullet_list": lambda: separator.join(f"• {q}" for q in filtered),
+            "dash_list": lambda: separator.join(f"- {q}" for q in filtered),
+            "comma_separated": lambda: ", ".join(filtered),
+            "inline": lambda: " | ".join(filtered),
+            "plain": lambda: separator.join(filtered),
+        }
+
+        formatted = format_map.get(format_type, format_map["numbered_list"])()
+
+        prefix = config.get("prefix", "")
+        if prefix:
+            formatted = f"{prefix}{separator}{formatted}"
+
+        return formatted
+
+    @staticmethod
     def _format_seconds_to_timestamp(seconds: float) -> str:
         """Format seconds to HH:MM:SS timestamp."""
         hours = int(seconds // 3600)
@@ -217,7 +280,11 @@ class TemplateRenderer:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     @staticmethod
-    def prepare_recording_context(recording, topics_display: dict | None = None) -> dict:
+    def prepare_recording_context(
+        recording,
+        topics_display: dict | None = None,
+        questions_display: dict | None = None,
+    ) -> dict:
         """
         Prepare context dict from recording object.
 
@@ -229,6 +296,7 @@ class TemplateRenderer:
         - {summary} - lecture summary (from extracted.json only)
         - {themes} - short topics for title (from main_topics)
         - {topics} - detailed formatted topics for description (from topic_timestamps)
+        - {questions} - formatted self-check questions (from extracted.json, opt-in)
 
         Time formatting examples:
         - {record_time:DD.MM.YYYY}
@@ -238,6 +306,7 @@ class TemplateRenderer:
         Args:
             recording: Recording model instance
             topics_display: Optional topics display configuration for {topics}
+            questions_display: Optional questions display configuration for {questions}
 
         Returns:
             Dict with template variables
@@ -250,8 +319,9 @@ class TemplateRenderer:
             "publish_time": datetime.now(UTC),
         }
 
-        # Summary: only from extracted.json (master.json = transcription only)
+        # Summary and questions: only from extracted.json (master.json = transcription only)
         summary = ""
+        questions: list[str] = []
         owner = getattr(recording, "owner", None)
         if owner is not None:
             try:
@@ -262,9 +332,16 @@ class TemplateRenderer:
                     active = tm.get_active_extracted(recording.id, owner.user_slug)
                     if active:
                         summary = (active.get("summary") or "").strip()
+                        raw_q = active.get("questions") or []
+                        questions = raw_q if isinstance(raw_q, list) else []
             except Exception as exc:
                 logger.debug("Could not load summary: %s", exc)
         context["summary"] = summary or ""
+
+        if questions_display and questions_display.get("enabled"):
+            context["questions"] = TemplateRenderer._format_questions_list(questions, questions_display)
+        else:
+            context["questions"] = ""
 
         if hasattr(recording, "main_topics") and recording.main_topics:
             context["themes"] = ", ".join(recording.main_topics[:3])

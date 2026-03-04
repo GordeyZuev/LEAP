@@ -24,6 +24,7 @@ from .output_preset import (
     PresetListResponse,
 )
 from .preset_metadata import (
+    QuestionsDisplayConfig,
     TopicsDisplayConfig,
     TopicsDisplayFormat,
     VKPresetMetadata,
@@ -69,6 +70,7 @@ __all__ = [
     "OutputPresetResponse",
     "OutputPresetUpdate",
     "PresetListResponse",
+    "QuestionsDisplayConfig",
     "RecordingTemplateCreate",
     "RecordingTemplateListResponse",
     "RecordingTemplateResponse",

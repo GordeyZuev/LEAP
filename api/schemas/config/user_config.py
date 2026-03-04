@@ -5,6 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from api.shared.enums import Granularity
+
 
 class TrimmingConfig(BaseModel):
     enable_trimming: bool = True
@@ -24,7 +26,8 @@ class TranscriptionConfig(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     allow_errors: bool = False
     enable_topics: bool = True
-    granularity: Literal["short", "medium", "long"] = "long"
+    granularity: Granularity = Granularity.LONG
+    questions_count: int = Field(3, ge=1, le=10, description="Number of self-check questions")
     enable_subtitles: bool = True
     enable_translation: bool = False
     translation_language: str = "en"
@@ -63,6 +66,16 @@ class TopicsDisplayConfig(BaseModel):
         return self
 
 
+class QuestionsDisplayConfig(BaseModel):
+    """Display settings for self-check questions in description templates."""
+
+    enabled: bool = False
+    format: Literal["numbered_list", "bullet_list", "plain"] = "numbered_list"
+    max_count: int | None = Field(None, ge=1, le=20, description="Max questions to show (None = all)")
+    prefix: str | None = Field(None, description="Prefix before questions list")
+    separator: str = "\n"
+
+
 class MetadataConfig(BaseModel):
     title_template: str = "{display_name} | {topic} ({date})"
     description_template: str = "Recording from {date}"
@@ -71,6 +84,10 @@ class MetadataConfig(BaseModel):
     thumbnail_name: str | None = None
     category: str | None = None
     topics_display: TopicsDisplayConfig = Field(default_factory=TopicsDisplayConfig)
+    questions_display: QuestionsDisplayConfig = Field(
+        default_factory=lambda: QuestionsDisplayConfig(enabled=False),
+        description="Self-check questions display settings for {questions} in templates",
+    )
 
 
 class RetentionConfig(BaseModel):

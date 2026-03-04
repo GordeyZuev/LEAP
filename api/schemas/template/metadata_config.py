@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 
-from .preset_metadata import TopicsDisplayConfig
+from .preset_metadata import QuestionsDisplayConfig, TopicsDisplayConfig
 
 
 class VKMetadataConfig(BaseModel):
@@ -63,7 +63,7 @@ class TemplateMetadataConfig(BaseModel):
     3. Preset thumbnail
 
     Template variables: {display_name}, {themes}, {topic}, {topics}, {topics_list},
-    {summary}, {record_time}, {publish_time}, {date}, {duration}
+    {summary}, {questions}, {record_time}, {publish_time}, {date}, {duration}
     """
 
     model_config = BASE_MODEL_CONFIG
@@ -88,7 +88,7 @@ class TemplateMetadataConfig(BaseModel):
         max_length=5000,
         description="Description template with variables",
         examples=[
-            "Lecture\\n\\n{topics}\\n\\nRecorded: {record_time:DD.MM.YYYY}",
+            "Lecture\\n\\n{topics}\\n\\n{questions}\\n\\nRecorded: {record_time:DD.MM.YYYY}",
             "{summary}",
             "Topics: {topics_list}\\n\\nDuration: {duration}",
         ],
@@ -97,6 +97,10 @@ class TemplateMetadataConfig(BaseModel):
     topics_display: TopicsDisplayConfig | None = Field(
         None,
         description="Topics display settings",
+    )
+    questions_display: QuestionsDisplayConfig | None = Field(
+        None,
+        description="Questions display settings",
     )
 
     thumbnail_name: str | None = Field(

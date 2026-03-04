@@ -86,6 +86,7 @@ class RecordingRepository:
                 selectinload(RecordingModel.processing_stages),
                 selectinload(RecordingModel.input_source),
                 selectinload(RecordingModel.template),
+                selectinload(RecordingModel.owner),
             )
             .where(
                 RecordingModel.id.in_(recording_ids),

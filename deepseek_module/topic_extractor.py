@@ -1,5 +1,6 @@
 """Topic extraction from transcription using DeepSeek"""
 
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -7,10 +8,11 @@ from typing import Any
 import httpx
 from openai import AsyncOpenAI
 
+from api.shared.enums import Granularity
 from logger import get_logger
 
 from .config import DeepSeekConfig
-from .prompts import DURATION_CONFIG, SYSTEM_PROMPT, TOPIC_EXTRACTION_PROMPT
+from .prompts import GRANULARITY_CONFIG, SYSTEM_PROMPT, TOPIC_EXTRACTION_PROMPT
 
 logger = get_logger(__name__)
 
@@ -21,10 +23,42 @@ NOISE_WINDOW_MINUTES = 15
 TIMESTAMP_PATTERN = r"\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?\s*[-–—]\s*(.+)"
 TIMESTAMP_PATTERN_MS = r"\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)"
 NOISE_PATTERNS = [r"редактор субтитров", r"корректор", r"продолжение следует"]
+QUESTION_PATTERN = re.compile(r"^\d+\.\s*(.+)$")
 FIREWORKS_MAX_TOKENS_NON_STREAM = 4096
 MAIN_TOPIC_MIN_WORDS = 2
 MAIN_TOPIC_MAX_WORDS = 4
 MAIN_TOPIC_MIN_LENGTH = 3
+MAIN_TOPIC_MAX_CHARS = 150
+
+TOPIC_COUNT_FLOOR = 3
+TOPIC_COUNT_MIN_CAP = 25
+TOPIC_COUNT_MAX_CAP = 30
+
+
+def _get_granularity_config(granularity: Granularity) -> dict:
+    """Return config for granularity. Falls back to LONG if key missing."""
+    return GRANULARITY_CONFIG.get(granularity.value, GRANULARITY_CONFIG[Granularity.LONG.value])
+
+
+def _truncate_topic(topic: str) -> str:
+    """Truncate topic: by word count or char length. Keeps first part + ellipsis."""
+    words = topic.split()
+    if len(words) > MAIN_TOPIC_MAX_WORDS:
+        return " ".join(words[:MAIN_TOPIC_MAX_WORDS]) + "..."
+    if len(topic) > MAIN_TOPIC_MAX_CHARS:
+        return topic[:MAIN_TOPIC_MAX_CHARS].rsplit(" ", 1)[0] + "..."
+    return topic
+
+
+def _normalize_granularity(value: Granularity | str | None) -> Granularity:
+    """Normalize str or None to Granularity enum. Invalid values fall back to LONG."""
+    if isinstance(value, Granularity):
+        return value
+    s = (value or Granularity.LONG.value).strip().lower()
+    try:
+        return Granularity(s)
+    except ValueError:
+        return Granularity.LONG
 
 
 class TopicExtractor:
@@ -73,8 +107,9 @@ class TopicExtractor:
         self,
         segments: list[dict],
         recording_topic: str | None = None,
-        granularity: str = "long",  # "short" | "medium" | "long"
+        granularity: Granularity | str = Granularity.LONG,
         language: str | None = None,
+        questions_count: int = 3,
     ) -> dict[str, Any]:
         """
         Extract topics from transcription via DeepSeek/Fireworks.
@@ -82,23 +117,20 @@ class TopicExtractor:
         Args:
             segments: List of segments with timestamps (required).
             recording_topic: Course/subject name for context (optional).
+            granularity: Topic density (short/medium/long).
 
         Returns:
-            Dict with topics:
-                topic_timestamps: [{'topic', 'start', 'end'}, ...]
-                main_topics: [str] (exactly 1 topic)
-                long_pauses: [{'start', 'end', 'duration_minutes'}, ...] (pauses >=8 min)
+            Dict with topic_timestamps, main_topics, summary, questions, long_pauses.
+            Optionally "usage" (prompt_tokens, completion_tokens, total_tokens) if API returns it.
         """
         if not segments:
             raise ValueError("Segments are required for topic extraction")
 
-        granularity = (granularity or "long").strip().lower()
-        if granularity not in ("short", "medium", "long"):
-            granularity = "long"
+        gran = _normalize_granularity(granularity)
 
         total_duration = max(seg.get("end", seg.get("start", 0)) for seg in segments) if segments else 0.0
         duration_minutes = total_duration / 60
-        min_topics, max_topics = self._calculate_topic_range(duration_minutes, granularity=granularity)
+        min_topics, max_topics = self._calculate_topic_range(duration_minutes, granularity=gran)
 
         context_info = f" | topic={recording_topic}" if recording_topic else ""
         logger.info(
@@ -115,9 +147,10 @@ class TopicExtractor:
                 recording_topic,
                 min_topics,
                 max_topics,
-                granularity=granularity,
+                granularity=gran,
                 segments=segments,
                 language=language,
+                questions_count=questions_count,
             )
 
             main_topics = result.get("main_topics", [])
@@ -131,18 +164,23 @@ class TopicExtractor:
                 detailed_topics=len(topic_timestamps_with_end),
             )
 
-            return {
+            out: dict[str, Any] = {
                 "topic_timestamps": topic_timestamps_with_end,
                 "main_topics": main_topics,
                 "summary": result.get("summary", ""),
+                "questions": result.get("questions", []),
                 "long_pauses": result.get("long_pauses", []),
             }
+            if "usage" in result:
+                out["usage"] = result["usage"]
+            return out
         except Exception as error:
             logger.exception(f"Failed to extract topics: error={error}", error=str(error))
             return {
                 "topic_timestamps": [],
                 "main_topics": [],
                 "summary": "",
+                "questions": [],
                 "long_pauses": [],
             }
 
@@ -150,8 +188,9 @@ class TopicExtractor:
         self,
         segments_file_path: str,
         recording_topic: str | None = None,
-        granularity: str = "long",  # "short" | "medium" | "long"
+        granularity: Granularity | str = Granularity.LONG,
         language: str | None = None,
+        questions_count: int = 3,
     ) -> dict[str, Any]:
         """
         Extract topics from segments.txt file.
@@ -159,7 +198,8 @@ class TopicExtractor:
         Args:
             segments_file_path: Path to segments.txt with format [HH:MM:SS - HH:MM:SS] text.
             recording_topic: Course/subject name for context (optional).
-            granularity: "short", "medium", or "long".
+            granularity: Topic density (Granularity or str "short"|"medium"|"long").
+            questions_count: Number of self-check questions to generate.
 
         Returns:
             Same structure as extract_topics.
@@ -182,6 +222,7 @@ class TopicExtractor:
             recording_topic=recording_topic,
             granularity=granularity,
             language=language,
+            questions_count=questions_count,
         )
 
     def _format_transcript_with_timestamps(self, segments: list[dict]) -> str:
@@ -244,9 +285,10 @@ class TopicExtractor:
                             text = match_ms.groups()[8].strip()
                             start_seconds = start_h * 3600 + start_m * 60 + start_s + start_ms / 1000.0
                             end_seconds = end_h * 3600 + end_m * 60 + end_s + end_ms / 1000.0
-                        else:
-                            start_h, start_m, start_s, end_h, end_m, end_s = map(int, match_s.groups()[:6])
-                            text = match_s.groups()[6].strip()
+                        elif match_s:
+                            gr = match_s.groups()
+                            start_h, start_m, start_s, end_h, end_m, end_s = map(int, gr[:6])
+                            text = gr[6].strip()
                             start_seconds = start_h * 3600 + start_m * 60 + start_s
                             end_seconds = end_h * 3600 + end_m * 60 + end_s
 
@@ -264,39 +306,24 @@ class TopicExtractor:
 
         return segments
 
-    def _calculate_topic_range(self, duration_minutes: float, granularity: str = "long") -> tuple[int, int]:
+    def _calculate_topic_range(
+        self, duration_minutes: float, granularity: Granularity = Granularity.LONG
+    ) -> tuple[int, int]:
         """
-        Dynamic topic range based on duration.
-        short: 3-12 topics, medium: 6-16 topics, long: 10-26 topics.
+        Topic count from duration and GRANULARITY_CONFIG.
+        Derived: min = ceil(duration/duration_max), max = floor(duration/duration_min).
 
         Args:
-            duration_minutes: Session duration in minutes (clamped to 50-180).
-            granularity: "short", "medium", or "long".
+            duration_minutes: Session duration in minutes.
+            granularity: Topic density (short/medium/long).
 
         Returns:
             (min_topics, max_topics)
         """
-        duration_minutes = max(50, min(180, duration_minutes))
-
-        if granularity == "short":
-            min_topics = int(3 + (duration_minutes - 50) * 4 / 130)
-            max_topics = int(5 + (duration_minutes - 50) * 5 / 130)
-            min_topics = max(3, min(8, min_topics))
-            max_topics = max(5, min(12, max_topics))
-            return min_topics, max_topics
-
-        if granularity == "medium":
-            min_topics = int(6 + (duration_minutes - 50) * 5 / 130)
-            max_topics = int(10 + (duration_minutes - 50) * 8 / 130)
-            min_topics = max(6, min(12, min_topics))
-            max_topics = max(10, min(18, max_topics))
-            return min_topics, max_topics
-
-        min_topics = int(10 + (duration_minutes - 50) * 8 / 130)
-        max_topics = int(16 + (duration_minutes - 50) * 10 / 130)
-        min_topics = max(10, min(18, min_topics))
-        max_topics = max(16, min(26, max_topics))
-
+        cfg = _get_granularity_config(granularity)
+        d_min, d_max = cfg["duration_min"], cfg["duration_max"]
+        min_topics = max(TOPIC_COUNT_FLOOR, min(TOPIC_COUNT_MIN_CAP, math.ceil(duration_minutes / d_max)))
+        max_topics = max(min_topics, min(TOPIC_COUNT_MAX_CAP, math.floor(duration_minutes / d_min)))
         return min_topics, max_topics
 
     async def _analyze_full_transcript(
@@ -306,9 +333,10 @@ class TopicExtractor:
         recording_topic: str | None = None,
         min_topics: int = 10,
         max_topics: int = 30,
-        granularity: str = "long",  # "short" | "long"
+        granularity: Granularity | str = Granularity.LONG,
         segments: list[dict] | None = None,
         language: str | None = None,
+        questions_count: int = 3,
     ) -> dict[str, Any]:
         """
         Analyze transcript via DeepSeek/Fireworks.
@@ -317,20 +345,23 @@ class TopicExtractor:
             transcript: Full transcript with timestamps.
             total_duration: Video duration in seconds.
             recording_topic: Course/subject name.
+            granularity: Topic density.
 
         Returns:
-            Dict with main_topics and topic_timestamps.
+            Dict with main_topics, topic_timestamps, summary, questions, long_pauses.
+            Optional "usage" if API returns it (OpenAI-compatible: prompt_tokens, completion_tokens, total_tokens).
         """
         context_line = ""
         if recording_topic:
             context_line = f"\nКонтекст: это видео по курсу '{recording_topic}'.\n"
 
-        if granularity == "short":
-            min_spacing_minutes = max(10, min(18, total_duration / 60 * 0.12))
-        elif granularity == "medium":
-            min_spacing_minutes = max(6, min(10, total_duration / 60 * 0.08))
-        else:  # granularity == "long"
-            min_spacing_minutes = max(4, min(6, total_duration / 60 * 0.05))
+        gran = _normalize_granularity(granularity)
+        cfg = _get_granularity_config(gran)
+        dur_min = total_duration / 60
+        min_spacing_minutes = max(
+            cfg["spacing_min"],
+            min(cfg["spacing_max"], dur_min * cfg["spacing_factor"]),
+        )
 
         long_pauses = self._detect_long_pauses(segments or [], min_gap_minutes=MIN_PAUSE_MINUTES)
         pauses_instruction = ""
@@ -355,24 +386,35 @@ class TopicExtractor:
             )
 
         summary_language = (language or "").strip().lower() or "ru"
-        duration = DURATION_CONFIG.get(granularity, DURATION_CONFIG["long"])
 
-        prompt = TOPIC_EXTRACTION_PROMPT.format(
-            context_line=context_line,
-            pauses_instruction=pauses_instruction,
-            recording_topic_hint=recording_topic_hint,
-            summary_language=summary_language,
-            min_topics=min_topics,
-            max_topics=max_topics,
-            min_spacing_minutes=min_spacing_minutes,
-            transcript=transcript,
-            **duration,
-        )
+        d_min, d_max = cfg["duration_min"], cfg["duration_max"]
+        split_instruction = cfg.get("split_instruction", f"разбей на несколько тем по {d_min}–{d_max} минут каждая")
+        prompt_params = {
+            "context_line": context_line,
+            "pauses_instruction": pauses_instruction,
+            "recording_topic_hint": recording_topic_hint,
+            "summary_language": summary_language,
+            "min_topics": min_topics,
+            "max_topics": max_topics,
+            "min_spacing_minutes": min_spacing_minutes,
+            "questions_count": questions_count,
+            "transcript": transcript,
+            "duration_rule": f"От {d_min} до {d_max} минут на тему.",
+            "duration_min": d_min,
+            "duration_max": d_max,
+            "duration_range": f"{d_min}–{d_max}",
+            "split_instruction": split_instruction,
+        }
+        prompt = TOPIC_EXTRACTION_PROMPT.format(**prompt_params)
 
         try:
+            # Usage: optional. OpenAI-compatible APIs return usage when available.
+            usage: dict[str, int] | None = None
             if self.is_fireworks:
-                content = await self._fireworks_request(prompt)
+                content, usage = await self._fireworks_request(prompt)
             else:
+                if self.client is None:
+                    raise ValueError("DeepSeek client not initialized")
                 response = await self.client.chat.completions.create(
                     model=self.config.model,
                     messages=[
@@ -386,15 +428,26 @@ class TopicExtractor:
                     logger.error(error_msg)
                     raise ValueError(error_msg)
                 content = response.choices[0].message.content.strip()
+                if hasattr(response, "usage") and response.usage is not None:
+                    u = response.usage
+                    usage = {
+                        "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
+                        "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
+                        "total_tokens": getattr(u, "total_tokens", 0) or 0,
+                    }
 
             if not content:
-                return {"main_topics": [], "topic_timestamps": [], "summary": ""}
+                return {"main_topics": [], "topic_timestamps": [], "summary": "", "questions": [], "usage": usage}
 
-            logger.info(f"DeepSeek response: length={len(content)} | preview={content[:500]}...")
-            logger.debug(f"Full DeepSeek response:\n{content}")
+            logger.debug(
+                f"Response: length={len(content)} | preview={content[:500]}..."
+                + (f" | tokens={usage}" if usage else "")
+            )
 
-            parsed = self._parse_structured_response(content, total_duration)
+            parsed = self._parse_structured_response(content, total_duration, questions_count)
             parsed["long_pauses"] = long_pauses
+            if usage is not None:
+                parsed["usage"] = usage
             logger.info(
                 f"Parsed result: main_topics={len(parsed.get('main_topics', []))} | "
                 f"topic_timestamps={len(parsed.get('topic_timestamps', []))} | total_duration={total_duration}s"
@@ -404,9 +457,15 @@ class TopicExtractor:
 
         except Exception as error:
             logger.exception(f"Failed to analyze transcript: error={error}", error=str(error))
-            return {"main_topics": [], "topic_timestamps": [], "summary": "", "long_pauses": []}
+            return {
+                "main_topics": [],
+                "topic_timestamps": [],
+                "summary": "",
+                "questions": [],
+                "long_pauses": [],
+            }
 
-    async def _fireworks_request(self, prompt: str) -> str:
+    async def _fireworks_request(self, prompt: str) -> tuple[str, dict[str, int] | None]:
         """
         Direct HTTP request to Fireworks API with model, max_tokens, top_p, top_k, etc.
 
@@ -414,7 +473,7 @@ class TopicExtractor:
             prompt: User prompt to send.
 
         Returns:
-            Model response text.
+            Tuple of (content, usage dict or None). Usage has prompt_tokens, completion_tokens, total_tokens.
         """
         url = f"{self.base_url}/chat/completions"
 
@@ -477,7 +536,16 @@ class TopicExtractor:
                 if "choices" not in data or not data["choices"]:
                     raise ValueError(f"Invalid Fireworks API response format: {data}")
 
-                return data["choices"][0]["message"]["content"].strip()
+                content = data["choices"][0]["message"]["content"].strip()
+                usage = None
+                u = data.get("usage")
+                if u:
+                    usage = {
+                        "prompt_tokens": u.get("prompt_tokens", u.get("input_tokens", 0)) or 0,
+                        "completion_tokens": u.get("completion_tokens", u.get("output_tokens", 0)) or 0,
+                        "total_tokens": u.get("total_tokens", 0) or 0,
+                    }
+                return content, usage
             except httpx.HTTPStatusError as e:
                 if e.response is not None:
                     self._log_http_error(e.response)
@@ -553,7 +621,7 @@ class TopicExtractor:
         minutes, secs = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-    def _parse_structured_response(self, text: str, total_duration: float) -> dict[str, Any]:
+    def _parse_structured_response(self, text: str, total_duration: float, max_questions: int = 3) -> dict[str, Any]:
         """
         Parse LLM response: summary, main topics section, and [HH:MM:SS] - topic lines.
 
@@ -563,12 +631,13 @@ class TopicExtractor:
         main_topics: list[str] = []
         topic_timestamps: list[dict] = []
         summary = ""
+        questions: list[str] = []
 
         lines = text.split("\n")
 
         in_main_topics = False
-        in_detailed_topics = False
         in_summary = False
+        in_questions = False
         main_topics_section_found = False
         summary_lines: list[str] = []
 
@@ -608,7 +677,6 @@ class TopicExtractor:
                 or "ОСНОВНАЯ ТЕМА" in line.upper()
             ):
                 in_main_topics = True
-                in_detailed_topics = False
                 main_topics_section_found = True
                 if i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
@@ -622,16 +690,26 @@ class TopicExtractor:
                 continue
             if "ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ" in line.upper() or "ТОПИКИ С ТАЙМКОДАМИ" in line.upper():
                 in_main_topics = False
-                in_detailed_topics = True
+                in_questions = False
+                continue
+            if "ВОПРОСЫ ДЛЯ САМОПРОВЕРКИ" in line.upper():
+                in_main_topics = False
+                in_questions = True
                 continue
             if line.startswith("##"):
                 in_main_topics = False
-                in_detailed_topics = False
+                in_questions = False
+                continue
+
+            question_match = QUESTION_PATTERN.match(line)
+            if question_match and in_questions and len(questions) < max_questions:
+                q = question_match.group(1).strip()
+                if q:
+                    questions.append(q)
                 continue
 
             timestamp_match = re.match(TIMESTAMP_PATTERN, line)
             if timestamp_match:
-                in_detailed_topics = True
                 in_main_topics = False
                 hours_str, minutes_str, seconds_str, topic = timestamp_match.groups()
                 total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str, total_duration)
@@ -641,6 +719,11 @@ class TopicExtractor:
                             "topic": topic.strip(),
                             "start": float(total_seconds),
                         }
+                    )
+                else:
+                    logger.debug(
+                        f"Timestamp skipped (out of range): topic={topic.strip()} | "
+                        f"position={total_seconds / 60:.1f}min | range=0-{total_duration / 60:.1f}min"
                     )
                 continue
 
@@ -655,35 +738,7 @@ class TopicExtractor:
                     continue
 
                 if topic and len(topic) > 3:
-                    words = topic.split()
-                    if len(words) > MAIN_TOPIC_MAX_WORDS:
-                        topic = " ".join(words[:MAIN_TOPIC_MAX_WORDS]) + "..."
-                    elif len(topic) > 150:
-                        topic = topic[:150].rsplit(" ", 1)[0] + "..."
-                    main_topics.append(topic)
-
-            elif in_detailed_topics:
-                match = re.match(TIMESTAMP_PATTERN, line)
-                if match:
-                    hours_str, minutes_str, seconds_str, topic = match.groups()
-                    total_seconds = self._parse_timestamp_to_seconds(
-                        hours_str, minutes_str, seconds_str, total_duration
-                    )
-
-                    if 0 <= total_seconds <= total_duration:
-                        topic_timestamps.append(
-                            {
-                                "topic": topic.strip(),
-                                "start": float(total_seconds),
-                            }
-                        )
-                    else:
-                        logger.debug(
-                            f"Timestamp skipped (out of range): topic={topic.strip()} | position={total_seconds / 60:.1f}min | range=0-{total_duration / 60:.1f}min",
-                            topic=topic.strip(),
-                            position_min=round(total_seconds / 60, 1),
-                            valid_range=f"0-{round(total_duration / 60, 1)}",
-                        )
+                    main_topics.append(_truncate_topic(topic))
 
         if not topic_timestamps:
             topic_timestamps = self._parse_all_timestamps(lines, total_duration)
@@ -713,6 +768,7 @@ class TopicExtractor:
             "summary": summary,
             "main_topics": processed_main_topics,
             "topic_timestamps": topic_timestamps,
+            "questions": questions,
         }
 
     @staticmethod
@@ -722,10 +778,7 @@ class TopicExtractor:
         for topic in main_topics[:1]:
             topic = " ".join(topic.split())
             if topic and len(topic) > MAIN_TOPIC_MIN_LENGTH:
-                words = topic.split()
-                if len(words) > MAIN_TOPIC_MAX_WORDS:
-                    topic = " ".join(words[:MAIN_TOPIC_MAX_WORDS]) + "..."
-                processed.append(topic)
+                processed.append(_truncate_topic(topic))
         return processed
 
     def _find_main_topic_before_section(self, lines: list[str]) -> str | None:

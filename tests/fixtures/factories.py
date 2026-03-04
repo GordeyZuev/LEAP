@@ -58,6 +58,7 @@ def create_mock_recording(
     recording.owner = kwargs.get("owner")
     recording.outputs = kwargs.get("outputs", [])
     recording.processing_stages = kwargs.get("processing_stages", [])
+    recording.main_topics = kwargs.get("main_topics")
 
     return recording
 

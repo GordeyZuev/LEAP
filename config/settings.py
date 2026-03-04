@@ -24,7 +24,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.9.6.2", description="Application version")
+    version: str = Field(default="0.9.6.3", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -690,6 +690,7 @@ DEFAULT_USER_CONFIG = {
         "subtitle_formats": ["srt", "vtt"],
         "enable_translation": False,
         "translation_language": "en",
+        "questions_count": 3,
     },
     "download": {
         "auto_download": False,
@@ -721,6 +722,13 @@ DEFAULT_USER_CONFIG = {
             "separator": "\n",
             "prefix": "Темы:",
             "include_timestamps": False,
+        },
+        "questions_display": {
+            "enabled": False,
+            "format": "numbered_list",
+            "max_count": 3,
+            "prefix": "Вопросы для самопроверки:",
+            "separator": "\n",
         },
     },
     "retention": {

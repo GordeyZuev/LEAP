@@ -1,10 +1,9 @@
 """Typed schemas for processing_config"""
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 from api.schemas.common import BASE_MODEL_CONFIG
+from api.shared.enums import Granularity
 
 
 class TemplateProcessingConfig(BaseModel):
@@ -46,9 +45,8 @@ class TranscriptionProcessingConfig(BaseModel):
     )
 
     enable_topics: bool = Field(True, description="Enable topics extraction")
-    granularity: Literal["short", "medium", "long"] = Field(
-        "long", description="Topics granularity: short, medium, or long"
-    )
+    granularity: Granularity = Field(Granularity.LONG, description="Topics granularity: short, medium, or long")
+    questions_count: int = Field(3, ge=1, le=10, description="Number of self-check questions to generate")
 
     vocabulary: list[str] | None = Field(
         None,

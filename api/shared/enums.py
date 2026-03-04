@@ -1,6 +1,14 @@
-"""Shared enums: input/output platforms, credential types."""
+"""Shared enums: input/output platforms, credential types, topic granularity."""
 
 from enum import StrEnum
+
+
+class Granularity(StrEnum):
+    """Topic extraction granularity: fewer/longer (short) vs more/shorter (long)."""
+
+    SHORT = "short"
+    MEDIUM = "medium"
+    LONG = "long"
 
 
 class InputPlatform(StrEnum):

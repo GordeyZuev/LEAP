@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from api.shared.enums import Granularity
+
 
 class ExtractTopicsRequest(BaseModel):
     """Request for extraction of topics."""
@@ -10,9 +12,9 @@ class ExtractTopicsRequest(BaseModel):
         default="deepseek",
         description="Model for extraction of topics: 'deepseek' or 'fireworks_deepseek'",
     )
-    granularity: str = Field(
-        default="long",
-        description="Extraction mode: 'short' (large), 'medium', or 'long' (detailed)",
+    granularity: Granularity = Field(
+        default=Granularity.LONG,
+        description="Extraction mode: short (large), medium, or long (detailed)",
     )
     version_id: str | None = Field(
         default=None,
@@ -33,9 +35,9 @@ class BatchTranscribeRequest(BaseModel):
     """Request for batch transcription."""
 
     recording_ids: list[int] = Field(..., description="List of recording IDs for transcription")
-    granularity: str = Field(
-        default="long",
-        description="Extraction mode: 'short', 'medium', or 'long'",
+    granularity: Granularity = Field(
+        default=Granularity.LONG,
+        description="Extraction mode: short, medium, or long",
     )
 
 
@@ -59,6 +61,7 @@ class TopicVersion(BaseModel):
     main_topics: list[str]
     topic_timestamps: list[TopicTimestamp]
     pauses: list[dict] | None = None
+    questions: list[str] | None = Field(None, description="Self-check questions from topic extraction")
 
 
 class TranscriptionStats(BaseModel):
