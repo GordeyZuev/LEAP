@@ -83,6 +83,10 @@ class DeepSeekConfig(BaseSettings):
         ge=1.0,
         description="Request timeout in seconds",
     )
+    completion_token_ceiling: int | None = Field(
+        default=None,
+        description="Fireworks chat API only: clamp max_tokens to this ceiling. None when using direct DeepSeek API.",
+    )
 
     @field_validator("base_url")
     @classmethod
@@ -130,8 +134,16 @@ class DeepSeekConfig(BaseSettings):
         if not api_key:
             raise ValueError("DeepSeek API key not specified in config")
 
+        from config.settings import get_settings
+
+        settings = get_settings()
+        if "deepseek_fireworks" in config_file:
+            ops = settings.deepseek_fireworks.model_dump()
+        else:
+            ops = settings.deepseek.model_dump()
+
         try:
-            return cls(api_key=api_key, **{k: v for k, v in data.items() if k != "api_key"})
+            return cls(api_key=api_key, **ops)
         except ValidationError as e:
             logger.error("DeepSeek config validation failed: {}", e)
             raise

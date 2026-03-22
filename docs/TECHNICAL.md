@@ -2,7 +2,7 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.6.3 (March 2026)
+**Version:** v0.9.6.4 (March 2026)
 **Status:** ✅ Production Ready
 
 ---
@@ -184,7 +184,9 @@ class RecordingRepository:
 **Purpose:** Создание сервисов с правильными credentials
 
 ```python
-# FireworksTranscriptionService (uses config file)
+# FireworksTranscriptionService: secrets in config/fireworks_creds.json (api_key, account_id);
+# operational settings from env FIREWORKS_* / config.settings.FireworksSettings
+# Example creds shape: config/examples/fireworks_creds.json.example
 from fireworks_module import FireworksConfig
 fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
 service = FireworksTranscriptionService(fireworks_config)
@@ -292,7 +294,7 @@ youtube_creds = await config_service.get_youtube_credentials()
 vk_creds = await config_service.get_vk_credentials()
 
 # Zoom: используйте cred_service.get_credentials_by_id() и create_zoom_credentials()
-# AI (Fireworks/DeepSeek): используйте *Config.from_file() из config/
+# AI (Fireworks/DeepSeek): FireworksConfig/DeepSeekConfig.from_file() — merge JSON creds + application settings
 ```
 
 **Key Features:**
@@ -311,7 +313,7 @@ vk_creds = await config_service.get_vk_credentials()
 from fireworks_module.service import FireworksTranscriptionService
 from fireworks_module import FireworksConfig
 
-# Получение конфигурации из файла
+# Credentials file + application-level settings (see FireworksSettings)
 fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
 
 # Создание сервиса транскрибации
@@ -620,8 +622,8 @@ video_upload_module/
 - Credential provider pattern
 
 **Documentation:**
-- [OAUTH.md](OAUTH.md) - OAuth setup
-- [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK details
+- [OAUTH.md](guides/OAUTH.md) - OAuth setup
+- [VK_INTEGRATION.md](guides/VK_INTEGRATION.md) - VK details
 
 ---
 
@@ -779,7 +781,7 @@ final = {
 }
 ```
 
-**Documentation:** [TEMPLATES.md](TEMPLATES.md)
+**Documentation:** [TEMPLATES.md](guides/TEMPLATES.md)
 
 ---
 
@@ -968,7 +970,7 @@ class UserModel:
     can_export_data: bool
 ```
 
-**Documentation:** [OAUTH.md](OAUTH.md)
+**Documentation:** [OAUTH.md](guides/OAUTH.md)
 
 ### Credentials Encryption
 
@@ -1297,15 +1299,15 @@ psql -U postgres -d zoom_manager
 **Core Guides:**
 - [INDEX.md](INDEX.md) - Documentation index
 - [README.md](../README.md) - Project overview
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment
+- [DEPLOYMENT.md](guides/DEPLOYMENT.md) - Production deployment
 - [CHANGELOG.md](CHANGELOG.md) - Version history
 
 **Features:**
-- [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
-- [OAUTH.md](OAUTH.md) - OAuth integration
-- [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow
-- [YT_DLP_GUIDE.md](YT_DLP_GUIDE.md) - yt-dlp video ingestion
-- [YANDEX_DISK_GUIDE.md](YANDEX_DISK_GUIDE.md) - Yandex Disk integration
+- [TEMPLATES.md](guides/TEMPLATES.md) - Template-driven automation
+- [OAUTH.md](guides/OAUTH.md) - OAuth integration
+- [VK_INTEGRATION.md](guides/VK_INTEGRATION.md) - VK Implicit Flow
+- [YT_DLP_GUIDE.md](guides/YT_DLP_GUIDE.md) - yt-dlp video ingestion
+- [YANDEX_DISK_GUIDE.md](guides/YANDEX_DISK_GUIDE.md) - Yandex Disk integration
 
 **Architecture:**
 - [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema
@@ -1333,6 +1335,6 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 
 ---
 
-**Version:** v0.9.6.3 (March 2026)
+**Version:** v0.9.6.4 (March 2026)
 **Status:** ✅ Production Ready
 **License:** Business Source License 1.1

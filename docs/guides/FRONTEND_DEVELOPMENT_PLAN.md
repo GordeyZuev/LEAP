@@ -203,10 +203,10 @@ frontend/                 # или web/, client/
 
 ## Связанные документы
 
-- [TECHNICAL.md](TECHNICAL.md) — REST API reference
+- [TECHNICAL.md](../TECHNICAL.md) — REST API reference
 - [DEPLOYMENT.md](DEPLOYMENT.md) — Production deployment
 - [OAUTH.md](OAUTH.md) — OAuth настройка
-- [INDEX.md](INDEX.md) — Навигация по документации
+- [INDEX.md](../INDEX.md) — Навигация по документации
 
 ---
 

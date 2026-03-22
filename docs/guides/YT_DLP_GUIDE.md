@@ -27,7 +27,7 @@
 | Формат контейнера | `mp4` (рекомендуется) или `any` |
 | Data transfer | Загрузить с одной платформы → обработать → выгрузить на другую |
 
-**Credentials не требуются.** Все публичные видео скачиваются без авторизации.
+**Credentials не требуются** для большинства публичных видео. Если YouTube блокирует запросы («Sign in to confirm you're not a bot»), настройте cookies (см. [Cookies для YouTube](#cookies-для-youtube)).
 
 ---
 
@@ -401,12 +401,28 @@ URL → sync (extract metadata) → Recording → download (yt-dlp) → Processi
 
 Можно указать явно через `video_platform`.
 
+### Cookies для YouTube
+
+Если YouTube блокирует с ошибкой **«Sign in to confirm you're not a bot»**, настройте cookies:
+
+1. **Файл cookies (рекомендуется для продакшена):**
+   - Экспортируйте cookies из браузера:  
+     `yt-dlp --cookies-from-browser chrome --cookies cookies.txt`
+   - Сохраните `cookies.txt` в безопасное место на сервере
+   - Добавьте в `.env`: `YTDLP_COOKIES_FILE=/path/to/cookies.txt`
+
+2. **Cookies из браузера (для dev, если браузер установлен):**
+   - Добавьте в `.env`: `YTDLP_COOKIES_FROM_BROWSER=chrome` (или `firefox`, `brave` и т.д.)
+
+Cookies применяются к скачиванию и извлечению метаданных. Файл cookies нужно периодически обновлять (YouTube cookies истекают).
+
 ### Что если yt-dlp не может скачать видео?
 
 Возможные причины:
 - Видео приватное или удалено
 - Платформа не поддерживается yt-dlp
 - Geo-ограничения
+- **YouTube блокирует как бота** — настройте cookies (см. выше)
 - Проверьте URL вручную: `yt-dlp --simulate URL`
 
 ### Что если видео в плейлисте недоступно?

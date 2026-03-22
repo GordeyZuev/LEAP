@@ -12,7 +12,13 @@ from api.shared.enums import Granularity
 from logger import get_logger
 
 from .config import DeepSeekConfig
-from .prompts import GRANULARITY_CONFIG, SYSTEM_PROMPT, TOPIC_EXTRACTION_PROMPT
+from .prompts import (
+    GRANULARITY_CONFIG,
+    SYSTEM_PROMPT,
+    SYSTEM_PROMPT_EN,
+    TOPIC_EXTRACTION_PROMPT,
+    TOPIC_EXTRACTION_PROMPT_EN,
+)
 
 logger = get_logger(__name__)
 
@@ -24,7 +30,6 @@ TIMESTAMP_PATTERN = r"\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?\s*[-–—]\s*(.+)"
 TIMESTAMP_PATTERN_MS = r"\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)"
 NOISE_PATTERNS = [r"редактор субтитров", r"корректор", r"продолжение следует"]
 QUESTION_PATTERN = re.compile(r"^\d+\.\s*(.+)$")
-FIREWORKS_MAX_TOKENS_NON_STREAM = 4096
 MAIN_TOPIC_MIN_WORDS = 2
 MAIN_TOPIC_MAX_WORDS = 4
 MAIN_TOPIC_MIN_LENGTH = 3
@@ -351,9 +356,16 @@ class TopicExtractor:
             Dict with main_topics, topic_timestamps, summary, questions, long_pauses.
             Optional "usage" if API returns it (OpenAI-compatible: prompt_tokens, completion_tokens, total_tokens).
         """
+        summary_language = (language or "").strip().lower() or "ru"
+        is_en = summary_language.startswith("en")
+        system_prompt = SYSTEM_PROMPT_EN if is_en else SYSTEM_PROMPT
+
         context_line = ""
         if recording_topic:
-            context_line = f"\nКонтекст: это видео по курсу '{recording_topic}'.\n"
+            if is_en:
+                context_line = f"\nContext: this video is from the course '{recording_topic}'.\n"
+            else:
+                context_line = f"\nКонтекст: это видео по курсу '{recording_topic}'.\n"
 
         gran = _normalize_granularity(granularity)
         cfg = _get_granularity_config(gran)
@@ -366,29 +378,55 @@ class TopicExtractor:
         long_pauses = self._detect_long_pauses(segments or [], min_gap_minutes=MIN_PAUSE_MINUTES)
         pauses_instruction = ""
         if long_pauses:
-            pauses_lines = [
-                f"- {self._format_time(pause['start'])} – {self._format_time(pause['end'])} (≈{pause['duration_minutes']:.1f} мин)"
-                for pause in long_pauses
-            ]
-            pauses_instruction = (
-                "\n\n⚠️ ВАЖНО: Найдены перерывы >=8 минут. ОБЯЗАТЕЛЬНО добавь их в список тем:\n"
-                + "\n".join(pauses_lines)
-                + "\n\nДля каждой паузы: [HH:MM:SS] - Перерыв (где HH:MM:SS — время начала из списка выше)."
-            )
+            if is_en:
+                pauses_lines = [
+                    f"- {self._format_time(pause['start'])} – {self._format_time(pause['end'])} "
+                    f"(≈{pause['duration_minutes']:.1f} min)"
+                    for pause in long_pauses
+                ]
+                pauses_instruction = (
+                    "\n\n⚠️ IMPORTANT: Pauses of >=8 minutes were found. You MUST add them to the topic list:\n"
+                    + "\n".join(pauses_lines)
+                    + "\n\nFor each pause: [HH:MM:SS] - Break (HH:MM:SS is the start time from the list above)."
+                )
+            else:
+                pauses_lines = [
+                    f"- {self._format_time(pause['start'])} – {self._format_time(pause['end'])} (≈{pause['duration_minutes']:.1f} мин)"
+                    for pause in long_pauses
+                ]
+                pauses_instruction = (
+                    "\n\n⚠️ ВАЖНО: Найдены перерывы >=8 минут. ОБЯЗАТЕЛЬНО добавь их в список тем:\n"
+                    + "\n".join(pauses_lines)
+                    + "\n\nДля каждой паузы: [HH:MM:SS] - Перерыв (где HH:MM:SS — время начала из списка выше)."
+                )
 
         recording_topic_hint = ""
         if recording_topic:
-            recording_topic_hint = (
-                f" Название темы НЕ должно содержать слова из названия курса '{recording_topic}'. "
-                "Если тема содержит такие слова — убери их. Например, если курс называется "
-                "'Прикладной Python', а тема 'Асинхронное программирование Python', "
-                "напиши только 'Асинхронное программирование'."
-            )
-
-        summary_language = (language or "").strip().lower() or "ru"
+            if is_en:
+                recording_topic_hint = (
+                    f" The topic title MUST NOT repeat words from the course title '{recording_topic}'. "
+                    "If a topic contains such words — remove them. For example, if the course is "
+                    "'Applied Python' and the topic would be 'Async programming in Python', "
+                    "write only 'Async programming'."
+                )
+            else:
+                recording_topic_hint = (
+                    f" Название темы НЕ должно содержать слова из названия курса '{recording_topic}'. "
+                    "Если тема содержит такие слова — убери их. Например, если курс называется "
+                    "'Прикладной Python', а тема 'Асинхронное программирование Python', "
+                    "напиши только 'Асинхронное программирование'."
+                )
 
         d_min, d_max = cfg["duration_min"], cfg["duration_max"]
-        split_instruction = cfg.get("split_instruction", f"разбей на несколько тем по {d_min}–{d_max} минут каждая")
+        if is_en:
+            split_instruction = cfg.get(
+                "split_instruction_en",
+                cfg.get("split_instruction", f"split into several topics of {d_min}–{d_max} minutes each"),
+            )
+            duration_rule = f"From {d_min} to {d_max} minutes per topic."
+        else:
+            split_instruction = cfg.get("split_instruction", f"разбей на несколько тем по {d_min}–{d_max} минут каждая")
+            duration_rule = f"От {d_min} до {d_max} минут на тему."
         prompt_params = {
             "context_line": context_line,
             "pauses_instruction": pauses_instruction,
@@ -399,26 +437,27 @@ class TopicExtractor:
             "min_spacing_minutes": min_spacing_minutes,
             "questions_count": questions_count,
             "transcript": transcript,
-            "duration_rule": f"От {d_min} до {d_max} минут на тему.",
+            "duration_rule": duration_rule,
             "duration_min": d_min,
             "duration_max": d_max,
             "duration_range": f"{d_min}–{d_max}",
             "split_instruction": split_instruction,
         }
-        prompt = TOPIC_EXTRACTION_PROMPT.format(**prompt_params)
+        template = TOPIC_EXTRACTION_PROMPT_EN if is_en else TOPIC_EXTRACTION_PROMPT
+        prompt = template.format(**prompt_params)
 
         try:
             # Usage: optional. OpenAI-compatible APIs return usage when available.
             usage: dict[str, int] | None = None
             if self.is_fireworks:
-                content, usage = await self._fireworks_request(prompt)
+                content, usage = await self._fireworks_request(prompt, system_prompt=system_prompt)
             else:
                 if self.client is None:
                     raise ValueError("DeepSeek client not initialized")
                 response = await self.client.chat.completions.create(
                     model=self.config.model,
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": system_prompt},
                         {"role": "user", "content": prompt},
                     ],
                     **self.config.to_request_params(),
@@ -465,16 +504,20 @@ class TopicExtractor:
                 "long_pauses": [],
             }
 
-    async def _fireworks_request(self, prompt: str) -> tuple[str, dict[str, int] | None]:
+    async def _fireworks_request(
+        self, prompt: str, *, system_prompt: str | None = None
+    ) -> tuple[str, dict[str, int] | None]:
         """
         Direct HTTP request to Fireworks API with model, max_tokens, top_p, top_k, etc.
 
         Args:
             prompt: User prompt to send.
+            system_prompt: System message (defaults to Russian SYSTEM_PROMPT).
 
         Returns:
             Tuple of (content, usage dict or None). Usage has prompt_tokens, completion_tokens, total_tokens.
         """
+        sys_msg = system_prompt if system_prompt is not None else SYSTEM_PROMPT
         url = f"{self.base_url}/chat/completions"
 
         params: dict[str, Any] = {
@@ -488,13 +531,15 @@ class TopicExtractor:
         if self.config.top_k != 1 and self.config.top_p is not None:
             params["top_p"] = self.config.top_p
 
-        # Fireworks non-stream requests require max_tokens <= 4096
-        if params.get("max_tokens", 0) > FIREWORKS_MAX_TOKENS_NON_STREAM:
+        ceiling = self.config.completion_token_ceiling
+        if ceiling is None:
+            ceiling = 4096
+        if params.get("max_tokens", 0) > ceiling:
             logger.warning(
-                f"⚠️ max_tokens={params.get('max_tokens')} exceeds Fireworks limit ({FIREWORKS_MAX_TOKENS_NON_STREAM}). "
-                f"Reducing to {FIREWORKS_MAX_TOKENS_NON_STREAM}."
+                f"⚠️ max_tokens={params.get('max_tokens')} exceeds Fireworks completion_token_ceiling ({ceiling}). "
+                f"Reducing to {ceiling}."
             )
-            params["max_tokens"] = FIREWORKS_MAX_TOKENS_NON_STREAM
+            params["max_tokens"] = ceiling
 
         params = {k: v for k, v in params.items() if v is not None}
 
@@ -503,7 +548,7 @@ class TopicExtractor:
             "messages": [
                 {
                     "role": "system",
-                    "content": SYSTEM_PROMPT,
+                    "content": sys_msg,
                 },
                 {
                     "role": "user",

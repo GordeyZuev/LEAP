@@ -70,7 +70,7 @@
 4. **v0.8** - REST API + JWT authentication
 5. **v0.9** - Celery, OAuth 2.0, Templates, Subscriptions
 
-### Текущее состояние (v0.9.6.3)
+### Текущее состояние (v0.9.6.4)
 
 **Production-Ready SaaS платформа:**
 - REST API endpoints
@@ -377,7 +377,7 @@ Encryption:
 
 **Статус:** ✅ Полностью реализовано
 
-**См. также:** [TEMPLATES.md](TEMPLATES.md) - Template matching & re-match
+**См. также:** [TEMPLATES.md](guides/TEMPLATES.md) - Template matching & re-match
 
 ---
 
@@ -694,13 +694,13 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 
 ### API & Integration
 - [TECHNICAL.md](TECHNICAL.md) - Pydantic схемы и API endpoints
-- [OAUTH.md](OAUTH.md) - OAuth setup & integration
+- [OAUTH.md](guides/OAUTH.md) - OAuth setup & integration
 
 ### Features
-- [TEMPLATES.md](TEMPLATES.md) - Templates, matching, metadata & configuration
+- [TEMPLATES.md](guides/TEMPLATES.md) - Templates, matching, metadata & configuration
 
 ### Deployment
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment & infrastructure
+- [DEPLOYMENT.md](guides/DEPLOYMENT.md) - Production deployment & infrastructure
 
 ---
 

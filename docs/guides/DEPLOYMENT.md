@@ -1676,12 +1676,12 @@ See `.env.example` for complete reference with all available variables.
 **Core Documentation:**
 - [README.md](../README.md) - Project overview and quick start
 - [INSTRUCTIONS.md](../INSTRUCTIONS.md) - Development workflow
-- [CHANGELOG.md](CHANGELOG.md) - Version history and changes
+- [CHANGELOG.md](../CHANGELOG.md) - Version history and changes
 
 **Technical Documentation:**
-- [TECHNICAL.md](TECHNICAL.md) - Architecture and technical details
-- [TECHNICAL.md](TECHNICAL.md) - API endpoints and usage
-- [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema and models
+- [TECHNICAL.md](../TECHNICAL.md) - Architecture and technical details
+- [TECHNICAL.md](../TECHNICAL.md) - API endpoints and usage
+- [DATABASE_DESIGN.md](../DATABASE_DESIGN.md) - Database schema and models
 
 **Feature Documentation:**
 - [TEMPLATES.md](TEMPLATES.md) - Template system and presets
@@ -1696,10 +1696,10 @@ See `.env.example` for complete reference with all available variables.
 
 **Storage:**
 - [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) - File organization
-- [S3_INTEGRATION_TODO.md](dev_notes/S3_INTEGRATION_TODO.md) - S3 backend implementation
+- [S3_INTEGRATION_TODO.md](../dev_notes/S3_INTEGRATION_TODO.md) - S3 backend implementation
 
 **Other:**
-- [ROADMAP.md](ROADMAP.md) - Future plans and features
+- [tests/ROADMAP.md](../../tests/ROADMAP.md) - Testing roadmap & plans
 
 ### Project Structure
 
@@ -1742,7 +1742,7 @@ ZoomUploader/
 
 ### Version Info
 
-- **Current Version:** 0.9.6.3 (March 2026)
+- **Current Version:** 0.9.6.4 (March 2026)
 - **Last Updated:** 2026-03-04
 - **Python:** 3.11 (Dockerfile uses 3.11-slim; pyproject.toml has typo `>=3.14`)
 - **PostgreSQL:** 15
@@ -1811,7 +1811,7 @@ make typecheck           # Type checking
 - **Docker:** `docker-compose.yml` (⚠️ needs queue update), `Dockerfile`, `entrypoint.sh`
 - **Celery:** `api/celery_app.py` (queue routing: `processing_cpu`, `async_operations`)
 - **Database:** `alembic/versions/` (migrations)
-- **OAuth Examples:** `config/oauth_google.json.example`, `config/oauth_vk.json.example`
+- **OAuth Examples:** `config/examples/oauth_google.json.example`, `config/examples/oauth_vk.json.example`
 - **Documentation:** `docs/` directory
 
 ### Environment Variables Quick Reference

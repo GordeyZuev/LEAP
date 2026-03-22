@@ -45,7 +45,7 @@
    - Client ID
    - Client Secret
 
-**Создать файл:** `config/oauth_google.json`
+**Создать файл:** `config/oauth_google.json` (шаблон: `config/examples/oauth_google.json.example`)
 
 ```json
 {
@@ -70,7 +70,7 @@
    - Redirect URI: `http://localhost:8000/api/v1/oauth/vk/callback`
    - Скопировать App ID и Защищённый ключ
 
-**Создать файл:** `config/oauth_vk.json`
+**Создать файл:** `config/oauth_vk.json` (шаблон: `config/examples/oauth_vk.json.example`)
 
 ```json
 {

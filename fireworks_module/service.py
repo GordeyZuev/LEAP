@@ -28,9 +28,12 @@ from logger import get_logger
 
 from .config import FireworksConfig
 from .prompts import (
-    TRANSCRIPTION_DEFAULT_PROMPT,
-    TRANSCRIPTION_TOPIC,
-    TRANSCRIPTION_VOCABULARY,
+    TRANSCRIPTION_DEFAULT_PROMPT_EN,
+    TRANSCRIPTION_DEFAULT_PROMPT_RU,
+    TRANSCRIPTION_TOPIC_EN,
+    TRANSCRIPTION_TOPIC_RU,
+    TRANSCRIPTION_VOCABULARY_EN,
+    TRANSCRIPTION_VOCABULARY_RU,
 )
 
 logger = get_logger()
@@ -52,28 +55,40 @@ class FireworksTranscriptionService:
         base_prompt: str | None,
         recording_topic: str | None,
         vocabulary: list[str] | None = None,
+        language: str | None = None,
     ) -> str:
-        """Compose prompt from base (user), topic, vocabulary. Templates in fireworks_module/prompts.py."""
+        """Compose transcription prompt from base, topic, vocabulary.
+
+        Uses language-appropriate templates (en/ru) to avoid Whisper hallucinations
+        when language does not match prompt language.
+        """
         base = (base_prompt or "").strip()
         topic = (recording_topic or "").strip()
         vocab = [v.strip() for v in (vocabulary or []) if v and v.strip()]
+        lang = (language or "ru").strip().lower()
 
         if not base and not topic and not vocab:
             return ""
 
+        is_en = lang.startswith("en")
+        default_prompt = TRANSCRIPTION_DEFAULT_PROMPT_EN if is_en else TRANSCRIPTION_DEFAULT_PROMPT_RU
+        topic_hint = TRANSCRIPTION_TOPIC_EN if is_en else TRANSCRIPTION_TOPIC_RU
+        vocab_hint = TRANSCRIPTION_VOCABULARY_EN if is_en else TRANSCRIPTION_VOCABULARY_RU
+        fallback_topic = "recording" if is_en else "запись"
+
         use_default = not base and (topic or vocab)
         if use_default:
-            base = TRANSCRIPTION_DEFAULT_PROMPT.format(topic=topic or "запись")
+            base = default_prompt.format(topic=topic or fallback_topic)
 
         if not vocab and (not topic or use_default):
             return base
 
         parts: list[str] = [base]
         if not use_default and topic:
-            parts.append(TRANSCRIPTION_TOPIC.format(topic=topic))
+            parts.append(topic_hint.format(topic=topic))
         if vocab:
             vocab_str = ", ".join(vocab[:50])  # Limit to avoid prompt overflow
-            parts.append(TRANSCRIPTION_VOCABULARY.format(vocabulary=vocab_str))
+            parts.append(vocab_hint.format(vocabulary=vocab_str))
 
         return " ".join(parts).strip()
 
@@ -84,15 +99,23 @@ class FireworksTranscriptionService:
         audio_duration: float | None = None,
         prompt: str | None = None,
     ) -> dict[str, Any]:
-        """Transcribe audio file using Fireworks API with retry logic."""
+        """Transcribe audio via Fireworks API with retry logic.
+
+        Pass prompt=None to omit the prompt field; prompt="" sends an empty prompt (no hint).
+        """
         if not Path(audio_path).exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         params = self.config.to_request_params()
         if language:
             params["language"] = language
-        if prompt:
-            params["prompt"] = prompt
+        if prompt is not None:
+            if prompt:
+                params["prompt"] = prompt
+            else:
+                params.pop("prompt", None)
+
+        logger.debug(f"Fireworks params | language={params.get('language')} | has_prompt={bool(params.get('prompt'))}")
 
         retry_attempts = max(1, self.config.retry_attempts)
         base_delay = max(0.0, self.config.retry_delay)
@@ -592,8 +615,11 @@ class FireworksTranscriptionService:
         params = self.config.to_request_params()
         if language:
             params["language"] = language
-        if prompt:
-            params["prompt"] = prompt
+        if prompt is not None:
+            if prompt:
+                params["prompt"] = prompt
+            else:
+                params.pop("prompt", None)
 
         url = f"{self.config.batch_base_url}/v1/audio/transcriptions"
         logger.info(f"Batch | Submitting: {Path(audio_path).name} | {endpoint_id}")

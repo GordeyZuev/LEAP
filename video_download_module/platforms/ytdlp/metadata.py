@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from logger import get_logger
+from video_download_module.platforms.ytdlp.opts import get_cookie_opts
 
 logger = get_logger()
 
@@ -33,13 +34,14 @@ async def extract_video_info(url: str) -> dict[str, Any]:
 
     import yt_dlp
 
-    ydl_opts = {
+    ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": False,
         "skip_download": True,
         "no_color": True,
     }
+    ydl_opts.update(get_cookie_opts())
 
     def _extract():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -72,12 +74,13 @@ async def extract_playlist_entries(url: str) -> list[dict[str, Any]]:
 
     import yt_dlp
 
-    ydl_opts = {
+    ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": True,
         "no_color": True,
     }
+    ydl_opts.update(get_cookie_opts())
 
     def _extract():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

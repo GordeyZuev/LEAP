@@ -1,19 +1,24 @@
-# Database Design - LEAP Platform
+# Database Design — LEAP / ZoomUploader
 
-**Версия БД:** 17 миграций
-**Последнее обновление:** Февраль 2026
-**Статус:** Production-Ready
+**Alembic:** 17 ревизий (`001` … `017`)  
+**Последнее обновление:** март 2026  
+**СУБД:** PostgreSQL 12+
+
+Источник истины по схеме: каталог `alembic/versions/` и SQLAlchemy-модели в `database/*.py`.
 
 ---
 
-## 📋 Содержание
+## Содержание
 
 1. [Обзор](#обзор)
-2. [Архитектура](#архитектура)
-3. [Таблицы](#таблицы)
-4. [JSONB Structures](#jsonb-structures)
-5. [Индексы и производительность](#индексы-и-производительность)
-6. [Миграции](#миграции)
+2. [Схема связей](#схема-связей)
+3. [Таблицы по доменам](#таблицы-по-доменам)
+4. [Перечисления (enum)](#перечисления-enum)
+5. [JSONB и конфигурации](#jsonb-и-конфигурации)
+6. [Индексы и производительность](#индексы-и-производительность)
+7. [Планировщик Celery (SQL)](#планировщик-celery-sql)
+8. [Миграции и команды](#миграции-и-команды)
+9. [См. также](#см-также)
 
 ---
 
@@ -21,876 +26,147 @@
 
 ### Статистика
 
-**17 таблиц:**
-- Authentication & Users (5 таблиц)
-- Subscription & Quotas (3 таблицы)
-- Processing (5 таблиц)
-- Templates & Configuration (4 таблицы)
-- Automation (2 таблицы)
+| Категория | Таблицы |
+|-----------|---------|
+| Аутентификация и пользователи | `users`, `refresh_tokens`, `user_credentials` |
+| Подписки и квоты | `subscription_plans`, `user_subscriptions`, `quota_usage` |
+| Конфигурация | `user_configs`, `base_configs` |
+| Шаблоны и источники/пресеты | `recording_templates`, `input_sources`, `output_presets` |
+| Обработка записей | `recordings`, `source_metadata`, `output_targets`, `processing_stages`, `stage_timings` |
+| Автоматизация | `automation_jobs` |
+| Celery Beat (django-celery-beat–совместимая схема) | `celery_interval_schedule`, `celery_crontab_schedule`, `celery_solar_schedule`, `celery_periodic_task_changed`, `celery_periodic_task` |
 
-**17 миграций** (автоматическая инициализация)
+**Итого:** 17 доменных таблиц + 5 служебных для Beat (см. миграцию `008_create_celery_beat_tables.py`). Таблица `quota_change_history` удалена в `017`.
 
-**PostgreSQL версия:** 12+
+### Multi-tenancy
 
-### Multi-Tenancy
+**Стратегия:** одна БД, изоляция по `user_id` (строка ULID, `VARCHAR(26)`).
 
-**Isolation Strategy:** Shared Database + Row-Level Filtering
-
-Все таблицы с `user_id` имеют:
-- Type: `VARCHAR(26)` (ULID strings)
-- Foreign Key: `REFERENCES users(id) ON DELETE CASCADE`
-- Index: `idx_{table}_user_id ON {table}(user_id)`
-- Автоматическая фильтрация в Repository Layer
+Везде, где есть `user_id`, FK: `REFERENCES users(id) ON DELETE CASCADE` (кроме явно оговорённых `SET NULL` / `RESTRICT`). Фильтрация по текущему пользователю — на уровне слоя доступа к данным (репозитории / сервисы).
 
 ---
 
-## Архитектура
+## Схема связей
 
-### Entity Relationship Diagram
+```mermaid
+erDiagram
+    users ||--o{ refresh_tokens : has
+    users ||--o{ user_credentials : has
+    users ||--o| user_configs : has
+    users ||--o| user_subscriptions : has
+    users ||--o{ quota_usage : has
+    users ||--o{ recording_templates : owns
+    users ||--o{ input_sources : owns
+    users ||--o{ output_presets : owns
+    users ||--o{ automation_jobs : owns
+    users ||--o{ recordings : owns
 
+    subscription_plans ||--o{ user_subscriptions : plan
+
+    recording_templates ||--o{ recordings : applies
+    input_sources ||--o{ recordings : feeds
+    input_sources ||--o{ source_metadata : describes
+
+    recordings ||--|| source_metadata : has
+    recordings ||--o{ output_targets : has
+    recordings ||--o{ processing_stages : has
+    recordings ||--o{ stage_timings : has
+
+    user_credentials ||--o{ input_sources : uses
+    user_credentials ||--o{ output_presets : uses
+    output_presets ||--o{ output_targets : uses
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    AUTHENTICATION                        │
-└─────────────────────────────────────────────────────────┘
-                          users
-                   (id: ULID, user_slug: INT)
-                            │
-        ┌───────────────────┼───────────────────┐
-        │                   │                   │
-  refresh_tokens    user_credentials    user_configs
 
-┌─────────────────────────────────────────────────────────┐
-│                    SUBSCRIPTIONS                         │
-└─────────────────────────────────────────────────────────┘
-       subscription_plans
-                │
-        user_subscriptions (user ← plan)
-                │
-           quota_usage
-
-┌─────────────────────────────────────────────────────────┐
-│                      PROCESSING                          │
-└─────────────────────────────────────────────────────────┘
-   recording_templates ─┐
-                        │
-   input_sources ───────┼─┐
-                        │ │
-   output_presets ──────┼─┼─┐
-                        │ │ │
-                recordings ←┘ │
-                │   │         │
-     source_metadata  │       │
-                │     │       │
-          output_targets ←────┘
-                │
-        processing_stages
-
-┌─────────────────────────────────────────────────────────┐
-│                     AUTOMATION                           │
-└─────────────────────────────────────────────────────────┘
-   automation_jobs (schedule + template + sources)
-        │
-   celery_beat_schedule_entry (Celery Beat integration)
-```
+**Автоматизация:** в `automation_jobs` нет FK на шаблоны — список `template_ids` хранится как `INTEGER[]`; источники и расписание задаются JSON-полями (`schedule`, `sync_config`, `filters`).
 
 ---
 
-## Таблицы
+## Таблицы по доменам
 
-### 🔐 Authentication & Users
+Ниже — назначение и ключевые поля. Точные типы и ограничения — в миграциях и моделях.
 
-#### 1. `users`
+### Аутентификация и пользователи
 
-**Назначение:** Пользователи системы с RBAC permissions
+| Таблица | Модель | Назначение |
+|---------|--------|------------|
+| `users` | `UserModel` | ULID `id`, последовательный `user_slug` (пути хранилища), email, пароль, `role`, RBAC-флаги `can_*`, `timezone`, метки времени |
+| `refresh_tokens` | `RefreshTokenModel` | `user_id`, `token`, `expires_at`, `is_revoked`, `created_at` |
+| `user_credentials` | `UserCredentialModel` | Платформа (`zoom`, `youtube`, …), `account_name`, `encrypted_data` (Fernet), `is_active`; уникальность `(user_id, platform, account_name)` — миграция `015` |
 
-```sql
-CREATE TABLE users (
-    -- Identity (ULID-based)
-    id VARCHAR(26) PRIMARY KEY,  -- ULID string: "01HQ123456789ABCDEFGHJKMNP"
-    user_slug INTEGER UNIQUE NOT NULL,  -- Sequential for storage paths: 1, 2, 3...
+### Подписки и квоты
 
-    email VARCHAR(255) NOT NULL UNIQUE,
-    hashed_password VARCHAR(255) NOT NULL,
-    full_name VARCHAR(255),
+| Таблица | Модель | Назначение |
+|---------|--------|------------|
+| `subscription_plans` | `SubscriptionPlanModel` | Тарифы, лимиты, цены (`Numeric`) |
+| `user_subscriptions` | `UserSubscriptionModel` | Один ряд на пользователя: `plan_id`, кастомные лимиты, pay-as-you-go, период |
+| `quota_usage` | `QuotaUsageModel` | Учёт по месяцам: `period` **INTEGER** (`YYYYMM`, например `202603`), `recordings_count`, `storage_bytes`, `concurrent_tasks_count`, `overage_*`; уникальность `(user_id, period)` в БД **не задана** — логика выбора в `QuotaUsageRepository` |
 
-    -- Status
-    is_active BOOLEAN DEFAULT TRUE NOT NULL,
-    is_verified BOOLEAN DEFAULT FALSE NOT NULL,
-    role VARCHAR(50) DEFAULT 'user' NOT NULL,  -- 'user', 'admin'
+Дефолтные лимиты без подписки: `config.settings.DEFAULT_QUOTAS`.
 
-    -- RBAC Permissions
-    can_transcribe BOOLEAN DEFAULT TRUE NOT NULL,
-    can_process_video BOOLEAN DEFAULT TRUE NOT NULL,
-    can_upload BOOLEAN DEFAULT TRUE NOT NULL,
-    can_create_templates BOOLEAN DEFAULT TRUE NOT NULL,
-    can_delete_recordings BOOLEAN DEFAULT TRUE NOT NULL,
-    can_update_uploaded_videos BOOLEAN DEFAULT TRUE NOT NULL,
-    can_manage_credentials BOOLEAN DEFAULT TRUE NOT NULL,
-    can_export_data BOOLEAN DEFAULT TRUE NOT NULL,
+### Конфигурация
 
-    -- Settings
-    timezone VARCHAR(50) DEFAULT 'UTC' NOT NULL,
+| Таблица | Модель | Назначение |
+|---------|--------|------------|
+| `user_configs` | `UserConfigModel` | **Один** JSONB `config_data` на пользователя (не отдельные колонки `processing_config` / …) |
+| `base_configs` | `BaseConfigModel` | Именованные конфиги с `config_type`; `user_id` NULL = глобальный |
 
-    -- Timestamps
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-    last_login_at TIMESTAMP WITH TIME ZONE
-);
+### Шаблоны, источники, пресеты
 
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_user_slug ON users(user_slug);
-CREATE INDEX idx_users_active ON users(is_active, role);
-CREATE SEQUENCE user_slug_seq;
-```
+| Таблица | Модель | Назначение |
+|---------|--------|------------|
+| `recording_templates` | `RecordingTemplateModel` | `matching_rules`, `processing_config`, `metadata_config`, `output_config`; `used_count`, `last_used_at`; уникальность `(user_id, name)` |
+| `input_sources` | `InputSourceModel` | `source_type`, `credential_id`, `config`; уникальность `(user_id, name, source_type, credential_id)` |
+| `output_presets` | `OutputPresetModel` | `platform`, `credential_id`, `preset_metadata`; уникальность `(user_id, name)` |
 
-**Key Points:**
-- `id`: ULID (26 chars) - used in API and database relations
-- `user_slug`: Sequential integer - used for storage paths (`storage/users/user_000001/`)
-- 8 granular permissions for RBAC
+### Обработка записей
 
-**Связи:**
-- 1:N → user_credentials, recordings, templates, input_sources, output_presets
-- 1:1 → user_configs
-- 1:1 → user_subscriptions
+| Таблица | Модель | Назначение |
+|---------|--------|------------|
+| `recordings` | `RecordingModel` | Агрегатный статус `processingstatus` (enum), `duration` / `final_duration` (**Float**, секунды), пути к файлам, JSONB транскрипции/тем, `failed` + `failed_*`, **pipeline** (`pipeline_started_at`, `pipeline_completed_at`, `pipeline_duration_seconds`), **пауза** (`on_pause`, `pause_requested_at`), soft/hard delete |
+| `source_metadata` | `SourceMetadataModel` | 1:1 с записью: `source_type` (enum `sourcetype`), `source_key`, колонка БД `metadata` (в ORM — атрибут `meta`) |
+| `output_targets` | `OutputTargetModel` | `target_type` / `status` (enum), `preset_id`, `target_meta`, `started_at`, `uploaded_at`, ошибки загрузки |
+| `processing_stages` | `ProcessingStageModel` | Этапы пайплайна (`processingstagetype`), статус этапа (`processingstagestatus`), `started_at`, `completed_at`, `skip_reason`, `stage_meta` |
+| `stage_timings` | `StageTimingModel` | Append-only метрики: `stage_type`, `substep`, `attempt`, интервалы, `status`, `meta` (миграция `014`) |
 
 ---
 
-#### 2. `refresh_tokens`
+## Перечисления (enum)
 
-**Назначение:** JWT refresh tokens для безопасной аутентификации
+Актуальные значения для прикладной логики заданы в `models/recording.py` и используются в SQLAlchemy `Enum`.
 
-```sql
-CREATE TABLE refresh_tokens (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token VARCHAR(500) NOT NULL UNIQUE,
+| Тип | Назначение | Значения (логика приложения) |
+|-----|------------|------------------------------|
+| `processingstatus` | Статус записи | `PENDING_SOURCE`, `INITIALIZED`, `DOWNLOADING`, `DOWNLOADED`, `PROCESSING`, `PROCESSED`, `UPLOADING`, `UPLOADED`, `READY`, `SKIPPED`, `EXPIRED`. Сбой учитывается полями `failed`, `failed_reason`, а не значением `FAILED` в enum |
+| `processingstagetype` | Этап обработки | `DOWNLOAD`, `TRIM`, `TRANSCRIBE`, `EXTRACT_TOPICS`, `GENERATE_SUBTITLES` (доп. значения могут добавляться миграциями `ALTER TYPE … ADD VALUE`) |
+| `processingstagestatus` | Статус этапа | `PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `SKIPPED` |
+| `sourcetype` | Источник | `ZOOM`, `LOCAL_FILE`, `GOOGLE_DRIVE`, `YANDEX_DISK`, `YOUTUBE`, `EXTERNAL_URL`, `OTHER`, … (расширялось в `012`) |
+| `targettype` / `targetstatus` | Выгрузка | Типы площадок и статусы загрузки — см. `TargetType`, `TargetStatus` в `models/recording.py` |
 
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    revoked BOOLEAN DEFAULT FALSE,
-
-    -- Security metadata
-    ip_address INET,
-    user_agent TEXT
-);
-
-CREATE INDEX idx_refresh_tokens_user ON refresh_tokens(user_id);
-CREATE INDEX idx_refresh_tokens_token ON refresh_tokens(token) WHERE NOT revoked;
-CREATE INDEX idx_refresh_tokens_expiry ON refresh_tokens(expires_at) WHERE NOT revoked;
-```
-
-**Features:**
-- Token rotation (auto-revoke old tokens)
-- Logout all devices (revoke all tokens)
-- Automatic cleanup (expired tokens)
+Исторические значения enum в PostgreSQL могут сохраняться после миграций; для отчётов и API ориентируйтесь на код модели и фактические данные.
 
 ---
 
-#### 3. `user_credentials`
-
-**Назначение:** Зашифрованные credentials для внешних сервисов
-
-```sql
-CREATE TABLE user_credentials (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-    -- Platform identification
-    platform VARCHAR(50) NOT NULL,  -- zoom, youtube, vk, fireworks, deepseek
-    account_name VARCHAR(255),      -- For multiple accounts
-
-    -- Encrypted data (Fernet)
-    encrypted_data TEXT NOT NULL,
-
-    -- Metadata
-    is_active BOOLEAN DEFAULT TRUE,
-    last_used_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_user_platform_account UNIQUE (user_id, platform, account_name)
-);
-
-CREATE INDEX idx_user_credentials_user ON user_credentials(user_id, platform);
-CREATE INDEX idx_user_credentials_active ON user_credentials(is_active);
-```
-
-**Supported Platforms:**
-- `zoom` - Zoom OAuth/Server-to-Server
-- `youtube` - YouTube OAuth 2.0
-- `vk` - VK Implicit Flow (2026 policy)
-- `fireworks` - Fireworks API key
-- `deepseek` - DeepSeek API key
-
-**Encryption:** Fernet (symmetric, AES-128)
-
----
-
-#### 4. `user_configs`
-
-**Назначение:** Unified user-specific default configurations (1:1)
-
-```sql
-CREATE TABLE user_configs (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-
-    -- Default configurations (deep merged with template configs)
-    processing_config JSONB DEFAULT '{}',
-    transcription_config JSONB DEFAULT '{}',
-    metadata_config JSONB DEFAULT '{}',
-    upload_config JSONB DEFAULT '{}',
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_user_configs_user ON user_configs(user_id);
-```
-
-**См:** [JSONB Structures](#jsonb-structures) для формата конфигураций
-
----
-
-#### 5. `base_configs`
-
-**Назначение:** Global or user-specific base configurations
-
-```sql
-CREATE TABLE base_configs (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) REFERENCES users(id) ON DELETE CASCADE,  -- NULL = global
-
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    config_type VARCHAR(50),  -- 'processing', 'metadata', etc.
-    config_data JSONB NOT NULL,
-
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_base_configs_user ON base_configs(user_id, config_type);
-CREATE INDEX idx_base_configs_type ON base_configs(config_type, is_active);
-```
-
----
-
-### 💰 Subscription & Quotas
-
-**Дефолтные лимиты** определены в `config/settings.py` → `DEFAULT_QUOTAS` (все `None` = безлимит).
-Подписки и планы используются только для кастомных лимитов.
-
-#### 6. `subscription_plans`
-
-**Назначение:** Кастомные тарифные планы
-
-```sql
-CREATE TABLE subscription_plans (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(50) NOT NULL UNIQUE,  -- Free, Plus, Pro, Enterprise
-    display_name VARCHAR(100) NOT NULL,
-    description TEXT,
-
-    -- Quotas
-    included_recordings_per_month INTEGER,
-    included_storage_gb INTEGER,
-    max_concurrent_tasks INTEGER,
-    max_automation_jobs INTEGER,
-    min_automation_interval_hours INTEGER,
-
-    -- Pricing
-    price_monthly DECIMAL(10, 2) DEFAULT 0 NOT NULL,
-    price_yearly DECIMAL(10, 2) DEFAULT 0 NOT NULL,
-    overage_price_per_unit DECIMAL(10, 4),
-    overage_unit_type VARCHAR(50),
-
-    is_active BOOLEAN DEFAULT TRUE NOT NULL,
-    sort_order INTEGER DEFAULT 0,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_subscription_plans_active ON subscription_plans(is_active, sort_order);
-```
-
----
-
-#### 7. `user_subscriptions`
-
-**Назначение:** Подписки пользователей с custom overrides
-
-```sql
-CREATE TABLE user_subscriptions (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    plan_id INTEGER NOT NULL REFERENCES subscription_plans(id) ON DELETE RESTRICT,
-
-    -- Custom quota overrides (NULL = use plan default)
-    custom_max_recordings_per_month INTEGER,
-    custom_max_storage_gb INTEGER,
-    custom_max_concurrent_tasks INTEGER,
-    custom_max_automation_jobs INTEGER,
-    custom_min_automation_interval_hours INTEGER,
-
-    -- Pay-as-you-go
-    pay_as_you_go_enabled BOOLEAN DEFAULT FALSE NOT NULL,
-    pay_as_you_go_monthly_limit DECIMAL(10, 2),
-
-    -- Period
-    starts_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-    expires_at TIMESTAMP WITH TIME ZONE,
-
-    -- Audit
-    created_by VARCHAR(26) REFERENCES users(id) ON DELETE SET NULL,
-    modified_by VARCHAR(26) REFERENCES users(id) ON DELETE SET NULL,
-    notes TEXT,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_user_subscriptions_user ON user_subscriptions(user_id);
-CREATE INDEX idx_user_subscriptions_plan ON user_subscriptions(plan_id);
-CREATE INDEX idx_user_subscriptions_expires ON user_subscriptions(expires_at);
-```
-
----
-
-#### 8. `quota_usage`
-
-**Назначение:** Отслеживание использования по периодам
-
-```sql
-CREATE TABLE quota_usage (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    period VARCHAR(6) NOT NULL,  -- YYYYMM format
-
-    -- Usage counters
-    recordings_count INTEGER DEFAULT 0,
-    storage_used_gb DECIMAL(10, 2) DEFAULT 0,
-    tasks_run_count INTEGER DEFAULT 0,
-    automation_runs_count INTEGER DEFAULT 0,
-
-    last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_user_period UNIQUE (user_id, period)
-);
-
-CREATE INDEX idx_quota_usage_user_period ON quota_usage(user_id, period DESC);
-```
-
----
-
-### 🎬 Processing
-
-#### 10. `recordings`
-
-**Назначение:** Основная таблица записей
-
-```sql
-CREATE TABLE recordings (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) REFERENCES users(id) ON DELETE CASCADE,
-
-    -- Template & Source mapping
-    input_source_id INTEGER REFERENCES input_sources(id) ON DELETE SET NULL,
-    template_id INTEGER REFERENCES recording_templates(id) ON DELETE SET NULL,
-    is_mapped BOOLEAN DEFAULT FALSE,
-
-    -- Basic info
-    display_name VARCHAR(500) NOT NULL,
-    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    duration FLOAT NOT NULL,  -- seconds (float for precise billing)
-    final_duration FLOAT,     -- seconds, set after transcription (actual content duration)
-
-    -- Processing status (FSM)
-    status VARCHAR(50) NOT NULL DEFAULT 'INITIALIZED',
-
-    -- Flags
-    blank_record BOOLEAN DEFAULT FALSE,
-
-    -- File paths (ID-based structure)
-    local_video_path VARCHAR(1000),
-    processed_video_path VARCHAR(1000),
-    processed_audio_path VARCHAR(1000),
-    transcription_dir VARCHAR(1000),
-
-    -- Transcription results
-    transcription_info JSONB,
-    topic_timestamps JSONB,
-    main_topics JSONB,
-
-    -- Template overrides
-    processing_preferences JSONB,
-
-    -- Deletion (soft + hard delete)
-    deleted BOOLEAN DEFAULT FALSE,
-    deleted_at TIMESTAMP WITH TIME ZONE,
-    delete_state VARCHAR(20) DEFAULT 'active',  -- active, soft_deleted, hard_deleted
-    deletion_reason VARCHAR(20),
-    soft_deleted_at TIMESTAMP WITH TIME ZONE,
-    hard_delete_at TIMESTAMP WITH TIME ZONE,
-
-    -- Expiration
-    expire_at TIMESTAMP WITH TIME ZONE,
-
-    -- Failure tracking (FSM)
-    failed BOOLEAN DEFAULT FALSE,
-    failed_at TIMESTAMP WITH TIME ZONE,
-    failed_reason VARCHAR(1000),
-    failed_at_stage VARCHAR(50),
-    retry_count INTEGER DEFAULT 0,
-
-    -- Timestamps
-    downloaded_at TIMESTAMP WITH TIME ZONE,
-    video_file_size BIGINT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_recordings_user ON recordings(user_id, created_at DESC);
-CREATE INDEX idx_recordings_status ON recordings(status, user_id);
-CREATE INDEX idx_recordings_template ON recordings(template_id, status);
-CREATE INDEX idx_recordings_source ON recordings(input_source_id);
-CREATE INDEX idx_recordings_mapped ON recordings(is_mapped, user_id);
-CREATE INDEX idx_recordings_blank ON recordings(blank_record, user_id);
-CREATE INDEX idx_recordings_deleted ON recordings(deleted, user_id);
-CREATE INDEX idx_recordings_delete_state ON recordings(delete_state);
-CREATE INDEX idx_recordings_failed ON recordings(failed, user_id) WHERE failed = TRUE;
-```
-
-**Processing Status (FSM):**
-- `PENDING_SOURCE` - Awaiting source processing
-- `INITIALIZED` - Ready for download
-- `DOWNLOADING` → `DOWNLOADED`
-- `PROCESSING` → `PROCESSED`
-- `UPLOADING` → `READY`
-- `FAILED` - Failed at stage
-- `SKIPPED` - Skipped processing
-
-**Key Fields:**
-- `blank_record`: duration < 20min OR size < 25MB (auto-skip)
-- `delete_state`: Soft delete → hard delete workflow
-- `processing_preferences`: Per-recording config overrides
-
----
-
-#### 11. `source_metadata`
-
-**Назначение:** Метаданные источника (1:1 с recordings)
-
-```sql
-CREATE TABLE source_metadata (
-    id SERIAL PRIMARY KEY,
-    recording_id INTEGER NOT NULL UNIQUE REFERENCES recordings(id) ON DELETE CASCADE,
-    user_id VARCHAR(26) REFERENCES users(id) ON DELETE CASCADE,
-    input_source_id INTEGER REFERENCES input_sources(id) ON DELETE SET NULL,
-
-    source_type VARCHAR(50) NOT NULL,  -- ZOOM, LOCAL_FILE
-    source_key VARCHAR(1000) NOT NULL,  -- Unique ID in source
-    meta JSONB,  -- Raw metadata from source ("metadata" column in DB)
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_source_per_recording UNIQUE (source_type, source_key, recording_id)
-);
-
-CREATE INDEX idx_source_metadata_recording ON source_metadata(recording_id);
-CREATE INDEX idx_source_metadata_source ON source_metadata(source_type, source_key);
-CREATE INDEX idx_source_metadata_user ON source_metadata(user_id);
-CREATE INDEX idx_source_metadata_input_source ON source_metadata(input_source_id);
-```
-
----
-
-#### 12. `output_targets`
-
-**Назначение:** Отслеживание загрузок по платформам (1:N)
-
-```sql
-CREATE TABLE output_targets (
-    id SERIAL PRIMARY KEY,
-    recording_id INTEGER NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
-    user_id VARCHAR(26) REFERENCES users(id) ON DELETE CASCADE,
-    preset_id INTEGER REFERENCES output_presets(id) ON DELETE SET NULL,
-
-    target_type VARCHAR(50) NOT NULL,  -- YOUTUBE, VK
-    status VARCHAR(50) NOT NULL DEFAULT 'NOT_UPLOADED',  -- FSM
-
-    target_meta JSONB,  -- Platform-specific: video_id, url, etc.
-
-    uploaded_at TIMESTAMP WITH TIME ZONE,
-
-    -- Failure tracking (FSM)
-    failed BOOLEAN DEFAULT FALSE,
-    failed_at TIMESTAMP WITH TIME ZONE,
-    failed_reason VARCHAR(1000),
-    retry_count INTEGER DEFAULT 0,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_target_per_recording UNIQUE (recording_id, target_type)
-);
-
-CREATE INDEX idx_output_targets_recording ON output_targets(recording_id);
-CREATE INDEX idx_output_targets_user ON output_targets(user_id);
-CREATE INDEX idx_output_targets_preset ON output_targets(preset_id);
-CREATE INDEX idx_output_targets_status ON output_targets(target_type, status);
-CREATE INDEX idx_output_targets_failed ON output_targets(status) WHERE status = 'FAILED';
-```
-
-**Target Status (FSM):**
-- `NOT_UPLOADED` → `UPLOADING` → `UPLOADED`
-- `NOT_UPLOADED` → `FAILED`
-- `UPLOADING` → `FAILED`
-- `FAILED` → `UPLOADING` (retry)
-
----
-
-#### 13. `processing_stages`
-
-**Назначение:** Детальное отслеживание этапов обработки (FSM)
-
-```sql
-CREATE TABLE processing_stages (
-    id SERIAL PRIMARY KEY,
-    recording_id INTEGER NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
-    user_id VARCHAR(26) REFERENCES users(id) ON DELETE CASCADE,
-
-    stage_type VARCHAR(50) NOT NULL,  -- TRANSCRIBE, EXTRACT_TOPICS, GENERATE_SUBTITLES, TRIM
-    status VARCHAR(50) NOT NULL DEFAULT 'PENDING',  -- PENDING, IN_PROGRESS, COMPLETED, FAILED, SKIPPED
-
-    -- Timing
-    completed_at TIMESTAMP WITH TIME ZONE,
-
-    -- Failure tracking
-    failed BOOLEAN DEFAULT FALSE,
-    failed_at TIMESTAMP WITH TIME ZONE,
-    failed_reason VARCHAR(1000),
-    skip_reason VARCHAR(500),
-    retry_count INTEGER DEFAULT 0,
-
-    -- Metadata
-    stage_meta JSONB,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_stage_per_recording UNIQUE (recording_id, stage_type)
-);
-
-CREATE INDEX idx_processing_stages_recording ON processing_stages(recording_id);
-CREATE INDEX idx_processing_stages_user ON processing_stages(user_id);
-CREATE INDEX idx_processing_stages_status ON processing_stages(status, stage_type);
-```
-
-**Stage Types:**
-- `TRANSCRIBE` - Audio transcription (Fireworks Whisper)
-- `EXTRACT_TOPICS` - Topic extraction (DeepSeek)
-- `GENERATE_SUBTITLES` - SRT/VTT generation
-- `TRIM` - Silence removal (FFmpeg)
-
-**Status Flow:**
-- `PENDING` → `IN_PROGRESS` → `COMPLETED`
-- `PENDING` → `SKIPPED` (not enabled)
-- `IN_PROGRESS` → `FAILED`
-
----
-
-### 📋 Templates & Configuration
-
-#### 14. `recording_templates`
-
-**Назначение:** Шаблоны для автоматической обработки
-
-```sql
-CREATE TABLE recording_templates (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-
-    -- Matching rules
-    matching_rules JSONB,
-
-    -- Configuration (deep merge with user defaults)
-    processing_config JSONB,
-    metadata_config JSONB,
-    output_config JSONB,
-
-    -- Flags
-    is_draft BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_user_template_name UNIQUE (user_id, name)
-);
-
-CREATE INDEX idx_recording_templates_user ON recording_templates(user_id, is_active);
-CREATE INDEX idx_recording_templates_active ON recording_templates(is_active, created_at);
-```
-
-**См:** [JSONB Structures](#jsonb-structures) для формата конфигураций
-
----
-
-#### 15. `input_sources`
-
-**Назначение:** Источники данных для синхронизации
-
-```sql
-CREATE TABLE input_sources (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    source_type VARCHAR(50) NOT NULL,  -- ZOOM
-    credential_id INTEGER REFERENCES user_credentials(id) ON DELETE SET NULL,
-
-    config JSONB,  -- Source-specific configuration
-
-    is_active BOOLEAN DEFAULT TRUE,
-    last_sync_at TIMESTAMP WITH TIME ZONE,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT uq_input_sources_user_name_type_credential
-        UNIQUE (user_id, name, source_type, credential_id)
-);
-
-CREATE INDEX idx_input_sources_user ON input_sources(user_id, is_active);
-CREATE INDEX idx_input_sources_credential ON input_sources(credential_id);
-CREATE INDEX idx_input_sources_type ON input_sources(source_type);
-```
-
----
-
-#### 16. `output_presets`
-
-**Назначение:** Пресеты для загрузки на платформы
-
-```sql
-CREATE TABLE output_presets (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    platform VARCHAR(50) NOT NULL,  -- YOUTUBE, VK
-    credential_id INTEGER NOT NULL REFERENCES user_credentials(id) ON DELETE CASCADE,
-
-    preset_metadata JSONB,  -- Platform-specific settings
-
-    is_active BOOLEAN DEFAULT TRUE,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_user_preset_name UNIQUE (user_id, name)
-);
-
-CREATE INDEX idx_output_presets_user ON output_presets(user_id, is_active);
-CREATE INDEX idx_output_presets_platform ON output_presets(platform, is_active);
-CREATE INDEX idx_output_presets_credential ON output_presets(credential_id);
-```
-
----
-
-### ⏰ Automation
-
-#### 17. `automation_jobs`
-
-**Назначение:** Scheduled jobs для автоматизации (Celery Beat)
-
-```sql
-CREATE TABLE automation_jobs (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(26) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    template_id INTEGER REFERENCES recording_templates(id) ON DELETE CASCADE,
-
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    job_type VARCHAR(50) NOT NULL,  -- sync_and_process, process_recordings
-
-    -- Schedule (crontab or interval)
-    schedule_type VARCHAR(20) NOT NULL,  -- crontab, interval
-    crontab_minute VARCHAR(100),
-    crontab_hour VARCHAR(100),
-    crontab_day_of_week VARCHAR(100),
-    crontab_day_of_month VARCHAR(100),
-    crontab_month_of_year VARCHAR(100),
-    interval_every INTEGER,
-    interval_period VARCHAR(20),  -- seconds, minutes, hours, days
-
-    -- Sources to process
-    source_ids JSONB,  -- [1, 2, 3] or [] for all
-
-    enabled BOOLEAN DEFAULT TRUE,
-    last_run_at TIMESTAMP WITH TIME ZONE,
-    last_run_status VARCHAR(50),
-    last_run_error TEXT,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-
-    CONSTRAINT unique_user_job_name UNIQUE (user_id, name)
-);
-
-CREATE INDEX idx_automation_jobs_user ON automation_jobs(user_id, enabled);
-CREATE INDEX idx_automation_jobs_template ON automation_jobs(template_id);
-CREATE INDEX idx_automation_jobs_enabled ON automation_jobs(enabled);
-```
-
-**Job Types:**
-- `sync_and_process` - Sync from sources + auto-process with template
-- `process_recordings` - Process existing recordings with template
-
----
-
-#### 18. `celery_beat_schedule_entry`
-
-**Назначение:** Celery Beat scheduler storage (celery-sqlalchemy-scheduler)
-
-```sql
-CREATE TABLE celery_beat_schedule_entry (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) UNIQUE NOT NULL,
-    task VARCHAR(255) NOT NULL,
-
-    -- Schedule types
-    crontab_id INTEGER,
-    interval_id INTEGER,
-
-    args JSONB DEFAULT '[]',
-    kwargs JSONB DEFAULT '{}',
-
-    queue VARCHAR(255),
-    exchange VARCHAR(255),
-    routing_key VARCHAR(255),
-
-    expires TIMESTAMP WITH TIME ZONE,
-    enabled BOOLEAN DEFAULT TRUE,
-
-    last_run_at TIMESTAMP WITH TIME ZONE,
-    total_run_count INTEGER DEFAULT 0,
-
-    date_changed TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    description TEXT
-);
-
--- Supporting tables for celery-sqlalchemy-scheduler
-CREATE TABLE celery_crontab_schedule (...);
-CREATE TABLE celery_interval_schedule (...);
-```
-
----
-
-## JSONB Structures
-
-### Template matching_rules
+## JSONB и конфигурации
+
+| Поле / таблица | Где описан формат |
+|----------------|-------------------|
+| `user_configs.config_data` | Pydantic `UserConfigData` в `api/schemas/config/user_config.py` (trimming, transcription, download, upload, metadata, retention, platforms) |
+| `recording_templates.*_config`, `matching_rules` | Шаблоны конфигурации и матчинг — `api/schemas/template/`, `docs/guides/TEMPLATES.md` |
+| `user_credentials.encrypted_data` | Зашифрованный JSON учётных данных (см. `docs/guides/OAUTH.md`) |
+| `output_presets.preset_metadata` | Платформенные метаданные — `api/schemas/template/preset_metadata.py` |
+| `input_sources.config` | Зависит от `source_type` (например Zoom — см. использование в сервисах синхронизации) |
+| `automation_jobs.schedule` | `api/schemas/automation/schedule.py` — типизированный `Schedule` |
+| `automation_jobs.sync_config` | `SyncConfig` в `api/schemas/automation/job.py` (`sync_days`) |
+| `automation_jobs.filters` | `AutomationFilters` в `api/schemas/automation/filters.py` |
+| `automation_jobs.processing_config` | Опциональный dict-override под конкретный прогон |
+
+Пример структуры шаблона (сокращённо):
 
 ```json
 {
-  "exact_matches": ["Lecture: Machine Learning", "AI Course"],
-  "keywords": ["ML", "AI", "neural networks"],
-  "patterns": ["Лекция \\d+:.*ML", "\\[МО\\].*"],
-  "source_ids": [1, 3],
-  "match_mode": "any"  // "any" or "all"
-}
-```
-
-### Template processing_config
-
-```json
-{
-  "transcription": {
-    "enable_transcription": true,
-    "language": "ru",
-    "prompt": "Technical lecture on machine learning...",
-    "enable_topics": true,
-    "topics_granularity": "long",
-    "enable_subtitles": true
-  },
-  "video": {
-    "remove_silence": true,
-    "silence_threshold": -40.0,
-    "min_silence_duration": 2.0
-  }
-}
-```
-
-### Template metadata_config
-
-```json
-{
-  "title_template": "{themes} | {record_time:DD.MM.YYYY}",
-  "description_template": "{topics}\\n\\nДлительность: {duration}",
-  "topics_display": {
-    "format": "numbered_list",  // numbered_list, bullet_list, dash_list, comma_separated
-    "max_count": 999,
-    "min_length": 0,
-    "show_timestamps": true
-  },
-  "thumbnail_name": "ml_extra.png"  // From storage/users/user_XXXXXX/thumbnails/
-}
-```
-
-### Template output_config
-
-```json
-{
-  "preset_ids": [1, 2],  // Output presets to use
-  "auto_upload": true
-}
-```
-
-### Preset metadata (YouTube)
-
-```json
-{
-  "privacy": "unlisted",
-  "playlist_id": "PLmA-1xX7Iuz...",
-  "category_id": "27",
-  "default_language": "ru",
-  "made_for_kids": false,
-  "embeddable": true,
-  "tags": ["lecture", "ML", "AI"]
-}
-```
-
-### Preset metadata (VK)
-
-```json
-{
-  "group_id": 227011779,
-  "album_id": "63",
-  "privacy_view": 0,  // 0=all, 1=friends, 2=private
-  "privacy_comment": 0,
-  "disable_comments": false,
-  "repeat": false,
-  "wallpost": false
-}
-```
-
-### Input source config (Zoom)
-
-```json
-{
-  "user_id": "zoom_user_id",
-  "sync_from_date": "2024-01-01T00:00:00Z",
-  "min_duration_minutes": 20,
-  "max_duration_minutes": 300,
-  "skip_blank_recordings": true
+  "exact_matches": ["Lecture: ML"],
+  "keywords": ["ML", "AI"],
+  "match_mode": "any"
 }
 ```
 
@@ -898,116 +174,72 @@ CREATE TABLE celery_interval_schedule (...);
 
 ## Индексы и производительность
 
-### Стратегия индексирования
-
-**1. Multi-tenancy:** Все таблицы с `user_id VARCHAR(26)` имеют `(user_id, ...)` composite indexes
-
-**2. Status filtering:** Composite indexes на `(status, user_id)` для быстрой фильтрации
-
-**3. JSONB:** GIN indexes на JSONB полях для быстрого поиска
-
-**4. Foreign Keys:** Все FK автоматически имеют индексы для быстрых JOIN'ов
-
-**5. Partial indexes:** WHERE условия для часто используемых фильтров (failed, deleted)
-
-### Примеры
-
-```sql
--- Multi-tenancy
-CREATE INDEX idx_recordings_user ON recordings(user_id, created_at DESC);
-
--- Status filtering
-CREATE INDEX idx_recordings_status ON recordings(status, user_id);
-
--- Failed/deleted records (partial index)
-CREATE INDEX idx_recordings_failed ON recordings(failed, user_id) WHERE failed = TRUE;
-CREATE INDEX idx_recordings_deleted ON recordings(deleted, user_id) WHERE deleted = TRUE;
-
--- JSONB (if needed)
-CREATE INDEX idx_recordings_prefs ON recordings USING GIN (processing_preferences);
-
--- Unique constraints
-CREATE UNIQUE INDEX unique_source_per_recording
-    ON source_metadata(source_type, source_key, recording_id);
-```
-
-### Performance Optimizations (Jan 2026)
-
-- `func.count()` вместо загрузки всех записей
-- Bulk operations через `get_by_ids()`, `find_by_ids()`
-- Eager loading для вложенных связей (`lazy="selectin"`)
-- Composite indexes для частых queries
-- NullPool для Celery workers (asyncio safety)
+- Имена и состав индексов задаются в миграциях (начиная с `001`); в моделях часть полей помечена `index=True` — при расхождении с миграциями приоритет у **фактической схемы БД** после `alembic upgrade head`.
+- **GIN** по JSONB в текущих миграциях не создаётся; при необходимости полнотекстового/ключевого поиска по JSON — отдельное проектное решение.
+- Частичные индексы в документации старой версии не соответствовали репозиторию; проверяйте `alembic/versions/`.
+- Практики: `get_by_user_and_period` для квот, выборки по `user_id` + сортировка по времени для списков записей; у `RecordingModel` основные связи загружаются через `selectin`, `stage_timings` по умолчанию `noload` (см. `database/models.py`).
 
 ---
 
-## Миграции
+## Планировщик Celery (SQL)
 
-### Список миграций (17)
+Миграция `008` создаёт набор таблиц для **celery-sqlalchemy-scheduler** (схема по смыслу близка к django-celery-beat):
 
-| # | Filename | Описание |
-|---|----------|----------|
-| 001 | create_schema_with_ulid | Initial schema with ULID users |
-| 002 | remove_priority_from_templates | Simplified template structure |
-| 003 | add_pending_source_status | Added PENDING_SOURCE status |
-| 004 | update_processing_stage_types | Updated stage types enum |
-| 005 | add_missing_processing_statuses | Added missing FSM statuses |
-| 006 | refactor_automation_jobs | Automation jobs refactoring |
-| 007 | add_trim_stage_and_skipped | Added TRIM stage + SKIPPED status |
-| 008 | create_celery_beat_tables | Celery Beat integration |
-| 009 | remove_is_superuser_column | Removed deprecated column |
-| 010 | convert_datetime_columns_to_timezone_aware | All datetime → timezone-aware |
-| 011 | add_pause_fields | Pause fields for recordings |
-| 012 | add_external_source_and_target_types | External source and target types |
-| 013 | rename_zoom_processing_incomplete_key | Rename Zoom processing key |
-| 014 | add_stage_timings_and_pipeline_timing | Stage timings + pipeline timing columns |
-| 015 | add_uniqueness_constraints | Uniqueness constraints for templates, presets, jobs, credentials |
-| 016 | add_final_duration_to_recordings | Add final_duration (float), duration Integer→Float, convert mins→secs |
-| 017 | drop_quota_change_history | Drop quota_change_history table |
+- `celery_interval_schedule`, `celery_crontab_schedule`, `celery_solar_schedule`
+- `celery_periodic_task` — связь задачи с расписанием; `args`/`kwargs` в схеме как `Text` с дефолтами `[]` / `{}`
+- `celery_periodic_task_changed` — служебная метка «расписание менялось»
 
-### Команды
+Таблица `celery_beat_schedule_entry` из старого черновика документа **не используется**.
 
-```bash
-# Auto-init (при первом запуске FastAPI)
-# Автоматически создает БД и применяет миграции
+---
 
-# Вручную
-make init-db         # Создать БД + миграции
-make migrate         # Применить миграции
-make migrate-down    # Откатить миграцию
-make db-version      # Текущая версия
-make db-history      # История миграций
-make recreate-db     # Пересоздать БД (⚠️ УДАЛИТ ДАННЫЕ)
-```
+## Миграции и команды
 
-### Создание новой миграции
+### Ревизии (17)
+
+| # | Файл | Смысл |
+|---|------|--------|
+| 001 | `001_create_schema_with_ulid.py` | Базовая схема, ULID-пользователи |
+| 002 | `002_remove_priority_from_templates.py` | Упрощение шаблонов |
+| 003 | `003_add_pending_source_status.py` | Статус `PENDING_SOURCE` |
+| 004 | `004_update_processing_stage_types.py` | Типы этапов обработки |
+| 005 | `005_add_missing_processing_statuses.py` | Доп. значения `processingstatus` |
+| 006 | `006_refactor_automation_jobs.py` | Колонки automation, `filters` |
+| 007 | `007_add_trim_stage_and_skipped.py` | `skip_reason`, правки статусов |
+| 008 | `008_create_celery_beat_tables.py` | Таблицы Celery Beat |
+| 009 | `009_remove_is_superuser_column.py` | Удаление `is_superuser` |
+| 010 | `010_convert_datetime_columns_to_timezone_aware.py` | Timestamptz везде |
+| 011 | `011_add_pause_fields.py` | Пауза записи |
+| 012 | `012_add_external_source_and_target_types.py` | Расширение enum источников/целей |
+| 013 | `013_rename_zoom_processing_incomplete_key.py` | Ключ в metadata |
+| 014 | `014_add_stage_timings_and_pipeline_timing.py` | `stage_timings`, pipeline, `started_at` |
+| 015 | `015_add_uniqueness_constraints.py` | Уникальность имён и credentials |
+| 016 | `016_add_final_duration_to_recordings.py` | `final_duration`, float duration |
+| 017 | `017_drop_quota_change_history.py` | Удаление `quota_change_history` |
+
+### Makefile
 
 ```bash
-# Auto-generate from models
-alembic revision --autogenerate -m "description"
-
-# Manual migration
-alembic revision -m "description"
-
-# Apply
-alembic upgrade head
-
-# Rollback
-alembic downgrade -1
+make init-db       # создать БД (если нужно) + alembic upgrade head
+make migrate       # alembic upgrade head
+make migrate-down  # alembic downgrade -1
+make db-version    # alembic current
+make db-history    # alembic history
+make migration     # интерактивный autogenerate ревизии
 ```
+
+Локально без make: `uv run alembic upgrade head`.
 
 ---
 
 ## См. также
 
-- [TECHNICAL.md](TECHNICAL.md) - Полная техническая документация
-- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Архитектурные решения
-- [OAUTH.md](OAUTH.md) - OAuth credentials & formats
-- [TEMPLATES.md](TEMPLATES.md) - Templates & configuration guide
-- [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) - File storage structure
+- [TECHNICAL.md](TECHNICAL.md) — общая архитектура
+- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) — решения
+- [OAUTH.md](guides/OAUTH.md) — учётные данные
+- [TEMPLATES.md](guides/TEMPLATES.md) — шаблоны
+- [STORAGE_STRUCTURE.md](guides/STORAGE_STRUCTURE.md) — файловое хранилище
 
 ---
 
-**Документ обновлен:** Февраль 2026
-**Версия БД:** 17 миграций
-**Статус:** ✅ Production-Ready
+**Документ синхронизирован с:** `database/models.py`, `database/auth_models.py`, `database/template_models.py`, `database/config_models.py`, `database/automation_models.py`, `models/recording.py`, `alembic/versions/*.py`.

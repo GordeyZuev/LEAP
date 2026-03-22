@@ -7,6 +7,7 @@ from typing import Any
 from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 from video_download_module.core.base import BaseDownloader, DownloadResult
+from video_download_module.platforms.ytdlp.opts import get_cookie_opts
 
 logger = get_logger()
 
@@ -107,6 +108,7 @@ class YtDlpDownloader(BaseDownloader):
             "socket_timeout": 30,
             "fixup": "detect_or_warn",
         }
+        opts.update(get_cookie_opts())
 
         if self._is_audio_format(format_pref):
             # Extract audio → mp3 via ffmpeg post-processor

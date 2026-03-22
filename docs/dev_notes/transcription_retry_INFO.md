@@ -275,7 +275,7 @@ async def transcribe_with_simple_fallback(audio_path: str):
 ## 📝 Related
 
 - [Fireworks Audio API](https://docs.fireworks.ai/api-reference/audio-transcriptions)
-- [TECHNICAL.md](TECHNICAL.md) - Processing pipeline
+- [TECHNICAL.md](../TECHNICAL.md) - Processing pipeline
 - `fireworks_module/service.py` - Current implementation
 - `config/settings.py` - Celery retry settings
 

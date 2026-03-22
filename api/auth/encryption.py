@@ -2,7 +2,7 @@
 
 Encryption: Fernet (AES-128-CBC + HMAC-SHA256).
 Key: SECURITY_ENCRYPTION_KEY (required).
-See docs/CREDENTIAL_SECURITY.md for details.
+See docs/guides/CREDENTIAL_SECURITY.md for details.
 """
 
 import json

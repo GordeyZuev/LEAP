@@ -4,220 +4,115 @@
 
 ---
 
-## 🚀 Quick Start
+## Layout
 
-**New to the project?** Start here:
-
-1. [PLAN.md](PLAN.md) - Project overview & roadmap
-2. [DEPLOYMENT.md](DEPLOYMENT.md) - Setup guide (dev → production)
-3. [OAUTH.md](OAUTH.md) - OAuth setup (YouTube, VK, Zoom)
-
----
-
-## 📚 Documentation Structure
-
-### 🏗️ Architecture & Design
-
-**Core architecture:**
-- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Architecture Decision Records
-- [ADR_FEATURES.md](ADR_FEATURES.md) - Feature-specific ADRs
-- [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema & migrations
-- [TECHNICAL.md](TECHNICAL.md) - Complete technical reference
-
-### ✨ Features & Integration
-
-**Templates & Automation:**
-- [TEMPLATES.md](TEMPLATES.md) - Template-driven automation
-- [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) - Scheduled automation jobs & Celery Beat
-
-**Quotas & Statistics:**
-- [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) - Quota system, user stats, admin API
-
-**OAuth & Credentials:**
-- [OAUTH.md](OAUTH.md) - Complete OAuth guide
-- [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md) - Credential encryption, key rotation, troubleshooting
-- [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow
-
-**Processing:**
-- [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) - Fireworks Batch API
-- [BATCH_TESTING.md](BATCH_TESTING.md) - Batch processing tests & metrics
-
-**Storage:**
-- [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) - Storage architecture
-
-### 🔧 API & Development
-
-**API Documentation:**
-- [TECHNICAL.md](TECHNICAL.md) - REST API endpoints reference, Pydantic schemas
-
-### 🚀 Deployment & Operations
-
-**Setup & Deploy:**
-- [FRONTEND_DEVELOPMENT_PLAN.md](FRONTEND_DEVELOPMENT_PLAN.md) - План разработки фронтенда
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment guide
-- [PLAN.md](PLAN.md) - Project roadmap (thesis)
-- [ROADMAP.md](../ROADMAP.md) - Technical roadmap & TODO
-
-
-### 📜 History
-
-- [CHANGELOG.md](CHANGELOG.md) - Project history
+| Path | Contents |
+|------|----------|
+| **[guides/](guides/)** | How-to guides: deployment, OAuth, templates, Celery, integrations (Zoom, VK, yt-dlp, …) |
+| **[archive/](archive/)** | Thesis plan, seminar materials, incident write-ups, legacy changelogs |
+| **[dev_notes/](dev_notes/)** | Drafts, TODOs, internal notes |
+| **This folder** | Core reference: API/tech (`TECHNICAL.md`), ADRs, DB design, architecture schemas, changelog |
 
 ---
 
-## 🗂️ By Task
+## Quick start
 
-### "I want to setup OAuth"
-→ [OAUTH.md](OAUTH.md) - Complete guide from setup to troubleshooting
-→ [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md) - Encryption & key rotation
-
-### "I want to deploy to production"
-→ [DEPLOYMENT.md](DEPLOYMENT.md) - Infrastructure, configuration, monitoring
-
-### "I want to understand templates"
-→ [TEMPLATES.md](TEMPLATES.md) - Template system, matching, automation
-
-### "I want to understand the architecture"
-→ [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Core decisions
-→ [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database structure
-
-### "I want to understand quotas & stats"
-→ [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) - Quota system, user statistics, admin endpoints
-
-### "I want to use the API"
-→ [TECHNICAL.md](TECHNICAL.md) - Endpoints reference, schemas & best practices
-
-### "I want to integrate VK"
-→ [VK_INTEGRATION.md](VK_INTEGRATION.md) - VK Implicit Flow setup
+1. [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md) — setup (dev → production)
+2. [guides/OAUTH.md](guides/OAUTH.md) — YouTube, VK, Zoom credentials
+3. [TECHNICAL.md](TECHNICAL.md) — REST API and modules
 
 ---
 
-## 📖 Recommended Learning Path
+## Architecture & design
 
-### For Developers
+- [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md) — statuses, run/pause, credentials, configs (diagrams)
+- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) — Architecture Decision Records
+- [ADR_FEATURES.md](ADR_FEATURES.md) — feature-specific ADRs
+- [DATABASE_DESIGN.md](DATABASE_DESIGN.md) — schema & migrations
+- [TECHNICAL.md](TECHNICAL.md) — full technical reference
 
-1. **Architecture:**
-   - [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Understand core decisions
-   - [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database structure
-   - [TECHNICAL.md](TECHNICAL.md) - Modules & API
+### Academic / talks (archive)
 
-2. **Features:**
-   - [TEMPLATES.md](TEMPLATES.md) - Template system
-   - [OAUTH.md](OAUTH.md) - OAuth integration
-
-3. **Development:**
-   - [TECHNICAL.md](TECHNICAL.md) - Pydantic schemas & API
-   - [DEPLOYMENT.md](DEPLOYMENT.md) - Local setup
-
-### For Users
-
-1. **Setup:**
-   - [DEPLOYMENT.md](DEPLOYMENT.md) - Installation
-   - [OAUTH.md](OAUTH.md) - Connect accounts
-
-2. **Usage:**
-   - [TEMPLATES.md](TEMPLATES.md) - Automate with templates
-
-### For DevOps
-
-1. [DEPLOYMENT.md](DEPLOYMENT.md) - Infrastructure setup
-2. [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database optimization
-3. [TECHNICAL.md](TECHNICAL.md) - Monitoring & health checks
+- [archive/PLAN.md](archive/PLAN.md) — thesis plan
+- [archive/SEMINAR_PRESENTATION.md](archive/SEMINAR_PRESENTATION.md) — seminar talk outline
 
 ---
 
-## 📁 File Overview
+## Guides ([guides/](guides/))
 
-| File | Size | Description |
-|------|------|-------------|
-| [PLAN.md](PLAN.md) | 17K | Project roadmap (thesis) |
-| [ROADMAP.md](../ROADMAP.md) | 5K | Technical roadmap & TODO |
-| [CHANGELOG.md](CHANGELOG.md) | 15K | Project history |
-| [ADR_OVERVIEW.md](ADR_OVERVIEW.md) | 24K | Core architecture decisions |
-| [ADR_FEATURES.md](ADR_FEATURES.md) | 19K | Feature-specific ADRs |
-| [DATABASE_DESIGN.md](DATABASE_DESIGN.md) | 25K | Database schema & migrations |
-| [TECHNICAL.md](TECHNICAL.md) | 44K | Complete technical docs |
-| [OAUTH.md](OAUTH.md) | 14K | OAuth setup & integration |
-| [VK_INTEGRATION.md](VK_INTEGRATION.md) | 11K | VK Implicit Flow guide |
-| [TEMPLATES.md](TEMPLATES.md) | 15K | Template system guide |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | 16K | Deployment guide |
-| [FIREWORKS_BATCH_API.md](FIREWORKS_BATCH_API.md) | 4K | Fireworks Batch API |
-| [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md) | 12K | Storage architecture |
-| [AUTOMATION_CELERY_BEAT.md](AUTOMATION_CELERY_BEAT.md) | 12K | Celery Beat automation |
-| [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) | 14K | Quota system, user stats, admin API |
-| [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md) | 2K | Credential encryption, key rotation |
-| [BATCH_TESTING.md](BATCH_TESTING.md) | 16K | Batch processing tests & metrics |
+**Templates & automation**
 
-**Total:** 17 active documents (~213KB)
-**Roadmap:** 1 technical roadmap (5KB)
+- [guides/TEMPLATES.md](guides/TEMPLATES.md)
+- [guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md](guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md)
+- [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md)
 
----
+**Quotas & admin**
 
-## 🗄️ Archive
+- [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md)
 
-Legacy documentation and historical records: [archive/](archive/)
+**Credentials & platforms**
 
-**Archived:** 9 files (essential history only, cleaned Jan 2026)
+- [guides/OAUTH.md](guides/OAUTH.md)
+- [guides/CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md)
+- [guides/VK_INTEGRATION.md](guides/VK_INTEGRATION.md)
+- [guides/VK_POLICY_UPDATE_2026.md](guides/VK_POLICY_UPDATE_2026.md)
+- [guides/ZOOM_CREDS_GUIDE.md](guides/ZOOM_CREDS_GUIDE.md)
 
----
+**Processing & workers**
 
-## 📝 Documentation Guidelines
+- [guides/FIREWORKS_BATCH_API.md](guides/FIREWORKS_BATCH_API.md)
+- [guides/BATCH_TESTING.md](guides/BATCH_TESTING.md)
+- [guides/CELERY_WORKERS_GUIDE.md](guides/CELERY_WORKERS_GUIDE.md)
+- [guides/CELERY_ASYNCIO_TECHNICAL.md](guides/CELERY_ASYNCIO_TECHNICAL.md)
+- [guides/ASR_MODELS_DEEP_DIVE.md](guides/ASR_MODELS_DEEP_DIVE.md)
 
-### Naming Convention
+**Storage & ingestion**
 
-- `UPPERCASE.md` - Core documentation
-- `lowercase.md` - Supplementary guides (не используется)
+- [guides/STORAGE_STRUCTURE.md](guides/STORAGE_STRUCTURE.md)
+- [guides/YT_DLP_GUIDE.md](guides/YT_DLP_GUIDE.md)
+- [guides/YANDEX_DISK_GUIDE.md](guides/YANDEX_DISK_GUIDE.md)
 
-### When to Update
+**Frontend & future**
 
-- Architecture changes → Update ADR_OVERVIEW.md or ADR_FEATURES.md
-- New features → Update TECHNICAL.md, create examples
-- API changes → Update TECHNICAL.md
-- Database changes → Update DATABASE_DESIGN.md
-
-### Creating New Docs
-
-**Before creating new file:**
-1. Check if content fits into existing docs
-2. If truly unique → create with clear scope
-3. Update this INDEX.md
-
-**Prefer:** Sections in existing docs over new files
+- [guides/FRONTEND_DEVELOPMENT_PLAN.md](guides/FRONTEND_DEVELOPMENT_PLAN.md)
+- [guides/TASK_PROGRESS_WEBSOCKET.md](guides/TASK_PROGRESS_WEBSOCKET.md)
 
 ---
 
-## 🔍 Search Tips
+## By task
 
-**Find by keyword:**
+| Goal | Doc |
+|------|-----|
+| OAuth setup | [guides/OAUTH.md](guides/OAUTH.md), [guides/CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md) |
+| Deploy | [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md) |
+| Templates | [guides/TEMPLATES.md](guides/TEMPLATES.md) |
+| Architecture | [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md), [ADR_OVERVIEW.md](ADR_OVERVIEW.md) |
+| API | [TECHNICAL.md](TECHNICAL.md) |
+| VK | [guides/VK_INTEGRATION.md](guides/VK_INTEGRATION.md) |
+
+---
+
+## History
+
+- [CHANGELOG.md](CHANGELOG.md) — version history
+- [archive/UPDATES.md](archive/UPDATES.md) — digest (superseded by changelog for facts)
+- [archive/WHAT_WAS_DONE.md](archive/WHAT_WAS_DONE.md) — long-form milestone notes
+
+---
+
+## Developer conventions
+
+- [INSTRUCTIONS.md](INSTRUCTIONS.md) — code style & docs workflow
+
+---
+
+## Search tips
+
 ```bash
-# OAuth related
-grep -r "OAuth" docs/*.md
-
-# Template features
-grep -r "template" docs/*.md
-
-# API endpoints
-grep -r "POST /api" docs/*.md
-```
-
-**Find by file size:**
-```bash
-ls -lh docs/*.md | sort -h -k5
+grep -r "OAuth" docs/*.md docs/guides/*.md
+grep -r "POST /api" docs/TECHNICAL.md
 ```
 
 ---
 
-## ✅ Quality Metrics
-
-- ✅ **17 active documents** (core documentation)
-- ✅ **Minimal duplication** (reduced by ~750 lines)
-- ✅ **Clear structure** (Architecture, Features, API, Deployment)
-- ✅ **Comprehensive guides** (OAuth, Templates, Technical)
-- ✅ **Up-to-date** (February 2026)
-- ✅ **Accurate metrics** (verified 19 Feb 2026)
-
----
-
-**Index last updated:** 19 февраля 2026
-**Total docs:** 17 active + 1 roadmap + dev_notes folder
-**Status:** ✅ Clean & optimized (removed redundant docs)
+**Index last updated:** March 2026

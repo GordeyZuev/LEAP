@@ -18,12 +18,14 @@ class TrimmingConfig(BaseModel):
 
 
 class TranscriptionConfig(BaseModel):
+    """Per-user transcription preferences. ASR provider, model, and temperature are application-level (see FireworksSettings)."""
+
+    model_config = ConfigDict(extra="ignore")
+
     enable_transcription: bool = True
-    provider: str = "fireworks"
     language: str = "ru"
     prompt: str = ""
     vocabulary: list[str] = Field(default_factory=list, description="Key terms for transcriber")
-    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     allow_errors: bool = False
     enable_topics: bool = True
     granularity: Granularity = Granularity.LONG

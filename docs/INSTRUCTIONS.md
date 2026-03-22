@@ -56,6 +56,7 @@
 
 ## Documentation
 - НЕ создавай лишние MD файлы
+- Руководства: `docs/guides/`; черновики: `docs/dev_notes/`; архив: `docs/archive/` (см. `docs/INDEX.md`)
 - Обновляй `docs/CHANGELOG.md` только важными изменениями
 - Формат записи: краткое описание + файлы/модули
 

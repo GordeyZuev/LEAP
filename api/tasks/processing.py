@@ -752,7 +752,6 @@ def transcribe_recording_task(
     Config parameters used:
     - transcription.language (default: "ru")
     - transcription.prompt (default: "")
-    - transcription.temperature (default: 0.0)
 
     Args:
         recording_id: ID of recording
@@ -805,7 +804,7 @@ async def _async_transcribe_recording(
     Config parameters used:
     - transcription.language (default: "ru")
     - transcription.prompt (default: "")
-    - transcription.temperature (default: 0.0)
+    ASR model/temperature: application settings (FireworksSettings / env FIREWORKS_*), not per-user.
     """
     from api.services.config_utils import resolve_full_config
     from fireworks_module import FireworksConfig, FireworksTranscriptionService
@@ -837,11 +836,8 @@ async def _async_transcribe_recording(
         language = transcription_config.get("language", "ru")
         user_prompt = transcription_config.get("prompt", "")
         vocabulary = transcription_config.get("vocabulary") or []
-        temperature = transcription_config.get("temperature", 0.0)
 
-        logger.debug(
-            f"Transcription config | {format_details(language=language, has_prompt=bool(user_prompt), vocabulary=len(vocabulary), temperature=temperature)}"
-        )
+        logger.info(f"Transcription config | {format_details(lang=language, vocab=len(vocabulary))}")
 
         # Priority: processed audio > processed video > original video
         audio_path = None
@@ -894,12 +890,17 @@ async def _async_transcribe_recording(
         try:
             task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
 
-            # Compose prompt: user_prompt + display_name + vocabulary
             fireworks_prompt = fireworks_service.compose_fireworks_prompt(
-                user_prompt, recording.display_name, vocabulary
+                user_prompt, recording.display_name, vocabulary, language=language
             )
 
-            # Transcription through Fireworks API (ONLY transcription, WITHOUT topic extraction)
+            if fireworks_prompt:
+                logger.info(
+                    f"Transcription prompt | len={len(fireworks_prompt)} | preview={fireworks_prompt[:80]!r}..."
+                )
+            else:
+                logger.info("Transcription prompt | (empty)")
+
             transcription_result = await fireworks_service.transcribe_audio(
                 audio_path=str(audio_path),
                 language=language,
@@ -929,7 +930,7 @@ async def _async_transcribe_recording(
                 "model": fireworks_config.model,
                 "prompt_used": fireworks_prompt,
                 "config": {
-                    "temperature": temperature,
+                    "temperature": fireworks_config.temperature,
                     "language": language,
                     "detected_language": detected_language,
                     "response_format": fireworks_config.response_format,
@@ -1793,7 +1794,7 @@ async def _async_poll_batch_transcription(
             user_prompt = transcription_config.get("prompt", "")
             vocabulary = transcription_config.get("vocabulary") or []
             fireworks_prompt = fireworks_service.compose_fireworks_prompt(
-                user_prompt, recording_db.display_name, vocabulary
+                user_prompt, recording_db.display_name, vocabulary, language=language
             )
 
             task_self.update_progress(user_id, 10, "Submitting batch job...", step="batch_transcribe")

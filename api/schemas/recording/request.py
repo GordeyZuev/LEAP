@@ -158,7 +158,7 @@ class ConfigOverrideRequest(BaseModel):
                 "processing_config": {
                     "transcription": {
                         "enable_transcription": True,
-                        "language": "ru",
+                        "language": "en",
                         "granularity": "short",
                         "enable_topics": True,
                     }

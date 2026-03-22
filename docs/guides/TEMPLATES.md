@@ -371,7 +371,7 @@ CREATE TABLE recording_template_mappings (
 
 **Decision:** Use separate table when needed (>10k recordings, >50 templates)
 
-**См.:** [ADR_FEATURES.md](ADR_FEATURES.md) - Template architecture & decisions
+**См.:** [ADR_FEATURES.md](../ADR_FEATURES.md) - Template architecture & decisions
 
 ---
 
@@ -754,7 +754,7 @@ final = {"privacy": "private", "category_id": 27, "playlist_id": "PLxxx"}
 
 ## См. также
 
-- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) - Architecture decisions
+- [ADR_OVERVIEW.md](../ADR_OVERVIEW.md) - Architecture decisions
 - [OAUTH.md](OAUTH.md) - OAuth credentials
 
 ---

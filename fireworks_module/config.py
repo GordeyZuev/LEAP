@@ -68,10 +68,6 @@ class FireworksConfig(BaseSettings):
         default=0.0,
         description="Sampling temperature (0.0-1.0) or list for fallback decoding",
     )
-    prompt: str | None = Field(
-        default=None,
-        description="Prompt for improving transcription quality",
-    )
     preprocessing: Literal["none", "dynamic", "soft_dynamic", "bass_dynamic"] | None = Field(
         default=None,
         description="Audio preprocessing mode",
@@ -163,24 +159,29 @@ class FireworksConfig(BaseSettings):
 
     @classmethod
     def from_file(cls, config_file: str = "config/fireworks_creds.json") -> FireworksConfig:
-        """Load Fireworks config from JSON file."""
+        """Load credentials from JSON; operational settings from application settings (env FIREWORKS_*)."""
         from pathlib import Path
+
+        from config.settings import get_settings
 
         config_path = Path(config_file)
         if not config_path.exists():
             raise FileNotFoundError(
-                f'Config not found: {config_file}\nCreate with: {{"api_key": "your-fireworks-api-key"}}'
+                f'Config not found: {config_file}\nCreate with: {{"api_key": "your-fireworks-api-key", "account_id": "optional-for-batch"}}'
             )
 
         with config_path.open(encoding="utf-8") as fp:
             data = json.load(fp)
 
-        api_key = data.pop("api_key", "")
+        api_key = data.get("api_key", "")
         if not api_key:
             raise ValueError("api_key missing in config")
 
+        account_id = data.get("account_id")
+
+        ops = get_settings().fireworks.model_dump()
         try:
-            return cls(api_key=api_key, **data)
+            return cls(api_key=api_key, account_id=account_id, **ops)
         except Exception as e:
             logger.error(f"Config validation failed: {e}")
             raise
@@ -197,7 +198,6 @@ class FireworksConfig(BaseSettings):
             "timestamp_granularities": self.timestamp_granularities,
             "alignment_model": self.alignment_model,
             "vad_model": self.vad_model,
-            "prompt": self.prompt,
             "preprocessing": self.preprocessing,
         }
         params.update({k: v for k, v in optional_fields.items() if v})

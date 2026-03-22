@@ -2,6 +2,62 @@
 
 ---
 
+## 2026-03-22: config/examples, ASR not user-tunable, Fireworks token cap in settings
+
+- **config/examples/** — JSON-шаблоны (`fireworks_creds`, `deepseek*`, OAuth) перенесены из `config/`; реальные файлы остаются в `config/*.json`.
+- **Транскрипция** — убраны per-user `provider`/`temperature` из `TranscriptionConfig` и `TranscriptionConfigData`; температура/модель ASR только из `FireworksSettings`/`FIREWORKS_*`. `extra="ignore"` для старых ключей в БД.
+- **DeepSeek Fireworks** — потолок `max_tokens` для chat completions: `DeepSeekFireworksSettings.completion_token_ceiling` (env `DEEPSEEK_FIREWORKS_COMPLETION_TOKEN_CEILING`), поле `completion_token_ceiling` в `DeepSeekConfig`.
+
+### Файлы
+
+- `config/examples/*`, `api/schemas/config/user_config.py`, `api/schemas/config_types.py`, `config/settings.py`, `deepseek_module/config.py`, `deepseek_module/topic_extractor.py`, `api/tasks/processing.py`, `.env.example`, `docs/guides/DEPLOYMENT.md`, `docs/TECHNICAL.md`, `docs/guides/FIREWORKS_BATCH_API.md`
+
+---
+
+## 2026-03-22: Application-Level AI Config — Creds vs Settings, no_prompt Removed
+
+Разделение секретов и операционного конфига: `config/fireworks_creds.json` и `deepseek*.json` содержат только API-ключи; модель, VAD, temperature и т.д. задаются через `FIREWORKS_*`, `DEEPSEEK_*`, `DEEPSEEK_FIREWORKS_*` в env / `config/settings.py`. Удалён `transcription.no_prompt`; промпты транскрипции — только из `fireworks_module/prompts.py` по языку; topic extraction — RU/EN шаблоны в `deepseek_module/prompts.py`.
+
+### Файлы
+
+- `config/settings.py` — `FireworksSettings`, `DeepSeekSettings`, `DeepSeekFireworksSettings`
+- `fireworks_module/config.py`, `deepseek_module/config.py` — merge creds + settings
+- `api/tasks/processing.py`, `api/schemas/template/processing_config.py`, `api/schemas/recording/request.py` — убран `no_prompt`
+- `deepseek_module/prompts.py`, `deepseek_module/topic_extractor.py` — EN промпты для топиков
+- `.env.example` — секция AI
+
+---
+
+## 2026-03-18: English Transcription Fix — Language-Aware Prompts, fireworks_creds Override
+
+Исправлены галлюцинации Whisper при транскрипции английского аудио. Промпт из `fireworks_creds.json` больше не переопределял override.
+
+### Изменения
+
+- **Language-aware prompts** — `compose_fireworks_prompt` выбирает RU/EN шаблоны по `language` (TRANSCRIPTION_DEFAULT_PROMPT_EN, TRANSCRIPTION_TOPIC_EN, TRANSCRIPTION_VOCABULARY_EN)
+- **no_prompt** — опция `transcription.no_prompt` при `language=en`: отключение промпта для снижения галлюцинаций
+- **fireworks_creds override** — при `prompt=""` явно удаляем промпт из params (раньше использовался default из конфига)
+- **API override** — `processing_config.transcription` с `language`, `no_prompt`, `vocabulary` переопределяет шаблон и конфиг
+
+### Файлы
+
+- `fireworks_module/prompts.py` — EN/RU варианты промптов
+- `fireworks_module/service.py` — compose_fireworks_prompt(language), transcribe_audio prompt override
+- `api/tasks/processing.py` — no_prompt, передача prompt=fireworks_prompt (включая "")
+- `api/schemas/template/processing_config.py` — no_prompt
+- `api/schemas/recording/request.py` — example с no_prompt
+
+---
+
+## v0.9.6.4 (2026-03-22)
+
+**Релиз:** Cookies для yt-dlp, английский язык на всей цепочке обработки.
+
+- **Cookies** — `YTDLP_COOKIES_FILE` / `YTDLP_COOKIES_FROM_BROWSER` (Netscape-файл или извлечение из браузера), интеграция в `video_download_module/platforms/ytdlp/opts.py`
+- **English pipeline** — `language: en` в конфиге записи/транскрипции; единая локаль ASR → темы → LLM → субтитры (`api/tasks/processing.py`, `master.json`)
+
+---
+
 ## v0.9.6.3 (2026-03-04)
 
 **Релиз:** Вопросы для самопроверки, экспорт записей, улучшения topic extraction и upload.
@@ -229,7 +285,7 @@
 
 ### Файлы
 - docs/examples/hse_templates.json, template_detailed_example.json, generate_templates.py
-- docs/TEMPLATES.md, docs/TEMPLATES_PRESETS_SOURCES_GUIDE.md
+- docs/guides/TEMPLATES.md, docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md
 
 ---
 

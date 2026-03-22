@@ -582,7 +582,7 @@ async def get_presigned_url(
 
 | Document | Description | Link |
 |----------|-------------|------|
-| **Storage Structure** | Complete storage architecture specification | [docs/STORAGE_STRUCTURE.md](docs/STORAGE_STRUCTURE.md) |
+| **Storage Structure** | Complete storage architecture specification | [docs/guides/STORAGE_STRUCTURE.md](docs/guides/STORAGE_STRUCTURE.md) |
 | **CHANGELOG** | Version history and breaking changes | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
 | **Storage Implementation** | Implementation guide for v0.9.4 | [STORAGE_STRUCTURE_IMPLEMENTED.md](STORAGE_STRUCTURE_IMPLEMENTED.md) |
 | **Legacy Cleanup** | Details of removed legacy code | [LEGACY_CLEANUP_COMPLETE.md](LEGACY_CLEANUP_COMPLETE.md) |
@@ -593,7 +593,7 @@ async def get_presigned_url(
 | Document | Description | Link |
 |----------|-------------|------|
 | **Technical Docs** | Complete technical reference | [docs/TECHNICAL.md](docs/TECHNICAL.md) |
-| **Deployment** | Setup and deployment guide | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| **Deployment** | Setup and deployment guide | [docs/guides/DEPLOYMENT.md](docs/guides/DEPLOYMENT.md) |
 | **API Guide** | REST API documentation | [docs/API_GUIDE.md](docs/API_GUIDE.md) |
 | **Database Design** | Database schema and migrations | [docs/DATABASE_DESIGN.md](docs/DATABASE_DESIGN.md) |
 
@@ -602,7 +602,7 @@ async def get_presigned_url(
 | Document | Description | Link |
 |----------|-------------|------|
 | **README** | Project overview and quick start | [README.md](README.md) |
-| **ROADMAP** | Feature roadmap and priorities | [ROADMAP.md](ROADMAP.md) |
+| **Testing roadmap** | Test plans & coverage | [tests/ROADMAP.md](../../tests/ROADMAP.md) |
 | **ADR Overview** | Architecture decision records | [docs/ADR_OVERVIEW.md](docs/ADR_OVERVIEW.md) |
 | **ADR Features** | Feature-specific decisions | [docs/ADR_FEATURES.md](docs/ADR_FEATURES.md) |
 
@@ -610,11 +610,11 @@ async def get_presigned_url(
 
 | Document | Description | Link |
 |----------|-------------|------|
-| **Templates Guide** | Template-based automation | [docs/TEMPLATES.md](docs/TEMPLATES.md) |
-| **OAuth Setup** | OAuth configuration guide | [docs/OAUTH.md](docs/OAUTH.md) |
+| **Templates Guide** | Template-based automation | [docs/guides/TEMPLATES.md](docs/guides/TEMPLATES.md) |
+| **OAuth Setup** | OAuth configuration guide | [docs/guides/OAUTH.md](docs/guides/OAUTH.md) |
 | **Bulk Operations** | Batch processing guide | [docs/BULK_OPERATIONS_GUIDE.md](docs/BULK_OPERATIONS_GUIDE.md) |
-| **VK Integration** | VK-specific features | [docs/VK_INTEGRATION.md](docs/VK_INTEGRATION.md) |
-| **Fireworks Batch** | Batch transcription API | [docs/FIREWORKS_BATCH_API.md](docs/FIREWORKS_BATCH_API.md) |
+| **VK Integration** | VK-specific features | [docs/guides/VK_INTEGRATION.md](docs/guides/VK_INTEGRATION.md) |
+| **Fireworks Batch** | Batch transcription API | [docs/guides/FIREWORKS_BATCH_API.md](docs/guides/FIREWORKS_BATCH_API.md) |
 
 ### Code Reference
 

@@ -2,7 +2,7 @@
 
 import warnings
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from dotenv import load_dotenv
 from pydantic import Field, field_validator, model_validator
@@ -24,7 +24,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.9.6.3", description="Application version")
+    version: str = Field(default="0.9.6.4", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -544,6 +544,31 @@ class ProcessingSettings(BaseSettings):
     keep_temp_files: bool = Field(default=False, description="Keep temporary files")
 
 
+# ============================================================================
+# YT-DLP SETTINGS (YouTube, VK, Rutube, etc.)
+# ============================================================================
+
+
+class YtdlpSettings(BaseSettings):
+    """yt-dlp settings for video downloads from YouTube, VK, Rutube, etc."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="YTDLP_",
+        case_sensitive=False,
+    )
+
+    # Cookies for bypassing bot detection (YouTube "Sign in to confirm you're not a bot")
+    # Use ONE of the options below. cookies_file takes precedence if both are set.
+    cookies_file: str | None = Field(
+        default=None,
+        description="Path to Netscape-format cookies file. Export via: yt-dlp --cookies-from-browser chrome --cookies cookies.txt",
+    )
+    cookies_from_browser: str | None = Field(
+        default=None,
+        description="Browser name to extract cookies from (chrome, firefox, etc.). Requires browser installed on server.",
+    )
+
+
 class RetentionSettings(BaseSettings):
     """Default retention policy settings for recordings"""
 
@@ -570,6 +595,163 @@ class RetentionSettings(BaseSettings):
         le=730,
         description="Days before auto-expiration for active recordings",
     )
+
+
+# ============================================================================
+# FIREWORKS ASR (application-level, not per-user)
+# ============================================================================
+
+
+class FireworksSettings(BaseSettings):
+    """Fireworks Audio API operational settings. Credentials stay in config/fireworks_creds.json."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="FIREWORKS_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    model: Literal["whisper-v3", "whisper-v3-turbo"] = Field(
+        default="whisper-v3-turbo",
+        description="ASR model for transcription",
+    )
+    base_url: str = Field(
+        default="https://audio-turbo.api.fireworks.ai",
+        description="Overridden at runtime from model by FireworksConfig",
+    )
+    batch_base_url: str = Field(
+        default="https://audio-batch.api.fireworks.ai",
+        description="Base URL for Batch API",
+    )
+    language: str | None = Field(
+        default="ru",
+        description="Default language code (per-recording override in request params)",
+    )
+    response_format: Literal["json", "text", "srt", "verbose_json", "vtt"] = Field(
+        default="verbose_json",
+        description="Response format from API",
+    )
+    timestamp_granularities: list[Literal["word", "segment"]] | None = Field(
+        default_factory=lambda: ["word", "segment"],
+        description="Timestamp granularities for verbose_json",
+    )
+    alignment_model: Literal["mms_fa", "tdnn_ffn", "gentle"] | None = Field(
+        default=None,
+        description="Alignment model",
+    )
+    diarize: bool = Field(default=False, description="Speaker diarization")
+    vad_model: Literal["silero", "whisperx-pyannet"] | None = Field(
+        default="whisperx-pyannet",
+        description="VAD model",
+    )
+    temperature: float | list[float] | None = Field(
+        default=0.01,
+        description="Sampling temperature",
+    )
+    preprocessing: Literal["none", "dynamic", "soft_dynamic", "bass_dynamic"] | None = Field(
+        default="dynamic",
+        description="Audio preprocessing mode",
+    )
+    min_speakers: int | None = Field(default=None, ge=1, description="Min speakers if diarize")
+    max_speakers: int | None = Field(default=None, ge=1, description="Max speakers if diarize")
+    max_file_size_mb: int = Field(default=1024, ge=1, description="Max file size in MB")
+    audio_bitrate: str = Field(default="64k", description="Audio bitrate for processing")
+    audio_sample_rate: int = Field(default=16000, ge=8000, le=48000, description="Sample rate Hz")
+    retry_attempts: int = Field(default=3, ge=1, description="Retry attempts on error")
+    retry_delay: float = Field(default=2.0, ge=0.0, description="Base retry delay seconds")
+
+    @field_validator("timestamp_granularities", mode="before")
+    @classmethod
+    def _parse_ts_gran(cls, v: Any) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return [g.strip() for g in v.split(",") if g.strip()]
+        if isinstance(v, list):
+            valid = {"word", "segment"}
+            return [g for g in v if g in valid]
+        return None
+
+
+# ============================================================================
+# DEEPSEEK / TOPICS (application-level)
+# ============================================================================
+
+
+class DeepSeekSettings(BaseSettings):
+    """DeepSeek API operational settings (primary). api_key in config/deepseek_creds.json."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="DEEPSEEK_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    model: str = Field(default="deepseek-chat", description="Model id")
+    base_url: str = Field(default="https://api.deepseek.com/v1", description="API base URL")
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Temperature")
+    max_tokens: int = Field(default=8000, ge=100, le=8192, description="Max tokens")
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0, description="Top-p")
+    top_k: int | None = Field(default=None, ge=1, description="Top-k (Fireworks)")
+    presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Presence penalty")
+    frequency_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Frequency penalty")
+    reasoning_effort: Literal["low", "medium", "high", "none"] | None = Field(
+        default=None,
+        description="Reasoning effort (Fireworks)",
+    )
+    seed: int | None = Field(default=None, description="Random seed")
+    timeout: float = Field(default=120.0, ge=1.0, description="Request timeout seconds")
+
+    @field_validator("base_url")
+    @classmethod
+    def _strip_base_url(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("base_url must start with http:// or https://")
+        return v.rstrip("/")
+
+
+class DeepSeekFireworksSettings(BaseSettings):
+    """DeepSeek via Fireworks (fallback topic extraction). api_key in config/deepseek_fireworks_creds.json."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="DEEPSEEK_FIREWORKS_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    model: str = Field(
+        default="accounts/fireworks/models/deepseek-v3",
+        description="Fireworks-hosted DeepSeek model id",
+    )
+    base_url: str = Field(
+        default="https://api.fireworks.ai/inference/v1",
+        description="Fireworks OpenAI-compatible endpoint",
+    )
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Temperature")
+    max_tokens: int = Field(default=8000, ge=100, le=8192, description="Max tokens")
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0, description="Top-p")
+    top_k: int | None = Field(default=None, ge=1, description="Top-k")
+    presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Presence penalty")
+    frequency_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Frequency penalty")
+    reasoning_effort: Literal["low", "medium", "high", "none"] | None = Field(
+        default=None,
+        description="Reasoning effort",
+    )
+    seed: int | None = Field(default=None, description="Random seed")
+    timeout: float = Field(default=120.0, ge=1.0, description="Request timeout seconds")
+    completion_token_ceiling: int = Field(
+        default=4096,
+        ge=100,
+        le=8192,
+        description="Clamp max_tokens to this value for Fireworks chat completions (non-stream request limit).",
+    )
+
+    @field_validator("base_url")
+    @classmethod
+    def _strip_base_url_fw(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("base_url must start with http:// or https://")
+        return v.rstrip("/")
 
 
 # ============================================================================
@@ -601,7 +783,11 @@ class Settings(BaseSettings):
     oauth: OAuthSettings = Field(default_factory=OAuthSettings)
     features: FeatureFlagsSettings = Field(default_factory=FeatureFlagsSettings)
     processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
+    ytdlp: YtdlpSettings = Field(default_factory=YtdlpSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
+    fireworks: FireworksSettings = Field(default_factory=FireworksSettings)
+    deepseek: DeepSeekSettings = Field(default_factory=DeepSeekSettings)
+    deepseek_fireworks: DeepSeekFireworksSettings = Field(default_factory=DeepSeekFireworksSettings)
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
@@ -678,11 +864,9 @@ DEFAULT_USER_CONFIG = {
     },
     "transcription": {
         "enable_transcription": True,
-        "provider": "fireworks",
         "language": "ru",
         "prompt": "",
         "vocabulary": [],
-        "temperature": 0.0,
         "granularity": "long",
         "enable_topics": True,
         "topic_mode": "long",

@@ -3,10 +3,21 @@
 # ruff: noqa: S607
 # S607: Using partial paths is safe in test context
 
+import re
 import subprocess
 from pathlib import Path
 
 import pytest
+
+# Match only literal assignment names (not e.g. access_token, refresh_token).
+_SECRET_ASSIGN_PATTERNS = [
+    re.compile(r"(?<![a-zA-Z0-9_])password\s*=\s*['\"]"),
+    re.compile(r"(?<![a-zA-Z0-9_])api_key\s*=\s*['\"]"),
+    re.compile(r"(?<![a-zA-Z0-9_])secret\s*=\s*['\"]"),
+    re.compile(r"(?<![a-zA-Z0-9_])token\s*=\s*['\"]"),
+    # line is lowercased before matching
+    re.compile(r"(?<![a-zA-Z0-9_])secret_key\s*=\s*['\"]"),
+]
 
 
 class TestCodeQuality:
@@ -137,32 +148,23 @@ class TestSecurity:
     def test_no_hardcoded_secrets(self):
         """Test that no hardcoded secrets exist in code."""
         api_path = Path("api")
-        suspicious_patterns = [
-            "password =",
-            "api_key =",
-            "secret =",
-            "token =",
-            "SECRET_KEY =",
-        ]
 
         files_with_secrets = []
 
         for py_file in api_path.rglob("*.py"):
-            content = py_file.read_text()
-            lines = content.split("\n")
+            lines = py_file.read_text().split("\n")
 
             for line_num, line in enumerate(lines, 1):
                 # Skip comments and docstrings
                 if line.strip().startswith("#") or '"""' in line:
                     continue
 
-                for pattern in suspicious_patterns:
-                    if pattern in line.lower():
-                        # Check if it's actually a hardcoded value (not env var)
-                        if ("=" in line and '"' in line) or "'" in line:
-                            # Allow if it's reading from env
-                            if "os.getenv" not in line and "os.environ" not in line:
-                                files_with_secrets.append(f"{py_file}:{line_num}: {line.strip()}")
+                lower = line.lower()
+                for rx in _SECRET_ASSIGN_PATTERNS:
+                    if rx.search(lower):
+                        # Allow if it's reading from env
+                        if "os.getenv" not in line and "os.environ" not in line:
+                            files_with_secrets.append(f"{py_file}:{line_num}: {line.strip()}")
 
         assert not files_with_secrets, "Found potential hardcoded secrets:\n" + "\n".join(files_with_secrets)
 

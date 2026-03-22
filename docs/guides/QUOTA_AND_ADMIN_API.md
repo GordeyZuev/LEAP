@@ -489,7 +489,7 @@ const quota_status = await quotaResponse.json();
 - `api/auth/admin.py` - Admin dependency
 - `api/schemas/admin/__init__.py` - Admin schemas export
 - `api/schemas/admin/stats.py` - Admin stats schemas
-- `docs/QUOTA_AND_ADMIN_API.md` - Документация
+- `docs/guides/QUOTA_AND_ADMIN_API.md` - Документация
 
 ### Файлы изменены
 

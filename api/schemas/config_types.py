@@ -5,7 +5,7 @@ These schemas are used for validation of config_data in BaseConfigModel.
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TrimmingConfigData(BaseModel):
@@ -36,15 +36,14 @@ class TrimmingConfigData(BaseModel):
 
 
 class TranscriptionConfigData(BaseModel):
-    """Configuration for transcription."""
+    """Configuration for transcription (typed config blocks). ASR provider/model/temperature are application-level."""
 
-    provider: Literal["fireworks", "deepseek"] = Field("fireworks", description="Transcription provider")
-    model: str = Field("whisper-v3-turbo", description="Transcription model")
+    model_config = ConfigDict(extra="ignore")
+
     language: str = Field("ru", description="Audio language")
     generate_subtitles: bool = Field(True, description="Generate subtitles")
     subtitle_formats: list[str] = Field(default_factory=lambda: ["srt", "vtt"], description="Subtitle formats")
 
-    temperature: float = Field(0.0, ge=0.0, le=1.0, description="Model temperature")
     prompt: str | None = Field(None, description="Context prompt")
     vocabulary: list[str] | None = Field(None, description="Key terms for transcriber to improve recognition")
 

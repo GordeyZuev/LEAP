@@ -19,7 +19,7 @@
 
 ---
 
-## ✅ Текущее состояние проекта (v0.9.6.3, Mar 2026)
+## ✅ Текущее состояние проекта (v0.9.6.4, Mar 2026)
 
 ### Что уже есть
 
@@ -168,7 +168,7 @@ Cloud Recordings (Tier 2). При 20 параллельных downloads — ~20 
 
 ## 📚 Связанные документы
 
-- [PLAN.md](../PLAN.md) — Rate Limiting API провайдеров (раздел «Проблемы»)
-- [ROADMAP.md](../ROADMAP.md) — техническая дорожная карта
+- [PLAN.md](../archive/PLAN.md) — Rate Limiting API провайдеров (раздел «Проблемы»)
+- [tests/ROADMAP.md](../../tests/ROADMAP.md) — тестовая дорожная карта
 - [transcription_retry_INFO.md](transcription_retry_INFO.md) — аналогия: retry для транскрибации
 - Транскрипт [7bd73c82] (agent-transcripts) — исходное обсуждение VK rate limit

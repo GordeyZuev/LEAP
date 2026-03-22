@@ -13,7 +13,7 @@ Environment variables:
     OLD_ENCRYPTION_KEY        - Old Fernet key to decrypt existing data.
                                 If empty, uses SECURITY_ENCRYPTION_KEY (same key, for stripping prefixes).
 
-See docs/CREDENTIAL_SECURITY.md for details.
+See docs/guides/CREDENTIAL_SECURITY.md for details.
 """
 
 from __future__ import annotations
