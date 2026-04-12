@@ -405,7 +405,7 @@ def build_template(exact_match, subject, faculty, teacher, group_str, album_id):
     discipline = DISCIPLINE_MAP.get(subject, subject)
     prompt = TRANSCRIPTION_DEFAULT_PROMPT.format(topic=discipline)
 
-    title_template = name + " | {themes} ({record_time:DD.MM.YY})"
+    title_template = name + " | {{ themes }} ({{ record_date_short }})"
 
     return {
         "name": name,

@@ -34,6 +34,7 @@ from .preset_metadata import (
     YouTubePrivacy,
 )
 from .processing_config import TemplateProcessingConfig, TranscriptionProcessingConfig
+from .render_preview import MetadataRenderPreviewResponse, PresetRenderPreviewRequest, TemplateRenderPreviewRequest
 from .source_config import (
     GoogleDriveSourceConfig,
     LocalFileSourceConfig,
@@ -65,11 +66,13 @@ __all__ = [
     "InputSourceUpdate",
     "LocalFileSourceConfig",
     "MatchingRules",
+    "MetadataRenderPreviewResponse",
     "OutputPresetCreate",
     "OutputPresetListItem",
     "OutputPresetResponse",
     "OutputPresetUpdate",
     "PresetListResponse",
+    "PresetRenderPreviewRequest",
     "QuestionsDisplayConfig",
     "RecordingTemplateCreate",
     "RecordingTemplateListResponse",
@@ -87,6 +90,7 @@ __all__ = [
     "TemplateMetadataConfig",
     "TemplateOutputConfig",
     "TemplateProcessingConfig",
+    "TemplateRenderPreviewRequest",
     "TopicsDisplayConfig",
     "TopicsDisplayFormat",
     "TranscriptionProcessingConfig",

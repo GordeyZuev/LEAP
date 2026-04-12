@@ -2,22 +2,35 @@
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from api.schemas.common.validators import validate_iana_timezone
+
 
 class UserProfileUpdate(BaseModel):
     """Schema for updating user profile.
 
-    User can only update their name and email.
+    User can update display name, email, and IANA timezone.
     Other fields (permissions, role) can only be changed by admins.
     """
 
     full_name: str | None = Field(None, max_length=255, description="Full name of user")
     email: EmailStr | None = Field(None, description="Email of user")
+    timezone: str | None = Field(
+        None,
+        max_length=50,
+        description="IANA timezone (e.g. Europe/Moscow, America/New_York)",
+    )
+
+    @field_validator("timezone", mode="before")
+    @classmethod
+    def timezone_must_be_iana(cls, v: str | None) -> str | None:
+        return validate_iana_timezone(v)
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "full_name": "John Doe",
                 "email": "ivan.petrov@example.com",
+                "timezone": "Europe/Moscow",
             }
         }
     )

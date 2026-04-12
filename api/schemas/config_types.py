@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from api.schemas.template.jinja_field_validators import validate_required_jinja_title
+
 
 class TrimmingConfigData(BaseModel):
     """Configuration for video trimming."""
@@ -79,12 +81,19 @@ class MappingRule(BaseModel):
     youtube_playlist_id: str | None = Field(None, description="YouTube playlist ID")
     vk_album_id: str | None = Field(None, description="VK album ID")
 
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _mapping_title_jinja(cls, v: str) -> str:
+        return validate_required_jinja_title(v)
+
 
 class VideoMappingConfigData(BaseModel):
     """Configuration for video title mapping."""
 
     mapping_rules: list[MappingRule] = Field(default_factory=list, description="Mapping rules")
-    default_title_template: str = Field("{original_title} | {topic} ({date})", description="Default title template")
+    default_title_template: str = Field(
+        "{{ original_title }} | {{ topic }} ({{ date }})", description="Default title template (Jinja)"
+    )
     default_thumbnail: str = Field("storage/shared/thumbnails/default.png", description="Default thumbnail")
     date_format: str = Field("DD.MM.YYYY", description="Date format")
     thumbnail_directory: str = Field(
@@ -99,6 +108,11 @@ class VideoMappingConfigData(BaseModel):
         if len(patterns) != len(set(patterns)):
             raise ValueError("Duplicate patterns found in mapping rules")
         return v
+
+    @field_validator("default_title_template", mode="before")
+    @classmethod
+    def _default_mapping_title_jinja(cls, v: str) -> str:
+        return validate_required_jinja_title(v)
 
 
 class ZoomSyncConfigData(BaseModel):

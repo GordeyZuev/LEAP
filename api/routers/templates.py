@@ -1,21 +1,24 @@
 """Recording template endpoints"""
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
+from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import RecordingTemplateRepository
 from api.schemas.auth import UserInDB
 from api.schemas.common.pagination import paginate_list
 from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
 from api.schemas.template import (
+    MetadataRenderPreviewResponse,
     RecordingTemplateCreate,
     RecordingTemplateResponse,
     RecordingTemplateUpdate,
     TemplateListResponse,
+    TemplateRenderPreviewRequest,
 )
 from api.schemas.template.from_recording import TemplateFromRecordingRequest
 from api.schemas.template.operations import RematchTaskResponse, TemplatePreviewResponse, TemplateStatsResponse
@@ -61,6 +64,81 @@ async def list_templates(
         per_page=per_page,
         total=total,
         total_pages=total_pages,
+    )
+
+
+@router.post("/render-preview", response_model=MetadataRenderPreviewResponse)
+async def preview_template_metadata_render(
+    data: TemplateRenderPreviewRequest,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> MetadataRenderPreviewResponse:
+    """
+    Dry-run Jinja render for template metadata (title/description/Yandex paths) without saving.
+
+    Optional recording_id uses that recording's context (must belong to current user).
+    Optional template_id merges saved metadata_config; request body overrides non-null fields.
+    """
+    from api.helpers.template_renderer import (
+        TemplateRenderer,
+        build_stub_validation_context,
+        compute_metadata_preview,
+    )
+
+    merged: dict = {}
+    if data.template_id is not None:
+        template_repo = RecordingTemplateRepository(session)
+        template = await template_repo.find_by_id(data.template_id, current_user.id)
+        if not template:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+        merged = dict(template.metadata_config or {})
+
+    def _from_merged(key: str, yandex_key: str | None = None) -> Any:
+        if yandex_key:
+            yd = merged.get("yandex_disk")
+            if isinstance(yd, dict) and yd.get(yandex_key) is not None:
+                return yd.get(yandex_key)
+        return merged.get(key)
+
+    title_t = data.title_template if data.title_template is not None else merged.get("title_template")
+    desc_t = data.description_template if data.description_template is not None else merged.get("description_template")
+    folder_t = (
+        data.folder_path_template
+        if data.folder_path_template is not None
+        else _from_merged("folder_path_template", "folder_path_template")
+    )
+    file_t = (
+        data.filename_template
+        if data.filename_template is not None
+        else _from_merged("filename_template", "filename_template")
+    )
+
+    if data.recording_id is not None:
+        recording_repo = RecordingRepository(session)
+        recording = await recording_repo.get_by_id(data.recording_id, current_user.id)
+        if not recording:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+        topics = data.topics_display if data.topics_display is not None else merged.get("topics_display")
+        questions = data.questions_display if data.questions_display is not None else merged.get("questions_display")
+        ctx = TemplateRenderer.prepare_recording_context(recording, topics_display=topics, questions_display=questions)
+    else:
+        ctx = build_stub_validation_context()
+
+    valid, errs, warns, rendered = compute_metadata_preview(
+        title_template=title_t,
+        description_template=desc_t,
+        folder_path_template=folder_t,
+        filename_template=file_t,
+        context=ctx,
+    )
+    return MetadataRenderPreviewResponse(
+        valid=valid,
+        errors=errs,
+        warnings=warns,
+        rendered_title=rendered.get("title"),
+        rendered_description=rendered.get("description"),
+        rendered_folder_path=rendered.get("folder_path"),
+        rendered_filename=rendered.get("filename"),
     )
 
 

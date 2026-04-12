@@ -655,6 +655,21 @@ async def _async_process_video(
                 start_trim = max(0, first_sound - padding_before)
                 end_trim = last_sound + padding_after
 
+                if end_trim <= start_trim:
+                    duration_fallback = await processor.audio_detector.get_duration_seconds(str(temp_audio_path))
+                    if duration_fallback is None or duration_fallback <= 0:
+                        if temp_audio_path.exists():
+                            temp_audio_path.unlink()
+                        raise Exception(
+                            "Invalid trim window (end <= start) and could not read media duration for fallback"
+                        )
+                    logger.warning(
+                        f"Invalid trim window (end<=start); using full media | "
+                        f"start={start_trim:.1f}s end={end_trim:.1f}s duration={duration_fallback:.1f}s"
+                    )
+                    start_trim = 0.0
+                    end_trim = duration_fallback
+
                 logger.info(f"Audio boundaries | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s')}")
 
                 # Step 3: Trim video

@@ -2,6 +2,63 @@
 
 ---
 
+## v0.9.6.5 (2026-04-12)
+
+**Релиз:** Jinja2 для метаданных загрузки (миграции **018** / **019**), preview API, валидация `resolve_full_config`, timezone в профиле, правки audio-trim.
+
+Подробности — в датированных записях **2026-04-09** и **2026-04-12** ниже.
+
+---
+
+## 2026-04-12: Config resolution — bound template, presets, upload invariants
+
+- **Резолв конфига** — `resolve_full_config`: если у записи задан `template_id`, а шаблона нет — ошибка; после сборки `output_config` проверяются `preset_ids` (все id существуют и активны), при `auto_upload` и `default_platforms` — согласованность с пресетами.
+- **API** — `POST .../recordings/{id}/run` и dry-run: те же ошибки → **404** (как у несуществующего runtime template).
+
+### Файлы
+
+- `api/services/config_utils.py`, `api/routers/recordings.py`, `tests/unit/services/test_runtime_template_validation.py`, `tests/unit/api/test_pause_resume.py`
+
+---
+
+## 2026-04-12: PATCH /users/me — timezone in profile settings
+
+- **Профиль** — `PATCH /api/v1/users/me` принимает `timezone` (IANA, до 50 символов, как в `users.timezone`); невалидная зона — 422.
+- **Валидация** — `api/schemas/common/validators.py`: `validate_iana_timezone`.
+
+### Файлы
+
+- `api/schemas/user/profile.py`, `api/schemas/common/validators.py`, `api/schemas/common/__init__.py`, `api/routers/users.py`, `tests/unit/api/test_users_patch.py`
+
+---
+
+## 2026-04-09: Jinja metadata — owner timezone, precomputed dates, migration 019
+
+- **Часовой пояс** — даты/время в контексте шаблонов считаются в IANA-зоне `users.timezone` владельца записи (невалидная зона → UTC, предупреждение в лог).
+- **Без `leap_dt`** — в Jinja только предвычисленные строки (`record_date_iso`, `record_date_short`, `record_timestamp_local`, пары `publish_*` и т.д.); `record_time` / `publish_time` — строки того же смысла, что и `*_timestamp_local`.
+- **Репозиторий** — `RecordingRepository.get_by_id` подгружает `owner` (`selectinload`) для TZ и summary.
+- **Миграция БД** — `019_replace_leap_dt_in_template_jsonb`: рекурсивная замена `| leap_dt(...)` на канонические переменные в JSONB (`recording_templates`, `output_presets`, `recordings.processing_preferences`, `user_configs`); downgrade no-op.
+- **Выкат** — применять код с новым контекстом до или вместе с `019`; старые шаблоны с `leap_dt` после обновления кода без миграции сломают рендер.
+
+### Файлы
+
+- `api/helpers/template_renderer.py`, `api/helpers/leap_dt_template_migration.py`, `api/repositories/recording_repos.py`, `api/tasks/upload.py`, `api/schemas/template/metadata_config.py`, `api/schemas/template/preset_metadata.py`, `alembic/versions/019_replace_leap_dt_in_template_jsonb.py`, `docs/guides/JINJA_METADATA_TEMPLATES.md`, `docs/examples/generate_templates.py`, `tests/unit/api/helpers/test_template_renderer_jinja.py`, `tests/unit/alembic/test_019_leap_dt_to_canonical.py`
+
+---
+
+## 2026-04-09: Jinja2-only upload metadata templates
+
+- **Рендеринг** — заголовок и описание для YouTube/VK/Yandex и дефолты пользователя задаются только как строки Jinja2 (`SandboxedEnvironment`); легаси `{var}` в рантайме не поддерживается. (Фильтр `leap_dt` добавлялся в этой итерации и **снят** в записи выше после миграции `019`.)
+- **Валидация** — при сохранении конфигов Pydantic проверяет синтаксис и dry-run рендер; для превью без сохранения: `POST /api/v1/templates/render-preview`, `POST /api/v1/presets/render-preview` (ответ 200 с полем `valid`).
+- **Контекст** — добавлены человекочитаемые строки `record_datetime`, `publish_datetime`, `record_date`, `publish_date`, `duration_hm`, строковый `recording_id`; алиасы `topic` и `date`; `original_title` совпадает с `display_name` (отдельного поля в БД нет).
+- **Миграция БД** — `018_jinja_metadata_templates_data_migration`: рекурсивное преобразование известных полей в JSONB (`recording_templates.metadata_config`, `output_presets.preset_metadata`, `recordings.processing_preferences`, `user_configs.config_data`); откат ревизии без отката данных (no-op downgrade).
+
+### Файлы
+
+- `api/helpers/template_renderer.py`, `api/tasks/upload.py`, `api/schemas/template/*`, `api/schemas/config/user_config.py`, `api/schemas/config_types.py`, `api/routers/templates.py`, `api/routers/output_presets.py`, `alembic/versions/018_jinja_metadata_templates_data_migration.py`, `pyproject.toml` (зависимость `jinja2`), `docs/examples/generate_templates.py`, `docs/guides/JINJA_METADATA_TEMPLATES.md`
+
+---
+
 ## 2026-03-22: config/examples, ASR not user-tunable, Fireworks token cap in settings
 
 - **config/examples/** — JSON-шаблоны (`fireworks_creds`, `deepseek*`, OAuth) перенесены из `config/`; реальные файлы остаются в `config/*.json`.

@@ -251,11 +251,6 @@ class TestGetTemplate:
 class TestGetTemplateStats:
     """Tests for GET /api/v1/templates/{id}/stats endpoint."""
 
-    def test_get_template_stats_success(self, client, mocker, mock_user):  # noqa: ARG002
-        """Test successful retrieval of template statistics."""
-        # Skip - this test requires complex async mock setup for SQLAlchemy queries
-        pytest.skip("Requires complex async database mock setup")
-
     def test_get_template_stats_not_found(self, client, mocker):
         """Test 404 when template not found."""
         # Arrange
@@ -270,8 +265,3 @@ class TestGetTemplateStats:
 
         # Assert
         assert response.status_code == 404
-
-    def test_get_template_stats_empty_recordings(self, client, mocker, mock_user):  # noqa: ARG002
-        """Test stats for template with no recordings."""
-        # Skip - this test requires complex async mock setup for SQLAlchemy queries
-        pytest.skip("Requires complex async database mock setup")

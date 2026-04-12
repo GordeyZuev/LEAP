@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from api.schemas.template.jinja_field_validators import validate_required_jinja, validate_required_jinja_title
 from api.shared.enums import Granularity
 
 
@@ -79,8 +80,8 @@ class QuestionsDisplayConfig(BaseModel):
 
 
 class MetadataConfig(BaseModel):
-    title_template: str = "{display_name} | {topic} ({date})"
-    description_template: str = "Recording from {date}"
+    title_template: str = "{{ display_name }} | {{ topic }} ({{ date }})"
+    description_template: str = "Recording from {{ date }}"
     date_format: str = "DD.MM.YYYY"
     tags: list[str] = Field(default_factory=list)
     thumbnail_name: str | None = None
@@ -88,8 +89,18 @@ class MetadataConfig(BaseModel):
     topics_display: TopicsDisplayConfig = Field(default_factory=TopicsDisplayConfig)
     questions_display: QuestionsDisplayConfig = Field(
         default_factory=lambda: QuestionsDisplayConfig(enabled=False),
-        description="Self-check questions display settings for {questions} in templates",
+        description="Self-check questions display for Jinja templates ({{ questions }})",
     )
+
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _metadata_title_jinja(cls, v: str) -> str:
+        return validate_required_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _metadata_desc_jinja(cls, v: str) -> str:
+        return validate_required_jinja(v)
 
 
 class RetentionConfig(BaseModel):

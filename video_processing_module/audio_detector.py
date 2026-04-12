@@ -100,10 +100,21 @@ class AudioDetector:
         if not silence_periods or duration is None:
             return None
 
-        last_silence_end = silence_periods[-1][1]
+        last_start, last_end = silence_periods[-1][0], silence_periods[-1][1]
+
+        # Leading silence only: one block from ~0 (e.g. 0 → 7813s). Sound runs until EOF.
+        # Do not treat as trailing silence (which would return last_start≈0 and break trim).
+        if last_start <= 0.1:
+            return duration
+
+        last_silence_end = last_end
         if last_silence_end < duration - 0.1:
             return duration
-        return silence_periods[-1][0]
+        return last_start
+
+    async def get_duration_seconds(self, file_path: str) -> float | None:
+        """Media duration in seconds (ffprobe)."""
+        return await self._get_duration(file_path)
 
     async def _get_duration(self, file_path: str) -> float | None:
         """Get media file duration using ffprobe."""

@@ -107,7 +107,7 @@ async def update_profile(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Update current user profile (full_name, email)."""
+    """Update current user profile (full_name, email, timezone)."""
     user_repo = UserRepository(session)
 
     # Check that email is not used by another user

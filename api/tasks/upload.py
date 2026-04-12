@@ -9,7 +9,7 @@ from sqlalchemy import select
 from api.celery_app import celery_app
 from api.core.context import ServiceContext
 from api.dependencies import get_async_session_maker
-from api.helpers.template_renderer import TemplateRenderer
+from api.helpers.template_renderer import TemplateRenderer, render_jinja, render_upload_title_and_description
 from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
@@ -342,14 +342,15 @@ async def _async_upload_recording(
                     reason="Token validation failed or expired. Please re-authenticate via OAuth.",
                 )
 
-            title_template = preset_metadata.get("title_template", "{display_name}")
-            description_template = preset_metadata.get("description_template", "Uploaded on {record_time:date}")
+            title_template = preset_metadata.get("title_template", "{{ display_name }}")
+            description_template = preset_metadata.get("description_template", "Uploaded on {{ record_date_iso }}")
 
             logger.debug(f"title_template: {title_template[:100]}...")
             logger.debug(f"description_template: {description_template[:200]}...")
 
-            title = TemplateRenderer.render(title_template, template_context)
-            description = TemplateRenderer.render(description_template, template_context)
+            title, description = render_upload_title_and_description(
+                title_template, description_template, template_context
+            )
 
             logger.debug(f"Rendered title: {title[:100] if title else 'EMPTY'}")
             logger.debug(f"Rendered description length: {len(description)} chars")
@@ -359,7 +360,7 @@ async def _async_upload_recording(
                 title = recording.display_name or "Recording"
             if not description:
                 logger.warning("Description is empty, using fallback")
-                fallback_desc = TemplateRenderer.render("Uploaded on {record_time:date}", template_context)
+                fallback_desc = render_jinja("Uploaded on {{ record_date_iso }}", template_context)
                 description = fallback_desc or "Uploaded"
                 if recording.main_topics:
                     if topics_display and topics_display.get("enabled", True):
@@ -474,14 +475,14 @@ async def _async_upload_recording(
                 folder_path_template = preset_metadata.get("yandex_disk", {}).get(
                     "folder_path_template"
                 ) or preset_metadata.get("folder_path_template", "/Video/Uploads")
-                folder_path = TemplateRenderer.render(folder_path_template, template_context)
+                folder_path = render_jinja(folder_path_template, template_context)
                 upload_params["folder_path"] = folder_path
 
                 filename_template = preset_metadata.get("yandex_disk", {}).get(
                     "filename_template"
                 ) or preset_metadata.get("filename_template")
                 if filename_template:
-                    filename = TemplateRenderer.render(filename_template, template_context)
+                    filename = render_jinja(filename_template, template_context)
                     upload_params["filename"] = filename
 
                 if "overwrite" in preset_metadata:

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from api.schemas.common.validators import validate_regex_pattern
 from api.schemas.processing.preferences import ProcessingPreferences
 from api.schemas.recording.filters import RecordingFilters
+from api.schemas.template.metadata_config import TemplateMetadataConfig
 from api.schemas.validators import DateRangeMixin
 from api.shared.enums import Granularity
 
@@ -136,6 +137,12 @@ class TrimVideoRequest(BaseModel):
     padding_after: float = 5.0
 
 
+def _validate_metadata_config_override(v: dict | None) -> dict | None:
+    if v is None:
+        return None
+    return TemplateMetadataConfig.model_validate(v).model_dump(exclude_none=True)
+
+
 class ConfigOverrideRequest(BaseModel):
     """
     Flexible request for override configuration in process endpoint.
@@ -149,6 +156,11 @@ class ConfigOverrideRequest(BaseModel):
     processing_config: dict | None = Field(None, description="Override processing config")
     metadata_config: dict | None = Field(None, description="Override metadata config")
     output_config: dict | None = Field(None, description="Override output config")
+
+    @field_validator("metadata_config", mode="before")
+    @classmethod
+    def _metadata_override_jinja(cls, v: dict | None) -> dict | None:
+        return _validate_metadata_config_override(v)
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -164,8 +176,8 @@ class ConfigOverrideRequest(BaseModel):
                     }
                 },
                 "metadata_config": {
-                    "title_template": "{themes}",
-                    "description_template": "{summary}\\n\\n{topics}",
+                    "title_template": "{{ themes }}",
+                    "description_template": "{{ summary }}\\n\\n{{ topics }}",
                     "youtube": {
                         "playlist_id": "PLxxx",
                         "privacy": "unlisted",
@@ -513,6 +525,11 @@ class BulkRunRequest(BulkOperationRequest):
     metadata_config: dict | None = Field(None, description="Override metadata config for all recordings")
     output_config: dict | None = Field(None, description="Override output config for all recordings")
 
+    @field_validator("metadata_config", mode="before")
+    @classmethod
+    def _bulk_metadata_override_jinja(cls, v: dict | None) -> dict | None:
+        return _validate_metadata_config_override(v)
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -535,8 +552,8 @@ class BulkRunRequest(BulkOperationRequest):
                     }
                 },
                 "metadata_config": {
-                    "title_template": "{themes}",
-                    "description_template": "{summary}\\n\\n{topics}",
+                    "title_template": "{{ themes }}",
+                    "description_template": "{{ summary }}\\n\\n{{ topics }}",
                     "youtube": {
                         "playlist_id": "PLxxx",
                         "privacy": "unlisted",

@@ -190,6 +190,15 @@ class TestAudioDetectorHelpers:
         result = detector._find_last_sound(silence_periods, None)
         assert result is None
 
+        # Case 4: Long leading silence only — must not return 0 as last_sound (would invert trim)
+        silence_periods = [(0.0, 7813.1)]
+        result = detector._find_last_sound(silence_periods, 7813.1)
+        assert result == 7813.1
+
+        silence_periods = [(0.0, 100.0)]
+        result = detector._find_last_sound(silence_periods, 8000.0)
+        assert result == 8000.0
+
     @pytest.mark.asyncio
     async def test_get_duration(self):
         """Test getting media file duration."""

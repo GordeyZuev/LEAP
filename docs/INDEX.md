@@ -44,6 +44,7 @@
 
 - [guides/TEMPLATES.md](guides/TEMPLATES.md)
 - [guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md](guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md)
+- [guides/JINJA_METADATA_TEMPLATES.md](guides/JINJA_METADATA_TEMPLATES.md) — Jinja2 variables, precomputed date strings (owner TZ), preview API, migrations 018–019
 - [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md)
 
 **Quotas & admin**

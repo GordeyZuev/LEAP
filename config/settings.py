@@ -24,7 +24,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.9.6.4", description="Application version")
+    version: str = Field(default="0.9.6.5", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -890,8 +890,8 @@ DEFAULT_USER_CONFIG = {
         "default_preset_ids": {},
     },
     "metadata": {
-        "title_template": "{display_name} | {topic} ({date})",
-        "description_template": "Запись от {date}",
+        "title_template": "{{ display_name }} | {{ topic }} ({{ date }})",
+        "description_template": "Запись от {{ date }}",
         "date_format": "DD.MM.YYYY",
         "tags": [],
         "thumbnail_name": None,

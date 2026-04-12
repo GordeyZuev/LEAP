@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 
+from .jinja_field_validators import validate_optional_jinja, validate_optional_jinja_title, validate_required_jinja
+
 
 class TopicsDisplayFormat(StrEnum):
     NUMBERED_LIST = "numbered_list"
@@ -123,6 +125,16 @@ class YouTubePresetMetadata(BaseModel):
             raise ValueError("category_id must be a number")
         return str(cat_int)
 
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _youtube_title_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _youtube_desc_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
 
 class VKPrivacyLevel(int, Enum):
     ALL = 0
@@ -170,6 +182,16 @@ class VKPresetMetadata(BaseModel):
     compression: bool = Field(False, description="VK-side video compression")
     wallpost: bool = Field(False, description="Post to wall on upload")
 
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _vk_preset_title_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _vk_preset_desc_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
 
 class YandexDiskPresetMetadata(BaseModel):
     """Preset metadata for Yandex Disk output target."""
@@ -178,16 +200,26 @@ class YandexDiskPresetMetadata(BaseModel):
 
     folder_path_template: str = Field(
         ...,
-        description="Path template on Disk with variables (e.g. '/Video/{course_name}/{date}')",
-        examples=["/Video/Processed", "/Video/{display_name}/{record_time:YYYY-MM-DD}"],
+        description="Path template on Disk with Jinja (e.g. '/Video/{{ display_name }}')",
+        examples=["/Video/Processed", "/Video/{{ display_name }}/{{ record_date_iso }}"],
     )
     filename_template: str | None = Field(
         None,
         max_length=500,
         description="Custom filename template (default: video.mp4)",
-        examples=["{display_name}.mp4", "{record_time:YYYY-MM-DD}_{display_name}.mp4"],
+        examples=["{{ display_name }}.mp4", "{{ record_date_iso }}_{{ display_name }}.mp4"],
     )
     overwrite: bool = Field(False, description="Overwrite existing files on Disk")
+
+    @field_validator("folder_path_template", mode="before")
+    @classmethod
+    def _yandex_folder_jinja(cls, v: str) -> str:
+        return validate_required_jinja(v)
+
+    @field_validator("filename_template", mode="before")
+    @classmethod
+    def _yandex_filename_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
 
 
 PresetMetadata = YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata

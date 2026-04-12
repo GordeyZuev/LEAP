@@ -127,6 +127,11 @@ class VideoProcessor:
         """Trim audio using stream copy (fast, no re-encoding)."""
         try:
             duration = end_time - start_time
+            if duration <= 0:
+                logger.error(
+                    f"Audio trim rejected: non-positive duration ({duration}s) for start={start_time} end={end_time}"
+                )
+                return False
 
             cmd = [
                 "ffmpeg",
@@ -167,6 +172,11 @@ class VideoProcessor:
     async def trim_video(self, input_path: str, output_path: str, start_time: float, end_time: float) -> bool:
         """Trim video to specified time range."""
         duration = end_time - start_time
+        if duration <= 0:
+            logger.error(
+                f"Video trim rejected: non-positive duration ({duration}s) for start={start_time} end={end_time}"
+            )
+            return False
         input_path = str(input_path)
         output_path = str(output_path)
 

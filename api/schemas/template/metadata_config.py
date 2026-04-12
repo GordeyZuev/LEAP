@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 
+from .jinja_field_validators import validate_optional_jinja, validate_optional_jinja_title
 from .preset_metadata import QuestionsDisplayConfig, TopicsDisplayConfig
 
 
@@ -20,6 +21,16 @@ class VKMetadataConfig(BaseModel):
     title_template: str | None = Field(None, max_length=500, description="VK-specific title template")
     description_template: str | None = Field(None, max_length=5000, description="VK-specific description template")
 
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _vk_title_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _vk_desc_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
 
 class YouTubeMetadataConfig(BaseModel):
     model_config = BASE_MODEL_CONFIG
@@ -34,6 +45,16 @@ class YouTubeMetadataConfig(BaseModel):
     title_template: str | None = Field(None, max_length=500, description="YouTube-specific title template")
     description_template: str | None = Field(None, max_length=5000, description="YouTube-specific description template")
 
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _yt_title_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _yt_desc_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
 
 class YandexDiskMetadataConfig(BaseModel):
     """Yandex Disk metadata overrides at template level."""
@@ -44,13 +65,23 @@ class YandexDiskMetadataConfig(BaseModel):
         None,
         max_length=500,
         description="Override folder path template for this template",
-        examples=["/Video/{display_name}", "/Lectures/{record_time:YYYY-MM-DD}"],
+        examples=["/Video/{{ display_name }}", "/Lectures/{{ record_date_iso }}"],
     )
     filename_template: str | None = Field(
         None,
         max_length=500,
         description="Override filename template",
     )
+
+    @field_validator("folder_path_template", mode="before")
+    @classmethod
+    def _yd_folder_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
+    @field_validator("filename_template", mode="before")
+    @classmethod
+    def _yd_file_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
 
 
 class TemplateMetadataConfig(BaseModel):
@@ -62,8 +93,7 @@ class TemplateMetadataConfig(BaseModel):
     2. Common thumbnail_name
     3. Preset thumbnail
 
-    Template variables: {display_name}, {themes}, {topic}, {topics}, {topics_list},
-    {summary}, {questions}, {record_time}, {publish_time}, {date}, {duration}
+    Jinja variables: {{ display_name }}, {{ themes }}, {{ topics }}, {{ summary }}, {{ record_date_iso }}, {{ record_datetime }}, etc. (precomputed date strings in the recording owner's timezone).
     """
 
     model_config = BASE_MODEL_CONFIG
@@ -77,9 +107,9 @@ class TemplateMetadataConfig(BaseModel):
         max_length=500,
         description="Title template with variables",
         examples=[
-            "AI Course | {themes} ({record_time:DD.MM.YY})",
-            "{display_name} - {date}",
-            "RL | {themes}",
+            "AI Course | {{ themes }} ({{ record_date_short }})",
+            "{{ display_name }} - {{ date }}",
+            "RL | {{ themes }}",
         ],
     )
 
@@ -88,9 +118,9 @@ class TemplateMetadataConfig(BaseModel):
         max_length=5000,
         description="Description template with variables",
         examples=[
-            "Lecture\\n\\n{topics}\\n\\n{questions}\\n\\nRecorded: {record_time:DD.MM.YYYY}",
-            "{summary}",
-            "Topics: {topics_list}\\n\\nDuration: {duration}",
+            "Lecture\\n\\n{{ topics }}\\n\\n{{ questions }}\\n\\nRecorded: {{ record_date }}",
+            "{{ summary }}",
+            "Topics: {{ topics }}\\n\\nDuration: {{ duration }}",
         ],
     )
 
@@ -109,14 +139,12 @@ class TemplateMetadataConfig(BaseModel):
         examples=["applied_python.png", "ml_extra.png", "hse_ai.jpg"],
     )
 
-    @field_validator("title_template")
+    @field_validator("title_template", mode="before")
     @classmethod
     def validate_title_template(cls, v: str | None) -> str | None:
-        if v is not None:
-            v = v.strip()
-            if not v:
-                return None
-            valid_vars = ["{display_name}", "{themes}", "{topic}", "{date}", "{record_time}", "{duration}"]
-            if not any(var in v for var in valid_vars):
-                raise ValueError(f"title_template must contain at least one variable from: {', '.join(valid_vars)}")
-        return v
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def validate_description_template(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)

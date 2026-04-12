@@ -9,12 +9,110 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
-from api.repositories.template_repos import RecordingTemplateRepository
+from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
 from api.services.config_resolver import ConfigResolver
 from database.models import RecordingModel
+from database.template_models import OutputPresetModel
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class RuntimeTemplateNotFoundError(ValueError):
+    """``manual_override`` requested a template id that does not exist for this user."""
+
+
+class BoundTemplateNotFoundError(ValueError):
+    """Recording has ``template_id`` set but no matching template row for this user."""
+
+
+class InvalidOutputPresetsError(ValueError):
+    """Effective ``output_config`` references missing, inactive, or inconsistent presets."""
+
+
+def _normalize_output_preset_ids(raw: Any) -> list[int]:
+    """Parse ``preset_ids`` from merged output_config; empty list if absent or empty."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise InvalidOutputPresetsError("output_config.preset_ids must be a list of positive integers")
+    out: list[int] = []
+    for item in raw:
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise InvalidOutputPresetsError("output_config.preset_ids must be a list of positive integers")
+        if item <= 0:
+            raise InvalidOutputPresetsError("output_config.preset_ids must be positive integers")
+        out.append(item)
+    return out
+
+
+def _normalize_default_platforms(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise InvalidOutputPresetsError("output_config.default_platforms must be a list of strings")
+    return [str(p).strip() for p in raw if str(p).strip()]
+
+
+async def validate_effective_output_config(
+    session: AsyncSession,
+    user_id: str,
+    output_config: dict[str, Any],
+) -> None:
+    """
+    Validate merged output_config: preset ids exist and are active; upload invariants.
+
+    Raises:
+        InvalidOutputPresetsError: On unknown ids, inactive presets, or auto_upload/platform mismatch.
+    """
+    preset_ids = _normalize_output_preset_ids(output_config.get("preset_ids"))
+    auto_upload = bool(output_config.get("auto_upload", False))
+    default_platforms = _normalize_default_platforms(output_config.get("default_platforms"))
+
+    if auto_upload and default_platforms and not preset_ids:
+        raise InvalidOutputPresetsError(
+            "auto_upload with default_platforms requires preset_ids; cannot upload without configured presets"
+        )
+
+    presets: list[OutputPresetModel] = []
+    if preset_ids:
+        requested = set(preset_ids)
+        preset_repo = OutputPresetRepository(session)
+        presets = await preset_repo.find_by_ids(list(requested), user_id)
+        found_ids = {p.id for p in presets}
+        missing = requested - found_ids
+        if missing:
+            raise InvalidOutputPresetsError(f"Unknown or inaccessible preset ids: {sorted(missing)}")
+        inactive = [p.id for p in presets if not p.is_active]
+        if inactive:
+            raise InvalidOutputPresetsError(f"Inactive presets cannot be used for upload: {sorted(inactive)}")
+
+    if auto_upload and default_platforms and preset_ids:
+        platforms_from_presets = {p.platform.lower() for p in presets}
+        for plat in default_platforms:
+            if plat.lower() not in platforms_from_presets:
+                raise InvalidOutputPresetsError(f"No preset for platform {plat!r} in output_config.preset_ids")
+
+
+async def validate_runtime_template_override(
+    session: AsyncSession,
+    user_id: str,
+    manual_override: dict[str, Any] | None,
+) -> None:
+    """
+    Ensure ``runtime_template_id`` in ``manual_override`` refers to an existing template.
+
+    Raises:
+        RuntimeTemplateNotFoundError: Template id is set (non-None) but not found for ``user_id``.
+    """
+    if not manual_override or "runtime_template_id" not in manual_override:
+        return
+    runtime_template_id = manual_override["runtime_template_id"]
+    if runtime_template_id is None:
+        return
+    template_repo = RecordingTemplateRepository(session)
+    if not await template_repo.find_by_id(runtime_template_id, user_id):
+        raise RuntimeTemplateNotFoundError(f"Template {runtime_template_id} not found")
 
 
 @overload
@@ -69,6 +167,9 @@ async def resolve_full_config(
 
     Raises:
         ValueError: If recording not found
+        RuntimeTemplateNotFoundError: If ``manual_override`` references a missing runtime template
+        BoundTemplateNotFoundError: If ``recording.template_id`` points to a missing template
+        InvalidOutputPresetsError: If merged ``output_config`` is invalid (when ``include_output_config`` is True)
     """
     # Get recording
     recording_repo = RecordingRepository(session)
@@ -77,6 +178,8 @@ async def resolve_full_config(
     if not recording:
         raise ValueError(f"Recording {recording_id} not found")
 
+    await validate_runtime_template_override(session, user_id, manual_override)
+
     # Get full user config as base
     user_config_repo = UserConfigRepository(session)
     full_config = await user_config_repo.get_effective_config(user_id)
@@ -84,22 +187,28 @@ async def resolve_full_config(
     # Initialize config resolver for merging
     config_resolver = ConfigResolver(session)
 
-    # Merge with template if exists
+    # Merge with bound template if recording.template_id is set (must exist)
     if recording.template_id:
         template_repo = RecordingTemplateRepository(session)
-        template = await template_repo.find_by_id(recording.template_id, user_id)
-        if template and template.processing_config:
-            logger.debug(f"Merging recording template '{template.name}' config for recording {recording_id}")
-            full_config = config_resolver._merge_configs(full_config, template.processing_config)
+        bound_template = await template_repo.find_by_id(recording.template_id, user_id)
+        if not bound_template:
+            raise BoundTemplateNotFoundError(
+                f"Recording is bound to template {recording.template_id} but template not found"
+            )
+        if bound_template.processing_config:
+            logger.debug(f"Merging recording template '{bound_template.name}' config for recording {recording_id}")
+            full_config = config_resolver._merge_configs(full_config, bound_template.processing_config)
 
     # Merge with runtime template_id (higher priority than recording.template_id)
     runtime_template = None
     if manual_override and "runtime_template_id" in manual_override:
         runtime_template_id = manual_override["runtime_template_id"]
-        template_repo = RecordingTemplateRepository(session)
-        runtime_template = await template_repo.find_by_id(runtime_template_id, user_id)
+        if runtime_template_id is not None:
+            template_repo = RecordingTemplateRepository(session)
+            runtime_template = await template_repo.find_by_id(runtime_template_id, user_id)
+            if not runtime_template:
+                raise RuntimeTemplateNotFoundError(f"Template {runtime_template_id} not found")
 
-        if runtime_template:
             logger.info(
                 f"Applying runtime template '{runtime_template.name}' (id={runtime_template_id}) "
                 f"for recording {recording_id}"
@@ -113,8 +222,6 @@ async def resolve_full_config(
                 full_config = config_resolver._merge_configs(
                     full_config, {"metadata_config": runtime_template.metadata_config}
                 )
-        else:
-            logger.warning(f"Runtime template_id={runtime_template_id} not found for user {user_id}")
 
     # Merge with recording.processing_preferences if exists (higher priority)
     if recording.processing_preferences:
@@ -173,6 +280,8 @@ async def resolve_full_config(
         # Apply manual output_config override if provided
         if manual_override and "output_config" in manual_override:
             output_config = config_resolver._merge_configs(output_config, manual_override["output_config"])
+
+        await validate_effective_output_config(session, user_id, output_config)
 
         return full_config, output_config, recording
 

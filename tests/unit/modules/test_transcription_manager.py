@@ -15,16 +15,6 @@ import pytest
 class TestTranscriptionManager:
     """Tests for TranscriptionManager file management."""
 
-    def test_transcription_manager_init(self):
-        """Test TranscriptionManager initialization."""
-        # Arrange & Act
-        from transcription_module.manager import TranscriptionManager
-
-        manager = TranscriptionManager()
-
-        # Assert
-        assert manager is not None
-
     def test_get_dir(self):
         """Test getting transcription directory path."""
         # Arrange
@@ -53,82 +43,68 @@ class TestTranscriptionManager:
         with pytest.raises(ValueError, match="user_slug is required"):
             manager.get_dir(123, None)
 
-    def test_has_master_returns_true(self):
-        """Test has_master returns True when file exists."""
-        # Arrange
+    @pytest.mark.parametrize(
+        ("method", "exists"),
+        [
+            ("has_master", True),
+            ("has_master", False),
+            ("has_extracted", True),
+            ("has_extracted", False),
+        ],
+    )
+    def test_has_transcription_file(self, method, exists):
+        """has_master / has_extracted reflect master.json / extracted.json existence."""
         from transcription_module.manager import TranscriptionManager
 
         manager = TranscriptionManager()
 
-        with patch.object(Path, "exists", return_value=True):
-            # Act
-            result = manager.has_master(123, 456789)
+        with patch.object(Path, "exists", return_value=exists):
+            assert getattr(manager, method)(123, 456789) is exists
 
-            # Assert
-            assert result is True
-
-    def test_has_master_returns_false(self):
-        """Test has_master returns False when file doesn't exist."""
-        # Arrange
-        from transcription_module.manager import TranscriptionManager
-
-        manager = TranscriptionManager()
-
-        with patch.object(Path, "exists", return_value=False):
-            # Act
-            result = manager.has_master(123, 456789)
-
-            # Assert
-            assert result is False
-
-    def test_has_extracted_returns_true(self):
-        """Test has_extracted returns True when file exists."""
-        # Arrange
-        from transcription_module.manager import TranscriptionManager
-
-        manager = TranscriptionManager()
-
-        with patch.object(Path, "exists", return_value=True):
-            # Act
-            result = manager.has_extracted(123, 456789)
-
-            # Assert
-            assert result is True
-
-    @pytest.mark.skip(reason="Complex path mocking - tested via integration tests")
-    def test_save_master(self):
-        """Test saving transcription to master.json."""
-        # Arrange
+    @pytest.mark.parametrize(
+        ("words", "segments", "exp_w", "exp_s"),
+        [
+            ([{"word": "test", "start": 0.0, "end": 1.0}], [], 1, 0),
+            ([], [{"text": "seg", "start": 0.0, "end": 1.0}], 0, 1),
+            (
+                [{"word": "a"}, {"word": "b"}],
+                [{"text": "x"}],
+                2,
+                1,
+            ),
+        ],
+    )
+    def test_save_master_writes_stats_counts(self, words, segments, exp_w, exp_s):
+        """save_master embeds words_count / segments_count in stats."""
         from transcription_module.manager import TranscriptionManager
 
         manager = TranscriptionManager()
         recording_id = 123
         user_slug = 456789
-        words = [{"word": "test", "start": 0.0, "end": 1.0}]
-        segments = [{"text": "test segment", "start": 0.0, "end": 5.0}]
 
         with patch("file_storage.path_builder.StoragePathBuilder.transcription_dir") as mock_dir:
-            mock_path = MagicMock(spec=Path)
-            mock_path.__truediv__ = MagicMock(return_value=mock_path)
-            mock_dir.return_value = mock_path
+            mock_dir_path = MagicMock(spec=Path)
+            mock_master_path = MagicMock(spec=Path)
+            mock_dir_path.__truediv__ = MagicMock(return_value=mock_master_path)
+            mock_dir.return_value = mock_dir_path
 
-            with patch.object(Path, "mkdir"):
-                with patch("builtins.open", mock_open()) as mock_file:
-                    with patch("json.dump"):
-                        # Act
-                        result_path = manager.save_master(
-                            recording_id=recording_id,
-                            words=words,
-                            segments=segments,
-                            language="ru",
-                            model="fireworks",
-                            duration=120.0,
-                            user_slug=user_slug,
-                        )
+            mock_master_path.open = mock_open()
 
-                        # Assert
-                        assert result_path is not None
-                        mock_file.assert_called_once()
+            with patch("json.dump") as mock_dump:
+                manager.save_master(
+                    recording_id=recording_id,
+                    words=words,
+                    segments=segments,
+                    language="ru",
+                    model="fireworks",
+                    duration=120.0,
+                    user_slug=user_slug,
+                )
+
+            mock_dump.assert_called_once()
+            payload = mock_dump.call_args[0][0]
+            assert payload["stats"]["words_count"] == exp_w
+            assert payload["stats"]["segments_count"] == exp_s
 
     def test_load_master_success(self):
         """Test loading transcription from master.json."""
@@ -172,47 +148,3 @@ class TestTranscriptionManager:
             # Act & Assert
             with pytest.raises(FileNotFoundError):
                 manager.load_master(123, 456789)
-
-
-@pytest.mark.unit
-@pytest.mark.skip(reason="Extraction management uses versioned add_extracted_version method")
-class TestTranscriptionManagerExtraction:
-    """Tests for extraction management (uses versioned API)."""
-
-    def test_extraction_management_uses_versions(self):
-        """Extraction is managed via add_extracted_version and load_extracted methods."""
-
-
-@pytest.mark.unit
-class TestTranscriptionManagerStatistics:
-    """Tests for transcription statistics."""
-
-    def test_get_word_count(self):
-        """Test getting word count from transcription."""
-        # Arrange
-        from transcription_module.manager import TranscriptionManager
-
-        manager = TranscriptionManager()
-        mock_data = {"words": [{"word": "test1"}, {"word": "test2"}, {"word": "test3"}], "segments": []}
-
-        with patch.object(manager, "load_master", return_value=mock_data):
-            # Act
-            count = len(mock_data["words"])
-
-            # Assert
-            assert count == 3
-
-    def test_get_segment_count(self):
-        """Test getting segment count from transcription."""
-        # Arrange
-        from transcription_module.manager import TranscriptionManager
-
-        manager = TranscriptionManager()
-        mock_data = {"words": [], "segments": [{"text": "seg1"}, {"text": "seg2"}]}
-
-        with patch.object(manager, "load_master", return_value=mock_data):
-            # Act
-            count = len(mock_data["segments"])
-
-            # Assert
-            assert count == 2

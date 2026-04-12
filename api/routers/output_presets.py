@@ -7,15 +7,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
+from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository
 from api.schemas.auth import UserInDB
 from api.schemas.common.pagination import paginate_list
 from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
 from api.schemas.template import (
+    MetadataRenderPreviewResponse,
     OutputPresetCreate,
     OutputPresetResponse,
     OutputPresetUpdate,
     PresetListResponse,
+    PresetRenderPreviewRequest,
 )
 
 router = APIRouter(prefix="/api/v1/presets", tags=["Output Presets"])
@@ -52,6 +55,50 @@ async def list_presets(
         per_page=per_page,
         total=total,
         total_pages=total_pages,
+    )
+
+
+@router.post("/render-preview", response_model=MetadataRenderPreviewResponse)
+async def preview_preset_metadata_render(
+    data: PresetRenderPreviewRequest,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> MetadataRenderPreviewResponse:
+    """Dry-run Jinja render for preset-style metadata fields (no persistence)."""
+    from api.helpers.template_renderer import (
+        TemplateRenderer,
+        build_stub_validation_context,
+        compute_metadata_preview,
+    )
+
+    if data.recording_id is not None:
+        recording_repo = RecordingRepository(session)
+        recording = await recording_repo.get_by_id(data.recording_id, current_user.id)
+        if not recording:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+        ctx = TemplateRenderer.prepare_recording_context(
+            recording,
+            topics_display=data.topics_display,
+            questions_display=data.questions_display,
+        )
+    else:
+        ctx = build_stub_validation_context()
+
+    valid, errs, warns, rendered = compute_metadata_preview(
+        title_template=data.title_template,
+        description_template=data.description_template,
+        folder_path_template=data.folder_path_template,
+        filename_template=data.filename_template,
+        context=ctx,
+    )
+    return MetadataRenderPreviewResponse(
+        valid=valid,
+        errors=errs,
+        warnings=warns,
+        rendered_title=rendered.get("title"),
+        rendered_description=rendered.get("description"),
+        rendered_folder_path=rendered.get("folder_path"),
+        rendered_filename=rendered.get("filename"),
     )
 
 

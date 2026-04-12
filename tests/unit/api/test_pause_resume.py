@@ -12,92 +12,38 @@ from tests.fixtures.factories import create_mock_output_target, create_mock_reco
 # =============================================================================
 
 
+_RUNTIME = (
+    ProcessingStatus.DOWNLOADING,
+    ProcessingStatus.PROCESSING,
+    ProcessingStatus.UPLOADING,
+)
+
+
 @pytest.mark.unit
 class TestCanPause:
     """Tests for can_pause helper function."""
 
-    def test_can_pause_downloading(self):
-        """DOWNLOADING status allows pausing."""
+    @pytest.mark.parametrize("status", _RUNTIME)
+    def test_can_pause_while_runtime(self, status):
         from api.helpers.status_manager import can_pause
 
-        recording = create_mock_recording(status=ProcessingStatus.DOWNLOADING)
+        recording = create_mock_recording(status=status)
         assert can_pause(recording) is True
 
-    def test_can_pause_processing(self):
-        """PROCESSING status allows pausing."""
+    @pytest.mark.parametrize(
+        "status",
+        tuple(s for s in ProcessingStatus if s not in _RUNTIME),
+    )
+    def test_cannot_pause_when_not_runtime(self, status):
         from api.helpers.status_manager import can_pause
 
-        recording = create_mock_recording(status=ProcessingStatus.PROCESSING)
-        assert can_pause(recording) is True
-
-    def test_can_pause_uploading(self):
-        """UPLOADING status allows pausing."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.UPLOADING)
-        assert can_pause(recording) is True
-
-    def test_cannot_pause_ready(self):
-        """READY is terminal, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.READY)
-        assert can_pause(recording) is False
-
-    def test_cannot_pause_uploaded(self):
-        """UPLOADED is terminal, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.UPLOADED)
-        assert can_pause(recording) is False
-
-    def test_cannot_pause_skipped(self):
-        """SKIPPED is terminal, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.SKIPPED)
-        assert can_pause(recording) is False
-
-    def test_cannot_pause_expired(self):
-        """EXPIRED is terminal, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.EXPIRED)
-        assert can_pause(recording) is False
-
-    def test_cannot_pause_initialized(self):
-        """INITIALIZED has not started, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.INITIALIZED)
-        assert can_pause(recording) is False
-
-    def test_cannot_pause_pending_source(self):
-        """PENDING_SOURCE has not started, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.PENDING_SOURCE)
+        recording = create_mock_recording(status=status)
         assert can_pause(recording) is False
 
     def test_cannot_pause_already_paused(self):
-        """Already paused recording returns False."""
         from api.helpers.status_manager import can_pause
 
         recording = create_mock_recording(status=ProcessingStatus.PROCESSING, on_pause=True)
-        assert can_pause(recording) is False
-
-    def test_cannot_pause_downloaded(self):
-        """DOWNLOADED has no active task, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.DOWNLOADED)
-        assert can_pause(recording) is False
-
-    def test_cannot_pause_processed(self):
-        """PROCESSED has no active task, cannot pause."""
-        from api.helpers.status_manager import can_pause
-
-        recording = create_mock_recording(status=ProcessingStatus.PROCESSED)
         assert can_pause(recording) is False
 
 
@@ -237,6 +183,12 @@ class TestSmartRun:
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
 
+        mocker.patch(
+            "api.routers.recordings.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {"auto_upload": False}, recording),
+        )
+
         mock_task = mocker.patch("api.tasks.processing.run_recording_task")
         mock_task.delay = MagicMock(return_value=MagicMock(id="task-123"))
 
@@ -257,6 +209,12 @@ class TestSmartRun:
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
 
+        mocker.patch(
+            "api.routers.recordings.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {"auto_upload": False}, recording),
+        )
+
         mock_task = mocker.patch("api.tasks.processing.run_recording_task")
         mock_task.delay = MagicMock(return_value=MagicMock(id="task-123"))
 
@@ -275,6 +233,12 @@ class TestSmartRun:
         mock_repo_instance = MagicMock()
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
+
+        mocker.patch(
+            "api.routers.recordings.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {"auto_upload": False}, recording),
+        )
 
         mock_task = mocker.patch("api.tasks.processing.run_recording_task")
         mock_task.delay = MagicMock(return_value=MagicMock(id="task-456"))
@@ -406,6 +370,12 @@ class TestSmartRun:
         mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
         mock_repo.return_value = mock_repo_instance
 
+        mocker.patch(
+            "api.routers.recordings.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {"auto_upload": False}, recording),
+        )
+
         mock_run = mocker.patch("api.tasks.processing.run_recording_task")
         mock_run.delay = MagicMock(return_value=MagicMock(id="run-task-1"))
 
@@ -438,7 +408,7 @@ class TestSmartRun:
 
         # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
         mocker.patch(
-            "api.services.config_utils.resolve_full_config",
+            "api.routers.recordings.resolve_full_config",
             new_callable=AsyncMock,
             return_value=({}, {}, recording),
         )
@@ -483,7 +453,7 @@ class TestSmartRun:
 
         # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
         mocker.patch(
-            "api.services.config_utils.resolve_full_config",
+            "api.routers.recordings.resolve_full_config",
             new_callable=AsyncMock,
             return_value=({}, {}, recording),
         )
@@ -514,7 +484,7 @@ class TestSmartRun:
 
         # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
         mocker.patch(
-            "api.services.config_utils.resolve_full_config",
+            "api.routers.recordings.resolve_full_config",
             new_callable=AsyncMock,
             return_value=({}, {}, recording),
         )
@@ -548,7 +518,7 @@ class TestSmartRun:
 
         # Mock resolve_full_config — called for PROCESSED/UPLOADED statuses
         mocker.patch(
-            "api.services.config_utils.resolve_full_config",
+            "api.routers.recordings.resolve_full_config",
             new_callable=AsyncMock,
             return_value=({}, {}, recording),
         )
@@ -629,8 +599,8 @@ class TestSmartRun:
 class TestPipelineControlComputedFields:
     """Tests for is_runtime, can_pause, can_run computed fields."""
 
-    def _make(self, status, failed=False, on_pause=False):
-        """Build a minimal mixin instance for testing."""
+    @staticmethod
+    def _make(status, failed=False, on_pause=False):
         from api.schemas.recording.response import PipelineControlMixin
 
         return PipelineControlMixin(
@@ -639,100 +609,52 @@ class TestPipelineControlComputedFields:
             on_pause=on_pause,
         )
 
-    # is_runtime
-    def test_is_runtime_downloading(self):
-        """DOWNLOADING is a runtime status."""
-        assert self._make(ProcessingStatus.DOWNLOADING).is_runtime is True
+    @pytest.mark.parametrize("status", _RUNTIME)
+    def test_is_runtime_true(self, status):
+        assert self._make(status).is_runtime is True
 
-    def test_is_runtime_processing(self):
-        """PROCESSING is a runtime status."""
-        assert self._make(ProcessingStatus.PROCESSING).is_runtime is True
+    @pytest.mark.parametrize(
+        "status",
+        tuple(s for s in ProcessingStatus if s not in _RUNTIME),
+    )
+    def test_is_runtime_false(self, status):
+        assert self._make(status).is_runtime is False
 
-    def test_is_runtime_uploading(self):
-        """UPLOADING is a runtime status."""
-        assert self._make(ProcessingStatus.UPLOADING).is_runtime is True
+    @pytest.mark.parametrize("status", _RUNTIME)
+    def test_can_pause_true_when_not_on_pause(self, status):
+        assert self._make(status).can_pause is True
 
-    def test_is_runtime_ready_false(self):
-        """READY is not a runtime status."""
-        assert self._make(ProcessingStatus.READY).is_runtime is False
-
-    def test_is_runtime_initialized_false(self):
-        """INITIALIZED is not a runtime status."""
-        assert self._make(ProcessingStatus.INITIALIZED).is_runtime is False
-
-    # can_pause
-    def test_can_pause_during_processing(self):
-        """Can pause during PROCESSING."""
-        assert self._make(ProcessingStatus.PROCESSING).can_pause is True
-
-    def test_can_pause_false_when_ready(self):
-        """Cannot pause when READY."""
-        assert self._make(ProcessingStatus.READY).can_pause is False
+    @pytest.mark.parametrize(
+        "status",
+        tuple(s for s in ProcessingStatus if s not in _RUNTIME),
+    )
+    def test_can_pause_false_when_not_runtime(self, status):
+        assert self._make(status).can_pause is False
 
     def test_can_pause_false_when_already_paused(self):
-        """Cannot pause when already paused."""
         assert self._make(ProcessingStatus.PROCESSING, on_pause=True).can_pause is False
 
-    def test_can_pause_false_when_initialized(self):
-        """Cannot pause when INITIALIZED (not yet started)."""
-        assert self._make(ProcessingStatus.INITIALIZED).can_pause is False
-
-    # can_run
-    def test_can_run_initialized(self):
-        """Can run from INITIALIZED (start processing)."""
-        assert self._make(ProcessingStatus.INITIALIZED).can_run is True
-
-    def test_can_run_skipped(self):
-        """Can run from SKIPPED (start with template)."""
-        assert self._make(ProcessingStatus.SKIPPED).can_run is True
-
-    def test_can_run_downloaded(self):
-        """Can run from DOWNLOADED (continue to processing)."""
-        assert self._make(ProcessingStatus.DOWNLOADED).can_run is True
-
-    def test_can_run_when_paused_non_runtime(self):
-        """Can run when on_pause is True and stage already completed (non-runtime)."""
-        assert self._make(ProcessingStatus.DOWNLOADED, on_pause=True).can_run is True
-
-    def test_cannot_run_while_pausing(self):
-        """Cannot run while on_pause AND runtime (stage still completing)."""
-        assert self._make(ProcessingStatus.PROCESSING, on_pause=True).can_run is False
-
-    def test_cannot_run_while_pausing_downloading(self):
-        """Cannot run while on_pause AND DOWNLOADING (download still in progress)."""
-        assert self._make(ProcessingStatus.DOWNLOADING, on_pause=True).can_run is False
-
-    def test_can_run_when_failed(self):
-        """Can run when failed."""
-        assert self._make(ProcessingStatus.DOWNLOADED, failed=True).can_run is True
-
-    def test_cannot_run_ready(self):
-        """Cannot run from READY (already complete)."""
-        assert self._make(ProcessingStatus.READY).can_run is False
-
-    def test_cannot_run_while_running(self):
-        """Cannot run while actively running (not paused)."""
-        assert self._make(ProcessingStatus.PROCESSING, on_pause=False).can_run is False
-
-    def test_cannot_run_expired(self):
-        """Cannot run from EXPIRED."""
-        assert self._make(ProcessingStatus.EXPIRED).can_run is False
-
-    def test_cannot_run_pending_source(self):
-        """Cannot run from PENDING_SOURCE."""
-        assert self._make(ProcessingStatus.PENDING_SOURCE).can_run is False
-
-    def test_can_run_processed_paused(self):
-        """Can run from PROCESSED + paused (pipeline stopped between stages)."""
-        assert self._make(ProcessingStatus.PROCESSED, on_pause=True).can_run is True
-
-    def test_can_run_uploaded_partial(self):
-        """Can run from UPLOADED (partial uploads need to continue)."""
-        assert self._make(ProcessingStatus.UPLOADED).can_run is True
-
-    def test_can_run_processed(self):
-        """Can run from PROCESSED (may have pending uploads)."""
-        assert self._make(ProcessingStatus.PROCESSED).can_run is True
+    @pytest.mark.parametrize(
+        "status,failed,on_pause,expected",
+        [
+            (ProcessingStatus.INITIALIZED, False, False, True),
+            (ProcessingStatus.SKIPPED, False, False, True),
+            (ProcessingStatus.DOWNLOADED, False, False, True),
+            (ProcessingStatus.DOWNLOADED, False, True, True),
+            (ProcessingStatus.PROCESSING, False, True, False),
+            (ProcessingStatus.DOWNLOADING, False, True, False),
+            (ProcessingStatus.DOWNLOADED, True, False, True),
+            (ProcessingStatus.READY, False, False, False),
+            (ProcessingStatus.PROCESSING, False, False, False),
+            (ProcessingStatus.EXPIRED, False, False, False),
+            (ProcessingStatus.PENDING_SOURCE, False, False, False),
+            (ProcessingStatus.PROCESSED, False, True, True),
+            (ProcessingStatus.UPLOADED, False, False, True),
+            (ProcessingStatus.PROCESSED, False, False, True),
+        ],
+    )
+    def test_can_run(self, status, failed, on_pause, expected):
+        assert self._make(status, failed=failed, on_pause=on_pause).can_run is expected
 
 
 # =============================================================================
@@ -768,8 +690,7 @@ class TestPauseRecordingResponse:
 class TestRetryUploadRemoved:
     """Verify /retry-upload endpoint is removed."""
 
-    def test_retry_upload_returns_404_or_405(self, client):
-        """The /retry-upload endpoint should no longer exist."""
+    def test_retry_upload_route_removed(self, client):
+        """The /retry-upload path must not be served (no 2xx / validation on a live handler)."""
         response = client.post("/api/v1/recordings/1/retry-upload")
-        # Should be 404 (path not found) or 405 (method not allowed)
-        assert response.status_code in (404, 405, 422)
+        assert response.status_code in (404, 405)

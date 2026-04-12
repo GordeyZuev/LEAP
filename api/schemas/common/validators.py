@@ -9,6 +9,7 @@ For basic checks, use built-in Pydantic capabilities:
 """
 
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def validate_regex_pattern(v: str | None, field_name: str = "pattern") -> str | None:
@@ -108,3 +109,30 @@ def clean_and_deduplicate_strings(v: list[str] | None) -> list[str] | None:
             deduplicated.append(item)
 
     return deduplicated
+
+
+def validate_iana_timezone(v: str | None) -> str | None:
+    """
+    Validate an IANA timezone name (for ``users.timezone``).
+
+    Args:
+        v: Timezone string or None if the field was omitted.
+
+    Returns:
+        Stripped IANA id, or None.
+
+    Raises:
+        ValueError: If empty after strip or not a known IANA zone.
+    """
+    if v is None:
+        return None
+    if not isinstance(v, str):
+        raise ValueError("Timezone must be a string")
+    v = v.strip()
+    if not v:
+        raise ValueError("Timezone cannot be empty")
+    try:
+        ZoneInfo(v)
+    except (ZoneInfoNotFoundError, ValueError, OSError, TypeError) as e:
+        raise ValueError(f"Unknown IANA timezone: {v!r}") from e
+    return v
