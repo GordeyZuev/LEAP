@@ -1,8 +1,9 @@
 """FastAPI application entrypoint and router configuration."""
 
-import shutil
 import subprocess
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
@@ -48,6 +49,9 @@ from database.config import DatabaseConfig
 from database.manager import DatabaseManager
 from logger import get_logger
 
+# Каталог проекта backend (alembic.ini, pyproject.toml) — не зависит от `.venv/bin` и `PATH`.
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
 settings = get_settings()
 logger = get_logger()
 
@@ -65,12 +69,12 @@ async def lifespan(_app: FastAPI):
     logger.info("✅ Database created (if not existed)")
 
     logger.info("🔄 Applying Alembic migrations...")
-    alembic_cmd = shutil.which("alembic") or "alembic"
     result = subprocess.run(
-        [alembic_cmd, "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         check=False,
         capture_output=True,
         text=True,
+        cwd=BACKEND_ROOT,
     )
 
     if result.returncode != 0:

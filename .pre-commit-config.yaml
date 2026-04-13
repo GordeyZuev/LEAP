@@ -1,46 +1,34 @@
-# Pre-commit hooks configuration
-# Install: make pre-commit-install
-# Run manually: make pre-commit-run
+# Pre-commit hooks (monorepo root). Python hooks ограничены каталогом backend/.
 
 repos:
-  # Ruff - Fast Python linter & formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.0
     hooks:
-      # Linter (ignore UP037 for now - StrEnum upgrade)
       - id: ruff
         args: [--fix, --extend-ignore=UP037]
-      # Formatter
+        files: ^backend/
       - id: ruff-format
+        files: ^backend/
 
-  # ty - Fast Python type checker (local hook)
   - repo: local
     hooks:
       - id: ty
         name: ty
-        entry: uvx ty check
+        entry: bash -c 'cd backend && uv run python -m ty check'
         language: system
         types: [python]
         pass_filenames: false
 
-  # Basic file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      # Prevent commits to main/master
       - id: no-commit-to-branch
         args: [--branch, main, --branch, master]
-
-      # File checks
       - id: check-yaml
       - id: check-json
       - id: check-toml
       - id: end-of-file-fixer
       - id: trailing-whitespace
-
-      # Size checks
       - id: check-added-large-files
         args: [--maxkb=1000]
-
-      # Security
       - id: detect-private-key

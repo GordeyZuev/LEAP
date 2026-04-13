@@ -15,6 +15,8 @@
 **Версия:** `v0.9.6.5` (April 2026)
 **Tech:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 
+**Структура репозитория:** исходный код API — в [`backend/`](backend/) (`uv`, `make`, тесты, Celery). В **корне** — [`docker-compose.yml`](docker-compose.yml) и [`Makefile`](Makefile) только для Docker; веб-клиент планируется в `frontend/` со своими командами (`pnpm` / `npm`).
+
 ---
 
 ## 🎯 Use Cases
@@ -369,10 +371,9 @@ PROCESSING → PROCESSED → UPLOADING → READY
 **Status:** In Active Development • Beta
 
 **Новое в v0.9.6.5:**
-- **Jinja2 metadata** — заголовки/описания/пути Yandex только как шаблоны Jinja2; миграции БД для легаси `{var}` и `leap_dt`; даты в часовом поясе владельца записи
+- **`Jinja2` metadata** — заголовки/описания/пути Yandex только как шаблоны `Jinja2`
 - **Preview без сохранения** — `POST .../templates/render-preview`, `POST .../presets/render-preview`
 - **Строгий конфиг перед run** — привязанный шаблон должен существовать; проверка пресетов и согласованности auto-upload (**404** как у «нет шаблона»)
-- **Профиль** — `PATCH /users/me` с полем `timezone` (IANA)
 - **Видео** — устойчивее обрезка по границам звука (ведущая тишина, невалидное окно trim)
 
 **Новое в v0.9.6.4:**

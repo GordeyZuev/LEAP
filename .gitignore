@@ -1,38 +1,4 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-*.so
-*.egg
-*.bak
-
-# Testing and coverage
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Virtual environments
-.venv
-venv/
-env/
-ENV/
-
-# IDE and editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS generated files
+# --- Monorepo root ---
 .DS_Store
 .DS_Store?
 ._*
@@ -41,75 +7,119 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
-# Temporary documentation files (development notes)
-*_SUMMARY.md
-*_REVIEW.md
-*_CHECK.md
-
-# Credentials and sensitive files
-config/app_config.json
-config/accounts.py
-config/vk_creds.json
-config/youtube_creds.json
-config/zoom_creds.json
-config/openai_creds.json
-config/deepseek_creds.json
-config/fireworks_creds.json
-config/*_creds.json
-config/oauth_google.json
-config/oauth_vk.json
-config/oauth_zoom.json
 .env
 .env.local
 .env.*.local
-config_copy/*
-.ruff_cache/*
+!.env.example
 
-# Media files (too large for git)
-thumbnails/*
-transcriptions/*
-video/*
-storage/*
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Logs
-logs/
-*.log
+# Frontend (Next/Vite и т.д.)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/dist/
+frontend/.vercel/
+frontend/.env.local
+frontend/.env*.local
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
+# Python (в любом подкаталоге монорепо)
+__pycache__/
+*.py[cod]
+*.pyo
 
-# Temporary files
-*.tmp
-*.temp
-temp/
-tmp/
-temp_*.py
-test_*.py.bak
+# --- Backend (Python / LEAP API) ---
+backend/*.so
+backend/*.egg
+backend/*.egg-info/
+backend/build/
+backend/dist/
+backend/wheels/
+backend/*.bak
 
-# Test archives and data
-*.zip
-*.tar.gz
-*.tar
+backend/.pytest_cache/
+backend/.coverage
+backend/.coverage.*
+backend/htmlcov/
+backend/.tox/
+backend/.mypy_cache/
+backend/.dmypy.json
+backend/dmypy.json
 
-# Celery and Redis
-celerybeat-schedule
-celerybeat-schedule-shm
-celerybeat-schedule-wal
-celerybeat.pid
-*.rdb
+backend/.venv/
+backend/venv/
+backend/env/
+backend/ENV/
 
-# UV lock file (optional - you might want to keep it)
-# uv.lock
+backend/.ruff_cache/
 
-exp_803/*
-PRICING_ANALYSIS.md
-docs/STRATEGIC_PRICING_FRAMEWORK.md
-docs/PAPER_ENHANCEMENTS.md
-.gitignore
-docs/MONETIZATION_AND_FINANCIAL_MODEL.md
-.gitignore
-docs/CONFERENCE_THESIS.md
-docs/MARKET_RESEARCH.md
-docs/NEGOTIATION_BRIEF.md
+# Credentials and sensitive files (under backend/)
+backend/config/app_config.json
+backend/config/accounts.py
+backend/config/vk_creds.json
+backend/config/youtube_creds.json
+backend/config/zoom_creds.json
+backend/config/openai_creds.json
+backend/config/deepseek_creds.json
+backend/config/fireworks_creds.json
+backend/config/*_creds.json
+backend/config/oauth_google.json
+backend/config/oauth_vk.json
+backend/config/oauth_zoom.json
+backend/config_copy/*
+
+backend/.env
+backend/.env.local
+backend/.env.*.local
+
+# Media and runtime data
+backend/thumbnails/*
+backend/transcriptions/*
+backend/video/*
+backend/storage/*
+
+backend/logs/
+backend/*.log
+
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
+
+backend/*.tmp
+backend/*.temp
+backend/temp/
+backend/tmp/
+backend/temp_*.py
+backend/test_*.py.bak
+
+backend/*.zip
+backend/*.tar.gz
+backend/*.tar
+
+backend/celerybeat-schedule
+backend/celerybeat-schedule-shm
+backend/celerybeat-schedule-wal
+backend/celerybeat.pid
+backend/*.rdb
+
+# Temporary / local docs (names from legacy .gitignore)
+backend/exp_803/*
+backend/PRICING_ANALYSIS.md
+backend/docs/STRATEGIC_PRICING_FRAMEWORK.md
+backend/docs/PAPER_ENHANCEMENTS.md
+backend/docs/MONETIZATION_AND_FINANCIAL_MODEL.md
+backend/docs/CONFERENCE_THESIS.md
+backend/docs/MARKET_RESEARCH.md
+backend/docs/NEGOTIATION_BRIEF.md
+
+# Optional: keep uv.lock tracked (comment out if you want to ignore)
+# backend/uv.lock
+
+article.tex
+SEMINAR_PRESENTATION.md

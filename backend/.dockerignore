@@ -1,0 +1,12 @@
+# Среда и мусор локальной разработки — в образе собирается своя .venv (см. uv Docker guide).
+# storage/ монтируется томом в runtime; не тащить гигабайты записей в build context.
+storage/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.git/
+logs/
+*.log

@@ -30,7 +30,7 @@ EOF
 
 # Применяем миграции Alembic
 echo "🔄 Applying Alembic migrations..."
-alembic upgrade head
+python -m alembic upgrade head
 echo "✅ Migrations applied!"
 
 # Запускаем команду, переданную в CMD

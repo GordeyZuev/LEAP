@@ -4,32 +4,32 @@
 
 ---
 
+> **Монорепозиторий:** в **корне** репозитория лежит `docker-compose.yml` (контекст сборки образов — `./backend`). Команды `docker compose` / `docker-compose` для этого файла выполняйте из корня. Исходный код API — в каталоге `backend/`.
+
 ## ⚡ Quick Start (Updated 2026-02-05)
 
 ### Current Production Configuration
 
-**Production-ready setup:**
-- API: 4 FastAPI workers (uvicorn)
-- Celery Workers: 2 specialized queues with optimized pools
-  - **CPU worker**: 3 workers (prefork) for video trimming (queue: `processing_cpu`)
-  - **Async worker**: 20 workers (threads) for all I/O operations - processing, upload, template, sync, automation, maintenance (queue: `async_operations`)
-- Celery Beat: Scheduler for automation jobs
-- PostgreSQL 15 + Redis 7 + Flower monitoring
+**Production-ready setup (корневой compose по умолчанию):**
+- API: 4 воркера Uvicorn (`python -m uvicorn`)
+- Celery worker: один процесс на очередях `downloads`, `uploads`, `async_operations`, `processing_cpu`, `maintenance` (см. `api/celery_app.py`)
+- Celery Beat: планировщик (в т.ч. `celery_sqlalchemy_scheduler`)
+- PostgreSQL 15 + Redis 7 + Flower
 
-**Note:** Despite having a `make celery-maintenance` command, all maintenance tasks route to `async_operations` queue as defined in `celery_app.py`
+**Note:** Отдельные цели `make celery-maintenance`, `celery-async` и т.д. — для **разнесённых** воркеров локально; в дефолтном `docker-compose.yml` все перечисленные очереди обслуживает один worker.
 
 ### Deploy in 3 Steps
 
 ```bash
-# 1. Copy and configure environment
-cp .env.example .env
+# 1. Copy and configure environment (из каталога backend/)
+cd backend && cp .env.example .env
 # Edit .env - set DATABASE_PASSWORD, SECURITY_JWT_SECRET_KEY, SECURITY_ENCRYPTION_KEY
 
-# 2. Build and start all services
-docker-compose up --build -d
+# 2. Из корня репозитория — сборка и запуск
+cd .. && docker compose up --build -d
 
-# 3. Verify
-docker-compose ps
+# 3. Verify (из корня)
+docker compose ps
 curl http://localhost:8000/api/v1/health
 ```
 
@@ -239,20 +239,20 @@ command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
 api:
   build: .
   container_name: leap_api
-  command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+  command: python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
   environment:
     DATABASE_HOST: postgres
     DATABASE_PORT: 5432
-    DATABASE_NAME: leap_platform
+    DATABASE_DATABASE: leap_platform
     DATABASE_USERNAME: postgres
     DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
     CELERY_BROKER_URL: redis://redis:6379/0
     CELERY_RESULT_BACKEND: redis://redis:6379/0
-    JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-in-production}
+    SECURITY_JWT_SECRET_KEY: ${SECURITY_JWT_SECRET_KEY:-${JWT_SECRET_KEY:-docker-compose-dev-jwt-secret-min-32-characters}}
   ports:
     - "8000:8000"
   volumes:
-    - ./storage:/app/storage
+    - ./backend/storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -264,23 +264,24 @@ api:
 
 #### Celery Worker
 
-⚠️ **CURRENT docker-compose.yml (NEEDS UPDATE):**
+**Пример worker (согласован с корневым `docker-compose.yml`, монорепо):**
 ```yaml
 celery_worker:
-  build: .
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
   container_name: leap_celery_worker
-  # ⚠️ OUTDATED: This uses wrong queue names (processing,upload)
-  command: celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=8
+  command: python -m celery -A api.celery_app worker --loglevel=info --queues=downloads,uploads,async_operations,processing_cpu,maintenance --concurrency=8
   environment:
     DATABASE_HOST: postgres
     DATABASE_PORT: 5432
-    DATABASE_NAME: leap_platform
+    DATABASE_DATABASE: leap_platform
     DATABASE_USERNAME: postgres
     DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
     CELERY_BROKER_URL: redis://redis:6379/0
     CELERY_RESULT_BACKEND: redis://redis:6379/0
   volumes:
-    - ./storage:/app/storage
+    - ./backend/storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -288,12 +289,12 @@ celery_worker:
       condition: service_healthy
 ```
 
-**✅ RECOMMENDED: Update to use correct queues (2 options):**
+**✅ Альтернативы масштабирования (опционально):**
 
 **Option 1: Single worker (simpler, but not optimal):**
 ```yaml
 celery_worker:
-  command: celery -A api.celery_app worker --loglevel=info --queues=processing_cpu,async_operations --concurrency=10
+  command: python -m celery -A api.celery_app worker --loglevel=info --queues=processing_cpu,async_operations --concurrency=10
 ```
 
 **Option 2: Specialized workers (RECOMMENDED for production):**
@@ -306,7 +307,7 @@ celery_cpu:
   environment:
     # ... same as above ...
   volumes:
-    - ./storage:/app/storage
+    - ./backend/storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -321,7 +322,7 @@ celery_async:
   environment:
     # ... same as above ...
   volumes:
-    - ./storage:/app/storage
+    - ./backend/storage:/app/storage
   depends_on:
     postgres:
       condition: service_healthy
@@ -345,7 +346,7 @@ celery_beat:
   environment:
     DATABASE_HOST: postgres
     DATABASE_PORT: 5432
-    DATABASE_NAME: leap_platform
+    DATABASE_DATABASE: leap_platform
     DATABASE_USERNAME: postgres
     DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
     CELERY_BROKER_URL: redis://redis:6379/0
@@ -391,29 +392,8 @@ networks:
 
 ### Important Notes
 
-⚠️ **CRITICAL: docker-compose.yml Queue Configuration Issue**
-
-**The current `docker-compose.yml` has OUTDATED queue configuration:**
-```yaml
-# CURRENT (OUTDATED):
-celery_worker:
-  command: celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=8
-```
-
-**CORRECT configuration (per `celery_app.py`):**
-```yaml
-# Option 1: Single worker for all queues (simple, but not optimal)
-celery_worker:
-  command: celery -A api.celery_app worker --loglevel=info --queues=processing_cpu,async_operations --concurrency=10
-
-# Option 2: Specialized workers (RECOMMENDED for production)
-celery_cpu:
-  command: celery -A api.celery_app worker -Q processing_cpu --pool=prefork --concurrency=3 --max-tasks-per-child=20
-celery_async:
-  command: celery -A api.celery_app worker -Q async_operations --pool=threads --concurrency=20
-```
-
-**Why this matters:** Tasks will not be processed correctly with the current docker-compose.yml configuration!
+**Celery (корневой `docker-compose.yml`, монорепо):** worker по умолчанию слушает очереди  
+`downloads,uploads,async_operations,processing_cpu,maintenance` (один процесс, `python -m celery`). Для продакшена при необходимости разнесите воркеры по очередям (ориентир — цели `celery-*` в `backend/Makefile`).
 
 **Database Name Discrepancy:**
 - `docker-compose.yml` uses: `leap_platform` (PostgreSQL container env)
@@ -421,13 +401,12 @@ celery_async:
 - **Solution:** Set `DATABASE_DATABASE=leap_platform` in `.env` when using Docker, or create `zoom_manager` database for local dev
 
 **Environment Variables:**
-- `docker-compose.yml` uses legacy format: `JWT_SECRET_KEY`, `DB_PASSWORD`
-- `.env.example` uses new format: `SECURITY_JWT_SECRET_KEY`, `DATABASE_PASSWORD`
-- **Both formats are supported** via backward compatibility in `config/settings.py`
+- JWT: приложение читает **`SECURITY_JWT_SECRET_KEY`** (префикс `SECURITY_`). В корневом `docker-compose.yml` задано с подстановкой: сначала `SECURITY_JWT_SECRET_KEY`, иначе legacy **`JWT_SECRET_KEY`**, иначе dev-дефолт (≥32 символов для валидации).
+- Пароль БД в compose: **`DB_PASSWORD`** (общий для Postgres и сервисов); в `.env` для локальной разработки см. **`DATABASE_PASSWORD`** / `.env.example`.
 
 **Storage Paths:**
-- Docker: `./storage:/app/storage` (mapped to host `./storage`)
-- Local dev: `storage/` (configurable via `STORAGE_LOCAL_PATH`, default: `storage`)
+- Docker (монорепо): `./backend/storage:/app/storage` на хосте
+- Local dev: каталог `storage/` под `backend/` (см. `STORAGE_LOCAL_PATH` в `config/settings.py`, по умолчанию `storage`)
 
 **Container Names:**
 All containers use `leap_` prefix:
@@ -586,9 +565,10 @@ RETENTION_AUTO_EXPIRE_DAYS=90   # Days before auto-expiration
 #### Legacy Variables (backward compatibility)
 
 ```bash
-# Old format (still supported, but prefer new format)
-DB_PASSWORD=your_secure_password_here
-JWT_SECRET_KEY=your-jwt-secret-key
+# Старые имена там, где они ещё встречаются (compose / внешние скрипты).
+# Для самого приложения JWT задаётся как SECURITY_JWT_SECRET_KEY (≥32 символов).
+# В корневом docker-compose.yml legacy JWT_SECRET_KEY подставляется в SECURITY_JWT_SECRET_KEY.
+DB_PASSWORD=your_secure_password_here   # в compose часто прокидывается как POSTGRES_PASSWORD
 LOG_LEVEL=INFO
 TIMEZONE=Europe/Moscow
 ```
@@ -1188,10 +1168,10 @@ certbot renew --dry-run
 ```yaml
 # docker-compose.yml adjustments
 api:
-  command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 8
+  command: python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 8
 
 celery_worker:
-  command: celery -A api.celery_app worker --loglevel=info --queues=processing,upload --concurrency=16
+  command: python -m celery -A api.celery_app worker --loglevel=info --queues=downloads,uploads,async_operations,processing_cpu,maintenance --concurrency=16
 ```
 
 **Or tune existing workers:**
@@ -1203,7 +1183,7 @@ celery -A api.celery_app worker -Q processing_cpu --pool=prefork --concurrency=6
 celery -A api.celery_app worker -Q async_operations --pool=threads --concurrency=40
 ```
 
-**Important:** Only 2 queues are actively used: `processing_cpu` and `async_operations`. The `maintenance` queue in Makefile is defined but unused.
+**Important:** В коде маршрутизации задач используются очереди `downloads`, `uploads`, `async_operations`, `processing_cpu`, `maintenance` (см. `api/celery_app.py`).
 
 **Database tuning:**
 ```ini
@@ -1826,8 +1806,8 @@ DATABASE_PASSWORD=xxx
 CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
 
-# Security (both formats supported for backward compatibility)
-SECURITY_JWT_SECRET_KEY=xxx-min-32-chars  # OR: JWT_SECRET_KEY
+# Security (JWT в приложении только SECURITY_*; JWT_SECRET_KEY — для подстановки в compose, см. docker-compose.yml)
+SECURITY_JWT_SECRET_KEY=xxx-min-32-chars
 SECURITY_ENCRYPTION_KEY=xxx-fernet-key    # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
@@ -1853,9 +1833,9 @@ docker logs leap_api -f
 
 ### Production Checklist
 
-- [ ] ⚠️ **CRITICAL: Update `docker-compose.yml` Celery queues** (currently uses outdated `processing,upload` instead of `processing_cpu,async_operations`)
+- [ ] Проверить очереди Celery в compose / Makefile (в корневом `docker-compose.yml` для worker: `downloads,uploads,async_operations,processing_cpu,maintenance`)
 - [ ] Set `APP_DEBUG=false`
-- [ ] Change `SECURITY_JWT_SECRET_KEY` or `JWT_SECRET_KEY` (min 32 chars)
+- [ ] Задать **`SECURITY_JWT_SECRET_KEY`** (≥32 символов); **`JWT_SECRET_KEY`** — только при подстановке в compose (см. корневой `docker-compose.yml`)
 - [ ] Set `DATABASE_PASSWORD` or `DB_PASSWORD` (strong password)
 - [ ] Set `DATABASE_DATABASE=leap_platform` in `.env` to match docker-compose
 - [ ] Generate `SECURITY_ENCRYPTION_KEY` (Fernet: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)

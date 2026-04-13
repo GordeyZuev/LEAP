@@ -8,12 +8,16 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from database.config import DatabaseConfig
 from database.models import Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# DATABASE_* из .env / Docker Compose; иначе миграции всегда шли бы на sqlalchemy.url из alembic.ini.
+config.set_main_option("sqlalchemy.url", DatabaseConfig.from_env().url)
 
 target_metadata = Base.metadata
 

@@ -242,7 +242,17 @@ class TestTestCoverage:
     def test_minimum_coverage_threshold(self):
         """Test that code coverage meets minimum threshold."""
         result = subprocess.run(
-            ["uv", "run", "pytest", "tests/unit/", "--cov=api", "--cov-report=term", "--cov-fail-under=30"],
+            [
+                "uv",
+                "run",
+                "python",
+                "-m",
+                "pytest",
+                "tests/unit/",
+                "--cov=api",
+                "--cov-report=term",
+                "--cov-fail-under=30",
+            ],
             capture_output=True,
             text=True,
             check=False,

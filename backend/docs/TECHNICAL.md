@@ -1024,9 +1024,9 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 
 **Environment Variables:**
 ```bash
-# Never commit these
-API_JWT_SECRET_KEY=your-secret-key-change-in-production
-ENCRYPTION_KEY=your-fernet-key-here
+# Never commit these (имена как в config/settings.py)
+SECURITY_JWT_SECRET_KEY=your-secret-key-change-in-production-min-32-chars
+SECURITY_ENCRYPTION_KEY=your-fernet-key-here
 DATABASE_PASSWORD=secure-password
 ```
 
@@ -1185,13 +1185,13 @@ async def list_new(ctx: ServiceContext = Depends(get_service_context)):
 # Database
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
-DATABASE_NAME=zoom_manager
+DATABASE_DATABASE=zoom_manager
 DATABASE_USERNAME=postgres
 DATABASE_PASSWORD=postgres
 
-# API
-API_JWT_SECRET_KEY=your-secret-key
-ENCRYPTION_KEY=your-fernet-key
+# API (префикс SECURITY_)
+SECURITY_JWT_SECRET_KEY=your-secret-key-min-32-characters-required
+SECURITY_ENCRYPTION_KEY=your-fernet-key
 
 # Redis
 REDIS_HOST=localhost
