@@ -1,0 +1,13 @@
+---
+description: KISS, DRY, YAGNI and readability expectations for all project work
+alwaysApply: true
+---
+
+# Engineering principles
+
+- **KISS** — prefer the simplest design that solves the problem.
+- **DRY** — no duplicated logic without reason; extract when repetition hurts maintenance.
+- **YAGNI** — do not build features or abstractions until they are needed.
+- **Readability** — optimize for the next reader; avoid speculative “future-proofing.”
+
+These apply to **code, APIs, and docs**. Tooling-specific rules (Ruff, `ty`, pytest) live in `python-code-quality.mdc` and `testing.mdc`.

@@ -1,0 +1,56 @@
+---
+description: Pytest layout, markers, coverage, and Make targets for LEAP backend tests
+globs:
+  - backend/tests/**/*.py
+alwaysApply: false
+---
+
+# Testing — pytest, markers, and commands
+
+## Configuration
+
+- **`backend/pytest.ini`** — `testpaths = tests`, `asyncio_mode = auto`, strict markers, short tracebacks.
+- **Coverage (default addopts):** `--cov=api` with term + HTML reports (`pytest.ini` `addopts`).
+
+## Layout
+
+- Tests live under **`backend/tests/`** (e.g. `unit/`, `quality/`, integration paths per project convention).
+- Mirror production package structure where it aids discovery (`tests/unit/api/...`).
+
+## Markers (declared in `pytest.ini`)
+
+Use explicit markers: `unit`, `integration`, `e2e`, `quality`, `security`, `slow`, `performance`.
+
+Register new markers in **`pytest.ini`** if you add categories (keeps `--strict-markers` green).
+
+## Commands (from `backend/`)
+
+| Target | Purpose |
+|--------|---------|
+| `make test` | Full suite: `uv run python -m pytest tests/ -v` |
+| `make tests-mock` | Fast path: `ruff check tests/` + `pytest tests/unit/ -v --tb=short` |
+| `make tests-quality` | `pytest tests/quality/ -v -m quality` |
+| `make tests-security` | `pytest tests/quality/ -v -m security` |
+
+**Note:** Default `pytest.ini` adds coverage flags; for a quicker local loop you may run subsets explicitly:
+
+```bash
+uv run python -m pytest tests/unit/path/test_foo.py -v --no-cov
+```
+
+## Writing tests
+
+- **Async:** `asyncio_mode = auto` — write async tests with plain `async def` where needed.
+- **Fixtures:** colocate in `conftest.py` hierarchically; prefer explicit fixtures over implicit shared state.
+- **DB integration:** use project patterns (transactions, test DB URL) — follow neighboring integration tests.
+- **Celery:** prefer unit tests with mocks; full worker tests only where justified (mark `slow` if heavy).
+- **Assertions:** clear messages or helper comparisons; avoid brittle full-response dumps unless snapshot-tested intentionally.
+
+## Ruff in tests
+
+- `tests/**/*.py` has relaxed security/style rules per `ruff.toml`, but keep imports clean and avoid unused noise.
+
+## CI mindset
+
+- Before merge: at minimum **`make tests-mock`** (or full `make test` when touching core paths) + **`make lint`** + **`make typecheck`** from `backend/`.
+- **`make quality`** aggregates lint, ty, and quality-marker tests.

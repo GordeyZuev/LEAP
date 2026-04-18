@@ -1,0 +1,66 @@
+---
+description: Versions, CHANGELOG, README, migrations, and when to update technical docs
+alwaysApply: true
+---
+
+# Workflow — versions, CHANGELOG, and release notes
+
+## Canonical version
+
+- **`backend/pyproject.toml`** → `[project].version` is the **single source of truth** for the package.
+- Keep the **root `README.md`** product version line in sync when bumping a release (e.g. `**Версия:** \`v…\`` / English equivalent if you migrate copy). Full sync checklist: **`version-bump-and-readme.mdc`** / skill **`leap-version-bump`**.
+
+## CHANGELOG (`backend/docs/CHANGELOG.md`)
+
+Add entries for **user-visible behavior**, **API contract** changes, **DB migrations**, **deployment prerequisites**, and **breaking changes**.
+
+### Structure (match existing file)
+
+1. **Release block** (when shipping a version tag):
+   - `## vX.Y.Z (YYYY-MM-DD)`
+   - Short **Релиз:** / release summary line
+   - Optional pointer to dated sections below
+
+2. **Dated feature/fix sections** (preferred for detailed work):
+   - `## YYYY-MM-DD: Short English title`
+   - Bullets: **bold lead-in** — explanation (REST paths, status codes, env vars **names only**).
+   - Subsection `### Файлы` (or `### Files` if you standardize on English): bullet list of **repo-relative paths** touched.
+
+3. **Deploy / ordering notes** when migrations and code must roll out together (see existing Jinja/migration examples).
+
+### Language
+
+- Existing CHANGELOG mixes **Russian** and technical English; **stay consistent with surrounding entries** in the same release. Prefer clear, scannable bullets either way.
+
+### What not to put in CHANGELOG
+
+- Purely internal refactors with no observable effect.
+- Secret values or customer data.
+
+## Documentation cross-updates
+
+When you change behavior, update **at least one** of:
+
+| Change type | Update |
+|-------------|--------|
+| REST API surface | `backend/docs/TECHNICAL.md`, OpenAPI via code |
+| Auth / OAuth / creds | `backend/docs/guides/OAUTH.md`, `backend/docs/guides/CREDENTIAL_SECURITY.md` |
+| Celery / workers / queues | `backend/docs/guides/CELERY_*.md`, `backend/docs/guides/AUTOMATION_CELERY_BEAT.md` |
+| Templates / Jinja metadata | `backend/docs/guides/JINJA_METADATA_TEMPLATES.md` |
+| Deployment / env vars | `backend/docs/guides/DEPLOYMENT.md`, `.env.example` |
+
+Keep **`backend/docs/INDEX.md`** accurate if you add new top-level guides.
+
+## Database migrations
+
+- Authoring, numbering, apply/verify: **`alembic-migrations.mdc`**.
+- CHANGELOG must mention revision id(s) and **upgrade cautions** (irreversible data migrations, required order vs code deploy).
+
+## Architecture decisions
+
+- Significant design choices → new or updated entries in `backend/docs/ADR_OVERVIEW.md` / `ADR_FEATURES.md` (per team practice).
+
+## Commits and PRs
+
+- Commit messages: **imperative mood**, concise subject; body explains *why* when non-obvious.
+- PR description: **what** changed, **how to verify** (tests, manual steps), migration/deploy notes if any.

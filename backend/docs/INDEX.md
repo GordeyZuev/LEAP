@@ -103,7 +103,8 @@
 
 ## Developer conventions
 
-- [INSTRUCTIONS.md](INSTRUCTIONS.md) — code style & docs workflow
+- From `backend/`: run **`make lint`**, **`make typecheck`**, **`make test`** (or **`make tests-mock`** for a fast pass); use **`uv run …`** for one-off commands.
+- Code layout and modules: see **Repository layout** in the root `README.md` and this index (`guides/`, `TECHNICAL.md`, `CHANGELOG.md`).
 
 ---
 

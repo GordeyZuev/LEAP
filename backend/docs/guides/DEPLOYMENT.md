@@ -1655,7 +1655,7 @@ See `.env.example` for complete reference with all available variables.
 
 **Core Documentation:**
 - [README.md](../README.md) - Project overview and quick start
-- [INSTRUCTIONS.md](../INSTRUCTIONS.md) - Development workflow
+- [INDEX.md](../INDEX.md) - Documentation map and developer entry points
 - [CHANGELOG.md](../CHANGELOG.md) - Version history and changes
 
 **Technical Documentation:**

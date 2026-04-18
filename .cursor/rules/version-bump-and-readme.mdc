@@ -1,0 +1,23 @@
+---
+description: Keeps package version, README, CHANGELOG, and version-stamped docs aligned on release
+globs:
+  - README.md
+  - backend/pyproject.toml
+  - backend/docs/CHANGELOG.md
+alwaysApply: false
+---
+
+# Version bump and product-facing sync
+
+- **Canonical version:** `backend/pyproject.toml` → `[project].version` — semver **without** the `v` prefix (e.g. `0.9.6.6`).
+- **Product-facing `v`:** root **`README.md`** and marketing-style lines use **`v` + same numbers** (e.g. `v0.9.6.6`).
+
+**Full update workflow** (diff → business summary → doc audit → bump everywhere → verify): skill **`leap-version-bump`**.
+
+On every release, at minimum:
+
+1. **`workflow-changelog.mdc`** — new `backend/docs/CHANGELOG.md` section(s).
+2. **`README.md`** — version line(s), footer **Version**, and the **«Новое в v…»** block when there are user-visible highlights.
+3. **Grep the previous semver** across the repo; fix **stale product version stamps** (e.g. **`backend/docs/TECHNICAL.md`**, **`backend/docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`**, **`backend/docs/ADR_OVERVIEW.md`** “текущее состояние”, archive digests if you still maintain them).
+
+**Do not** bump **document-internal** edition numbers (e.g. ADR header **«Версия: 2.0»**, guide **«Версия: v3.0»** for the doc itself) unless that file’s policy says it tracks the product release.

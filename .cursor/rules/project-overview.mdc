@@ -1,0 +1,66 @@
+---
+description: LEAP monorepo layout, stack, tenancy, security, and tooling defaults (always read first)
+alwaysApply: true
+---
+
+# LEAP — Project overview (agent context)
+
+## Product
+
+**LEAP** (Lecture Enhancement & Automation Platform) is a **multi-tenant** backend for educational video processing: ingestion (Zoom OAuth, yt-dlp, Yandex Disk, uploads), FFmpeg trimming, ASR (Fireworks/Whisper), topic extraction (DeepSeek), subtitles, and multi-platform upload (YouTube, VK, Yandex, etc.).
+
+## Repository layout
+
+| Area | Path | Notes |
+|------|------|--------|
+| **Application** | `backend/` | FastAPI app, Celery workers, Alembic, Python **≥ 3.14**, `uv` |
+| **Package version** | `backend/pyproject.toml` | `[project].version` is canonical |
+| **Docker / infra** | Repo root | `docker-compose.yml`, root `Makefile` (Docker-only) |
+| **Backend tasks** | `backend/Makefile` | API, Celery queues, DB, lint, tests |
+| **Authoritative docs** | `backend/docs/` | See `INDEX.md` |
+| **Draft / internal** | `backend/docs/dev_notes/` | May be outdated; prefer `guides/` + ADR |
+
+**Pipeline (mental model):** download → trim (FFmpeg) → transcribe → topics → subtitles → upload. Work is orchestrated via **Celery** chains and **specialized queues** (`downloads`, `uploads`, `async_operations`, `processing_cpu`, `maintenance`) — see `backend/Makefile` worker targets.
+
+**Design values:** KISS, DRY, YAGNI — see `engineering-principles.mdc`.
+
+## Backend code layout (where things live)
+
+| Concern | Typical location |
+|---------|------------------|
+| FastAPI app, routers | `backend/api/` |
+| SQLAlchemy models | `backend/database/` |
+| Celery tasks | `backend/api/tasks/` |
+| Business logic | services / repositories alongside existing modules |
+
+**Default DB name** in local/docker examples is often **`zoom_manager`** (align env with `backend/docs/guides/DEPLOYMENT.md`).
+
+## Multi-tenancy and data safety
+
+- Every API and repository change must **preserve tenant/user isolation** (no cross-tenant reads or writes). Scope queries like existing code (**`user_id`** / ownership filters).
+- Enforce access with project patterns: **`ResourceAccessValidator`**, **`TaskAccessService`** — follow neighboring endpoints; do not add “bare” IDs without checks.
+- **OAuth tokens** are stored **encrypted** in the DB; use existing crypto/storage helpers, do not log or persist plaintext tokens in new code paths.
+- Do not log secrets, tokens, or raw credentials. Follow `backend/docs/guides/CREDENTIAL_SECURITY.md` when touching auth or storage.
+
+## Local debugging signals
+
+- API / app: `backend/logs/app.log`
+- Async Celery worker: `backend/logs/celery-async.log`
+- When investigating stuck recordings, relate log lines to **recording id**, **task name**, and **queue**.
+
+## Tooling entrypoint
+
+- Install/sync deps from **`backend/`**: `uv sync` (dev group includes pytest, pre-commit, `ty`).
+- Run API: `make api` from `backend/` (requires DB/Redis per README).
+
+## Agent behavior (this repo)
+
+- **Minimal diffs:** change only what the task requires; no drive-by refactors.
+- **Match existing code:** naming, imports (`ruff` isort first-party list), patterns in neighboring modules.
+- **Do not add** unsolicited markdown files; documentation updates follow **`documentation.mdc`**.
+- **Optional skills** (repo checklists): `leap-version-bump`, `leap-release`, `leap-docs-hygiene`, `leap-debug-pipeline`.
+- Prefer **`uv run python`** / **`make`** targets from `backend/` over ad-hoc global Python.
+
+## License
+
+Business Source License 1.1 (see `backend/pyproject.toml`).

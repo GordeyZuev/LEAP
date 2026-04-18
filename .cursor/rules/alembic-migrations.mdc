@@ -1,0 +1,51 @@
+---
+description: Alembic revision numbering, file layout, apply/verify workflow, and data-migration checks
+globs:
+  - backend/alembic/**/*.py
+alwaysApply: false
+---
+
+# Alembic migrations
+
+**DB URL:** `alembic/env.py` uses `DatabaseConfig.from_env()` (not the placeholder URL in `alembic.ini`). Run all commands from **`backend/`** with the same env the app uses.
+
+**Release notes:** document new revisions and deploy order in `backend/docs/CHANGELOG.md` per **`workflow-changelog.mdc`**.
+
+## Revision IDs and filenames
+
+- **`revision`:** zero-padded **3-digit** string (`"001"` … `"019"`, next `"020"`). Same value in the module docstring line `Revision ID:`.
+- **`down_revision`:** previous revision id, or `None` only for the first migration.
+- **Filename:** `backend/alembic/versions/{revision}_{snake_case_slug}.py` (example: `019_replace_leap_dt_in_template_jsonb.py`).
+- **Linear history:** one `down_revision` per revision; avoid branches unless unavoidable. Use `depends_on` only when Alembic requires explicit ordering between heads.
+
+`make migration` runs `alembic revision --autogenerate`. If Alembic emits a **non-numeric** `revision`, **rename the file** and set `revision` / `down_revision` to the next numeric id and current head so the chain matches the repo convention.
+
+## Implementing upgrades
+
+- Review autogenerate output: drop accidental drops, fix types, add `server_default` / `nullable` where needed.
+- **Data migrations:** prefer small helpers under `api/` (or existing modules), keep `upgrade()`/`downgrade()` thin; large JSONB transforms should stay testable (see `tests/unit/alembic/`).
+- **Irreversible data changes:** state in the module docstring (e.g. downgrade `pass` with explanation). Note deploy cautions in CHANGELOG.
+
+## Applying and verifying
+
+| Step | Command |
+|------|---------|
+| Apply all pending | `make migrate` → `uv run python -m alembic upgrade head` |
+| Current revision | `make db-version` → `alembic current` |
+| History | `make db-history` → `alembic history` |
+| Roll back one | `make migrate-down` → `alembic downgrade -1` |
+
+**After `upgrade head`:**
+
+1. `alembic current` must print the **expected** revision (usually `head`’s id).
+2. `alembic history` should show a **single** unbroken line from base to head (no unexpected multiple heads).
+3. If the migration is non-trivial, run targeted tests (`tests/unit/alembic/` or related suites).
+
+**Fresh database:** `make init-db` creates the DB (if needed) and runs `upgrade head`.
+
+## Cross-checks before merge
+
+- New file under `alembic/versions/` with numeric `revision` and matching filename.
+- If **`downgrade()`** is meant to reverse schema/data (not a documented no-op), verify **`alembic downgrade -1`** against a throwaway DB before merge.
+- CHANGELOG + any `DATABASE_DESIGN.md` / guide updates if schema or operator steps change.
+- `ruff` / `ty`: `alembic/versions` is excluded from `ty`; Ruff uses per-file ignores for migrations — still avoid sloppy unused imports when easy to clean.

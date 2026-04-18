@@ -231,7 +231,7 @@ uv run pytest -m quality
 
 ## 🎓 Best Practices
 
-### Code Style (per INSTRUCTIONS.md)
+### Code Style
 
 - ✅ Docstrings in English, concise
 - ✅ Comments explain "why", not "what"
@@ -291,7 +291,7 @@ open htmlcov/index.html
 - **[ROADMAP.md](ROADMAP.md)** - Complete implementation plan with examples
 - **[pytest docs](https://docs.pytest.org/)** - Official pytest documentation
 - **[FastAPI Testing](https://fastapi.tiangolo.com/tutorial/testing/)** - FastAPI testing guide
-- **[INSTRUCTIONS.md](../INSTRUCTIONS.md)** - Project development guidelines
+- **[docs/INDEX.md](../docs/INDEX.md)** - Documentation index (guides, technical reference, changelog)
 
 ---
 
