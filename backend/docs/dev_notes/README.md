@@ -4,17 +4,13 @@
 
 ## Содержание
 
-### Технические заметки
+### Заметки и планы
 
-- **run_resume_INFO.md** - Исходное обсуждение Smart Resume и retry *(superseded — реализован Unified Smart Run 2026-02-05, см. CHANGELOG)*
-- **statuses_determinated_INFO.md** - Исходное обсуждение валидации статусов *(superseded — реализован 2026-02-05)*
-- **transcription_retry_INFO.md** - Информация о механизме повторных попыток транскрибации
-
-### TODO списки
-
-- **S3_INTEGRATION_TODO.md** - План интеграции с S3 storage
-- **pause_resume_TODO.md** - Будущие улучшения smart run и pause (hard cancel, granular pause, etc.)
+- **transcription_retry_INFO.md** — механизм повторных попыток транскрибации
+- **PLATFORM_API_RATE_LIMITING.md** — план rate limiting для внешних платформ (не реализовано)
+- **pause_resume_TODO.md** — возможные улучшения smart run / pause
+- **S3_INTEGRATION_TODO.md** — план интеграции с S3 storage
 
 ---
 
-**Примечание:** Документы в этой папке могут быть устаревшими или содержать черновики. Для актуальной документации используйте `docs/guides/`, корневые ADR/TECHNICAL и `CHANGELOG.md`. Мета-отчёт о чистке документации: `docs/archive/CLEANUP_2026-02-05_dev_notes.md`.
+**Примечание:** Документы здесь могут устаревать. Для эксплуатации и API опирайтесь на `backend/docs/guides/`, `backend/docs/TECHNICAL.md`, `backend/docs/ADR_*.md` и `backend/docs/CHANGELOG.md`.

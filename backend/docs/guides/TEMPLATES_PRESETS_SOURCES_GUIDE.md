@@ -1,7 +1,6 @@
 # Templates, Presets & Sources
 
-**Product:** LEAP  
-**Version:** v0.9.6.4 (March 2026)
+**Product:** LEAP
 
 Reference for **input sources**, **output presets**, and **recording templates** as implemented in `api/schemas/template/` and template matching in `api/routers/input_sources.py`.
 

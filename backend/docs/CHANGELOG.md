@@ -152,7 +152,7 @@
 - `api/helpers/template_renderer.py` — _format_questions_list, prepare_recording_context(questions_display)
 - `api/tasks/upload.py` — topics_display + questions_display в prepare_recording_context, fallback description
 - `config/settings.py` — questions_display в DEFAULT_USER_CONFIG.metadata
-- `docs/TEMPLATES_PRESETS_SOURCES_GUIDE.md` — описание {questions}, questions_display
+- `docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md` — описание {questions}, questions_display
 
 ---
 

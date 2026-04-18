@@ -110,16 +110,8 @@ backend/*.rdb
 
 # Temporary / local docs (names from legacy .gitignore)
 backend/exp_803/*
-backend/PRICING_ANALYSIS.md
-backend/docs/STRATEGIC_PRICING_FRAMEWORK.md
-backend/docs/PAPER_ENHANCEMENTS.md
-backend/docs/MONETIZATION_AND_FINANCIAL_MODEL.md
-backend/docs/CONFERENCE_THESIS.md
-backend/docs/MARKET_RESEARCH.md
-backend/docs/NEGOTIATION_BRIEF.md
 
 # Optional: keep uv.lock tracked (comment out if you want to ignore)
 # backend/uv.lock
 
-article.tex
-SEMINAR_PRESENTATION.md
+backend/docs/hidden/*

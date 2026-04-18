@@ -17,7 +17,7 @@ Follow **`workflow-changelog.mdc`** and **`alembic-migrations.mdc`** (project ru
 
 1. **Version**
    - [ ] Set `[project].version` in `backend/pyproject.toml` (canonical).
-   - [ ] Align the product version line in root `README.md` with that version.
+   - [ ] Match **`backend/api/__init__.py`** `__version__`, **`backend/config/settings.py`** version default, **`backend/.version`**, and root **`README.md`** `v…` lines to the same semver (full pass: **`leap-version-bump`**).
 
 2. **Changelog**
    - [ ] Add `backend/docs/CHANGELOG.md` entry: release header `## vX.Y.Z (YYYY-MM-DD)` and/or dated sections per existing style.

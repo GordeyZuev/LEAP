@@ -9,7 +9,7 @@
 | Path | Contents |
 |------|----------|
 | **[guides/](guides/)** | How-to guides: deployment, OAuth, templates, Celery, integrations (Zoom, VK, yt-dlp, …) |
-| **[archive/](archive/)** | Thesis plan, seminar materials, incident write-ups, legacy changelogs |
+| **[archive/](archive/)** | Thesis plan and other historical material (not runbooks) |
 | **[dev_notes/](dev_notes/)** | Drafts, TODOs, internal notes |
 | **This folder** | Core reference: API/tech (`TECHNICAL.md`), ADRs, DB design, architecture schemas, changelog |
 
@@ -34,7 +34,6 @@
 ### Academic / talks (archive)
 
 - [archive/PLAN.md](archive/PLAN.md) — thesis plan
-- [archive/SEMINAR_PRESENTATION.md](archive/SEMINAR_PRESENTATION.md) — seminar talk outline
 
 ---
 
@@ -65,7 +64,7 @@
 - [guides/BATCH_TESTING.md](guides/BATCH_TESTING.md)
 - [guides/CELERY_WORKERS_GUIDE.md](guides/CELERY_WORKERS_GUIDE.md)
 - [guides/CELERY_ASYNCIO_TECHNICAL.md](guides/CELERY_ASYNCIO_TECHNICAL.md)
-- [guides/ASR_MODELS_DEEP_DIVE.md](guides/ASR_MODELS_DEEP_DIVE.md)
+- [hidden/ASR_MODELS_DEEP_DIVE.md](hidden/ASR_MODELS_DEEP_DIVE.md) — подробный разбор моделей ASR (черновик / внутренняя заметка)
 
 **Storage & ingestion**
 
@@ -95,9 +94,7 @@
 
 ## History
 
-- [CHANGELOG.md](CHANGELOG.md) — version history
-- [archive/UPDATES.md](archive/UPDATES.md) — digest (superseded by changelog for facts)
-- [archive/WHAT_WAS_DONE.md](archive/WHAT_WAS_DONE.md) — long-form milestone notes
+- [CHANGELOG.md](CHANGELOG.md) — version history (canonical release facts)
 
 ---
 
@@ -105,16 +102,19 @@
 
 - From `backend/`: run **`make lint`**, **`make typecheck`**, **`make test`** (or **`make tests-mock`** for a fast pass); use **`uv run …`** for one-off commands.
 - Code layout and modules: see **Repository layout** in the root `README.md` and this index (`guides/`, `TECHNICAL.md`, `CHANGELOG.md`).
+- In **`CHANGELOG.md`**, paths in **`### Файлы` / `### Files`** blocks are relative to **`backend/`** (same as `api/…`, `alembic/…`): `docs/…` means `backend/docs/…` from the repository root.
 
 ---
 
 ## Search tips
 
+Run from the repository root (paths under `backend/docs/`):
+
 ```bash
-grep -r "OAuth" docs/*.md docs/guides/*.md
-grep -r "POST /api" docs/TECHNICAL.md
+grep -r "OAuth" backend/docs/*.md backend/docs/guides/*.md
+grep -r "POST /api" backend/docs/TECHNICAL.md
 ```
 
 ---
 
-**Index last updated:** March 2026
+**Index last updated:** April 2026

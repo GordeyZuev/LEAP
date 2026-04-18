@@ -4,7 +4,7 @@
 
 ![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-green.svg)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-12+-blue.svg)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)
 ![Redis](https://img.shields.io/badge/Redis-7+-blue.svg)
 ![Celery](https://img.shields.io/badge/Celery-5+-blue.svg)
 ![ty](https://img.shields.io/badge/ty-0.14+-orange.svg)
@@ -12,7 +12,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.9.6.5` (April 2026)
+**Версия:** `v0.9.6.5` (April 2026) · **Статус:** In Active Development • Beta
 **Tech:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 
 **Структура репозитория:** исходный код API — в [`backend/`](backend/) (`uv`, `make`, тесты, Celery). В **корне** — [`docker-compose.yml`](docker-compose.yml) и [`Makefile`](Makefile) только для Docker; веб-клиент планируется в `frontend/` со своими командами (`pnpm` / `npm`).
@@ -322,7 +322,7 @@ storage/                ← User media files (ID-based structure)
 - **Service Context** — unified execution context
 - **Config-Driven** — template-based automation
 
-📖 Детали: [TECHNICAL.md](docs/TECHNICAL.md) • [ADR_OVERVIEW.md](docs/ADR_OVERVIEW.md)
+📖 Детали: [TECHNICAL.md](backend/docs/TECHNICAL.md) • [ADR_OVERVIEW.md](backend/docs/ADR_OVERVIEW.md)
 
 ---
 
@@ -348,27 +348,26 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ## 📚 Документация
 
-**📋 Навигация:** [INDEX.md](docs/INDEX.md) - полный список документов
+**📋 Навигация:** [INDEX.md](backend/docs/INDEX.md) - полный список документов
 
 ### Основные руководства
 
 | Документ | Описание |
 |----------|----------|
-| 📖 [TECHNICAL.md](docs/TECHNICAL.md) | Complete technical reference (API, modules, security) |
-| 🚀 [DEPLOYMENT.md](docs/guides/DEPLOYMENT.md) | Production deployment guide |
-| 🗄️ [DATABASE_DESIGN.md](docs/DATABASE_DESIGN.md) | Database schema & migrations |
-| 🗺️ [tests/ROADMAP.md](tests/ROADMAP.md) | Testing roadmap & plans |
-| 📋 [PLAN.md](docs/archive/PLAN.md) | Thesis plan & milestones |
-| 🆕 [UPDATES.md](docs/archive/UPDATES.md) | Latest updates & progress |
-| 📜 [CHANGELOG.md](docs/CHANGELOG.md) | Complete version history |
-| 🎬 [YT_DLP_GUIDE.md](docs/guides/YT_DLP_GUIDE.md) | yt-dlp video ingestion guide |
-| 💿 [YANDEX_DISK_GUIDE.md](docs/guides/YANDEX_DISK_GUIDE.md) | Yandex Disk integration guide |
+| 📖 [TECHNICAL.md](backend/docs/TECHNICAL.md) | Complete technical reference (API, modules, security) |
+| 🚀 [DEPLOYMENT.md](backend/docs/guides/DEPLOYMENT.md) | Production deployment guide |
+| 🗄️ [DATABASE_DESIGN.md](backend/docs/DATABASE_DESIGN.md) | Database schema & migrations |
+| 🗺️ [tests/ROADMAP.md](backend/tests/ROADMAP.md) | Testing roadmap & plans |
+| 📋 [PLAN.md](backend/docs/archive/PLAN.md) | Thesis plan & milestones |
+| 📜 [CHANGELOG.md](backend/docs/CHANGELOG.md) | Complete version history |
+| 🎬 [YT_DLP_GUIDE.md](backend/docs/guides/YT_DLP_GUIDE.md) | yt-dlp video ingestion guide |
+| 💿 [YANDEX_DISK_GUIDE.md](backend/docs/guides/YANDEX_DISK_GUIDE.md) | Yandex Disk integration guide |
 
 ---
 
-## 🆕 Version v0.9.6.5 (April 2026)
+## 🆕 Последние релизы
 
-**Status:** In Active Development • Beta
+Ниже — краткие пользовательские изменения по веткам `v0.9.6.x`. Полная история, даты и списки файлов — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
 
 **Новое в v0.9.6.5:**
 - **`Jinja2` metadata** — заголовки/описания/пути Yandex только как шаблоны `Jinja2`
@@ -459,4 +458,6 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 ---
 
-**Version:** `v0.9.6.5` (April 2026) • **Status:** In Active Development • Beta
+**Status:** In Active Development • Beta
+
+

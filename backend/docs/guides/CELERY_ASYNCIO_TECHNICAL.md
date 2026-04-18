@@ -223,6 +223,6 @@ def get_async_engine():
 
 ---
 
-**Версии:** Python `>=3.14` (см. `pyproject.toml`), Celery 5.x, SQLAlchemy 2.x async.
+**Версии:** Python 3.14+ (требование пакета), Celery 5.x, SQLAlchemy 2.x async.
 
 **Обновлено:** 2026-03-22

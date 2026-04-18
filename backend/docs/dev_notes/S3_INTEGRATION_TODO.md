@@ -1,15 +1,14 @@
 # S3 Integration TODO
 
-**Version:** v0.9.4
-**Date:** 2026-01-22
-**Status:** 🚧 Ready for S3 Implementation
+**Date:** 2026-01-22  
+**Status:** 🚧 Ready for S3 Implementation  
 **Estimated Time:** 2-3 hours
 
 ---
 
 ## 📋 Current Status
 
-### ✅ COMPLETED (v0.9.4)
+### ✅ COMPLETED (storage abstraction / local backend)
 
 **Storage Architecture:**
 - ✅ `file_storage/` module created (code separated from data)
@@ -582,39 +581,35 @@ async def get_presigned_url(
 
 | Document | Description | Link |
 |----------|-------------|------|
-| **Storage Structure** | Complete storage architecture specification | [docs/guides/STORAGE_STRUCTURE.md](docs/guides/STORAGE_STRUCTURE.md) |
-| **CHANGELOG** | Version history and breaking changes | [docs/CHANGELOG.md](docs/CHANGELOG.md) |
-| **Storage Implementation** | Implementation guide for v0.9.4 | [STORAGE_STRUCTURE_IMPLEMENTED.md](STORAGE_STRUCTURE_IMPLEMENTED.md) |
-| **Legacy Cleanup** | Details of removed legacy code | [LEGACY_CLEANUP_COMPLETE.md](LEGACY_CLEANUP_COMPLETE.md) |
-| **Final Verification** | Complete verification report | [FINAL_VERIFICATION_REPORT.md](FINAL_VERIFICATION_REPORT.md) |
+| **Storage Structure** | Complete storage architecture specification | [STORAGE_STRUCTURE.md](../guides/STORAGE_STRUCTURE.md) |
+| **CHANGELOG** | Version history and breaking changes | [CHANGELOG.md](../CHANGELOG.md) |
 
 ### Technical Reference
 
 | Document | Description | Link |
 |----------|-------------|------|
-| **Technical Docs** | Complete technical reference | [docs/TECHNICAL.md](docs/TECHNICAL.md) |
-| **Deployment** | Setup and deployment guide | [docs/guides/DEPLOYMENT.md](docs/guides/DEPLOYMENT.md) |
-| **API Guide** | REST API documentation | [docs/API_GUIDE.md](docs/API_GUIDE.md) |
-| **Database Design** | Database schema and migrations | [docs/DATABASE_DESIGN.md](docs/DATABASE_DESIGN.md) |
+| **Technical Docs** | Complete technical reference (REST API) | [TECHNICAL.md](../TECHNICAL.md) |
+| **Deployment** | Setup and deployment guide | [DEPLOYMENT.md](../guides/DEPLOYMENT.md) |
+| **Database Design** | Database schema and migrations | [DATABASE_DESIGN.md](../DATABASE_DESIGN.md) |
 
 ### Project Management
 
 | Document | Description | Link |
 |----------|-------------|------|
-| **README** | Project overview and quick start | [README.md](README.md) |
-| **Testing roadmap** | Test plans & coverage | [tests/ROADMAP.md](../../tests/ROADMAP.md) |
-| **ADR Overview** | Architecture decision records | [docs/ADR_OVERVIEW.md](docs/ADR_OVERVIEW.md) |
-| **ADR Features** | Feature-specific decisions | [docs/ADR_FEATURES.md](docs/ADR_FEATURES.md) |
+| **README** | Project overview and quick start | [README.md](../../../README.md) |
+| **Testing roadmap** | Test plans & coverage | [ROADMAP.md](../../tests/ROADMAP.md) |
+| **ADR Overview** | Architecture decision records | [ADR_OVERVIEW.md](../ADR_OVERVIEW.md) |
+| **ADR Features** | Feature-specific decisions | [ADR_FEATURES.md](../ADR_FEATURES.md) |
 
 ### Module Documentation
 
 | Document | Description | Link |
 |----------|-------------|------|
-| **Templates Guide** | Template-based automation | [docs/guides/TEMPLATES.md](docs/guides/TEMPLATES.md) |
-| **OAuth Setup** | OAuth configuration guide | [docs/guides/OAUTH.md](docs/guides/OAUTH.md) |
-| **Bulk Operations** | Batch processing guide | [docs/BULK_OPERATIONS_GUIDE.md](docs/BULK_OPERATIONS_GUIDE.md) |
-| **VK Integration** | VK-specific features | [docs/guides/VK_INTEGRATION.md](docs/guides/VK_INTEGRATION.md) |
-| **Fireworks Batch** | Batch transcription API | [docs/guides/FIREWORKS_BATCH_API.md](docs/guides/FIREWORKS_BATCH_API.md) |
+| **Templates Guide** | Template-based automation | [TEMPLATES.md](../guides/TEMPLATES.md) |
+| **OAuth Setup** | OAuth configuration guide | [OAUTH.md](../guides/OAUTH.md) |
+| **Batch testing** | Batch processing guide | [BATCH_TESTING.md](../guides/BATCH_TESTING.md) |
+| **VK Integration** | VK-specific features | [VK_INTEGRATION.md](../guides/VK_INTEGRATION.md) |
+| **Fireworks Batch** | Batch transcription API | [FIREWORKS_BATCH_API.md](../guides/FIREWORKS_BATCH_API.md) |
 
 ### Code Reference
 

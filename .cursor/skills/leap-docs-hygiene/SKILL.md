@@ -14,7 +14,7 @@ Canonical rules live in **`documentation.mdc`**. This skill is the **workflow** 
 
 1. `backend/docs/INDEX.md` — must list navigable entry points.
 2. `backend/docs/guides/` — **current** procedures (deployment, OAuth, Celery, integrations, templates).
-3. `backend/docs/TECHNICAL.md`, ADR files, `DATABASE_DESIGN.md` — reference architecture and API narrative.
+3. `backend/docs/TECHNICAL.md`, `backend/docs/ADR_*.md`, `backend/docs/DATABASE_DESIGN.md` — reference architecture and API narrative.
 4. `backend/docs/CHANGELOG.md` — what shipped; not a substitute for guides.
 5. `backend/docs/archive/` — historical or superseded **whole documents** worth keeping read-only.
 6. `backend/docs/dev_notes/` — drafts and TODOs; **do not** treat as runbooks when they conflict with `guides/`.

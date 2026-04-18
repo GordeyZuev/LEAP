@@ -1,7 +1,7 @@
 # Architecture Decision Records - Overview
 
 **Проект:** LEAP Platform
-**Версия:** 2.0 (Актуализировано: январь 2026)
+**Версия:** 2.1 (Актуализировано: апрель 2026)
 **Статус:** Production-Ready Multi-tenant SaaS
 
 ---
@@ -70,7 +70,7 @@
 4. **v0.8** - REST API + JWT authentication
 5. **v0.9** - Celery, OAuth 2.0, Templates, Subscriptions
 
-### Текущее состояние (v0.9.6.4)
+### Текущее состояние
 
 **Production-Ready SaaS платформа:**
 - REST API endpoints
@@ -168,9 +168,9 @@ User A (user_id=1)          User B (user_id=2)
 
 **Реализация:**
 
-**JWT Tokens:**
-- Access Token: 1 час (короткоживущий)
-- Refresh Token: 7 дней (долгоживущий, хранится в БД)
+**JWT Tokens (дефолты в `config/settings.py`, переопределяются через env):**
+- Access Token: по умолчанию 30 минут
+- Refresh Token: по умолчанию 7 дней (хранится в БД)
 - Алгоритм: HS256
 - Payload: user_id, role, permissions
 
@@ -184,7 +184,7 @@ User A (user_id=1)          User B (user_id=2)
 - **Zoom** - OAuth 2.0 + Server-to-Server dual mode
 
 **Файлы:**
-- `api/core/security.py` - JWT создание и валидация
+- `api/auth/security.py` — JWT создание и валидация
 - `api/routers/auth.py` - endpoints (register, login, refresh)
 - `api/routers/oauth/` - OAuth flows для всех платформ
 - `database/auth_models.py` - User, RefreshToken models
@@ -304,9 +304,9 @@ Encryption:
 - Ключ в environment variable
 
 **Реализация:**
-- `api/core/encryption.py` - CredentialEncryption class
-- `api/services/credential_service.py` - auto encrypt/decrypt
-- Environment: `API_ENCRYPTION_KEY`
+- `api/auth/encryption.py` — Fernet-обёртка для credentials
+- `api/services/credential_service.py` — шифрование/дешифрование при сохранении и чтении
+- Environment: **`SECURITY_ENCRYPTION_KEY`** (см. [CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md))
 
 **Статус:** ✅ Полностью реализовано
 
@@ -383,84 +383,9 @@ Encryption:
 
 ### ADR-006: Async Processing Pipeline
 
-**Решение:** Celery + Redis для асинхронной обработки
+**Решение:** Celery + Redis; маршрутизация по очередям (`downloads`, `uploads`, `async_operations`, `processing_cpu`, `maintenance`), orchestration через chains.
 
-**Архитектура:**
-```
-┌──────────────────────────────────────────┐
-│        Async Processing                  │
-└──────────────────────────────────────────┘
-
-API Request → Create Celery Task → Return task_id
-                    ↓
-              Celery Worker picks up task
-                    ↓
-              Execute: download → process → transcribe → upload
-                    ↓
-              Update status in DB (progress tracking)
-                    ↓
-              Client polls GET /tasks/{task_id}
-```
-
-**Queues:**
-- `processing` - video processing (CPU-intensive, 2 workers)
-- `upload` - API calls (I/O-intensive, 1 worker)
-- `automation` - scheduled jobs (1 worker)
-
-**Обоснование:**
-
-**Альтернативы:**
-1. **Celery + Redis** ← **выбрано**
-2. Background threads
-3. Cloud functions (AWS Lambda)
-
-**Преимущества:**
-- ✅ Масштабируемость - горизонтальное добавление workers
-- ✅ Reliability - auto-retry, error handling
-- ✅ Monitoring - Flower UI для мониторинга
-- ✅ Scheduling - Celery Beat для cron jobs
-- ✅ Priority queues - разные очереди для разных задач
-
-**Task Types:**
-```python
-# Processing tasks
-- download_task(recording_id, user_id)
-- process_video_task(recording_id, user_id)
-- transcribe_task(recording_id, user_id)
-- extract_topics_task(recording_id, user_id)
-- generate_subtitles_task(recording_id, user_id)
-
-# Upload tasks
-- upload_to_platform_task(recording_id, platform, user_id)
-
-# Batch tasks
-- bulk_process_task(recording_ids, user_id)
-- bulk_sync_sources_task(source_id, user_id)
-
-# Automation tasks
-- scheduled_automation_job_task(job_id)
-```
-
-**Progress Tracking:**
-```python
-# Task result stored in Redis
-{
-  "task_id": "abc123",
-  "status": "PROCESSING",  # PENDING, PROCESSING, SUCCESS, FAILURE
-  "progress": 45,          # 0-100%
-  "current_step": "Transcribing audio...",
-  "result": null,          # Result when SUCCESS
-  "error": null            # Error when FAILURE
-}
-```
-
-**Реализация:**
-- `api/celery_app.py` - Celery configuration
-- `api/tasks/` - task definitions
-- `api/services/task_service.py` - task management
-- Endpoints:
-  - `GET /tasks/{task_id}` - task status
-  - `DELETE /tasks/{task_id}` - cancel task
+Подробности очередей, задач и параллелизма — **[ADR-011: Async Processing (Celery)](ADR_FEATURES.md#adr-011-async-processing-celery)**. Конфигурация: `api/celery_app.py`, цели в `backend/Makefile`.
 
 **Статус:** ✅ Полностью реализовано
 
@@ -468,61 +393,9 @@ API Request → Create Celery Task → Return task_id
 
 ### ADR-007: Subscription & Quota System
 
-**Решение:** Code-based defaults + optional plan-based subscriptions
+**Решение:** `DEFAULT_QUOTAS` в коде + опциональные планы подписки и учёт использования.
 
-**Архитектура:**
-```
-┌──────────────────────────────────────────┐
-│        Quota System                      │
-└──────────────────────────────────────────┘
-
-DEFAULT_QUOTAS (config/settings.py, all None = unlimited)
-    ↓
-subscription_plans (optional, for custom limits)
-    ↓
-user_subscriptions (user ← plan + custom overrides)
-    ↓
-quota_usage (tracking по периодам YYYYMM)
-    ↓
-Quota checks перед операциями
-```
-
-**Дефолтное поведение:**
-- Все пользователи по умолчанию получают `DEFAULT_QUOTAS` (безлимит)
-- Подписка создаётся только при назначении кастомного плана
-- При регистрации подписка НЕ создаётся автоматически
-
-**Quota Types:**
-- `max_recordings_per_month` - лимит recordings
-- `max_storage_gb` - лимит storage
-- `max_concurrent_tasks` - параллельные задачи
-- `max_automation_jobs` - scheduled jobs
-- `min_automation_interval_hours` - минимальный интервал автоматизации
-
-**Tracking:**
-```python
-# quota_usage table
-{
-  "user_id": "01HQ...",
-  "period": "202602",  # YYYYMM
-  "recordings_count": 15,
-  "storage_bytes": 3435973837,
-  "concurrent_tasks_count": 2
-}
-```
-
-**Реализация:**
-- `config/settings.py` - `DEFAULT_QUOTAS` constant (fallback)
-- `database/auth_models.py` - subscription & quota models
-- `api/services/quota_service.py` - quota checks (fallback → DEFAULT_QUOTAS)
-- `api/services/stats_service.py` - user statistics
-- `api/middleware/quota.py` - enforcement middleware
-- `api/routers/admin.py` - admin endpoints
-
-**Endpoints:**
-- `GET /users/me/quota` - current quota status
-- `GET /users/me/stats` - user statistics (recordings, transcription, storage)
-- `POST /admin/users/{id}/quota` - admin override
+Детали моделей, лимитов и API — **[ADR-012: Quotas & Subscriptions](ADR_FEATURES.md#adr-012-quotas--subscriptions)**.
 
 **Статус:** ✅ Полностью реализовано
 
@@ -530,64 +403,9 @@ Quota checks перед операциями
 
 ### ADR-008: FSM для Processing Status
 
-**Решение:** Finite State Machine для надежной обработки
+**Решение:** Явные статусы записи и целей выгрузки, валидация переходов в сервисном слое.
 
-**Архитектура:**
-```
-┌──────────────────────────────────────────┐
-│        Processing FSM                     │
-└──────────────────────────────────────────┘
-
-INITIALIZED → DOWNLOADING → DOWNLOADED
-    ↓              ↓
-PROCESSING → PROCESSED → TRANSCRIBING
-    ↓              ↓
-TRANSCRIBED → UPLOADING → UPLOADED
-
-Failed transitions:
-- Any state → FAILED (with failed_at_stage)
-- FAILED → retry → back to failed stage
-```
-
-**Статусы:**
-- `INITIALIZED` - запись создана
-- `DOWNLOADING` - скачивание из источника
-- `DOWNLOADED` - скачано
-- `PROCESSING` - обработка видео (FFmpeg)
-- `PROCESSED` - обработано
-- `TRANSCRIBING` - транскрибация
-- `TRANSCRIBED` - транскрибировано
-- `UPLOADING` - загрузка на платформы
-- `UPLOADED` - загружено везде
-- `FAILED` - ошибка (с указанием стадии)
-- `SKIPPED` - пропущено (blank record)
-
-**Output Target FSM:**
-```
-NOT_UPLOADED → UPLOADING → UPLOADED
-       ↓           ↓
-    FAILED ← FAILED
-```
-
-**Обоснование:**
-
-**Проблемы без FSM:**
-- Непонятные состояния
-- Сложно откатывать
-- Нет гарантий корректности
-- Трудно дебажить
-
-**Преимущества FSM:**
-- ✅ Явные разрешенные переходы
-- ✅ Невозможны invalid states
-- ✅ Легко добавлять новые стадии
-- ✅ Простой retry logic
-- ✅ Audit trail
-
-**Реализация:**
-- `models/recording.py` - ProcessingStatus enum
-- `database/models.py` - OutputTarget with TargetStatus
-- FSM валидация в service layer
+Детали и диаграммы — **[ADR-015: FSM](ADR_FEATURES.md#adr-015-fsm-для-надежной-обработки)** и [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md).
 
 **Статус:** ✅ Полностью реализовано
 
@@ -688,12 +506,12 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 ## См. также
 
 ### Архитектура
-- [ADR_FEATURES.md](ADR_FEATURES.md) - Автоматизация, FSM, квоты (детально)
+- [ADR_FEATURES.md](ADR_FEATURES.md) — автоматизация, Celery/очереди, квоты, FSM и др. (детальные ADR-010+)
 - [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Схемы БД, JSONB структуры
-- [TECHNICAL.md](TECHNICAL.md) - Полная техническая документация
+- [TECHNICAL.md](TECHNICAL.md) — модули и справка (эндпоинты — OpenAPI)
 
 ### API & Integration
-- [TECHNICAL.md](TECHNICAL.md) - Pydantic схемы и API endpoints
+- [TECHNICAL.md](TECHNICAL.md) — обзор API; детальный контракт — OpenAPI `/docs`
 - [OAUTH.md](guides/OAUTH.md) - OAuth setup & integration
 
 ### Features
@@ -704,5 +522,5 @@ NOT_UPLOADED → UPLOADING → UPLOADED
 
 ---
 
-**Документ обновлен:** Январь 2026
+**Документ обновлен:** Апрель 2026
 **Следующий review:** По мере добавления новых ADR

@@ -10,14 +10,14 @@ alwaysApply: false
 # Version bump and product-facing sync
 
 - **Canonical version:** `backend/pyproject.toml` → `[project].version` — semver **without** the `v` prefix (e.g. `0.9.6.6`).
-- **Product-facing `v`:** root **`README.md`** and marketing-style lines use **`v` + same numbers** (e.g. `v0.9.6.6`).
+- **Product-facing `v`:** root **`README.md`** uses **`v` + same numbers** as `pyproject` (e.g. `v0.9.6.6`). If both the top product version line (currently often `` `**Версия:**` ``) and the footer **Version** exist, keep them **identical**; refresh the per-release highlights block (currently titled like `` `Новое в v…` ``) when there are user-visible highlights. Do not stamp product semver into every guide — **`pyproject.toml`** stays canonical.
 
 **Full update workflow** (diff → business summary → doc audit → bump everywhere → verify): skill **`leap-version-bump`**.
 
 On every release, at minimum:
 
 1. **`workflow-changelog.mdc`** — new `backend/docs/CHANGELOG.md` section(s).
-2. **`README.md`** — version line(s), footer **Version**, and the **«Новое в v…»** block when there are user-visible highlights.
-3. **Grep the previous semver** across the repo; fix **stale product version stamps** (e.g. **`backend/docs/TECHNICAL.md`**, **`backend/docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`**, **`backend/docs/ADR_OVERVIEW.md`** “текущее состояние”, archive digests if you still maintain them).
+2. **`README.md`** — version line(s) and the highlights section (same `` `Новое в v…` `` pattern as today’s README) when there are user-visible highlights; **`backend/docs/UPDATES.md`** only if you still curate it.
+3. **Grep the previous semver** across the repo; fix stale **product** stamps in **`README.md`**, **`backend/api/__init__.py`**, **`backend/config/settings.py`** (drives **`settings.app.version`** / OpenAPI in `api/main.py`), **`backend/.version`**, **`backend/docs/UPDATES.md`**, **`backend/docs/ARCHITECTURE_SCHEMAS.md`** (when the header tracks the product release), and any other file that still advertises the **old** release as current.
 
-**Do not** bump **document-internal** edition numbers (e.g. ADR header **«Версия: 2.0»**, guide **«Версия: v3.0»** for the doc itself) unless that file’s policy says it tracks the product release.
+**Do not** bump **document-internal** edition numbers (e.g. ADR header `` `Версия: 2.0` ``, guide `` `Версия: v3.0` `` for the document’s own revision) unless that file’s policy says it tracks the product release.

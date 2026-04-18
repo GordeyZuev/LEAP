@@ -2,8 +2,7 @@
 
 **Complete technical reference for LEAP Platform**
 
-**Version:** v0.9.6.4 (March 2026)
-**Status:** ✅ Production Ready
+Документ описывает устройство платформы: модули, данные, типовые потоки обработки и практики разработки. Контракт REST API (пути, тела запросов, коды ответов) смотрите в **OpenAPI** у работающего сервера: `/docs` или `/openapi.json`.
 
 ---
 
@@ -25,7 +24,7 @@
 
 ### What is LEAP
 
-**LEAP** (Learning Educational Automation Platform) - это multi-tenant платформа для автоматизации end-to-end обработки образовательного видеоконтента.
+**LEAP** (Lecture Enhancement & Automation Platform) — multi-tenant платформа для автоматизации end-to-end обработки образовательного видеоконтента.
 
 **Ключевые возможности:**
 - ✅ Синхронизация видео из Zoom, локальных файлов
@@ -44,7 +43,7 @@
 **Backend:**
 ```
 Python 3.14+ • FastAPI • SQLAlchemy 2.0 (async)
-PostgreSQL 12+ • Redis • Celery + Beat
+PostgreSQL 15+ • Redis 7+ • Celery + Beat
 ```
 
 **AI & Media:**
@@ -66,48 +65,36 @@ JWT • OAuth 2.0 • Fernet Encryption • PBKDF2
 
 ### Project Structure
 
+Исходный код API и документация живут в каталоге **`backend/`** (монорепозиторий: в корне — `docker-compose.yml`, корневой `Makefile` только для Docker).
+
 ```
-ZoomUploader/
-├── api/                      # FastAPI application
-│   ├── routers/              # API endpoints
-│   ├── services/             # Business logic layer
-│   ├── repositories/         # Data access layer
-│   ├── schemas/              # Pydantic models
-│   ├── core/                 # Core utilities (context, security)
-│   ├── helpers/              # Helper classes
-│   └── tasks/                # Celery tasks
-├── database/                 # Database models & config
-│   ├── models.py             # Core models (Recording, etc.)
-│   ├── auth_models.py        # User, Credentials, Subscriptions
-│   ├── template_models.py    # Templates, Sources, Presets
-│   ├── automation_models.py  # Automation jobs
-│   └── config.py             # Database configuration
-├── file_storage/             # Storage abstraction layer (NEW v2.0)
-│   ├── path_builder.py       # StoragePathBuilder (single source of truth)
-│   ├── factory.py            # Backend factory (LOCAL/S3)
-│   └── backends/             # Storage backends
-│       ├── base.py           # StorageBackend interface
-│       └── local.py          # LocalStorageBackend
-├── *_module/                 # Processing modules
-│   ├── video_download_module/
-│   │   ├── core/base.py      # BaseDownloader ABC
-│   │   ├── factory.py        # Downloader factory (by SourceType)
-│   │   ├── downloader.py     # ZoomDownloader
-│   │   └── platforms/        # yt-dlp, Yandex Disk downloaders
-│   ├── video_processing_module/
-│   ├── transcription_module/
-│   ├── deepseek_module/
-│   ├── subtitle_module/
-│   ├── video_upload_module/
-│   └── yandex_disk_module/   # Yandex Disk REST API client
-├── storage/                  # User media files (ID-based, NEW v2.0)
-│   ├── shared/thumbnails/    # Global thumbnails
-│   ├── temp/                 # Temporary processing files
-│   └── users/user_XXXXXX/    # User-isolated storage
-├── alembic/                  # Database migrations
-├── config/                   # Configuration files
-├── utils/                    # Utilities
-└── docs/                     # Documentation
+backend/
+├── api/                      # FastAPI: routers, services, tasks, celery_app
+│   ├── auth/                 # JWT, шифрование credentials (Fernet)
+│   ├── core/                 # ServiceContext, dependencies
+│   ├── routers/
+│   ├── services/
+│   ├── repositories/
+│   ├── schemas/
+│   ├── helpers/
+│   └── tasks/
+├── database/                 # SQLAlchemy models, manager, config
+├── file_storage/             # Абстракция хранилища (LOCAL / S3)
+├── video_download_module/
+├── video_processing_module/
+├── transcription_module/
+├── deepseek_module/
+├── subtitle_module/
+├── video_upload_module/
+├── yandex_disk_module/
+├── fireworks_module/
+├── config/                   # Pydantic settings, примеры OAuth
+├── alembic/
+├── storage/                  # Локальные медиафайлы (по умолчанию)
+├── docs/                     # Документация (`guides/`, TECHNICAL, ADR, …)
+├── Makefile                  # api, воркеры, БД, тесты
+├── pyproject.toml
+└── Dockerfile
 ```
 
 ---
@@ -258,7 +245,7 @@ final_config = user_config ← template_config ← recording_override
 
 ### 1. ServiceContext
 
-**File:** `api/core/context.py`
+**Files:** `api/core/context.py` (модель контекста), `api/core/dependencies.py` (`get_service_context`)
 
 **Purpose:** Централизованное хранение контекста выполнения операции
 
@@ -398,11 +385,11 @@ creds = await cred_service.get_credentials_by_id(credential_id)
 **Purpose:** REST API endpoints, аутентификация, валидация
 
 **Key Components:**
-- `routers/` - API endpoints
-- `services/` - Business logic
-- `repositories/` - Data access
-- `schemas/` - Pydantic models
-- `core/` - Auth, security, context
+- `routers/` — HTTP API
+- `services/` / `repositories/` — бизнес-логика и доступ к данным
+- `schemas/` — Pydantic
+- `auth/` — JWT, шифрование учётных данных
+- `core/` — контекст запроса, DI
 
 **Features:**
 - JWT authentication + refresh tokens
@@ -655,7 +642,7 @@ video_upload_module/
 
 ## Database Design
 
-**Database:** PostgreSQL 12+ with SQLAlchemy 2.0 (async)
+**Database:** PostgreSQL 15+ with SQLAlchemy 2.0 (async) — в Docker-стеке проекта образ `postgres:15-alpine`; локально допустимы совместимые версии (см. `DATABASE_*` в `.env`)
 
 **Key Features:**
 - Multi-tenant isolation via `user_id` filtering
@@ -941,10 +928,8 @@ DELETE /api/v1/thumbnails/{filename}
 ### Authentication & Authorization
 
 **JWT (JSON Web Tokens):**
-- Access token: 15 минут
-- Refresh token: 30 дней
-- Stored in database (`refresh_tokens` table)
-- Automatic rotation
+- Длительность access/refresh задаётся в **`config/settings.py`** (по умолчанию: access **30** минут, refresh **7** дней), переопределение через переменные окружения с префиксом **`SECURITY_`**
+- Refresh-токены хранятся в БД; см. `api/routers/auth.py`
 
 **OAuth 2.0:**
 - YouTube: Authorization Code Flow
@@ -990,8 +975,8 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 ```
 
 **Key Management:**
-- Encryption key stored in environment variable: `ENCRYPTION_KEY`
-- Key rotation support через `encryption_key_version`
+- Ключ Fernet: **`SECURITY_ENCRYPTION_KEY`** (см. `.env.example`, [CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md))
+- Поддержка ротации ключей — в том же гайде и `scripts/reencrypt_credentials.py`
 - Never log or expose credentials
 
 **Encrypted Platforms:**
@@ -1051,42 +1036,44 @@ ALLOWED_ORIGINS = ["http://localhost:3000"]
 
 **Requirements:**
 - Python 3.14+
-- PostgreSQL 12+
-- Redis
+- PostgreSQL 15+ (или совместимый инстанс; имя БД для compose по умолчанию — `leap_platform`)
+- Redis 7+
 - FFmpeg
 
 **Installation:**
 ```bash
-# 1. Clone repository
+# 1. Клонировать репозиторий и перейти в backend/
 git clone <repo-url>
-cd ZoomUploader
+cd ZoomUploader/backend
 
-# 2. Install dependencies (UV recommended)
+# 2. Зависимости (uv)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync
 
-# 3. Setup environment
+# 3. Окружение
 cp .env.example .env
-# Edit .env with your credentials
+# Для стека docker compose из корня: DATABASE_DATABASE=leap_platform и пароль как в DB_PASSWORD
 
-# 4. Start infrastructure
+# 4. Инфраструктура (из backend/: Postgres + Redis в Docker)
 make docker-up
 
-# 5. Initialize database
+# 5. БД и миграции
 make init-db
 
-# 6. Run API
+# 6. API
 make api
 ```
 
 ### Project Commands
 
+Все цели **`make`** — из каталога **`backend/`** (см. `make help`).
+
 **Development:**
 ```bash
-make api          # Start FastAPI server
-make worker       # Start Celery worker
-make beat         # Start Celery beat (scheduling)
-make flower       # Start Flower (monitoring)
+make api            # API с --reload
+make celery-dev     # один воркер + beat (удобно локально)
+make celery-beat    # только планировщик
+make flower         # Flower на :5555
 ```
 
 **Database:**
@@ -1103,7 +1090,7 @@ make recreate-db  # Drop + recreate (⚠️ data loss)
 ```bash
 make lint         # Run ruff linter
 make format       # Format code with ruff
-make type-check   # Run type checking (planned)
+make typecheck    # Статическая проверка типов (ty)
 ```
 
 ### Running Tests
@@ -1125,64 +1112,13 @@ pytest tests/e2e/
 
 ### Adding New Features
 
-**1. Create migration:**
-```bash
-alembic revision -m "add_new_feature"
-# Edit migration file
-alembic upgrade head
-```
-
-**2. Add models:**
-```python
-# database/models.py
-class NewModel(Base):
-    __tablename__ = "new_table"
-    id = Column(Integer, primary_key=True)
-    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"))  # Multi-tenant (ULID)
-```
-
-**3. Add repository:**
-```python
-# api/repositories/new_repository.py
-class NewRepository:
-    async def find_all(self, user_id: str) -> list[NewModel]:
-        # Auto-filter by user_id (ULID string)
-        pass
-```
-
-**4. Add service:**
-```python
-# api/services/new_service.py
-class NewService:
-    def __init__(self, repo: NewRepository):
-        self.repo = repo
-```
-
-**5. Add schemas:**
-```python
-# api/schemas/new/schemas.py
-class NewCreate(BaseModel):
-    name: str = Field(..., min_length=1)
-
-class NewResponse(BaseModel):
-    id: int
-    name: str
-```
-
-**6. Add router:**
-```python
-# api/routers/new.py
-@router.get("/new")
-async def list_new(ctx: ServiceContext = Depends(get_service_context)):
-    service = NewService(NewRepository(ctx.session))
-    return await service.list(ctx.user_id)
-```
+Типовой порядок: миграция Alembic → модель в `database/` → repository/service → Pydantic-схемы → router. См. существующие модули в `api/` и правила в `.cursor/rules/`. Тесты: `backend/tests/README.md`, цели **`make test`** / **`make tests-mock`**.
 
 ### Environment Variables
 
 **Required:**
 ```bash
-# Database
+# Имя БД: в .env.example — zoom_manager; со стеком из корневого docker-compose обычно нужен leap_platform
 DATABASE_HOST=localhost
 DATABASE_PORT=5432
 DATABASE_DATABASE=zoom_manager
@@ -1201,6 +1137,8 @@ REDIS_PORT=6379
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
 ```
+
+Базовый **`docker-compose.yml`** в репозитории задаёт минимум переменных для подъёма стека. Для боя дополните сервисы API и Celery теми же секретами, что и при локальной разработке: как минимум **`SECURITY_ENCRYPTION_KEY`**, плюс остальное по вашей политике — через `docker-compose.override.yml`, env на хосте или секреты в облаке.
 
 **Optional:**
 ```bash
@@ -1242,7 +1180,7 @@ redis-cli
 ```bash
 psql -U postgres -d zoom_manager
 > \dt  # List tables
-> SELECT * FROM recordings WHERE user_id=1;
+> SELECT id, status FROM recordings LIMIT 5;
 ```
 
 ---
@@ -1319,7 +1257,7 @@ psql -U postgres -d zoom_manager
 ## Quick Reference
 
 **Technology Stack:**
-Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Celery • FFmpeg
+Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 15+ • Redis • Celery • FFmpeg
 
 **Features:**
 - Production-ready REST API
@@ -1331,10 +1269,6 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 12+ • Redis • Cel
 - OAuth platforms (YouTube, VK, Zoom)
 - AI models (Whisper, DeepSeek)
 
-**Documentation:** Comprehensive guides available in `/docs`
+**Documentation:** Canonical guides live under `backend/docs/` (see [INDEX.md](INDEX.md)).
 
----
-
-**Version:** v0.9.6.4 (March 2026)
-**Status:** ✅ Production Ready
 **License:** Business Source License 1.1

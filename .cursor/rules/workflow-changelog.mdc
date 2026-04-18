@@ -8,7 +8,7 @@ alwaysApply: true
 ## Canonical version
 
 - **`backend/pyproject.toml`** → `[project].version` is the **single source of truth** for the package.
-- Keep the **root `README.md`** product version line in sync when bumping a release (e.g. `**Версия:** \`v…\`` / English equivalent if you migrate copy). Full sync checklist: **`version-bump-and-readme.mdc`** / skill **`leap-version-bump`**.
+- Keep the **root `README.md`** product version line in sync when bumping a release (today’s README often uses the Russian label `` `**Версия:**` `` plus `` `v…` ``; use English labels if you translate the README). Full sync checklist: **`version-bump-and-readme.mdc`** / skill **`leap-version-bump`**.
 
 ## CHANGELOG (`backend/docs/CHANGELOG.md`)
 
@@ -18,13 +18,13 @@ Add entries for **user-visible behavior**, **API contract** changes, **DB migrat
 
 1. **Release block** (when shipping a version tag):
    - `## vX.Y.Z (YYYY-MM-DD)`
-   - Short **Релиз:** / release summary line
+   - Short release summary line (existing entries often use the Russian prefix `` `Релиз:` ``)
    - Optional pointer to dated sections below
 
 2. **Dated feature/fix sections** (preferred for detailed work):
    - `## YYYY-MM-DD: Short English title`
    - Bullets: **bold lead-in** — explanation (REST paths, status codes, env vars **names only**).
-   - Subsection `### Файлы` (or `### Files` if you standardize on English): bullet list of **repo-relative paths** touched.
+   - Subsection `` `### Файлы` `` or `` `### Files` ``: bullet list of **repo-relative paths** touched (match the language used in nearby CHANGELOG entries).
 
 3. **Deploy / ordering notes** when migrations and code must roll out together (see existing Jinja/migration examples).
 

@@ -21,7 +21,7 @@ alwaysApply: false
 
 ## Root and package READMEs
 
-- **Root `README.md`:** product overview, high-level pipeline, version badge/line; keep aligned with `backend/pyproject.toml` version on releases.
+- **Root `README.md`:** product overview, high-level pipeline, version line; keep aligned with `backend/pyproject.toml` on releases. Avoid a duplicate version footer and unnecessary semver stamps in every guide.
 - **`backend/README.md`:** developer quick start (`uv`, `make`, Docker pointer).
 
 ## Writing style

@@ -6,7 +6,7 @@
 
 > **Монорепозиторий:** в **корне** репозитория лежит `docker-compose.yml` (контекст сборки образов — `./backend`). Команды `docker compose` / `docker-compose` для этого файла выполняйте из корня. Исходный код API — в каталоге `backend/`.
 
-## ⚡ Quick Start (Updated 2026-02-05)
+## ⚡ Quick Start (актуально на апрель 2026)
 
 ### Current Production Configuration
 
@@ -23,10 +23,12 @@
 ```bash
 # 1. Copy and configure environment (из каталога backend/)
 cd backend && cp .env.example .env
-# Edit .env - set DATABASE_PASSWORD, SECURITY_JWT_SECRET_KEY, SECURITY_ENCRYPTION_KEY
+# В .env: SECURITY_JWT_SECRET_KEY (≥32), SECURITY_ENCRYPTION_KEY (Fernet), пароль БД.
+# Для корневого compose: имя БД leap_platform (как в docker-compose.yml) и пароль **DB_PASSWORD** на хосте (подставляется в POSTGRES_PASSWORD и в сервисы).
 
 # 2. Из корня репозитория — сборка и запуск
 cd .. && docker compose up --build -d
+# Продакшен: переопределите сервисы api/celery_* и передайте SECURITY_ENCRYPTION_KEY и прочие секреты (в базовом compose они не перечислены полностью).
 
 # 3. Verify (из корня)
 docker compose ps
@@ -75,17 +77,22 @@ make init-db
 cp .env.example .env
 # Edit .env with your settings
 
-# Run services
+# Run services (команды из каталога backend/)
 make api              # API server (dev mode with reload)
-make celery-dev       # All workers + beat (single process for dev)
+make celery-dev       # Один воркер + встроенный beat: очереди processing_cpu, async_operations, downloads, uploads, maintenance
 
-# OR run specialized workers for production-like setup
-make celery-cpu       # CPU-bound worker (video trimming) - queue: processing_cpu
-make celery-async     # Async I/O worker (all I/O tasks including maintenance) - queue: async_operations
-make celery-beat      # Task scheduler
+# Или разнести воркеры (как в проде / BATCH_TESTING)
+make celery-downloads
+make celery-uploads
+make celery-async     # только async_operations (транскрипт, темы, субтитры, run, sync, automation — см. api/celery_app.py)
+make celery-cpu       # только processing_cpu (trim)
+make celery-maintenance  # только maintenance (периодические maintenance.*)
+make celery-beat      # планировщик (отдельный процесс)
 
-# OR start everything with one command (background)
-make celery-start     # Starts Redis + all workers in background
+# macOS + Homebrew: фоновый запуск всех воркеров (поднимает Redis через brew services)
+make celery-start
+
+# Если Redis уже есть (например после make docker-up из корня) — можно не вызывать brew: закомментируйте/адаптируйте или запускайте воркеры вручную целями выше
 ```
 
 ### Makefile Commands
@@ -330,11 +337,14 @@ celery_async:
       condition: service_healthy
 ```
 
-**Queue Configuration (per `celery_app.py`):**
-- **processing_cpu**: Video trimming with FFmpeg (`trim_video`)
-- **async_operations**: All I/O operations (download, transcribe, upload, template, sync, automation, maintenance)
+**Очереди (фактическая маршрутизация в `api/celery_app.py`):**
+- **`downloads`** — `download_recording` (сеть, источники)
+- **`uploads`** — `api.tasks.upload.*` (выгрузка на платформы)
+- **`async_operations`** — транскрипт, темы, субтитры, `run_recording`, `launch_uploads`, `api.tasks.template.*`, `api.tasks.sync.*`, задачи `automation.*`
+- **`processing_cpu`** — только `trim_video` (FFmpeg)
+- **`maintenance`** — задачи `maintenance.*` (очистка токенов, истечение записей, файлы, hard delete по расписанию из `beat_schedule`)
 
-**Note:** The `maintenance` queue exists in Makefile but is unused. All maintenance tasks route to `async_operations` per `celery_app.py` configuration.
+В корневом **`docker-compose.yml`** один процесс воркера слушает все пять очередей (`--queues=downloads,uploads,async_operations,processing_cpu,maintenance`, `--concurrency=8`).
 
 #### Celery Beat (Scheduler)
 
@@ -360,11 +370,17 @@ celery_beat:
 
 #### Flower (Monitoring)
 
+В репозитории Flower запускается **без** `entrypoint.sh` (ожидание Postgres), иначе контейнер зависнет — см. сервис `flower` в корневом `docker-compose.yml` (`entrypoint: ["python", "-m", "celery"]`, `command: ["-A", "api.celery_app", "flower", "--port=5555"]`).
+
+Упрощённый пример для своего compose:
+
 ```yaml
 flower:
-  build: .
-  container_name: leap_flower
-  command: celery -A api.celery_app flower --port=5555
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  entrypoint: ["python", "-m", "celery"]
+  command: ["-A", "api.celery_app", "flower", "--port=5555"]
   environment:
     CELERY_BROKER_URL: redis://redis:6379/0
     CELERY_RESULT_BACKEND: redis://redis:6379/0
@@ -1144,17 +1160,13 @@ certbot renew --dry-run
 
 ### Current Architecture (10-20 users)
 
-**Single server with 2 specialized worker pools:**
-- API: 4 uvicorn workers
-- CPU worker: 3 workers (prefork) - video trimming only
-- Async worker: 20 workers (threads) - all I/O operations (processing, upload, template, sync, automation, maintenance)
-- Beat: 1 scheduler process
+**Типичный compose:** один контейнер API (4 воркера Uvicorn) + **один** Celery worker на всех пяти очередях + Beat + Flower — см. корневой `docker-compose.yml`.
+
+**Расширение (как в `backend/Makefile`):** отдельные процессы на `downloads` / `uploads` / `async_operations` / `processing_cpu` / `maintenance` с разным pool/concurrency.
 
 **Resources:** Hetzner CPX31 (8 vCPU, 16GB RAM)
 
-**Celery Queues:**
-- `processing_cpu` - CPU-intensive video trimming
-- `async_operations` - All async I/O operations
+**Очереди:** `downloads`, `uploads`, `async_operations`, `processing_cpu`, `maintenance` — назначение см. раздел *Queue Configuration* выше.
 
 ### Vertical Scaling (20-50 users)
 
@@ -1612,11 +1624,7 @@ docker exec leap_postgres psql -U postgres -c "
 
 ### Credentials Management
 
-All API credentials are managed through the web interface:
-1. Register/login at http://localhost:8000
-2. Navigate to Credentials section
-3. Add credentials for Zoom, YouTube, VK, Fireworks AI, DeepSeek
-4. All credentials are encrypted (Fernet) and stored in database
+Учётные данные платформ задаются через **REST API** (см. OpenAPI http://localhost:8000/docs): регистрация/логин, затем эндпоинты credentials/OAuth для Zoom, YouTube, VK, Fireworks, DeepSeek и т.д. Данные в БД хранятся в зашифрованном виде (Fernet).
 
 **Security:**
 - Credentials are encrypted using Fernet (AES-128 CBC)
@@ -1654,20 +1662,19 @@ See `.env.example` for complete reference with all available variables.
 ### Further Reading
 
 **Core Documentation:**
-- [README.md](../README.md) - Project overview and quick start
+- [README.md](../../../README.md) — обзор продукта (корень репозитория)
+- [backend/README.md](../../README.md) — быстрый старт API из каталога `backend/`
 - [INDEX.md](../INDEX.md) - Documentation map and developer entry points
 - [CHANGELOG.md](../CHANGELOG.md) - Version history and changes
 
 **Technical Documentation:**
-- [TECHNICAL.md](../TECHNICAL.md) - Architecture and technical details
-- [TECHNICAL.md](../TECHNICAL.md) - API endpoints and usage
+- [TECHNICAL.md](../TECHNICAL.md) — архитектура, модули и справка по API (детали эндпоинтов — OpenAPI `/docs`)
 - [DATABASE_DESIGN.md](../DATABASE_DESIGN.md) - Database schema and models
 
 **Feature Documentation:**
 - [TEMPLATES.md](TEMPLATES.md) - Template system and presets
 - [TEMPLATES_PRESETS_SOURCES_GUIDE.md](TEMPLATES_PRESETS_SOURCES_GUIDE.md) - Complete guide
 - [OAUTH.md](OAUTH.md) - OAuth integration
-- [OAUTH_MULTIPLE_ACCOUNTS.md](OAUTH_MULTIPLE_ACCOUNTS.md) - Multiple accounts setup
 
 **Celery & Workers:**
 - [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md) - Worker architecture and queues
@@ -1683,51 +1690,20 @@ See `.env.example` for complete reference with all available variables.
 
 ### Project Structure
 
-```
-ZoomUploader/
-├── api/                    # FastAPI application
-│   ├── main.py            # API entry point
-│   ├── celery_app.py      # Celery configuration
-│   ├── routers/           # API endpoints
-│   ├── repositories/      # Data access layer
-│   ├── services/          # Business logic
-│   ├── tasks/             # Celery tasks
-│   └── helpers/           # Utility functions
-├── config/                # Configuration files
-│   └── settings.py        # Unified settings (Pydantic)
-├── database/              # Database models and manager
-├── file_storage/          # Storage backend abstraction
-├── video_processing_module/  # Video processing (FFmpeg)
-├── transcription_module/  # Transcription (Fireworks AI)
-├── deepseek_module/       # Topic extraction (DeepSeek)
-├── subtitle_module/       # Subtitle generation
-├── video_upload_module/   # Upload to platforms (YouTube, VK)
-├── alembic/               # Database migrations
-├── tests/                 # Test suite
-├── docs/                  # Documentation
-├── docker-compose.yml     # Docker services
-├── Dockerfile             # Application container
-├── entrypoint.sh          # Container initialization
-├── Makefile               # Development commands
-├── requirements.txt       # Python dependencies
-├── pyproject.toml         # Project metadata (uv)
-└── .env.example           # Environment variables template
-```
+Исходный код API и документация для разработчиков: каталог **`backend/`** (там же `Makefile`, `pyproject.toml`, `alembic/`, `docs/`). Корень монорепозитория: **`docker-compose.yml`**, корневой **`Makefile`** (Docker), **`README.md`** с обзором продукта.
 
 ### Getting Help
 
-- **Issues:** https://github.com/your-org/ZoomUploader/issues
-- **Documentation:** See `docs/` directory
+- **Documentation:** [INDEX.md](../INDEX.md) (все гайды под `backend/docs/`)
 - **API Reference:** http://localhost:8000/docs
 
-### Version Info
+### Ориентиры по стеку
 
-- **Current Version:** 0.9.6.4 (March 2026)
-- **Last Updated:** 2026-03-04
-- **Python:** 3.11 (Dockerfile uses 3.11-slim; pyproject.toml has typo `>=3.14`)
-- **PostgreSQL:** 15
+- **Обновление гайда:** 2026-04-18
+- **Python:** 3.14+ (в Docker — образ `python:3.14-slim-bookworm` в `backend/Dockerfile`)
+- **PostgreSQL:** 15 (образ `postgres:15-alpine` в корневом compose)
 - **Redis:** 7
-- **Celery Queues:** 2 active (`processing_cpu`, `async_operations`)
+- **Очереди Celery:** `downloads`, `uploads`, `async_operations`, `processing_cpu`, `maintenance` — назначение задаётся в `api/celery_app.py`
 
 ---
 
@@ -1738,7 +1714,7 @@ ZoomUploader/
 ```bash
 # Development
 make api                  # Start API (dev mode with reload)
-make celery-dev          # Start all workers + beat (single process)
+make celery-dev          # Один процесс: worker (5 очередей) + встроенный beat — см. backend/Makefile
 make docker-up           # Start PostgreSQL + Redis
 make init-db             # Initialize database
 
@@ -1788,11 +1764,11 @@ make typecheck           # Type checking
 
 - **Configuration:** `.env` (copy from `.env.example`)
 - **Settings:** `config/settings.py` (Pydantic settings with backward compatibility)
-- **Docker:** `docker-compose.yml` (⚠️ needs queue update), `Dockerfile`, `entrypoint.sh`
-- **Celery:** `api/celery_app.py` (queue routing: `processing_cpu`, `async_operations`)
+- **Docker:** корневой `docker-compose.yml`, `backend/Dockerfile`, `backend/entrypoint.sh`
+- **Celery:** `api/celery_app.py` (маршрутизация по пяти очередям, см. выше)
 - **Database:** `alembic/versions/` (migrations)
 - **OAuth Examples:** `config/examples/oauth_google.json.example`, `config/examples/oauth_vk.json.example`
-- **Documentation:** `docs/` directory
+- **Documentation:** `backend/docs/`
 
 ### Environment Variables Quick Reference
 
@@ -1853,11 +1829,10 @@ docker logs leap_api -f
 
 ## License
 
-[MIT License](../LICENSE)
+[Business Source License 1.1](../../LICENSE)
 
 ## Support
 
 For issues and questions:
-- **Documentation:** See `docs/` directory
+- **Documentation:** `backend/docs/` ([INDEX.md](../INDEX.md))
 - **API Reference:** http://localhost:8000/docs
-- **GitHub Issues:** https://github.com/your-org/ZoomUploader/issues

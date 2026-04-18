@@ -1,8 +1,10 @@
 # Architecture Decision Records - Features
 
 **Проект:** LEAP Platform
-**Версия:** 2.0 (Актуализировано: январь 2026)
+**Версия:** 2.1 (Актуализировано: апрель 2026)
 **Статус:** Production Features
+
+Дополняет **[ADR_OVERVIEW.md](ADR_OVERVIEW.md)**: там foundational ADR-001–009 (кратко), здесь — прикладные решения **ADR-010+** (автоматизация, очереди Celery, квоты, FSM, аудит и т.д.).
 
 ---
 
@@ -161,53 +163,21 @@ Celery + Redis для асинхронной обработки длительн
 
 ### Архитектура
 
-```
-┌─────────────────────────────────────────┐
-│        Celery Architecture              │
-└─────────────────────────────────────────┘
-
-FastAPI → Celery Task → Redis (broker)
-             ↓
-        Celery Worker (3 workers)
-             ↓
-        Processing (CPU: 2 workers)
-        Upload (I/O: 1 worker)
-        Automation (1 worker)
-             ↓
-        Result → Redis (backend)
-             ↓
-        Client polls task status
-```
+FastAPI ставит задачи в **Redis** (broker); воркеры забирают задачи по **именованным очередям**. Результаты задач — в Redis (`CELERY_RESULT_BACKEND`). Статус задачи клиент может запрашивать через API (см. OpenAPI).
 
 ### Queues
 
-**Queue Structure:**
-```
-processing:    Video processing (FFmpeg, heavy CPU)
-upload:        API calls to YouTube/VK (I/O bound)
-automation:    Scheduled jobs (Celery Beat)
-```
+Маршрутизация задаётся в **`api/celery_app.py`** (`task_routes`):
 
-**Worker Configuration:**
-```bash
-# Processing worker (CPU-intensive)
-celery -A api.celery_app worker \
-  --queues=processing \
-  --concurrency=2 \
-  --pool=prefork \
-  --max-tasks-per-child=5
+| Queue | Назначение |
+|-------|------------|
+| `downloads` | Сетевые загрузки (Zoom, yt-dlp и т.д.) |
+| `uploads` | Выгрузка на YouTube / VK / Яндекс Диск |
+| `async_operations` | Транскрибация, темы, субтитры, оркестрация `run_recording`, sync, automation tasks |
+| `processing_cpu` | Только CPU-heavy **trim** (FFmpeg) |
+| `maintenance` | Периодические задачи обслуживания |
 
-# Upload worker (I/O-intensive)
-celery -A api.celery_app worker \
-  --queues=upload \
-  --concurrency=4 \
-  --pool=gevent
-
-# Automation worker
-celery -A api.celery_app worker \
-  --queues=automation \
-  --concurrency=1
-```
+**Продакшен / локально:** один процесс воркера может слушать несколько очередей (как в корневом `docker-compose.yml`: `downloads,uploads,async_operations,processing_cpu,maintenance`) или разнести по процессам — см. цели `celery-downloads`, `celery-uploads`, `celery-async`, `celery-cpu`, `celery-maintenance` в **`backend/Makefile`** и [CELERY_WORKERS_GUIDE.md](guides/CELERY_WORKERS_GUIDE.md).
 
 ### Task Types
 
@@ -280,10 +250,10 @@ process_recording_task(recording_id, user_id)
 ### Реализация
 
 **Файлы:**
-- `api/celery_app.py` - Celery config
-- `api/tasks/` - task definitions (6 файлов)
-- `api/services/task_service.py` - task management
-- `docker-compose.yml` - Redis + Celery services
+- `api/celery_app.py` — конфигурация и маршрутизация очередей
+- `api/tasks/` — определения задач
+- `api/routers/tasks.py` — HTTP-статус задач (`GET /api/v1/tasks/{task_id}`)
+- корневой `docker-compose.yml` — Redis, воркеры (при деплое через compose)
 
 **Monitoring:**
 - Flower UI: `http://localhost:5555`
