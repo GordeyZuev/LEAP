@@ -32,6 +32,15 @@ class DateRangeMixin:
         if isinstance(v, str):
             v = v.strip()
 
+            # ISO 8601 date or datetime (documented in docstring; must run before European formats)
+            try:
+                if "T" in v or (len(v) > 10 and v[10] == " "):
+                    return datetime.fromisoformat(v.replace("Z", "+00:00")).date()
+                if len(v) == 10 and v[4] == "-" and v[7] == "-":
+                    return date.fromisoformat(v)
+            except ValueError:
+                pass
+
             # Try standard formats
             formats = [
                 "%Y-%m-%d",  # 2025-12-01
@@ -49,7 +58,9 @@ class DateRangeMixin:
                 except ValueError:
                     continue
 
-        raise ValueError(f"Invalid date format: {v}. Use: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY or DD.MM.YYYY")
+        raise ValueError(
+            f"Invalid date format: {v}. Use: YYYY-MM-DD, YYYY-MM-DDTHH:MM:SS, DD/MM/YYYY, DD-MM-YYYY or DD.MM.YYYY"
+        )
 
     @staticmethod
     def resolve_date_range(

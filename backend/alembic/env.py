@@ -16,7 +16,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# DATABASE_* из .env / Docker Compose; иначе миграции всегда шли бы на sqlalchemy.url из alembic.ini.
+# DATABASE_* from .env / Docker Compose; otherwise migrations would use sqlalchemy.url from alembic.ini.
 config.set_main_option("sqlalchemy.url", DatabaseConfig.from_env().url)
 
 target_metadata = Base.metadata

@@ -120,11 +120,12 @@ class TestExportRecordings:
             user_id=mock_user.id,
         )
 
-        mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
         mock_repo_instance = MagicMock()
         mock_repo_instance.get_filtered_ids = AsyncMock(return_value=[3])
         mock_repo_instance.get_by_ids = AsyncMock(return_value={3: mock_recording})
-        mock_repo.return_value = mock_repo_instance
+        mock_repo_cls = MagicMock(return_value=mock_repo_instance)
+        mocker.patch("api.routers.recordings_helpers.RecordingRepository", mock_repo_cls)
+        mocker.patch("api.routers.recordings.RecordingRepository", mock_repo_cls)
 
         response = client.post(
             "/api/v1/recordings/export",

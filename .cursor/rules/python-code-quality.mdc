@@ -66,10 +66,11 @@ From `backend/`: `make quality` runs **lint + typecheck + pytest quality markers
 
 ## Docstrings and comments
 
+- **Language:** write **docstrings and comments in English** (consistent codebase and tooling).
 - **Modules:** one-line module docstring is typical (`"""…"""` after imports style varies; follow neighboring files).
 - **Public APIs:** document non-obvious behavior, invariants, side effects (DB, Celery enqueue, external HTTP).
 - **Prefer** concise explanations over boilerplate; let **type hints** carry parameter/return detail when names are clear.
-- **Comments:** explain *why*, not what the code literally does.
+- **Comments:** use them **sparingly** — only when they add real value (non-obvious *why*, hazards, external constraints). Skip comments that restate the code. When you do comment, explain *why*, not what the code literally does.
 
 ## FastAPI / Pydantic v2
 

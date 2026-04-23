@@ -21,6 +21,17 @@ from .token_handler import TokenRefreshError, requires_valid_token
 
 logger = get_logger()
 
+# YouTube Data API returns invalidDescription for some snippet.description strings that contain
+# raw ASCII < > (e.g. comparisons or arrows); normalize to fullwidth equivalents so uploads succeed.
+_YT_SNIPPET_ANGLE_BRACKETS = str.maketrans({">": "\uff1e", "<": "\uff1c"})
+
+
+def _sanitize_youtube_description(text: str) -> str:
+    """Replace ASCII angle brackets that can cause videos.insert invalidDescription."""
+    if not text:
+        return text
+    return text.translate(_YT_SNIPPET_ANGLE_BRACKETS).replace("\x00", "")
+
 
 class YouTubeUploader(BaseUploader):
     """YouTube video uploader."""
@@ -115,6 +126,13 @@ class YouTubeUploader(BaseUploader):
 
         try:
             final_description = description if description else f"Uploaded {self._get_timestamp()}"
+            sanitized = _sanitize_youtube_description(final_description)
+            if sanitized != final_description:
+                logger.debug(
+                    "YouTube description sanitized (angle brackets or NUL); length=%s",
+                    len(sanitized),
+                )
+                final_description = sanitized
             logger.debug(f"YouTube description length: {len(final_description)} characters")
 
             snippet = {

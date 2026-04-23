@@ -49,7 +49,7 @@ from database.config import DatabaseConfig
 from database.manager import DatabaseManager
 from logger import get_logger
 
-# Каталог проекта backend (alembic.ini, pyproject.toml) — не зависит от `.venv/bin` и `PATH`.
+# Backend project root (alembic.ini, pyproject.toml); not tied to `.venv/bin` or PATH.
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 settings = get_settings()

@@ -2,6 +2,16 @@
 
 ---
 
+## 2026-04-19: YouTube upload — sanitize description angle brackets
+
+- **YouTube Data API** — before `videos.insert`, the video description is normalized: ASCII `<` / `>` are replaced with fullwidth U+FF1C / U+FF1E, and NUL bytes are stripped. This avoids `invalidDescription` when templates or topic lines contain comparison symbols or similar.
+
+### Файлы
+
+- `video_upload_module/platforms/youtube/uploader.py`, `tests/unit/video_upload_module/test_youtube_description_sanitize.py`
+
+---
+
 ## v0.9.6.5 (2026-04-12)
 
 **Релиз:** Jinja2 для метаданных загрузки (миграции **018** / **019**), preview API, валидация `resolve_full_config`, timezone в профиле, правки audio-trim.
