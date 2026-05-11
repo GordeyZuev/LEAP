@@ -1,7 +1,7 @@
 # Automation Jobs & Celery Beat Integration
 
-> **Status**: Implemented (DB-backed Beat for user jobs; maintenance tasks in code)  
-> **Migration**: `008_create_celery_beat_tables`  
+> **Status**: Implemented (DB-backed Beat for user jobs; maintenance tasks in code)
+> **Migration**: `008_create_celery_beat_tables`
 > **Updated**: 2026-03-22
 
 ## Overview
@@ -305,7 +305,7 @@ uv run alembic upgrade head
 
 ## See also
 
-- [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md) — queues, pools, processes  
-- [TEMPLATES.md](TEMPLATES.md) — templates and matching  
-- [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) — automation quotas  
-- [TECHNICAL.md](../TECHNICAL.md) — broader API reference  
+- [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md) — queues, pools, processes
+- [TEMPLATES.md](TEMPLATES.md) — templates and matching
+- [QUOTA_AND_ADMIN_API.md](QUOTA_AND_ADMIN_API.md) — automation quotas
+- [TECHNICAL.md](../TECHNICAL.md) — broader API reference

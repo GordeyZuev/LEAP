@@ -1,7 +1,7 @@
 # Database Design — LEAP / ZoomUploader
 
-**Alembic:** 17 ревизий (`001` … `017`)  
-**Последнее обновление:** март 2026  
+**Alembic:** 17 ревизий (`001` … `017`)
+**Последнее обновление:** март 2026
 **СУБД:** PostgreSQL 12+
 
 Источник истины по схеме: каталог `alembic/versions/` и SQLAlchemy-модели в `database/*.py`.

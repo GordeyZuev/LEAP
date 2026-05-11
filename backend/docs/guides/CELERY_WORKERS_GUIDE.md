@@ -1,7 +1,7 @@
 # Celery Workers: Operations Guide
 
-> **Быстрый старт (все воркеры в фоне):** `make celery-start` (поднимает Redis через Homebrew, затем 5 worker-процессов + beat)  
-> **Техника asyncio + threads:** [CELERY_ASYNCIO_TECHNICAL.md](CELERY_ASYNCIO_TECHNICAL.md)  
+> **Быстрый старт (все воркеры в фоне):** `make celery-start` (поднимает Redis через Homebrew, затем 5 worker-процессов + beat)
+> **Техника asyncio + threads:** [CELERY_ASYNCIO_TECHNICAL.md](CELERY_ASYNCIO_TECHNICAL.md)
 > **Маршрутизация в коде:** `api/celery_app.py` → `task_routes`
 
 ## Overview
@@ -142,8 +142,8 @@ make flower   # http://localhost:5555
 
 ## Связанные документы
 
-- [CELERY_ASYNCIO_TECHNICAL.md](CELERY_ASYNCIO_TECHNICAL.md) — asyncio, NullPool, threads  
-- [TECHNICAL.md](../TECHNICAL.md) — API  
+- [CELERY_ASYNCIO_TECHNICAL.md](CELERY_ASYNCIO_TECHNICAL.md) — asyncio, NullPool, threads
+- [TECHNICAL.md](../TECHNICAL.md) — API
 - [DEPLOYMENT.md](DEPLOYMENT.md) — выкладка
 
 **Последнее обновление:** 2026-03-22

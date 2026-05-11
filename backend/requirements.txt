@@ -214,8 +214,6 @@ python-dotenv==1.2.1
     #   pydantic-settings
 python-multipart==0.0.22
     # via leap
-python-ulid==3.1.0
-    # via leap
 pytz==2025.2
     # via
     #   croniter

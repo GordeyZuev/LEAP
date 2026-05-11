@@ -408,7 +408,7 @@ networks:
 
 ### Important Notes
 
-**Celery (корневой `docker-compose.yml`, монорепо):** worker по умолчанию слушает очереди  
+**Celery (корневой `docker-compose.yml`, монорепо):** worker по умолчанию слушает очереди
 `downloads,uploads,async_operations,processing_cpu,maintenance` (один процесс, `python -m celery`). Для продакшена при необходимости разнесите воркеры по очередям (ориентир — цели `celery-*` в `backend/Makefile`).
 
 **Database Name Discrepancy:**

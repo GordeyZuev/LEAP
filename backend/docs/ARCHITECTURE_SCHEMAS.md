@@ -93,11 +93,11 @@ sequenceDiagram
     participant API
     participant DB
     participant Task
-    
+
     User->>+API: POST /recordings/{id}/pause
     API->>User: 202 Accepted
     API->>DB: Set on_pause=true
-    
+
     loop between stages
         Task->>DB: Check on_pause
         DB-->>Task: on_pause=true
@@ -118,7 +118,7 @@ sequenceDiagram
     participant API
     participant DB
     participant Task
-    
+
     User->>+API: POST /run (status=runtime, on_pause=true)
     API->>DB: Clear on_pause flag
     API->>User: success (pipeline continues)
@@ -146,19 +146,19 @@ flowchart LR
     subgraph User
         U[User]
     end
-    
+
     subgraph InputSource
         IS[Input Source]
         AID[account_ids: master, sub1, sub2]
         IS --> AID
     end
-    
+
     subgraph Creds
         MAC[Master Account Credential]
         TC[Temp Credentials]
         MAC -->|client_id + client_secret| TC
     end
-    
+
     subgraph Zoom
         ZAPI[ZoomAPI instance]
         REC[GET /users/me/recordings]
@@ -166,7 +166,7 @@ flowchart LR
         ZAPI --> REC
         REC --> DB
     end
-    
+
     U -->|Creates| IS
     U -->|Creates| MAC
     AID -->|per account_id| TC
@@ -197,7 +197,7 @@ flowchart TB
         T[Template: rules, processing, output, metadata]
         RO[Recording Override (processing_preferences)]
     end
-    
+
     subgraph Flow["Жизненный цикл"]
         S[Recording synced] --> M{Template match?}
         M -->|да| B[recording.template_id]
@@ -205,7 +205,7 @@ flowchart TB
         B --> R[ConfigResolver]
         U --> R
     end
-    
+
     subgraph Merge["Resolution: base → override"]
         direction TB
         R --> M1[1. User Config base]
@@ -213,11 +213,11 @@ flowchart TB
         M2 --> M3[3. Recording Override]
         M3 --> FC[Final Config]
     end
-    
+
     UC --> M1
     T --> M2
     RO --> M3
-    
+
     FC --> P[Processing / Upload]
 ```
 
@@ -269,7 +269,7 @@ flowchart LR
         TID[template_id]
         R --> TID
     end
-    
+
     subgraph Template
         TM[Template]
         PC[processing_config]
@@ -280,14 +280,14 @@ flowchart LR
         TM --> MC
         OC -->|preset_ids| PRESETS
     end
-    
+
     subgraph Presets
         P1[Preset YouTube]
         P2[Preset VK]
         P1 --> PM1[preset_metadata]
         P2 --> PM2[preset_metadata]
     end
-    
+
     TID -.->|bind| TM
     PP -.->|override| PC
     PP -.->|override| OC
@@ -308,35 +308,35 @@ flowchart TB
         YA[Yandex Disk]
         L[Local File]
     end
-    
+
     subgraph Sync["Sync Layer"]
         ZS[Zoom Sync]
         VS[VIDEO_URL Sync]
         YS[YaDisk Folder Sync]
     end
-    
+
     subgraph DB
         R[(Recording in DB)]
     end
-    
+
     subgraph Download["Download Layer"]
         ZD[ZoomDownloader]
         YD[YtDlpDownloader]
         YAD[YandexDiskDownloader]
     end
-    
+
     subgraph Process["Processing"]
         T[Trim]
         TR[Transcribe]
         TS[Topics + Subtitles]
     end
-    
+
     subgraph Upload["Upload Targets"]
         YT[YouTube]
         VK[VK Video]
         YDU[Yandex Disk]
     end
-    
+
     Z --> ZS
     Y --> VS
     YA --> YS
@@ -365,7 +365,7 @@ flowchart TD
     subgraph Client
         C[REST API + JWT Auth]
     end
-    
+
     subgraph Service
         RS[RecordingService]
         TS[TemplateService]
@@ -374,15 +374,15 @@ flowchart TD
         US[UserService]
         UPS[UploadService]
     end
-    
+
     subgraph Repository
         REPO[SQLAlchemy ORM (multi-tenant)]
     end
-    
+
     subgraph Data
         PG[(PostgreSQL)]
     end
-    
+
     C --> Service
     Service --> REPO
     REPO --> PG
@@ -400,18 +400,18 @@ flowchart TD
         A3[credentials]
         A4[media/user_1/]
     end
-    
+
     subgraph UserB["User B (user_id=2)"]
         B1[recordings]
         B2[templates]
         B3[credentials]
         B4[media/user_2/]
     end
-    
+
     subgraph DB["PostgreSQL"]
         PG[(shared DB, filter by user_id)]
     end
-    
+
     UserA --> PG
     UserB --> PG
 ```
@@ -437,7 +437,7 @@ flowchart LR
     D --> E[download → process → transcribe → upload]
     E --> F[Update status in DB]
     F --> G[Client polls GET /tasks/id]
-    
+
     subgraph Queues["Task Queues"]
         Q1[processing_cpu]
         Q2[downloads]
@@ -468,7 +468,7 @@ flowchart LR
     subgraph Save
         CR[credentials dict] --> ENC[encrypt_credentials] --> CIPHER[ciphertext]
     end
-    
+
     subgraph Use
         CIPHER2[ciphertext] --> DEC[decrypt_credentials] --> CR2[dict] --> API[External API]
     end
@@ -535,7 +535,7 @@ flowchart LR
     A[active] -->|DELETE / expire_at| S[soft]
     S -->|soft_deleted_at (maintenance)| H[hard]
     H -->|hard_delete_at (maintenance)| X[deleted from DB]
-    
+
     S -.->|/restore| A
 ```
 
@@ -594,7 +594,7 @@ flowchart TD
         end
         temp["temp/"]
     end
-    
+
     rec --> r74["74/"]
     r74 --> src["source.mp4"]
     r74 --> vid["video.mp4"]
@@ -630,14 +630,14 @@ erDiagram
     User ||--o{ OutputPreset : has
     User ||--o{ UserCredential : has
     User ||--o{ Recording : owns
-    
+
     Recording }o--|| InputSource : from
     Recording }o--o| RecordingTemplate : uses
     Recording ||--o{ OutputTarget : has
-    
+
     InputSource }o--o| UserCredential : uses
     OutputPreset }o--|| UserCredential : uses
-    
+
     RecordingTemplate ||--o{ OutputPreset : references
 ```
 
@@ -674,12 +674,12 @@ flowchart TB
         VK[VK]
         YD[Yandex Disk]
     end
-    
+
     subgraph Uses["Кто использует"]
         IS[Input Source (sync, скачивание)]
         OP[Output Preset (upload, выгрузка)]
     end
-    
+
     Z --> IS
     YT --> OP
     VK --> OP
@@ -764,31 +764,31 @@ flowchart TB
     subgraph User
         U[User]
     end
-    
+
     subgraph Creds
         C1[Zoom Cred]
         C2[YouTube Cred]
         C3[VK Cred]
     end
-    
+
     subgraph Input
         IS1[Input Source Zoom]
         IS2[Input Source YaDisk]
     end
-    
+
     subgraph Presets
         P1[YouTube Preset]
         P2[VK Preset]
     end
-    
+
     subgraph Templates
         TM[Template]
     end
-    
+
     subgraph Automation
         AJ[Automation Job]
     end
-    
+
     U --> C1
     U --> C2
     U --> C3

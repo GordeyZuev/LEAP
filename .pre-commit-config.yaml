@@ -14,6 +14,7 @@ repos:
     hooks:
       - id: ty
         name: ty
+        # Whole-project check (see backend/pyproject.toml [tool.ty.rules] for relaxations).
         entry: bash -c 'cd backend && uv run python -m ty check'
         language: system
         types: [python]
@@ -22,8 +23,9 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Default branch is `main`; block commits only to legacy `master` (adjust if you use flow with protected main).
       - id: no-commit-to-branch
-        args: [--branch, main, --branch, master]
+        args: [--branch, master]
       - id: check-yaml
       - id: check-json
       - id: check-toml

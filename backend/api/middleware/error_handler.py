@@ -3,19 +3,22 @@
 All handlers return a unified error format: {"error": str, "detail": str | list}.
 """
 
-import os
-
 from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from api.shared.exceptions import APIException
+from config.settings import get_settings
 from logger import get_logger
 
 logger = get_logger()
 
-DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+
+def _expose_internal_error_detail() -> bool:
+    """Match ``APP_DEBUG`` / ``Settings.app.debug`` (not a separate ``DEBUG`` env)."""
+    return get_settings().app.debug
+
 
 # Maps HTTP status codes to human-readable error categories
 _STATUS_ERROR_MAP: dict[int, str] = {
@@ -54,7 +57,7 @@ async def global_exception_handler(_request: Request, exc: Exception) -> JSONRes
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "Internal server error",
-            "detail": exc_str if DEBUG else "An error occurred",
+            "detail": exc_str if _expose_internal_error_detail() else "An error occurred",
         },
     )
 
@@ -106,7 +109,9 @@ async def response_validation_exception_handler(_request: Request, exc: Response
             "msg": error.get("msg"),
         }
         if "input" in error:
-            error_dict["input_summary"] = f"{type(error['input']).__name__}" if not DEBUG else error["input"]
+            error_dict["input_summary"] = (
+                f"{type(error['input']).__name__}" if not _expose_internal_error_detail() else error["input"]
+            )
         if error.get("ctx"):
             error_dict["ctx"] = {k: str(v) for k, v in error["ctx"].items()}
         errors.append(error_dict)
@@ -115,7 +120,7 @@ async def response_validation_exception_handler(_request: Request, exc: Response
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "Internal server error",
-            "detail": "Response validation failed" if not DEBUG else errors,
+            "detail": "Response validation failed" if not _expose_internal_error_detail() else errors,
         },
     )
 

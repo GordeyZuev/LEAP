@@ -406,7 +406,7 @@ URL → sync (extract metadata) → Recording → download (yt-dlp) → Processi
 Если YouTube блокирует с ошибкой **«Sign in to confirm you're not a bot»**, настройте cookies:
 
 1. **Файл cookies (рекомендуется для продакшена):**
-   - Экспортируйте cookies из браузера:  
+   - Экспортируйте cookies из браузера:
      `yt-dlp --cookies-from-browser chrome --cookies cookies.txt`
    - Сохраните `cookies.txt` в безопасное место на сервере
    - Добавьте в `.env`: `YTDLP_COOKIES_FILE=/path/to/cookies.txt`
