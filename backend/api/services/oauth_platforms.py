@@ -161,6 +161,38 @@ def create_zoom_config() -> OAuthPlatformConfig:
     )
 
 
+def create_yandex_disk_config() -> OAuthPlatformConfig:
+    """Create Yandex Disk OAuth configuration (Yandex ID + Disk REST scopes)."""
+    config_path = os.getenv("YANDEX_DISK_OAUTH_CONFIG", "config/oauth_yandex_disk.json")
+
+    try:
+        config = load_oauth_config(config_path)
+    except FileNotFoundError:
+        logger.warning(f"Yandex Disk OAuth config not found at {config_path}, using defaults")
+        config = {}
+
+    base_url = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8000")
+    redirect_uri = config.get("redirect_uri", f"{base_url}/api/v1/oauth/yandex_disk/callback")
+
+    return OAuthPlatformConfig(
+        name="Yandex Disk",
+        platform_id="yandex_disk",
+        authorization_url="https://oauth.yandex.ru/authorize",
+        token_url="https://oauth.yandex.ru/token",
+        client_id=config.get("client_id", ""),
+        client_secret=config.get("client_secret", ""),
+        scopes=[
+            "cloud_api:disk.read",
+            "cloud_api:disk.write",
+            "cloud_api:disk.info",
+        ],
+        redirect_uri=redirect_uri,
+        response_type="code",
+        access_type=None,
+        use_pkce=False,
+    )
+
+
 def get_platform_config(platform: str) -> OAuthPlatformConfig:
     """Get OAuth configuration for a platform."""
     if platform == "youtube":
@@ -169,6 +201,8 @@ def get_platform_config(platform: str) -> OAuthPlatformConfig:
         return create_vk_config()
     if platform == "zoom":
         return create_zoom_config()
+    if platform == "yandex_disk":
+        return create_yandex_disk_config()
     raise ValueError(f"Unsupported OAuth platform: {platform}")
 
 
@@ -177,9 +211,11 @@ try:
     YOUTUBE_CONFIG = create_youtube_config()
     VK_CONFIG = create_vk_config()
     ZOOM_CONFIG = create_zoom_config()
+    YANDEX_DISK_CONFIG = create_yandex_disk_config()
     logger.info("OAuth platform configurations loaded successfully")
 except Exception as e:
     logger.warning(f"Failed to load OAuth configurations: {e}")
     YOUTUBE_CONFIG = None
     VK_CONFIG = None
     ZOOM_CONFIG = None
+    YANDEX_DISK_CONFIG = None

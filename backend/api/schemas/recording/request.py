@@ -5,7 +5,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from api.schemas.common.validators import validate_regex_pattern
 from api.schemas.processing.preferences import ProcessingPreferences
 from api.schemas.recording.filters import RecordingFilters
 from api.schemas.template.metadata_config import TemplateMetadataConfig
@@ -72,34 +71,6 @@ class AddPlaylistByUrlRequest(BaseModel):
                 "url": "https://www.youtube.com/playlist?list=PLxxxxxxxx",
                 "quality": "1080p",
                 "auto_run": False,
-            }
-        }
-    )
-
-
-class AddYandexDiskUrlRequest(BaseModel):
-    """Add video(s) from a public Yandex Disk link."""
-
-    public_url: str = Field(
-        ...,
-        description="Public Yandex Disk URL",
-        examples=["https://disk.yandex.ru/d/AbCdEf123"],
-    )
-    file_pattern: str | None = Field(None, description="Regex pattern to filter files by name")
-    template_id: int | None = Field(None, gt=0, description="Bind recordings to template")
-
-    @field_validator("file_pattern")
-    @classmethod
-    def validate_file_pattern(cls, v: str | None) -> str | None:
-        return validate_regex_pattern(v, field_name="file_pattern")
-
-    auto_run: bool = Field(False, description="Immediately start pipeline for all videos")
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "public_url": "https://disk.yandex.ru/d/AbCdEf123",
-                "auto_run": True,
             }
         }
     )

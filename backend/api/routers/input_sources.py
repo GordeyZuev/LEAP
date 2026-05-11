@@ -1,7 +1,7 @@
 """Input source endpoints"""
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -30,6 +30,74 @@ from models.zoom_auth import create_zoom_credentials
 
 router = APIRouter(prefix="/api/v1/sources", tags=["Input Sources"])
 logger = get_logger()
+
+
+def _yandex_disk_path_source_key(file_path: str, file_name: str) -> str:
+    """Legacy path-based key (same file after rename has a different path)."""
+    if file_path:
+        return f"yadisk:{file_path}"
+    return f"yadisk:{file_name}"
+
+
+def _yandex_disk_canonical_source_key(file_info: dict, file_path: str, file_name: str) -> str:
+    """Prefer Disk resource_id, then md5+size, else path — stable across renames when API returns hashes."""
+    rid = file_info.get("resource_id")
+    if isinstance(rid, str) and rid.strip():
+        return f"yadisk:rid:{rid.strip()}"
+    md5 = file_info.get("md5")
+    if isinstance(md5, str) and md5.strip():
+        size = file_info.get("size", 0)
+        return f"yadisk:md5:{md5.strip()}:{size}"
+    return _yandex_disk_path_source_key(file_path, file_name)
+
+
+async def _refresh_yandex_disk_credential_if_expiring_during_sync(
+    credentials: dict,
+    credential_id: int,
+    cred_repo: UserCredentialRepository,
+    encryption,
+) -> None:
+    """Refresh Yandex Disk OAuth token when near expiry so sync listing does not 401."""
+    from api.schemas.auth import UserCredentialUpdate
+    from api.services.oauth_service import refresh_yandex_disk_oauth_token
+
+    rt = credentials.get("refresh_token")
+    cid = credentials.get("client_id")
+    if not rt or not cid:
+        return
+
+    need_refresh = False
+    exp = credentials.get("expiry")
+    if exp:
+        try:
+            normalized = exp.replace("Z", "+00:00") if exp.endswith("Z") else exp
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            need_refresh = datetime.now(UTC) >= dt - timedelta(seconds=300)
+        except ValueError:
+            need_refresh = False
+    if not need_refresh:
+        return
+
+    try:
+        token_data = await refresh_yandex_disk_oauth_token(
+            rt,
+            override_client_id=cid,
+            override_client_secret=credentials.get("client_secret"),
+        )
+    except Exception as e:
+        logger.warning(f"Yandex Disk credential refresh before sync failed: {e}")
+        return
+
+    credentials["oauth_token"] = token_data["access_token"]
+    if token_data.get("refresh_token"):
+        credentials["refresh_token"] = token_data["refresh_token"]
+    expires_in = int(token_data.get("expires_in", 3600))
+    credentials["expires_in"] = expires_in
+    credentials["expiry"] = (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat().replace("+00:00", "Z")
+    enc = encryption.encrypt_credentials(credentials)
+    await cred_repo.update(credential_id, UserCredentialUpdate(encrypted_data=enc))
 
 
 def _get_best_video_file(recording_files: list | None) -> dict | None:
@@ -183,6 +251,14 @@ async def _sync_single_source(
                     "status": "error",
                     "error": str(e),
                 }
+
+            if source.source_type == "YANDEX_DISK":
+                await _refresh_yandex_disk_credential_if_expiring_during_sync(
+                    credentials,
+                    source.credential_id,
+                    cred_repo,
+                    encryption,
+                )
 
     meetings = []
     saved_count = 0
@@ -492,7 +568,9 @@ async def _sync_yandex_disk_source(
             file_name = file_info.get("name", "Unknown")
             file_size = file_info.get("size", 0)
 
-            source_key = f"yadisk:{file_path}" if file_path else file_name
+            canonical_source_key = _yandex_disk_canonical_source_key(file_info, file_path, file_name)
+            path_source_key = _yandex_disk_path_source_key(file_path, file_name)
+            alternate_keys = [path_source_key] if path_source_key != canonical_source_key else None
 
             download_method = "public" if config.public_url else "api"
             source_metadata = {
@@ -503,6 +581,9 @@ async def _sync_yandex_disk_source(
                 "download_method": download_method,
                 "public_key": config.public_url,
                 "modified": file_info.get("modified"),
+                "resource_id": file_info.get("resource_id"),
+                "md5": file_info.get("md5"),
+                "sha256": file_info.get("sha256"),
             }
 
             matched_template = _find_matching_template(file_name, source.id, templates)
@@ -516,6 +597,8 @@ async def _sync_yandex_disk_source(
             else:
                 start_time = datetime.now(UTC)
 
+            # Yandex: source_key is hash/resource_id-based; start_time is file mtime — do not
+            # require both to match when finding an existing row (see RecordingRepository).
             _recording, is_new = await recording_repo.create_or_update(
                 user_id=user_id,
                 input_source_id=source.id,
@@ -523,11 +606,14 @@ async def _sync_yandex_disk_source(
                 start_time=start_time,
                 duration=0,
                 source_type=SourceType.YANDEX_DISK,
-                source_key=source_key,
+                source_key=canonical_source_key,
                 source_metadata=source_metadata,
                 user_config=user_config,
                 is_mapped=matched_template is not None,
                 template_id=matched_template.id if matched_template else None,
+                alternate_source_keys=alternate_keys,
+                require_start_time_in_lookup=False,
+                uploaded_allow_metadata_refresh=True,
             )
 
             if is_new:

@@ -6,23 +6,35 @@ from typing import Any
 
 import httpx
 
+from config.settings import storage_video_ingress_suffixes
 from logger import format_details, get_logger
 
 logger = get_logger(__name__)
 
-# Video file extensions for filtering
-_VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v", ".ts"}
-_VIDEO_MIME_PREFIXES = ("video/",)
-
 BASE_URL = "https://cloud-api.yandex.net/v1/disk"
+YANDEX_DISK_REST_LIST_FOLDER_ITEM_FIELDS: str = (
+    "_embedded.items.name,_embedded.items.path,_embedded.items.type,"
+    "_embedded.items.size,_embedded.items.modified,_embedded.items.created,"
+    "_embedded.items.md5,_embedded.items.mime_type,_embedded.items.resource_id"
+)
+
+_VIDEO_MIME_TYPE_PREFIXES = ("video/",)
 
 
 class YandexDiskError(Exception):
-    """Yandex Disk API error."""
+    """Yandex Disk API error (see https://yandex.ru/dev/disk-api/doc/ru/reference/response-objects#error)."""
 
-    def __init__(self, message: str, status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        error_code: str | None = None,
+        description: str | None = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.error_code = error_code
+        self.description = description
 
 
 class YandexDiskClient:
@@ -30,6 +42,13 @@ class YandexDiskClient:
 
     def __init__(self, oauth_token: str | None = None):
         self.oauth_token = oauth_token
+
+    def _json_headers(self) -> dict[str, str]:
+        """Disk API expects JSON Accept/Content-Type for REST calls."""
+        h: dict[str, str] = {"Accept": "application/json"}
+        if self.oauth_token:
+            h["Authorization"] = f"OAuth {self.oauth_token}"
+        return h
 
     def _auth_headers(self) -> dict[str, str]:
         if not self.oauth_token:
@@ -45,22 +64,76 @@ class YandexDiskClient:
     async def _request(self, method: str, url: str, **kwargs) -> dict[str, Any]:
         """Make an authenticated API request."""
         headers = kwargs.pop("headers", {})
-        headers.update(self._auth_headers())
+        merged = {**self._json_headers(), **headers}
 
         async with self._build_client() as client:
-            response = await client.request(method, url, headers=headers, **kwargs)
+            response = await client.request(method, url, headers=merged, **kwargs)
 
             if response.status_code >= 400:
                 try:
                     error_data = response.json()
                     msg = error_data.get("message", error_data.get("description", response.text))
+                    err = error_data.get("error")
+                    desc = error_data.get("description")
                 except Exception:
                     msg = response.text
-                raise YandexDiskError(f"Yandex Disk API error: {msg}", response.status_code)
+                    err = None
+                    desc = None
+                raise YandexDiskError(
+                    f"Yandex Disk API error: {msg}",
+                    response.status_code,
+                    error_code=err,
+                    description=desc if isinstance(desc, str) else None,
+                )
 
             if response.status_code == 204:
                 return {}
+            if not response.content:
+                return {}
             return response.json()
+
+    # --- Disk / resource metadata ---
+
+    async def get_disk_info(self) -> dict[str, Any]:
+        """Return user disk quota and profile (GET /v1/disk). Requires OAuth."""
+        return await self._request("GET", BASE_URL)
+
+    async def get_resource_meta(self, path: str) -> dict[str, Any]:
+        """Metadata for a file or folder (GET /v1/disk/resources). Requires OAuth."""
+        return await self._request("GET", f"{BASE_URL}/resources", params={"path": path})
+
+    async def move_resource(self, from_path: str, to_path: str, *, overwrite: bool = False) -> dict[str, Any]:
+        """Move or rename a resource (POST /v1/disk/resources/move). Requires OAuth."""
+        return await self._request(
+            "POST",
+            f"{BASE_URL}/resources/move",
+            params={"from": from_path, "path": to_path, "overwrite": str(overwrite).lower()},
+        )
+
+    async def delete_resource(self, path: str, *, permanently: bool = False) -> None:
+        """Delete file or folder (DELETE /v1/disk/resources). Requires OAuth."""
+        await self._request(
+            "DELETE",
+            f"{BASE_URL}/resources",
+            params={"path": path, "permanently": str(permanently).lower()},
+        )
+
+    async def publish_resource(self, path: str) -> str:
+        """Publish resource and return public_url (PUT publish, then read meta). Requires OAuth."""
+        await self._request("PUT", f"{BASE_URL}/resources/publish", params={"path": path})
+        meta = await self.get_resource_meta(path)
+        public_url = meta.get("public_url")
+        if not public_url:
+            raise YandexDiskError(
+                f"Publish succeeded but public_url missing for path: {path}",
+                None,
+                error_code="MissingPublicUrl",
+            )
+        return str(public_url)
+
+    async def unpublish_resource(self, path: str) -> None:
+        """Revoke public access (PUT /v1/disk/resources/unpublish). Requires OAuth."""
+        await self._request("PUT", f"{BASE_URL}/resources/unpublish", params={"path": path})
 
     # --- Folder listing ---
 
@@ -69,16 +142,48 @@ class YandexDiskClient:
         path: str,
         limit: int = 100,
         offset: int = 0,
+        *,
+        fields: str | None = YANDEX_DISK_REST_LIST_FOLDER_ITEM_FIELDS,
     ) -> dict[str, Any]:
         """List resources in a folder. Requires OAuth token.
 
         GET /v1/disk/resources?path=<path>&limit=<limit>&offset=<offset>
+
+        ``fields`` defaults to :data:`YANDEX_DISK_REST_LIST_FOLDER_ITEM_FIELDS` so each
+        listed file includes ``md5`` / ``resource_id`` where the API provides them.
+        Pass ``fields=""`` or ``None`` to omit the parameter (full/default server shape).
         """
+        params: dict[str, str | int] = {"path": path, "limit": limit, "offset": offset}
+        if fields:
+            params["fields"] = fields
         return await self._request(
             "GET",
             f"{BASE_URL}/resources",
-            params={"path": path, "limit": limit, "offset": offset},
+            params=params,
         )
+
+    async def list_published_resources(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        fields: str | None = None,
+    ) -> dict[str, Any]:
+        """List files/folders you published (created a public link for).
+
+        GET /v1/disk/resources/public?limit=&offset=&fields=
+
+        This is **not** the same as Yandex 360 «shared folder» invitations: it only returns
+        resources for which a public URL was enabled. Anonymous access to those URLs uses
+        :meth:`get_public_meta` / ``GET /v1/disk/public/resources``.
+
+        ``fields`` is optional; omit it unless you need a sparse document (parameter shape
+        differs from :meth:`list_folder`).
+        """
+        params: dict[str, str | int] = {"limit": limit, "offset": offset}
+        if fields:
+            params["fields"] = fields
+        return await self._request("GET", f"{BASE_URL}/resources/public", params=params)
 
     async def list_video_files(
         self,
@@ -127,6 +232,8 @@ class YandexDiskClient:
         path: str | None = None,
         limit: int = 100,
         offset: int = 0,
+        *,
+        fields: str | None = None,
     ) -> dict[str, Any]:
         """Get meta information of a public resource (supports pagination, nested path).
 
@@ -139,6 +246,8 @@ class YandexDiskClient:
         }
         if path:
             params["path"] = path
+        if fields:
+            params["fields"] = fields
         return await self._request("GET", f"{BASE_URL}/public/resources", params=params)
 
     async def list_public_video_files(
@@ -312,12 +421,12 @@ class YandexDiskClient:
         mime_type = item.get("mime_type", "")
 
         # Check MIME type
-        is_video = any(mime_type.startswith(prefix) for prefix in _VIDEO_MIME_PREFIXES)
+        is_video = any(mime_type.startswith(prefix) for prefix in _VIDEO_MIME_TYPE_PREFIXES)
 
         # Fallback to extension check
         if not is_video:
             ext = Path(name).suffix.lower()
-            is_video = ext in _VIDEO_EXTENSIONS
+            is_video = ext in storage_video_ingress_suffixes()
 
         if not is_video:
             return False

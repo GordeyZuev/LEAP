@@ -73,6 +73,104 @@ def _truncate_description_for_platform(description: str, platform: str) -> str:
     return _truncate_with_ellipsis(description, max_len)
 
 
+def _yandex_extra_cfg_as_dict(cfg: object) -> dict:
+    if cfg is None:
+        return {}
+    if isinstance(cfg, dict):
+        return cfg
+    model_dump = getattr(cfg, "model_dump", None)
+    if callable(model_dump):
+        return model_dump()
+    return {}
+
+
+async def _upload_extra_files_to_yadisk(
+    oauth_token: str | None,
+    recording_id: int,
+    user_slug: int,
+    video_folder_path: str,
+    video_base_name: str,
+    preset_metadata: dict,
+    template_context: dict,
+    rendered_description: str,
+    *,
+    overwrite: bool = False,
+) -> None:
+    """Best-effort upload of sidecar files (subtitles, transcription, description) to Yandex Disk."""
+    if not oauth_token:
+        logger.warning(
+            "Yandex Disk extra files skipped: no oauth_token (video upload already done; "
+            "re-link preset credential or check YandexDiskUploader.oauth_token)"
+        )
+        return
+
+    from tempfile import NamedTemporaryFile
+
+    from transcription_module.manager import get_transcription_manager
+    from yandex_disk_module.client import YandexDiskClient, YandexDiskError
+
+    client = YandexDiskClient(oauth_token=oauth_token)
+    tm = get_transcription_manager()
+
+    async def _upload_one_local(local: Path, disk_folder: str, filename: str) -> None:
+        disk_path = f"{disk_folder.rstrip('/')}/{filename}"
+        try:
+            await client.upload_file(local, disk_path=disk_path, overwrite=overwrite)
+            logger.info(f"Yandex Disk extra file uploaded | {format_details(path=disk_path)}")
+        except (YandexDiskError, OSError, FileNotFoundError) as e:
+            logger.warning(f"Yandex Disk extra file failed | {format_details(path=disk_path, error=str(e))}")
+
+    for key, ext, fmt in (
+        ("subtitles_srt", ".srt", "srt"),
+        ("subtitles_vtt", ".vtt", "vtt"),
+    ):
+        if preset_metadata.get(key) is None:
+            continue
+        cfg = _yandex_extra_cfg_as_dict(preset_metadata.get(key))
+        folder_t = cfg.get("folder_path_template")
+        folder = render_jinja(folder_t, template_context) if folder_t else video_folder_path
+        fn_t = cfg.get("filename_template")
+        filename = render_jinja(fn_t, template_context) if fn_t else f"{video_base_name}{ext}"
+        try:
+            paths = tm.generate_subtitles(recording_id, [fmt], user_slug)
+            local_path = Path(paths[fmt])
+            await _upload_one_local(local_path, folder, filename)
+        except Exception as e:
+            logger.warning(f"Yandex Disk {key} skipped | {format_details(error=str(e))}")
+
+    if preset_metadata.get("transcription") is not None:
+        cfg = _yandex_extra_cfg_as_dict(preset_metadata.get("transcription"))
+        folder_t = cfg.get("folder_path_template")
+        folder = render_jinja(folder_t, template_context) if folder_t else video_folder_path
+        fn_t = cfg.get("filename_template")
+        filename = render_jinja(fn_t, template_context) if fn_t else f"{video_base_name}_transcription.txt"
+        try:
+            local_path = tm.ensure_segments_txt(recording_id, user_slug)
+            await _upload_one_local(local_path, folder, filename)
+        except Exception as e:
+            logger.warning(f"Yandex Disk transcription skipped | {format_details(error=str(e))}")
+
+    if preset_metadata.get("description_txt") is not None:
+        cfg = _yandex_extra_cfg_as_dict(preset_metadata.get("description_txt"))
+        folder_t = cfg.get("folder_path_template")
+        folder = render_jinja(folder_t, template_context) if folder_t else video_folder_path
+        fn_t = cfg.get("filename_template")
+        filename = render_jinja(fn_t, template_context) if fn_t else f"{video_base_name}_description.txt"
+        ct = cfg.get("content_template")
+        content = render_jinja(ct, template_context) if ct else rendered_description
+        tmp_path: Path | None = None
+        try:
+            with NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
+                tmp.write(content)
+                tmp_path = Path(tmp.name)
+            await _upload_one_local(tmp_path, folder, filename)
+        except Exception as e:
+            logger.warning(f"Yandex Disk description_txt skipped | {format_details(error=str(e))}")
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+
+
 @celery_app.task(
     bind=True,
     base=UploadTask,
@@ -485,8 +583,16 @@ async def _async_upload_recording(
                     filename = render_jinja(filename_template, template_context)
                     upload_params["filename"] = filename
 
-                if "overwrite" in preset_metadata:
+                yd_block = preset_metadata.get("yandex_disk") or {}
+                if "overwrite" in yd_block:
+                    upload_params["overwrite"] = yd_block["overwrite"]
+                elif "overwrite" in preset_metadata:
                     upload_params["overwrite"] = preset_metadata["overwrite"]
+
+                if "publish" in yd_block:
+                    upload_params["publish"] = bool(yd_block["publish"])
+                elif preset_metadata.get("publish") is True:
+                    upload_params["publish"] = True
 
                 logger.debug(f"YaDisk folder_path={folder_path}")
 
@@ -535,6 +641,37 @@ async def _async_upload_recording(
             )
 
             await timing_service.complete_stage(timing, meta={"platform": platform})
+
+            if platform.lower() == "yandex_disk" and any(
+                preset_metadata.get(k) is not None
+                for k in ("subtitles_srt", "subtitles_vtt", "transcription", "description_txt")
+            ):
+                try:
+                    owner = recording.owner
+                    if owner is None:
+                        logger.warning("Yandex Disk extra files skipped: recording has no owner")
+                    else:
+                        video_base = (
+                            Path(upload_params["filename"]).stem
+                            if upload_params.get("filename")
+                            else Path(video_path).stem
+                        )
+                        yd_oauth = getattr(uploader, "oauth_token", None) or (
+                            (getattr(uploader, "credentials_data", None) or {}).get("oauth_token")
+                        )
+                        await _upload_extra_files_to_yadisk(
+                            oauth_token=yd_oauth,
+                            recording_id=recording_id,
+                            user_slug=owner.user_slug,
+                            video_folder_path=upload_params["folder_path"],
+                            video_base_name=video_base,
+                            preset_metadata=preset_metadata,
+                            template_context=template_context,
+                            rendered_description=description,
+                            overwrite=bool(upload_params.get("overwrite", False)),
+                        )
+                except Exception as e:
+                    logger.warning(f"Yandex Disk extra files batch failed (non-fatal): {e}")
 
             # Update pipeline timing
             now = datetime.now(UTC)

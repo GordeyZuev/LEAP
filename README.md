@@ -12,7 +12,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.9.6.5` (April 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.9.6.6` (May 2026) · **Статус:** In Active Development • Beta
 **Tech:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 
 **Структура репозитория:** исходный код API — в [`backend/`](backend/) (`uv`, `make`, тесты, Celery). В **корне** — [`docker-compose.yml`](docker-compose.yml) и [`Makefile`](Makefile) только для Docker; веб-клиент планируется в `frontend/` со своими командами (`pnpm` / `npm`).
@@ -67,7 +67,7 @@
 **Добавление видео:**
 - `POST /add-url` — одно видео по ссылке (yt-dlp, auto-detect платформы)
 - `POST /add-playlist` — плейлист/канал целиком
-- `POST /add-yadisk` — файлы с Яндекс Диска по публичной ссылке
+- Яндекс Диск (публичная ссылка) — `POST /api/v1/sources` (`YANDEX_DISK` + `public_url`) и sync
 - `InputSource` sync — для периодической синхронизации (Zoom, Yandex Disk OAuth)
 
 **Что происходит:**
@@ -369,6 +369,11 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 Ниже — краткие пользовательские изменения по веткам `v0.9.6.x`. Полная история, даты и списки файлов — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
 
+**Новое в v0.9.6.6:**
+- **Больше форматов на входе** — в `whitelist` включены распространённые контейнеры (в т.ч. `WebM` / `MKV` и др. по релизу); один список для `API`, загрузки из источников и `Яндекс.Диска`.
+- **Сильнее валидация** — проверка целостности файла после скачивания: не «HTML вместо видео», согласование расширения с реальным типом контейнера (`magic bytes` / `sniff`).
+- **Понятные имена на диске** — сохранение как `source.<расширение>` по типу источника, без «всегда .mp4».
+
 **Новое в v0.9.6.5:**
 - **`Jinja2` metadata** — заголовки/описания/пути Yandex только как шаблоны `Jinja2`
 - **Preview без сохранения** — `POST .../templates/render-preview`, `POST .../presets/render-preview`
@@ -404,7 +409,7 @@ PROCESSING → PROCESSED → UPLOADING → READY
 - **Плейлисты** — импорт целых плейлистов/каналов одной командой
 - **Яндекс Диск** — загрузка по публичной ссылке и через OAuth API
 - **Аудио (MP3)** — скачивание аудио-дорожки для транскрибации
-- **Direct API** — `POST /add-url`, `/add-playlist`, `/add-yadisk` без создания InputSource
+- **Direct API** — `POST /add-url`, `/add-playlist` без InputSource; Яндекс Диск — через InputSource + sync
 - *Зачем:* Загрузка из любых источников, data transfer между платформами
 
 **📤 Yandex Disk Upload**
@@ -459,5 +464,3 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ---
 
 **Status:** In Active Development • Beta
-
-

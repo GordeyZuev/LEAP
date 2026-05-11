@@ -132,12 +132,26 @@ class SilentUndefined(ChainableUndefined):
         return ""
 
 
+def _jinja_split_path(value: object, separator: str = "_") -> str:
+    """Replace separator with / for path-like folder segments (e.g. A_B_C -> A/B/C)."""
+    return str(value).replace(separator, "/")
+
+
+def _jinja_part(value: object, index: int = 0, separator: str = "_") -> str:
+    """Return segment index after splitting by separator; empty string if out of range."""
+    parts = str(value).split(separator)
+    return parts[index] if index < len(parts) else ""
+
+
 def _get_sandboxed_env() -> SandboxedEnvironment:
-    return SandboxedEnvironment(
+    env = SandboxedEnvironment(
         undefined=SilentUndefined,
         autoescape=False,
         enable_async=False,
     )
+    env.filters["split_path"] = _jinja_split_path
+    env.filters["part"] = _jinja_part
+    return env
 
 
 def render_jinja(template: str, context: Mapping[str, Any]) -> str:

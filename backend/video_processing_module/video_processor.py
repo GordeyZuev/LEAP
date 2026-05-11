@@ -87,6 +87,8 @@ class VideoProcessor:
                 "-i",
                 video_path,
                 "-vn",
+                "-map",
+                "0:a:0",
                 "-acodec",
                 "libmp3lame",
                 "-ab",

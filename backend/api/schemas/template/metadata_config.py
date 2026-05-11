@@ -72,6 +72,8 @@ class YandexDiskMetadataConfig(BaseModel):
         max_length=500,
         description="Override filename template",
     )
+    overwrite: bool | None = Field(None, description="Override preset overwrite when set")
+    publish: bool | None = Field(None, description="Override preset publish when set")
 
     @field_validator("folder_path_template", mode="before")
     @classmethod

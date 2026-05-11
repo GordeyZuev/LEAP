@@ -193,6 +193,46 @@ class VKPresetMetadata(BaseModel):
         return validate_optional_jinja(v)
 
 
+class YandexDiskExtraFileConfig(BaseModel):
+    """Optional sidecar file on Disk. Presence in preset JSON enables upload for that file."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    filename_template: str | None = Field(
+        None,
+        max_length=500,
+        description="Jinja filename (default: video base name + extension)",
+    )
+    folder_path_template: str | None = Field(
+        None,
+        max_length=500,
+        description="Jinja folder path on Disk (default: same folder as video)",
+    )
+
+    @field_validator("filename_template", "folder_path_template", mode="before")
+    @classmethod
+    def _validate_path_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
+
+class YandexDiskDescriptionTxtConfig(YandexDiskExtraFileConfig):
+    """description.txt sidecar: optional content_template overrides preset description_template."""
+
+    content_template: str | None = Field(
+        None,
+        max_length=5000,
+        description=(
+            "Jinja for file body. When unset, use rendered description_template; "
+            "when that is empty, upload an empty file."
+        ),
+    )
+
+    @field_validator("content_template", mode="before")
+    @classmethod
+    def _validate_content_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
+
 class YandexDiskPresetMetadata(BaseModel):
     """Preset metadata for Yandex Disk output target."""
 
@@ -209,7 +249,27 @@ class YandexDiskPresetMetadata(BaseModel):
         description="Custom filename template (default: video.mp4)",
         examples=["{{ display_name }}.mp4", "{{ record_date_iso }}_{{ display_name }}.mp4"],
     )
+    title_template: str | None = Field(
+        None,
+        max_length=500,
+        description="Title template (same role as YouTube/VK; used for upload title)",
+    )
+    description_template: str | None = Field(
+        None,
+        max_length=5000,
+        description="Description template (used for description.txt when content_template is unset)",
+    )
     overwrite: bool = Field(False, description="Overwrite existing files on Disk")
+    publish: bool = Field(
+        False,
+        description="After upload, publish the file on Disk and store the public URL in upload result",
+    )
+    subtitles_srt: YandexDiskExtraFileConfig | None = Field(None, description="Upload .srt next to video")
+    subtitles_vtt: YandexDiskExtraFileConfig | None = Field(None, description="Upload .vtt next to video")
+    transcription: YandexDiskExtraFileConfig | None = Field(
+        None, description="Upload segments-style transcription .txt"
+    )
+    description_txt: YandexDiskDescriptionTxtConfig | None = Field(None, description="Upload description as .txt")
 
     @field_validator("folder_path_template", mode="before")
     @classmethod
@@ -219,6 +279,16 @@ class YandexDiskPresetMetadata(BaseModel):
     @field_validator("filename_template", mode="before")
     @classmethod
     def _yandex_filename_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _yandex_title_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _yandex_desc_jinja(cls, v: str | None) -> str | None:
         return validate_optional_jinja(v)
 
 

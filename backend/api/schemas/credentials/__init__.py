@@ -2,6 +2,7 @@
 
 from .platform_credentials import (
     VKCredentialsManual,
+    YandexDiskCredentialsManual,
     YouTubeCredentialsManual,
     ZoomCredentialsManual,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "CredentialStatusResponse",
     "CredentialUpdateRequest",
     "VKCredentialsManual",
+    "YandexDiskCredentialsManual",
     "YouTubeCredentialsManual",
     "ZoomCredentialsManual",
 ]

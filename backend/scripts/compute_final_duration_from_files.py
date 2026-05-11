@@ -6,7 +6,7 @@
   1. audio.mp3 — ffprobe (обрезанное аудио после trim)
   2. video.mp4 — ffprobe (обрезанное видео)
   3. transcriptions/master.json — поле duration (если транскрипция есть, но файлов нет)
-  4. source.mp4 — ffprobe (оригинал, fallback)
+  4. ``source.<ext>`` (original, fallback — see pipeline ingress whitelist; legacy ``source.mp4``)
 
 Использование:
   PYTHONPATH=$PWD uv run python scripts/compute_final_duration_from_files.py
@@ -31,9 +31,14 @@ from sqlalchemy import select, update
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from api.dependencies import get_async_session_maker
+from config.settings import get_settings
 from database.auth_models import UserModel
 from database.automation_models import AutomationJobModel  # noqa: F401 - UserModel.relationship
 from database.models import RecordingModel
+from utils.pipeline_video_formats import (
+    find_source_video_in_recording_dir,
+    pipeline_ingress_suffixes_from_settings_formats,
+)
 
 
 def _ffprobe_duration(file_path: Path) -> float | None:
@@ -104,12 +109,15 @@ def compute_duration(base_path: Path, user_slug: int, recording_id: int) -> tupl
         if d is not None:
             return (d, "master.json")
 
-    # 4. source.mp4 (original, fallback)
-    source_path = root / "source.mp4"
-    if source_path.exists():
+    # 4. source.<ext> (original, fallback; legacy source.mp4)
+    ingress_suffixes = pipeline_ingress_suffixes_from_settings_formats(
+        get_settings().storage.supported_video_formats,
+    )
+    source_path = find_source_video_in_recording_dir(root, ingress_suffixes)
+    if source_path and source_path.is_file():
         d = _ffprobe_duration(source_path)
         if d is not None:
-            return (d, "source.mp4")
+            return (d, source_path.name)
 
     return (None, "not_found")
 

@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -74,7 +75,7 @@ class RecordingModel(Base):
     processed_audio_path: Mapped[str | None] = mapped_column(String(1000))
     transcription_dir: Mapped[str | None] = mapped_column(String(1000))
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    video_file_size: Mapped[int | None] = mapped_column(Integer)
+    video_file_size: Mapped[int | None] = mapped_column(BigInteger)
 
     # --- Processing data (JSONB) ---
     transcription_info: Mapped[Any | None] = mapped_column(JSONB)

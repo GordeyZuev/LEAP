@@ -3,7 +3,7 @@
 Compute average trimming: original duration vs final (trimmed) duration.
 
 Data source: database (duration = original from Zoom, final_duration = after trim/transcription).
-Optional: ffprobe on storage files (source.mp4 vs video.mp4) if available.
+Optional: ffprobe on storage files (ingress ``source.<ext>`` vs ``video.mp4``) when present.
 
 Run: PYTHONPATH=$PWD uv run python scripts/trimming_stats.py
      (requires DATABASE_URL in env)
@@ -21,10 +21,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from api.dependencies import get_async_session_maker
+from config.settings import get_settings
 from database.auth_models import UserModel
 from database.automation_models import AutomationJobModel  # noqa: F401 - ensure model loaded for UserModel.relationship
 from database.models import RecordingModel
 from file_storage.path_builder import get_path_builder
+from utils.pipeline_video_formats import (
+    find_source_video_in_recording_dir,
+    pipeline_ingress_suffixes_from_settings_formats,
+)
+
+
+def _source_video_path(pb, user_slug: int, recording_id: int) -> Path | None:
+    root = pb.recording_root(user_slug, recording_id)
+    suffixes = pipeline_ingress_suffixes_from_settings_formats(get_settings().storage.supported_video_formats)
+    return find_source_video_in_recording_dir(root, suffixes)
 
 
 def _ffprobe_duration(file_path: Path) -> float | None:
@@ -136,9 +147,9 @@ async def audio_format_stats(session: AsyncSession, base_path: Path) -> dict | N
     reductions = []  # (source_audio_bytes, our_audio_bytes, source_bitrate, our_duration) per recording
     source_bitrates = []
     for r in rows:
-        source_path = pb.recording_root(r.user_slug, r.id) / "source.mp4"
+        source_path = _source_video_path(pb, r.user_slug, r.id)
         audio_path = pb.recording_root(r.user_slug, r.id) / "audio.mp3"
-        if not source_path.exists() or not audio_path.exists():
+        if source_path is None or not audio_path.exists():
             continue
 
         src_duration = _ffprobe_duration(source_path)
@@ -202,9 +213,9 @@ async def stats_from_storage(session: AsyncSession, base_path: Path) -> dict | N
     durations_orig = []
     durations_final = []
     for r in rows:
-        source_path = pb.recording_root(r.user_slug, r.id) / "source.mp4"
+        source_path = _source_video_path(pb, r.user_slug, r.id)
         video_path = pb.recording_root(r.user_slug, r.id) / "video.mp4"
-        if not source_path.exists():
+        if source_path is None:
             continue
         # Use video.mp4 if exists (trimmed), else source is both
         final_path = video_path if video_path.exists() else source_path

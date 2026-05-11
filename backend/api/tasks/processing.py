@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from celery import chain, group
@@ -276,6 +276,57 @@ async def _async_download_recording(
             raise
 
 
+async def _refresh_yandex_disk_oauth_if_expiring(
+    creds_data: dict,
+    credential,
+    cred_repo,
+    encryption,
+) -> None:
+    """
+    If the stored Yandex Disk access token is near expiry, refresh via Yandex OAuth and persist.
+
+    Mirrors the idea of ``_refresh_download_token_if_needed`` for Zoom: avoid starting a long
+    download with a token that will expire mid-transfer when refresh_token + client_id exist.
+    """
+    from api.schemas.auth import UserCredentialUpdate
+    from api.services.oauth_service import refresh_yandex_disk_oauth_token
+
+    rt = creds_data.get("refresh_token")
+    cid = creds_data.get("client_id")
+    if not rt or not cid:
+        return
+    exp = creds_data.get("expiry")
+    need_refresh = False
+    if exp:
+        try:
+            normalized = exp.replace("Z", "+00:00") if exp.endswith("Z") else exp
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            need_refresh = datetime.now(UTC) >= dt - timedelta(seconds=300)
+        except ValueError:
+            need_refresh = False
+    if not need_refresh:
+        return
+    try:
+        token_data = await refresh_yandex_disk_oauth_token(
+            rt,
+            override_client_id=cid,
+            override_client_secret=creds_data.get("client_secret"),
+        )
+    except Exception as e:
+        logger.warning(f"Yandex Disk credential refresh before download failed: {e}")
+        return
+    creds_data["oauth_token"] = token_data["access_token"]
+    if token_data.get("refresh_token"):
+        creds_data["refresh_token"] = token_data["refresh_token"]
+    expires_in = int(token_data.get("expires_in", 3600))
+    creds_data["expires_in"] = expires_in
+    creds_data["expiry"] = (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat().replace("+00:00", "Z")
+    enc = encryption.encrypt_credentials(creds_data)
+    await cred_repo.update(credential.id, UserCredentialUpdate(encrypted_data=enc))
+
+
 async def _download_via_external(
     task_self,
     session,
@@ -307,6 +358,7 @@ async def _download_via_external(
             if credential:
                 encryption = get_encryption()
                 creds_data = encryption.decrypt_credentials(credential.encrypted_data)
+                await _refresh_yandex_disk_oauth_if_expiring(creds_data, credential, cred_repo, encryption)
                 oauth_token = creds_data.get("oauth_token")
 
     downloader = create_downloader(
@@ -420,8 +472,21 @@ async def _download_via_zoom(
 
     task_self.update_progress(user_id, 50, "Downloading video file...", step="download")
 
+    from config.settings import get_settings
+    from utils.pipeline_video_formats import (
+        ingress_suffix_from_zoom_video_file_type,
+        pipeline_ingress_suffixes_from_settings_formats,
+    )
+
+    zoom_meta = recording.source.meta if recording.source else None
+    zoom_file_type = zoom_meta.get("video_file_type") if zoom_meta else None
+    zoom_suffix = ingress_suffix_from_zoom_video_file_type(
+        zoom_file_type,
+        pipeline_ingress_suffixes_from_settings_formats(get_settings().storage.supported_video_formats),
+    )
+
     # Download
-    success = await downloader.download_recording(meeting_recording, force_download=force)
+    success = await downloader.download_recording(meeting_recording, force_download=force, source_suffix=zoom_suffix)
 
     # On failure, retry once with force-refreshed token (handles expired download_access_token)
     if not success:
@@ -430,7 +495,9 @@ async def _download_via_zoom(
         if fresh_token and fresh_token != download_access_token:
             meeting_recording.download_access_token = fresh_token
             task_self.update_progress(user_id, 55, "Retrying with fresh token...", step="download")
-            success = await downloader.download_recording(meeting_recording, force_download=True)
+            success = await downloader.download_recording(
+                meeting_recording, force_download=True, source_suffix=zoom_suffix
+            )
 
     if success:
         task_self.update_progress(user_id, 90, "Updating database...", step="download")

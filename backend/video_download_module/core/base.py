@@ -40,9 +40,10 @@ class BaseDownloader(ABC):
     ) -> DownloadResult:
         """Download video file. Returns DownloadResult with file path and metadata."""
 
-    def _get_target_path(self, recording_id: int) -> Path:
-        """Standard target path: storage/users/user_XXXXXX/recordings/{id}/source.mp4"""
-        return self.storage.recording_source(self.user_slug, recording_id)
+    def _get_target_path(self, recording_id: int, source_suffix: str = ".mp4") -> Path:
+        """Target path under recording folder (default aligns with Zoom MP4 naming)."""
+        suf = source_suffix if source_suffix.startswith(".") else f".{source_suffix}"
+        return self.storage.recording_source(self.user_slug, recording_id, suffix=suf)
 
     async def _download_url(
         self,
@@ -50,13 +51,16 @@ class BaseDownloader(ABC):
         filepath: Path,
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
         expected_size: int | None = None,
         max_retries: int = 10,
         description: str = "file",
+        source_name: str | None = None,
     ) -> bool:
         """Generic httpx streaming download with resume support and retries."""
         headers = dict(headers) if headers else {}
         params = dict(params) if params else {}
+        cookies = dict(cookies) if cookies else {}
 
         for attempt in range(max_retries):
             try:
@@ -77,7 +81,9 @@ class BaseDownloader(ABC):
                     follow_redirects=True,
                     limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
                 ) as client:
-                    async with client.stream("GET", url, headers=req_headers, params=params) as response:
+                    async with client.stream(
+                        "GET", url, headers=req_headers, params=params, cookies=cookies or None
+                    ) as response:
                         if downloaded > 0 and response.status_code == 206:
                             mode = "ab"
                         elif downloaded > 0 and response.status_code == 200:
@@ -110,7 +116,7 @@ class BaseDownloader(ABC):
 
                         logger.info(f"Downloaded {downloaded / (1024 * 1024):.1f} MB")
 
-                if not self._validate_file(filepath, expected_size, total_size):
+                if not self._validate_file(filepath, expected_size, total_size, source_name=source_name):
                     if attempt < max_retries - 1:
                         wait_time = 3 if attempt < 2 else 5
                         await asyncio.sleep(wait_time)
@@ -154,38 +160,25 @@ class BaseDownloader(ABC):
 
         return False
 
-    def _validate_file(self, filepath: Path, expected_size: int | None = None, total_size: int | None = None) -> bool:
-        """Validates file integrity by size and content type."""
+    def _validate_file(
+        self,
+        filepath: Path,
+        expected_size: int | None = None,
+        total_size: int | None = None,
+        source_name: str | None = None,
+    ) -> bool:
+        """Validates downloaded file size plus container sniff (handles WebM bytes saved as *.mp4)."""
         try:
-            if not filepath.exists():
-                return False
+            from config.settings import get_settings
+            from utils.pipeline_video_formats import ingress_validate_saved_media
 
-            file_size = filepath.stat().st_size
-            if file_size < 1024:
-                return False
-
-            reference_size = total_size or expected_size
-            if reference_size:
-                if file_size < reference_size:
-                    logger.warning(f"Incomplete: {(file_size / reference_size * 100):.1f}%")
-                    return False
-                if file_size > reference_size * 1.1:
-                    logger.warning("File size exceeds expected by >10%")
-
-            with filepath.open("rb") as f:
-                first_chunk = f.read(1024)
-                if b"<html" in first_chunk.lower() or b"<!doctype html" in first_chunk.lower():
-                    logger.error("Downloaded HTML instead of media file")
-                    return False
-
-                if filepath.suffix.lower() == ".mp4":
-                    if not (
-                        first_chunk.startswith(b"\x00\x00\x00") or b"ftyp" in first_chunk or b"moov" in first_chunk
-                    ):
-                        logger.error("Invalid MP4 format")
-                        return False
-
-            return True
+            return ingress_validate_saved_media(
+                filepath,
+                expected_size,
+                total_size,
+                source_name,
+                ingress_format_strings=get_settings().storage.supported_video_formats,
+            )
 
         except Exception as e:
             logger.error(f"Validation error: {e}")

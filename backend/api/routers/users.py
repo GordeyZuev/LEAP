@@ -94,7 +94,7 @@ async def get_my_quota(
     try:
         return await quota_service.get_quota_status(current_user.id, current_user.user_slug)
     except ValueError as e:
-        logger.error(f"Error getting quota status for user {current_user.id}: {e}")
+        logger.warning("Quota status unavailable | user=%s | %s", current_user.id, e)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),

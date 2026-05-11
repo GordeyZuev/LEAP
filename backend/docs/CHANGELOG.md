@@ -2,6 +2,130 @@
 
 ---
 
+## v0.9.6.6 (2026-05-11)
+
+**Релиз:** унификация ingress whitelist и дефолтов форматов хранения; игнорирование `STORAGE_SUPPORTED_*` в пользу кода; хелпер `storage_video_ingress_suffixes()`; обновление гайдов и quality gate для тестов.
+
+Подробности по поведению пайплайна — в записи **2026-05-09** ниже.
+
+### Файлы
+
+- `config/settings.py`, `utils/pipeline_video_formats.py`, `yandex_disk_module/client.py`, `api/routers/recordings.py`, `video_download_module/core/base.py`, `video_download_module/downloader.py`, `video_download_module/platforms/yadisk/downloader.py`, `video_download_module/platforms/ytdlp/downloader.py`, `api/tasks/processing.py`, `api/tasks/upload.py`, `video_processing_module/video_processor.py`, `scripts/compute_final_duration_from_files.py`, `scripts/trimming_stats.py`, `tests/unit/utils/test_pipeline_video_formats.py`, `tests/quality/test_code_quality.py`, `.cursor/rules/python-code-quality.mdc`, `docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`, `docs/guides/YANDEX_DISK_GUIDE.md`, `docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`, `docs/INDEX.md`, `.env.example`, `README.md`
+
+---
+
+## 2026-05-09: Pipeline ingress whitelist, sniff validation
+
+- **Ingest** — whitelist is **`StorageSettings.supported_video_formats`** (defaults: ``STORAGE_DEFAULT_VIDEO_FORMATS`` in ``config/settings.py``; **`STORAGE_SUPPORTED_VIDEO_FORMATS` is ignored**): YaDisk picker, downloader sniff/whitelist, local upload agree on one list.
+
+- **Config cleanup** — removed duplicate `pipeline_ingress_formats` / `STORAGE_PIPELINE_INGRESS_FORMATS`; if you relied on `STORAGE_PIPELINE_INGRESS_FORMATS` briefly, align with **`STORAGE_DEFAULT_VIDEO_FORMATS`** / **`StorageSettings`** (**do not** set `STORAGE_SUPPORTED_VIDEO_FORMATS`; it has no effect).
+
+- **Settings hygiene** — shared-mutable-safe defaults: `StorageSettings.supported_video_formats`, `supported_image_formats`, and `ServerSettings` CORS lists use **`default_factory`** where the default is a `list`.
+- **Source path** — recordings save as `source.<ext>` when the origin provides a filename / Zoom `video_file_type` / YaDisk `name`; local multipart upload validates ingress and moves to `source.<suffix>`.
+- **Upload** — optional FFmpeg normalization before YouTube/VK upload **removed** (YAGNI); may return later as an explicit preset toggle.
+- **ASR** — full-track extract still targets MP3; FFmpeg uses **`-map 0:a:0`** (first audio stream). Documented risks of silence-trim on the analysis MP3 remain unchanged.
+
+### Files
+
+- `utils/pipeline_video_formats.py`, `config/settings.py`, `video_download_module/core/base.py`, `video_download_module/downloader.py`, `video_download_module/platforms/yadisk/downloader.py`, `video_download_module/platforms/ytdlp/downloader.py`, `yandex_disk_module/client.py`, `api/routers/recordings.py`, `api/tasks/processing.py`, `api/tasks/upload.py`, `api/schemas/template/preset_metadata.py`, `video_processing_module/video_processor.py`, `scripts/compute_final_duration_from_files.py`, `scripts/trimming_stats.py`, `tests/unit/utils/test_pipeline_video_formats.py`, `docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`, `docs/guides/YANDEX_DISK_GUIDE.md`, `docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`, `docs/TECHNICAL.md`, `docs/INDEX.md`, `.env.example`
+
+---
+
+## 2026-04-25: Media integrity guide (download, trim, diagnostics)
+
+- **Документация** — гайд `docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`: типичные причины «короткого/битого» видео (обрезка по тишине, битый исходник, VP9+Opus в .mp4), зазор в `BaseDownloader._validate_file` при неизвестном размере, ссылка на `scripts/diagnose_video_file.py` и варианты мер на стороне LEAP.
+- **Навигация** — пункт в `docs/INDEX.md` (Storage & ingestion).
+
+### Files
+
+- `docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`, `docs/INDEX.md`
+
+---
+
+## 2026-04-24: Logging — OAuth user decline, quota 404, Yandex extras token
+
+- **OAuth callbacks** — `?error=access_denied` (и похожие отказы пользователя) логируются как **INFO**, прочие ошибки провайдера — **WARNING** (раньше всё шло в **ERROR**).
+- **GET /users/me/quota** — при отсутствии пользователя/квоты в **WARNING** вместо **ERROR** (ответ по-прежнему 404).
+- **Yandex extra files** — токен для sidecar-загрузки берётся из `uploader.oauth_token` или из `credentials_data`; расширено сообщение в логе при отсутствии токена.
+- **Документация** — таблица типичных сообщений в `docs/guides/YANDEX_DISK_GUIDE.md`.
+
+### Files
+
+- `api/routers/oauth.py`, `api/routers/users.py`, `api/tasks/upload.py`, `docs/guides/YANDEX_DISK_GUIDE.md`
+
+---
+
+## 2026-04-24: Yandex Disk — API (OAuth) file GET vs public CDN headers
+
+- **Download** — для `download_method=api` запрос на временный `href` из `GET /v1/disk/resources/download` идёт с **`Authorization: OAuth <token>`** на хостах Яндекса (downloader и т.п.) и **без** этого заголовка на **`*.storage.yandex.net`**: редиректы обрабатываются вручную, т.к. httpx не переносит `Authorization` на другой хост, а подписанный CDN-URL не должен получать OAuth. Браузерные `Referer`/`Origin` по-прежнему только для публичных шар.
+
+### Files
+
+- `video_download_module/platforms/yadisk/downloader.py`, `tests/unit/video_download_module/test_yadisk_api_download_headers.py`
+
+---
+
+## 2026-04-24: Yandex Disk download — CDN 403 without Referer
+
+- **Download** — публичный Яндекс.Диск: один **`httpx.AsyncClient`** на цепочку GET страницы шары → POST `…/public/api/download-url` → GET файла (общий cookie jar); разбор **полного** JSON в `store-prefetch`; подбор `hash` в т.ч. по **`resource_id`** из метаданных записи; при сбое — прежний fallback через `_download_url`.
+
+### Files
+
+- `video_download_module/platforms/yadisk/downloader.py`, `video_download_module/core/base.py`
+
+---
+
+## 2026-04-24: Yandex Disk — published list API, script, shared-folder FAQ
+
+- **REST client** — `YandexDiskClient.list_published_resources`: `GET /v1/disk/resources/public` (ресурсы, для которых вы включили публичную ссылку).
+- **Скрипт** — `scripts/list_yandex_disk_folders.py --published`; в docstring кратко разделены личное дерево, чужая `public_url` и приглашения Yandex 360.
+- **Документация** — `docs/guides/YANDEX_DISK_GUIDE.md` FAQ: почему у «общих» ссылок нет `folder_path`, чем отличается `/resources/public`.
+
+### Files
+
+- `yandex_disk_module/client.py`, `scripts/list_yandex_disk_folders.py`, `docs/guides/YANDEX_DISK_GUIDE.md`
+
+---
+
+## 2026-04-24: Yandex Disk — sync stable file identity (rename-safe)
+
+- **Input sync** — folder listing requests `md5` / `resource_id` on items where supported; `source_key` prefers `yadisk:rid:…` then `yadisk:md5:…:size` then path so a renamed file maps to the same recording when the API returns a hash or id. Metadata refresh (including path) is applied even when the recording is already `UPLOADED`.
+
+### Files
+
+- `api/routers/input_sources.py`, `api/repositories/recording_repos.py`, `yandex_disk_module/client.py`, `docs/guides/YANDEX_DISK_GUIDE.md`, `tests/unit/api/test_yandex_disk_source_key.py`
+
+---
+
+## 2026-04-24: Yandex Disk — full integration (presets, extras, Jinja, sync refresh)
+
+- **Removed** — `POST /api/v1/recordings/add-yadisk`; use `POST /api/v1/sources` with `YANDEX_DISK` and `config.public_url`, then `POST /api/v1/sources/{id}/sync`.
+- **Output presets** — `platform: yandex_disk` in `POST /api/v1/output-presets` with `YandexDiskPresetMetadata` (incl. optional `description_template`, extra file blocks `subtitles_srt` / `subtitles_vtt` / `transcription` / `description_txt`).
+- **Template metadata** — `metadata_config.yandex_disk` may override `overwrite` / `publish`.
+- **Jinja** — filters `split_path` and `part` on `SandboxedEnvironment` for path templates.
+- **Upload task** — after successful video upload to Disk, best-effort upload of extra files per preset; inherits `overwrite` from preset.
+- **Input sync** — refresh Yandex OAuth token before listing when expiry is near.
+
+### Files
+
+- `api/routers/recordings.py`, `api/schemas/recording/request.py`, `api/schemas/recording/__init__.py`, `api/schemas/template/output_preset.py`, `api/schemas/template/metadata_config.py`, `api/schemas/template/preset_metadata.py`, `api/services/config_resolver.py`, `api/tasks/upload.py`, `api/routers/input_sources.py`, `api/helpers/template_renderer.py`, `api/schemas/template/input_source.py`, `docs/guides/YANDEX_DISK_GUIDE.md`, `docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`, `docs/TECHNICAL.md`, `README.md`, tests under `tests/unit/`
+
+---
+
+## 2026-04-24: Yandex Disk — OAuth, publish, client errors
+
+- **OAuth** — `GET /api/v1/oauth/yandex_disk/authorize` and `/callback` (code flow), config file `config/oauth_yandex_disk.json` (env `YANDEX_DISK_OAUTH_CONFIG`), scopes `cloud_api:disk.read|write|info`; credentials stored with `oauth_token`, optional `refresh_token`, `client_id` / `client_secret`, `expiry`.
+- **Token refresh** — upload path and download path refresh when token is near expiry or on **401** (upload retry once).
+- **Preset** — `YandexDiskPresetMetadata.publish`: after upload, publish resource and store public URL in upload result; `overwrite` respects nested `yandex_disk` block.
+- **Client** — `YandexDiskError` carries `error_code` / `description`; `get_disk_info`, `get_resource_meta`, `move_resource`, `delete_resource`, `publish_resource`, `unpublish_resource`.
+- **Credentials API** — `yandex_disk` validated with `YandexDiskCredentialsManual`.
+
+### Files
+
+- `api/services/oauth_platforms.py`, `api/services/oauth_service.py`, `api/routers/oauth.py`, `api/routers/credentials.py`, `api/schemas/credentials/__init__.py`, `api/tasks/upload.py`, `api/tasks/processing.py`, `video_upload_module/platforms/yadisk/uploader.py`, `video_upload_module/uploader_factory.py`, `yandex_disk_module/client.py`, `api/schemas/template/preset_metadata.py`, `config/oauth_yandex_disk.json.example`, `.env.example`, `config/settings.py`
+
+---
+
 ## 2026-04-19: YouTube upload — sanitize description angle brackets
 
 - **YouTube Data API** — before `videos.insert`, the video description is normalized: ASCII `<` / `>` are replaced with fullwidth U+FF1C / U+FF1E, and NUL bytes are stripped. This avoids `invalidDescription` when templates or topic lines contain comparison symbols or similar.
@@ -642,10 +766,10 @@ Added direct API endpoints for adding videos by URL without creating InputSource
 ### New Endpoints
 - `POST /api/v1/recordings/add-url` — add single video by URL (YouTube, VK, Rutube, etc.)
 - `POST /api/v1/recordings/add-playlist` — add all videos from a playlist/channel URL
-- `POST /api/v1/recordings/add-yadisk` — add video(s) from public Yandex Disk link
+- ~~`POST /api/v1/recordings/add-yadisk`~~ — **removed 2026-04-24**; use `POST /api/v1/sources` (`YANDEX_DISK` + `config.public_url`) and sync instead
 
 ### New Schemas
-- `api/schemas/recording/request.py` — `AddVideoByUrlRequest`, `AddPlaylistByUrlRequest`, `AddYandexDiskUrlRequest`, response schemas
+- `api/schemas/recording/request.py` — `AddVideoByUrlRequest`, `AddPlaylistByUrlRequest`, response schemas (Yandex public-link flow: InputSource, not `AddYandexDiskUrlRequest`)
 
 ### Key Features
 - No InputSource or credentials required

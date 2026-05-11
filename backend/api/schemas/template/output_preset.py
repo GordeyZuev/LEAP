@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 from api.schemas.common.pagination import PaginatedResponse
 
-from .preset_metadata import VKPresetMetadata, YouTubePresetMetadata
+from .preset_metadata import VKPresetMetadata, YandexDiskPresetMetadata, YouTubePresetMetadata
 
 
 class OutputPresetBase(BaseModel):
@@ -16,9 +16,9 @@ class OutputPresetBase(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=255, description="Preset name")
     description: str | None = Field(None, max_length=1000, description="Preset description")
-    platform: Literal["youtube", "vk"] = Field(..., description="Platform (youtube or vk)")
+    platform: Literal["youtube", "vk", "yandex_disk"] = Field(..., description="Platform (youtube, vk, or yandex_disk)")
 
-    preset_metadata: YouTubePresetMetadata | VKPresetMetadata = Field(
+    preset_metadata: YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata = Field(
         ...,
         description="Platform-specific settings",
     )
@@ -37,7 +37,7 @@ class OutputPresetUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = Field(None, max_length=1000)
     credential_id: int | None = Field(None, gt=0)
-    preset_metadata: YouTubePresetMetadata | VKPresetMetadata | None = None
+    preset_metadata: YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata | None = None
     is_active: bool | None = None
 
 

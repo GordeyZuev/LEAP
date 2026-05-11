@@ -155,6 +155,7 @@ known-first-party = [
     "transcription_module",
     "deepseek_module",
     "fireworks_module",
+    "yandex_disk_module",
 ]
 force-single-line = false
 combine-as-imports = true

@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from api.services.oauth_platforms import OAuthPlatformConfig
+from api.services.oauth_platforms import OAuthPlatformConfig, create_yandex_disk_config
 from api.services.oauth_state import OAuthStateManager
 from api.services.pkce_utils import generate_pkce_pair
 from logger import get_logger
@@ -14,8 +14,67 @@ from logger import get_logger
 logger = get_logger()
 
 
+async def refresh_yandex_disk_oauth_token(
+    refresh_token: str,
+    config: OAuthPlatformConfig | None = None,
+    *,
+    override_client_id: str | None = None,
+    override_client_secret: str | None = None,
+) -> dict[str, Any]:
+    """
+    Exchange a Yandex refresh_token for new tokens (POST to Yandex OAuth ``/token``).
+
+    Used from Celery workers and uploaders where there is no ``OAuthService`` / Redis
+    CSRF state: token refresh is independent of the authorization redirect flow.
+
+    If ``config`` is omitted, loads ``OAuthPlatformConfig`` via ``create_yandex_disk_config()``.
+    Call sites that already hold ``OAuthService.config`` should pass it to avoid re-reading JSON.
+
+    ``override_client_id`` / ``override_client_secret`` (when not ``None``) replace values from
+    ``config`` so refresh uses the same app credentials as stored on the credential row.
+
+    Raises:
+        ValueError: If ``token_url`` is missing from config, or the JSON body has no ``access_token``.
+        httpx.HTTPStatusError: If Yandex returns a non-success HTTP status.
+    """
+    cfg = config or create_yandex_disk_config()
+    token_url = cfg.token_url
+    if not token_url:
+        raise ValueError("Yandex Disk OAuth token_url is not configured")
+    client_id = override_client_id if override_client_id is not None else cfg.client_id
+    client_secret = override_client_secret if override_client_secret is not None else (cfg.client_secret or "")
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(token_url, data=data, headers=headers)
+        response_text = response.text
+        if response.status_code != 200:
+            logger.error(f"Yandex Disk token refresh failed: status={response.status_code} error={response_text}")
+            raise httpx.HTTPStatusError(
+                f"Token refresh failed: {response.status_code}", request=response.request, response=response
+            )
+        token_data = json.loads(response_text) if response_text else {}
+        if "error" in token_data:
+            logger.error(
+                f"Yandex OAuth refresh error: {token_data.get('error')} - {token_data.get('error_description', '')}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Yandex OAuth error: {token_data['error']}", request=response.request, response=response
+            )
+        if not token_data.get("access_token"):
+            logger.error(f"Yandex Disk token refresh: missing access_token in body={response_text[:500]}")
+            raise ValueError("Yandex OAuth refresh response missing access_token")
+        logger.info("Yandex Disk access token refreshed successfully")
+        return token_data
+
+
 class OAuthService:
-    """Handles OAuth operations for platforms (YouTube, VK)."""
+    """Handles OAuth operations for platforms (YouTube, VK, Zoom, Yandex Disk)."""
 
     def __init__(self, config: OAuthPlatformConfig, state_manager: OAuthStateManager):
         self.config = config
@@ -72,6 +131,9 @@ class OAuthService:
             params["prompt"] = "consent"  # Request consent for refresh token
         elif self.config.platform_id == "zoom":
             params["scope"] = " ".join(self.config.scopes)  # Zoom uses space-separated scopes
+        elif self.config.platform_id == "yandex_disk":
+            params["scope"] = " ".join(self.config.scopes)
+            params["force_confirm"] = "yes"
 
         authorization_url = f"{self.config.authorization_url}?{urlencode(params)}"
 
@@ -134,6 +196,8 @@ class OAuthService:
             return await self._exchange_vk_token(data)
         if self.config.platform_id == "zoom":
             return await self._exchange_zoom_token(data)
+        if self.config.platform_id == "yandex_disk":
+            return await self._exchange_yandex_disk_token(data)
         raise ValueError(f"Unsupported platform: {self.config.platform_id}")
 
     async def _exchange_google_token(self, data: dict) -> dict[str, Any]:
@@ -249,6 +313,44 @@ class OAuthService:
             logger.info(f"Zoom token obtained: has_refresh={bool(token_response.get('refresh_token'))}")
             return token_response
 
+    async def _exchange_yandex_disk_token(self, data: dict) -> dict[str, Any]:
+        """Exchange Yandex authorization code for token (form body, no Basic auth)."""
+        # Yandex expects only standard OAuth fields; always send client_secret (may be empty for misconfig).
+        payload = {
+            "grant_type": "authorization_code",
+            "code": data["code"],
+            "client_id": data["client_id"],
+            "client_secret": data.get("client_secret") or self.config.client_secret or "",
+            "redirect_uri": data["redirect_uri"],
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.config.token_url, data=payload, headers=headers)
+            response_text = response.text
+            if response.status_code != 200:
+                logger.error(
+                    f"Yandex Disk token exchange failed: status={response.status_code} error={response_text[:500]}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Token exchange failed: {response.status_code}", request=response.request, response=response
+                )
+            try:
+                token_data = json.loads(response_text) if response_text else {}
+            except json.JSONDecodeError:
+                logger.error(f"Yandex Disk token response is not JSON: {response_text[:500]}")
+                raise httpx.HTTPStatusError(
+                    "Invalid JSON response from Yandex OAuth", request=response.request, response=response
+                )
+            if "error" in token_data:
+                logger.error(
+                    f"Yandex OAuth error: {token_data.get('error')} - {token_data.get('error_description', '')}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Yandex OAuth error: {token_data['error']}", request=response.request, response=response
+                )
+            logger.info(f"Yandex Disk token obtained: has_refresh={bool(token_data.get('refresh_token'))}")
+            return token_data
+
     async def refresh_access_token(self, refresh_token: str) -> dict[str, Any]:
         """
         Refresh access token using refresh token (YouTube and VK ID).
@@ -272,6 +374,8 @@ class OAuthService:
             return await self._refresh_vk_token(refresh_token)
         if self.config.platform_id == "zoom":
             return await self._refresh_zoom_token(refresh_token)
+        if self.config.platform_id == "yandex_disk":
+            return await self._refresh_yandex_disk_token(refresh_token)
         raise ValueError(f"Token refresh not supported for {self.config.platform_id}")
 
     async def _refresh_google_token(self, refresh_token: str) -> dict[str, Any]:
@@ -367,6 +471,10 @@ class OAuthService:
             logger.info("Zoom access token refreshed successfully")
             return token_data
 
+    async def _refresh_yandex_disk_token(self, refresh_token: str) -> dict[str, Any]:
+        """Refresh Yandex OAuth token (delegates to module-level HTTP helper)."""
+        return await refresh_yandex_disk_oauth_token(refresh_token, self.config)
+
     async def validate_token(self, access_token: str) -> bool:
         """
         Validate token by making test API call.
@@ -384,6 +492,8 @@ class OAuthService:
                 return await self._validate_vk_token(access_token)
             if self.config.platform_id == "zoom":
                 return await self._validate_zoom_token(access_token)
+            if self.config.platform_id == "yandex_disk":
+                return await self._validate_yandex_disk_token(access_token)
             logger.warning(f"Token validation not implemented for {self.config.platform_id}")
             return True  # Assume valid
         except Exception as e:
@@ -434,4 +544,16 @@ class OAuthService:
                 logger.debug("Zoom token validated successfully")
                 return True
             logger.warning(f"Zoom token validation failed: status={response.status_code}")
+            return False
+
+    async def _validate_yandex_disk_token(self, access_token: str) -> bool:
+        """Validate Yandex Disk token via Disk API."""
+        url = "https://cloud-api.yandex.net/v1/disk"
+        headers = {"Authorization": f"OAuth {access_token}", "Accept": "application/json"}
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=10.0)
+            if response.status_code == 200:
+                logger.debug("Yandex Disk token validated successfully")
+                return True
+            logger.warning(f"Yandex Disk token validation failed: status={response.status_code}")
             return False

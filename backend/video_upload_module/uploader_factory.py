@@ -83,7 +83,18 @@ async def create_yadisk_uploader_from_db(
     if not oauth_token:
         raise ValueError(f"No oauth_token in credential {credential_id}")
 
-    uploader = YandexDiskUploader(config=None, oauth_token=oauth_token)
+    credential_provider = DatabaseCredentialProvider(
+        credential_id=credential_id,
+        encryption_service=encryption,
+        credential_repository=repo,
+    )
+
+    uploader = YandexDiskUploader(
+        config=None,
+        oauth_token=oauth_token,
+        credential_provider=credential_provider,
+        credentials_data=credentials_data,
+    )
 
     logger.info(f"Created YandexDiskUploader with DB credential ID: {credential_id}")
     return uploader

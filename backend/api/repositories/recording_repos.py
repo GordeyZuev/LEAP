@@ -638,11 +638,33 @@ class RecordingRepository:
         user_id: str,
         source_type: SourceType,
         source_key: str,
-        start_time: datetime,
+        start_time: datetime | None = None,
+        *,
+        require_start_time_in_lookup: bool = True,
     ) -> RecordingModel | None:
         """
-        Find recording by source_key, source_type and start_time.
+        Find a recording by ``source_key`` (and user).
+
+        ``require_start_time_in_lookup`` controls whether ``start_time`` is part of the SQL match:
+
+        - **True (default)** — used for sources whose identity is the pair
+          ``(source_key, start_time)`` (e.g. Zoom: one logical meeting instance per start).
+        - **False** — match **only** ``user_id`` + ``source_type`` + ``source_key``.
+          Used for Yandex Disk after we switched to content-stable keys (``md5`` / ``resource_id``):
+          ``start_time`` is derived from file ``modified`` and must not split one file into
+          multiple rows when the remote mtime or path metadata changes.
         """
+        if require_start_time_in_lookup and start_time is None:
+            raise ValueError("start_time is required when require_start_time_in_lookup=True")
+
+        filters = [
+            RecordingModel.user_id == user_id,
+            SourceMetadataModel.source_type == source_type,
+            SourceMetadataModel.source_key == source_key,
+        ]
+        if require_start_time_in_lookup:
+            filters.append(RecordingModel.start_time == start_time)
+
         query = (
             select(RecordingModel)
             .options(
@@ -653,12 +675,9 @@ class RecordingRepository:
                 selectinload(RecordingModel.template),
             )
             .join(SourceMetadataModel)
-            .where(
-                RecordingModel.user_id == user_id,
-                SourceMetadataModel.source_type == source_type,
-                SourceMetadataModel.source_key == source_key,
-                RecordingModel.start_time == start_time,
-            )
+            .where(*filters)
+            .order_by(RecordingModel.id.asc())
+            .limit(1)
         )
 
         result = await self.session.execute(query)
@@ -687,16 +706,48 @@ class RecordingRepository:
             start_time: Start time
             duration: Duration
             source_type: Source type
-            source_key: Source key
+            source_key: Canonical source key to store on ``SourceMetadata`` after upsert
             source_metadata: Source metadata
             user_config: User configuration for retention settings
-            **kwargs: Additional fields
+
+        Keyword-only (via ``**kwargs``, consumed here, not passed to the ORM model):
+
+            require_start_time_in_lookup:
+                If True (default), an existing row is found only when ``start_time`` matches
+                as well as ``source_key``. If False, lookup uses ``source_key`` only — needed
+                for Yandex Disk stable keys; see :meth:`find_by_source_key`.
+            alternate_source_keys:
+                Extra keys to try when ``require_start_time_in_lookup`` is False (e.g. legacy
+                path-based key before migrating the row to a hash-based key).
+            uploaded_allow_metadata_refresh:
+                If True and status is ``UPLOADED``, still merge ``source_metadata`` and migrate
+                ``source_key`` when the remote file was renamed (Yandex sync).
+
+            Other ``kwargs`` are forwarded to the new ``RecordingModel`` / status logic
+            (``template_id``, ``is_mapped``, ``blank_record``, etc.).
 
         Returns:
             Tuple (recording, was_created)
         """
-        # Check existing recording
-        existing = await self.find_by_source_key(user_id, source_type, source_key, start_time)
+        alternate_source_keys: list[str] | None = kwargs.pop("alternate_source_keys", None)
+        require_start_time_in_lookup: bool = kwargs.pop("require_start_time_in_lookup", True)
+        uploaded_allow_metadata_refresh: bool = kwargs.pop("uploaded_allow_metadata_refresh", False)
+
+        if require_start_time_in_lookup:
+            existing = await self.find_by_source_key(
+                user_id, source_type, source_key, start_time, require_start_time_in_lookup=True
+            )
+        else:
+            keys = list(dict.fromkeys([source_key, *list(alternate_source_keys or [])]))
+            keys = [k for k in keys if k]
+            existing = None
+            for k in keys:
+                candidate = await self.find_by_source_key(
+                    user_id, source_type, k, start_time, require_start_time_in_lookup=False
+                )
+                if candidate:
+                    existing = candidate
+                    break
 
         if existing:
             # Don't update deleted recordings (user deleted manually)
@@ -706,6 +757,8 @@ class RecordingRepository:
 
             # Update existing recording, but only if status is not UPLOADED
             if existing.status != ProcessingStatus.UPLOADED:
+                if not require_start_time_in_lookup:
+                    existing.start_time = start_time
                 existing.display_name = display_name
                 existing.duration = duration
                 existing.video_file_size = kwargs.get("video_file_size", existing.video_file_size)
@@ -744,6 +797,8 @@ class RecordingRepository:
                     existing.blank_record = kwargs["blank_record"]
 
                 if existing.source:
+                    if existing.source.source_key != source_key:
+                        existing.source.source_key = source_key
                     existing_meta = existing.source.meta if isinstance(existing.source.meta, dict) else {}
                     merged_meta = dict(existing_meta)
                     merged_meta.update(source_metadata or {})
@@ -755,7 +810,20 @@ class RecordingRepository:
 
                 await self.session.flush()
                 return existing, False
-            # Recording already uploaded, don't update
+            # Recording already uploaded — optionally refresh source metadata / canonical key (e.g. Yandex rename)
+            if uploaded_allow_metadata_refresh and existing.source:
+                if not require_start_time_in_lookup:
+                    existing.start_time = start_time
+                if existing.source.source_key != source_key:
+                    existing.source.source_key = source_key
+                existing_meta = existing.source.meta if isinstance(existing.source.meta, dict) else {}
+                merged_meta = dict(existing_meta)
+                merged_meta.update(source_metadata or {})
+                existing.source.meta = merged_meta
+                existing.updated_at = datetime.now(UTC)
+                await self.session.flush()
+                logger.info(f"Refreshed source metadata (uploaded) | {format_details(rec=existing.id, key=source_key)}")
+                return existing, False
             logger.info(f"Skipped: already uploaded | {format_details(rec=existing.id)}")
             return existing, False
         # Create new recording

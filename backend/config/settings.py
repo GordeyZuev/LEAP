@@ -1,14 +1,32 @@
 """Unified application settings - single source of truth for all configuration"""
 
+import types
 import warnings
 from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
 from pydantic import Field, field_validator, model_validator
+from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.sources import PydanticBaseSettingsSource
 
 load_dotenv()
+
+
+def _storage_settings_strip_format_env_overrides(source: PydanticBaseSettingsSource) -> None:
+    skip = frozenset({"supported_video_formats", "supported_image_formats"})
+    orig = source.get_field_value
+
+    def patched(self: Any, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        if field_name in skip:
+            for field_key, _env_name, value_is_complex in self._extract_field_info(field, field_name):
+                return None, field_key, value_is_complex
+            return None, field_name, False
+        return orig(field, field_name)
+
+    source.get_field_value = types.MethodType(patched, source)  # type: ignore[method-assign]
+
 
 # ============================================================================
 # APP SETTINGS
@@ -24,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.9.6.5", description="Application version")
+    version: str = Field(default="0.9.6.6", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -279,23 +297,36 @@ class SecuritySettings(BaseSettings):
 # STORAGE SETTINGS
 # ============================================================================
 
+STORAGE_DEFAULT_VIDEO_FORMATS: tuple[str, ...] = ("mp4", "webm", "mkv", "mov")
+STORAGE_DEFAULT_IMAGE_FORMATS: tuple[str, ...] = ("jpg", "jpeg", "png", "gif")
+
 
 class StorageSettings(BaseSettings):
-    """File storage and media settings"""
+    """File storage and media."""
 
     model_config = SettingsConfigDict(
         env_prefix="STORAGE_",
         case_sensitive=False,
     )
 
-    # Storage backend type
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],  # noqa: ARG003
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        _storage_settings_strip_format_env_overrides(env_settings)
+        _storage_settings_strip_format_env_overrides(dotenv_settings)
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
+
     type: Literal["LOCAL", "S3"] = Field(default="LOCAL", description="Storage backend type")
 
-    # LOCAL storage settings
     local_path: str = Field(default="storage", description="Local storage root path")
     local_max_size_gb: int | None = Field(default=None, ge=1, description="Max local storage size (GB)")
 
-    # S3 storage settings
     s3_bucket: str | None = Field(default=None, description="S3 bucket name")
     s3_prefix: str = Field(default="storage", description="S3 key prefix")
     s3_region: str = Field(default="us-east-1", description="S3 region")
@@ -306,21 +337,44 @@ class StorageSettings(BaseSettings):
 
     log_dir: str = Field(default="logs", description="Log directory")
 
-    # Thumbnails
     thumbnail_dir: str = Field(default="thumbnails", description="Thumbnail directory")
     template_thumbnail_dir: str = Field(default="storage/shared/thumbnails", description="Template thumbnail directory")
 
-    # Max file sizes
     max_upload_size_mb: int = Field(default=5000, ge=1, description="Max upload size (MB)")
     max_thumbnail_size_mb: int = Field(default=10, ge=1, description="Max thumbnail size (MB)")
 
-    # Supported formats
     supported_video_formats: list[str] = Field(
-        default=["mp4", "avi", "mov", "mkv", "webm", "m4v"], description="Supported video formats"
+        default_factory=lambda: list(STORAGE_DEFAULT_VIDEO_FORMATS),
+        description="Supported video container suffixes",
     )
     supported_image_formats: list[str] = Field(
-        default=["jpg", "jpeg", "png", "gif"], description="Supported image formats"
+        default_factory=lambda: list(STORAGE_DEFAULT_IMAGE_FORMATS),
+        description="Supported image suffixes",
     )
+
+    @field_validator("supported_video_formats", mode="before")
+    @classmethod
+    def _coerce_supported_video_formats(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            out = [x.strip().lstrip(".").lower() for x in v.split(",") if x.strip()]
+            return out or None
+        if isinstance(v, list):
+            return [str(x).strip().lstrip(".").lower() for x in v if str(x).strip()]
+        return v
+
+    @field_validator("supported_image_formats", mode="before")
+    @classmethod
+    def _coerce_supported_image_formats(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            out = [x.strip().lstrip(".").lower() for x in v.split(",") if x.strip()]
+            return out or None
+        if isinstance(v, list):
+            return [str(x).strip().lstrip(".").lower() for x in v if str(x).strip()]
+        return v
 
     @model_validator(mode="after")
     def validate_storage_config(self) -> "StorageSettings":
@@ -334,13 +388,16 @@ class StorageSettings(BaseSettings):
                     stacklevel=2,
                 )
         elif self.type == "LOCAL":
-            # Ensure local storage directory exists
             local_path = Path(self.local_path)
             if not local_path.exists():
                 try:
                     local_path.mkdir(parents=True, exist_ok=True)
                 except Exception as e:
                     warnings.warn(f"Could not create storage directory {self.local_path}: {e}", stacklevel=2)
+        if not self.supported_video_formats:
+            self.supported_video_formats = list(STORAGE_DEFAULT_VIDEO_FORMATS)
+        if not self.supported_image_formats:
+            self.supported_image_formats = list(STORAGE_DEFAULT_IMAGE_FORMATS)
         return self
 
     @field_validator("log_dir")
@@ -933,6 +990,9 @@ DEFAULT_USER_CONFIG = {
             "no_comments": False,
             "repeat": False,
         },
+        "yandex_disk": {
+            "enabled": False,
+        },
     },
 }
 
@@ -952,5 +1012,11 @@ def get_settings() -> Settings:
     return _settings_instance
 
 
-# Convenience instance for direct import
+def storage_video_ingress_suffixes() -> frozenset[str]:
+    """Normalized video suffixes from ``StorageSettings.supported_video_formats``."""
+    from utils.pipeline_video_formats import pipeline_ingress_suffixes_from_settings_formats
+
+    return pipeline_ingress_suffixes_from_settings_formats(get_settings().storage.supported_video_formats)
+
+
 settings = get_settings()

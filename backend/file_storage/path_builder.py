@@ -41,9 +41,10 @@ class StoragePathBuilder:
         """Get recording root: storage/users/user_000001/recordings/74"""
         return self.user_root(user_slug) / "recordings" / str(recording_id)
 
-    def recording_source(self, user_slug: int, recording_id: int) -> Path:
-        """Original video: .../recordings/74/source.mp4"""
-        return self.recording_root(user_slug, recording_id) / "source.mp4"
+    def recording_source(self, user_slug: int, recording_id: int, suffix: str = ".mp4") -> Path:
+        """Original video: .../recordings/74/source.<suffix> (default .mp4 for legacy Zoom uploads)."""
+        suf = suffix if suffix.startswith(".") else f".{suffix}"
+        return self.recording_root(user_slug, recording_id) / f"source{suf}"
 
     def recording_video(self, user_slug: int, recording_id: int) -> Path:
         """Processed video: .../recordings/74/video.mp4"""

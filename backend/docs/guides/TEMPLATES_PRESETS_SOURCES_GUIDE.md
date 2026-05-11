@@ -181,11 +181,11 @@ Presets define upload targets and platform metadata (title/description templates
 |-------|------|----------|-------------|
 | `name` | string(1–255) | yes | |
 | `description` | string(0–1000) | no | |
-| `platform` | `"youtube"` \| `"vk"` | yes | Literal in `OutputPresetBase` |
+| `platform` | `"youtube"` \| `"vk"` \| `"yandex_disk"` | yes | Literal in `OutputPresetBase` |
 | `credential_id` | int > 0 | yes | Platform credential |
-| `preset_metadata` | YouTube or VK | yes | See below |
+| `preset_metadata` | YouTube, VK, or Yandex Disk | yes | See below |
 
-`YandexDiskPresetMetadata` also exists in `preset_metadata.py`, but the **presets router** only accepts `platform: "youtube" | "vk"`. If Yandex Disk output is added to the API, this section should be updated.
+`YandexDiskPresetMetadata` is accepted when `platform: "yandex_disk"` (`POST /api/v1/output-presets`): `folder_path_template` (required Jinja), optional `filename_template`, `title_template`, `description_template`, `overwrite`, `publish`, and optional sidecar blocks `subtitles_srt`, `subtitles_vtt`, `transcription`, `description_txt` (presence of the object enables upload after the video).
 
 ### YouTube preset metadata (`YouTubePresetMetadata`)
 
@@ -282,7 +282,7 @@ Thumbnail precedence (from schema docstring):
 2. Common `thumbnail_name`
 3. Preset thumbnail
 
-Blocks: `vk`, `youtube`, `yandex_disk` (`folder_path_template`, `filename_template`).
+Blocks: `vk`, `youtube`, `yandex_disk` (`folder_path_template`, `filename_template`, optional `overwrite`, `publish`). Jinja filters `split_path` and `part` apply to path templates (see Yandex Disk guide).
 
 **Common template variables** in descriptions: `{display_name}`, `{themes}`, `{topic}`, `{topics}`, `{topics_list}`, `{summary}`, `{questions}`, `{record_time}`, `{publish_time}`, `{date}`, `{duration}`; date styles like `{record_time:DD.MM.YY}`.
 
@@ -405,5 +405,5 @@ Router prefixes in code:
 
 ## See also
 
-- [TECHNICAL.md](../TECHNICAL.md) — architecture and API overview  
-- [DEPLOYMENT.md](./DEPLOYMENT.md) — deployment  
+- [TECHNICAL.md](../TECHNICAL.md) — architecture and API overview
+- [DEPLOYMENT.md](./DEPLOYMENT.md) — deployment

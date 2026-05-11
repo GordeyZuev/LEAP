@@ -39,8 +39,12 @@ class InputSourceCreate(BaseModel):
 
     name: str = Field(..., min_length=3, max_length=255, description="Source name")
     description: str | None = Field(None, max_length=1000, description="Source description")
-    platform: Literal["ZOOM", "GOOGLE_DRIVE", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] = Field(..., description="Platform")
-    credential_id: int | None = Field(None, gt=0, description="Credential ID (required for ZOOM, GOOGLE_DRIVE)")
+    platform: Literal["ZOOM", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] = Field(..., description="Platform")
+    credential_id: int | None = Field(
+        None,
+        gt=0,
+        description="Credential ID (required for ZOOM; YANDEX_DISK when listing a private folder — not needed if config.public_url is set)",
+    )
 
     config: SourceConfig | None = Field(
         None,

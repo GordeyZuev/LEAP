@@ -1,4 +1,4 @@
-"""OAuth endpoints for YouTube and VK"""
+"""OAuth endpoints for YouTube, VK, Zoom, and Yandex Disk."""
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -28,6 +28,15 @@ from logger import get_logger
 logger = get_logger()
 
 router = APIRouter(prefix="/api/v1/oauth", tags=["OAuth"])
+
+
+def _log_oauth_callback_provider_error(platform_label: str, error: str) -> None:
+    """Log ``?error=`` from OAuth redirect. User decline is INFO; real provider faults are WARNING."""
+    e = (error or "").strip().lower()
+    if e == "access_denied" or e.endswith("_denied") or "user_denied" in e:
+        logger.info("%s OAuth: user declined or cancelled | error=%s", platform_label, error)
+        return
+    logger.warning("%s OAuth: provider error in callback | error=%s", platform_label, error)
 
 
 def get_state_manager(redis=Depends(get_redis)) -> OAuthStateManager:
@@ -84,6 +93,13 @@ async def get_account_identifier(platform: str, access_token: str) -> str:
             "url": "https://api.zoom.us/v2/users/me",
             "headers": {"Authorization": f"Bearer {access_token}"},
             "extract": lambda data: data.get("email", "unknown"),
+        },
+        "yandex_disk": {
+            "url": "https://cloud-api.yandex.net/v1/disk",
+            "headers": {"Authorization": f"OAuth {access_token}", "Accept": "application/json"},
+            "extract": lambda data: (
+                (data.get("user") or {}).get("login") or (data.get("user") or {}).get("display_name") or "unknown"
+            ),
         },
     }
 
@@ -155,6 +171,16 @@ def _build_oauth_credentials(platform: str, token_data: dict, config: OAuthPlatf
             "refresh_token": token_data.get("refresh_token"),
             "token_type": token_data.get("token_type", "bearer"),
             "scope": token_data.get("scope", " ".join(config.scopes)),
+            "expires_in": expires_in,
+            "expiry": expiry_str,
+        }
+
+    if platform == "yandex_disk":
+        return {
+            "oauth_token": token_data["access_token"],
+            "refresh_token": token_data.get("refresh_token"),
+            "client_id": config.client_id,
+            "client_secret": config.client_secret or "",
             "expires_in": expires_in,
             "expiry": expiry_str,
         }
@@ -245,7 +271,7 @@ async def youtube_callback(
     frontend_url = get_settings().oauth.frontend_redirect_url.rstrip("/")
 
     if error:
-        logger.error(f"YouTube OAuth error: {error}")
+        _log_oauth_callback_provider_error("YouTube", error)
         return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
 
     try:
@@ -311,32 +337,32 @@ async def vk_authorize_implicit(
     current_user: UserInDB = Depends(get_current_user),
 ) -> OAuthImplicitFlowResponse:
     """
-       Generate VK Implicit Flow URL (no refresh token).
+    Generate VK Implicit Flow URL (no refresh token).
 
-       Uses separate VK app configured for Implicit Flow.
+    Uses separate VK app configured for Implicit Flow.
 
-       **How to use:**
-       1. Redirect user to `redirect_uri` URL
-       2. User authorizes and VK redirects to `blank_redirect_uri`
-       3. Parse token from URL hash: `#access_token=XXX&expires_in=86400&user_id=YYY`
-       4. Extract `access_token`, `expires_in`, and `user_id` from hash
+    **How to use:**
+    1. Redirect user to `redirect_uri` URL
+    2. User authorizes and VK redirects to `blank_redirect_uri`
+    3. Parse token from URL hash: `#access_token=XXX&expires_in=86400&user_id=YYY`
+    4. Extract `access_token`, `expires_in`, and `user_id` from hash
 
-       **Response fields:**
-       - `method`: OAuth method type ("implicit_flow")
-       - `app_id`: VK application ID
-       - `redirect_uri`: Full authorization URL to redirect user to
-       - `scope`: Requested permissions (e.g., "video,groups,wall")
-       - `response_type`: Response type ("token" for implicit flow)
-       - `blank_redirect_uri`: Final redirect URI where token will appear in URL hash
+    **Response fields:**
+    - `method`: OAuth method type ("implicit_flow")
+    - `app_id`: VK application ID
+    - `redirect_uri`: Full authorization URL to redirect user to
+    - `scope`: Requested permissions (e.g., "video,groups,wall")
+    - `response_type`: Response type ("token" for implicit flow)
+    - `blank_redirect_uri`: Final redirect URI where token will appear in URL hash
 
-       **Pros:**
-       - Works immediately without VK approval
-       - Grants video, groups, wall permissions
+    **Pros:**
+    - Works immediately without VK approval
+    - Grants video, groups, wall permissions
 
-    й    **Cons:**
-       - Token expires in 24 hours
-       - No refresh token
-       - Deprecated by VK (use for testing only)
+    **Cons:**
+    - Token expires in 24 hours
+    - No refresh token
+    - Deprecated by VK (use for testing only)
     """
     # Load VK config to get implicit_flow_app_id
     import os
@@ -486,7 +512,7 @@ async def vk_callback(
     frontend_url = get_settings().oauth.frontend_redirect_url.rstrip("/")
 
     if error:
-        logger.error(f"VK OAuth error: {error}")
+        _log_oauth_callback_provider_error("VK", error)
         return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
 
     try:
@@ -559,7 +585,7 @@ async def zoom_callback(
     frontend_url = get_settings().oauth.frontend_redirect_url.rstrip("/")
 
     if error:
-        logger.error(f"Zoom OAuth error: {error}")
+        _log_oauth_callback_provider_error("Zoom", error)
         return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
 
     try:
@@ -591,4 +617,73 @@ async def zoom_callback(
         return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
     except Exception as e:
         logger.error(f"Zoom OAuth callback failed: {e}")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")
+
+
+@router.get("/yandex_disk/authorize", response_model=OAuthAuthorizeResponse)
+async def yandex_disk_authorize(
+    request: Request,
+    current_user: UserInDB = Depends(get_current_user),
+    state_manager: OAuthStateManager = Depends(get_state_manager),
+):
+    """Initiate Yandex Disk OAuth flow."""
+    try:
+        config = get_platform_config("yandex_disk")
+        oauth_service = OAuthService(config, state_manager)
+
+        ip_address = request.client.host if request.client else None
+        result = await oauth_service.get_authorization_url(current_user.id, ip_address)
+
+        logger.info(f"Yandex Disk OAuth initiated: user_id={current_user.id}")
+        return result
+
+    except Exception as e:
+        logger.error(f"Yandex Disk OAuth authorization failed: user_id={current_user.id} error={e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate authorization URL",
+        )
+
+
+@router.get("/yandex_disk/callback")
+async def yandex_disk_callback(
+    code: str = Query(..., description="Authorization code from Yandex"),
+    state: str = Query(..., description="State token for CSRF protection"),
+    error: str | None = Query(None, description="Error from OAuth provider"),
+    session: AsyncSession = Depends(get_db_session),
+    state_manager: OAuthStateManager = Depends(get_state_manager),
+):
+    """Handle Yandex Disk OAuth callback (exchange code for token)."""
+    frontend_url = get_settings().oauth.frontend_redirect_url.rstrip("/")
+
+    if error:
+        _log_oauth_callback_provider_error("Yandex Disk", error)
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
+
+    try:
+        metadata = await state_manager.validate_state(state)
+        if not metadata:
+            raise ValueError("Invalid or expired state token")
+
+        user_id = metadata["user_id"]
+        code_verifier = metadata.get("code_verifier")
+
+        config = get_platform_config("yandex_disk")
+        oauth_service = OAuthService(config, state_manager)
+        token_data = await oauth_service.exchange_code_for_token(code, code_verifier=code_verifier)
+
+        token_valid = await oauth_service.validate_token(token_data["access_token"])
+        if not token_valid:
+            logger.warning(f"Yandex Disk token validation failed after exchange: user_id={user_id}")
+
+        await save_oauth_credentials(user_id, "yandex_disk", token_data, config, session)
+
+        logger.info(f"Yandex Disk OAuth completed successfully: user_id={user_id}")
+        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=yandex_disk")
+
+    except ValueError as e:
+        logger.error(f"Yandex Disk OAuth callback error: {e}")
+        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
+    except Exception as e:
+        logger.error(f"Yandex Disk OAuth callback failed: {e}")
         return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")

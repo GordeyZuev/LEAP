@@ -259,11 +259,11 @@ class ConfigResolver:
                 # }
 
                 template_meta = template.metadata_config
-                platform_key = preset.platform.lower()  # "youtube" or "vk"
+                platform_key = preset.platform.lower()  # "youtube", "vk", "yandex_disk", ...
 
                 # Step 1: Merge common top-level fields (backward compatibility)
-                # These are fields that are not platform-specific keys ("youtube", "vk", "common")
-                platform_keys = {"youtube", "vk", "common"}
+                # These are fields that are not platform-specific keys ("youtube", "vk", "yandex_disk", "common")
+                platform_keys = {"youtube", "vk", "yandex_disk", "common"}
                 common_fields = {k: v for k, v in template_meta.items() if k not in platform_keys}
                 if common_fields:
                     logger.debug(f"[Metadata Resolution] Merging template common fields: {list(common_fields.keys())}")

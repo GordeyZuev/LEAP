@@ -19,6 +19,7 @@ from api.schemas.credentials import (
     CredentialStatusResponse,
     CredentialUpdateRequest,
     VKCredentialsManual,
+    YandexDiskCredentialsManual,
     YouTubeCredentialsManual,
     ZoomCredentialsManual,
 )
@@ -135,6 +136,8 @@ def _validate_credentials(platform: str, credentials: dict[str, Any]) -> None:
             VKCredentialsManual(**credentials)
         elif platform == "zoom":
             ZoomCredentialsManual(**credentials)
+        elif platform == "yandex_disk":
+            YandexDiskCredentialsManual(**credentials)
         # Other platforms don't have specific validation yet
     except ValidationError as e:
         error_messages = []

@@ -56,11 +56,22 @@ class ZoomDownloader(BaseDownloader):
         force: bool = False,
     ) -> DownloadResult:
         """Download a Zoom recording by source metadata."""
+        from config.settings import get_settings
+        from utils.pipeline_video_formats import (
+            pipeline_ingress_suffixes_from_settings_formats,
+            strict_suffix_from_source_name,
+        )
+
         download_url = source_meta.get("download_url")
         if not download_url:
             raise ValueError("No download_url in source metadata")
 
-        target_path = self._get_target_path(recording_id)
+        allowed = pipeline_ingress_suffixes_from_settings_formats(
+            get_settings().storage.supported_video_formats,
+        )
+        source_suffix = strict_suffix_from_source_name(source_meta.get("name"), allowed)
+        target_path = self._get_target_path(recording_id, source_suffix=source_suffix)
+        validate_name = source_meta.get("name") or f"zoom{source_suffix}"
 
         if not force and target_path.exists() and target_path.stat().st_size > 1024:
             return DownloadResult(
@@ -82,6 +93,7 @@ class ZoomDownloader(BaseDownloader):
             params=params,
             expected_size=source_meta.get("file_size", 0) or None,
             description="Zoom recording",
+            source_name=validate_name,
         )
 
         if not success:
@@ -96,8 +108,10 @@ class ZoomDownloader(BaseDownloader):
         self,
         recording: MeetingRecording,
         force_download: bool = False,
+        *,
+        source_suffix: str = ".mp4",
     ) -> bool:
-        """Downloads Zoom recording to storage/users/user_XXXXXX/recordings/{id}/source.mp4"""
+        """Download Zoom recording to ``source.<suffix>`` (default ``source.mp4``)."""
         if not recording.video_file_download_url:
             logger.error(f"No video URL for recording {recording.db_id}")
             recording.mark_failure(
@@ -116,7 +130,8 @@ class ZoomDownloader(BaseDownloader):
             )
             return False
 
-        final_path = self.storage.recording_source(self.user_slug, recording.db_id)
+        final_path = self._get_target_path(recording.db_id, source_suffix=source_suffix)
+        validate_as_name = f"zoom-recording{source_suffix}"
 
         if (
             not force_download
@@ -145,6 +160,7 @@ class ZoomDownloader(BaseDownloader):
             params=params,
             expected_size=recording.video_file_size or None,
             description="video file",
+            source_name=validate_as_name,
         )
 
         if not success:

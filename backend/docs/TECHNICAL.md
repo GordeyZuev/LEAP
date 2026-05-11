@@ -433,10 +433,10 @@ video_download_module/
 ```
 POST /api/v1/recordings/add-url       — добавить видео по ссылке
 POST /api/v1/recordings/add-playlist  — добавить плейлист/канал
-POST /api/v1/recordings/add-yadisk    — добавить с Яндекс Диска
+Яндекс Диск (публичная ссылка) — `POST /api/v1/sources` с `platform: YANDEX_DISK`, `config.public_url`, затем sync
 ```
 
-**Output:** `storage/users/user_XXXXXX/recordings/{id}/source.mp4` (или `.mp3` для audio)
+**Output:** `storage/users/user_XXXXXX/recordings/{id}/source.<ext>` for video ingress (whitelist-driven; legacy `source.mp4` supported), or `.mp3` for yt-dlp audio-only.
 
 ---
 
@@ -665,7 +665,7 @@ video_upload_module/
 ### Pipeline Stages
 
 ```
-1. INGEST       → Fetch from Zoom / yt-dlp / Yandex Disk / add-by-URL
+1. INGEST       → Zoom, InputSource sync (incl. Yandex Disk), yt-dlp / add-by-URL endpoints
 2. DOWNLOAD     → Source-agnostic download via BaseDownloader factory
 3. PROCESS      → FFmpeg trim silence, extract audio
 4. TRANSCRIBE   → Fireworks AI (Whisper-v3-turbo)
@@ -810,7 +810,7 @@ final = {
 # Add video from external sources (no InputSource required)
 POST /api/v1/recordings/add-url        # Single video by URL (yt-dlp)
 POST /api/v1/recordings/add-playlist   # Playlist/channel by URL (yt-dlp)
-POST /api/v1/recordings/add-yadisk     # Yandex Disk public link
+POST /api/v1/sources + sync            # Yandex Disk public link (InputSource)
 
 # Full pipeline
 POST /api/v1/recordings/{id}/run

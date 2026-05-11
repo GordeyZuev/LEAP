@@ -60,19 +60,8 @@ backend/ENV/
 backend/.ruff_cache/
 
 # Credentials and sensitive files (under backend/)
-backend/config/app_config.json
-backend/config/accounts.py
-backend/config/vk_creds.json
-backend/config/youtube_creds.json
-backend/config/zoom_creds.json
-backend/config/openai_creds.json
-backend/config/deepseek_creds.json
-backend/config/fireworks_creds.json
+backend/config/oauth_*.json
 backend/config/*_creds.json
-backend/config/oauth_google.json
-backend/config/oauth_vk.json
-backend/config/oauth_zoom.json
-backend/config_copy/*
 
 backend/.env
 backend/.env.local

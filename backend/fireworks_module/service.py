@@ -158,7 +158,8 @@ class FireworksTranscriptionService:
                 last_error = exc
                 elapsed = time.time() - start_time
                 error_info = self._format_error_info(exc)
-                error_msg = f"{exc} | {error_info}" if error_info else str(exc)
+                exc_repr = repr(exc) if not str(exc) else str(exc)
+                error_msg = f"{exc_repr} | {error_info}" if error_info else exc_repr
                 logger.warning(
                     f"Fireworks | Error: attempt={attempt}/{retry_attempts} | elapsed={elapsed:.1f}s | {error_msg}"
                 )

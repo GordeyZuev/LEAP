@@ -33,7 +33,7 @@ Or: `uv run python -m ruff check .` / `uv run python -m ruff format .`
 
 ### Conventions encoded in Ruff
 
-- **Imports:** isort-compatible; `known-first-party` lists `api`, `config`, `database`, `models`, `utils`, and video/* modules — keep new first-party packages aligned with `ruff.toml`.
+- **Imports:** isort-compatible; align new first-party packages with `ruff.toml`. Prefer module-level imports; use lazy imports only for import cycles (note which) or optional heavy deps.
 - **Tests:** relaxed rules under `tests/**/*.py` (asserts, magic values, etc.).
 - **Alembic:** `alembic/versions/*.py` has per-file ignores (upgrade/downgrade signatures).
 - **Celery tasks:** `api/tasks/*.py` allows unused method args per Celery signatures.

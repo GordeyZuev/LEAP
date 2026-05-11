@@ -36,10 +36,12 @@ class YtDlpDownloader(BaseDownloader):
 
         format_pref = source_meta.get("format_preference", "mp4")
 
-        # Use .mp3 extension for audio-only downloads
-        target_path = self._get_target_path(recording_id)
         if self._is_audio_format(format_pref):
-            target_path = target_path.with_suffix(".mp3")
+            source_suffix = ".mp3"
+        else:
+            source_suffix = ".mp4"
+
+        target_path = self._get_target_path(recording_id, source_suffix=source_suffix)
 
         if not force and target_path.exists() and target_path.stat().st_size > 1024:
             return DownloadResult(
@@ -58,12 +60,33 @@ class YtDlpDownloader(BaseDownloader):
         result_info = await self._run_ytdlp(url, target_path, format_spec, format_pref)
 
         if not target_path.exists():
+            expected_exts = (".mp3",) if self._is_audio_format(format_pref) else (".mp4", ".mkv", ".webm", ".mov")
+            for candidate in target_path.parent.glob(f"{target_path.stem}*"):
+                if candidate.is_file() and candidate.suffix.lower() in expected_exts:
+                    canonical = self._get_target_path(recording_id, source_suffix=candidate.suffix.lower())
+                    if candidate.resolve() != canonical.resolve():
+                        old_name = candidate.name
+                        candidate.replace(canonical)
+                        logger.info("Renamed yt-dlp output | %s -> %s", old_name, canonical.name)
+                    else:
+                        logger.info("yt-dlp output at expected path | %s", canonical.name)
+                    break
+
+        if not target_path.exists():
             raise RuntimeError(f"yt-dlp download completed but file not found: {target_path}")
 
         file_size = target_path.stat().st_size
         if file_size < 1024:
             target_path.unlink()
             raise RuntimeError(f"yt-dlp produced too small file ({file_size} bytes)")
+
+        if not self._is_audio_format(format_pref):
+            validate_name = (source_meta.get("title") and f"{source_meta['title']}{target_path.suffix}") or str(
+                target_path.name,
+            )
+            if not self._validate_file(target_path, None, file_size, source_name=validate_name):
+                target_path.unlink(missing_ok=True)
+                raise RuntimeError("yt-dlp file failed pipeline ingress sniff / whitelist validation")
 
         return DownloadResult(
             file_path=target_path,

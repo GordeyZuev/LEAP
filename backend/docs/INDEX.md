@@ -69,6 +69,7 @@
 **Storage & ingestion**
 
 - [guides/STORAGE_STRUCTURE.md](guides/STORAGE_STRUCTURE.md)
+- [guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md](guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md) — short/broken video: `supported_video_formats` whitelist (sniff + suffix), trim vs corrupt source, VP9-in-MP4, diagnostics
 - [guides/YT_DLP_GUIDE.md](guides/YT_DLP_GUIDE.md)
 - [guides/YANDEX_DISK_GUIDE.md](guides/YANDEX_DISK_GUIDE.md)
 

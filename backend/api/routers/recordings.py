@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy import select
 
 from api.auth.dependencies import check_user_quotas
 from api.core.context import ServiceContext
@@ -53,7 +55,6 @@ from api.schemas.recording.request import (
     AddPlaylistResponse,
     AddVideoByUrlRequest,
     AddVideoByUrlResponse,
-    AddYandexDiskUrlRequest,
     BulkDeleteRequest,
     BulkDownloadRequest,
     BulkPauseRequest,
@@ -77,9 +78,13 @@ from api.schemas.recording.response import (
 )
 from api.services.config_utils import resolve_full_config
 from api.shared.enums import Granularity
+from config.settings import get_settings, storage_video_ingress_suffixes
+from database.auth_models import UserModel
+from file_storage.path_builder import StoragePathBuilder
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models import ProcessingStatus
-from models.recording import TargetStatus
+from models.recording import SourceType, TargetStatus
+from utils.pipeline_video_formats import ingress_validate_saved_media, strict_suffix_from_source_name
 
 router = APIRouter(prefix="/api/v1/recordings", tags=["Recordings"])
 bulk_router = APIRouter()
@@ -538,18 +543,25 @@ async def add_local_recording(
     _quota: UserInDB = Depends(check_user_quotas),
 ) -> RecordingOperationResponse:
     """Upload and create local video recording."""
-    import shutil
-
-    from file_storage.path_builder import StoragePathBuilder
-
     storage_builder = StoragePathBuilder()
     filename = file.filename or "uploaded_video.mp4"
+    storage_settings = get_settings().storage
+    allowed_formats = storage_settings.supported_video_formats
+    allowed_suffixes = storage_video_ingress_suffixes()
+
+    try:
+        source_suffix = strict_suffix_from_source_name(filename, allowed_suffixes)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
 
     # TODO(S3): Replace with backend.save() when S3 support added
     # For now: direct file operations (LOCAL only)
 
     # Save to temp directory first
-    temp_path = storage_builder.create_temp_file(suffix=".mp4")
+    temp_path = storage_builder.create_temp_file(suffix=source_suffix)
 
     try:
         total_size = 0
@@ -568,18 +580,24 @@ async def add_local_recording(
         if actual_size != total_size:
             logger.warning(f"File size mismatch | {format_details(expected=total_size, got=actual_size)}")
 
+        if not ingress_validate_saved_media(
+            temp_path,
+            actual_size,
+            actual_size,
+            filename,
+            allowed_formats,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or unsupported media file (ingress whitelist / container sniff)",
+            )
+
         # Get user to access user_slug
-        from sqlalchemy import select
-
-        from database.auth_models import UserModel
-
         user_result = await ctx.session.execute(select(UserModel).where(UserModel.id == ctx.user_id))
         user = user_result.scalar_one()
 
         # Create recording in DB
         recording_repo = RecordingRepository(ctx.session)
-
-        from models.recording import SourceType
 
         # Generate unique source key for local recording
         source_key = f"local_{ctx.user_id}_{datetime.now().timestamp()}"
@@ -605,7 +623,7 @@ async def add_local_recording(
 
         await ctx.session.flush()  # Get recording.id
 
-        final_path = storage_builder.recording_source(user.user_slug, created_recording.id)
+        final_path = storage_builder.recording_source(user.user_slug, created_recording.id, suffix=source_suffix)
         final_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(temp_path), str(final_path))
 
@@ -676,8 +694,6 @@ async def add_video_by_url(
         "format_preference": data.format_preference,
     }
 
-    from models.recording import SourceType
-
     recording_repo = RecordingRepository(ctx.session)
     user_config_repo = UserConfigRepository(ctx.session)
     user_config = await user_config_repo.get_effective_config(ctx.user_id)
@@ -746,8 +762,6 @@ async def add_playlist_by_url(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No videos found in playlist",
         )
-
-    from models.recording import SourceType
 
     platform = detect_platform(data.url)
     recording_repo = RecordingRepository(ctx.session)
@@ -837,136 +851,6 @@ async def add_playlist_by_url(
         recordings=created_recordings,
         task_ids=task_ids,
         message=f"Playlist processed: {created_count} new, {updated_count} updated"
-        + (f", {len(task_ids)} pipelines started" if task_ids else ""),
-    )
-
-
-@router.post("/add-yadisk", response_model=AddPlaylistResponse, status_code=status.HTTP_201_CREATED)
-async def add_yandex_disk_by_url(
-    data: AddYandexDiskUrlRequest,
-    ctx: ServiceContext = Depends(get_service_context),
-    _quota: UserInDB = Depends(check_user_quotas),
-) -> AddPlaylistResponse:
-    """Add video file(s) from a public Yandex Disk link.
-
-    Scans the public resource for video files and creates a Recording for each.
-    No OAuth credentials required for public links.
-    """
-    from yandex_disk_module.client import YandexDiskClient, YandexDiskError
-
-    client = YandexDiskClient()
-
-    try:
-        video_files = await client.list_public_video_files(
-            public_key=data.public_url,
-            file_pattern=data.file_pattern,
-        )
-    except YandexDiskError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Failed to access Yandex Disk link: {e}",
-        )
-
-    if not video_files:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No video files found at the provided link",
-        )
-
-    from models.recording import SourceType
-
-    recording_repo = RecordingRepository(ctx.session)
-    user_config_repo = UserConfigRepository(ctx.session)
-    user_config = await user_config_repo.get_effective_config(ctx.user_id)
-
-    created_recordings: list[dict] = []
-    created_count = 0
-    updated_count = 0
-    task_ids: list[str] = []
-
-    for file_info in video_files:
-        try:
-            file_path = file_info.get("path", "")
-            file_name = file_info.get("name", "Unknown")
-            file_size = file_info.get("size", 0)
-
-            source_key = f"yadisk_pub:{file_path}" if file_path else f"yadisk_pub:{file_name}"
-            source_metadata = {
-                "path": file_path,
-                "name": file_name,
-                "size": file_size,
-                "mime_type": file_info.get("mime_type"),
-                "download_method": "public",
-                "public_key": data.public_url,
-                "modified": file_info.get("modified"),
-            }
-
-            modified_str = file_info.get("modified")
-            if modified_str:
-                try:
-                    start_time = datetime.fromisoformat(modified_str)
-                except (ValueError, TypeError):
-                    start_time = datetime.now(UTC)
-            else:
-                start_time = datetime.now(UTC)
-
-            recording, is_new = await recording_repo.create_or_update(
-                user_id=ctx.user_id,
-                input_source_id=None,
-                display_name=file_name,
-                start_time=start_time,
-                duration=0,
-                source_type=SourceType.YANDEX_DISK,
-                source_key=source_key,
-                source_metadata=source_metadata,
-                user_config=user_config,
-                is_mapped=data.template_id is not None,
-                template_id=data.template_id,
-            )
-
-            if is_new:
-                created_count += 1
-            else:
-                updated_count += 1
-
-            created_recordings.append(
-                {
-                    "recording_id": recording.id,
-                    "display_name": file_name,
-                    "is_new": is_new,
-                }
-            )
-
-        except Exception as e:
-            logger.warning(
-                f"Failed to add Yandex Disk file | {format_details(name=file_info.get('name', '?'), error=str(e))}"
-            )
-            continue
-
-    await ctx.session.commit()
-
-    if data.auto_run:
-        for rec in created_recordings:
-            if rec.get("is_new"):
-                try:
-                    tid = await _auto_run_recording(rec["recording_id"], ctx.user_id)
-                    if tid:
-                        task_ids.append(tid)
-                except Exception as e:
-                    logger.warning(f"Failed to auto-run | {format_details(rec=rec['recording_id'], error=str(e))}")
-
-    logger.info(
-        f"Added Yandex Disk files | {format_details(found=len(video_files), created=created_count, updated=updated_count, auto_run=data.auto_run)}"
-    )
-
-    return AddPlaylistResponse(
-        success=True,
-        total_videos=len(video_files),
-        recordings_created=created_count,
-        recordings_updated=updated_count,
-        recordings=created_recordings,
-        task_ids=task_ids,
-        message=f"Yandex Disk: {created_count} new, {updated_count} updated"
         + (f", {len(task_ids)} pipelines started" if task_ids else ""),
     )
 
