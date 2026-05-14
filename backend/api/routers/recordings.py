@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import select
 
 from api.auth.dependencies import check_user_quotas
@@ -80,6 +80,7 @@ from api.services.config_utils import resolve_full_config
 from api.shared.enums import Granularity
 from config.settings import get_settings, storage_video_ingress_suffixes
 from database.auth_models import UserModel
+from database.models import RecordingModel
 from file_storage.path_builder import StoragePathBuilder
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models import ProcessingStatus
@@ -90,6 +91,19 @@ router = APIRouter(prefix="/api/v1/recordings", tags=["Recordings"])
 bulk_router = APIRouter()
 logger = get_logger()
 
+_VIDEO_MEDIA_TYPES: dict[str, str] = {
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+}
+
+
+def _recording_video_fs_path(recording: RecordingModel, media_kind: Literal["original", "processed"]) -> Path | None:
+    raw = recording.local_video_path if media_kind == "original" else recording.processed_video_path
+    return Path(raw) if raw else None
+
+
 # ============================================================================
 # CRUD Endpoints
 # ============================================================================
@@ -98,8 +112,16 @@ logger = get_logger()
 @router.get("", response_model=RecordingListResponse)
 async def list_recordings(
     search: str | None = Query(None, description="Search substring in display_name (case-insensitive)"),
-    template_id: int | None = Query(None, description="Filter by template ID"),
-    source_id: int | None = Query(None, description="Filter by source ID"),
+    template_ids_query: list[int] = Query(
+        default=[],
+        alias="template_id",
+        description="Filter by template IDs (repeat param: ?template_id=1&template_id=2)",
+    ),
+    source_ids_query: list[int] = Query(
+        default=[],
+        alias="source_id",
+        description="Filter by source IDs (repeat param: ?source_id=1&source_id=2)",
+    ),
     status_filter: list[ProcessingStatus] = Query(
         default=[],
         description="Filter by statuses (repeat param: ?status=READY&status=PROCESSING)",
@@ -142,10 +164,12 @@ async def list_recordings(
 
     recording_repo = RecordingRepository(ctx.session)
     statuses_str: list[str] | None = [s.value for s in status_filter] if status_filter else None
+    template_ids = sorted({i for i in template_ids_query if i > 0}) or None
+    source_ids = sorted({i for i in source_ids_query if i > 0}) or None
     recordings, total = await recording_repo.list_filtered(
         ctx.user_id,
-        template_id=template_id,
-        source_id=source_id,
+        template_ids=template_ids,
+        source_ids=source_ids,
         statuses=statuses_str,
         failed=failed,
         is_mapped=is_mapped,
@@ -264,6 +288,93 @@ async def export_recordings(
         )
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid format")
+
+
+@router.get("/{recording_id}/media")
+async def get_recording_media(
+    recording_id: int,
+    media_kind: Literal["original", "processed"] = Query(
+        "processed",
+        alias="type",
+        description="original = source/local file; processed = pipeline output when present",
+    ),
+    ctx: ServiceContext = Depends(get_service_context),
+) -> FileResponse:
+    """Stream recording video (supports Range requests for seeking)."""
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found or you don't have access",
+        )
+
+    video_path = _recording_video_fs_path(recording, media_kind)
+    if video_path is None or not video_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video file not available for this recording",
+        )
+
+    suffix = video_path.suffix.lower()
+    media_type = _VIDEO_MEDIA_TYPES.get(suffix, "application/octet-stream")
+
+    return FileResponse(path=str(video_path), media_type=media_type, filename=video_path.name)
+
+
+@router.get("/{recording_id}/files/{file_type}")
+async def download_recording_artifact(
+    recording_id: int,
+    file_type: Literal["srt", "vtt", "transcript_json", "transcript_txt", "transcript_words"],
+    ctx: ServiceContext = Depends(get_service_context),
+) -> FileResponse:
+    """Download subtitles or transcription artifacts (attachments)."""
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found or you don't have access",
+        )
+
+    from transcription_module.manager import get_transcription_manager
+
+    transcription_manager = get_transcription_manager()
+    user_slug = recording.owner.user_slug
+    tx_dir = transcription_manager.get_dir(recording_id, user_slug)
+    cache_dir = tx_dir / "cache"
+
+    stem = f"recording-{recording_id}"
+
+    if file_type == "srt":
+        path = cache_dir / "subtitles.srt"
+        media_type = "application/x-subrip"
+        attachment_name = f"{stem}.srt"
+    elif file_type == "vtt":
+        path = cache_dir / "subtitles.vtt"
+        media_type = "text/vtt"
+        attachment_name = f"{stem}.vtt"
+    elif file_type == "transcript_json":
+        path = tx_dir / "master.json"
+        media_type = "application/json"
+        attachment_name = f"{stem}_transcript.json"
+    elif file_type == "transcript_txt":
+        path = cache_dir / "segments.txt"
+        media_type = "text/plain; charset=utf-8"
+        attachment_name = f"{stem}_transcript.txt"
+    else:
+        path = cache_dir / "words.txt"
+        media_type = "text/plain; charset=utf-8"
+        attachment_name = f"{stem}_words.txt"
+
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    return FileResponse(
+        path=str(path),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{attachment_name}"'},
+    )
 
 
 @router.get("/{recording_id}", response_model=RecordingListItem | DetailedRecordingResponse)

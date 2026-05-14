@@ -259,3 +259,4 @@ On every release, update all of:
 - `/leap-release` — short pre-merge release gate: CHANGELOG, migrations, docs, lint, typecheck, tests.
 - `/leap-docs-hygiene` — reorganizes docs: canonical locations, INDEX updates, archive vs dev_notes.
 - `/leap-debug-pipeline` — debugs stuck or failed recording pipelines: Celery queues, log correlation.
+а 

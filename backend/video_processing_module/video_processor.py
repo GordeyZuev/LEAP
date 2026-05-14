@@ -13,6 +13,19 @@ from .segments import SegmentProcessor, VideoSegment
 
 logger = get_logger()
 
+# FFmpeg prints a large build banner to stderr by default; trim logs used [:500] and hid the real error.
+_FFMPEG_LOG_ARGS = ("-hide_banner", "-nostats", "-loglevel", "error")
+
+
+def _format_ffmpeg_stderr(raw: bytes | None, *, max_chars: int = 12_000) -> str:
+    """Prefer the tail of stderr; FFmpeg writes errors after version/banner/progress."""
+    if not raw:
+        return ""
+    text = raw.decode(errors="replace").strip()
+    if len(text) <= max_chars:
+        return text
+    return f"...({len(text)} chars total, showing last {max_chars})\n" + text[-max_chars:]
+
 
 class VideoProcessor:
     """Video processor for trimming, audio extraction and segmentation."""
@@ -84,6 +97,7 @@ class VideoProcessor:
         try:
             cmd = [
                 "ffmpeg",
+                *_FFMPEG_LOG_ARGS,
                 "-i",
                 video_path,
                 "-vn",
@@ -104,13 +118,10 @@ class VideoProcessor:
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-
-            await process.wait()
+            _stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                assert process.stderr is not None, "stderr should be available"
-                stderr_output = await process.stderr.read()
-                logger.error(f"Audio extraction failed: {stderr_output.decode()[:500]}")
+                logger.error(f"Audio extraction failed: {_format_ffmpeg_stderr(stderr)}")
                 return False
 
             if Path(output_audio_path).exists():
@@ -137,6 +148,7 @@ class VideoProcessor:
 
             cmd = [
                 "ffmpeg",
+                *_FFMPEG_LOG_ARGS,
                 "-ss",
                 str(start_time),
                 "-t",
@@ -152,13 +164,10 @@ class VideoProcessor:
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-
-            await process.wait()
+            _stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                assert process.stderr is not None, "stderr should be available"
-                stderr_output = await process.stderr.read()
-                logger.error(f"Audio trimming failed: {stderr_output.decode()[:500]}")
+                logger.error(f"Audio trimming failed: {_format_ffmpeg_stderr(stderr)}")
                 return False
 
             if Path(output_audio_path).exists():
@@ -184,12 +193,17 @@ class VideoProcessor:
 
         cmd = [
             "ffmpeg",
+            *_FFMPEG_LOG_ARGS,
             "-i",
             input_path,
             "-ss",
             str(start_time),
             "-t",
             str(duration),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0",
             "-c:v",
             self.config.video_codec,
             "-c:a",
@@ -211,13 +225,10 @@ class VideoProcessor:
             process = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-
-            await process.wait()
+            _stdout, stderr = await process.communicate()
 
             if process.returncode != 0:
-                assert process.stderr is not None, "stderr should be available"
-                stderr_output = await process.stderr.read()
-                logger.error(f"FFmpeg trimming failed: {stderr_output.decode()[:500]}")
+                logger.error(f"FFmpeg trimming failed: {_format_ffmpeg_stderr(stderr)}")
                 return False
 
             if Path(output_path).exists():

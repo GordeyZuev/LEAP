@@ -82,6 +82,20 @@ class TestListRecordings:
         assert data["total"] == 1
         assert data["items"][0]["template_id"] == template_id
 
+    def test_list_recordings_with_multiple_template_ids(self, client, mocker):
+        """Repeated template_id yields OR filter list passed to repository."""
+        mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.list_filtered = AsyncMock(return_value=([], 0))
+        mock_repo.return_value = mock_repo_instance
+
+        response = client.get("/api/v1/recordings?template_id=3&template_id=7")
+
+        assert response.status_code == 200
+        mock_repo_instance.list_filtered.assert_called_once()
+        kwargs = mock_repo_instance.list_filtered.call_args.kwargs
+        assert kwargs.get("template_ids") == [3, 7]
+
     def test_list_recordings_with_status_filter(self, client, mocker, mock_user):
         """Test filtering recordings by status."""
         # Arrange

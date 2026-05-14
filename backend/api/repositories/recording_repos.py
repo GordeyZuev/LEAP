@@ -162,8 +162,8 @@ class RecordingRepository:
         query,
         user_id: str,
         *,
-        template_id: int | None = None,
-        source_id: int | None = None,
+        template_ids: list[int] | None = None,
+        source_ids: list[int] | None = None,
         statuses: list[str] | None = None,
         failed: bool | None = None,
         is_mapped: bool | None = None,
@@ -179,11 +179,11 @@ class RecordingRepository:
         if not include_deleted:
             query = query.where(RecordingModel.deleted == False)  # noqa: E712
 
-        if template_id is not None:
-            query = query.where(RecordingModel.template_id == template_id)
+        if template_ids:
+            query = query.where(RecordingModel.template_id.in_(template_ids))
 
-        if source_id is not None:
-            query = query.where(RecordingModel.input_source_id == source_id)
+        if source_ids:
+            query = query.where(RecordingModel.input_source_id.in_(source_ids))
 
         if statuses:
             has_failed = "FAILED" in statuses
@@ -225,8 +225,8 @@ class RecordingRepository:
         self,
         user_id: str,
         *,
-        template_id: int | None = None,
-        source_id: int | None = None,
+        template_ids: list[int] | None = None,
+        source_ids: list[int] | None = None,
         statuses: list[str] | None = None,
         failed: bool | None = None,
         is_mapped: bool | None = None,
@@ -251,8 +251,8 @@ class RecordingRepository:
         count_query = self._apply_filters(
             count_query,
             user_id,
-            template_id=template_id,
-            source_id=source_id,
+            template_ids=template_ids,
+            source_ids=source_ids,
             statuses=statuses,
             failed=failed,
             is_mapped=is_mapped,
@@ -275,8 +275,8 @@ class RecordingRepository:
         data_query = self._apply_filters(
             data_query,
             user_id,
-            template_id=template_id,
-            source_id=source_id,
+            template_ids=template_ids,
+            source_ids=source_ids,
             statuses=statuses,
             failed=failed,
             is_mapped=is_mapped,
@@ -309,8 +309,8 @@ class RecordingRepository:
         self,
         user_id: str,
         *,
-        template_id: int | None = None,
-        source_id: int | None = None,
+        template_ids: list[int] | None = None,
+        source_ids: list[int] | None = None,
         statuses: list[str] | None = None,
         failed: bool | None = None,
         is_mapped: bool | None = None,
@@ -328,8 +328,8 @@ class RecordingRepository:
         query = self._apply_filters(
             query,
             user_id,
-            template_id=template_id,
-            source_id=source_id,
+            template_ids=template_ids,
+            source_ids=source_ids,
             statuses=statuses,
             failed=failed,
             is_mapped=is_mapped,

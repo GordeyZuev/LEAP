@@ -1,0 +1,5 @@
+# pnpm v11+: explicit approval for lifecycle scripts during install.
+# See https://pnpm.io/cli/approve-builds
+allowBuilds:
+  sharp: true
+  unrs-resolver: true

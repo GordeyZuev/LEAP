@@ -10,9 +10,11 @@ class RecordingFilters(BaseModel):
     Supports filtering by various criteria for automatic selection of records.
     """
 
-    # Connections
+    # Connections (singular fields kept for backward compatibility with older clients)
     template_id: int | None = Field(None, description="Filter by template ID")
+    template_ids: list[int] | None = Field(None, description="Filter by template IDs (OR semantics)")
     source_id: int | None = Field(None, description="Filter by source ID")
+    source_ids: list[int] | None = Field(None, description="Filter by source IDs (OR semantics)")
 
     # Statuses (multiple selection)
     status: list[str] | None = Field(None, description="Filter by statuses (list)")
@@ -36,8 +38,8 @@ class RecordingFilters(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "template_id": 5,
-                "source_id": 10,
+                "template_ids": [5, 12],
+                "source_ids": [10],
                 "status": ["INITIALIZED", "DOWNLOADED"],
                 "is_mapped": True,
                 "failed": False,

@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
@@ -273,7 +274,7 @@ async def update_credentials(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Update existing credential data (PATCH - partial update)."""
+    """Update existing credential data (PATCH - partial update). Supports updating credentials and/or account_name."""
     cred_repo = UserCredentialRepository(session)
 
     credential = await cred_repo.get_by_id(credential_id)
@@ -283,18 +284,35 @@ async def update_credentials(
             detail=f"Credential {credential_id} not found",
         )
 
-    encryption = get_encryption()
-    try:
-        encrypted_data = encryption.encrypt_credentials(request.credentials)
-    except Exception as e:
-        logger.error(f"Failed to encrypt credentials: {e}")
+    if request.credentials is None and request.account_name is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to encrypt credentials",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one of 'credentials' or 'account_name' must be provided",
         )
 
-    cred_update = UserCredentialUpdate(encrypted_data=encrypted_data)
-    updated_credential = await cred_repo.update(credential.id, credential_data=cred_update)
+    cred_update = UserCredentialUpdate()
+
+    if request.credentials is not None:
+        encryption = get_encryption()
+        try:
+            cred_update.encrypted_data = encryption.encrypt_credentials(request.credentials)
+        except Exception as e:
+            logger.error(f"Failed to encrypt credentials: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to encrypt credentials",
+            )
+
+    if request.account_name is not None:
+        cred_update.account_name = request.account_name or None
+
+    try:
+        updated_credential = await cred_repo.update(credential.id, credential_data=cred_update)
+    except IntegrityError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A connection with this name already exists for this platform",
+        )
 
     if not updated_credential:
         raise HTTPException(

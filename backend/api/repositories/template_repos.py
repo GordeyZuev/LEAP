@@ -195,12 +195,11 @@ class OutputPresetRepository:
         return result.scalar_one_or_none()
 
     async def find_by_platform(self, user_id: str, platform: str) -> list[OutputPresetModel]:
-        """Get presets by platform."""
+        """Get presets by platform (active and inactive; match list_presets semantics)."""
         result = await self.session.execute(
             select(OutputPresetModel).where(
                 OutputPresetModel.user_id == user_id,
                 OutputPresetModel.platform == platform,
-                OutputPresetModel.is_active,
             )
         )
         return list(result.scalars().all())

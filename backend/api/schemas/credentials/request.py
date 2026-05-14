@@ -14,4 +14,5 @@ class CredentialCreateRequest(BaseModel):
 class CredentialUpdateRequest(BaseModel):
     """Request to update credentials."""
 
-    credentials: dict = Field(..., description="Updated credentials")
+    credentials: dict | None = Field(None, description="Updated credentials")
+    account_name: str | None = Field(None, description="New connection name")

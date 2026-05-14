@@ -31,6 +31,15 @@ _CONFIG_RESOLUTION_HTTP_ERRORS = (
 )
 
 
+def _merged_positive_int_lists(*groups: list[int] | None) -> list[int] | None:
+    xs: list[int] = []
+    for g in groups:
+        if g:
+            xs.extend(g)
+    out = sorted({i for i in xs if i > 0})
+    return out if out else None
+
+
 def _build_override_from_flexible(config: ConfigOverrideRequest) -> dict:
     """
     Convert ConfigOverrideRequest to manual_override dictionary.
@@ -104,10 +113,18 @@ async def _query_recordings_by_filters(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
     recording_repo = RecordingRepository(ctx.session)
+    template_ids = _merged_positive_int_lists(
+        filters.template_ids,
+        [filters.template_id] if filters.template_id is not None else None,
+    )
+    source_ids = _merged_positive_int_lists(
+        filters.source_ids,
+        [filters.source_id] if filters.source_id is not None else None,
+    )
     return await recording_repo.get_filtered_ids(
         ctx.user_id,
-        template_id=filters.template_id,
-        source_id=filters.source_id,
+        template_ids=template_ids,
+        source_ids=source_ids,
         statuses=filters.status,
         failed=filters.failed,
         is_mapped=filters.is_mapped,

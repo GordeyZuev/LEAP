@@ -24,6 +24,7 @@ class UserCredentialUpdate(BaseModel):
 
     encrypted_data: str | None = None
     is_active: bool | None = None
+    account_name: str | None = Field(None, max_length=255)
 
 
 class UserCredentialInDB(UserCredentialBase):

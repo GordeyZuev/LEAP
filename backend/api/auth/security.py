@@ -1,5 +1,6 @@
 """Security utilities: password hashing, JWT tokens"""
 
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -63,7 +64,9 @@ class JWTHelper:
         expire = datetime.now(UTC) + expires_delta
 
         to_encode = subject.copy()
-        to_encode.update({"exp": expire, "type": "refresh"})
+        # `exp` is second-resolution; without a unique claim two logins in the same second
+        # mint identical JWTs and violate DB unique constraint on refresh_tokens.token.
+        to_encode.update({"exp": expire, "type": "refresh", "jti": secrets.token_urlsafe(16)})
 
         return jwt.encode(to_encode, settings.security.jwt_secret_key, algorithm=settings.security.jwt_algorithm)
 

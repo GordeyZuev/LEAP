@@ -815,6 +815,10 @@ POST /api/v1/sources + sync            # Yandex Disk public link (InputSource)
 # Full pipeline
 POST /api/v1/recordings/{id}/run
 
+# Media & artifacts (authenticated; tenant-scoped)
+GET /api/v1/recordings/{id}/media?type=processed   # or type=original — video stream (Range supported)
+GET /api/v1/recordings/{id}/files/srt               # subtitles / transcription downloads (see OpenAPI)
+
 # Individual stages
 POST /api/v1/recordings/{id}/download
 POST /api/v1/recordings/{id}/trim

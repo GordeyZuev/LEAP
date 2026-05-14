@@ -1,7 +1,8 @@
 """Unit tests for VideoProcessor module."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -199,15 +200,12 @@ class TestExtractAudio:
         mock_process = AsyncMock()
         mock_process.communicate = AsyncMock(return_value=(b"", b""))
         mock_process.returncode = 0
-        mock_process.wait = AsyncMock(return_value=0)
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
-            # Act
-            result = await processor.extract_audio_full("/path/to/video.mp4", "/path/to/audio.mp3")
+            with patch.object(Path, "exists", return_value=True):
+                result = await processor.extract_audio_full("/path/to/video.mp4", "/path/to/audio.mp3")
 
-            # Assert
-            # extract_audio_full returns True on success, False on failure
-            assert result in [True, False]  # Method behavior may vary
+            assert result is True
 
     @pytest.mark.asyncio
     async def test_extract_audio_full_ffmpeg_error(self):
@@ -220,11 +218,8 @@ class TestExtractAudio:
         processor = VideoProcessor(config)
 
         mock_process = AsyncMock()
-        mock_process.wait = AsyncMock(return_value=None)
+        mock_process.communicate = AsyncMock(return_value=(b"", b"FFmpeg error: No audio stream"))
         mock_process.returncode = 1
-        # extract_audio_full uses process.stderr.read() when returncode != 0
-        mock_process.stderr = MagicMock()
-        mock_process.stderr.read = AsyncMock(return_value=b"FFmpeg error: No audio stream")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             # Act

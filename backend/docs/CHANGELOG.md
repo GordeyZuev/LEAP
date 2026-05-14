@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-05-14: TRIM — FFmpeg logging, duration clamp, explicit stream maps
+
+- **TRIM** — `VideoProcessor` FFmpeg: `-hide_banner`, `-nostats`, `-loglevel error`; subprocess output consumed with `communicate()` so long runs cannot stall on full pipe buffers; trim uses `-map 0:v:0` and `-map 0:a:0` for deterministic stream copy; failure logs include the **tail** of stderr (banner no longer eats the 500-char budget).
+- **TRIM** — silence-based `start`/`end` are **clamped** to the source video duration from **ffprobe** before invoking FFmpeg; “full media” fallback after clamp uses `min(analysis_duration, video_duration)` when needed.
+
+### Files
+
+`video_processing_module/video_processor.py`, `api/tasks/processing.py`, `tests/unit/modules/test_video_processor.py`, `docs/CHANGELOG.md`
+
+---
+
+## 2026-05-12: Recordings UI — pagination, polling, media downloads
+
+- **Frontend** — recordings list: pagination (`page`, `per_page=20`), conditional refetch while any row is **DOWNLOADING** / **PROCESSING** / **UPLOADING**; filters synced with URL — multi-select **templates** / **sources** (repeat **`template_id`** / **`source_id`**, same idea as **status**), collapsible **Scope & visibility**, shared **`filter-field-classes`** / **`filter-multi-select`**; segmented toggles for **mapping**, **blank recordings**, and **deleted**; **Failed only** removed from the toolbar (**GET** **`failed`** query unchanged for API clients); sort includes **created_at** / **updated_at**; preset editor layout uses full content width (**no** `max-w-*`).
+- **API** — **GET** `/api/v1/recordings`: **`template_id`** and **`source_id`** accept repeated values (**OR** / SQL **`IN`**); **`RecordingFilters`** (export/bulk) gains **`template_ids`** / **`source_ids`** merged with legacy singular **`template_id`** / **`source_id`**.
+- **Frontend** — presets list: URL-synced filters matching **GET** `/api/v1/presets` (**platform**, **active_only**, **sort_by**, **sort_order**) and pagination (**per_page** 24).
+- **Frontend** — recordings detail page: same polling for active statuses, pipeline rows with Russian stage labels/durations/datetimes, authenticated video preview (blob URL) and artifact downloads via API.
+- **API** — **GET** `/api/v1/recordings/{id}/media?type=processed|original` streams the video file (tenant-scoped; **Range** supported); **GET** `/api/v1/recordings/{id}/files/{file_type}` returns **srt**, **vtt**, **transcript_json**, **transcript_txt**, **transcript_words** as downloads (`404` when missing on disk).
+- **Dev** — Next.js `allowedDevOrigins` includes host **192.168.1.10** for LAN HMR (still override via `NEXT_DEV_ALLOWED_ORIGINS`).
+
+- **API / presets** — **GET** `/api/v1/presets?platform=…` lists presets for that platform for both active and inactive rows (repository no longer restricts platform queries to **is_active** only).
+
+### Files
+
+- `frontend/next.config.ts`, `frontend/src/lib/filter-field-classes.ts`, `frontend/src/app/(app)/recordings/page.tsx`, `frontend/src/components/recordings/filter-multi-select.tsx`, `frontend/src/app/(app)/recordings/[id]/page.tsx`, `frontend/src/app/(app)/presets/page.tsx`, `frontend/src/app/(app)/presets/[id]/page.tsx`
+- `api/repositories/recording_repos.py`, `api/repositories/template_repos.py`, `api/routers/recordings.py`, `api/routers/recordings_helpers.py`, `api/schemas/recording/filters.py`, `tests/unit/api/test_recordings_get.py`, `docs/CHANGELOG.md`
+
+---
+
 ## v0.9.6.6 (2026-05-11)
 
 **Релиз:** унификация ingress whitelist и дефолтов форматов хранения; игнорирование `STORAGE_SUPPORTED_*` в пользу кода; хелпер `storage_video_ingress_suffixes()`; обновление гайдов и quality gate для тестов.
@@ -11,6 +40,16 @@
 ### Файлы
 
 - `config/settings.py`, `utils/pipeline_video_formats.py`, `yandex_disk_module/client.py`, `api/routers/recordings.py`, `video_download_module/core/base.py`, `video_download_module/downloader.py`, `video_download_module/platforms/yadisk/downloader.py`, `video_download_module/platforms/ytdlp/downloader.py`, `api/tasks/processing.py`, `api/tasks/upload.py`, `video_processing_module/video_processor.py`, `scripts/compute_final_duration_from_files.py`, `scripts/trimming_stats.py`, `tests/unit/utils/test_pipeline_video_formats.py`, `tests/quality/test_code_quality.py`, `.cursor/rules/python-code-quality.mdc`, `docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`, `docs/guides/YANDEX_DISK_GUIDE.md`, `docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`, `docs/INDEX.md`, `.env.example`, `README.md`
+
+---
+
+## 2026-05-11: Auth — unique refresh JWT (`jti`)
+
+- **Refresh tokens** — each minted refresh JWT includes a random **`jti`** claim. Payloads previously differed only by **`exp`** at second resolution, so duplicate logins in the same second produced identical strings and tripped **`refresh_tokens_token_key`** (`UniqueViolationError`).
+
+### Files
+
+- `api/auth/security.py`, `docs/CHANGELOG.md`
 
 ---
 

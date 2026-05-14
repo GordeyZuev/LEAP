@@ -739,6 +739,39 @@ async def _async_process_video(
 
                 logger.info(f"Audio boundaries | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s')}")
 
+                # Silence-based bounds can exceed container duration (padding, MP3 vs video mismatch).
+                video_meta = await processor.get_video_info(recording.local_video_path)
+                video_duration = float(video_meta["duration"])
+                if end_trim > video_duration:
+                    logger.warning(
+                        f"Trim end exceeds video duration; clamping | "
+                        f"end={end_trim:.2f}s video_duration={video_duration:.2f}s"
+                    )
+                    end_trim = video_duration
+                if start_trim >= video_duration:
+                    logger.warning(
+                        f"Trim start past EOF; resetting | start={start_trim:.2f}s video_duration={video_duration:.2f}s"
+                    )
+                    start_trim = max(0.0, video_duration - 1.0)
+                if end_trim <= start_trim:
+                    duration_fallback = await processor.audio_detector.get_duration_seconds(str(temp_audio_path))
+                    if duration_fallback is None or duration_fallback <= 0:
+                        if temp_audio_path.exists():
+                            temp_audio_path.unlink()
+                        raise Exception(
+                            "Invalid trim window after duration clamp and could not read media duration for fallback"
+                        )
+                    logger.warning(
+                        f"Invalid trim window after clamp; using full media | "
+                        f"start={start_trim:.1f}s end={end_trim:.1f}s duration={duration_fallback:.1f}s"
+                    )
+                    start_trim = 0.0
+                    end_trim = min(duration_fallback, video_duration)
+
+                logger.info(
+                    f"Trim window vs video | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s', video=f'{video_duration:.1f}s')}"
+                )
+
                 # Step 3: Trim video
                 task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
 
