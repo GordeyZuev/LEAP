@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TagInput } from "@/components/ui/tag-input";
-import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL, FILTER_LABEL, FILTER_SELECT } from "@/lib/filter-field-classes";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 
 // ---------------------------------------------------------------------------
@@ -33,6 +33,50 @@ const JINJA_VARS: { value: string; description: string }[] = [
 // TemplateField — input/textarea with cursor-aware Jinja2 variable insertion
 // ---------------------------------------------------------------------------
 
+function highlightTemplate(text: string, multiline: boolean): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const withNewlines = multiline ? escaped.replace(/\n/g, "&#10;") : escaped;
+  return withNewlines.replace(
+    /(\{\{[^}]*\}\})/g,
+    '<span style="color:#224C87;font-weight:500;">$1</span>',
+  );
+}
+
+function getCaretOffset(el: HTMLElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  const pre = range.cloneRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.endContainer, range.endOffset);
+  return pre.toString().length;
+}
+
+function setCaretOffset(el: HTMLElement, offset: number): void {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let rem = offset;
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    if (rem <= node.length) {
+      const range = document.createRange();
+      range.setStart(node, rem);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      return;
+    }
+    rem -= node.length;
+  }
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  window.getSelection()?.removeAllRanges();
+  window.getSelection()?.addRange(range);
+}
+
 export function TemplateField({
   label,
   value,
@@ -48,25 +92,39 @@ export function TemplateField({
   placeholder?: string;
   rows?: number;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastValue = useRef(value);
   const [acOpen, setAcOpen] = useState(false);
   const [acQuery, setAcQuery] = useState("");
 
-  // Auto-resize multiline textarea to fit content
+  // Initial render
   useEffect(() => {
-    const el = textareaRef.current;
-    if (!multiline || !el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    if (editorRef.current) {
+      editorRef.current.innerHTML = highlightTemplate(value, multiline);
+      lastValue.current = value;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync externally controlled value changes (not during user typing)
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el || lastValue.current === value) return;
+    lastValue.current = value;
+    el.innerHTML = highlightTemplate(value, multiline);
   }, [value, multiline]);
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
-    const val = e.target.value;
-    onChange(val);
-    const pos = e.target.selectionStart ?? val.length;
-    const before = val.slice(0, pos);
+  function handleInput(e: React.FormEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const rawText = el.innerText ?? "";
+    const text = multiline ? rawText.replace(/\n$/, "") : rawText.replace(/\n/g, "");
+    const offset = getCaretOffset(el);
+    onChange(text);
+    lastValue.current = text;
+    el.innerHTML = highlightTemplate(text, multiline);
+    setCaretOffset(el, Math.min(offset, text.length));
+    const before = text.slice(0, offset);
     const match = before.match(/\{\{\s*(\w*)$/);
     if (match) {
       setAcOpen(true);
@@ -77,24 +135,40 @@ export function TemplateField({
     }
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Enter") {
+      if (!multiline) {
+        e.preventDefault();
+      } else {
+        // Insert literal \n so DOM stays as text nodes (not <div>/<br>)
+        e.preventDefault();
+        document.execCommand("insertText", false, "\n");
+      }
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+  }
+
   function insertVar(varName: string) {
-    const el = (multiline ? textareaRef.current : inputRef.current) as
-      | HTMLInputElement
-      | HTMLTextAreaElement
-      | null;
-    const pos = el?.selectionStart ?? value.length;
-    const before = value.slice(0, pos);
-    const after = value.slice(pos);
+    const el = editorRef.current;
+    if (!el) return;
+    const rawText = el.innerText ?? "";
+    const text = multiline ? rawText.replace(/\n$/, "") : rawText.replace(/\n/g, "");
+    const offset = getCaretOffset(el);
+    const before = text.slice(0, offset);
+    const after = text.slice(offset);
     const newBefore = before.replace(/\{\{\s*\w*$/, `{{ ${varName} }}`);
     const newVal = newBefore + after;
     onChange(newVal);
+    lastValue.current = newVal;
+    el.innerHTML = highlightTemplate(newVal, multiline);
+    setCaretOffset(el, newBefore.length);
     setAcOpen(false);
     setAcQuery("");
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(newBefore.length, newBefore.length);
-    });
+    el.focus();
   }
 
   function handleBlur() {
@@ -109,26 +183,34 @@ export function TemplateField({
     <div className="space-y-1">
       <span className={FILTER_LABEL}>{label}</span>
       <div className="relative">
-        {multiline ? (
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            placeholder={placeholder}
-            style={{ minHeight: "4.5rem", overflowY: "hidden" }}
-            className={cn(FILTER_CONTROL, "resize-y font-mono text-xs")}
-          />
-        ) : (
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            onChange={handleChange}
-            onBlur={handleBlur}
-            placeholder={placeholder}
-            className={FILTER_CONTROL}
-          />
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline={multiline}
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onBlur={handleBlur}
+          spellCheck={false}
+          style={
+            multiline
+              ? { minHeight: "4.5rem", whiteSpace: "pre-wrap", wordBreak: "break-word" }
+              : { whiteSpace: "nowrap", overflowX: "hidden" }
+          }
+          className={cn(FILTER_CONTROL, multiline && "font-mono text-xs", "cursor-text")}
+        />
+        {!value && placeholder && (
+          <div
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute left-3 top-2 select-none text-gray-400",
+              multiline ? "font-mono text-xs" : "text-sm",
+            )}
+          >
+            {placeholder}
+          </div>
         )}
         {acOpen && filtered.length > 0 && (
           <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
@@ -259,7 +341,7 @@ export function YouTubeFields({
           <select
             value={value.privacy}
             onChange={(e) => onChange({ privacy: e.target.value })}
-            className={cn(FILTER_CONTROL, "bg-white")}
+            className={cn(FILTER_SELECT, "bg-white")}
           >
             {YT_PRIVACY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -409,7 +491,7 @@ export function VkFields({
           <select
             value={value.privacy_view}
             onChange={(e) => onChange({ privacy_view: e.target.value })}
-            className={cn(FILTER_CONTROL, "bg-white")}
+            className={cn(FILTER_SELECT, "bg-white")}
           >
             {VK_PRIVACY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -422,7 +504,7 @@ export function VkFields({
             <select
               value={value.privacy_comment}
               onChange={(e) => onChange({ privacy_comment: e.target.value })}
-              className={cn(FILTER_CONTROL, "bg-white")}
+              className={cn(FILTER_SELECT, "bg-white")}
             >
               {VK_PRIVACY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>

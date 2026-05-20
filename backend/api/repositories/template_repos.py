@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Integer, bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.template_models import (
@@ -209,7 +209,7 @@ class OutputPresetRepository:
         user_id: str,
         name: str,
         platform: str,
-        credential_id: int,
+        credential_id: int | None,
         preset_metadata: dict[str, Any] | None = None,
         description: str | None = None,
     ) -> OutputPresetModel:
@@ -339,3 +339,45 @@ class RecordingTemplateRepository:
         """Delete template."""
         await self.session.delete(template)
         await self.session.flush()
+
+    async def remove_preset_id_from_templates(self, user_id: str, preset_id: int) -> None:
+        """Remove a deleted preset ID from output_config.preset_ids across all user templates."""
+        await self.session.execute(
+            text("""
+                UPDATE recording_templates
+                SET output_config = jsonb_set(
+                    output_config,
+                    '{preset_ids}',
+                    COALESCE(
+                        (SELECT jsonb_agg(elem)
+                         FROM jsonb_array_elements(output_config -> 'preset_ids') AS elem
+                         WHERE elem::int != CAST(:preset_id AS int)),
+                        '[]'::jsonb
+                    )
+                )
+                WHERE user_id = :user_id
+                  AND output_config -> 'preset_ids' @> jsonb_build_array(CAST(:preset_id AS int))
+            """).bindparams(bindparam("preset_id", type_=Integer), bindparam("user_id")),
+            {"user_id": user_id, "preset_id": preset_id},
+        )
+
+    async def remove_source_id_from_templates(self, user_id: str, source_id: int) -> None:
+        """Remove a deleted source ID from matching_rules.source_ids across all user templates."""
+        await self.session.execute(
+            text("""
+                UPDATE recording_templates
+                SET matching_rules = jsonb_set(
+                    matching_rules,
+                    '{source_ids}',
+                    COALESCE(
+                        (SELECT jsonb_agg(elem)
+                         FROM jsonb_array_elements(matching_rules -> 'source_ids') AS elem
+                         WHERE elem::int != CAST(:source_id AS int)),
+                        '[]'::jsonb
+                    )
+                )
+                WHERE user_id = :user_id
+                  AND matching_rules -> 'source_ids' @> jsonb_build_array(CAST(:source_id AS int))
+            """).bindparams(bindparam("source_id", type_=Integer), bindparam("user_id")),
+            {"user_id": user_id, "source_id": source_id},
+        )

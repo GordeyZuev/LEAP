@@ -12,6 +12,7 @@ import {
   FILTER_SEGMENT_BTN,
   FILTER_SEGMENT_IDLE,
   FILTER_SEGMENT_WRAP,
+  FILTER_SELECT,
 } from "@/lib/filter-field-classes";
 import {
   TemplateField,
@@ -538,7 +539,7 @@ export function RunConfigModal({
                   <select
                     value={templateId ?? ""}
                     onChange={(e) => setTemplateId(e.target.value ? Number(e.target.value) : null)}
-                    className={FILTER_CONTROL}
+                    className={FILTER_SELECT}
                   >
                     <option value="">Use recording&apos;s assigned template</option>
                     {(templatesData?.items ?? []).map((t) => (
@@ -642,16 +643,13 @@ export function RunConfigModal({
                   ))}
                 </div>
 
-                <div className="space-y-1.5">
-                  <span className={FILTER_LABEL}>Transcription prompt</span>
-                  <textarea
-                    value={transcriptionPrompt}
-                    onChange={(e) => setTranscriptionPrompt(e.target.value)}
-                    rows={3}
-                    placeholder="University lecture: machine learning, neural networks…"
-                    className={cn(FILTER_CONTROL, "resize-y font-mono text-xs")}
-                  />
-                </div>
+                <TemplateField
+                  label="Transcription prompt"
+                  value={transcriptionPrompt}
+                  onChange={setTranscriptionPrompt}
+                  multiline
+                  placeholder="University lecture: machine learning, neural networks…"
+                />
 
                 <label className="flex cursor-pointer items-center gap-2.5">
                   <input

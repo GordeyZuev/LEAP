@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 interface ConfirmDialogProps {
@@ -10,6 +10,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -21,6 +22,7 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   danger = false,
+  children,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -45,7 +47,8 @@ export function ConfirmDialog({
     >
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6">
         <h2 className="text-base font-semibold text-gray-900 mb-2">{title}</h2>
-        <p className="text-sm text-gray-500 mb-6">{description}</p>
+        <p className="text-sm text-gray-500 mb-4">{description}</p>
+        {children && <div className="mb-4">{children}</div>}
         <div className="flex gap-3 justify-end">
           <button
             onClick={onCancel}

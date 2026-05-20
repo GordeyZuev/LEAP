@@ -420,7 +420,7 @@ async def delete_template(
 
     # Get number of mapped recordings for logging (capture name before delete for debug log)
     template_name = template.name
-    from sqlalchemy import select, update
+    from sqlalchemy import select, text, update
 
     from database.models import RecordingModel
 
@@ -439,6 +439,15 @@ async def delete_template(
         await session.execute(update_query)
 
     await repo.delete(template)
+
+    # Remove this template ID from any automation jobs that reference it
+    await session.execute(
+        text(
+            "UPDATE automation_jobs SET template_ids = array_remove(template_ids, :tid) WHERE user_id = :uid AND :tid = ANY(template_ids)"
+        ),
+        {"tid": template_id, "uid": current_user.id},
+    )
+
     await session.commit()
 
     logger.info(
@@ -459,7 +468,7 @@ async def bulk_delete_templates(
             status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete templates"
         )
 
-    from sqlalchemy import update
+    from sqlalchemy import text, update
 
     from database.models import RecordingModel
 
@@ -484,6 +493,12 @@ async def bulk_delete_templates(
         await session.execute(update_query)
 
         await repo.delete(template)
+        await session.execute(
+            text(
+                "UPDATE automation_jobs SET template_ids = array_remove(template_ids, :tid) WHERE user_id = :uid AND :tid = ANY(template_ids)"
+            ),
+            {"tid": template_id, "uid": current_user.id},
+        )
         deleted_count += 1
         details.append({"id": template_id, "status": "deleted", "name": template.name})
 

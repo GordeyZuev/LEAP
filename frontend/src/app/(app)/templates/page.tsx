@@ -8,6 +8,7 @@ import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useDebounce } from "@/hooks/use-debounce";
+import { FilterSelect } from "@/components/recordings/filter-select";
 import { DEBOUNCE_SEARCH, PER_PAGE_TEMPLATES } from "@/lib/constants";
 import {
   FILTER_CARD,
@@ -197,17 +198,12 @@ function TemplatesContent() {
           <div className="lg:col-span-4">
             <span className={FILTER_LABEL}>Sort by</span>
             <div className="flex gap-1.5">
-              <select
+              <FilterSelect
                 value={sortBy}
-                onChange={(e) => setParam("sort_by", e.target.value)}
-                className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
-              >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={SORT_OPTIONS}
+                onChange={(v) => setParam("sort_by", v as string)}
+                className="flex-1 min-w-0"
+              />
               <button
                 type="button"
                 title={sortOrder === "desc" ? "Descending" : "Ascending"}

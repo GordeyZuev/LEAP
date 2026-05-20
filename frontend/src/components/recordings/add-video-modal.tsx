@@ -226,7 +226,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                   <select
                     value={quality}
                     onChange={(e) => setQuality(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 bg-white"
+                    className="w-full pl-3 pr-8 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 bg-white appearance-none"
                   >
                     {QUALITY_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>

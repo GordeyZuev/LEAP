@@ -526,6 +526,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [videoTabChoice, setVideoTabChoice] = useState<"processed" | "original" | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetDeleteFiles, setResetDeleteFiles] = useState(false);
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [mediaDownloadError, setMediaDownloadError] = useState<string | null>(null);
@@ -567,7 +568,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   });
 
   const resetRec = useMutation({
-    mutationFn: () => apiClient.post(`/recordings/${id}/reset`),
+    mutationFn: () => apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: resetDeleteFiles } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recording", id] }),
   });
 
@@ -1176,12 +1177,22 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       <ConfirmDialog
         open={resetConfirm}
         title="Сбросить запись?"
-        description="Все обработанные файлы (видео, аудио, транскрипция) будут удалены, запись вернётся в статус INITIALIZED. Действие необратимо."
+        description="Запись вернётся в статус INITIALIZED."
         confirmLabel="Сбросить"
         cancelLabel="Отмена"
         onConfirm={() => { setResetConfirm(false); resetRec.mutate(); }}
         onCancel={() => setResetConfirm(false)}
-      />
+      >
+        <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resetDeleteFiles}
+            onChange={(e) => setResetDeleteFiles(e.target.checked)}
+            className="rounded border-gray-300 text-[#224C87] focus:ring-[#224C87]/30"
+          />
+          Удалить обработанные файлы (видео, аудио, транскрипция)
+        </label>
+      </ConfirmDialog>
 
       <RunConfigModal
         open={runConfigOpen}

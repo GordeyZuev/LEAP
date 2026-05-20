@@ -7,6 +7,7 @@ import { Plus, Play, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useDebounce } from "@/hooks/use-debounce";
+import { FilterSelect } from "@/components/recordings/filter-select";
 import { DEBOUNCE_SEARCH } from "@/lib/constants";
 import {
   FILTER_CARD,
@@ -178,15 +179,12 @@ function AutomationContent() {
           <div className="lg:col-span-4">
             <span className={FILTER_LABEL}>Sort by</span>
             <div className="flex gap-1.5">
-              <select
+              <FilterSelect
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortField)}
-                className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
-              >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+                options={SORT_OPTIONS}
+                onChange={(v) => setSortBy(v as SortField)}
+                className="flex-1 min-w-0"
+              />
               <button
                 type="button"
                 title={sortOrder === "desc" ? "Descending" : "Ascending"}

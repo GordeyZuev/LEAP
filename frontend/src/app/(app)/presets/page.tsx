@@ -17,6 +17,7 @@ import {
   FILTER_SEGMENT_WRAP,
 } from "@/lib/filter-field-classes";
 import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/recordings/filter-multi-select";
+import { FilterSelect } from "@/components/recordings/filter-select";
 import { usePlatforms } from "@/hooks/use-references";
 import { PER_PAGE_PRESETS } from "@/lib/constants";
 
@@ -311,17 +312,12 @@ function PresetsContent() {
           <div className="lg:col-span-3">
             <span className={FILTER_LABEL}>Sort by</span>
             <div className="flex gap-1.5">
-              <select
+              <FilterSelect
                 value={draft.sortBy}
-                onChange={(e) => patchDraft({ sortBy: e.target.value })}
-                className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
-              >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+                options={SORT_OPTIONS}
+                onChange={(v) => patchDraft({ sortBy: v as string })}
+                className="flex-1 min-w-0"
+              />
               <button
                 type="button"
                 title={draft.sortOrder === "desc" ? "Descending" : "Ascending"}

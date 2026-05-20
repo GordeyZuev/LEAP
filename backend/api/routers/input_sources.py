@@ -959,6 +959,7 @@ async def delete_source(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source {source_id} not found")
 
     await repo.delete(source)
+    await RecordingTemplateRepository(session).remove_source_id_from_templates(current_user.id, source_id)
     await session.commit()
 
 

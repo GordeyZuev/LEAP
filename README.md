@@ -2,20 +2,29 @@
 
 > **AI-powered platform for intelligent educational video content processing**
 
+<!-- Backend -->
 ![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-green.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)
 ![Redis](https://img.shields.io/badge/Redis-7+-blue.svg)
 ![Celery](https://img.shields.io/badge/Celery-5+-blue.svg)
 ![ty](https://img.shields.io/badge/ty-0.14+-orange.svg)
+<!-- Frontend -->
+![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)
+![React](https://img.shields.io/badge/React-19-61DAFB.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6.svg)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4.svg)
+![TanStack Query](https://img.shields.io/badge/TanStack_Query-5-FF4154.svg)
+<!-- Meta -->
 ![License](https://img.shields.io/badge/license-BSL%201.1-orange.svg)
 
-**LEAP** — это `multi-tenant` платформа с полным `REST API` для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
+**LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
 **Версия:** `v0.9.7.0` (May 2026) · **Статус:** In Active Development • Beta
-**Tech:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
+**Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
+**Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
-**Структура репозитория:** исходный код API — в [`backend/`](backend/) (`uv`, `make`, тесты, Celery). В **корне** — [`docker-compose.yml`](docker-compose.yml) и [`Makefile`](Makefile) только для Docker; веб-клиент планируется в `frontend/` со своими командами (`pnpm` / `npm`).
+**Структура репозитория:** API — [`backend/`](backend/) (`uv`, `make`, тесты, Celery); веб-клиент — [`frontend/`](frontend/) (`npm`, Next.js). В **корне** — [`docker-compose.yml`](docker-compose.yml) и [`Makefile`](Makefile) для Docker.
 
 ---
 
@@ -232,15 +241,15 @@
 
 ## 🛠️ **Технологический стек**
 
-### Modern Python Stack
+### Backend
 
 **Core Framework**
 ```
-Python 3.11+ • FastAPI (async) • SQLAlchemy 2.0 (async ORM)
-PostgreSQL 12+ • Redis • Celery + Beat • Alembic
+Python 3.14+ • FastAPI (async) • SQLAlchemy 2.0 (async ORM)
+PostgreSQL 15+ • Redis 7+ • Celery 5+ Beat • Alembic
 ```
 
-**AI & ML**
+**AI & Media**
 ```
 Fireworks AI (whisper-v3-turbo) • DeepSeek API
 FFmpeg • Pydantic V2
@@ -253,16 +262,40 @@ yt-dlp (1000+ sites) • Yandex Disk REST API
 🚧 Google Drive API
 ```
 
-**Security Stack**
+**Security**
 ```
 JWT Authentication • OAuth 2.0 • Fernet Encryption
 PBKDF2 Hashing • RBAC • CSRF Protection
 ```
 
-**DevOps & Tools**
+**DevOps & Tooling**
 ```
-Docker & Docker Compose • UV (package manager)
-Ruff (linter) • ty (type checker) • Flower (monitoring) • Make
+Docker & Docker Compose • uv (package manager)
+Ruff (linter) • ty (type checker) • Flower (Celery monitoring) • Make
+```
+
+### Frontend
+
+**Core**
+```
+Next.js 16 (App Router) • React 19 • TypeScript 5
+```
+
+**Styling & UI**
+```
+Tailwind CSS 4 • shadcn/ui (class-variance-authority, clsx, tailwind-merge)
+Lucide React (иконки)
+```
+
+**Data Fetching**
+```
+TanStack Query v5 (React Query) — кеширование, фоновый рефетч, polling
+Axios — HTTP-клиент с JWT-интерцептором
+```
+
+**Tooling**
+```
+ESLint (eslint-config-next) • npm
 ```
 
 ### Архитектурные паттерны
@@ -301,19 +334,29 @@ File System: storage/users/user_{slug}/ isolation (ID-based naming)
 
 ### Модульная структура
 
+**Backend (`backend/`):**
 ```
 api/                    ← FastAPI endpoints, JWT auth, validation
+api/routers/            ← REST routers (recordings, templates, presets, automations, references, …)
+api/services/           ← Business logic layer
+api/repositories/       ← Data access layer (Repository pattern)
+api/tasks/              ← Celery background tasks (download, process, upload, maintenance)
 database/               ← SQLAlchemy models, Alembic migrations
 file_storage/           ← Storage abstraction (paths, backends: LOCAL/S3)
 video_download_module/  ← BaseDownloader + factory (Zoom, yt-dlp, Yandex Disk)
-video_processing_module/← FFmpeg (silence removal, audio extraction)
-transcription_module/   ← AI transcription coordination
+video_processing_module/← FFmpeg (silence removal, trim, audio extraction)
+transcription_module/   ← AI transcription coordination (Fireworks Whisper)
 video_upload_module/    ← Multi-platform upload (YouTube, VK, Yandex Disk)
 yandex_disk_module/     ← Yandex Disk REST API client
-api/services/           ← Business logic layer
-api/repositories/       ← Data access layer (Repository pattern)
-api/tasks/              ← Celery background tasks
-storage/                ← User media files (ID-based structure)
+storage/                ← User media files (ID-based tenant isolation)
+```
+
+**Frontend (`frontend/`):**
+```
+src/app/(app)/          ← App Router pages (recordings, templates, presets, automations, settings, …)
+src/components/         ← Shared UI components (platform-fields, recordings, ui/)
+src/hooks/              ← React Query hooks (useReferences, useRecordings, …)
+src/lib/                ← API client (Axios + JWT), constants, utils
 ```
 
 **Design Patterns:**

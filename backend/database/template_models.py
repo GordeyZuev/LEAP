@@ -80,8 +80,8 @@ class OutputPresetModel(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     platform: Mapped[str] = mapped_column(String(50), nullable=False)
-    credential_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("user_credentials.id", ondelete="CASCADE"), nullable=False
+    credential_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("user_credentials.id", ondelete="SET NULL"), nullable=True
     )
     preset_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

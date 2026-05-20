@@ -7,7 +7,9 @@ import Link from "next/link";
 import { ArrowLeft, Save, Eye, Copy, ChevronDown, Trash2, RefreshCw, Users, X } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
+import { Toast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   TemplateField,
@@ -152,7 +154,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const { data: granularities = [] } = useGranularities();
 
   const [form, setForm] = useState<TemplateFormData>(DEFAULT_FORM);
-  const [saveError, setSaveError] = useState("");
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const [preview, setPreview] = useState<RenderPreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
@@ -175,7 +177,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [matchPreviewOpen, setMatchPreviewOpen] = useState(false);
   const [matchPreviewData, setMatchPreviewData] = useState<MatchPreviewResponse | null>(null);
   const [matchPreviewLoading, setMatchPreviewLoading] = useState(false);
-  const [rematchSuccess, setRematchSuccess] = useState("");
 
   const { data: existing } = useQuery({
     queryKey: ["template", id],
@@ -210,17 +211,20 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         exclude_patterns: existing.matching_rules?.exclude_patterns ?? [],
         case_sensitive: existing.matching_rules?.case_sensitive ?? false,
       },
-      processing_config: {
-        enable_transcription: existing.processing_config?.enable_transcription ?? true,
-        enable_topics: existing.processing_config?.enable_topics ?? true,
-        enable_subtitles: existing.processing_config?.enable_subtitles ?? true,
-        granularity: existing.processing_config?.granularity ?? "medium",
-        transcription_language: existing.processing_config?.transcription_language ?? "ru",
-        transcription_prompt: existing.processing_config?.transcription_prompt ?? "",
-        allow_errors: existing.processing_config?.allow_errors ?? false,
-        questions_count: existing.processing_config?.questions_count ?? 5,
-        vocabulary: existing.processing_config?.vocabulary ?? [],
-      },
+      processing_config: (() => {
+        const pc = existing.processing_config?.transcription;
+        return {
+          enable_transcription: pc?.enable_transcription ?? true,
+          enable_topics: pc?.enable_topics ?? true,
+          enable_subtitles: pc?.enable_subtitles ?? true,
+          granularity: pc?.granularity ?? "medium",
+          transcription_language: pc?.language ?? "ru",
+          transcription_prompt: pc?.prompt ?? "",
+          allow_errors: pc?.allow_errors ?? false,
+          questions_count: pc?.questions_count ?? 5,
+          vocabulary: pc?.vocabulary ?? [],
+        };
+      })(),
       metadata_config: {
         title_template: mc?.title_template ?? "",
         description_template: mc?.description_template ?? "",
@@ -336,7 +340,19 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           data.matching_rules.source_ids.length > 0
             ? data.matching_rules
             : undefined,
-        processing_config: data.processing_config,
+        processing_config: {
+          transcription: {
+            enable_transcription: data.processing_config.enable_transcription,
+            enable_topics: data.processing_config.enable_topics,
+            enable_subtitles: data.processing_config.enable_subtitles,
+            granularity: data.processing_config.granularity,
+            language: data.processing_config.transcription_language || undefined,
+            prompt: data.processing_config.transcription_prompt || undefined,
+            allow_errors: data.processing_config.allow_errors,
+            questions_count: data.processing_config.questions_count,
+            vocabulary: data.processing_config.vocabulary.length > 0 ? data.processing_config.vocabulary : undefined,
+          },
+        },
         metadata_config: hasMetadata ? metaConfig : undefined,
         output_config:
           data.output_config.preset_ids.length > 0 || data.output_config.auto_upload
@@ -350,13 +366,14 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       savedSnapshot.current = JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields });
       qc.invalidateQueries({ queryKey: ["templates"] });
       qc.invalidateQueries({ queryKey: ["template", id] });
-      setSaveError("");
+      showToast("success", "Template saved");
       if (isNew) router.push(`/templates/${result.id}`);
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string | Array<{ msg: string }> } } })?.response?.data
         ?.detail;
-      setSaveError(
+      showToast(
+        "error",
         Array.isArray(detail) ? detail.map((e) => e.msg).join("; ") : (detail ?? "Failed to save template"),
       );
     },
@@ -366,19 +383,19 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     mutationFn: () =>
       apiClient.post<{ id: number }>(`/templates/${id}/copy`).then((r) => r.data),
     onSuccess: (result) => router.push(`/templates/${result.id}`),
-    onError: () => setSaveError("Failed to copy template"),
+    onError: () => showToast("error", "Failed to copy template"),
   });
 
   const deleteTemplate = useMutation({
     mutationFn: () => apiClient.delete(`/templates/${id}`),
     onSuccess: () => router.push("/templates"),
-    onError: () => setSaveError("Failed to delete template"),
+    onError: () => showToast("error", "Failed to delete template"),
   });
 
   const rematch = useMutation({
     mutationFn: () => apiClient.post(`/templates/${id}/rematch`),
-    onSuccess: () => setRematchSuccess("Rematch queued"),
-    onError: () => setSaveError("Failed to start rematch"),
+    onSuccess: () => showToast("success", "Rematch queued"),
+    onError: () => showToast("error", "Failed to start rematch"),
   });
 
   async function handleMatchPreview() {
@@ -495,7 +512,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
         {!isNew && (
           <button
-            onClick={() => { setRematchSuccess(""); rematch.mutate(); }}
+            onClick={() => rematch.mutate()}
             disabled={rematch.isPending}
             title="Re-match recordings against this template's rules"
             className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
@@ -515,11 +532,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         </button>
       </div>
 
-      {saveError && (
-        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          {saveError}
-        </div>
-      )}
 
       {/* 2-column layout */}
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
@@ -646,7 +658,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 <select
                   value={form.processing_config.transcription_language}
                   onChange={(e) => setPC("transcription_language", e.target.value)}
-                  className={INP}
+                  className={cn(INP, "appearance-none pr-8")}
                 >
                   {languages.map((l) => (
                     <option key={l.value} value={l.value}>{l.label}</option>
@@ -657,7 +669,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 <select
                   value={form.processing_config.granularity}
                   onChange={(e) => setPC("granularity", e.target.value)}
-                  className={INP}
+                  className={cn(INP, "appearance-none pr-8")}
                 >
                   {granularities.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
@@ -677,15 +689,13 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               />
             </Field>
 
-            <Field label="Transcription prompt" hint="Domain vocabulary hint to improve ASR accuracy">
-              <textarea
-                value={form.processing_config.transcription_prompt}
-                onChange={(e) => setPC("transcription_prompt", e.target.value)}
-                rows={3}
-                placeholder="University lecture: machine learning, neural networks…"
-                className={cn(INP, "resize-y font-mono")}
-              />
-            </Field>
+            <TemplateField
+              label="Transcription prompt"
+              value={form.processing_config.transcription_prompt}
+              onChange={(v) => setPC("transcription_prompt", v)}
+              multiline
+              placeholder="University lecture: machine learning, neural networks…"
+            />
 
             <Field label="Vocabulary" hint="Domain-specific terms to improve transcription accuracy">
               <TagInput
@@ -982,7 +992,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       <ConfirmDialog
         open={confirmDelete}
         title="Delete template?"
-        description="This template will be permanently deleted. Recordings linked to it will be unlinked but not deleted."
+        description="This template will be permanently deleted. Recordings linked to it will be unlinked but not deleted. Automation jobs referencing this template will have it removed automatically."
         confirmLabel="Delete"
         danger
         onConfirm={() => { setConfirmDelete(false); deleteTemplate.mutate(); }}
@@ -1000,16 +1010,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         onCancel={() => setConfirmLeave(false)}
       />
 
-      {/* Rematch success toast */}
-      {rematchSuccess && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-2xl border border-green-200 bg-white px-4 py-3 shadow-lg">
-          <RefreshCw size={14} className="text-green-600" />
-          <span className="text-sm font-medium text-green-700">{rematchSuccess}</span>
-          <button type="button" onClick={() => setRematchSuccess("")} className="ml-1 text-gray-400 hover:text-gray-600">
-            <X size={14} />
-          </button>
-        </div>
-      )}
+      {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />}
 
       {/* Match preview modal */}
       {matchPreviewOpen && (

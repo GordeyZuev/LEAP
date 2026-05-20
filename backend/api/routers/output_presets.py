@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
 from api.repositories.recording_repos import RecordingRepository
-from api.repositories.template_repos import OutputPresetRepository
+from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
 from api.schemas.auth import UserInDB
 from api.schemas.common.pagination import paginate_list
 from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
@@ -256,9 +256,11 @@ async def bulk_delete_presets(
 ):
     """Bulk delete output presets by IDs."""
     repo = OutputPresetRepository(session)
+    tpl_repo = RecordingTemplateRepository(session)
     deleted_count = 0
     skipped_count = 0
     details: list[dict] = []
+    deleted_ids: list[int] = []
 
     for preset_id in data.ids:
         preset = await repo.find_by_id(preset_id, current_user.id)
@@ -268,8 +270,12 @@ async def bulk_delete_presets(
             continue
 
         await repo.delete(preset)
+        deleted_ids.append(preset_id)
         deleted_count += 1
         details.append({"id": preset_id, "status": "deleted", "name": preset.name})
+
+    for pid in deleted_ids:
+        await tpl_repo.remove_preset_id_from_templates(current_user.id, pid)
 
     await session.commit()
 
@@ -294,4 +300,5 @@ async def delete_preset(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset {preset_id} not found")
 
     await repo.delete(preset)
+    await RecordingTemplateRepository(session).remove_preset_id_from_templates(current_user.id, preset_id)
     await session.commit()

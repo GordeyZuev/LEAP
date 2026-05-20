@@ -13,6 +13,7 @@ import {
   FILTER_SEGMENT_BTN,
   FILTER_SEGMENT_IDLE,
   FILTER_SEGMENT_WRAP,
+  FILTER_SELECT,
 } from "@/lib/filter-field-classes";
 import { TagInput } from "@/components/ui/tag-input";
 import { TemplateField } from "@/components/platforms/platform-fields";
@@ -612,7 +613,7 @@ export default function SettingsPage() {
                 setProfile((p) => ({ ...p, timezone: e.target.value }));
               }
             }}
-            className={cn(FILTER_CONTROL, "max-w-sm")}
+            className={cn(FILTER_SELECT, "max-w-sm")}
           >
             {timezones.map((tz) => (
               <option key={tz.value} value={tz.value}>{tz.label}</option>
@@ -646,6 +647,8 @@ export default function SettingsPage() {
           <Field label="Current password">
             <input
               type="password"
+              autoComplete="current-password"
+              suppressHydrationWarning
               value={pwForm.current_password}
               onChange={(e) => setPwForm((p) => ({ ...p, current_password: e.target.value }))}
               placeholder="••••••••"
@@ -655,6 +658,8 @@ export default function SettingsPage() {
           <Field label="New password">
             <input
               type="password"
+              autoComplete="new-password"
+              suppressHydrationWarning
               value={pwForm.new_password}
               onChange={(e) => setPwForm((p) => ({ ...p, new_password: e.target.value }))}
               placeholder="Min 8 chars, 1 digit, 1 uppercase"
@@ -664,6 +669,8 @@ export default function SettingsPage() {
           <Field label="Confirm new password">
             <input
               type="password"
+              autoComplete="new-password"
+              suppressHydrationWarning
               value={pwForm.confirm}
               onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))}
               placeholder="Repeat"
@@ -851,15 +858,13 @@ export default function SettingsPage() {
             </Field>
           )}
 
-          <Field label="Transcription prompt" hint="Context hint for the ASR model (not a system prompt)">
-            <textarea
-              value={transcription.prompt}
-              onChange={(e) => setTranscription((c) => ({ ...c, prompt: e.target.value }))}
-              rows={3}
-              placeholder="University lecture: machine learning, neural networks…"
-              className={cn(FILTER_CONTROL, "resize-y font-mono text-xs")}
-            />
-          </Field>
+          <TemplateField
+            label="Transcription prompt"
+            value={transcription.prompt}
+            onChange={(v) => setTranscription((c) => ({ ...c, prompt: v }))}
+            multiline
+            placeholder="University lecture: machine learning, neural networks…"
+          />
 
           <Field label="Vocabulary" hint="Key terms that improve recognition accuracy">
             <TagInput

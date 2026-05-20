@@ -5,7 +5,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Pencil, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { Toast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/hooks/use-toast";
 import { TOAST_SHORT } from "@/lib/constants";
 
 type SourceType = "ZOOM" | "YANDEX_DISK" | "VIDEO_URL";
@@ -123,8 +125,7 @@ export default function SourcesPage() {
   const [form, setForm] = useState<SourceForm>({ ...DEFAULT_FORM });
   const [formError, setFormError] = useState("");
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [syncSuccessId, setSyncSuccessId] = useState<number | null>(null);
-  const [bulkSyncSuccess, setBulkSyncSuccess] = useState(false);
+  const { toast, show: showToast, dismiss: dismissToast } = useToast(TOAST_SHORT);
 
   const { data, isLoading, error } = useQuery<SourceListResponse>({
     queryKey: ["sources"],
@@ -153,6 +154,7 @@ export default function SourcesPage() {
       setModalOpen(false);
       setEditingSource(null);
       setFormError("");
+      showToast("success", "Source saved");
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -162,19 +164,13 @@ export default function SourcesPage() {
 
   const syncSource = useMutation({
     mutationFn: (id: number) => apiClient.post(`/sources/${id}/sync`),
-    onSuccess: (_, id) => {
-      setSyncSuccessId(id);
-      setTimeout(() => setSyncSuccessId(null), TOAST_SHORT);
-    },
+    onSuccess: () => showToast("success", "Sync started"),
   });
 
   const bulkSync = useMutation({
     mutationFn: () =>
       apiClient.post("/sources/bulk/sync", { source_ids: sources.filter((s) => s.is_active).map((s) => s.id) }),
-    onSuccess: () => {
-      setBulkSyncSuccess(true);
-      setTimeout(() => setBulkSyncSuccess(false), TOAST_SHORT);
-    },
+    onSuccess: () => showToast("success", "Sync started for all active sources"),
   });
 
   const deleteSource = useMutation({
@@ -251,11 +247,6 @@ export default function SourcesPage() {
           </button>
         </div>
       </div>
-      {bulkSyncSuccess && (
-        <p className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-700">
-          Sync started for all active sources.
-        </p>
-      )}
 
       {isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -281,9 +272,6 @@ export default function SourcesPage() {
               <p className="text-xs text-gray-400">
                 {s.last_sync_at ? `Last sync: ${formatDate(s.last_sync_at)}` : "Never synced"}
               </p>
-              {syncSuccessId === s.id && (
-                <p className="text-xs text-green-600 font-medium">Sync started!</p>
-              )}
               <div className="flex items-center gap-2 mt-auto pt-2 border-t border-[#D9D9D9]">
                 <button
                   onClick={() => syncSource.mutate(s.id)}
@@ -350,7 +338,7 @@ export default function SourcesPage() {
                   {credsByPlatform.length === 0 ? (
                     <p className="text-sm text-gray-400">No matching credentials. <a href="/credentials" className="text-[#224C87] hover:underline">Add credentials →</a></p>
                   ) : (
-                    <select value={form.credential_id} onChange={(e) => setForm((f) => ({ ...f, credential_id: Number(e.target.value) || "" }))} className={cn(inp, "bg-white")}>
+                    <select value={form.credential_id} onChange={(e) => setForm((f) => ({ ...f, credential_id: Number(e.target.value) || "" }))} className={cn(inp, "bg-white appearance-none pr-8")}>
                       <option value="">— Select —</option>
                       {credsByPlatform.map((c) => <option key={c.id} value={c.id}>{c.account_name ?? `Credential #${c.id}`}</option>)}
                     </select>
@@ -389,7 +377,7 @@ export default function SourcesPage() {
                   <MF label="URL *"><input type="url" value={form.url_url} onChange={(e) => setForm((f) => ({ ...f, url_url: e.target.value }))} placeholder="https://youtube.com/..." className={inp} /></MF>
                   <Toggle label="Playlist" checked={form.url_is_playlist} onChange={(v) => setForm((f) => ({ ...f, url_is_playlist: v }))} />
                   <MF label="Quality">
-                    <select value={form.url_quality} onChange={(e) => setForm((f) => ({ ...f, url_quality: e.target.value }))} className={cn(inp, "bg-white")}>
+                    <select value={form.url_quality} onChange={(e) => setForm((f) => ({ ...f, url_quality: e.target.value }))} className={cn(inp, "bg-white appearance-none pr-8")}>
                       {["best", "1080p", "720p", "480p"].map((q) => <option key={q} value={q}>{q}</option>)}
                     </select>
                   </MF>
@@ -411,13 +399,15 @@ export default function SourcesPage() {
       <ConfirmDialog
         open={deleteId !== null}
         title="Delete source?"
-        description="This source will be removed. Existing recordings from this source won't be affected."
+        description="This source will be permanently deleted. Previously imported recordings won't be affected. Templates using this source in their matching rules will have it removed automatically."
         confirmLabel="Delete"
         cancelLabel="Cancel"
         danger
         onConfirm={() => { if (deleteId !== null) deleteSource.mutate(deleteId); setDeleteId(null); }}
         onCancel={() => setDeleteId(null)}
       />
+
+      {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />}
     </div>
   );
 }

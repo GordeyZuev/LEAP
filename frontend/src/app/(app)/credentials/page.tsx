@@ -13,7 +13,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { Toast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import {
   FILTER_CARD,
@@ -25,6 +27,7 @@ import {
   FILTER_SEGMENT_WRAP,
 } from "@/lib/filter-field-classes";
 import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/recordings/filter-multi-select";
+import { FilterSelect } from "@/components/recordings/filter-select";
 import { usePlatforms } from "@/hooks/use-references";
 import { DEBOUNCE_SEARCH, PER_PAGE_LARGE } from "@/lib/constants";
 
@@ -151,6 +154,7 @@ export default function CredentialsPage() {
   // Detail / rename modal state
   const [renameModal, setRenameModal] = useState<{ cred: CredentialItem; value: string } | null>(null);
   const [renameError, setRenameError] = useState("");
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
   // Disconnect state
   const [disconnectId, setDisconnectId] = useState<number | null>(null);
@@ -174,6 +178,7 @@ export default function CredentialsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["credentials-list"] });
       closeAddModal();
+      showToast("success", "Credential connected");
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -188,6 +193,7 @@ export default function CredentialsPage() {
       qc.invalidateQueries({ queryKey: ["credentials-list"] });
       setRenameModal(null);
       setRenameError("");
+      showToast("success", "Credential renamed");
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -369,15 +375,12 @@ export default function CredentialsPage() {
           <div className="lg:col-span-4">
             <span className={FILTER_LABEL}>Sort by</span>
             <div className="flex gap-1.5">
-              <select
+              <FilterSelect
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortField)}
-                className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
-              >
-                {SORT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+                options={SORT_OPTIONS}
+                onChange={(v) => setSortBy(v as SortField)}
+                className="flex-1 min-w-0"
+              />
               <button
                 type="button"
                 title={sortOrder === "desc" ? "Descending" : "Ascending"}
@@ -730,7 +733,7 @@ export default function CredentialsPage() {
       <ConfirmDialog
         open={disconnectId !== null}
         title="Disconnect credential?"
-        description="This will remove the stored credentials. You can reconnect at any time."
+        description="The stored token will be removed. Presets linked to this credential will keep their settings but won't be able to upload until you assign a new credential to them."
         confirmLabel="Disconnect"
         cancelLabel="Cancel"
         danger
@@ -740,6 +743,8 @@ export default function CredentialsPage() {
         }}
         onCancel={() => setDisconnectId(null)}
       />
+
+      {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />}
     </div>
   );
 }

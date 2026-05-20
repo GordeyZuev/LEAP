@@ -7,6 +7,8 @@ import Link from "next/link";
 import { ArrowLeft, Save, Copy, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { Toast } from "@/components/ui/toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   YouTubeFields,
   VkFields,
@@ -18,7 +20,7 @@ import {
   DEFAULT_VK_FIELDS,
   DEFAULT_YANDEX_DISK_FIELDS,
 } from "@/components/platforms/platform-fields";
-import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL, FILTER_LABEL, FILTER_SELECT } from "@/lib/filter-field-classes";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { usePlatforms } from "@/hooks/use-references";
 
@@ -122,7 +124,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   const [platform,    setPlatform]    = useState<Platform>("youtube");
   const [credId,      setCredId]      = useState<number | "">("");
   const [meta,        setMeta]        = useState<PlatformMeta>({ ...DEFAULT_YOUTUBE_FIELDS });
-  const [saveError,   setSaveError]   = useState("");
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
   const savedSnapshot = useRef<string>(
     JSON.stringify({ name: "", description: "", credId: "", meta: { ...DEFAULT_YOUTUBE_FIELDS } })
@@ -178,12 +180,12 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
     onSuccess: (result) => {
       savedSnapshot.current = JSON.stringify({ name, description, credId, meta });
       qc.invalidateQueries({ queryKey: ["presets"] });
-      setSaveError("");
+      showToast("success", "Preset saved");
       if (isNew) router.push(`/presets/${result.id}`);
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setSaveError(typeof detail === "string" ? detail : "Failed to save preset");
+      showToast("error", typeof detail === "string" ? detail : "Failed to save preset");
     },
   });
 
@@ -193,14 +195,14 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
     onSuccess: (result) => router.push(`/presets/${result.id}`),
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setSaveError(typeof detail === "string" ? detail : "Failed to copy preset");
+      showToast("error", typeof detail === "string" ? detail : "Failed to copy preset");
     },
   });
 
   const deletePreset = useMutation({
     mutationFn: () => apiClient.delete(`/presets/${id}`),
     onSuccess: () => router.push("/presets"),
-    onError: () => setSaveError("Failed to delete preset"),
+    onError: () => showToast("error", "Failed to delete preset"),
   });
 
   function changePlatform(p: Platform) {
@@ -271,11 +273,6 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
         </button>
       </div>
 
-      {saveError && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          {saveError}
-        </div>
-      )}
 
       <div className="space-y-5">
         {/* General */}
@@ -339,7 +336,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               <select
                 value={credId}
                 onChange={(e) => setCredId(Number(e.target.value) || "")}
-                className={cn(FILTER_CONTROL, "bg-white")}
+                className={cn(FILTER_SELECT, "bg-white")}
               >
                 <option value="">— Select credential —</option>
                 {creds.map((c) => (
@@ -396,7 +393,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
       <ConfirmDialog
         open={confirmDelete}
         title="Delete preset?"
-        description="This preset will be permanently deleted. Templates referencing it will lose this preset assignment."
+        description="This preset will be permanently deleted and automatically removed from all templates that reference it."
         confirmLabel="Delete"
         danger
         onConfirm={() => { setConfirmDelete(false); deletePreset.mutate(); }}
@@ -413,6 +410,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
         onConfirm={() => { setConfirmLeave(false); router.push(pendingHref); }}
         onCancel={() => setConfirmLeave(false)}
       />
+
+      {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />}
     </div>
   );
 }

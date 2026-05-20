@@ -177,11 +177,13 @@ interface RecordingsPagedResultsProps {
   bulkRun: UseMutationResult<unknown, unknown, number[], unknown>;
   bulkPause: UseMutationResult<unknown, unknown, number[], unknown>;
   bulkDelete: UseMutationResult<unknown, unknown, number[], unknown>;
-  bulkReset: UseMutationResult<unknown, unknown, number[], unknown>;
+  bulkReset: UseMutationResult<unknown, unknown, { ids: number[]; deleteFiles: boolean }, unknown>;
   deleteConfirm: boolean;
   setDeleteConfirm: (open: boolean) => void;
   resetConfirm: boolean;
   setResetConfirm: (open: boolean) => void;
+  resetDeleteFiles: boolean;
+  setResetDeleteFiles: (v: boolean) => void;
   onBulkRunWithConfig: () => void;
 }
 
@@ -204,6 +206,8 @@ function RecordingsPagedResults({
   setDeleteConfirm,
   resetConfirm,
   setResetConfirm,
+  resetDeleteFiles,
+  setResetDeleteFiles,
   onBulkRunWithConfig,
 }: RecordingsPagedResultsProps) {
   const [page, setPage] = useState(1);
@@ -464,15 +468,25 @@ function RecordingsPagedResults({
       <ConfirmDialog
         open={resetConfirm}
         title={`Reset ${selectedIds.length} recording${selectedIds.length !== 1 ? "s" : ""}?`}
-        description="All processed files (video, audio, transcription) will be deleted and recordings will be reset to INITIALIZED. This cannot be undone."
+        description="Recordings will be reset to INITIALIZED status."
         confirmLabel="Reset"
         cancelLabel="Cancel"
         onConfirm={() => {
           setResetConfirm(false);
-          bulkReset.mutate(selectedIds);
+          bulkReset.mutate({ ids: selectedIds, deleteFiles: resetDeleteFiles });
         }}
         onCancel={() => setResetConfirm(false)}
-      />
+      >
+        <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resetDeleteFiles}
+            onChange={(e) => setResetDeleteFiles(e.target.checked)}
+            className="rounded border-gray-300 text-[#224C87] focus:ring-[#224C87]/30"
+          />
+          Delete processed files (video, audio, transcription)
+        </label>
+      </ConfirmDialog>
     </>
   );
 }
@@ -631,6 +645,7 @@ function RecordingsContent() {
   // --- Confirm dialogs ---
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  const [resetDeleteFiles, setResetDeleteFiles] = useState(false);
   const [singleDeleteId, setSingleDeleteId] = useState<number | null>(null);
   const [singleResetId, setSingleResetId] = useState<number | null>(null);
 
@@ -822,8 +837,8 @@ function RecordingsContent() {
 
   // Bulk reset: parallel individual reset calls
   const bulkReset = useMutation({
-    mutationFn: (ids: number[]) =>
-      Promise.all(ids.map((id) => apiClient.post(`/recordings/${id}/reset`))),
+    mutationFn: ({ ids, deleteFiles }: { ids: number[]; deleteFiles: boolean }) =>
+      Promise.all(ids.map((id) => apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: deleteFiles } }))),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); },
   });
 
@@ -842,7 +857,8 @@ function RecordingsContent() {
   });
 
   const singleReset = useMutation({
-    mutationFn: (id: number) => apiClient.post(`/recordings/${id}/reset`),
+    mutationFn: ({ id, deleteFiles }: { id: number; deleteFiles: boolean }) =>
+      apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: deleteFiles } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
   });
 
@@ -937,7 +953,7 @@ function RecordingsContent() {
             <select
               value={urlSortBy}
               onChange={(e) => updateSort(e.target.value)}
-              className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
+              className={cn(FILTER_CONTROL, "min-w-[9rem]")}
             >
               {SORT_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -1064,6 +1080,8 @@ function RecordingsContent() {
         setDeleteConfirm={setDeleteConfirm}
         resetConfirm={resetConfirm}
         setResetConfirm={setResetConfirm}
+        resetDeleteFiles={resetDeleteFiles}
+        setResetDeleteFiles={setResetDeleteFiles}
         onBulkRunWithConfig={handleBulkRunWithConfig}
       />
 
@@ -1080,15 +1098,25 @@ function RecordingsContent() {
       <ConfirmDialog
         open={singleResetId !== null}
         title="Reset recording?"
-        description="All processed files (video, audio, transcription) will be deleted and the recording will return to INITIALIZED status."
+        description="The recording will return to INITIALIZED status."
         confirmLabel="Reset"
         cancelLabel="Cancel"
         onConfirm={() => {
-          if (singleResetId !== null) singleReset.mutate(singleResetId);
+          if (singleResetId !== null) singleReset.mutate({ id: singleResetId, deleteFiles: resetDeleteFiles });
           setSingleResetId(null);
         }}
         onCancel={() => setSingleResetId(null)}
-      />
+      >
+        <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+          <input
+            type="checkbox"
+            checked={resetDeleteFiles}
+            onChange={(e) => setResetDeleteFiles(e.target.checked)}
+            className="rounded border-gray-300 text-[#224C87] focus:ring-[#224C87]/30"
+          />
+          Delete processed files (video, audio, transcription)
+        </label>
+      </ConfirmDialog>
 
       {/* Single delete confirm */}
       <ConfirmDialog
