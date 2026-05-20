@@ -46,9 +46,10 @@ class StoragePathBuilder:
         suf = suffix if suffix.startswith(".") else f".{suffix}"
         return self.recording_root(user_slug, recording_id) / f"source{suf}"
 
-    def recording_video(self, user_slug: int, recording_id: int) -> Path:
-        """Processed video: .../recordings/74/video.mp4"""
-        return self.recording_root(user_slug, recording_id) / "video.mp4"
+    def recording_video(self, user_slug: int, recording_id: int, suffix: str = ".mp4") -> Path:
+        """Processed video: .../recordings/74/video.<suffix> (default .mp4 for MP4-compatible sources)."""
+        suf = suffix if suffix.startswith(".") else f".{suffix}"
+        return self.recording_root(user_slug, recording_id) / f"video{suf}"
 
     def recording_audio(self, user_slug: int, recording_id: int) -> Path:
         """Extracted audio: .../recordings/74/audio.mp3"""

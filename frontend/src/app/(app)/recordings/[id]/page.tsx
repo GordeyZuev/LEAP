@@ -6,13 +6,14 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
-  CheckCircle2, XCircle, Clock, Loader2, SkipForward, RotateCcw, Settings2,
+  CheckCircle2, XCircle, Clock, Loader2, SkipForward, RotateCcw, Settings2, ChevronDown, ArchiveRestore, FilePlus2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
+import { ACTIVE_POLL_STATUSES, POLL_INTERVAL_DETAIL } from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,9 +99,11 @@ interface RecordingDetail {
   processing_stages: ProcessingStage[];
   pipeline_started_at: string | null;
   pipeline_completed_at: string | null;
+  soft_deleted_at?: string | null;
   pipeline_duration_seconds: number | null;
   is_mapped: boolean;
   template_id: number | null;
+  template_name?: string | null;
   video_file_size: number | null;
   created_at: string;
   can_run: boolean;
@@ -110,6 +113,36 @@ interface RecordingDetail {
   videos?: Record<string, VideoVariantInfo> | null;
   subtitles?: Record<string, SubtitleVariantInfo> | null;
   transcription?: TranscriptionDetail | null;
+  upload_summary?: { total: number; uploaded: number; failed: number; partial: boolean } | null;
+}
+
+interface RecordingConfigResponse {
+  recording_id: number;
+  is_mapped: boolean;
+  template_id: number | null;
+  template_name: string | null;
+  has_manual_override: boolean;
+  processing_config: {
+    transcription?: {
+      language?: string;
+      granularity?: string;
+      enable_transcription?: boolean;
+      enable_topics?: boolean;
+      enable_subtitles?: boolean;
+    };
+  } | null;
+  output_config: {
+    auto_upload?: boolean;
+    upload_captions?: boolean;
+    preset_ids?: number[];
+  } | null;
+  metadata_config: {
+    title_template?: string;
+    description_template?: string;
+    youtube?: Record<string, unknown>;
+    vk?: Record<string, unknown>;
+    yandex_disk?: Record<string, unknown>;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +150,7 @@ interface RecordingDetail {
 // ---------------------------------------------------------------------------
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function formatDuration(seconds: number) {
@@ -144,16 +177,16 @@ function formatFileSize(bytes: number) {
 }
 
 function formatStageDuration(startedAt: string | null, completedAt: string | null): string {
-  if (!startedAt || !completedAt) return "—";
+  if (!startedAt || !completedAt) return "";
   const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (!Number.isFinite(ms) || ms < 0) return "";
   const secTotal = Math.floor(ms / 1000);
   const h = Math.floor(secTotal / 3600);
   const m = Math.floor((secTotal % 3600) / 60);
   const s = secTotal % 60;
-  if (h > 0) return `${h} ч ${m} мин ${s} с`;
-  if (m > 0) return `${m} мин ${s} с`;
-  return `${s} с`;
+  if (h > 0) return `${h}ч ${m}м`;
+  if (m > 0) return `${m}м ${s}с`;
+  return `${s}с`;
 }
 
 function formatDateTimeShort(iso: string): string {
@@ -180,24 +213,24 @@ function normalizeStageType(stageType: string): string {
   return STAGE_TYPE_ALIASES[stageType] ?? stageType;
 }
 
-const STAGE_META: Record<string, { name: string; description: string }> = {
-  DOWNLOAD: { name: "Получение файла", description: "Загрузка медиа из источника" },
-  TRIM: { name: "Обрезка тишины", description: "Удаление тишины в начале и конце (FFmpeg)" },
-  TRANSCRIBE: { name: "Транскрипция", description: "Распознавание речи (ASR)" },
-  EXTRACT_TOPICS: { name: "Извлечение тем", description: "Тематический разбор (DeepSeek)" },
-  GENERATE_SUBTITLES: { name: "Субтитры", description: "Генерация SRT и VTT" },
-  UPLOAD: { name: "Публикация на платформы", description: "Выгрузка на внешние платформы" },
+const STAGE_META: Record<string, { name: string }> = {
+  DOWNLOAD:           { name: "Загрузка" },
+  TRIM:               { name: "Обрезка" },
+  TRANSCRIBE:         { name: "Транскрипция" },
+  EXTRACT_TOPICS:     { name: "Темы" },
+  GENERATE_SUBTITLES: { name: "Субтитры" },
+  UPLOAD:             { name: "Публикация" },
 };
 
 type LifecyclePhase = "pending" | "active" | "done" | "failed" | "skipped";
 
 function phaseToStageStatus(phase: LifecyclePhase): string {
   switch (phase) {
-    case "done": return "COMPLETED";
-    case "active": return "IN_PROGRESS";
-    case "failed": return "FAILED";
+    case "done":    return "COMPLETED";
+    case "active":  return "IN_PROGRESS";
+    case "failed":  return "FAILED";
     case "skipped": return "SKIPPED";
-    default: return "PENDING";
+    default:        return "PENDING";
   }
 }
 
@@ -217,32 +250,38 @@ function deriveIngressLifecycle(recording: RecordingDetail): { phase: LifecycleP
   return { phase: "pending" };
 }
 
+const STAGE_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; dot: string }> = {
+  COMPLETED:   { icon: CheckCircle2, dot: "bg-green-500" },
+  FAILED:      { icon: XCircle,      dot: "bg-red-500" },
+  IN_PROGRESS: { icon: Loader2,      dot: "bg-blue-500" },
+  SKIPPED:     { icon: SkipForward,  dot: "bg-gray-300" },
+  PENDING:     { icon: Clock,        dot: "bg-gray-300" },
+};
 
-const STAGE_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; className: string }> = {
-  COMPLETED:   { icon: CheckCircle2, className: "text-green-500 bg-green-50 border-green-200" },
-  FAILED:      { icon: XCircle,      className: "text-red-500 bg-red-50 border-red-200" },
-  IN_PROGRESS: { icon: Loader2,      className: "text-blue-500 bg-blue-50 border-blue-200 animate-pulse" },
-  SKIPPED:     { icon: SkipForward,  className: "text-gray-400 bg-gray-50 border-gray-200" },
-  PENDING:     { icon: Clock,        className: "text-gray-400 bg-gray-50 border-gray-200" },
+const ICON_COLOR: Record<string, string> = {
+  COMPLETED:   "text-green-500",
+  FAILED:      "text-red-500",
+  IN_PROGRESS: "text-blue-500",
+  SKIPPED:     "text-gray-400",
+  PENDING:     "text-gray-400",
 };
 
 const TARGET_LABELS: Record<string, string> = {
-  YOUTUBE:      "YouTube",
-  VK:           "VK",
-  YANDEX_DISK:  "Yandex Disk",
+  YOUTUBE:     "YouTube",
+  VK:          "VK",
+  YANDEX_DISK: "Yandex Disk",
 };
 
-const PLATFORM_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; className: string; label: string }> = {
-  UPLOADED:     { icon: CheckCircle2, className: "text-green-500 bg-green-50 border-green-200", label: "Uploaded" },
-  UPLOADING:    { icon: Loader2,      className: "text-blue-500 bg-blue-50 border-blue-200",    label: "Uploading…" },
-  FAILED:       { icon: XCircle,      className: "text-red-500 bg-red-50 border-red-200",       label: "Failed" },
-  NOT_UPLOADED: { icon: Clock,        className: "text-gray-400 bg-gray-50 border-gray-200",    label: "Not uploaded" },
+const PLATFORM_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; label: string; color: string }> = {
+  UPLOADED:     { icon: CheckCircle2, label: "Опубликовано", color: "text-green-600" },
+  UPLOADING:    { icon: Loader2,      label: "Публикуется…", color: "text-blue-600" },
+  FAILED:       { icon: XCircle,      label: "Ошибка",       color: "text-red-600" },
+  NOT_UPLOADED: { icon: Clock,        label: "Не загружено", color: "text-gray-400" },
 };
 
-const ACTIVE_DETAIL_POLL = new Set<string>(["DOWNLOADING", "PROCESSING", "UPLOADING"]);
 
 // ---------------------------------------------------------------------------
-// PipelineCompactRow
+// PipelineCompactRow — compact, no description line
 // ---------------------------------------------------------------------------
 
 function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
@@ -250,63 +289,29 @@ function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
   const status = stage.failed ? "FAILED" : stage.status.toUpperCase();
   const cfg = STAGE_STATUS_CONFIG[status] ?? STAGE_STATUS_CONFIG["PENDING"];
   const Icon = cfg.icon;
-  const meta = STAGE_META[canon];
-  const title = meta?.name ?? stage.stage_type;
-  const description = meta?.description ?? "";
-
-  const durationLabel = formatStageDuration(stage.started_at, stage.completed_at);
-  const windowLabel =
-    stage.started_at && stage.completed_at
-      ? `${formatDateTimeShort(stage.started_at)} → ${formatDateTimeShort(stage.completed_at)}`
-      : stage.started_at
-        ? `${formatDateTimeShort(stage.started_at)} → …`
-        : "—";
+  const name = STAGE_META[canon]?.name ?? stage.stage_type;
+  const dur = formatStageDuration(stage.started_at, stage.completed_at);
 
   return (
-    <div className="flex items-start gap-2 py-2.5">
-      <div
+    <div className="flex items-center gap-2 py-1.5">
+      <Icon
+        size={13}
         className={cn(
-          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border",
-          cfg.className
+          ICON_COLOR[status] ?? "text-gray-400",
+          status === "IN_PROGRESS" && "animate-spin"
         )}
-      >
-        <Icon size={14} className={status === "IN_PROGRESS" ? "animate-spin" : ""} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-xs font-semibold text-gray-900">{title}</span>
-          <span className="text-[10px] uppercase tracking-wide text-gray-400">{stage.status}</span>
-        </div>
-        {description ? (
-          <p className="truncate text-[11px] text-gray-500" title={description}>{description}</p>
-        ) : null}
-        {stage.retry_count > 0 ? (
-          <p className="text-[11px] text-amber-700">Повторов: {stage.retry_count}</p>
-        ) : null}
-        {stage.failed_reason ? (
-          <p className="break-words text-[11px] text-red-600">{stage.failed_reason}</p>
-        ) : null}
-      </div>
-      <div className="shrink-0 text-right text-[10px] tabular-nums leading-snug text-gray-600">
-        <div>{durationLabel}</div>
-        <div className="max-w-[min(22rem,45vw)] truncate text-gray-400" title={windowLabel}>
-          {windowLabel}
-        </div>
-      </div>
+      />
+      <span className="flex-1 text-xs font-medium text-gray-700">{name}</span>
+      {stage.retry_count > 0 && (
+        <span className="text-[10px] text-amber-500">×{stage.retry_count}</span>
+      )}
+      {dur && <span className="shrink-0 text-[10px] tabular-nums text-gray-400">{dur}</span>}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// PipelineSectionDivider — visual separator between pipeline blocks
-// ---------------------------------------------------------------------------
-
-function PipelineSectionDivider() {
-  return <div className="my-1.5 border-t border-dashed border-[#E8E8E8]" />;
-}
-
-// ---------------------------------------------------------------------------
-// PlatformOutputRow — one row per upload target, styled like PipelineCompactRow
+// PlatformOutputRow — used inside the Publications sidebar card
 // ---------------------------------------------------------------------------
 
 function PlatformOutputRow({
@@ -315,27 +320,11 @@ function PlatformOutputRow({
   onUpload,
   uploadPending,
 }: {
-  output: OutputTarget | null;
+  output: OutputTarget;
   readyToUpload: boolean;
   onUpload: (targetType: string) => void;
   uploadPending: boolean;
 }) {
-  if (!output) {
-    const cfg = STAGE_STATUS_CONFIG["PENDING"];
-    const Icon = cfg.icon;
-    return (
-      <div className="flex items-start gap-2 py-2.5">
-        <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border", cfg.className)}>
-          <Icon size={14} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <span className="text-xs font-semibold text-gray-900">Публикация на платформы</span>
-          <p className="text-[11px] text-gray-400">Платформы не настроены</p>
-        </div>
-      </div>
-    );
-  }
-
   const ostatus = output.failed ? "FAILED" : output.status;
   const cfg = PLATFORM_STATUS_CONFIG[ostatus] ?? PLATFORM_STATUS_CONFIG["NOT_UPLOADED"];
   const Icon = cfg.icon;
@@ -344,39 +333,43 @@ function PlatformOutputRow({
   const canUpload = readyToUpload && output.status === "NOT_UPLOADED";
 
   return (
-    <div className="flex items-start gap-2 py-2.5">
-      <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border", cfg.className)}>
-        <Icon size={14} className={ostatus === "UPLOADING" ? "animate-spin" : ""} />
-      </div>
+    <div className="flex items-start gap-2.5 py-2.5">
+      <Icon
+        size={14}
+        className={cn(cfg.color, "mt-0.5 shrink-0", ostatus === "UPLOADING" && "animate-spin")}
+      />
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-x-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="text-xs font-semibold text-gray-900">{label}</span>
-          <span className="text-[10px] uppercase tracking-wide text-gray-400">{cfg.label}</span>
           {output.preset && (
-            <span className="text-[11px] text-gray-400">({output.preset.name})</span>
+            <Link
+              href={`/presets/${output.preset.id}`}
+              className="text-[11px] text-gray-400 transition-colors hover:text-[#224C87]"
+            >
+              {output.preset.name}
+            </Link>
           )}
         </div>
-        {output.failed_reason ? (
-          <p className="break-words text-[11px] text-red-600">{output.failed_reason}</p>
-        ) : null}
+        <p className={cn("text-[11px]", cfg.color)}>{cfg.label}</p>
+        {output.failed_reason && (
+          <p className="break-words text-[11px] text-red-500">{output.failed_reason}</p>
+        )}
+        {output.uploaded_at && (
+          <p className="text-[10px] text-gray-400">{formatDateTimeShort(output.uploaded_at)}</p>
+        )}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {output.uploaded_at ? (
-          <span className="text-[10px] tabular-nums text-gray-400">
-            {formatDateTimeShort(output.uploaded_at)}
-          </span>
-        ) : null}
-        {url && output.status === "UPLOADED" ? (
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        {url && output.status === "UPLOADED" && (
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-0.5 text-[11px] text-[#224C87] hover:underline"
+            className="flex items-center gap-0.5 text-[11px] font-medium text-[#224C87] hover:underline"
           >
-            View <ExternalLink size={10} />
+            Открыть <ExternalLink size={10} />
           </a>
-        ) : null}
-        {(canUpload || output.status === "FAILED") ? (
+        )}
+        {(canUpload || output.status === "FAILED") && (
           <button
             type="button"
             onClick={() => onUpload(output.target_type)}
@@ -386,7 +379,7 @@ function PlatformOutputRow({
             <Upload size={10} />
             {output.status === "FAILED" ? "Retry" : "Upload"}
           </button>
-        ) : null}
+        )}
       </div>
     </div>
   );
@@ -491,6 +484,38 @@ function RecordingVideoPlayer({
 }
 
 // ---------------------------------------------------------------------------
+// Collapsible card helper
+// ---------------------------------------------------------------------------
+
+function CollapsibleCard({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-2xl border border-[#D9D9D9] bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-5 py-4 text-left"
+      >
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">{title}</h2>
+        <ChevronDown
+          size={15}
+          className={cn("text-gray-400 transition-transform duration-200", open && "rotate-180")}
+        />
+      </button>
+      {open && <div className="border-t border-[#F0F0F0] px-5 pb-5 pt-4">{children}</div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -504,6 +529,14 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [mediaDownloadError, setMediaDownloadError] = useState<string | null>(null);
+  const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
+  const [createTemplateName, setCreateTemplateName] = useState("");
+
+  // Config is loaded eagerly so template_name is available for Info sidebar
+  const { data: recordingConfig, isLoading: configLoading } = useQuery<RecordingConfigResponse>({
+    queryKey: ["recording-config", Number(id)],
+    queryFn: async () => (await apiClient.get<RecordingConfigResponse>(`/recordings/${id}/config`)).data,
+  });
 
   const { data: recording, isLoading, error } = useQuery<RecordingDetail>({
     queryKey: ["recording", id],
@@ -513,7 +546,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     },
     refetchInterval: (q) => {
       const s = q.state.data?.status;
-      return s && ACTIVE_DETAIL_POLL.has(s) ? 3000 : false;
+      return s && ACTIVE_POLL_STATUSES.has(s) ? POLL_INTERVAL_DETAIL : false;
     },
     refetchIntervalInBackground: false,
   });
@@ -538,6 +571,21 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recording", id] }),
   });
 
+  const restoreRec = useMutation({
+    mutationFn: () => apiClient.post(`/recordings/${id}/restore`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recording", id] }),
+  });
+
+  const createTemplate = useMutation({
+    mutationFn: (name: string) =>
+      apiClient.post<{ id: number }>(`/templates/from-recording/${id}`, { name }),
+    onSuccess: (res) => {
+      setCreateTemplateOpen(false);
+      setCreateTemplateName("");
+      router.push(`/templates/${res.data.id}`);
+    },
+  });
+
   const uploadTo = useMutation({
     mutationFn: (platform: string) =>
       apiClient.post(`/recordings/${id}/upload/${platform.toLowerCase()}`),
@@ -550,6 +598,27 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       setUploadError(msg ?? "Upload failed");
     },
   });
+
+  const STAGE_RERUN_ENDPOINT: Record<string, string> = {
+    DOWNLOAD:           `/recordings/${id}/download`,
+    TRANSCRIBE:         `/recordings/${id}/transcribe?force=true`,
+    EXTRACT_TOPICS:     `/recordings/${id}/topics`,
+    GENERATE_SUBTITLES: `/recordings/${id}/subtitles`,
+  };
+
+  const [rerunningStage, setRerunningStage] = useState<string | null>(null);
+
+  async function handleStageRerun(stageType: string) {
+    const endpoint = STAGE_RERUN_ENDPOINT[normalizeStageType(stageType)];
+    if (!endpoint) return;
+    setRerunningStage(stageType);
+    try {
+      await apiClient.post(endpoint);
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+    } finally {
+      setRerunningStage(null);
+    }
+  }
 
   const hasProcessedVid = !!recording?.videos?.processed?.exists;
   const hasOriginalVid = !!recording?.videos?.original?.exists;
@@ -564,12 +633,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       ? videoTabChoice
       : defaultVideoTab;
 
-  const isActing = run.isPending || pause.isPending || deleteRec.isPending || resetRec.isPending;
+  const isActing = run.isPending || pause.isPending || deleteRec.isPending || resetRec.isPending || restoreRec.isPending;
+  const isSoftDeleted = !!recording?.soft_deleted_at;
 
   if (isLoading) {
     return (
-      <div className="p-8 flex items-center justify-center h-full">
-        <div className="text-sm text-gray-400">Loading…</div>
+      <div className="flex h-full items-center justify-center p-8">
+        <div className="text-sm text-gray-400">Загрузка…</div>
       </div>
     );
   }
@@ -606,7 +676,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     ),
   ];
 
-  // Synthesize a DOWNLOAD stage if not in DB (e.g. already-on-disk recordings)
   const hasDownloadStage = dbStages.some((s) => normalizeStageType(s.stage_type) === "DOWNLOAD");
   const ingressLifecycle = deriveIngressLifecycle(recording);
   const syntheticDownload: ProcessingStage | null = !hasDownloadStage
@@ -621,13 +690,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       }
     : null;
 
-  // Split DB stages into ingress (DOWNLOAD) and processing groups
-  const ingressStages: ProcessingStage[] = syntheticDownload
-    ? [syntheticDownload]
-    : dbStages.filter((s) => normalizeStageType(s.stage_type) === "DOWNLOAD");
-  const processingStages = dbStages.filter(
-    (s) => normalizeStageType(s.stage_type) !== "DOWNLOAD"
-  );
+  const allPipelineStages: ProcessingStage[] = [
+    ...(syntheticDownload ? [syntheticDownload] : dbStages.filter((s) => normalizeStageType(s.stage_type) === "DOWNLOAD")),
+    ...dbStages.filter((s) => normalizeStageType(s.stage_type) !== "DOWNLOAD"),
+  ];
 
   const hasVideoFiles = hasProcessedVid || hasOriginalVid;
   const showMediaSection =
@@ -656,72 +722,39 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   const dlStem = `recording-${recording.id}`;
 
+  // Template label for info sidebar
+  const templateLabel = (() => {
+    if (!recording.is_mapped) return "Не привязан";
+    const name = recordingConfig?.template_name ?? recording.template_name;
+    const tid = recording.template_id;
+    if (name && tid != null) return `${name} (#${tid})`;
+    if (name) return name;
+    if (tid != null) return `#${tid}`;
+    return "Привязан";
+  })();
+
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      {/* Header */}
-      <div className="mb-6 flex flex-wrap items-center gap-4">
+      {/* ── Header ── */}
+      <div className="mb-5 flex flex-wrap items-center gap-4">
         <Link
           href="/recordings"
           className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
         >
           <ArrowLeft size={16} />
-          Recordings
+          Записи
         </Link>
         <span className="text-gray-300">/</span>
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900">
           {recording.display_name}
         </h1>
         <StatusBadge status={recording.status} failed={recording.failed} />
-
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            disabled={!recording.can_run || isActing}
-            onClick={() => run.mutate()}
-            className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium transition-colors hover:border-[#224C87] hover:bg-[#224C87] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {run.isPending ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            Run
-          </button>
-          <button
-            disabled={!recording.can_run || isActing}
-            onClick={() => setRunConfigOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-[#224C87]/30 bg-white px-3 py-2 text-sm font-medium text-[#224C87] transition-colors hover:bg-[#224C87]/5 disabled:cursor-not-allowed disabled:opacity-40"
-            title="Run with custom config override"
-          >
-            <Settings2 size={14} />
-            Run with config…
-          </button>
-          <button
-            disabled={!recording.can_pause || isActing}
-            onClick={() => pause.mutate()}
-            className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {pause.isPending ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />}
-            Pause
-          </button>
-          <button
-            onClick={() => setResetConfirm(true)}
-            disabled={isActing}
-            className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {resetRec.isPending ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
-            Reset
-          </button>
-          <button
-            onClick={() => setDeleteConfirm(true)}
-            disabled={isActing}
-            className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Trash2 size={14} />
-            Delete
-          </button>
-        </div>
       </div>
 
-      {/* Error banners */}
+      {/* ── Error banners ── */}
       {recording.failed && recording.failed_reason && (
         <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          <span className="font-medium">Failed:</span> {recording.failed_reason}
+          <span className="font-medium">Ошибка:</span> {recording.failed_reason}
         </div>
       )}
       {uploadError && (
@@ -730,84 +763,17 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {/* ── Pipeline (all stages unified) ── */}
-      <div className="mb-6 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Пайплайн</h2>
-          {recording.pipeline_duration_seconds != null && recording.pipeline_duration_seconds > 0 ? (
-            <span className="text-[11px] text-gray-400">
-              ~{Math.round(recording.pipeline_duration_seconds)} с
-            </span>
-          ) : null}
-        </div>
+      {/* ── 2-column layout ── */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
 
-        <div>
-          {/* Block 1: ingress (DOWNLOAD) */}
-          {ingressStages.length > 0 && (
-            <div className="divide-y divide-[#F0F0F0]">
-              {ingressStages.map((s) => (
-                <PipelineCompactRow key={normalizeStageType(s.stage_type)} stage={s} />
-              ))}
-            </div>
-          )}
+        {/* ════ MAIN COLUMN ════ */}
+        <div className="min-w-0 flex-1 space-y-6">
 
-          {/* Section divider before processing block */}
-          {ingressStages.length > 0 && processingStages.length > 0 && (
-            <PipelineSectionDivider />
-          )}
-
-          {/* Block 2: processing stages */}
-          {processingStages.length > 0 && (
-            <div className="divide-y divide-[#F0F0F0]">
-              {processingStages.map((s) => (
-                <PipelineCompactRow key={normalizeStageType(s.stage_type)} stage={s} />
-              ))}
-            </div>
-          )}
-
-          {/* Section divider before upload block */}
-          <PipelineSectionDivider />
-
-          {/* Block 3: per-platform upload rows */}
-          {recording.outputs.length === 0 ? (
-            <PlatformOutputRow
-              output={null}
-              readyToUpload={false}
-              onUpload={() => {}}
-              uploadPending={false}
-            />
-          ) : (
-            <div className="divide-y divide-[#F0F0F0]">
-              {recording.outputs.map((output) => (
-                <PlatformOutputRow
-                  key={output.id}
-                  output={output}
-                  readyToUpload={recording.ready_to_upload}
-                  onUpload={(targetType) => uploadTo.mutate(targetType)}
-                  uploadPending={uploadTo.isPending}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Media & downloads ── */}
-      {showMediaSection && (
-        <div className="mb-6 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Медиа и файлы
-          </h2>
-
-          {mediaDownloadError ? (
-            <div className="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
-              {mediaDownloadError}
-            </div>
-          ) : null}
-
-          {hasVideoFiles ? (
-            <div className="mb-6">
-              {hasProcessedVid && hasOriginalVid ? (
+          {/* Video */}
+          {hasVideoFiles && (
+            <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Видео</h2>
+              {hasProcessedVid && hasOriginalVid && (
                 <div className="mb-3 flex gap-2">
                   <button
                     type="button"
@@ -834,8 +800,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     Исходное
                   </button>
                 </div>
-              ) : null}
-              {videoTab === "processed" && hasProcessedVid ? (
+              )}
+              {videoTab === "processed" && hasProcessedVid && (
                 <RecordingVideoPlayer
                   key={`${id}-processed`}
                   recordingId={id}
@@ -846,8 +812,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       : undefined
                   }
                 />
-              ) : null}
-              {videoTab === "original" && hasOriginalVid ? (
+              )}
+              {videoTab === "original" && hasOriginalVid && (
                 <RecordingVideoPlayer
                   key={`${id}-original`}
                   recordingId={id}
@@ -858,119 +824,350 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       : undefined
                   }
                 />
-              ) : null}
+              )}
             </div>
-          ) : null}
+          )}
 
-          <div className="flex flex-wrap gap-2">
-            {recording.subtitles?.srt?.exists ? (
+          {/* Media & Downloads */}
+          {showMediaSection && (
+            <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Файлы и артефакты
+              </h2>
+              {mediaDownloadError && (
+                <div className="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+                  {mediaDownloadError}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {recording.subtitles?.srt?.exists && (
+                  <button
+                    type="button"
+                    onClick={() => downloadArtifact("srt", `${dlStem}.srt`)}
+                    className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
+                  >
+                    SRT{recording.subtitles.srt.size_kb != null ? ` (${recording.subtitles.srt.size_kb} КБ)` : ""}
+                  </button>
+                )}
+                {recording.subtitles?.vtt?.exists && (
+                  <button
+                    type="button"
+                    onClick={() => downloadArtifact("vtt", `${dlStem}.vtt`)}
+                    className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
+                  >
+                    VTT{recording.subtitles.vtt.size_kb != null ? ` (${recording.subtitles.vtt.size_kb} КБ)` : ""}
+                  </button>
+                )}
+                {recording.transcription?.exists && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => downloadArtifact("transcript_json", `${dlStem}_transcript.json`)}
+                      className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
+                    >
+                      Транскрипция JSON
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadArtifact("transcript_txt", `${dlStem}_transcript.txt`)}
+                      className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
+                    >
+                      Транскрипция TXT
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadArtifact("transcript_words", `${dlStem}_words.txt`)}
+                      className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
+                    >
+                      Слова TXT
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Topics & Timecodes (collapsible, open by default) */}
+          {recording.topics?.exists && (
+            <CollapsibleCard title="Темы и таймкоды" defaultOpen={true}>
+              {topicTimestamps.length > 0 ? (
+                <ol className="space-y-2">
+                  {topicTimestamps.map((t, i) => (
+                    <li key={i} className="flex items-baseline gap-3">
+                      <span className="w-12 shrink-0 font-mono text-xs text-[#224C87]">
+                        {formatTimecode(t.start)}
+                      </span>
+                      <span className="text-sm text-gray-800">{t.topic}</span>
+                      {t.end != null && (
+                        <span className="ml-auto shrink-0 font-mono text-[11px] text-gray-300">
+                          → {formatTimecode(t.end)}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-gray-400">Топики ещё не извлечены</p>
+              )}
+            </CollapsibleCard>
+          )}
+
+          {/* Config (collapsible) */}
+          <CollapsibleCard title="Конфигурация">
+            {configLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <Loader2 size={14} className="animate-spin" />
+                Загрузка…
+              </div>
+            ) : !recordingConfig ? (
+              <p className="text-sm text-gray-400">Нет данных</p>
+            ) : (
+              <dl className="space-y-3">
+                <ConfigRow
+                  label="Шаблон"
+                  value={
+                    recordingConfig.template_name
+                      ? `${recordingConfig.template_name} (#${recordingConfig.template_id})`
+                      : "Не привязан"
+                  }
+                />
+                {recordingConfig.has_manual_override && (
+                  <ConfigRow label="Переопределение" value="Есть ручной override" highlight />
+                )}
+                {recordingConfig.processing_config?.transcription && (() => {
+                  const t = recordingConfig.processing_config!.transcription!;
+                  return (
+                    <>
+                      {t.language     && <ConfigRow label="Язык"          value={t.language} />}
+                      {t.granularity  && <ConfigRow label="Гранулярность" value={t.granularity} />}
+                      {t.enable_transcription != null && <ConfigRow label="Транскрипция" value={t.enable_transcription ? "Вкл" : "Выкл"} />}
+                      {t.enable_topics    != null && <ConfigRow label="Темы"          value={t.enable_topics    ? "Вкл" : "Выкл"} />}
+                      {t.enable_subtitles != null && <ConfigRow label="Субтитры"      value={t.enable_subtitles ? "Вкл" : "Выкл"} />}
+                    </>
+                  );
+                })()}
+                {recordingConfig.output_config && (() => {
+                  const o = recordingConfig.output_config!;
+                  return (
+                    <>
+                      {o.auto_upload    != null && <ConfigRow label="Авто-загрузка"      value={o.auto_upload    ? "Вкл" : "Выкл"} />}
+                      {o.upload_captions != null && <ConfigRow label="Загрузка субтитров" value={o.upload_captions ? "Вкл" : "Выкл"} />}
+                      {o.preset_ids?.length      ? <ConfigRow label="Пресеты"            value={o.preset_ids.join(", ")} /> : null}
+                    </>
+                  );
+                })()}
+                {recordingConfig.metadata_config && (() => {
+                  const m = recordingConfig.metadata_config!;
+                  return (
+                    <>
+                      {m.title_template       && <ConfigRow label="Title template"       value={m.title_template}       mono />}
+                      {m.description_template && <ConfigRow label="Description template" value={m.description_template} mono />}
+                    </>
+                  );
+                })()}
+              </dl>
+            )}
+          </CollapsibleCard>
+
+          {/* Details (collapsible, default closed) */}
+          <CollapsibleCard title="Подробнее">
+            <dl className="space-y-2.5">
+              <InfoRow label="ID"           value={`#${recording.id}`} />
+              <InfoRow label="Название"     value={recording.display_name} />
+              <InfoRow label="Статус"       value={recording.status} />
+              {recording.source?.source_type && <InfoRow label="Источник" value={recording.source.source_type} />}
+              <InfoRow label="Дата"         value={formatDate(recording.start_time)} />
+              <InfoRow label="Длительность" value={formatDuration(recording.duration)} />
+              {recording.video_file_size && <InfoRow label="Размер файла" value={formatFileSize(recording.video_file_size)} />}
+              {recording.pipeline_duration_seconds ? <InfoRow label="Время пайплайна" value={`${Math.round(recording.pipeline_duration_seconds)} с`} /> : null}
+              <InfoRow label="Шаблон"       value={templateLabel} />
+            </dl>
+          </CollapsibleCard>
+        </div>
+
+        {/* ════ SIDEBAR ════ */}
+        <div className="w-full space-y-5 lg:w-80 lg:shrink-0">
+
+          {/* Control Panel */}
+          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Управление</h2>
+            <div className="space-y-2">
+              {isSoftDeleted ? (
+                <button
+                  disabled={isActing}
+                  onClick={() => restoreRec.mutate()}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {restoreRec.isPending ? <Loader2 size={15} className="animate-spin" /> : <ArchiveRestore size={15} />}
+                  Восстановить
+                </button>
+              ) : (
+                <>
+                  <button
+                    disabled={!recording.can_run || isActing}
+                    onClick={() => run.mutate()}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#224C87] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1a3d6e] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {run.isPending ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+                    Запустить
+                  </button>
+                  <button
+                    disabled={!recording.can_run || isActing}
+                    onClick={() => setRunConfigOpen(true)}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#224C87]/30 bg-white px-4 py-2 text-sm font-medium text-[#224C87] transition-colors hover:bg-[#224C87]/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Settings2 size={14} />
+                    С конфигурацией…
+                  </button>
+                </>
+              )}
+              <div className="flex gap-2 pt-1">
+                {!isSoftDeleted && (
+                  <>
+                    <button
+                      disabled={!recording.can_pause || isActing}
+                      onClick={() => pause.mutate()}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {pause.isPending ? <Loader2 size={13} className="animate-spin" /> : <Pause size={13} />}
+                      Пауза
+                    </button>
+                    <button
+                      disabled={isActing}
+                      onClick={() => setResetConfirm(true)}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {resetRec.isPending ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                      Сброс
+                    </button>
+                  </>
+                )}
+                <button
+                  disabled={isActing}
+                  onClick={() => setDeleteConfirm(true)}
+                  title="Удалить"
+                  className="flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
               <button
-                type="button"
-                onClick={() => downloadArtifact("srt", `${dlStem}.srt`)}
-                className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
+                onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
               >
-                SRT{recording.subtitles.srt.size_kb != null ? ` (${recording.subtitles.srt.size_kb} КБ)` : ""}
+                <FilePlus2 size={13} />
+                Создать шаблон
               </button>
-            ) : null}
-            {recording.subtitles?.vtt?.exists ? (
-              <button
-                type="button"
-                onClick={() => downloadArtifact("vtt", `${dlStem}.vtt`)}
-                className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
-              >
-                VTT{recording.subtitles.vtt.size_kb != null ? ` (${recording.subtitles.vtt.size_kb} КБ)` : ""}
-              </button>
-            ) : null}
-            {recording.transcription?.exists ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => downloadArtifact("transcript_json", `${dlStem}_transcript.json`)}
-                  className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
-                >
-                  JSON транскрипция
-                </button>
-                <button
-                  type="button"
-                  onClick={() => downloadArtifact("transcript_txt", `${dlStem}_transcript.txt`)}
-                  className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
-                >
-                  TXT транскрипция
-                </button>
-                <button
-                  type="button"
-                  onClick={() => downloadArtifact("transcript_words", `${dlStem}_words.txt`)}
-                  className="rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50"
-                >
-                  Слова (TXT)
-                </button>
-              </>
-            ) : null}
+            </div>
+          </div>
+
+          {/* Pipeline */}
+          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Пайплайн</h2>
+              {recording.pipeline_duration_seconds != null && recording.pipeline_duration_seconds > 0 && (
+                <span className="text-[10px] text-gray-400">
+                  ~{Math.round(recording.pipeline_duration_seconds)} с
+                </span>
+              )}
+            </div>
+            {allPipelineStages.length === 0 ? (
+              <p className="text-xs text-gray-400">Нет данных</p>
+            ) : (
+              <div className="divide-y divide-[#F5F5F5]">
+                {allPipelineStages.map((s) => {
+                  const canon = normalizeStageType(s.stage_type);
+                  const canRerun = !!STAGE_RERUN_ENDPOINT[canon] &&
+                    !["PENDING", "IN_PROGRESS"].includes(s.failed ? "FAILED" : s.status.toUpperCase());
+                  const isRerunning = rerunningStage === s.stage_type;
+                  return (
+                    <div key={canon} className="flex items-center gap-1">
+                      <div className="flex-1 min-w-0">
+                        <PipelineCompactRow stage={s} />
+                      </div>
+                      {canRerun && (
+                        <button
+                          type="button"
+                          title="Перезапустить этап"
+                          disabled={isRerunning || !!rerunningStage}
+                          onClick={() => handleStageRerun(s.stage_type)}
+                          className="shrink-0 rounded-lg border border-[#D9D9D9] bg-white p-1 text-gray-400 transition-colors hover:border-[#224C87] hover:bg-[#224C87]/5 hover:text-[#224C87] disabled:opacity-40"
+                        >
+                          {isRerunning
+                            ? <Loader2 size={11} className="animate-spin" />
+                            : <RotateCcw size={11} />}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Publications */}
+          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
+            <div className="mb-1 flex items-center justify-between">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Публикации</h2>
+              {recording.upload_summary && recording.upload_summary.total > 0 && (
+                <span className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                  recording.upload_summary.uploaded === recording.upload_summary.total
+                    ? "bg-green-50 text-green-700"
+                    : recording.upload_summary.failed > 0
+                      ? "bg-red-50 text-red-600"
+                      : "bg-gray-100 text-gray-500"
+                )}>
+                  {recording.upload_summary.uploaded}/{recording.upload_summary.total}
+                </span>
+              )}
+            </div>
+            {recording.outputs.length === 0 ? (
+              <p className="mt-2 text-xs text-gray-400">
+                Платформы не настроены. Добавьте пресеты и запустите запись.
+              </p>
+            ) : (
+              <div className="divide-y divide-[#F5F5F5]">
+                {recording.outputs.map((output) => (
+                  <PlatformOutputRow
+                    key={output.id}
+                    output={output}
+                    readyToUpload={recording.ready_to_upload}
+                    onUpload={(targetType) => uploadTo.mutate(targetType)}
+                    uploadPending={uploadTo.isPending}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Info */}
+          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Инфо</h2>
+            <dl className="space-y-2">
+              <SidebarInfoRow label="ID"          value={`#${recording.id}`} />
+              <SidebarInfoRow label="Шаблон"      value={templateLabel} />
+              <SidebarInfoRow label="Дата"        value={formatDate(recording.start_time)} />
+              {recording.duration > 0 && (
+                <SidebarInfoRow label="Длительность" value={formatDuration(recording.duration)} />
+              )}
+              {recording.video_file_size ? (
+                <SidebarInfoRow label="Размер" value={formatFileSize(recording.video_file_size)} />
+              ) : null}
+              {recording.pipeline_duration_seconds ? (
+                <SidebarInfoRow label="Пайплайн" value={`${Math.round(recording.pipeline_duration_seconds)} с`} />
+              ) : null}
+            </dl>
           </div>
         </div>
-      )}
-
-      {/* ── Topics & Timecodes ── */}
-      {recording.topics?.exists ? (
-        <div className="mb-6 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-          <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Topics &amp; Timecodes
-          </h2>
-          {topicTimestamps.length > 0 ? (
-            <ol className="space-y-2">
-              {topicTimestamps.map((t, i) => (
-                <li key={i} className="flex items-baseline gap-3">
-                  <span className="w-12 shrink-0 font-mono text-xs text-gray-400">
-                    {formatTimecode(t.start)}
-                  </span>
-                  <span className="text-sm text-gray-700">{t.topic}</span>
-                  {t.end != null ? (
-                    <span className="ml-auto shrink-0 font-mono text-[11px] text-gray-300">
-                      → {formatTimecode(t.end)}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="text-sm text-gray-400">Топики ещё не извлечены</p>
-          )}
-        </div>
-      ) : null}
-
-      {/* ── Metadata (Info) — at bottom ── */}
-      <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Метаданные</h2>
-        <dl className="space-y-2.5">
-          <InfoRow label="Название" value={recording.display_name} />
-          <InfoRow label="ID" value={`#${recording.id}`} />
-          <InfoRow label="Источник" value={recording.source?.source_type ?? "—"} />
-          {recording.source?.source_key ? (
-            <InfoRow label="Source key" value={recording.source.source_key} />
-          ) : null}
-          <InfoRow label="Длительность" value={formatDuration(recording.duration)} />
-          <InfoRow label="Дата" value={formatDate(recording.start_time)} />
-          <InfoRow label="Создано" value={formatDate(recording.created_at)} />
-          {recording.video_file_size ? (
-            <InfoRow label="Размер файла" value={formatFileSize(recording.video_file_size)} />
-          ) : null}
-          {recording.pipeline_duration_seconds ? (
-            <InfoRow
-              label="Время пайплайна"
-              value={`${Math.round(recording.pipeline_duration_seconds)} с`}
-            />
-          ) : null}
-          <InfoRow label="Шаблон" value={recording.is_mapped ? `#${recording.template_id}` : "Не привязан"} />
-          <InfoRow label="Статус" value={recording.status} />
-        </dl>
       </div>
 
       <ConfirmDialog
         open={deleteConfirm}
-        title="Delete recording?"
-        description={`"${recording.display_name}" will be soft-deleted and can be restored for a limited time.`}
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
+        title="Удалить запись?"
+        description={`"${recording.display_name}" будет удалена (soft-delete, восстановима в течение ограниченного времени).`}
+        confirmLabel="Удалить"
+        cancelLabel="Отмена"
         danger
         onConfirm={() => { setDeleteConfirm(false); deleteRec.mutate(); }}
         onCancel={() => setDeleteConfirm(false)}
@@ -978,10 +1175,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
       <ConfirmDialog
         open={resetConfirm}
-        title="Reset recording?"
-        description="All processed files (video, audio, transcription) will be deleted and the recording will return to INITIALIZED status. This cannot be undone."
-        confirmLabel="Reset"
-        cancelLabel="Cancel"
+        title="Сбросить запись?"
+        description="Все обработанные файлы (видео, аудио, транскрипция) будут удалены, запись вернётся в статус INITIALIZED. Действие необратимо."
+        confirmLabel="Сбросить"
+        cancelLabel="Отмена"
         onConfirm={() => { setResetConfirm(false); resetRec.mutate(); }}
         onCancel={() => setResetConfirm(false)}
       />
@@ -994,15 +1191,107 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         recordingName={recording.display_name}
         onSuccess={() => qc.invalidateQueries({ queryKey: ["recording", id] })}
       />
+
+      {/* Create template modal */}
+      {createTemplateOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => { if (e.currentTarget === e.target) { setCreateTemplateOpen(false); } }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-sm font-semibold text-gray-900">Создать шаблон из записи</h2>
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-500">Название шаблона</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={createTemplateName}
+                  onChange={(e) => setCreateTemplateName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && createTemplateName.trim()) createTemplate.mutate(createTemplateName.trim());
+                    if (e.key === "Escape") setCreateTemplateOpen(false);
+                  }}
+                  placeholder="Название шаблона"
+                  className="w-full rounded-xl border border-[#D9D9D9] px-3 py-2 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
+                />
+              </div>
+              {createTemplate.isError && (
+                <p className="text-xs text-red-500">
+                  {(createTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка"}
+                </p>
+              )}
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setCreateTemplateOpen(false)}
+                  className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  disabled={!createTemplateName.trim() || createTemplate.isPending}
+                  onClick={() => createTemplate.mutate(createTemplateName.trim())}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
+                >
+                  {createTemplate.isPending ? <Loader2 size={14} className="animate-spin" /> : <FilePlus2 size={14} />}
+                  Создать
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Helper row components
+// ---------------------------------------------------------------------------
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4">
       <dt className="shrink-0 text-sm text-gray-500">{label}</dt>
       <dd className="text-right text-sm text-gray-900">{value}</dd>
+    </div>
+  );
+}
+
+function SidebarInfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <dt className="shrink-0 text-[11px] text-gray-500">{label}</dt>
+      <dd className="min-w-0 truncate text-right text-[11px] font-medium text-gray-800" title={value}>{value}</dd>
+    </div>
+  );
+}
+
+function ConfigRow({
+  label,
+  value,
+  mono,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="shrink-0 text-sm text-gray-500">{label}</dt>
+      <dd
+        className={cn(
+          "text-right text-sm",
+          highlight ? "font-medium text-amber-600" : "text-gray-900",
+          mono && "font-mono text-xs"
+        )}
+      >
+        {value}
+      </dd>
     </div>
   );
 }

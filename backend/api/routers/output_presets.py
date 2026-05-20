@@ -163,6 +163,43 @@ async def create_preset(
     return preset
 
 
+@router.post("/{preset_id}/copy", response_model=OutputPresetResponse, status_code=status.HTTP_201_CREATED)
+async def copy_preset(
+    preset_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Copy an output preset. The copy is active by default."""
+    repo = OutputPresetRepository(session)
+    original = await repo.find_by_id(preset_id, current_user.id)
+    if not original:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset {preset_id} not found")
+
+    name = await _unique_copy_name_preset(repo, current_user.id, original.name)
+    new_preset = await repo.create(
+        user_id=current_user.id,
+        name=name,
+        platform=original.platform,
+        credential_id=original.credential_id,
+        preset_metadata=original.preset_metadata,
+        description=original.description,
+    )
+
+    await session.commit()
+    return new_preset
+
+
+async def _unique_copy_name_preset(repo: OutputPresetRepository, user_id: str, original_name: str) -> str:
+    base = f"Copy of {original_name}"
+    if not await repo.find_by_name(user_id, base):
+        return base
+    for i in range(2, 100):
+        candidate = f"{base} ({i})"
+        if not await repo.find_by_name(user_id, candidate):
+            return candidate
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot generate unique copy name")
+
+
 @router.patch("/{preset_id}", response_model=OutputPresetResponse)
 async def update_preset(
     preset_id: int,

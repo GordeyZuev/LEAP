@@ -1,13 +1,26 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, Copy, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
-import { TagInput } from "@/components/ui/tag-input";
+import {
+  YouTubeFields,
+  VkFields,
+  YandexDiskFields,
+  type YouTubeFieldsValue,
+  type VkFieldsValue,
+  type YandexDiskFieldsValue,
+  DEFAULT_YOUTUBE_FIELDS,
+  DEFAULT_VK_FIELDS,
+  DEFAULT_YANDEX_DISK_FIELDS,
+} from "@/components/platforms/platform-fields";
+import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { usePlatforms } from "@/hooks/use-references";
 
 type Platform = "youtube" | "vk" | "yandex_disk";
 
@@ -17,130 +30,84 @@ interface CredentialItem {
   account_name: string | null;
 }
 
-// Platform-specific metadata interfaces
-interface YouTubeMeta {
-  title_template: string;
-  description_template: string;
-  privacy: "public" | "private" | "unlisted";
-  category_id: string;
-  playlist_id: string;
-  tags: string[];
-  made_for_kids: boolean;
+// ---------------------------------------------------------------------------
+// Per-platform meta helpers
+// ---------------------------------------------------------------------------
+
+type PlatformMeta = YouTubeFieldsValue | VkFieldsValue | YandexDiskFieldsValue;
+
+function getDefaultMeta(platform: Platform): PlatformMeta {
+  if (platform === "youtube")     return { ...DEFAULT_YOUTUBE_FIELDS };
+  if (platform === "vk")          return { ...DEFAULT_VK_FIELDS };
+  return { ...DEFAULT_YANDEX_DISK_FIELDS };
 }
 
-interface VKMeta {
-  title_template: string;
-  description_template: string;
-  privacy_view: number;
-  group_id: string;
-  album_id: string;
-}
-
-interface YandexDiskMeta {
-  folder_path_template: string;
-  filename_template: string;
-  overwrite: boolean;
-  publish: boolean;
-}
-
-type PresetMeta = YouTubeMeta | VKMeta | YandexDiskMeta;
-
-interface PresetForm {
-  name: string;
-  description: string;
-  platform: Platform;
-  credential_id: number | "";
-  preset_metadata: PresetMeta;
-}
-
-const DEFAULT_YT_META: YouTubeMeta = {
-  title_template: "",
-  description_template: "",
-  privacy: "unlisted",
-  category_id: "27",
-  playlist_id: "",
-  tags: [],
-  made_for_kids: false,
-};
-
-const DEFAULT_VK_META: VKMeta = {
-  title_template: "",
-  description_template: "",
-  privacy_view: 0,
-  group_id: "",
-  album_id: "",
-};
-
-const DEFAULT_YD_META: YandexDiskMeta = {
-  folder_path_template: "/Video/{{ display_name }}",
-  filename_template: "",
-  overwrite: false,
-  publish: false,
-};
-
-function getDefaultMeta(platform: Platform): PresetMeta {
-  if (platform === "youtube") return { ...DEFAULT_YT_META };
-  if (platform === "vk") return { ...DEFAULT_VK_META };
-  return { ...DEFAULT_YD_META };
-}
-
-/** API may return null for optional strings or tags; React inputs need defined strings / arrays. */
-function coercePresetMeta(platform: Platform, raw: unknown): PresetMeta {
+function coerceMeta(platform: Platform, raw: unknown): PlatformMeta {
   const base = getDefaultMeta(platform);
   if (!raw || typeof raw !== "object") return base;
   const o = raw as Record<string, unknown>;
+
   if (platform === "youtube") {
     const priv = o.privacy;
     const privacy =
-      priv === "public" || priv === "private" || priv === "unlisted" ? priv : (base as YouTubeMeta).privacy;
+      priv === "public" || priv === "private" || priv === "unlisted"
+        ? priv
+        : (base as YouTubeFieldsValue).privacy;
     const tagList = o.tags;
     return {
-      title_template: o.title_template != null ? String(o.title_template) : "",
+      title_template:       o.title_template       != null ? String(o.title_template)       : "",
       description_template: o.description_template != null ? String(o.description_template) : "",
       privacy,
-      category_id: o.category_id != null ? String(o.category_id) : (base as YouTubeMeta).category_id,
-      playlist_id: o.playlist_id != null ? String(o.playlist_id) : "",
-      tags: Array.isArray(tagList) ? tagList.filter((t): t is string => typeof t === "string") : [],
-      made_for_kids: Boolean(o.made_for_kids),
-    };
+      category_id:    o.category_id    != null ? String(o.category_id)    : "",
+      playlist_id:    o.playlist_id    != null ? String(o.playlist_id)    : "",
+      thumbnail_name: o.thumbnail_name != null ? String(o.thumbnail_name) : "",
+      tags:           Array.isArray(tagList) ? tagList.filter((t): t is string => typeof t === "string") : [],
+      made_for_kids:  Boolean(o.made_for_kids),
+    } satisfies YouTubeFieldsValue;
   }
+
   if (platform === "vk") {
     const pv = o.privacy_view;
+    const pc = o.privacy_comment;
     return {
-      title_template: o.title_template != null ? String(o.title_template) : "",
+      title_template:       o.title_template       != null ? String(o.title_template)       : "",
       description_template: o.description_template != null ? String(o.description_template) : "",
-      privacy_view: typeof pv === "number" && !Number.isNaN(pv) ? pv : Number(pv) || 0,
-      group_id: o.group_id != null ? String(o.group_id) : "",
-      album_id: o.album_id != null ? String(o.album_id) : "",
-    };
+      privacy_view:    pv != null ? String(pv)    : "",
+      privacy_comment: pc != null ? String(pc)    : "",
+      group_id:        o.group_id    != null ? String(o.group_id)    : "",
+      album_id:        o.album_id    != null ? String(o.album_id)    : "",
+      thumbnail_name:  o.thumbnail_name != null ? String(o.thumbnail_name) : "",
+      wallpost:        Boolean(o.wallpost),
+    } satisfies VkFieldsValue;
   }
+
   return {
-    folder_path_template:
-      o.folder_path_template != null ? String(o.folder_path_template) : (base as YandexDiskMeta).folder_path_template,
-    filename_template: o.filename_template != null ? String(o.filename_template) : "",
+    folder_path_template: o.folder_path_template != null ? String(o.folder_path_template) : (base as YandexDiskFieldsValue).folder_path_template,
+    filename_template:    o.filename_template    != null ? String(o.filename_template)    : "",
     overwrite: Boolean(o.overwrite),
-    publish: Boolean(o.publish),
-  };
+    publish:   Boolean(o.publish),
+  } satisfies YandexDiskFieldsValue;
 }
 
-const PLATFORM_OPTIONS: { value: Platform; label: string }[] = [
-  { value: "youtube",     label: "YouTube" },
-  { value: "vk",         label: "VK Video" },
-  { value: "yandex_disk",label: "Yandex Disk" },
-];
+// ---------------------------------------------------------------------------
+// Serialise meta back to API format
+// ---------------------------------------------------------------------------
 
-const YT_PRIVACY_OPTIONS = [
-  { value: "public", label: "Public" },
-  { value: "unlisted", label: "Unlisted" },
-  { value: "private", label: "Private" },
-];
+function serialiseMeta(platform: Platform, meta: PlatformMeta): Record<string, unknown> {
+  if (platform === "vk") {
+    const vk = meta as VkFieldsValue;
+    return {
+      ...vk,
+      privacy_view:    vk.privacy_view    !== "" ? Number(vk.privacy_view)    : undefined,
+      privacy_comment: vk.privacy_comment !== "" ? Number(vk.privacy_comment) : undefined,
+    };
+  }
+  return meta as unknown as Record<string, unknown>;
+}
 
-const VK_PRIVACY_OPTIONS = [
-  { value: 0, label: "Everyone" },
-  { value: 1, label: "Friends" },
-  { value: 2, label: "Friends of friends" },
-  { value: 3, label: "Only me" },
-];
+// ---------------------------------------------------------------------------
+// Page component
+// ---------------------------------------------------------------------------
 
 export default function PresetEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -148,62 +115,68 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   const router = useRouter();
   const qc = useQueryClient();
 
-  const [form, setForm] = useState<PresetForm>({
-    name: "",
-    description: "",
-    platform: "youtube",
-    credential_id: "",
-    preset_metadata: { ...DEFAULT_YT_META },
-  });
-  const [saveError, setSaveError] = useState("");
+  const { data: platformOptions = [] } = usePlatforms();
+
+  const [name,        setName]        = useState("");
+  const [description, setDescription] = useState("");
+  const [platform,    setPlatform]    = useState<Platform>("youtube");
+  const [credId,      setCredId]      = useState<number | "">("");
+  const [meta,        setMeta]        = useState<PlatformMeta>({ ...DEFAULT_YOUTUBE_FIELDS });
+  const [saveError,   setSaveError]   = useState("");
+
+  const savedSnapshot = useRef<string>(
+    JSON.stringify({ name: "", description: "", credId: "", meta: { ...DEFAULT_YOUTUBE_FIELDS } })
+  );
+  const [confirmCopy, setConfirmCopy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [pendingHref, setPendingHref] = useState("");
 
   const { data: existing } = useQuery({
     queryKey: ["preset", id],
-    queryFn: async () => {
-      const res = await apiClient.get(`/presets/${id}`);
-      return res.data;
-    },
+    queryFn: async () => (await apiClient.get(`/presets/${id}`)).data,
     enabled: !isNew,
   });
 
   const { data: credsData } = useQuery<{ items: CredentialItem[] }>({
     queryKey: ["credentials-list"],
-    queryFn: async () => {
-      const res = await apiClient.get("/credentials?per_page=50");
-      return res.data;
-    },
+    queryFn: async () => (await apiClient.get("/credentials?per_page=50")).data,
   });
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!existing) return;
-    const platform = (existing.platform ?? "youtube") as Platform;
-    setForm({
-      name: existing.name ?? "",
-      description: existing.description ?? "",
-      platform,
-      credential_id: existing.credential_id ?? "",
-      preset_metadata: coercePresetMeta(platform, existing.preset_metadata),
-    });
+    const p = (existing.platform ?? "youtube") as Platform;
+    const newName = existing.name ?? "";
+    const newDesc = existing.description ?? "";
+    const newCredId = existing.credential_id ?? "";
+    const newMeta = coerceMeta(p, existing.preset_metadata);
+    setPlatform(p);
+    setName(newName);
+    setDescription(newDesc);
+    setCredId(newCredId);
+    setMeta(newMeta);
+    savedSnapshot.current = JSON.stringify({ name: newName, description: newDesc, credId: newCredId, meta: newMeta });
   }, [existing]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const save = useMutation({
-    mutationFn: async (data: PresetForm) => {
+    mutationFn: async () => {
       const body = {
-        name: data.name,
-        description: data.description || undefined,
-        platform: data.platform,
-        credential_id: data.credential_id || undefined,
-        preset_metadata: data.preset_metadata,
+        name,
+        description: description || undefined,
+        platform,
+        credential_id: credId || undefined,
+        preset_metadata: serialiseMeta(platform, meta),
       };
       if (isNew) {
-        const res = await apiClient.post("/presets", body);
-        return res.data;
+        return (await apiClient.post("/presets", body)).data;
       } else {
-        const res = await apiClient.patch(`/presets/${id}`, body);
-        return res.data;
+        return (await apiClient.patch(`/presets/${id}`, body)).data;
       }
     },
     onSuccess: (result) => {
+      savedSnapshot.current = JSON.stringify({ name, description, credId, meta });
       qc.invalidateQueries({ queryKey: ["presets"] });
       setSaveError("");
       if (isNew) router.push(`/presets/${result.id}`);
@@ -214,38 +187,84 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
     },
   });
 
+  const copyPreset = useMutation({
+    mutationFn: () =>
+      apiClient.post<{ id: number }>(`/presets/${id}/copy`).then((r) => r.data),
+    onSuccess: (result) => router.push(`/presets/${result.id}`),
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setSaveError(typeof detail === "string" ? detail : "Failed to copy preset");
+    },
+  });
+
+  const deletePreset = useMutation({
+    mutationFn: () => apiClient.delete(`/presets/${id}`),
+    onSuccess: () => router.push("/presets"),
+    onError: () => setSaveError("Failed to delete preset"),
+  });
+
   function changePlatform(p: Platform) {
-    setForm((f) => ({ ...f, platform: p, preset_metadata: getDefaultMeta(p), credential_id: "" }));
+    setPlatform(p);
+    setMeta(getDefaultMeta(p));
+    setCredId("");
+  }
+
+  function patchMeta(patch: Partial<PlatformMeta>) {
+    setMeta((prev) => ({ ...prev, ...patch } as PlatformMeta));
   }
 
   const creds = (credsData?.items ?? []).filter((c) => {
-    if (form.platform === "youtube") return c.platform === "youtube";
-    if (form.platform === "vk") return c.platform === "vk_video";
-    if (form.platform === "yandex_disk") return c.platform === "yandex_disk";
+    if (platform === "youtube")     return c.platform === "youtube";
+    if (platform === "vk")          return c.platform === "vk_video";
+    if (platform === "yandex_disk") return c.platform === "yandex_disk";
     return false;
   });
 
-  const meta = form.preset_metadata;
-
-  function setMeta<K extends string>(key: K, value: unknown) {
-    setForm((f) => ({ ...f, preset_metadata: { ...f.preset_metadata, [key]: value } as PresetMeta }));
-  }
+  const isDirty =
+    JSON.stringify({ name, description, credId, meta }) !== savedSnapshot.current;
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6 flex-wrap">
-        <Link href="/presets" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+      <div className="mb-6 flex flex-wrap items-center gap-4">
+        <button
+          type="button"
+          onClick={() => {
+            if (isDirty) { setPendingHref("/presets"); setConfirmLeave(true); }
+            else router.push("/presets");
+          }}
+          className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
+        >
           <ArrowLeft size={16} /> Presets
-        </Link>
+        </button>
         <span className="text-gray-300">/</span>
-        <h1 className="text-lg font-semibold text-gray-900 flex-1">
+        <h1 className="flex-1 text-lg font-semibold text-gray-900">
           {isNew ? "New preset" : (existing?.name ?? "…")}
         </h1>
+        {!isNew && (
+          <button
+            onClick={() => setConfirmCopy(true)}
+            disabled={copyPreset.isPending}
+            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Copy size={15} />
+            {copyPreset.isPending ? "Copying…" : "Copy"}
+          </button>
+        )}
+        {!isNew && (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={deletePreset.isPending}
+            className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+          >
+            <Trash2 size={15} />
+            Delete
+          </button>
+        )}
         <button
-          onClick={() => save.mutate(form)}
-          disabled={save.isPending || !form.name}
-          className="flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+          onClick={() => save.mutate()}
+          disabled={save.isPending || !name}
+          className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
         >
           <Save size={15} />
           {save.isPending ? "Saving…" : "Save"}
@@ -253,175 +272,147 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
       </div>
 
       {saveError && (
-        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{saveError}</div>
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          {saveError}
+        </div>
       )}
 
       <div className="space-y-5">
         {/* General */}
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
+        <div className="space-y-4 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-700">General</h2>
-          <FormField label="Name *">
+
+          <div>
+            <label className={FILTER_LABEL}>Name *</label>
             <input
               type="text"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               placeholder="My YouTube preset"
-              className={inputCls}
+              className={FILTER_CONTROL}
             />
-          </FormField>
-          <FormField label="Description">
+          </div>
+
+          <div>
+            <label className={FILTER_LABEL}>Description</label>
             <input
               type="text"
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional"
-              className={inputCls}
+              className={FILTER_CONTROL}
             />
-          </FormField>
-          <FormField label="Platform">
-            <div className="flex gap-2">
-              {PLATFORM_OPTIONS.map((o) => (
+          </div>
+
+          <div>
+            <label className={FILTER_LABEL}>Platform</label>
+            <div className="mt-1 flex gap-2">
+              {platformOptions.map((o) => (
                 <button
                   key={o.value}
                   type="button"
-                  onClick={() => changePlatform(o.value)}
+                  onClick={() => changePlatform(o.value as Platform)}
                   disabled={!isNew}
                   className={cn(
-                    "flex-1 py-2 rounded-xl text-sm font-medium border transition-colors",
-                    form.platform === o.value
-                      ? "bg-[#224C87] text-white border-[#224C87]"
-                      : "bg-white text-gray-600 border-[#D9D9D9] hover:bg-gray-50 disabled:opacity-40"
+                    "flex-1 rounded-xl border py-2 text-sm font-medium transition-colors",
+                    platform === o.value
+                      ? "border-[#224C87] bg-[#224C87] text-white"
+                      : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40"
                   )}
                 >
                   {o.label}
                 </button>
               ))}
             </div>
-          </FormField>
-          <FormField label="Credential">
+          </div>
+
+          <div>
+            <label className={FILTER_LABEL}>Credential</label>
             {creds.length === 0 ? (
-              <p className="text-sm text-gray-400">
-                No {PLATFORM_OPTIONS.find((o) => o.value === form.platform)?.label} credentials.{" "}
-                <Link href="/credentials" className="text-[#224C87] hover:underline">Add credentials →</Link>
+              <p className="mt-1 text-sm text-gray-400">
+                No {platformOptions.find((o) => o.value === platform)?.label} credentials.{" "}
+                <Link href="/credentials" className="text-[#224C87] hover:underline">
+                  Add credentials →
+                </Link>
               </p>
             ) : (
               <select
-                value={form.credential_id}
-                onChange={(e) => setForm((f) => ({ ...f, credential_id: Number(e.target.value) || "" }))}
-                className={cn(inputCls, "bg-white")}
+                value={credId}
+                onChange={(e) => setCredId(Number(e.target.value) || "")}
+                className={cn(FILTER_CONTROL, "bg-white")}
               >
                 <option value="">— Select credential —</option>
                 {creds.map((c) => (
-                  <option key={c.id} value={c.id}>{c.account_name ?? `Credential #${c.id}`}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.account_name ?? `Credential #${c.id}`}
+                  </option>
                 ))}
               </select>
             )}
-          </FormField>
+          </div>
         </div>
 
         {/* Platform-specific settings */}
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
+        <div className="space-y-4 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-700">Platform settings</h2>
 
-          {/* Title + description (all platforms) */}
-          <FormField label="Title template" hint="Jinja2: {{ display_name }}, {{ date }}, {{ topic }}">
-            <input
-              type="text"
-              value={"title_template" in meta ? (meta as { title_template: string }).title_template : ""}
-              onChange={(e) => setMeta("title_template", e.target.value)}
-              placeholder="{{ display_name }} | {{ topic }}"
-              className={inputCls}
+          {platform === "youtube" && (
+            <YouTubeFields
+              value={meta as YouTubeFieldsValue}
+              onChange={patchMeta}
+              showThumbnail
+              showMadeForKids
             />
-          </FormField>
-          {"description_template" in meta && (
-            <FormField label="Description template">
-              <textarea
-                value={(meta as { description_template: string }).description_template}
-                onChange={(e) => setMeta("description_template", e.target.value)}
-                rows={4}
-                placeholder="Recording from {{ date }}\n\n{{ topics }}"
-                className={cn(inputCls, "resize-none font-mono text-xs")}
-              />
-            </FormField>
           )}
 
-          {/* YouTube-specific */}
-          {form.platform === "youtube" && (
-            <>
-              <FormField label="Privacy">
-                <select value={(meta as YouTubeMeta).privacy} onChange={(e) => setMeta("privacy", e.target.value)} className={cn(inputCls, "bg-white")}>
-                  {YT_PRIVACY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </FormField>
-              <FormField label="Playlist ID">
-                <input type="text" value={(meta as YouTubeMeta).playlist_id} onChange={(e) => setMeta("playlist_id", e.target.value)} placeholder="PLxxxxxxxx" className={inputCls} />
-              </FormField>
-              <FormField label="Tags">
-                <TagInput tags={(meta as YouTubeMeta).tags} onChange={(v) => setMeta("tags", v)} placeholder="Add tag…" />
-              </FormField>
-              <Toggle label="Made for kids" checked={(meta as YouTubeMeta).made_for_kids} onChange={(v) => setMeta("made_for_kids", v)} />
-            </>
+          {platform === "vk" && (
+            <VkFields
+              value={meta as VkFieldsValue}
+              onChange={patchMeta}
+              showThumbnail
+              showPrivacyComment
+              showWallpost
+            />
           )}
 
-          {/* VK-specific */}
-          {form.platform === "vk" && (
-            <>
-              <FormField label="Privacy view">
-                <select value={(meta as VKMeta).privacy_view} onChange={(e) => setMeta("privacy_view", Number(e.target.value))} className={cn(inputCls, "bg-white")}>
-                  {VK_PRIVACY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </FormField>
-              <FormField label="Group ID">
-                <input type="text" value={(meta as VKMeta).group_id} onChange={(e) => setMeta("group_id", e.target.value)} placeholder="123456789" className={inputCls} />
-              </FormField>
-              <FormField label="Album ID">
-                <input type="text" value={(meta as VKMeta).album_id} onChange={(e) => setMeta("album_id", e.target.value)} placeholder="Album ID" className={inputCls} />
-              </FormField>
-            </>
-          )}
-
-          {/* Yandex Disk-specific */}
-          {form.platform === "yandex_disk" && (
-            <>
-              <FormField label="Folder path *" hint="Jinja2: {{ display_name }}, {{ date }}">
-                <input type="text" value={(meta as YandexDiskMeta).folder_path_template} onChange={(e) => setMeta("folder_path_template", e.target.value)} placeholder="/Video/{{ display_name }}" className={inputCls} />
-              </FormField>
-              <FormField label="Filename template">
-                <input type="text" value={(meta as YandexDiskMeta).filename_template} onChange={(e) => setMeta("filename_template", e.target.value)} placeholder="{{ display_name }}.mp4" className={inputCls} />
-              </FormField>
-              <Toggle label="Overwrite existing" checked={(meta as YandexDiskMeta).overwrite} onChange={(v) => setMeta("overwrite", v)} />
-              <Toggle label="Publish publicly" checked={(meta as YandexDiskMeta).publish} onChange={(v) => setMeta("publish", v)} />
-            </>
+          {platform === "yandex_disk" && (
+            <YandexDiskFields
+              value={meta as YandexDiskFieldsValue}
+              onChange={patchMeta}
+            />
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmCopy}
+        title="Copy preset?"
+        description="A new copy will be created with the same settings."
+        confirmLabel="Create copy"
+        onConfirm={() => { setConfirmCopy(false); copyPreset.mutate(); }}
+        onCancel={() => setConfirmCopy(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete preset?"
+        description="This preset will be permanently deleted. Templates referencing it will lose this preset assignment."
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => { setConfirmDelete(false); deletePreset.mutate(); }}
+        onCancel={() => setConfirmDelete(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmLeave}
+        title="Leave without saving?"
+        description="You have unsaved changes. They will be lost if you leave."
+        confirmLabel="Leave"
+        cancelLabel="Stay"
+        danger
+        onConfirm={() => { setConfirmLeave(false); router.push(pendingHref); }}
+        onCancel={() => setConfirmLeave(false)}
+      />
     </div>
-  );
-}
-
-const inputCls = "w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors";
-
-function FormField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
-      {hint && <p className="text-xs text-gray-400 mb-1.5">{hint}</p>}
-      {children}
-    </div>
-  );
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex items-center justify-between py-2 cursor-pointer">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        className={cn("relative inline-flex h-6 w-11 items-center rounded-full transition-colors", checked ? "bg-[#224C87]" : "bg-gray-200")}
-      >
-        <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform", checked ? "translate-x-6" : "translate-x-1")} />
-      </button>
-    </label>
   );
 }

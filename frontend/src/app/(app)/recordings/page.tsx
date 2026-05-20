@@ -37,6 +37,13 @@ import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { ExportModal } from "@/components/recordings/export-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { ProcessingStatus } from "@/components/ui/status-badge";
+import {
+  ACTIVE_POLL_STATUSES,
+  DEBOUNCE_SEARCH,
+  PER_PAGE_LARGE,
+  PER_PAGE_RECORDINGS,
+  POLL_INTERVAL_LIST,
+} from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,8 +65,6 @@ interface SourceListResponse { items: SourceListItem[]; total: number }
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-const ACTIVE_POLL_STATUSES = new Set<string>(["DOWNLOADING", "PROCESSING", "UPLOADING"]);
 
 const ALL_STATUSES: ProcessingStatus[] = [
   "PENDING_SOURCE", "INITIALIZED", "DOWNLOADING", "DOWNLOADED",
@@ -168,6 +173,7 @@ interface RecordingsPagedResultsProps {
   onRunWithConfig: (id: number) => void;
   onReset: (id: number) => void;
   onDelete: (id: number) => void;
+  onRestore: (id: number) => void;
   bulkRun: UseMutationResult<unknown, unknown, number[], unknown>;
   bulkPause: UseMutationResult<unknown, unknown, number[], unknown>;
   bulkDelete: UseMutationResult<unknown, unknown, number[], unknown>;
@@ -189,6 +195,7 @@ function RecordingsPagedResults({
   onRunWithConfig,
   onReset,
   onDelete,
+  onRestore,
   bulkRun,
   bulkPause,
   bulkDelete,
@@ -200,19 +207,54 @@ function RecordingsPagedResults({
   onBulkRunWithConfig,
 }: RecordingsPagedResultsProps) {
   const [page, setPage] = useState(1);
+  const [pipelineMenuOpen, setPipelineMenuOpen] = useState(false);
+  const pipelineMenuRef = useRef<HTMLDivElement>(null);
+  const qcInner = useQueryClient();
+
+  const bulkDownload = useMutation({
+    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/download", { recording_ids: ids }),
+    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
+  });
+  const bulkTranscribe = useMutation({
+    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/transcribe", { recording_ids: ids }),
+    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
+  });
+  const bulkTopics = useMutation({
+    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/topics", { recording_ids: ids }),
+    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
+  });
+  const bulkSubtitles = useMutation({
+    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/subtitles", { recording_ids: ids }),
+    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
+  });
+  const bulkUpload = useMutation({
+    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/upload", { recording_ids: ids }),
+    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
+  });
+
+  useEffect(() => {
+    if (!pipelineMenuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      if (pipelineMenuRef.current && !pipelineMenuRef.current.contains(e.target as Node)) {
+        setPipelineMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [pipelineMenuOpen]);
 
   const { data, isLoading, error } = useQuery<RecordingListResponse>({
     queryKey: ["recordings", queryParamsString, page],
     queryFn: async () => {
       const p = new URLSearchParams(queryParamsString);
       p.set("page", String(page));
-      p.set("per_page", "20");
+      p.set("per_page", String(PER_PAGE_RECORDINGS));
       const res = await apiClient.get<RecordingListResponse>(`/recordings?${p.toString()}`);
       return res.data;
     },
     refetchInterval: (q) => {
       const items = q.state.data?.items ?? [];
-      return items.some((r) => ACTIVE_POLL_STATUSES.has(r.status)) ? 4000 : false;
+      return items.some((r) => ACTIVE_POLL_STATUSES.has(r.status)) ? POLL_INTERVAL_LIST : false;
     },
     refetchIntervalInBackground: false,
   });
@@ -222,7 +264,9 @@ function RecordingsPagedResults({
   const hasPrev = page > 1;
   const hasNext = page < totalPages;
   const isBulkLoading =
-    bulkRun.isPending || bulkPause.isPending || bulkDelete.isPending || bulkReset.isPending;
+    bulkRun.isPending || bulkPause.isPending || bulkDelete.isPending || bulkReset.isPending ||
+    bulkDownload.isPending || bulkTranscribe.isPending || bulkTopics.isPending ||
+    bulkSubtitles.isPending || bulkUpload.isPending;
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
 
   const hasActiveFilters = queryParamsString.length > 0;
@@ -291,6 +335,39 @@ function RecordingsPagedResults({
             <RotateCcw size={13} /> Reset
           </button>
 
+          {/* Pipeline dropdown */}
+          <div className="relative" ref={pipelineMenuRef}>
+            <button
+              type="button"
+              onClick={() => setPipelineMenuOpen((v) => !v)}
+              disabled={isBulkLoading}
+              className="flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50 disabled:opacity-50"
+            >
+              Pipeline
+              <ChevronDown size={12} className={cn("transition-transform", pipelineMenuOpen && "rotate-180")} />
+            </button>
+            {pipelineMenuOpen && (
+              <div className="absolute left-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
+                {[
+                  { label: "Download",   fn: () => { bulkDownload.mutate(selectedIds); setPipelineMenuOpen(false); } },
+                  { label: "Transcribe", fn: () => { bulkTranscribe.mutate(selectedIds); setPipelineMenuOpen(false); } },
+                  { label: "Topics",     fn: () => { bulkTopics.mutate(selectedIds); setPipelineMenuOpen(false); } },
+                  { label: "Subtitles",  fn: () => { bulkSubtitles.mutate(selectedIds); setPipelineMenuOpen(false); } },
+                  { label: "Upload",     fn: () => { bulkUpload.mutate(selectedIds); setPipelineMenuOpen(false); } },
+                ].map(({ label, fn }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={fn}
+                    className="flex w-full items-center px-3 py-2 text-left text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => setDeleteConfirm(true)}
@@ -333,6 +410,7 @@ function RecordingsPagedResults({
               onRunWithConfig={onRunWithConfig}
               onReset={onReset}
               onDelete={onDelete}
+              onRestore={onRestore}
               loadingId={loadingRecordingId}
             />
           ))}
@@ -567,7 +645,7 @@ function RecordingsContent() {
 
   // Local search input with debounce → syncs to URL
   const [searchInput, setSearchInput] = useState(urlSearch);
-  const debouncedSearch = useDebounce(searchInput, 400);
+  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
 
   // Sync URL → searchInput on external navigation (browser back/fwd)
   const [prevUrlKey, setPrevUrlKey] = useState(urlKey);
@@ -646,7 +724,7 @@ function RecordingsContent() {
   const { data: templatesData } = useQuery<TemplateListResponse>({
     queryKey: ["templates-dropdown"],
     queryFn: async () => {
-      const res = await apiClient.get<TemplateListResponse>("/templates?per_page=100");
+      const res = await apiClient.get<TemplateListResponse>(`/templates?per_page=${PER_PAGE_LARGE}`);
       return res.data;
     },
   });
@@ -654,7 +732,7 @@ function RecordingsContent() {
   const { data: sourcesData } = useQuery<SourceListResponse>({
     queryKey: ["sources-dropdown"],
     queryFn: async () => {
-      const res = await apiClient.get<SourceListResponse>("/sources?per_page=100");
+      const res = await apiClient.get<SourceListResponse>(`/sources?per_page=${PER_PAGE_LARGE}`);
       return res.data;
     },
   });
@@ -773,6 +851,11 @@ function RecordingsContent() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
   });
 
+  const singleRestore = useMutation({
+    mutationFn: (id: number) => apiClient.post(`/recordings/${id}/restore`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+  });
+
   // --- Card action handlers ---
   function handleRunWithConfig(id: number) {
     // Find the recording name from any cached page data
@@ -854,7 +937,7 @@ function RecordingsContent() {
             <select
               value={urlSortBy}
               onChange={(e) => updateSort(e.target.value)}
-              className={cn(FILTER_CONTROL, "min-w-[9rem]")}
+              className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
             >
               {SORT_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -927,41 +1010,29 @@ function RecordingsContent() {
           </div>
 
           {/* Apply + Reset */}
-          <div className="flex flex-col gap-2 lg:col-span-3 lg:justify-end">
+          <div className="lg:col-span-3">
             <span className={FILTER_LABEL} aria-hidden>&nbsp;</span>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2">
               <button
                 type="button"
                 disabled={!filtersDirty}
                 onClick={applyFilters}
                 className={cn(
-                  "min-h-[2.5rem] flex-1 rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors sm:flex-none sm:min-w-[8.5rem]",
-                  filtersDirty
-                    ? "bg-[#224C87] hover:bg-[#1a3d6e]"
-                    : "cursor-not-allowed bg-[#224C87]/35"
+                  "flex-1 min-h-[2.5rem] rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors",
+                  filtersDirty ? "bg-[#224C87] hover:bg-[#1a3d6e]" : "cursor-not-allowed bg-[#224C87]/35"
                 )}
               >
-                Apply filters
+                Apply
               </button>
-              {(filtersDirty || hasAppliedFilters) && (
-                <button
-                  type="button"
-                  onClick={resetAllFilters}
-                  className={cn(
-                    FILTER_CONTROL,
-                    "flex min-h-[2.5rem] items-center gap-1.5 border-gray-200 text-gray-600 hover:bg-gray-50"
-                  )}
-                >
-                  <X size={14} />
-                  Reset all
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                disabled={!(filtersDirty || hasAppliedFilters)}
+                className="flex-1 min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Reset
+              </button>
             </div>
-            {filtersDirty && (
-              <p className="text-xs text-amber-700/90">
-                Changes not applied yet — click Apply.
-              </p>
-            )}
           </div>
         </div>
 
@@ -984,6 +1055,7 @@ function RecordingsContent() {
         onRunWithConfig={handleRunWithConfig}
         onReset={handleReset}
         onDelete={handleDelete}
+        onRestore={(id) => singleRestore.mutate(id)}
         bulkRun={bulkRun}
         bulkPause={bulkPause}
         bulkDelete={bulkDelete}

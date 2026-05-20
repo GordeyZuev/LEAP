@@ -300,6 +300,52 @@ async def create_template_from_recording(
     return template
 
 
+@router.post("/{template_id}/copy", response_model=RecordingTemplateResponse, status_code=status.HTTP_201_CREATED)
+async def copy_template(
+    template_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Copy a template. The copy starts as a draft with used_count=0."""
+    if not current_user.can_create_templates:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to create templates"
+        )
+
+    repo = RecordingTemplateRepository(session)
+    original = await repo.find_by_id(template_id, current_user.id)
+    if not original:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
+
+    name = await _unique_copy_name_template(repo, current_user.id, original.name)
+    new_template = await repo.create(
+        user_id=current_user.id,
+        name=name,
+        description=original.description,
+        matching_rules=original.matching_rules,
+        processing_config=original.processing_config,
+        metadata_config=original.metadata_config,
+        output_config=original.output_config,
+        is_draft=True,
+    )
+    new_template.is_active = False
+
+    await session.commit()
+    await session.refresh(new_template)
+    return new_template
+
+
+async def _unique_copy_name_template(repo: RecordingTemplateRepository, user_id: str, original_name: str) -> str:
+    base = f"Copy of {original_name}"
+    if not await repo.find_by_name(user_id, base):
+        return base
+    for i in range(2, 100):
+        candidate = f"{base} ({i})"
+        if not await repo.find_by_name(user_id, candidate):
+            return candidate
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot generate unique copy name")
+
+
 @router.get("/{template_id}", response_model=RecordingTemplateResponse)
 async def get_template(
     template_id: int,

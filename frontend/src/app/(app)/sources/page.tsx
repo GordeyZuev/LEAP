@@ -6,6 +6,7 @@ import { Plus, RefreshCw, Pencil, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { TOAST_SHORT } from "@/lib/constants";
 
 type SourceType = "ZOOM" | "YANDEX_DISK" | "VIDEO_URL";
 
@@ -123,6 +124,7 @@ export default function SourcesPage() {
   const [formError, setFormError] = useState("");
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [syncSuccessId, setSyncSuccessId] = useState<number | null>(null);
+  const [bulkSyncSuccess, setBulkSyncSuccess] = useState(false);
 
   const { data, isLoading, error } = useQuery<SourceListResponse>({
     queryKey: ["sources"],
@@ -162,7 +164,16 @@ export default function SourcesPage() {
     mutationFn: (id: number) => apiClient.post(`/sources/${id}/sync`),
     onSuccess: (_, id) => {
       setSyncSuccessId(id);
-      setTimeout(() => setSyncSuccessId(null), 3000);
+      setTimeout(() => setSyncSuccessId(null), TOAST_SHORT);
+    },
+  });
+
+  const bulkSync = useMutation({
+    mutationFn: () =>
+      apiClient.post("/sources/bulk/sync", { source_ids: sources.filter((s) => s.is_active).map((s) => s.id) }),
+    onSuccess: () => {
+      setBulkSyncSuccess(true);
+      setTimeout(() => setBulkSyncSuccess(false), TOAST_SHORT);
     },
   });
 
@@ -219,15 +230,32 @@ export default function SourcesPage() {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 gap-3">
         <h1 className="text-xl font-semibold text-gray-900">Input Sources</h1>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] transition-colors"
-        >
-          <Plus size={16} /> Add source
-        </button>
+        <div className="flex items-center gap-2">
+          {sources.length > 0 && (
+            <button
+              onClick={() => bulkSync.mutate()}
+              disabled={bulkSync.isPending || sources.filter((s) => s.is_active).length === 0}
+              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={cn(bulkSync.isPending && "animate-spin")} />
+              {bulkSync.isPending ? "Syncing…" : "Sync all"}
+            </button>
+          )}
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] transition-colors"
+          >
+            <Plus size={16} /> Add source
+          </button>
+        </div>
       </div>
+      {bulkSyncSuccess && (
+        <p className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-700">
+          Sync started for all active sources.
+        </p>
+      )}
 
       {isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

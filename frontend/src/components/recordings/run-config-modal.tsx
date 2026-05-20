@@ -13,6 +13,21 @@ import {
   FILTER_SEGMENT_IDLE,
   FILTER_SEGMENT_WRAP,
 } from "@/lib/filter-field-classes";
+import {
+  TemplateField,
+  YouTubeFields,
+  VkFields,
+  YandexDiskFields,
+  DEFAULT_YOUTUBE_FIELDS,
+  DEFAULT_VK_FIELDS,
+  DEFAULT_YANDEX_DISK_FIELDS,
+  type YouTubeFieldsValue,
+  type VkFieldsValue,
+  type YandexDiskFieldsValue,
+} from "@/components/platforms/platform-fields";
+import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
+import { TagInput } from "@/components/ui/tag-input";
+import { useGranularities, useLanguages } from "@/hooks/use-references";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,6 +51,10 @@ interface RecordingConfigResponse {
       enable_transcription?: boolean;
       enable_topics?: boolean;
       enable_subtitles?: boolean;
+      prompt?: string;
+      allow_errors?: boolean;
+      questions_count?: number;
+      vocabulary?: string[];
     };
   } | null;
   output_config: {
@@ -54,6 +73,7 @@ interface RecordingConfigResponse {
       description_template?: string;
       category_id?: string | number;
       tags?: string[];
+      made_for_kids?: boolean;
     };
     vk?: {
       album_id?: string | number;
@@ -88,44 +108,11 @@ export interface RunConfigModalProps {
 // Constants
 // ---------------------------------------------------------------------------
 
-const LANGUAGES = [
-  { value: "ru", label: "Русский" },
-  { value: "en", label: "English" },
-  { value: "auto", label: "Auto" },
-];
-
-const GRANULARITIES = [
-  { value: "short", label: "Short" },
-  { value: "medium", label: "Medium" },
-  { value: "long", label: "Long" },
-];
-
-const YT_PRIVACY_OPTIONS = [
-  { value: "", label: "— default —" },
-  { value: "public", label: "Public" },
-  { value: "unlisted", label: "Unlisted" },
-  { value: "private", label: "Private" },
-];
-
-const VK_PRIVACY_OPTIONS = [
-  { value: "", label: "— default —" },
-  { value: "0", label: "All users" },
-  { value: "1", label: "Friends" },
-  { value: "2", label: "Friends of friends" },
-  { value: "3", label: "Only me" },
-];
-
 // ---------------------------------------------------------------------------
-// SectionToggle — the on/off switch shared by override sections
+// SectionToggle
 // ---------------------------------------------------------------------------
 
-function SectionToggle({
-  enabled,
-  onToggle,
-}: {
-  enabled: boolean;
-  onToggle: () => void;
-}) {
+function SectionToggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
@@ -139,8 +126,8 @@ function SectionToggle({
     >
       <span
         className={cn(
-          "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform",
-          enabled ? "translate-x-4" : "translate-x-0.5"
+          "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all duration-150",
+          enabled ? "left-[1.125rem]" : "left-0.5"
         )}
       />
     </button>
@@ -148,16 +135,10 @@ function SectionToggle({
 }
 
 // ---------------------------------------------------------------------------
-// Sub-accordion for per-platform metadata
+// PlatformSection — collapsible sub-accordion for per-platform metadata
 // ---------------------------------------------------------------------------
 
-function PlatformSection({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA]">
@@ -173,7 +154,7 @@ function PlatformSection({
         />
       </button>
       {open && (
-        <div className="border-t border-[#EAEAEA] px-4 pb-4 pt-3 space-y-3">
+        <div className="space-y-3 border-t border-[#EAEAEA] px-4 pb-4 pt-3">
           {children}
         </div>
       )}
@@ -195,6 +176,8 @@ export function RunConfigModal({
   onSuccess,
 }: RunConfigModalProps) {
   const qc = useQueryClient();
+  const { data: languages = [] } = useLanguages();
+  const { data: granularities = [] } = useGranularities();
 
   // ── Template ──────────────────────────────────────────────────────────────
   const [templateOpen, setTemplateOpen] = useState(true);
@@ -209,6 +192,10 @@ export function RunConfigModal({
   const [enableTranscription, setEnableTranscription] = useState(true);
   const [enableTopics, setEnableTopics] = useState(true);
   const [enableSubtitles, setEnableSubtitles] = useState(true);
+  const [transcriptionPrompt, setTranscriptionPrompt] = useState("");
+  const [allowErrors, setAllowErrors] = useState(false);
+  const [questionsCount, setQuestionsCount] = useState(5);
+  const [vocabulary, setVocabulary] = useState<string[]>([]);
 
   // ── Output ────────────────────────────────────────────────────────────────
   const [outputEnabled, setOutputEnabled] = useState(false);
@@ -222,31 +209,10 @@ export function RunConfigModal({
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [titleTemplate, setTitleTemplate] = useState("");
   const [descriptionTemplate, setDescriptionTemplate] = useState("");
-
-  // YouTube
-  const [ytPrivacy, setYtPrivacy] = useState("");
-  const [ytPlaylistId, setYtPlaylistId] = useState("");
-  const [ytThumbnailName, setYtThumbnailName] = useState("");
-  const [ytTitleTemplate, setYtTitleTemplate] = useState("");
-  const [ytDescriptionTemplate, setYtDescriptionTemplate] = useState("");
-  const [ytCategoryId, setYtCategoryId] = useState("");
-  const [ytTags, setYtTags] = useState("");
-
-  // VK
-  const [vkAlbumId, setVkAlbumId] = useState("");
-  const [vkGroupId, setVkGroupId] = useState("");
-  const [vkThumbnailName, setVkThumbnailName] = useState("");
-  const [vkTitleTemplate, setVkTitleTemplate] = useState("");
-  const [vkDescriptionTemplate, setVkDescriptionTemplate] = useState("");
-  const [vkPrivacyView, setVkPrivacyView] = useState("");
-  const [vkPrivacyComment, setVkPrivacyComment] = useState("");
-  const [vkWallpost, setVkWallpost] = useState(false);
-
-  // Yandex Disk
-  const [ydFolderPathTemplate, setYdFolderPathTemplate] = useState("");
-  const [ydFilenameTemplate, setYdFilenameTemplate] = useState("");
-  const [ydOverwrite, setYdOverwrite] = useState(false);
-  const [ydPublish, setYdPublish] = useState(false);
+  const [globalThumbnail, setGlobalThumbnail] = useState("");
+  const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
+  const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
+  const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
 
   // ── Reference data ────────────────────────────────────────────────────────
   const { data: templatesData } = useQuery<TemplateListResponse>({
@@ -286,6 +252,10 @@ export function RunConfigModal({
             enable_subtitles: enableSubtitles,
             language,
             granularity,
+            ...(transcriptionPrompt ? { prompt: transcriptionPrompt } : {}),
+            allow_errors: allowErrors,
+            questions_count: questionsCount,
+            ...(vocabulary.length > 0 ? { vocabulary } : {}),
           },
         };
       }
@@ -305,31 +275,34 @@ export function RunConfigModal({
         if (descriptionTemplate) meta.description_template = descriptionTemplate;
 
         const yt: Record<string, unknown> = {};
-        if (ytPrivacy) yt.privacy = ytPrivacy;
-        if (ytPlaylistId) yt.playlist_id = ytPlaylistId;
-        if (ytThumbnailName) yt.thumbnail_name = ytThumbnailName;
-        if (ytTitleTemplate) yt.title_template = ytTitleTemplate;
-        if (ytDescriptionTemplate) yt.description_template = ytDescriptionTemplate;
-        if (ytCategoryId) yt.category_id = ytCategoryId;
-        if (ytTags) yt.tags = ytTags.split(",").map((t) => t.trim()).filter(Boolean);
+        if (ytFields.privacy) yt.privacy = ytFields.privacy;
+        if (ytFields.playlist_id) yt.playlist_id = ytFields.playlist_id;
+        const ytThumb = ytFields.thumbnail_name || globalThumbnail;
+        if (ytThumb) yt.thumbnail_name = ytThumb;
+        if (ytFields.title_template) yt.title_template = ytFields.title_template;
+        if (ytFields.description_template) yt.description_template = ytFields.description_template;
+        if (ytFields.category_id) yt.category_id = ytFields.category_id;
+        if (ytFields.tags.length > 0) yt.tags = ytFields.tags;
+        if (ytFields.made_for_kids) yt.made_for_kids = true;
         if (Object.keys(yt).length > 0) meta.youtube = yt;
 
         const vk: Record<string, unknown> = {};
-        if (vkAlbumId) vk.album_id = vkAlbumId;
-        if (vkGroupId) vk.group_id = Number(vkGroupId);
-        if (vkThumbnailName) vk.thumbnail_name = vkThumbnailName;
-        if (vkTitleTemplate) vk.title_template = vkTitleTemplate;
-        if (vkDescriptionTemplate) vk.description_template = vkDescriptionTemplate;
-        if (vkPrivacyView !== "") vk.privacy_view = Number(vkPrivacyView);
-        if (vkPrivacyComment !== "") vk.privacy_comment = Number(vkPrivacyComment);
-        if (vkWallpost) vk.wallpost = true;
+        if (vkFields.group_id) vk.group_id = vkFields.group_id;
+        if (vkFields.album_id) vk.album_id = vkFields.album_id;
+        const vkThumb = vkFields.thumbnail_name || globalThumbnail;
+        if (vkThumb) vk.thumbnail_name = vkThumb;
+        if (vkFields.title_template) vk.title_template = vkFields.title_template;
+        if (vkFields.description_template) vk.description_template = vkFields.description_template;
+        if (vkFields.privacy_view !== "") vk.privacy_view = Number(vkFields.privacy_view);
+        if (vkFields.privacy_comment !== "") vk.privacy_comment = Number(vkFields.privacy_comment);
+        if (vkFields.wallpost) vk.wallpost = true;
         if (Object.keys(vk).length > 0) meta.vk = vk;
 
         const yd: Record<string, unknown> = {};
-        if (ydFolderPathTemplate) yd.folder_path_template = ydFolderPathTemplate;
-        if (ydFilenameTemplate) yd.filename_template = ydFilenameTemplate;
-        if (ydOverwrite) yd.overwrite = true;
-        if (ydPublish) yd.publish = true;
+        if (ydFields.folder_path_template) yd.folder_path_template = ydFields.folder_path_template;
+        if (ydFields.filename_template) yd.filename_template = ydFields.filename_template;
+        if (ydFields.overwrite) yd.overwrite = true;
+        if (ydFields.publish) yd.publish = true;
         if (Object.keys(yd).length > 0) meta.yandex_disk = yd;
 
         if (Object.keys(meta).length > 0) body.metadata_config = meta;
@@ -351,7 +324,7 @@ export function RunConfigModal({
     },
   });
 
-  // ── Reset on open ─────────────────────────────────────────────────────────
+  // ── Reset to defaults on open ─────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -365,6 +338,10 @@ export function RunConfigModal({
     setEnableTranscription(true);
     setEnableTopics(true);
     setEnableSubtitles(true);
+    setTranscriptionPrompt("");
+    setAllowErrors(false);
+    setQuestionsCount(5);
+    setVocabulary([]);
     setOutputEnabled(false);
     setOutputOpen(false);
     setAutoUpload(true);
@@ -374,37 +351,20 @@ export function RunConfigModal({
     setMetadataOpen(false);
     setTitleTemplate("");
     setDescriptionTemplate("");
-    setYtPrivacy("");
-    setYtPlaylistId("");
-    setYtThumbnailName("");
-    setYtTitleTemplate("");
-    setYtDescriptionTemplate("");
-    setYtCategoryId("");
-    setYtTags("");
-    setVkAlbumId("");
-    setVkGroupId("");
-    setVkThumbnailName("");
-    setVkTitleTemplate("");
-    setVkDescriptionTemplate("");
-    setVkPrivacyView("");
-    setVkPrivacyComment("");
-    setVkWallpost(false);
-    setYdFolderPathTemplate("");
-    setYdFilenameTemplate("");
-    setYdOverwrite(false);
-    setYdPublish(false);
+    setGlobalThumbnail("");
+    setYtFields({ ...DEFAULT_YOUTUBE_FIELDS });
+    setVkFields({ ...DEFAULT_VK_FIELDS });
+    setYdFields({ ...DEFAULT_YANDEX_DISK_FIELDS });
     /* eslint-enable react-hooks/set-state-in-effect */
     runMutation.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Pre-fill from resolved config (single mode only); runs after reset effect
+  // ── Pre-fill from resolved config (single mode) ───────────────────────────
   useEffect(() => {
     if (!open || !existingConfig) return;
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (existingConfig.template_id) {
-      setTemplateId(existingConfig.template_id);
-    }
+    if (existingConfig.template_id) setTemplateId(existingConfig.template_id);
 
     const pc = existingConfig.processing_config;
     if (pc) {
@@ -417,6 +377,10 @@ export function RunConfigModal({
         if (t.enable_transcription != null) setEnableTranscription(t.enable_transcription);
         if (t.enable_topics != null) setEnableTopics(t.enable_topics);
         if (t.enable_subtitles != null) setEnableSubtitles(t.enable_subtitles);
+        if (t.prompt != null) setTranscriptionPrompt(t.prompt);
+        if (t.allow_errors != null) setAllowErrors(t.allow_errors);
+        if (t.questions_count != null) setQuestionsCount(t.questions_count);
+        if (t.vocabulary != null) setVocabulary(t.vocabulary);
       }
     }
 
@@ -436,41 +400,48 @@ export function RunConfigModal({
       if (mc.title_template) setTitleTemplate(mc.title_template);
       if (mc.description_template) setDescriptionTemplate(mc.description_template);
 
-      const yt = mc.youtube;
-      if (yt) {
-        if (yt.privacy) setYtPrivacy(yt.privacy);
-        if (yt.playlist_id) setYtPlaylistId(yt.playlist_id);
-        if (yt.thumbnail_name) setYtThumbnailName(yt.thumbnail_name);
-        if (yt.title_template) setYtTitleTemplate(yt.title_template);
-        if (yt.description_template) setYtDescriptionTemplate(yt.description_template);
-        if (yt.category_id != null) setYtCategoryId(String(yt.category_id));
-        if (yt.tags) setYtTags(yt.tags.join(", "));
+      if (mc.youtube) {
+        const yt = mc.youtube;
+        setYtFields({
+          title_template: yt.title_template ?? "",
+          description_template: yt.description_template ?? "",
+          privacy: yt.privacy ?? "",
+          category_id: yt.category_id != null ? String(yt.category_id) : "",
+          playlist_id: yt.playlist_id ?? "",
+          thumbnail_name: yt.thumbnail_name ?? "",
+          tags: yt.tags ?? [],
+          made_for_kids: yt.made_for_kids ?? false,
+        });
       }
 
-      const vk = mc.vk;
-      if (vk) {
-        if (vk.album_id != null) setVkAlbumId(String(vk.album_id));
-        if (vk.group_id != null) setVkGroupId(String(vk.group_id));
-        if (vk.thumbnail_name) setVkThumbnailName(vk.thumbnail_name);
-        if (vk.title_template) setVkTitleTemplate(vk.title_template);
-        if (vk.description_template) setVkDescriptionTemplate(vk.description_template);
-        if (vk.privacy_view != null) setVkPrivacyView(String(vk.privacy_view));
-        if (vk.privacy_comment != null) setVkPrivacyComment(String(vk.privacy_comment));
-        if (vk.wallpost) setVkWallpost(vk.wallpost);
+      if (mc.vk) {
+        const vk = mc.vk;
+        setVkFields({
+          title_template: vk.title_template ?? "",
+          description_template: vk.description_template ?? "",
+          privacy_view: vk.privacy_view != null ? String(vk.privacy_view) : "",
+          privacy_comment: vk.privacy_comment != null ? String(vk.privacy_comment) : "",
+          group_id: vk.group_id != null ? String(vk.group_id) : "",
+          album_id: vk.album_id != null ? String(vk.album_id) : "",
+          thumbnail_name: vk.thumbnail_name ?? "",
+          wallpost: vk.wallpost ?? false,
+        });
       }
 
-      const yd = mc.yandex_disk;
-      if (yd) {
-        if (yd.folder_path_template) setYdFolderPathTemplate(yd.folder_path_template);
-        if (yd.filename_template) setYdFilenameTemplate(yd.filename_template);
-        if (yd.overwrite) setYdOverwrite(yd.overwrite);
-        if (yd.publish) setYdPublish(yd.publish);
+      if (mc.yandex_disk) {
+        const yd = mc.yandex_disk;
+        setYdFields({
+          folder_path_template: yd.folder_path_template ?? "",
+          filename_template: yd.filename_template ?? "",
+          overwrite: yd.overwrite ?? false,
+          publish: yd.publish ?? false,
+        });
       }
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, existingConfig]);
 
-  // ESC to close
+  // ── ESC to close ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -545,7 +516,7 @@ export function RunConfigModal({
             </div>
           ) : <>
 
-          {/* ── Template section ────────────────────────────────────────── */}
+          {/* ── Template ────────────────────────────────────────────────── */}
           <div className="px-6 py-4">
             <button
               type="button"
@@ -553,9 +524,7 @@ export function RunConfigModal({
               className="flex w-full items-center gap-2 text-left"
             >
               <span className="flex-1 text-sm font-semibold text-gray-800">Template</span>
-              {templateId && (
-                <span className="text-xs text-[#224C87] font-medium">selected</span>
-              )}
+              {templateId && <span className="text-xs font-medium text-[#224C87]">selected</span>}
               <ChevronDown
                 size={16}
                 className={cn("shrink-0 text-gray-400 transition-transform", templateOpen && "rotate-180")}
@@ -601,7 +570,7 @@ export function RunConfigModal({
             )}
           </div>
 
-          {/* ── Processing section ──────────────────────────────────────── */}
+          {/* ── Processing ──────────────────────────────────────────────── */}
           <div className="px-6 py-4">
             <div className="flex items-center gap-3">
               <SectionToggle enabled={processingEnabled} onToggle={handleProcessingToggle} />
@@ -626,7 +595,7 @@ export function RunConfigModal({
                 <div className="space-y-1.5">
                   <span className={FILTER_LABEL}>Transcription language</span>
                   <div className={FILTER_SEGMENT_WRAP}>
-                    {LANGUAGES.map(({ value, label }) => (
+                    {languages.map(({ value, label }) => (
                       <button
                         key={value}
                         type="button"
@@ -642,7 +611,7 @@ export function RunConfigModal({
                 <div className="space-y-1.5">
                   <span className={FILTER_LABEL}>Topic granularity</span>
                   <div className={FILTER_SEGMENT_WRAP}>
-                    {GRANULARITIES.map(({ value, label }) => (
+                    {granularities.map(({ value, label }) => (
                       <button
                         key={value}
                         type="button"
@@ -657,9 +626,9 @@ export function RunConfigModal({
 
                 <div className="space-y-2.5">
                   {[
-                    { key: "transcription", label: "Transcription (ASR)", val: enableTranscription, set: setEnableTranscription },
-                    { key: "topics", label: "Topic extraction (DeepSeek)", val: enableTopics, set: setEnableTopics },
-                    { key: "subtitles", label: "Generate subtitles (SRT/VTT)", val: enableSubtitles, set: setEnableSubtitles },
+                    { key: "transcription", label: "Transcription (ASR)",            val: enableTranscription, set: setEnableTranscription },
+                    { key: "topics",        label: "Topic extraction (DeepSeek)",     val: enableTopics,        set: setEnableTopics },
+                    { key: "subtitles",     label: "Generate subtitles (SRT/VTT)",    val: enableSubtitles,     set: setEnableSubtitles },
                   ].map(({ key, label, val, set }) => (
                     <label key={key} className="flex cursor-pointer items-center gap-2.5">
                       <input
@@ -672,11 +641,53 @@ export function RunConfigModal({
                     </label>
                   ))}
                 </div>
+
+                <div className="space-y-1.5">
+                  <span className={FILTER_LABEL}>Transcription prompt</span>
+                  <textarea
+                    value={transcriptionPrompt}
+                    onChange={(e) => setTranscriptionPrompt(e.target.value)}
+                    rows={3}
+                    placeholder="University lecture: machine learning, neural networks…"
+                    className={cn(FILTER_CONTROL, "resize-y font-mono text-xs")}
+                  />
+                </div>
+
+                <label className="flex cursor-pointer items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={allowErrors}
+                    onChange={(e) => setAllowErrors(e.target.checked)}
+                    className="accent-[#224C87]"
+                  />
+                  <span className="text-sm text-gray-700">Allow transcription errors</span>
+                </label>
+
+                <div className="space-y-1.5">
+                  <span className={FILTER_LABEL}>Questions count</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={20}
+                    value={questionsCount}
+                    onChange={(e) => setQuestionsCount(parseInt(e.target.value, 10) || 0)}
+                    className={cn(FILTER_CONTROL, "w-32")}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className={FILTER_LABEL}>Vocabulary</span>
+                  <TagInput
+                    tags={vocabulary}
+                    onChange={setVocabulary}
+                    placeholder="Add term…"
+                  />
+                </div>
               </div>
             )}
           </div>
 
-          {/* ── Output section ──────────────────────────────────────────── */}
+          {/* ── Output ──────────────────────────────────────────────────── */}
           <div className="px-6 py-4">
             <div className="flex items-center gap-3">
               <SectionToggle enabled={outputEnabled} onToggle={handleOutputToggle} />
@@ -699,22 +710,11 @@ export function RunConfigModal({
             {outputOpen && (
               <div className={cn("mt-4 space-y-4", !outputEnabled && "pointer-events-none opacity-50")}>
                 <label className="flex cursor-pointer items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={autoUpload}
-                    onChange={(e) => setAutoUpload(e.target.checked)}
-                    className="accent-[#224C87]"
-                  />
+                  <input type="checkbox" checked={autoUpload} onChange={(e) => setAutoUpload(e.target.checked)} className="accent-[#224C87]" />
                   <span className="text-sm text-gray-700">Auto-upload after processing</span>
                 </label>
-
                 <label className="flex cursor-pointer items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={uploadCaptions}
-                    onChange={(e) => setUploadCaptions(e.target.checked)}
-                    className="accent-[#224C87]"
-                  />
+                  <input type="checkbox" checked={uploadCaptions} onChange={(e) => setUploadCaptions(e.target.checked)} className="accent-[#224C87]" />
                   <span className="text-sm text-gray-700">Upload captions / subtitles</span>
                 </label>
 
@@ -728,9 +728,7 @@ export function RunConfigModal({
                     </span>
                     {Object.entries(presetsByPlatform).map(([platform, presets]) => (
                       <div key={platform}>
-                        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                          {platform}
-                        </p>
+                        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{platform}</p>
                         <div className="space-y-1.5">
                           {presets.map((p) => (
                             <label key={p.id} className="flex cursor-pointer items-center gap-2.5">
@@ -756,7 +754,7 @@ export function RunConfigModal({
             )}
           </div>
 
-          {/* ── Metadata section ────────────────────────────────────────── */}
+          {/* ── Metadata & Platform overrides ───────────────────────────── */}
           <div className="px-6 py-4">
             <div className="flex items-center gap-3">
               <SectionToggle enabled={metadataEnabled} onToggle={handleMetadataToggle} />
@@ -781,242 +779,68 @@ export function RunConfigModal({
                 {/* Global templates */}
                 <div className="space-y-4">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Global</p>
-                  <div className="space-y-1.5">
-                    <span className={FILTER_LABEL}>Title template</span>
-                    <input
-                      type="text"
-                      value={titleTemplate}
-                      onChange={(e) => setTitleTemplate(e.target.value)}
-                      placeholder="{{ display_name }}"
-                      className={FILTER_CONTROL}
-                    />
-                    <p className="text-[11px] text-gray-400">
-                      Overrides the title for all platforms. Jinja2 — use <code className="font-mono">{"{{ display_name }}"}</code>, <code className="font-mono">{"{{ themes }}"}</code>, etc.
-                    </p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <span className={FILTER_LABEL}>Description template</span>
-                    <textarea
-                      value={descriptionTemplate}
-                      onChange={(e) => setDescriptionTemplate(e.target.value)}
-                      rows={3}
-                      placeholder={"{{ summary }}\n\n{{ topics }}"}
-                      className={cn(FILTER_CONTROL, "resize-y")}
-                    />
-                  </div>
+                  <TemplateField
+                    label="Title template"
+                    value={titleTemplate}
+                    onChange={setTitleTemplate}
+                    placeholder="{{ display_name }}"
+                  />
+                  <TemplateField
+                    label="Description template"
+                    value={descriptionTemplate}
+                    onChange={setDescriptionTemplate}
+                    multiline
+                    placeholder={"{{ summary }}\n\n{{ topics }}"}
+                  />
+                  <ThumbnailPicker
+                    label="Thumbnail (all platforms)"
+                    value={globalThumbnail}
+                    onChange={setGlobalThumbnail}
+                    placeholder="Platform-specific thumbnails override this"
+                  />
                 </div>
 
                 {/* Platform subsections */}
                 <div className="space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Platform overrides</p>
 
-                  {/* YouTube */}
                   <PlatformSection label="YouTube">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <span className={FILTER_LABEL}>Privacy</span>
-                        <select value={ytPrivacy} onChange={(e) => setYtPrivacy(e.target.value)} className={FILTER_CONTROL}>
-                          {YT_PRIVACY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <span className={FILTER_LABEL}>Category ID</span>
-                        <input
-                          type="text"
-                          value={ytCategoryId}
-                          onChange={(e) => setYtCategoryId(e.target.value)}
-                          placeholder="27"
-                          className={FILTER_CONTROL}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Playlist ID</span>
-                      <input
-                        type="text"
-                        value={ytPlaylistId}
-                        onChange={(e) => setYtPlaylistId(e.target.value)}
-                        placeholder="PLxxxxxxxxxxxxxxxx"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Thumbnail filename</span>
-                      <input
-                        type="text"
-                        value={ytThumbnailName}
-                        onChange={(e) => setYtThumbnailName(e.target.value)}
-                        placeholder="python_base.png"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Tags (comma-separated)</span>
-                      <input
-                        type="text"
-                        value={ytTags}
-                        onChange={(e) => setYtTags(e.target.value)}
-                        placeholder="AI, ML, lecture"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Title template (YouTube-specific)</span>
-                      <input
-                        type="text"
-                        value={ytTitleTemplate}
-                        onChange={(e) => setYtTitleTemplate(e.target.value)}
-                        placeholder="overrides global title for YouTube"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Description template (YouTube-specific)</span>
-                      <textarea
-                        value={ytDescriptionTemplate}
-                        onChange={(e) => setYtDescriptionTemplate(e.target.value)}
-                        rows={3}
-                        placeholder="overrides global description for YouTube"
-                        className={cn(FILTER_CONTROL, "resize-y")}
-                      />
-                    </div>
+                    <YouTubeFields
+                      value={ytFields}
+                      onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
+                      showThumbnail
+                      showMadeForKids
+                    />
                   </PlatformSection>
 
-                  {/* VK */}
                   <PlatformSection label="VK">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <span className={FILTER_LABEL}>Album ID</span>
-                        <input
-                          type="text"
-                          value={vkAlbumId}
-                          onChange={(e) => setVkAlbumId(e.target.value)}
-                          placeholder="123456"
-                          className={FILTER_CONTROL}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <span className={FILTER_LABEL}>Group ID</span>
-                        <input
-                          type="text"
-                          value={vkGroupId}
-                          onChange={(e) => setVkGroupId(e.target.value)}
-                          placeholder="123456"
-                          className={FILTER_CONTROL}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Thumbnail filename</span>
-                      <input
-                        type="text"
-                        value={vkThumbnailName}
-                        onChange={(e) => setVkThumbnailName(e.target.value)}
-                        placeholder="hse_ai.jpg"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <span className={FILTER_LABEL}>Privacy — view</span>
-                        <select value={vkPrivacyView} onChange={(e) => setVkPrivacyView(e.target.value)} className={FILTER_CONTROL}>
-                          {VK_PRIVACY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <span className={FILTER_LABEL}>Privacy — comments</span>
-                        <select value={vkPrivacyComment} onChange={(e) => setVkPrivacyComment(e.target.value)} className={FILTER_CONTROL}>
-                          {VK_PRIVACY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                    <label className="flex cursor-pointer items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={vkWallpost}
-                        onChange={(e) => setVkWallpost(e.target.checked)}
-                        className="accent-[#224C87]"
-                      />
-                      <span className="text-sm text-gray-700">Post to wall</span>
-                    </label>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Title template (VK-specific)</span>
-                      <input
-                        type="text"
-                        value={vkTitleTemplate}
-                        onChange={(e) => setVkTitleTemplate(e.target.value)}
-                        placeholder="overrides global title for VK"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Description template (VK-specific)</span>
-                      <textarea
-                        value={vkDescriptionTemplate}
-                        onChange={(e) => setVkDescriptionTemplate(e.target.value)}
-                        rows={3}
-                        placeholder="overrides global description for VK"
-                        className={cn(FILTER_CONTROL, "resize-y")}
-                      />
-                    </div>
+                    <VkFields
+                      value={vkFields}
+                      onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
+                      showThumbnail
+                      showPrivacyComment
+                      showWallpost
+                    />
                   </PlatformSection>
 
-                  {/* Yandex Disk */}
                   <PlatformSection label="Yandex Disk">
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Folder path template</span>
-                      <input
-                        type="text"
-                        value={ydFolderPathTemplate}
-                        onChange={(e) => setYdFolderPathTemplate(e.target.value)}
-                        placeholder="/Video/{{ display_name }}"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <span className={FILTER_LABEL}>Filename template</span>
-                      <input
-                        type="text"
-                        value={ydFilenameTemplate}
-                        onChange={(e) => setYdFilenameTemplate(e.target.value)}
-                        placeholder="{{ display_name }}.mp4"
-                        className={FILTER_CONTROL}
-                      />
-                    </div>
-                    <div className="flex gap-6">
-                      <label className="flex cursor-pointer items-center gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={ydOverwrite}
-                          onChange={(e) => setYdOverwrite(e.target.checked)}
-                          className="accent-[#224C87]"
-                        />
-                        <span className="text-sm text-gray-700">Overwrite existing</span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={ydPublish}
-                          onChange={(e) => setYdPublish(e.target.checked)}
-                          className="accent-[#224C87]"
-                        />
-                        <span className="text-sm text-gray-700">Publish publicly</span>
-                      </label>
-                    </div>
+                    <YandexDiskFields
+                      value={ydFields}
+                      onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
+                    />
                   </PlatformSection>
                 </div>
               </div>
             )}
           </div>
+
           </>}
         </div>
 
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[#EAEAEA] px-6 py-4">
           {runError && (
-            <p className="flex-1 truncate text-xs text-red-500" title={runError}>
-              {runError}
-            </p>
+            <p className="flex-1 truncate text-xs text-red-500" title={runError}>{runError}</p>
           )}
           <button
             type="button"
@@ -1031,11 +855,7 @@ export function RunConfigModal({
             disabled={runMutation.isPending}
             className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
           >
-            {runMutation.isPending ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Play size={14} />
-            )}
+            {runMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
             Run
           </button>
         </div>

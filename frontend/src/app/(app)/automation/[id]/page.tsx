@@ -1,14 +1,35 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Play, FlaskConical, Clock } from "lucide-react";
+import { ArrowLeft, Save, Play, FlaskConical, Clock, Copy, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { TagInput } from "@/components/ui/tag-input";
+import { FILTER_CONTROL } from "@/lib/filter-field-classes";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useTimezones } from "@/hooks/use-references";
 
 type ScheduleMode = "visual" | "cron";
+
+interface AutomationFilters {
+  exclude_blank: boolean;
+  status: string[];
+}
+
+interface AutomationProcessingConfig {
+  enable_transcription: boolean;
+  enable_topics: boolean;
+  enable_subtitles: boolean;
+  language: string;
+  granularity: string;
+  prompt: string;
+  allow_errors: boolean;
+  questions_count: number;
+  vocabulary: string[];
+}
 
 interface JobForm {
   name: string;
@@ -21,6 +42,9 @@ interface JobForm {
   cron_expression: string;
   sync_days: number;
   is_active: boolean;
+  filters: AutomationFilters;
+  processing_config_enabled: boolean;
+  processing_config: AutomationProcessingConfig;
 }
 
 interface TemplateItem {
@@ -48,23 +72,13 @@ interface AutomationJobApi {
   is_active?: boolean;
   next_run_at?: string | null;
   updated_at?: string;
+  filters?: { exclude_blank?: boolean; status?: string[] } | null;
+  processing_config?: Record<string, unknown> | null;
 }
 
 type FeedbackType = "success" | "info" | "error";
 
 const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-
-const TIMEZONES = [
-  "Europe/Moscow",
-  "Europe/Kaliningrad",
-  "Asia/Yekaterinburg",
-  "Asia/Novosibirsk",
-  "Asia/Krasnoyarsk",
-  "Asia/Irkutsk",
-  "Asia/Yakutsk",
-  "Asia/Vladivostok",
-  "UTC",
-];
 
 const CRON_EXAMPLES = [
   { expr: "0 9 * * *", desc: "Каждый день в 9:00" },
@@ -72,6 +86,18 @@ const CRON_EXAMPLES = [
   { expr: "0 */6 * * *", desc: "Каждые 6 часов" },
   { expr: "0 0 * * *", desc: "Каждую ночь в 0:00" },
 ];
+
+const DEFAULT_PROCESSING_CONFIG: AutomationProcessingConfig = {
+  enable_transcription: true,
+  enable_topics: true,
+  enable_subtitles: true,
+  language: "ru",
+  granularity: "medium",
+  prompt: "",
+  allow_errors: false,
+  questions_count: 5,
+  vocabulary: [],
+};
 
 const DEFAULT_FORM: JobForm = {
   name: "",
@@ -84,6 +110,9 @@ const DEFAULT_FORM: JobForm = {
   cron_expression: "0 9 * * *",
   sync_days: 2,
   is_active: true,
+  filters: { exclude_blank: false, status: [] },
+  processing_config_enabled: false,
+  processing_config: { ...DEFAULT_PROCESSING_CONFIG },
 };
 
 function apiJobToForm(job: AutomationJobApi): JobForm {
@@ -110,6 +139,9 @@ function apiJobToForm(job: AutomationJobApi): JobForm {
     cron_expression = s.expression ?? "0 9 * * *";
   }
 
+  const pc = job.processing_config as Record<string, unknown> | null | undefined;
+  const t = pc?.transcription as Record<string, unknown> | undefined;
+
   return {
     name: job.name ?? "",
     description: job.description ?? "",
@@ -121,6 +153,22 @@ function apiJobToForm(job: AutomationJobApi): JobForm {
     cron_expression,
     sync_days: job.sync_config?.sync_days ?? 2,
     is_active: job.is_active ?? true,
+    filters: {
+      exclude_blank: job.filters?.exclude_blank ?? false,
+      status: job.filters?.status ?? [],
+    },
+    processing_config_enabled: !!pc,
+    processing_config: {
+      enable_transcription: (t?.enable_transcription as boolean | undefined) ?? true,
+      enable_topics: (t?.enable_topics as boolean | undefined) ?? true,
+      enable_subtitles: (t?.enable_subtitles as boolean | undefined) ?? true,
+      language: (t?.language as string | undefined) ?? "ru",
+      granularity: (t?.granularity as string | undefined) ?? "medium",
+      prompt: (t?.prompt as string | undefined) ?? "",
+      allow_errors: (t?.allow_errors as boolean | undefined) ?? false,
+      questions_count: (t?.questions_count as number | undefined) ?? 5,
+      vocabulary: (t?.vocabulary as string[] | undefined) ?? [],
+    },
   };
 }
 
@@ -219,10 +267,18 @@ interface EditorProps {
 function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, templates, headerTitle }: EditorProps) {
   const router = useRouter();
   const qc = useQueryClient();
+  const { data: timezones = [] } = useTimezones();
+
   const [form, setForm] = useState<JobForm>(() => ({ ...initialForm }));
   const [nextRunAt, setNextRunAt] = useState<string | null>(initialNextRunAt);
   const [saveError, setSaveError] = useState("");
   const [feedback, setFeedback] = useState<{ type: FeedbackType; msg: string } | null>(null);
+
+  const savedSnapshot = useRef<string>(JSON.stringify(initialForm));
+  const [confirmCopy, setConfirmCopy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [pendingHref, setPendingHref] = useState("");
 
   function showFeedback(type: FeedbackType, msg: string, ms = 5000) {
     setFeedback({ type, msg });
@@ -231,18 +287,38 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
 
   const save = useMutation({
     mutationFn: async (data: JobForm) => {
-      const body = {
+      const body: Record<string, unknown> = {
         name: data.name,
         description: data.description || undefined,
         template_ids: data.template_ids,
         schedule: formToSchedule(data),
         sync_config: { sync_days: data.sync_days },
         is_active: data.is_active,
+        filters: {
+          exclude_blank: data.filters.exclude_blank,
+          ...(data.filters.status.length > 0 ? { status: data.filters.status } : {}),
+        },
+        processing_config: data.processing_config_enabled
+          ? {
+              transcription: {
+                enable_transcription: data.processing_config.enable_transcription,
+                enable_topics: data.processing_config.enable_topics,
+                enable_subtitles: data.processing_config.enable_subtitles,
+                language: data.processing_config.language,
+                granularity: data.processing_config.granularity,
+                ...(data.processing_config.prompt ? { prompt: data.processing_config.prompt } : {}),
+                allow_errors: data.processing_config.allow_errors,
+                questions_count: data.processing_config.questions_count,
+                ...(data.processing_config.vocabulary.length > 0 ? { vocabulary: data.processing_config.vocabulary } : {}),
+              },
+            }
+          : null,
       };
       if (isNew) return (await apiClient.post<AutomationJobApi>("/automation/jobs", body)).data;
       return (await apiClient.patch<AutomationJobApi>(`/automation/jobs/${jobId}`, body)).data;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, savedForm) => {
+      savedSnapshot.current = JSON.stringify(savedForm);
       qc.invalidateQueries({ queryKey: ["automation-jobs"] });
       setSaveError("");
       if (result?.next_run_at) setNextRunAt(result.next_run_at);
@@ -271,6 +347,19 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
     onError: () => showFeedback("error", "Не удалось запустить проверку"),
   });
 
+  const copyJob = useMutation({
+    mutationFn: () =>
+      apiClient.post<{ id: number }>(`/automation/jobs/${jobId}/copy`).then((r) => r.data),
+    onSuccess: (result) => router.push(`/automation/${result.id}`),
+    onError: () => showFeedback("error", "Не удалось скопировать задачу"),
+  });
+
+  const deleteJob = useMutation({
+    mutationFn: () => apiClient.delete(`/automation/jobs/${jobId}`),
+    onSuccess: () => router.push("/automation"),
+    onError: () => showFeedback("error", "Не удалось удалить задачу"),
+  });
+
   function toggleWeekday(day: number) {
     setForm((f) => ({
       ...f,
@@ -296,16 +385,22 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
     form.template_ids.length > 0 &&
     (form.schedule_mode !== "visual" || form.weekdays.length > 0);
 
+  const isDirty = JSON.stringify(form) !== savedSnapshot.current;
+
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">
-        <Link
-          href="/automation"
+        <button
+          type="button"
+          onClick={() => {
+            if (isDirty) { setPendingHref("/automation"); setConfirmLeave(true); }
+            else router.push("/automation");
+          }}
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
         >
           <ArrowLeft size={16} /> Автоматизации
-        </Link>
+        </button>
         <span className="text-gray-300">/</span>
         <h1 className="text-lg font-semibold text-gray-900 flex-1 min-w-0 truncate">{headerTitle}</h1>
 
@@ -331,6 +426,32 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
           >
             <Play size={15} />
             {runNow.isPending ? "Запуск…" : "Запустить"}
+          </button>
+        )}
+
+        {!isNew && (
+          <button
+            type="button"
+            onClick={() => setConfirmCopy(true)}
+            disabled={copyJob.isPending}
+            title="Создать копию задачи"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            <Copy size={15} />
+            {copyJob.isPending ? "Копирование…" : "Копировать"}
+          </button>
+        )}
+
+        {!isNew && (
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            disabled={deleteJob.isPending}
+            title="Удалить задачу"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-sm font-medium text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors"
+          >
+            <Trash2 size={15} />
+            Удалить
           </button>
         )}
 
@@ -418,6 +539,123 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
           )}
         </div>
 
+        {/* Filters */}
+        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-gray-700">Фильтры</h2>
+          <Toggle
+            label="Исключить пустые записи"
+            checked={form.filters.exclude_blank}
+            onChange={(v) => setForm((f) => ({ ...f, filters: { ...f.filters, exclude_blank: v } }))}
+          />
+          <F label="Статусы записей" hint="Обрабатывать только записи в выбранных статусах (пусто = все)">
+            <div className="mt-1 space-y-1.5">
+              {(["INITIALIZED", "DOWNLOADED", "TRANSCRIBED", "READY", "FAILED"] as const).map((s) => (
+                <label key={s} className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.filters.status.includes(s)}
+                    onChange={(e) => {
+                      const next = e.target.checked
+                        ? [...form.filters.status, s]
+                        : form.filters.status.filter((x) => x !== s);
+                      setForm((f) => ({ ...f, filters: { ...f.filters, status: next } }));
+                    }}
+                    className="rounded accent-[#224C87]"
+                  />
+                  <span className="text-sm text-gray-700">{s}</span>
+                </label>
+              ))}
+            </div>
+          </F>
+        </div>
+
+        {/* Processing config */}
+        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-700">Конфигурация обработки</h2>
+            <Toggle
+              label=""
+              checked={form.processing_config_enabled}
+              onChange={(v) => setForm((f) => ({ ...f, processing_config_enabled: v }))}
+            />
+          </div>
+          {!form.processing_config_enabled && (
+            <p className="text-xs text-gray-400">Используются настройки из шаблона. Включите для переопределения.</p>
+          )}
+          {form.processing_config_enabled && (
+            <div className="space-y-4">
+              <Toggle
+                label="Включить расшифровку"
+                checked={form.processing_config.enable_transcription}
+                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, enable_transcription: v } }))}
+              />
+              <Toggle
+                label="Извлекать темы"
+                checked={form.processing_config.enable_topics}
+                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, enable_topics: v } }))}
+              />
+              <Toggle
+                label="Генерировать субтитры"
+                checked={form.processing_config.enable_subtitles}
+                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, enable_subtitles: v } }))}
+              />
+              <F label="Язык">
+                <select
+                  value={form.processing_config.language}
+                  onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, language: e.target.value } }))}
+                  className={cn(inp, "bg-white")}
+                >
+                  <option value="ru">Русский</option>
+                  <option value="en">English</option>
+                  <option value="auto">Auto</option>
+                </select>
+              </F>
+              <F label="Гранулярность тем">
+                <select
+                  value={form.processing_config.granularity}
+                  onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, granularity: e.target.value } }))}
+                  className={cn(inp, "bg-white")}
+                >
+                  <option value="short">Short</option>
+                  <option value="medium">Medium</option>
+                  <option value="long">Long</option>
+                </select>
+              </F>
+              <F label="Промпт расшифровки" hint="Специфичные для домена подсказки для улучшения точности">
+                <textarea
+                  value={form.processing_config.prompt}
+                  onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, prompt: e.target.value } }))}
+                  rows={3}
+                  placeholder="Университетская лекция: машинное обучение…"
+                  className={cn(FILTER_CONTROL, "resize-y font-mono text-xs")}
+                />
+              </F>
+              <Toggle
+                label="Разрешить ошибки расшифровки"
+                checked={form.processing_config.allow_errors}
+                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, allow_errors: v } }))}
+              />
+              <F label="Количество вопросов" hint="0 — отключить генерацию вопросов">
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={form.processing_config.questions_count}
+                  onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, questions_count: parseInt(e.target.value, 10) || 0 } }))}
+                  className={cn(inp, "w-32")}
+                />
+              </F>
+              <F label="Словарь" hint="Термины для улучшения точности расшифровки">
+                <TagInput
+                  tags={form.processing_config.vocabulary}
+                  onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, vocabulary: v } }))}
+                  placeholder="Добавить термин…"
+                />
+              </F>
+            </div>
+          )}
+        </div>
+
         {/* Schedule */}
         <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
           <h2 className="text-sm font-semibold text-gray-700">Расписание</h2>
@@ -483,8 +721,8 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                     onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
                     className={inp}
                   >
-                    {TIMEZONES.map((tz) => (
-                      <option key={tz} value={tz}>{tz}</option>
+                    {timezones.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                 </F>
@@ -511,8 +749,8 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                     onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
                     className={inp}
                   >
-                    {TIMEZONES.map((tz) => (
-                      <option key={tz} value={tz}>{tz}</option>
+                    {timezones.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
                     ))}
                   </select>
                 </F>
@@ -570,6 +808,36 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmCopy}
+        title="Копировать задачу?"
+        description="Будет создана неактивная копия с теми же настройками."
+        confirmLabel="Создать копию"
+        onConfirm={() => { setConfirmCopy(false); copyJob.mutate(); }}
+        onCancel={() => setConfirmCopy(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Удалить задачу автоматизации?"
+        description="Задача будет удалена без возможности восстановления."
+        confirmLabel="Удалить"
+        danger
+        onConfirm={() => { setConfirmDelete(false); deleteJob.mutate(); }}
+        onCancel={() => setConfirmDelete(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmLeave}
+        title="Выйти без сохранения?"
+        description="Несохранённые изменения будут потеряны."
+        confirmLabel="Выйти"
+        cancelLabel="Остаться"
+        danger
+        onConfirm={() => { setConfirmLeave(false); router.push(pendingHref); }}
+        onCancel={() => setConfirmLeave(false)}
+      />
     </div>
   );
 }

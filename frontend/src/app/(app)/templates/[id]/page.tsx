@@ -1,15 +1,31 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Eye } from "lucide-react";
+import { ArrowLeft, Save, Eye, Copy, ChevronDown, Trash2, RefreshCw, Users, X } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
+import {
+  TemplateField,
+  YouTubeFields,
+  VkFields,
+  YandexDiskFields,
+  DEFAULT_YOUTUBE_FIELDS,
+  DEFAULT_VK_FIELDS,
+  DEFAULT_YANDEX_DISK_FIELDS,
+  type YouTubeFieldsValue,
+  type VkFieldsValue,
+  type YandexDiskFieldsValue,
+} from "@/components/platforms/platform-fields";
+import { useGranularities, useLanguages } from "@/hooks/use-references";
 
-// --- Types ---
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface MatchingRules {
   exact_matches: string[];
@@ -27,6 +43,10 @@ interface ProcessingConfig {
   enable_subtitles: boolean;
   granularity: string;
   transcription_language: string;
+  transcription_prompt: string;
+  allow_errors: boolean;
+  questions_count: number;
+  vocabulary: string[];
 }
 
 interface MetadataConfig {
@@ -43,6 +63,7 @@ interface TemplateFormData {
   name: string;
   description: string;
   is_draft: boolean;
+  is_active: boolean;
   matching_rules: MatchingRules;
   processing_config: ProcessingConfig;
   metadata_config: MetadataConfig;
@@ -51,6 +72,11 @@ interface TemplateFormData {
 
 interface SourceItem { id: number; name: string; source_type?: string; }
 interface PresetItem { id: number; name: string; platform: string; }
+interface PresetDetail {
+  id: number;
+  platform: string;
+  preset_metadata?: { description_template?: string };
+}
 interface RenderPreviewResponse {
   valid: boolean;
   errors: string[];
@@ -58,10 +84,28 @@ interface RenderPreviewResponse {
   rendered_description: string | null;
 }
 
+interface MatchPreviewRecording {
+  id: number;
+  display_name: string;
+  current_status: string;
+  current_is_mapped: boolean;
+  will_become_is_mapped: boolean;
+  start_time: string;
+}
+
+interface MatchPreviewResponse {
+  template_name: string;
+  total_checked: number;
+  will_match_count: number;
+  will_match: MatchPreviewRecording[];
+  note: string;
+}
+
 const DEFAULT_FORM: TemplateFormData = {
   name: "",
   description: "",
   is_draft: true,
+  is_active: false,
   matching_rules: {
     exact_matches: [],
     keywords: [],
@@ -77,6 +121,10 @@ const DEFAULT_FORM: TemplateFormData = {
     enable_subtitles: true,
     granularity: "medium",
     transcription_language: "ru",
+    transcription_prompt: "",
+    allow_errors: false,
+    questions_count: 5,
+    vocabulary: [],
   },
   metadata_config: {
     title_template: "",
@@ -88,22 +136,11 @@ const DEFAULT_FORM: TemplateFormData = {
   },
 };
 
-const TABS = ["Matching", "Processing", "Output", "Metadata"] as const;
-type Tab = typeof TABS[number];
+const INP = "w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors bg-white";
 
-const LANGUAGES = [
-  { value: "ru", label: "Russian" },
-  { value: "en", label: "English" },
-  { value: "auto", label: "Auto-detect" },
-];
-
-const GRANULARITY_OPTIONS = [
-  { value: "short", label: "Short (fewer topics, longer)" },
-  { value: "medium", label: "Medium" },
-  { value: "long", label: "Long (more topics, shorter)" },
-];
-
-// --- Component ---
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function TemplateEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -111,47 +148,59 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const router = useRouter();
   const qc = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<Tab>("Matching");
+  const { data: languages = [] } = useLanguages();
+  const { data: granularities = [] } = useGranularities();
+
   const [form, setForm] = useState<TemplateFormData>(DEFAULT_FORM);
   const [saveError, setSaveError] = useState("");
   const [preview, setPreview] = useState<RenderPreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
+  const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
+  const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
+  const [presetDetails, setPresetDetails] = useState<Record<number, PresetDetail>>({});
 
-  // Fetch existing template
+  const savedSnapshot = useRef<string>(
+    JSON.stringify({
+      form: DEFAULT_FORM,
+      ytFields: { ...DEFAULT_YOUTUBE_FIELDS },
+      vkFields: { ...DEFAULT_VK_FIELDS },
+      ydFields: { ...DEFAULT_YANDEX_DISK_FIELDS },
+    })
+  );
+  const [confirmCopy, setConfirmCopy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [pendingHref, setPendingHref] = useState("");
+  const [matchPreviewOpen, setMatchPreviewOpen] = useState(false);
+  const [matchPreviewData, setMatchPreviewData] = useState<MatchPreviewResponse | null>(null);
+  const [matchPreviewLoading, setMatchPreviewLoading] = useState(false);
+  const [rematchSuccess, setRematchSuccess] = useState("");
+
   const { data: existing } = useQuery({
     queryKey: ["template", id],
-    queryFn: async () => {
-      const res = await apiClient.get(`/templates/${id}`);
-      return res.data;
-    },
+    queryFn: async () => (await apiClient.get(`/templates/${id}`)).data,
     enabled: !isNew,
   });
 
-  // Fetch sources for multi-select
   const { data: sourcesData } = useQuery<{ items: SourceItem[] }>({
     queryKey: ["sources-list"],
-    queryFn: async () => {
-      const res = await apiClient.get("/sources?per_page=50");
-      return res.data;
-    },
+    queryFn: async () => (await apiClient.get("/sources?per_page=50")).data,
   });
 
-  // Fetch presets for multi-select
   const { data: presetsData } = useQuery<{ items: PresetItem[] }>({
     queryKey: ["presets-list"],
-    queryFn: async () => {
-      const res = await apiClient.get("/presets?per_page=50");
-      return res.data;
-    },
+    queryFn: async () => (await apiClient.get("/presets?per_page=50")).data,
   });
 
-  // Populate form from existing template
   useEffect(() => {
     if (!existing) return;
-    setForm({
+    const mc = existing.metadata_config;
+    const newForm: TemplateFormData = {
       name: existing.name ?? "",
       description: existing.description ?? "",
       is_draft: existing.is_draft ?? true,
+      is_active: existing.is_active ?? false,
       matching_rules: {
         exact_matches: existing.matching_rules?.exact_matches ?? [],
         keywords: existing.matching_rules?.keywords ?? [],
@@ -167,57 +216,184 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         enable_subtitles: existing.processing_config?.enable_subtitles ?? true,
         granularity: existing.processing_config?.granularity ?? "medium",
         transcription_language: existing.processing_config?.transcription_language ?? "ru",
+        transcription_prompt: existing.processing_config?.transcription_prompt ?? "",
+        allow_errors: existing.processing_config?.allow_errors ?? false,
+        questions_count: existing.processing_config?.questions_count ?? 5,
+        vocabulary: existing.processing_config?.vocabulary ?? [],
       },
       metadata_config: {
-        title_template: existing.metadata_config?.title_template ?? "",
-        description_template: existing.metadata_config?.description_template ?? "",
+        title_template: mc?.title_template ?? "",
+        description_template: mc?.description_template ?? "",
       },
       output_config: {
         preset_ids: existing.output_config?.preset_ids ?? [],
         auto_upload: existing.output_config?.auto_upload ?? false,
       },
-    });
+    };
+    const newYtFields: YouTubeFieldsValue = mc?.youtube ? {
+      title_template: mc.youtube.title_template ?? "",
+      description_template: mc.youtube.description_template ?? "",
+      privacy: mc.youtube.privacy ?? "",
+      category_id: mc.youtube.category_id != null ? String(mc.youtube.category_id) : "",
+      playlist_id: mc.youtube.playlist_id ?? "",
+      thumbnail_name: mc.youtube.thumbnail_name ?? "",
+      tags: mc.youtube.tags ?? [],
+      made_for_kids: mc.youtube.made_for_kids ?? false,
+    } : { ...DEFAULT_YOUTUBE_FIELDS };
+    const newVkFields: VkFieldsValue = mc?.vk ? {
+      title_template: mc.vk.title_template ?? "",
+      description_template: mc.vk.description_template ?? "",
+      privacy_view: mc.vk.privacy_view != null ? String(mc.vk.privacy_view) : "",
+      privacy_comment: mc.vk.privacy_comment != null ? String(mc.vk.privacy_comment) : "",
+      group_id: mc.vk.group_id != null ? String(mc.vk.group_id) : "",
+      album_id: mc.vk.album_id != null ? String(mc.vk.album_id) : "",
+      thumbnail_name: mc.vk.thumbnail_name ?? "",
+      wallpost: mc.vk.wallpost ?? false,
+    } : { ...DEFAULT_VK_FIELDS };
+    const newYdFields: YandexDiskFieldsValue = mc?.yandex_disk ? {
+      folder_path_template: mc.yandex_disk.folder_path_template ?? "",
+      filename_template: mc.yandex_disk.filename_template ?? "",
+      overwrite: mc.yandex_disk.overwrite ?? false,
+      publish: mc.yandex_disk.publish ?? false,
+    } : { ...DEFAULT_YANDEX_DISK_FIELDS };
+    setForm(newForm);
+    setYtFields(newYtFields);
+    setVkFields(newVkFields);
+    setYdFields(newYdFields);
+    savedSnapshot.current = JSON.stringify({ form: newForm, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields });
   }, [existing]);
+
+  // Fetch full preset details for the "Fill from preset" feature.
+  // Uses allSettled so a 404 for a deleted preset doesn't break the whole batch.
+  useEffect(() => {
+    const idsToFetch = form.output_config.preset_ids.filter((id) => !presetDetails[id]);
+    if (idsToFetch.length === 0) return;
+    Promise.allSettled(
+      idsToFetch.map((pid) => apiClient.get(`/presets/${pid}`).then((r) => r.data as PresetDetail)),
+    ).then((results) => {
+      const loaded = results
+        .filter((r): r is PromiseFulfilledResult<PresetDetail> => r.status === "fulfilled")
+        .map((r) => r.value);
+      if (loaded.length === 0) return;
+      setPresetDetails((prev) => {
+        const next = { ...prev };
+        loaded.forEach((d) => { next[d.id] = d; });
+        return next;
+      });
+    });
+  }, [form.output_config.preset_ids]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------------------------------------------------------------------------
+  // Mutations
+  // ---------------------------------------------------------------------------
 
   const save = useMutation({
     mutationFn: async (data: TemplateFormData) => {
+      const yt: Record<string, unknown> = {};
+      if (ytFields.privacy) yt.privacy = ytFields.privacy;
+      if (ytFields.playlist_id) yt.playlist_id = ytFields.playlist_id;
+      if (ytFields.thumbnail_name) yt.thumbnail_name = ytFields.thumbnail_name;
+      if (ytFields.title_template) yt.title_template = ytFields.title_template;
+      if (ytFields.description_template) yt.description_template = ytFields.description_template;
+      if (ytFields.category_id) yt.category_id = ytFields.category_id;
+      if (ytFields.tags.length > 0) yt.tags = ytFields.tags;
+      if (ytFields.made_for_kids) yt.made_for_kids = true;
+
+      const vk: Record<string, unknown> = {};
+      if (vkFields.group_id) vk.group_id = vkFields.group_id;
+      if (vkFields.album_id) vk.album_id = vkFields.album_id;
+      if (vkFields.thumbnail_name) vk.thumbnail_name = vkFields.thumbnail_name;
+      if (vkFields.title_template) vk.title_template = vkFields.title_template;
+      if (vkFields.description_template) vk.description_template = vkFields.description_template;
+      if (vkFields.privacy_view !== "") vk.privacy_view = Number(vkFields.privacy_view);
+      if (vkFields.privacy_comment !== "") vk.privacy_comment = Number(vkFields.privacy_comment);
+      if (vkFields.wallpost) vk.wallpost = true;
+
+      const yd: Record<string, unknown> = {};
+      if (ydFields.folder_path_template) yd.folder_path_template = ydFields.folder_path_template;
+      if (ydFields.filename_template) yd.filename_template = ydFields.filename_template;
+      if (ydFields.overwrite) yd.overwrite = true;
+      if (ydFields.publish) yd.publish = true;
+
+      const metaConfig: Record<string, unknown> = {
+        title_template: data.metadata_config.title_template || undefined,
+        description_template: data.metadata_config.description_template || undefined,
+      };
+      if (Object.keys(yt).length > 0) metaConfig.youtube = yt;
+      if (Object.keys(vk).length > 0) metaConfig.vk = vk;
+      if (Object.keys(yd).length > 0) metaConfig.yandex_disk = yd;
+      const hasMetadata = Object.values(metaConfig).some((v) => v != null);
+
       const body = {
         name: data.name,
         description: data.description || undefined,
         is_draft: data.is_draft,
-        matching_rules: data.matching_rules.keywords.length > 0 || data.matching_rules.exact_matches.length > 0 || data.matching_rules.patterns.length > 0 || data.matching_rules.source_ids.length > 0
-          ? data.matching_rules
-          : undefined,
+        is_active: data.is_active,
+        matching_rules:
+          data.matching_rules.keywords.length > 0 ||
+          data.matching_rules.exact_matches.length > 0 ||
+          data.matching_rules.patterns.length > 0 ||
+          data.matching_rules.source_ids.length > 0
+            ? data.matching_rules
+            : undefined,
         processing_config: data.processing_config,
-        metadata_config: data.metadata_config.title_template || data.metadata_config.description_template
-          ? data.metadata_config
-          : undefined,
-        output_config: data.output_config.preset_ids.length > 0 || data.output_config.auto_upload
-          ? data.output_config
-          : undefined,
+        metadata_config: hasMetadata ? metaConfig : undefined,
+        output_config:
+          data.output_config.preset_ids.length > 0 || data.output_config.auto_upload
+            ? data.output_config
+            : undefined,
       };
-      if (isNew) {
-        const res = await apiClient.post("/templates", body);
-        return res.data;
-      } else {
-        const res = await apiClient.patch(`/templates/${id}`, body);
-        return res.data;
-      }
+      if (isNew) return (await apiClient.post("/templates", body)).data;
+      return (await apiClient.patch(`/templates/${id}`, body)).data;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, savedForm) => {
+      savedSnapshot.current = JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields });
       qc.invalidateQueries({ queryKey: ["templates"] });
+      qc.invalidateQueries({ queryKey: ["template", id] });
       setSaveError("");
       if (isNew) router.push(`/templates/${result.id}`);
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string | Array<{ msg: string }> } } })?.response?.data?.detail;
-      if (Array.isArray(detail)) {
-        setSaveError(detail.map((e) => e.msg).join("; "));
-      } else {
-        setSaveError(detail ?? "Failed to save template");
-      }
+      const detail = (err as { response?: { data?: { detail?: string | Array<{ msg: string }> } } })?.response?.data
+        ?.detail;
+      setSaveError(
+        Array.isArray(detail) ? detail.map((e) => e.msg).join("; ") : (detail ?? "Failed to save template"),
+      );
     },
   });
+
+  const copyTemplate = useMutation({
+    mutationFn: () =>
+      apiClient.post<{ id: number }>(`/templates/${id}/copy`).then((r) => r.data),
+    onSuccess: (result) => router.push(`/templates/${result.id}`),
+    onError: () => setSaveError("Failed to copy template"),
+  });
+
+  const deleteTemplate = useMutation({
+    mutationFn: () => apiClient.delete(`/templates/${id}`),
+    onSuccess: () => router.push("/templates"),
+    onError: () => setSaveError("Failed to delete template"),
+  });
+
+  const rematch = useMutation({
+    mutationFn: () => apiClient.post(`/templates/${id}/rematch`),
+    onSuccess: () => setRematchSuccess("Rematch queued"),
+    onError: () => setSaveError("Failed to start rematch"),
+  });
+
+  async function handleMatchPreview() {
+    setMatchPreviewLoading(true);
+    setMatchPreviewData(null);
+    setMatchPreviewOpen(true);
+    try {
+      const res = await apiClient.post<MatchPreviewResponse>(`/templates/${id}/preview`);
+      setMatchPreviewData(res.data);
+    } catch {
+      setMatchPreviewOpen(false);
+    } finally {
+      setMatchPreviewLoading(false);
+    }
+  }
 
   async function handlePreview() {
     setPreviewLoading(true);
@@ -250,32 +426,89 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const sources = sourcesData?.items ?? [];
   const presets = presetsData?.items ?? [];
 
+  // Derived status label
+  const statusLabel = form.is_draft ? "Draft" : form.is_active ? "Active" : "Inactive";
+  const statusColor = form.is_draft
+    ? "bg-yellow-100 text-yellow-700"
+    : form.is_active
+      ? "bg-green-100 text-green-700"
+      : "bg-gray-100 text-gray-500";
+
+  const isDirty =
+    JSON.stringify({ form, ytFields, vkFields, ydFields }) !== savedSnapshot.current;
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="w-full min-w-0 p-6 sm:p-8">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6 flex-wrap">
-        <Link href="/templates" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            if (isDirty) { setPendingHref("/templates"); setConfirmLeave(true); }
+            else router.push("/templates");
+          }}
+          className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
+        >
           <ArrowLeft size={16} /> Templates
-        </Link>
+        </button>
         <span className="text-gray-300">/</span>
-        <h1 className="text-lg font-semibold text-gray-900 flex-1">
+        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900">
           {isNew ? "New template" : (existing?.name ?? "…")}
         </h1>
 
-        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={form.is_draft}
-            onChange={(e) => setForm((f) => ({ ...f, is_draft: e.target.checked }))}
-            className="rounded accent-[#224C87]"
-          />
-          Draft
-        </label>
+        {!isNew && (
+          <button
+            onClick={() => setConfirmCopy(true)}
+            disabled={copyTemplate.isPending}
+            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Copy size={15} />
+            {copyTemplate.isPending ? "Copying…" : "Copy"}
+          </button>
+        )}
+
+        {!isNew && (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={deleteTemplate.isPending}
+            className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+          >
+            <Trash2 size={15} />
+            Delete
+          </button>
+        )}
+
+        {!isNew && (
+          <button
+            onClick={handleMatchPreview}
+            disabled={matchPreviewLoading}
+            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Users size={15} />
+            Preview matches
+          </button>
+        )}
+
+        {!isNew && (
+          <button
+            onClick={() => { setRematchSuccess(""); rematch.mutate(); }}
+            disabled={rematch.isPending}
+            title="Re-match recordings against this template's rules"
+            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+          >
+            {rematch.isPending ? <RefreshCw size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+            Rematch
+          </button>
+        )}
 
         <button
           onClick={() => save.mutate(form)}
           disabled={save.isPending || !form.name}
-          className="flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+          className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
         >
           <Save size={15} />
           {save.isPending ? "Saving…" : "Save"}
@@ -283,73 +516,78 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       </div>
 
       {saveError && (
-        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{saveError}</div>
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          {saveError}
+        </div>
       )}
 
-      {/* Name + description */}
-      <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 mb-5 space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Name *</label>
-          <input
-            type="text"
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="ML Lectures"
-            className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Description</label>
-          <input
-            type="text"
-            value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            placeholder="Optional description"
-            className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
-          />
-        </div>
-      </div>
+      {/* 2-column layout */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
 
-      {/* Tabs */}
-      <div className="flex border-b border-[#D9D9D9] mb-5">
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              "px-5 py-2.5 text-sm font-medium transition-colors border-b-2",
-              activeTab === tab
-                ? "border-[#224C87] text-[#224C87]"
-                : "border-transparent text-gray-500 hover:text-gray-700"
-            )}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+        {/* ── Main column ── */}
+        <div className="min-w-0 flex-1 space-y-5">
 
-      {/* Tab content */}
-      <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-6 space-y-5">
-        {activeTab === "Matching" && (
-          <>
+          {/* Basic info */}
+          <Section title="General">
+            <Field label="Name *">
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="ML Lectures"
+                className={INP}
+              />
+            </Field>
+            <Field label="Description">
+              <input
+                type="text"
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Optional description"
+                className={INP}
+              />
+            </Field>
+          </Section>
+
+          {/* Matching */}
+          <Section title="Matching rules">
             <Field label="Keywords" hint="Match recordings whose name contains any of these words">
-              <TagInput tags={form.matching_rules.keywords} onChange={(v) => setMR("keywords", v)} placeholder="Add keyword…" />
+              <TagInput
+                tags={form.matching_rules.keywords}
+                onChange={(v) => setMR("keywords", v)}
+                placeholder="Add keyword…"
+              />
             </Field>
-            <Field label="Exact matches" hint="Exact recording name matches">
-              <TagInput tags={form.matching_rules.exact_matches} onChange={(v) => setMR("exact_matches", v)} placeholder="Exact name…" />
+            <Field label="Exact matches" hint="Full recording name must equal one of these">
+              <TagInput
+                tags={form.matching_rules.exact_matches}
+                onChange={(v) => setMR("exact_matches", v)}
+                placeholder="Exact name…"
+              />
             </Field>
-            <Field label="Regex patterns" hint="Advanced: regex patterns against recording name">
-              <TagInput tags={form.matching_rules.patterns} onChange={(v) => setMR("patterns", v)} placeholder="^ML.*" />
+            <Field label="Regex patterns" hint="Advanced: regex matched against recording name">
+              <TagInput
+                tags={form.matching_rules.patterns}
+                onChange={(v) => setMR("patterns", v)}
+                placeholder="^ML.*"
+              />
             </Field>
             <Field label="Exclude keywords">
-              <TagInput tags={form.matching_rules.exclude_keywords} onChange={(v) => setMR("exclude_keywords", v)} placeholder="Skip if contains…" />
+              <TagInput
+                tags={form.matching_rules.exclude_keywords}
+                onChange={(v) => setMR("exclude_keywords", v)}
+                placeholder="Skip if name contains…"
+              />
             </Field>
 
             {sources.length > 0 && (
               <Field label="Sources" hint="Only match recordings from these sources">
                 <div className="space-y-2">
                   {sources.map((s) => (
-                    <label key={s.id} className="flex items-center gap-3 p-3 rounded-xl border border-[#D9D9D9] cursor-pointer hover:bg-gray-50 transition-colors">
+                    <label
+                      key={s.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#D9D9D9] p-3 transition-colors hover:bg-gray-50"
+                    >
                       <input
                         type="checkbox"
                         checked={form.matching_rules.source_ids.includes(s.id)}
@@ -361,7 +599,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                         }}
                         className="rounded accent-[#224C87]"
                       />
-                      <span className="text-sm font-medium text-gray-900 flex-1">{s.name}</span>
+                      <span className="flex-1 text-sm font-medium text-gray-900">{s.name}</span>
                       {s.source_type && <span className="text-xs text-gray-400">{s.source_type}</span>}
                     </label>
                   ))}
@@ -369,51 +607,105 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               </Field>
             )}
 
-            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-600">
               <input
                 type="checkbox"
                 checked={form.matching_rules.case_sensitive}
                 onChange={(e) => setMR("case_sensitive", e.target.checked)}
                 className="rounded accent-[#224C87]"
               />
-              Case sensitive matching
+              Case-sensitive matching
             </label>
-          </>
-        )}
+          </Section>
 
-        {activeTab === "Processing" && (
-          <>
-            <Toggle label="Enable transcription" checked={form.processing_config.enable_transcription} onChange={(v) => setPC("enable_transcription", v)} />
-            <Toggle label="Extract topics" checked={form.processing_config.enable_topics} onChange={(v) => setPC("enable_topics", v)} />
-            <Toggle label="Generate subtitles" checked={form.processing_config.enable_subtitles} onChange={(v) => setPC("enable_subtitles", v)} />
-            <Field label="Language">
-              <select
-                value={form.processing_config.transcription_language}
-                onChange={(e) => setPC("transcription_language", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 bg-white"
-              >
-                {LANGUAGES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Topic granularity">
-              <select
-                value={form.processing_config.granularity}
-                onChange={(e) => setPC("granularity", e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 bg-white"
-              >
-                {GRANULARITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </Field>
-          </>
-        )}
+          {/* Processing */}
+          <Section title="Processing">
+            <Toggle
+              label="Enable transcription"
+              checked={form.processing_config.enable_transcription}
+              onChange={(v) => setPC("enable_transcription", v)}
+            />
+            <Toggle
+              label="Extract topics"
+              checked={form.processing_config.enable_topics}
+              onChange={(v) => setPC("enable_topics", v)}
+            />
+            <Toggle
+              label="Generate subtitles"
+              checked={form.processing_config.enable_subtitles}
+              onChange={(v) => setPC("enable_subtitles", v)}
+            />
+            <Toggle
+              label="Allow transcription errors"
+              checked={form.processing_config.allow_errors}
+              onChange={(v) => setPC("allow_errors", v)}
+            />
 
-        {activeTab === "Output" && (
-          <>
-            {presets.length > 0 && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Language">
+                <select
+                  value={form.processing_config.transcription_language}
+                  onChange={(e) => setPC("transcription_language", e.target.value)}
+                  className={INP}
+                >
+                  {languages.map((l) => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Topic granularity">
+                <select
+                  value={form.processing_config.granularity}
+                  onChange={(e) => setPC("granularity", e.target.value)}
+                  className={INP}
+                >
+                  {granularities.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
+            <Field label="Questions count" hint="Number of comprehension questions to generate (0 = disabled)">
+              <input
+                type="number"
+                min={0}
+                max={20}
+                value={form.processing_config.questions_count}
+                onChange={(e) => setPC("questions_count", parseInt(e.target.value, 10) || 0)}
+                className="w-32 rounded-xl border border-[#D9D9D9] px-3 py-2.5 text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10"
+              />
+            </Field>
+
+            <Field label="Transcription prompt" hint="Domain vocabulary hint to improve ASR accuracy">
+              <textarea
+                value={form.processing_config.transcription_prompt}
+                onChange={(e) => setPC("transcription_prompt", e.target.value)}
+                rows={3}
+                placeholder="University lecture: machine learning, neural networks…"
+                className={cn(INP, "resize-y font-mono")}
+              />
+            </Field>
+
+            <Field label="Vocabulary" hint="Domain-specific terms to improve transcription accuracy">
+              <TagInput
+                tags={form.processing_config.vocabulary}
+                onChange={(v) => setPC("vocabulary", v)}
+                placeholder="Add term…"
+              />
+            </Field>
+          </Section>
+
+          {/* Output */}
+          <Section title="Output">
+            {presets.length > 0 ? (
               <Field label="Output presets" hint="Apply these presets when uploading">
                 <div className="space-y-2">
                   {presets.map((p) => (
-                    <label key={p.id} className="flex items-center gap-3 p-3 rounded-xl border border-[#D9D9D9] cursor-pointer hover:bg-gray-50 transition-colors">
+                    <label
+                      key={p.id}
+                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#D9D9D9] p-3 transition-colors hover:bg-gray-50"
+                    >
                       <input
                         type="checkbox"
                         checked={form.output_config.preset_ids.includes(p.id)}
@@ -425,74 +717,366 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                         }}
                         className="rounded accent-[#224C87]"
                       />
-                      <span className="text-sm font-medium text-gray-900 flex-1">{p.name}</span>
-                      <span className="text-xs text-gray-400 capitalize">{p.platform}</span>
+                      <span className="flex-1 text-sm font-medium text-gray-900">{p.name}</span>
+                      <span className="text-xs capitalize text-gray-400">{p.platform}</span>
                     </label>
                   ))}
                 </div>
               </Field>
+            ) : (
+              <p className="text-sm text-gray-400">
+                No presets yet.{" "}
+                <Link href="/presets/new" className="text-[#224C87] hover:underline">
+                  Create one →
+                </Link>
+              </p>
             )}
-            {presets.length === 0 && (
-              <p className="text-sm text-gray-400">No presets yet. <Link href="/presets/new" className="text-[#224C87] hover:underline">Create one →</Link></p>
-            )}
-            <Toggle label="Auto-upload after processing" checked={form.output_config.auto_upload} onChange={(v) => setOC("auto_upload", v)} />
-          </>
-        )}
+            <Toggle
+              label="Auto-upload after processing"
+              checked={form.output_config.auto_upload}
+              onChange={(v) => setOC("auto_upload", v)}
+            />
+          </Section>
 
-        {activeTab === "Metadata" && (
-          <>
-            <Field label="Title template" hint='Jinja2 template. Variables: {{ display_name }}, {{ date }}, {{ topic }}'>
-              <textarea
-                value={form.metadata_config.title_template}
-                onChange={(e) => setMC("title_template", e.target.value)}
-                rows={2}
-                placeholder="{{ display_name }} | {{ topic }} ({{ date }})"
-                className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 resize-none transition-colors"
-              />
-            </Field>
-            <Field label="Description template">
-              <textarea
-                value={form.metadata_config.description_template}
-                onChange={(e) => setMC("description_template", e.target.value)}
-                rows={5}
-                placeholder="Recording from {{ date }}\n\nTopics:\n{{ topics }}"
-                className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 resize-none transition-colors font-mono text-xs"
-              />
-            </Field>
+          {/* Metadata */}
+          <Section title="Metadata templates">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Global</p>
+
+            <TemplateField
+              label="Title template"
+              value={form.metadata_config.title_template}
+              onChange={(v) => setMC("title_template", v)}
+              placeholder="{{ display_name }} | {{ topic }} ({{ date }})"
+            />
+            <TemplateField
+              label="Description template"
+              value={form.metadata_config.description_template}
+              onChange={(v) => setMC("description_template", v)}
+              multiline
+              placeholder={"Recording from {{ date }}\n\nTopics:\n{{ topics }}"}
+            />
 
             <button
               onClick={handlePreview}
               disabled={previewLoading}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
             >
               <Eye size={15} />
               {previewLoading ? "Rendering…" : "Preview render"}
             </button>
 
             {preview && (
-              <div className={cn("p-4 rounded-xl border text-sm", preview.valid ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200")}>
+              <div
+                className={cn(
+                  "rounded-xl border p-4 text-sm",
+                  preview.valid ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50",
+                )}
+              >
                 {preview.errors.length > 0 && (
-                  <div className="mb-3">
-                    {preview.errors.map((e, i) => <p key={i} className="text-red-600 text-xs">{e}</p>)}
+                  <div className="mb-3 space-y-1">
+                    {preview.errors.map((e, i) => (
+                      <p key={i} className="text-xs text-red-600">{e}</p>
+                    ))}
                   </div>
                 )}
                 {preview.rendered_title && (
                   <div className="mb-2">
-                    <p className="text-xs text-gray-500 mb-1">Title:</p>
+                    <p className="mb-1 text-xs text-gray-500">Title:</p>
                     <p className="font-medium text-gray-900">{preview.rendered_title}</p>
                   </div>
                 )}
                 {preview.rendered_description && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Description:</p>
-                    <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">{preview.rendered_description}</pre>
+                    <p className="mb-1 text-xs text-gray-500">Description:</p>
+                    <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700">
+                      {preview.rendered_description}
+                    </pre>
                   </div>
                 )}
               </div>
             )}
-          </>
-        )}
+
+            <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Platform overrides
+            </p>
+            <PlatformSection label="YouTube">
+              <YouTubeFields
+                value={ytFields}
+                onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
+                showThumbnail
+                showMadeForKids
+              />
+              {(() => {
+                const ytPreset = form.output_config.preset_ids
+                  .map((pid) => presetDetails[pid])
+                  .find((d) => d?.platform === "youtube");
+                const tpl = ytPreset?.preset_metadata?.description_template;
+                if (!tpl) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setYtFields((f) => ({ ...f, description_template: tpl }))}
+                    className="mt-1 text-xs text-[#224C87] hover:underline"
+                  >
+                    ← Fill description from preset
+                  </button>
+                );
+              })()}
+            </PlatformSection>
+            <PlatformSection label="VK">
+              <VkFields
+                value={vkFields}
+                onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
+                showThumbnail
+                showPrivacyComment
+                showWallpost
+              />
+              {(() => {
+                const vkPreset = form.output_config.preset_ids
+                  .map((pid) => presetDetails[pid])
+                  .find((d) => d?.platform === "vk");
+                const tpl = vkPreset?.preset_metadata?.description_template;
+                if (!tpl) return null;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setVkFields((f) => ({ ...f, description_template: tpl }))}
+                    className="mt-1 text-xs text-[#224C87] hover:underline"
+                  >
+                    ← Fill description from preset
+                  </button>
+                );
+              })()}
+            </PlatformSection>
+            <PlatformSection label="Yandex Disk">
+              <YandexDiskFields
+                value={ydFields}
+                onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
+              />
+            </PlatformSection>
+          </Section>
+        </div>
+
+        {/* ── Sidebar ── */}
+        <div className="w-full space-y-4 lg:w-72 lg:shrink-0">
+
+          {/* Status & activation */}
+          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Status</h2>
+
+            <div className="mb-4 flex items-center gap-2">
+              <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium", statusColor)}>
+                {statusLabel}
+              </span>
+            </div>
+
+            <div className="space-y-1">
+              {/* Draft toggle */}
+              <label className="flex cursor-pointer items-center justify-between rounded-xl px-2 py-2 transition-colors hover:bg-gray-50">
+                <span className="text-sm text-gray-700">Draft</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      is_draft: !f.is_draft,
+                      // activating requires leaving draft first
+                      is_active: !f.is_draft ? false : f.is_active,
+                    }))
+                  }
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                    form.is_draft ? "bg-yellow-400" : "bg-gray-200",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                      form.is_draft ? "translate-x-6" : "translate-x-1",
+                    )}
+                  />
+                </button>
+              </label>
+
+              {/* Active toggle — disabled while draft */}
+              <label
+                className={cn(
+                  "flex items-center justify-between rounded-xl px-2 py-2 transition-colors",
+                  form.is_draft ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-gray-50",
+                )}
+              >
+                <span className="text-sm text-gray-700">Active</span>
+                <button
+                  type="button"
+                  disabled={form.is_draft}
+                  onClick={() => setForm((f) => ({ ...f, is_active: !f.is_active }))}
+                  className={cn(
+                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed",
+                    form.is_active ? "bg-[#224C87]" : "bg-gray-200",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                      form.is_active ? "translate-x-6" : "translate-x-1",
+                    )}
+                  />
+                </button>
+              </label>
+            </div>
+
+            {form.is_draft && (
+              <p className="mt-2 text-[11px] text-gray-400">
+                Disable Draft to be able to activate the template.
+              </p>
+            )}
+          </div>
+
+          {/* Info */}
+          {!isNew && existing && (
+            <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Info</h2>
+              <div className="space-y-2 text-sm">
+                <InfoRow label="Used" value={`${existing.used_count ?? 0}×`} />
+                {existing.last_used_at && (
+                  <InfoRow
+                    label="Last used"
+                    value={new Date(existing.last_used_at).toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  />
+                )}
+                <InfoRow
+                  label="Created"
+                  value={new Date(existing.created_at).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                />
+                <InfoRow
+                  label="Updated"
+                  value={new Date(existing.updated_at).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmCopy}
+        title="Copy template?"
+        description="A new draft copy will be created. You can rename and edit it before activating."
+        confirmLabel="Create copy"
+        onConfirm={() => { setConfirmCopy(false); copyTemplate.mutate(); }}
+        onCancel={() => setConfirmCopy(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete template?"
+        description="This template will be permanently deleted. Recordings linked to it will be unlinked but not deleted."
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => { setConfirmDelete(false); deleteTemplate.mutate(); }}
+        onCancel={() => setConfirmDelete(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmLeave}
+        title="Leave without saving?"
+        description="You have unsaved changes. They will be lost if you leave."
+        confirmLabel="Leave"
+        cancelLabel="Stay"
+        danger
+        onConfirm={() => { setConfirmLeave(false); router.push(pendingHref); }}
+        onCancel={() => setConfirmLeave(false)}
+      />
+
+      {/* Rematch success toast */}
+      {rematchSuccess && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-2xl border border-green-200 bg-white px-4 py-3 shadow-lg">
+          <RefreshCw size={14} className="text-green-600" />
+          <span className="text-sm font-medium text-green-700">{rematchSuccess}</span>
+          <button type="button" onClick={() => setRematchSuccess("")} className="ml-1 text-gray-400 hover:text-gray-600">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Match preview modal */}
+      {matchPreviewOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => { if (e.currentTarget === e.target) setMatchPreviewOpen(false); }}
+        >
+          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl" style={{ maxHeight: "85vh" }}>
+            <div className="flex items-center justify-between border-b border-[#D9D9D9] px-5 py-4">
+              <h2 className="text-sm font-semibold text-gray-900">Preview matching recordings</h2>
+              <button type="button" onClick={() => setMatchPreviewOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              {matchPreviewLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw size={20} className="animate-spin text-gray-400" />
+                </div>
+              )}
+              {!matchPreviewLoading && matchPreviewData && (
+                <>
+                  <p className="mb-4 text-xs text-gray-500">
+                    Checked <span className="font-medium text-gray-700">{matchPreviewData.total_checked}</span> recordings —{" "}
+                    <span className="font-medium text-[#224C87]">{matchPreviewData.will_match_count}</span> would match.
+                  </p>
+                  {matchPreviewData.will_match.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-gray-400">No recordings would match.</p>
+                  ) : (
+                    <div className="divide-y divide-[#F5F5F5]">
+                      {matchPreviewData.will_match.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between gap-3 py-2.5">
+                          <Link href={`/recordings/${r.id}`} className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 hover:text-[#224C87]">
+                            {r.display_name}
+                          </Link>
+                          <span className={cn(
+                            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
+                            r.current_is_mapped ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
+                          )}>
+                            {r.current_is_mapped ? "already mapped" : "will map"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {matchPreviewData.note && (
+                    <p className="mt-4 text-xs italic text-gray-400">{matchPreviewData.note}</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-4 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
+      <h2 className="text-sm font-semibold text-gray-700">{title}</h2>
+      {children}
     </div>
   );
 }
@@ -500,30 +1084,73 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
-      {hint && <p className="text-xs text-gray-400 mb-2">{hint}</p>}
+      <label className="mb-1.5 block text-sm font-medium text-gray-700">{label}</label>
+      {hint && <p className="mb-2 text-xs text-gray-400">{hint}</p>}
       {children}
     </div>
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
-    <label className="flex items-center justify-between py-2 cursor-pointer">
+    <label className="flex cursor-pointer items-center justify-between py-2">
       <span className="text-sm font-medium text-gray-700">{label}</span>
       <button
         type="button"
         onClick={() => onChange(!checked)}
         className={cn(
           "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-          checked ? "bg-[#224C87]" : "bg-gray-200"
+          checked ? "bg-[#224C87]" : "bg-gray-200",
         )}
       >
-        <span className={cn(
-          "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-          checked ? "translate-x-6" : "translate-x-1"
-        )} />
+        <span
+          className={cn(
+            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+            checked ? "translate-x-6" : "translate-x-1",
+          )}
+        />
       </button>
     </label>
+  );
+}
+
+function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900"
+      >
+        {label}
+        <ChevronDown
+          size={15}
+          className={cn("shrink-0 text-gray-400 transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-[#EAEAEA] px-4 pb-4 pt-3">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-gray-500">{label}</span>
+      <span className="font-medium text-gray-900">{value}</span>
+    </div>
   );
 }

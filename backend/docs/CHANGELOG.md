@@ -2,6 +2,44 @@
 
 ---
 
+## v0.9.7.0 (2026-05-20)
+
+**Релиз:** References API, copy-endpoints для шаблонов/пресетов/автоматизаций, исправление WebM/VP8 pipeline, устойчивость тримминга, фронтенд v0.1.
+
+---
+
+## 2026-05-20: References API, copy endpoints, VP8/VP9 pipeline fix, trim robustness, frontend v0.1
+
+- **References API** — новый роутер `api/routers/references.py` (`GET /api/v1/references/{languages,granularities,qualities,platforms,timezones}`): статические справочники для фронтенда; данные кешируются на клиенте сутки (`staleTime: Infinity`). Хук `useReferences` (и производные) в `frontend/src/hooks/use-references.ts`.
+- **Copy: templates** — `POST /api/v1/templates/{id}/copy` создаёт черновик с `is_active=False`, `used_count=0`, именем «Copy of …» (коллизии разрешаются суффиксом `(2)`, `(3)` …). Требует `can_create_templates`.
+- **Copy: presets** — `POST /api/v1/presets/{id}/copy` создаёт активную копию с уникальным именем «Copy of …».
+- **Copy: automations** — `POST /api/v1/automations/{id}/copy` через `AutomationService.duplicate_job`: копия `is_active=False`, счётчики сброшены, квота проверяется.
+- **VP8/VP9 pipeline fix** — `output_suffix_for_trim(video_codec, audio_codec)` выбирает выходной контейнер (`.mp4` / `.webm` / `.mkv`) по кодекам, определённым через ffprobe **до** обрезки; `StoragePathBuilder.recording_video` принимает параметр `suffix` вместо хардкода `.mp4`; задача `_async_process_video` логирует выбранный контейнер.
+- **Trim robustness** — `VideoProcessor.trim_video` зондирует входной файл через `get_video_info` перед запуском FFmpeg; `-map 0:v:0` / `-map 0:a:0` добавляются только если соответствующий поток существует; файл без потоков отклоняется с ошибкой.
+- **yt-dlp observability** — после скачивания логируются фактические `height`, `ext`, `vcodec`; WARNING если запрошен `mp4`-формат, но yt-dlp вернул VP8/VP9 (нет совместимого H.264-стрима). Дублирующий rename-блок в `_run_ytdlp` удалён.
+- **Sniff fix** — `sniff_container_kind` проверяет `ftyp` в `[4:8]` (строгий ISO BMFF) + подстрока в `[8:4096]`; минимальная длина буфера увеличена до 8 байт; EBML/MP4-мисматч изменён с WARNING на ERROR с `return False`.
+- **`InputSourceListItem`** — поля `description` и `config` включены в list-view (раньше исключались).
+- **Yandex Disk** — `YandexDiskSourceConfig.folder_path` автоматически нормализует отсутствующий ведущий `/`.
+- **Frontend v0.1** — полный редизайн страниц (recordings, templates, presets, automation, settings, sources, credentials); новые компоненты `platform-fields.tsx`, `thumbnail-picker.tsx`; централизованные константы `frontend/src/lib/constants.ts`; хуки `useReferences`; дат-форматирование переключено на `ru-RU`; поллинг управляется `ACTIVE_POLL_STATUSES`.
+- **Data migration script** — `scripts/migrate_data_culture_matching_rules.py`: one-off перевод `exact_matches` → regex-паттерны для шаблонов `data_culture@hse.ru`; dry-run по умолчанию, `--apply` для записи.
+
+### Файлы
+
+- `api/routers/references.py` *(новый)*, `api/routers/templates.py`, `api/routers/output_presets.py`, `api/routers/automation.py`
+- `api/services/automation_service.py`
+- `api/schemas/template/input_source.py`, `api/schemas/template/source_config.py`
+- `api/tasks/processing.py`
+- `video_processing_module/video_processor.py`
+- `video_download_module/platforms/ytdlp/downloader.py`
+- `utils/pipeline_video_formats.py`
+- `file_storage/path_builder.py`
+- `scripts/migrate_data_culture_matching_rules.py` *(новый)*
+- `tests/unit/utils/test_pipeline_video_formats.py`
+- `frontend/src/app/(app)/` (все страницы), `frontend/src/components/platforms/`, `frontend/src/components/recordings/`, `frontend/src/hooks/use-references.ts`, `frontend/src/lib/constants.ts`
+- `backend/pyproject.toml`, `backend/api/__init__.py`, `backend/config/settings.py`, `backend/.version`, `README.md`
+
+---
+
 ## 2026-05-14: TRIM — FFmpeg logging, duration clamp, explicit stream maps
 
 - **TRIM** — `VideoProcessor` FFmpeg: `-hide_banner`, `-nostats`, `-loglevel error`; subprocess output consumed with `communicate()` so long runs cannot stall on full pipe buffers; trim uses `-map 0:v:0` and `-map 0:a:0` for deterministic stream copy; failure logs include the **tail** of stderr (banner no longer eats the 500-char budget).

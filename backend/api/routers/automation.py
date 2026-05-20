@@ -109,6 +109,16 @@ async def delete_job(
     await repo.delete(job)
 
 
+@router.post("/{job_id}/copy", response_model=AutomationJobResponse, status_code=status.HTTP_201_CREATED)
+async def copy_job(
+    job_id: int,
+    ctx=Depends(get_service_context),
+):
+    """Copy an automation job. The copy starts inactive with counters reset."""
+    service = AutomationService(ctx.session, ctx.user_id)
+    return await service.duplicate_job(job_id)
+
+
 @router.post("/{job_id}/run", response_model=TriggerJobResponse)
 async def trigger_job(
     job_id: int,

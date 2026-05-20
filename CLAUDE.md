@@ -8,23 +8,27 @@
 
 ### Repository layout
 
-| Area | Path | Notes |
-|------|------|-------|
-| Application | `backend/` | FastAPI, Celery, Alembic, Python ≥ 3.14, `uv` |
-| Package version | `backend/pyproject.toml` | `[project].version` is canonical |
-| Docker / infra | repo root | `docker-compose.yml`, root `Makefile` (Docker-only) |
-| Backend tasks | `backend/Makefile` | API, Celery queues, DB, lint, tests |
-| Authoritative docs | `backend/docs/` | See `INDEX.md` |
-| Drafts / internal | `backend/docs/dev_notes/` | May be outdated; prefer `guides/` + ADR |
+
+| Area               | Path                      | Notes                                               |
+| ------------------ | ------------------------- | --------------------------------------------------- |
+| Application        | `backend/`                | FastAPI, Celery, Alembic, Python ≥ 3.14, `uv`       |
+| Package version    | `backend/pyproject.toml`  | `[project].version` is canonical                    |
+| Docker / infra     | repo root                 | `docker-compose.yml`, root `Makefile` (Docker-only) |
+| Backend tasks      | `backend/Makefile`        | API, Celery queues, DB, lint, tests                 |
+| Authoritative docs | `backend/docs/`           | See `INDEX.md`                                      |
+| Drafts / internal  | `backend/docs/dev_notes/` | May be outdated; prefer `guides/` + ADR             |
+
 
 ### Backend code layout
 
-| Concern | Location |
-|---------|----------|
-| FastAPI app, routers | `backend/api/` |
-| SQLAlchemy models | `backend/database/` |
-| Celery tasks | `backend/api/tasks/` |
-| Business logic | services / repositories alongside existing modules |
+
+| Concern              | Location                                           |
+| -------------------- | -------------------------------------------------- |
+| FastAPI app, routers | `backend/api/`                                     |
+| SQLAlchemy models    | `backend/database/`                                |
+| Celery tasks         | `backend/api/tasks/`                               |
+| Business logic       | services / repositories alongside existing modules |
+
 
 ### Tooling entrypoint
 
@@ -84,6 +88,7 @@ These apply to **code, APIs, and docs**.
 Add entries for user-visible behavior, API contract changes, DB migrations, deployment prerequisites, and breaking changes.
 
 **Structure:**
+
 1. Release block: `## vX.Y.Z (YYYY-MM-DD)` + short summary
 2. Dated sections: `## YYYY-MM-DD: Short English title` + bullets with **bold lead-in**
 3. `### Файлы` subsection: repo-relative paths touched
@@ -97,13 +102,15 @@ Add entries for user-visible behavior, API contract changes, DB migrations, depl
 
 When you change behavior, update at least one of:
 
-| Change type | Update |
-|-------------|--------|
-| REST API surface | `backend/docs/TECHNICAL.md`, OpenAPI via code |
-| Auth / OAuth / creds | `backend/docs/guides/OAUTH.md`, `CREDENTIAL_SECURITY.md` |
-| Celery / workers / queues | `backend/docs/guides/CELERY_*.md`, `AUTOMATION_CELERY_BEAT.md` |
-| Templates / Jinja metadata | `backend/docs/guides/JINJA_METADATA_TEMPLATES.md` |
-| Deployment / env vars | `backend/docs/guides/DEPLOYMENT.md`, `.env.example` |
+
+| Change type                | Update                                                         |
+| -------------------------- | -------------------------------------------------------------- |
+| REST API surface           | `backend/docs/TECHNICAL.md`, OpenAPI via code                  |
+| Auth / OAuth / creds       | `backend/docs/guides/OAUTH.md`, `CREDENTIAL_SECURITY.md`       |
+| Celery / workers / queues  | `backend/docs/guides/CELERY_*.md`, `AUTOMATION_CELERY_BEAT.md` |
+| Templates / Jinja metadata | `backend/docs/guides/JINJA_METADATA_TEMPLATES.md`              |
+| Deployment / env vars      | `backend/docs/guides/DEPLOYMENT.md`, `.env.example`            |
+
 
 Keep `backend/docs/INDEX.md` accurate if you add new top-level guides.
 
@@ -156,12 +163,14 @@ make quality        # lint + typecheck + pytest quality markers
 
 ### Commands (from `backend/`)
 
-| Target | Purpose |
-|--------|---------|
-| `make test` | Full suite |
-| `make tests-mock` | Fast: ruff + unit tests |
-| `make tests-quality` | `pytest tests/quality/ -m quality` |
+
+| Target                | Purpose                             |
+| --------------------- | ----------------------------------- |
+| `make test`           | Full suite                          |
+| `make tests-mock`     | Fast: ruff + unit tests             |
+| `make tests-quality`  | `pytest tests/quality/ -m quality`  |
 | `make tests-security` | `pytest tests/quality/ -m security` |
+
 
 ### Writing tests
 
@@ -185,12 +194,14 @@ make quality        # lint + typecheck + pytest quality markers
 
 ### Commands
 
-| Step | Command |
-|------|---------|
-| Apply all pending | `make migrate` |
-| Current revision | `make db-version` |
-| History | `make db-history` |
-| Roll back one | `make migrate-down` |
+
+| Step              | Command             |
+| ----------------- | ------------------- |
+| Apply all pending | `make migrate`      |
+| Current revision  | `make db-version`   |
+| History           | `make db-history`   |
+| Roll back one     | `make migrate-down` |
+
 
 ### After `upgrade head`
 
@@ -259,4 +270,4 @@ On every release, update all of:
 - `/leap-release` — short pre-merge release gate: CHANGELOG, migrations, docs, lint, typecheck, tests.
 - `/leap-docs-hygiene` — reorganizes docs: canonical locations, INDEX updates, archive vs dev_notes.
 - `/leap-debug-pipeline` — debugs stuck or failed recording pipelines: Celery queues, log correlation.
-а 
+а

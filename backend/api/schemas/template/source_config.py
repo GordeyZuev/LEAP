@@ -73,6 +73,13 @@ class YandexDiskSourceConfig(BaseModel):
     recursive: bool = Field(True, description="Recursive search in subfolders")
     file_pattern: str | None = Field(None, description="Regex pattern for file filtering")
 
+    @field_validator("folder_path")
+    @classmethod
+    def normalize_folder_path(cls, v: str | None) -> str | None:
+        if v and not v.startswith("/"):
+            return "/" + v
+        return v
+
     @field_validator("file_pattern")
     @classmethod
     def validate_pattern(cls, v: str | None) -> str | None:

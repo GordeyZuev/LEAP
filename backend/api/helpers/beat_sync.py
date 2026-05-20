@@ -73,7 +73,6 @@ async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> No
 
     except Exception as e:
         logger.error(f"Failed to sync job {job.id}: {e}")
-        await session.rollback()
         raise
 
 

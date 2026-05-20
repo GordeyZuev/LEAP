@@ -81,14 +81,16 @@ class InputSourceUpdate(BaseModel):
 
 
 class InputSourceListItem(BaseModel):
-    """Lightweight source for list views (excludes heavy config)."""
+    """Lightweight source for list views."""
 
     model_config = ORM_MODEL_CONFIG
 
     id: int
     name: str
+    description: str | None
     source_type: str
     credential_id: int | None
+    config: SourceConfig | None
     is_active: bool
     last_sync_at: datetime | None
     created_at: datetime

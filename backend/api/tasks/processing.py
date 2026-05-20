@@ -28,7 +28,7 @@ from transcription_module.manager import get_transcription_manager
 from video_download_module.downloader import ZoomDownloader
 from video_download_module.factory import create_downloader
 from video_processing_module.config import ProcessingConfig
-from video_processing_module.video_processor import VideoProcessor
+from video_processing_module.video_processor import VideoProcessor, output_suffix_for_trim
 
 logger = get_logger()
 settings = get_settings()
@@ -694,7 +694,15 @@ async def _async_process_video(
             await timing_service.complete_substep(sub_analyze)
             await session.commit()
 
-            output_video_path = str(storage_builder.recording_video(user_slug, recording_id))
+            # Determine output container suffix from actual stream codecs to avoid
+            # stream-copy into an incompatible muxer (e.g. VP8+Vorbis into .mp4).
+            source_info = await processor.get_video_info(recording.local_video_path)
+            video_suffix = output_suffix_for_trim(source_info.get("video_codec"), source_info.get("audio_codec"))
+            logger.debug(
+                f"Output container | {format_details(video_codec=source_info.get('video_codec'), audio_codec=source_info.get('audio_codec'), suffix=video_suffix)}"
+            )
+
+            output_video_path = str(storage_builder.recording_video(user_slug, recording_id, suffix=video_suffix))
             final_audio_path = str(storage_builder.recording_audio(user_slug, recording_id))
             Path(output_video_path).parent.mkdir(parents=True, exist_ok=True)
             Path(final_audio_path).parent.mkdir(parents=True, exist_ok=True)
@@ -704,6 +712,7 @@ async def _async_process_video(
                 logger.info("Skipped: sound throughout entire video")
                 task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
 
+                # No trimming needed — reference original file directly to avoid a redundant copy.
                 output_video_path = recording.local_video_path
                 logger.debug(f"Processed video references original: {output_video_path}")
 

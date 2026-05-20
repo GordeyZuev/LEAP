@@ -21,14 +21,19 @@ class TestSniffContainerKind:
         blob = EBML_MAGIC + b"\xff" * 100
         assert sniff_container_kind(blob) == "ebml"
 
-    def test_detects_iso_bmff_via_ftyp(self) -> None:
-        """ftyp in first chunk maps to iso_bmff."""
+    def test_detects_iso_bmff_via_ftyp_at_offset_4(self) -> None:
+        """Standard MP4: ftyp box type at bytes [4:8]."""
         blob = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00iso6mp41" + b"\x00" * 4000
         assert sniff_container_kind(blob) == "iso_bmff"
 
+    def test_detects_iso_bmff_via_ftyp_fallback_substring(self) -> None:
+        """ftyp found elsewhere in first 4096 bytes still detected."""
+        blob = b"\x00" * 16 + b"ftypisom" + b"\x00" * 4000
+        assert sniff_container_kind(blob) == "iso_bmff"
+
     def test_unknown_too_short(self) -> None:
-        """Short input returns unknown."""
-        assert sniff_container_kind(b"abc") == "unknown"
+        """Input shorter than 8 bytes returns unknown."""
+        assert sniff_container_kind(b"abcdefg") == "unknown"
 
 
 @pytest.mark.unit
@@ -53,12 +58,19 @@ class TestIngressValidateSavedMedia:
         vp.write_bytes(isoish)
         assert ingress_validate_saved_media(vp, None, None, "file.webm", ["mp4", "webm", "mov"]) is False
 
-    def test_accepts_legacy_mp4_path_ebml_body_with_explicit_mp4_suffix(self, tmp_path: Path) -> None:
-        """Allow mp4 path with EBML payload when suffix explicitly allowed (legacy)."""
+    def test_rejects_mp4_name_with_ebml_body(self, tmp_path: Path) -> None:
+        """EBML payload named .mp4 must be rejected — container/extension mismatch."""
         vp = tmp_path / "source.mp4"
         vp.write_bytes(EBML_MAGIC + b"z" * 2000)
         ok = ingress_validate_saved_media(vp, None, None, "remote.mp4", ["mp4", "webm", "mkv", "mov"])
-        assert ok is True
+        assert ok is False
+
+    def test_rejects_mov_name_with_ebml_body(self, tmp_path: Path) -> None:
+        """EBML payload named .mov must be rejected — container/extension mismatch."""
+        vp = tmp_path / "source.mov"
+        vp.write_bytes(EBML_MAGIC + b"z" * 2000)
+        ok = ingress_validate_saved_media(vp, None, None, "remote.mov", ["mp4", "webm", "mkv", "mov"])
+        assert ok is False
 
 
 @pytest.mark.unit

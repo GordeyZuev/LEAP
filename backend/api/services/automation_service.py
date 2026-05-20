@@ -105,6 +105,38 @@ class AutomationService:
 
         return await self.job_repo.create(job_data, self.user_id)
 
+    async def duplicate_job(self, job_id: int):
+        """Duplicate an automation job. The copy starts inactive with counters reset."""
+        original = await self.job_repo.get_by_id(job_id, self.user_id)
+        if not original:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation job not found")
+
+        await self.validate_quota()
+
+        base = f"Copy of {original.name}"
+        name = base
+        if await self.job_repo.find_by_name(self.user_id, base):
+            for i in range(2, 100):
+                candidate = f"{base} ({i})"
+                if not await self.job_repo.find_by_name(self.user_id, candidate):
+                    name = candidate
+                    break
+            else:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot generate unique copy name")
+
+        job_data = {
+            "name": name,
+            "description": original.description,
+            "template_ids": list(original.template_ids or []),
+            "schedule": dict(original.schedule or {}),
+            "sync_config": dict(original.sync_config or {}),
+            "filters": dict(original.filters or {}) if original.filters else None,
+            "processing_config": dict(original.processing_config or {}) if original.processing_config else None,
+            "is_active": False,
+        }
+        job_data = await self.prepare_job_data(job_data)
+        return await self.job_repo.create(job_data, self.user_id)
+
     async def update_job(self, job_id: int, updates: dict):
         """Update automation job with validation."""
         job = await self.job_repo.get_by_id(job_id, self.user_id)

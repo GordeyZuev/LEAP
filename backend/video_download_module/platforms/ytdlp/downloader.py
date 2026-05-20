@@ -59,6 +59,21 @@ class YtDlpDownloader(BaseDownloader):
 
         result_info = await self._run_ytdlp(url, target_path, format_spec, format_pref)
 
+        # Log actual quality selected by yt-dlp (may differ from requested due to availability).
+        if result_info:
+            actual_height = result_info.get("height")
+            actual_ext = result_info.get("ext")
+            actual_vcodec = result_info.get("vcodec")
+            logger.info(
+                f"yt-dlp selected | height={actual_height}p ext={actual_ext} vcodec={actual_vcodec} "
+                f"(requested format={format_pref} quality={quality})"
+            )
+            if format_pref == "mp4" and actual_vcodec and actual_vcodec.startswith("vp"):
+                logger.warning(
+                    f"yt-dlp fell back to {actual_vcodec} instead of H.264 — "
+                    f"no MP4-compatible stream found for quality={quality}"
+                )
+
         if not target_path.exists():
             expected_exts = (".mp3",) if self._is_audio_format(format_pref) else (".mp4", ".mkv", ".webm", ".mov")
             for candidate in target_path.parent.glob(f"{target_path.stem}*"):
@@ -160,14 +175,5 @@ class YtDlpDownloader(BaseDownloader):
                 return ydl.extract_info(url, download=True)
 
         info = await asyncio.get_event_loop().run_in_executor(None, _download)
-
-        # yt-dlp may add/change extension -- find the actual file
-        if not target_path.exists():
-            expected_exts = (".mp3",) if self._is_audio_format(format_pref) else (".mp4", ".mkv", ".webm")
-            for candidate in target_path.parent.glob(f"{target_path.stem}*"):
-                if candidate.is_file() and candidate.suffix in expected_exts:
-                    candidate.rename(target_path)
-                    logger.info(f"Renamed {candidate.name} -> {target_path.name}")
-                    break
 
         return info or {}

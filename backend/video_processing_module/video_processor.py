@@ -27,6 +27,37 @@ def _format_ffmpeg_stderr(raw: bytes | None, *, max_chars: int = 12_000) -> str:
     return f"...({len(text)} chars total, showing last {max_chars})\n" + text[-max_chars:]
 
 
+# Codecs that can be stream-copied into an MP4 container without re-encoding.
+_MP4_COMPATIBLE_VIDEO = frozenset({"h264", "hevc", "h265", "avc", "mp4v", "mpeg4"})
+_MP4_COMPATIBLE_AUDIO = frozenset({"aac", "mp3", "mp2", "ac3", "eac3", "alac"})
+
+
+def output_suffix_for_trim(video_codec: str | None, audio_codec: str | None) -> str:
+    """Return the output container suffix that allows stream-copy of the given codecs.
+
+    If both present codecs are MP4-compatible, returns '.mp4'.
+    Otherwise returns the original container suffix (WebM/MKV stay as-is).
+    Falls back to '.mp4' when only a video stream exists with a compatible codec.
+    """
+    v = (video_codec or "").lower()
+    a = (audio_codec or "").lower()
+
+    v_ok = not v or v in _MP4_COMPATIBLE_VIDEO
+    a_ok = not a or a in _MP4_COMPATIBLE_AUDIO
+
+    if v_ok and a_ok:
+        return ".mp4"
+
+    # VP8/VP9+Vorbis/Opus → WebM; VP9 alone can go in WebM too
+    vp_video = v in {"vp8", "vp9", "av1"}
+    opus_vorbis = a in {"vorbis", "opus"}
+    if vp_video or opus_vorbis:
+        return ".webm"
+
+    # MKV is a universal container — use as last resort
+    return ".mkv"
+
+
 class VideoProcessor:
     """Video processor for trimming, audio extraction and segmentation."""
 
@@ -191,6 +222,19 @@ class VideoProcessor:
         input_path = str(input_path)
         output_path = str(output_path)
 
+        try:
+            info = await self.get_video_info(input_path)
+        except Exception as e:
+            logger.error(f"Cannot probe input file before trim: {e}")
+            return False
+
+        has_video = bool(info.get("video_codec"))
+        has_audio = bool(info.get("audio_codec"))
+
+        if not has_video and not has_audio:
+            logger.error(f"Input file has neither video nor audio streams: {input_path}")
+            return False
+
         cmd = [
             "ffmpeg",
             *_FFMPEG_LOG_ARGS,
@@ -200,15 +244,17 @@ class VideoProcessor:
             str(start_time),
             "-t",
             str(duration),
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a:0",
-            "-c:v",
-            self.config.video_codec,
-            "-c:a",
-            self.config.audio_codec,
         ]
+
+        if has_video:
+            cmd.extend(["-map", "0:v:0"])
+        if has_audio:
+            cmd.extend(["-map", "0:a:0"])
+
+        if has_video:
+            cmd.extend(["-c:v", self.config.video_codec])
+        if has_audio:
+            cmd.extend(["-c:a", self.config.audio_codec])
 
         if self.config.video_bitrate != "original":
             cmd.extend(["-b:v", self.config.video_bitrate])

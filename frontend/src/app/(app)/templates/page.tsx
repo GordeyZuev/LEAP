@@ -4,10 +4,11 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useDebounce } from "@/hooks/use-debounce";
+import { DEBOUNCE_SEARCH, PER_PAGE_TEMPLATES } from "@/lib/constants";
 import {
   FILTER_CARD,
   FILTER_CONTROL,
@@ -40,7 +41,7 @@ interface TemplateListResponse {
 const SORT_OPTIONS = [
   { value: "created_at", label: "Created" },
   { value: "updated_at", label: "Updated" },
-  { value: "name", label: "Name" },
+  { value: "name",       label: "Name" },
   { value: "used_count", label: "Used count" },
 ];
 
@@ -57,7 +58,6 @@ function TemplatesContent() {
   const searchParams = useSearchParams();
   const urlKey = searchParams.toString();
 
-  // Derived from URL (applied immediately for these simple filters)
   const urlSearch = searchParams.get("search") ?? "";
   const isActiveRaw = searchParams.get("is_active");
   const isActiveFilter: IsActiveFilter =
@@ -67,18 +67,15 @@ function TemplatesContent() {
   const sortOrder: "asc" | "desc" = searchParams.get("sort_order") === "asc" ? "asc" : "desc";
   const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
 
-  // Local search input with debounce → syncs to URL
   const [searchInput, setSearchInput] = useState(urlSearch);
-  const debouncedSearch = useDebounce(searchInput, 400);
+  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
 
-  // Sync URL → input on external navigation (browser back/fwd)
   const [prevUrlKey, setPrevUrlKey] = useState(urlKey);
   if (urlKey !== prevUrlKey) {
     setPrevUrlKey(urlKey);
     setSearchInput(searchParams.get("search") ?? "");
   }
 
-  // Sync debounced search → URL
   const lastAppliedSearchRef = useRef(urlSearch);
   useEffect(() => {
     const trimmed = debouncedSearch.trim();
@@ -87,7 +84,7 @@ function TemplatesContent() {
     const p = new URLSearchParams(searchParams.toString());
     if (trimmed) p.set("search", trimmed);
     else p.delete("search");
-    p.delete("page"); // reset page on search change
+    p.delete("page");
     router.replace(`?${p.toString()}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
@@ -96,7 +93,7 @@ function TemplatesContent() {
     const p = new URLSearchParams(searchParams.toString());
     if (value === null || value === "") p.delete(key);
     else p.set(key, value);
-    p.delete("page"); // reset page on filter change
+    p.delete("page");
     router.replace(`?${p.toString()}`);
   }
 
@@ -107,7 +104,7 @@ function TemplatesContent() {
     router.replace(`?${p.toString()}`);
   }
 
-  function clearFilters() {
+  function resetFilters() {
     setSearchInput("");
     lastAppliedSearchRef.current = "";
     router.replace("?");
@@ -129,7 +126,7 @@ function TemplatesContent() {
       p.set("sort_by", sortBy);
       p.set("sort_order", sortOrder);
       p.set("page", String(urlPage));
-      p.set("per_page", "20");
+      p.set("per_page", String(PER_PAGE_TEMPLATES));
       const res = await apiClient.get<TemplateListResponse>(`/templates?${p.toString()}`);
       return res.data;
     },
@@ -153,7 +150,7 @@ function TemplatesContent() {
         </Link>
       </div>
 
-      {/* Search + Sort toolbar */}
+      {/* Search toolbar — только поиск */}
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1 space-y-1.5" style={{ maxWidth: "22rem" }}>
           <label htmlFor="templates-search" className={FILTER_LABEL}>
@@ -169,52 +166,13 @@ function TemplatesContent() {
             className={FILTER_CONTROL}
           />
         </div>
-        <div className="space-y-1.5">
-          <span className={FILTER_LABEL}>Sort by</span>
-          <div className="flex gap-1.5">
-            <select
-              value={sortBy}
-              onChange={(e) => setParam("sort_by", e.target.value)}
-              className={cn(FILTER_CONTROL, "min-w-[9rem]")}
-            >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              title={sortOrder === "desc" ? "Descending" : "Ascending"}
-              onClick={() => setParam("sort_order", sortOrder === "desc" ? "asc" : "desc")}
-              className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
-            >
-              {sortOrder === "desc" ? "↓" : "↑"}
-            </button>
-          </div>
-        </div>
-        {hasActiveFilters && (
-          <div className="space-y-1.5">
-            <span className={FILTER_LABEL} aria-hidden>&nbsp;</span>
-            <button
-              type="button"
-              onClick={clearFilters}
-              className={cn(
-                FILTER_CONTROL,
-                "flex min-h-[2.5rem] items-center gap-1.5 border-gray-200 text-gray-600 hover:bg-gray-50"
-              )}
-            >
-              <X size={14} />
-              Reset
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Status filter */}
-      <div className={cn(FILTER_CARD, "!mb-6 !space-y-0")}>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-          <div className="space-y-1.5">
+      {/* Filter card — status + sort + reset */}
+      <div className={FILTER_CARD}>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+          {/* Status */}
+          <div className="lg:col-span-4">
             <span className={FILTER_LABEL}>Status</span>
             <div className={FILTER_SEGMENT_WRAP}>
               {(["all", "active", "inactive"] as IsActiveFilter[]).map((v) => (
@@ -233,6 +191,45 @@ function TemplatesContent() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Sort */}
+          <div className="lg:col-span-4">
+            <span className={FILTER_LABEL}>Sort by</span>
+            <div className="flex gap-1.5">
+              <select
+                value={sortBy}
+                onChange={(e) => setParam("sort_by", e.target.value)}
+                className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                title={sortOrder === "desc" ? "Descending" : "Ascending"}
+                onClick={() => setParam("sort_order", sortOrder === "desc" ? "asc" : "desc")}
+                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
+              >
+                {sortOrder === "desc" ? "↓" : "↑"}
+              </button>
+            </div>
+          </div>
+
+          {/* Reset */}
+          <div className="lg:col-span-4">
+            <span className={FILTER_LABEL} aria-hidden>&nbsp;</span>
+            <button
+              type="button"
+              onClick={resetFilters}
+              disabled={!hasActiveFilters}
+              className="w-full min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Reset
+            </button>
           </div>
         </div>
       </div>
@@ -281,12 +278,14 @@ function TemplatesContent() {
             {templates.map((t) => (
               <tr key={t.id} className="transition-colors hover:bg-gray-50">
                 <td className="px-6 py-4">
-                  <Link
-                    href={`/templates/${t.id}`}
-                    className="text-sm font-medium text-gray-900 transition-colors hover:text-[#224C87]"
-                  >
-                    {t.name}
-                  </Link>
+                  <div>
+                    <Link
+                      href={`/templates/${t.id}`}
+                      className="text-sm font-medium text-gray-900 transition-colors hover:text-[#224C87]"
+                    >
+                      {t.name}
+                    </Link>
+                  </div>
                   {t.description && (
                     <p className="mt-0.5 max-w-xs truncate text-xs text-gray-400">{t.description}</p>
                   )}
@@ -313,7 +312,6 @@ function TemplatesContent() {
         </table>
       </div>
 
-      {/* Pagination */}
       {data && data.total > 0 && (
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-gray-600">

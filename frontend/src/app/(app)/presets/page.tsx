@@ -4,14 +4,23 @@ import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
-import { FILTER_CARD, FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import {
+  FILTER_CARD,
+  FILTER_CONTROL,
+  FILTER_LABEL,
+  FILTER_SEGMENT_ACTIVE,
+  FILTER_SEGMENT_BTN,
+  FILTER_SEGMENT_IDLE,
+  FILTER_SEGMENT_WRAP,
+} from "@/lib/filter-field-classes";
+import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/recordings/filter-multi-select";
+import { usePlatforms } from "@/hooks/use-references";
+import { PER_PAGE_PRESETS } from "@/lib/constants";
 
-const PER_PAGE = 24;
-
-const ALLOWED_PLATFORMS = new Set(["youtube", "vk", "yandex_disk"]);
+const ALLOWED_PLATFORMS = new Set(["youtube", "vk_video", "yandex_disk", "zoom"]);
 
 interface PresetItem {
   id: number;
@@ -45,31 +54,71 @@ const PLATFORM_COLORS: Record<string, string> = {
 const SORT_OPTIONS = [
   { value: "created_at", label: "Created" },
   { value: "updated_at", label: "Updated" },
-  { value: "name", label: "Name" },
+  { value: "name",       label: "Name" },
 ];
 
 const SORT_ALLOWED = new Set(SORT_OPTIONS.map((o) => o.value));
 
+type ActiveFilter = "all" | "active" | "inactive";
+
+// ---------------------------------------------------------------------------
+// Filter draft
+// ---------------------------------------------------------------------------
+
+interface PresetFilterDraft {
+  platforms: string[];
+  activeFilter: ActiveFilter;
+  sortBy: string;
+  sortOrder: "asc" | "desc";
+}
+
+const DEFAULT_DRAFT: PresetFilterDraft = {
+  platforms: [],
+  activeFilter: "all",
+  sortBy: "created_at",
+  sortOrder: "desc",
+};
+
+function draftFromUrl(sp: URLSearchParams): PresetFilterDraft {
+  const platforms = sp.getAll("platform").filter((p) => ALLOWED_PLATFORMS.has(p));
+  const activeRaw = sp.get("active_filter");
+  const activeFilter: ActiveFilter =
+    activeRaw === "active" ? "active" : activeRaw === "inactive" ? "inactive" : "all";
+  const sortByRaw = sp.get("sort_by") ?? "created_at";
+  const sortBy = SORT_ALLOWED.has(sortByRaw) ? sortByRaw : "created_at";
+  const sortOrder: "asc" | "desc" = sp.get("sort_order") === "asc" ? "asc" : "desc";
+  return { platforms, activeFilter, sortBy, sortOrder };
+}
+
+function draftSignature(d: PresetFilterDraft): string {
+  return [d.platforms.slice().sort().join(","), d.activeFilter, d.sortBy, d.sortOrder].join("|");
+}
+
+// ---------------------------------------------------------------------------
+// PresetsPagedGrid
+// ---------------------------------------------------------------------------
+
 interface PresetsPagedGridProps {
-  platform: string;
-  activeOnly: boolean;
+  platforms: string[];
+  activeFilter: ActiveFilter;
   sortBy: string;
   sortOrder: string;
 }
 
-function PresetsPagedGrid({ platform, activeOnly, sortBy, sortOrder }: PresetsPagedGridProps) {
+function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder }: PresetsPagedGridProps) {
   const [page, setPage] = useState(1);
 
   const { data, isLoading, error } = useQuery<PresetListResponse>({
-    queryKey: ["presets", platform, activeOnly, sortBy, sortOrder, page],
+    queryKey: ["presets", platforms, activeFilter, sortBy, sortOrder, page],
     queryFn: async () => {
       const p = new URLSearchParams();
-      if (platform) p.set("platform", platform);
-      if (activeOnly) p.set("active_only", "true");
+      platforms.forEach((pl) => p.append("platform", pl));
+      if (activeFilter === "active") p.set("active_only", "true");
+      if (activeFilter === "inactive") p.set("active_only", "false");
       p.set("sort_by", sortBy);
       p.set("sort_order", sortOrder);
       p.set("page", String(page));
-      p.set("per_page", String(PER_PAGE));
+      p.set("per_page", String(PER_PAGE_PRESETS));
       const res = await apiClient.get<PresetListResponse>(`/presets?${p.toString()}`);
       return res.data;
     },
@@ -94,7 +143,7 @@ function PresetsPagedGrid({ platform, activeOnly, sortBy, sortOrder }: PresetsPa
 
       {!isLoading && !error && presets.length === 0 && (
         <p className="py-16 text-center text-sm text-gray-400">
-          {platform || activeOnly ? "No presets match your filters" : "No presets yet"}
+          {platforms.length || activeFilter !== "all" ? "No presets match your filters" : "No presets yet"}
         </p>
       )}
 
@@ -159,41 +208,56 @@ function PresetsPagedGrid({ platform, activeOnly, sortBy, sortOrder }: PresetsPa
   );
 }
 
+// ---------------------------------------------------------------------------
+// Main content
+// ---------------------------------------------------------------------------
+
 function PresetsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: platformOptions = [] } = usePlatforms();
+  const urlKey = searchParams.toString();
 
-  const platRaw = searchParams.get("platform");
-  const platform = platRaw && ALLOWED_PLATFORMS.has(platRaw) ? platRaw : "";
+  const [draft, setDraft] = useState<PresetFilterDraft>(() => draftFromUrl(searchParams));
+  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
 
-  const activeOnly = searchParams.get("active_only") === "true";
+  const patchDraft = useCallback((patch: Partial<PresetFilterDraft>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+  }, []);
 
-  const sortByRaw = searchParams.get("sort_by") ?? "created_at";
-  const sortBy = SORT_ALLOWED.has(sortByRaw) ? sortByRaw : "created_at";
+  const appliedDraft = useMemo(() => draftFromUrl(new URLSearchParams(urlKey)), [urlKey]);
+  const isDirty = draftSignature(draft) !== draftSignature(appliedDraft);
 
-  const sortOrderRaw = searchParams.get("sort_order") ?? "desc";
-  const sortOrder = sortOrderRaw === "asc" ? "asc" : "desc";
+  const hasAppliedFilters =
+    appliedDraft.platforms.length > 0 ||
+    appliedDraft.activeFilter !== "all" ||
+    appliedDraft.sortBy !== "created_at" ||
+    appliedDraft.sortOrder !== "desc";
 
-  const setParam = useCallback(
-    (key: string, value: string | null) => {
-      const p = new URLSearchParams(searchParams.toString());
-      if (value === null || value === "") p.delete(key);
-      else p.set(key, value);
-      router.replace(`?${p.toString()}`);
-    },
-    [router, searchParams]
-  );
-
-  const filtersKey = useMemo(
-    () => [platform, activeOnly ? "1" : "0", sortBy, sortOrder].join("|"),
-    [platform, activeOnly, sortBy, sortOrder]
-  );
-
-  const hasActiveFilters = !!platform || activeOnly || sortBy !== "created_at" || sortOrder !== "desc";
-
-  function clearFilters() {
-    router.replace("?");
+  function applyFilters() {
+    const p = new URLSearchParams();
+    draft.platforms.forEach((pl) => p.append("platform", pl));
+    if (draft.activeFilter !== "all") p.set("active_filter", draft.activeFilter);
+    if (draft.sortBy !== "created_at") p.set("sort_by", draft.sortBy);
+    if (draft.sortOrder !== "desc") p.set("sort_order", draft.sortOrder);
+    router.replace(`?${p.toString()}`);
+    setPlatformDropdownOpen(false);
   }
+
+  function resetFilters() {
+    setDraft(DEFAULT_DRAFT);
+    router.replace("?");
+    setPlatformDropdownOpen(false);
+  }
+
+  const toggleDraftPlatform = useCallback((val: string) => {
+    setDraft((d) => ({
+      ...d,
+      platforms: d.platforms.includes(val)
+        ? d.platforms.filter((x) => x !== val)
+        : [...d.platforms, val],
+    }));
+  }, []);
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -207,92 +271,108 @@ function PresetsContent() {
         </Link>
       </div>
 
+      {/* Filter card */}
       <div className={FILTER_CARD}>
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
-          <div className="grid flex-1 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:max-w-4xl xl:grid-cols-4">
-            <div className="space-y-1.5 sm:col-span-2 lg:col-span-1 xl:col-span-2">
-              <label htmlFor="preset-platform" className={FILTER_LABEL}>
-                Platform
-              </label>
-              <select
-                id="preset-platform"
-                value={platform}
-                onChange={(e) => setParam("platform", e.target.value || null)}
-                className={FILTER_CONTROL}
-              >
-                <option value="">All platforms</option>
-                <option value="youtube">YouTube</option>
-                <option value="vk">VK Video</option>
-                <option value="yandex_disk">Yandex Disk</option>
-              </select>
-            </div>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+          {/* Platform multi-select */}
+          <div className="lg:col-span-3">
+            <FilterMultiSelect<string>
+              label="Platform"
+              emptySummary="All platforms"
+              selectedIds={draft.platforms}
+              options={platformOptions}
+              open={platformDropdownOpen}
+              onOpenChange={setPlatformDropdownOpen}
+              onToggle={toggleDraftPlatform}
+            />
+          </div>
 
-            <div className="space-y-1.5">
-              <span className={FILTER_LABEL}>Availability</span>
-              <label
-                className={cn(
-                  FILTER_CONTROL,
-                  "flex min-h-[2.5rem] cursor-pointer items-center gap-2.5 font-medium text-gray-700"
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={activeOnly}
-                  onChange={(e) => setParam("active_only", e.target.checked ? "true" : null)}
-                  className="rounded accent-[#224C87]"
-                />
-                Active only
-              </label>
-            </div>
-
-            <div className="space-y-1.5">
-              <span className={FILTER_LABEL}>Sort by</span>
-              <div className="flex gap-1.5">
-                <select
-                  value={sortBy}
-                  onChange={(e) => setParam("sort_by", e.target.value)}
-                  className={cn(FILTER_CONTROL, "min-w-[9rem]")}
-                >
-                  {SORT_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+          {/* Active status */}
+          <div className="lg:col-span-3">
+            <span className={FILTER_LABEL}>Status</span>
+            <div className={FILTER_SEGMENT_WRAP}>
+              {(["all", "active", "inactive"] as ActiveFilter[]).map((v) => (
                 <button
+                  key={v}
                   type="button"
-                  title={sortOrder === "desc" ? "Descending" : "Ascending"}
-                  onClick={() => setParam("sort_order", sortOrder === "desc" ? "asc" : "desc")}
-                  className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
+                  className={cn(
+                    FILTER_SEGMENT_BTN,
+                    draft.activeFilter === v ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
+                  )}
+                  onClick={() => patchDraft({ activeFilter: v })}
                 >
-                  {sortOrder === "desc" ? "↓" : "↑"}
+                  {v === "all" ? "All" : v === "active" ? "Active" : "Inactive"}
                 </button>
-              </div>
+              ))}
             </div>
           </div>
 
-          {hasActiveFilters && (
-            <div className="space-y-1.5 lg:self-end">
-              <span className={FILTER_LABEL} aria-hidden>
-                &nbsp;
-              </span>
+          {/* Sort */}
+          <div className="lg:col-span-3">
+            <span className={FILTER_LABEL}>Sort by</span>
+            <div className="flex gap-1.5">
+              <select
+                value={draft.sortBy}
+                onChange={(e) => patchDraft({ sortBy: e.target.value })}
+                className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
-                onClick={clearFilters}
-                className={cn(
-                  FILTER_CONTROL,
-                  "flex min-h-[2.5rem] items-center gap-1.5 border-gray-200 text-gray-600 hover:bg-gray-50"
-                )}
+                title={draft.sortOrder === "desc" ? "Descending" : "Ascending"}
+                onClick={() => patchDraft({ sortOrder: draft.sortOrder === "desc" ? "asc" : "desc" })}
+                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
               >
-                <X size={14} />
-                Reset filters
+                {draft.sortOrder === "desc" ? "↓" : "↑"}
               </button>
             </div>
-          )}
+          </div>
+
+          {/* Apply + Reset */}
+          <div className="lg:col-span-3">
+            <span className={FILTER_LABEL} aria-hidden>&nbsp;</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={!isDirty}
+                onClick={applyFilters}
+                className={cn(
+                  "flex-1 min-h-[2.5rem] rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors",
+                  isDirty ? "bg-[#224C87] hover:bg-[#1a3d6e]" : "cursor-not-allowed bg-[#224C87]/35"
+                )}
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={resetFilters}
+                disabled={!(isDirty || hasAppliedFilters)}
+                className="flex-1 min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <PresetsPagedGrid key={filtersKey} platform={platform} activeOnly={activeOnly} sortBy={sortBy} sortOrder={sortOrder} />
+      {/* Backdrop */}
+      {platformDropdownOpen && (
+        <div className="fixed inset-0 z-[35]" aria-hidden onClick={() => setPlatformDropdownOpen(false)} />
+      )}
+
+      <PresetsPagedGrid
+        key={urlKey}
+        platforms={appliedDraft.platforms}
+        activeFilter={appliedDraft.activeFilter}
+        sortBy={appliedDraft.sortBy}
+        sortOrder={appliedDraft.sortOrder}
+      />
     </div>
   );
 }

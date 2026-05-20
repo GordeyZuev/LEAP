@@ -32,11 +32,13 @@ def pipeline_ingress_suffixes_from_settings_formats(formats: list[str]) -> froze
 
 
 def sniff_container_kind(first_chunk: bytes) -> ContainerSniffKind:
-    if len(first_chunk) < 4:
+    if len(first_chunk) < 8:
         return "unknown"
     if first_chunk[:4] == EBML_MAGIC:
         return "ebml"
-    if b"ftyp" in first_chunk[:4096]:
+    # ISO BMFF: the ftyp box type is at bytes [4:8] in well-formed files.
+    # Substring fallback covers rare encoders that prepend extra bytes.
+    if first_chunk[4:8] == b"ftyp" or b"ftyp" in first_chunk[8:4096]:
         return "iso_bmff"
     return "unknown"
 
@@ -138,12 +140,12 @@ def ingress_validate_saved_media(
                     return False
             if src_suffix in {".mp4", ".mov"}:
                 if sniff_kind == "ebml":
-                    _logger.warning(
-                        "Ingress warning: disk path ends with %r but EBML/WebM-like payload detected; "
-                        "continuing (prefer matching source filename/extension)",
-                        filepath.suffix,
+                    _logger.error(
+                        "Ingress rejected: claimed %r but payload is EBML/WebM — extension and container mismatch",
+                        src_suffix,
                     )
-                elif sniff_kind != "iso_bmff":
+                    return False
+                if sniff_kind != "iso_bmff":
                     _logger.error(
                         "Ingress rejected: expected ISO-like container for %s, got %s",
                         src_suffix,

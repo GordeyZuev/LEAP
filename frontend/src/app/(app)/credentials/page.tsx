@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -14,6 +14,19 @@ import {
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useDebounce } from "@/hooks/use-debounce";
+import {
+  FILTER_CARD,
+  FILTER_CONTROL,
+  FILTER_LABEL,
+  FILTER_SEGMENT_ACTIVE,
+  FILTER_SEGMENT_BTN,
+  FILTER_SEGMENT_IDLE,
+  FILTER_SEGMENT_WRAP,
+} from "@/lib/filter-field-classes";
+import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/recordings/filter-multi-select";
+import { usePlatforms } from "@/hooks/use-references";
+import { DEBOUNCE_SEARCH, PER_PAGE_LARGE } from "@/lib/constants";
 
 interface CredentialItem {
   id: number;
@@ -43,6 +56,16 @@ const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map((p) => [p.key, p])) as Rec
   PlatformKey,
   typeof PLATFORMS[number]
 >;
+
+const SORT_OPTIONS = [
+  { value: "account_name", label: "Name" },
+  { value: "platform",     label: "Platform" },
+  { value: "last_used_at", label: "Last used" },
+  { value: "created_at",   label: "Created" },
+];
+
+type StatusFilter = "all" | "active" | "inactive";
+type SortField = "account_name" | "platform" | "last_used_at" | "created_at";
 
 interface ManualFieldDef {
   name: string;
@@ -85,10 +108,37 @@ function formatRelative(isoString: string | null): string {
   return `${days}d ago`;
 }
 
+function sortCredentials(items: CredentialItem[], sortBy: SortField, sortOrder: "asc" | "desc"): CredentialItem[] {
+  const sorted = [...items].sort((a, b) => {
+    let cmp = 0;
+    if (sortBy === "account_name") {
+      cmp = (a.account_name ?? "").localeCompare(b.account_name ?? "");
+    } else if (sortBy === "platform") {
+      cmp = a.platform.localeCompare(b.platform);
+    } else if (sortBy === "last_used_at") {
+      cmp = (a.last_used_at ?? "").localeCompare(b.last_used_at ?? "");
+    } else {
+      cmp = a.created_at.localeCompare(b.created_at);
+    }
+    return sortOrder === "asc" ? cmp : -cmp;
+  });
+  return sorted;
+}
+
 type AddStep = null | "platform" | "connect";
 
 export default function CredentialsPage() {
   const qc = useQueryClient();
+  const { data: platformFilterOptions = [] } = usePlatforms();
+
+  // Filter state
+  const [searchInput, setSearchInput] = useState("");
+  const [platformFilter, setPlatformFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sortBy, setSortBy] = useState<SortField>("created_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
+  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
 
   // Add modal state
   const [addStep, setAddStep] = useState<AddStep>(null);
@@ -108,7 +158,7 @@ export default function CredentialsPage() {
   const { data: listData, isLoading } = useQuery<CredentialListResponse>({
     queryKey: ["credentials-list"],
     queryFn: async () => {
-      const res = await apiClient.get<CredentialListResponse>("/credentials?per_page=100");
+      const res = await apiClient.get<CredentialListResponse>(`/credentials?per_page=${PER_PAGE_LARGE}`);
       return res.data;
     },
   });
@@ -208,11 +258,51 @@ export default function CredentialsPage() {
     setRenameError("");
   }
 
-  const credentials = listData?.items ?? [];
+  function togglePlatformFilter(val: string) {
+    setPlatformFilter((prev) =>
+      prev.includes(val) ? prev.filter((x) => x !== val) : [...prev, val]
+    );
+  }
+
+  function resetFilters() {
+    setSearchInput("");
+    setPlatformFilter([]);
+    setStatusFilter("all");
+    setSortBy("created_at");
+    setSortOrder("desc");
+  }
+
+  const hasActiveFilters =
+    !!debouncedSearch ||
+    platformFilter.length > 0 ||
+    statusFilter !== "all" ||
+    sortBy !== "created_at" ||
+    sortOrder !== "desc";
+
+  const allCredentials = listData?.items ?? [];
+
+  const visibleCredentials = sortCredentials(
+    allCredentials.filter((c) => {
+      if (debouncedSearch) {
+        const q = debouncedSearch.toLowerCase();
+        const name = (c.account_name ?? "").toLowerCase();
+        const plat = c.platform.toLowerCase();
+        if (!name.includes(q) && !plat.includes(q)) return false;
+      }
+      if (platformFilter.length > 0 && !platformFilter.includes(c.platform)) return false;
+      if (statusFilter === "active" && !c.is_active) return false;
+      if (statusFilter === "inactive" && c.is_active) return false;
+      return true;
+    }),
+    sortBy,
+    sortOrder
+  );
+
+  // ref for search input — not needed since search is controlled via state
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+    <div className="w-full min-w-0 p-6 sm:p-8">
+      <div className="mb-5 flex items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Credentials</h1>
         <button
           onClick={openAddModal}
@@ -223,17 +313,119 @@ export default function CredentialsPage() {
         </button>
       </div>
 
+      {/* Search toolbar */}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <div className="min-w-0 flex-1 space-y-1.5" style={{ maxWidth: "22rem" }}>
+          <label htmlFor="creds-search" className={FILTER_LABEL}>Search</label>
+          <input
+            id="creds-search"
+            type="search"
+            placeholder="By name or platform…"
+            autoComplete="off"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className={FILTER_CONTROL}
+          />
+        </div>
+      </div>
+
+      {/* Filter card */}
+      <div className={FILTER_CARD}>
+        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
+          {/* Platform multi-select */}
+          <div className="lg:col-span-4">
+            <FilterMultiSelect<string>
+              label="Platform"
+              emptySummary="All platforms"
+              selectedIds={platformFilter}
+              options={platformFilterOptions}
+              open={platformDropdownOpen}
+              onOpenChange={setPlatformDropdownOpen}
+              onToggle={togglePlatformFilter}
+            />
+          </div>
+
+          {/* Status */}
+          <div className="lg:col-span-4">
+            <span className={FILTER_LABEL}>Status</span>
+            <div className={FILTER_SEGMENT_WRAP}>
+              {(["all", "active", "inactive"] as StatusFilter[]).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={cn(
+                    FILTER_SEGMENT_BTN,
+                    statusFilter === v ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
+                  )}
+                  onClick={() => setStatusFilter(v)}
+                >
+                  {v === "all" ? "All" : v === "active" ? "Active" : "Inactive"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Sort */}
+          <div className="lg:col-span-4">
+            <span className={FILTER_LABEL}>Sort by</span>
+            <div className="flex gap-1.5">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortField)}
+                className={cn(FILTER_CONTROL, "min-w-[9rem] pr-8")}
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                title={sortOrder === "desc" ? "Descending" : "Ascending"}
+                onClick={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
+              >
+                {sortOrder === "desc" ? "↓" : "↑"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {hasActiveFilters && (
+          <div className="border-t border-gray-100 pt-4">
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              Reset filters
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Backdrop for platform dropdown */}
+      {platformDropdownOpen && (
+        <div
+          className="fixed inset-0 z-[35]"
+          aria-hidden
+          onClick={() => setPlatformDropdownOpen(false)}
+        />
+      )}
+
+      {/* Table */}
       <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 size={20} className="animate-spin text-gray-400" />
           </div>
-        ) : credentials.length === 0 ? (
+        ) : allCredentials.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <AlertCircle size={32} className="text-gray-300 mb-3" />
             <p className="text-sm font-medium text-gray-500">No connections yet</p>
             <p className="text-xs text-gray-400 mt-1">Click &ldquo;Add&rdquo; to connect a platform</p>
           </div>
+        ) : visibleCredentials.length === 0 ? (
+          <div className="py-16 text-center text-sm text-gray-400">No credentials match your filters</div>
         ) : (
           <table className="w-full">
             <thead>
@@ -246,7 +438,7 @@ export default function CredentialsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#D9D9D9]">
-              {credentials.map((cred) => {
+              {visibleCredentials.map((cred) => {
                 const platform = PLATFORM_MAP[cred.platform as PlatformKey];
                 return (
                   <tr key={cred.id} className="hover:bg-gray-50 transition-colors">
@@ -363,7 +555,6 @@ export default function CredentialsPage() {
                 </button>
               </div>
 
-              {/* Tab switcher (only when both methods exist) */}
               {platform.hasManual && (
                 <div className="flex border-b border-[#D9D9D9]">
                   {(["oauth", "manual"] as const).map((tab) => (
@@ -466,7 +657,6 @@ export default function CredentialsPage() {
                 </button>
               </div>
 
-              {/* Read-only info */}
               <div className="px-6 pt-5 pb-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Platform</span>
@@ -497,7 +687,6 @@ export default function CredentialsPage() {
 
               <div className="mx-6 border-t border-[#D9D9D9]" />
 
-              {/* Rename */}
               <div className="px-6 pt-4 pb-5 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>

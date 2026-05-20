@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { ArrowRight, ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 
@@ -32,6 +32,7 @@ export interface RecordingCardData {
   can_pause: boolean;
   ready_to_upload: boolean;
   uploads: Record<string, UploadInfo>;
+  soft_deleted_at?: string | null;
 }
 
 interface RecordingCardProps {
@@ -43,6 +44,7 @@ interface RecordingCardProps {
   onRunWithConfig?: (id: number) => void;
   onReset?: (id: number) => void;
   onDelete?: (id: number) => void;
+  onRestore?: (id: number) => void;
   loadingId?: number | null;
 }
 
@@ -115,10 +117,12 @@ export function RecordingCard({
   onRunWithConfig,
   onReset,
   onDelete,
+  onRestore,
   loadingId,
 }: RecordingCardProps) {
   const isLoading = loadingId === r.id;
   const uploadEntries = Object.entries(r.uploads);
+  const isSoftDeleted = !!r.soft_deleted_at;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -213,70 +217,86 @@ export function RecordingCard({
 
       {/* Actions */}
       <div className="flex items-center gap-2 border-t border-[#D9D9D9] px-4 pb-4 pt-2">
-        <button
-          disabled={!r.can_run || isLoading}
-          onClick={() => onRun(r.id)}
-          className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:border-[#224C87] hover:bg-[#224C87] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Play size={12} />
-          Run
-        </button>
-        <button
-          disabled={!r.can_pause || isLoading}
-          onClick={() => onPause(r.id)}
-          className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Pause size={12} />
-          Pause
-        </button>
-
-        <div className="flex-1" />
-
-        {/* Kebab menu */}
-        {hasMenuItems && (
-          <div className="relative" ref={menuRef}>
+        {isSoftDeleted && onRestore ? (
+          <>
             <button
-              type="button"
-              onClick={() => setMenuOpen((v) => !v)}
-              className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-xl border border-[#D9D9D9] bg-white text-gray-500 transition-colors hover:bg-gray-50",
-                menuOpen && "border-[#224C87]/30 bg-[#224C87]/5 text-[#224C87]"
-              )}
-              aria-label="More actions"
+              disabled={isLoading}
+              onClick={() => onRestore(r.id)}
+              className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-white px-3 py-1.5 text-xs font-medium text-green-600 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <MoreHorizontal size={14} />
+              <ArchiveRestore size={12} />
+              Restore
+            </button>
+            <div className="flex-1" />
+          </>
+        ) : (
+          <>
+            <button
+              disabled={!r.can_run || isLoading}
+              onClick={() => onRun(r.id)}
+              className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:border-[#224C87] hover:bg-[#224C87] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Play size={12} />
+              Run
+            </button>
+            <button
+              disabled={!r.can_pause || isLoading}
+              onClick={() => onPause(r.id)}
+              className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Pause size={12} />
+              Pause
             </button>
 
-            {menuOpen && (
-              <div className="absolute bottom-full right-0 z-20 mb-1.5 w-44 overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
-                {onRunWithConfig && (
-                  <MenuItem
-                    icon={Settings2}
-                    label="Run with config…"
-                    onClick={() => { setMenuOpen(false); onRunWithConfig(r.id); }}
-                  />
-                )}
-                {onReset && (
-                  <MenuItem
-                    icon={RotateCcw}
-                    label="Reset"
-                    onClick={() => { setMenuOpen(false); onReset(r.id); }}
-                  />
-                )}
-                {(onRunWithConfig || onReset) && onDelete && (
-                  <div className="my-1 border-t border-[#F0F0F0]" />
-                )}
-                {onDelete && (
-                  <MenuItem
-                    icon={Trash2}
-                    label="Delete"
-                    onClick={() => { setMenuOpen(false); onDelete(r.id); }}
-                    danger
-                  />
+            <div className="flex-1" />
+
+            {/* Kebab menu */}
+            {hasMenuItems && (
+              <div className="relative" ref={menuRef}>
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-xl border border-[#D9D9D9] bg-white text-gray-500 transition-colors hover:bg-gray-50",
+                    menuOpen && "border-[#224C87]/30 bg-[#224C87]/5 text-[#224C87]"
+                  )}
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+
+                {menuOpen && (
+                  <div className="absolute bottom-full right-0 z-20 mb-1.5 w-44 overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
+                    {onRunWithConfig && (
+                      <MenuItem
+                        icon={Settings2}
+                        label="Run with config…"
+                        onClick={() => { setMenuOpen(false); onRunWithConfig(r.id); }}
+                      />
+                    )}
+                    {onReset && (
+                      <MenuItem
+                        icon={RotateCcw}
+                        label="Reset"
+                        onClick={() => { setMenuOpen(false); onReset(r.id); }}
+                      />
+                    )}
+                    {(onRunWithConfig || onReset) && onDelete && (
+                      <div className="my-1 border-t border-[#F0F0F0]" />
+                    )}
+                    {onDelete && (
+                      <MenuItem
+                        icon={Trash2}
+                        label="Delete"
+                        onClick={() => { setMenuOpen(false); onDelete(r.id); }}
+                        danger
+                      />
+                    )}
+                  </div>
                 )}
               </div>
             )}
-          </div>
+          </>
         )}
 
         <Link
