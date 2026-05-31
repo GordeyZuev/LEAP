@@ -146,11 +146,13 @@ deploy-vm-init:
 	@ip=$$($(VM_IP_CMD)); \
 	test -n "$$ip" || { echo "VM not provisioned yet (run 'make deploy' first)"; exit 1; }; \
 	echo "==> Bootstrapping VM at $$ip"; \
-	folder_id=$$(grep -E '^\s*yc_folder_id' $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
-	cert_email=$$(grep -E '^\s*cert_email'  $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
-	gh_owner=$$(grep -E '^\s*github_owner'  $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
-	gh_repo=$$(grep   -E '^\s*github_repo'  $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
-	gh_branch=$$(grep -E '^\s*github_branch' $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
+	tfv=$(TERRAFORM_DIR)/terraform.tfvars; \
+	getvar() { awk -F'"' -v k="$$1" '$$0 ~ "^[[:space:]]*"k"[[:space:]]*=" {print $$2; exit}' $$tfv; }; \
+	folder_id=$$(getvar yc_folder_id); \
+	cert_email=$$(getvar cert_email); \
+	gh_owner=$$(getvar github_owner); \
+	gh_repo=$$(getvar github_repo); \
+	gh_branch=$$(getvar github_branch); \
 	gh_repo=$${gh_repo:-ZoomUploader}; gh_branch=$${gh_branch:-main}; \
 	domain=$$($(DOMAIN_CMD)); \
 	registry_id=$$($(TF) output -raw registry_id 2>/dev/null); \

@@ -143,7 +143,7 @@ write_files:
         ln -sf /usr/local/bin/yc /usr/bin/yc
       fi
       yc config set folder-id "${folder_id}" || true
-      yc container registry configure-docker --quiet
+      yc container registry configure-docker
 
       # ---- 2. Clone the repo (or pull if it exists) ----
       if [ ! -d "$REPO_DIR/.git" ]; then

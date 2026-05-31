@@ -28,13 +28,27 @@ REPO_URL="https://github.com/${GITHUB_OWNER:?}/${GITHUB_REPO:?}.git"
 BRANCH="${GITHUB_BRANCH:-main}"
 
 # --------------------------------------------------------------------------
-# 1. Packages (idempotent — apt-get install is a no-op when satisfied)
+# 1. Packages
 # --------------------------------------------------------------------------
+# Ubuntu stock repo ships `docker.io` but NOT `docker-compose-plugin` — the
+# plugin lives in Docker's official apt repo paired with docker-ce. Use the
+# get.docker.com convenience script: it adds the right repo and installs
+# docker-ce + the compose plugin in one shot. Idempotent: it re-installs the
+# latest each time but doesn't break a working setup.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq \
-  docker.io docker-compose-plugin \
-  git jq curl ca-certificates gnupg apache2-utils
+apt-get install -y -qq git jq curl ca-certificates gnupg apache2-utils
+
+# A prior run may have installed Ubuntu's `docker.io` (no compose plugin).
+# It conflicts with `docker-ce` (Docker official) on systemd units. Purge
+# before get.docker.com so the official package owns the docker.service unit.
+if dpkg -l docker.io 2>/dev/null | grep -q '^ii'; then
+  apt-get remove -y --purge docker.io containerd 2>&1 | tail -3
+fi
+
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
+fi
 
 systemctl enable --now docker
 usermod -aG docker ubuntu || true
@@ -49,7 +63,7 @@ if ! command -v yc >/dev/null 2>&1; then
   ln -sf /usr/local/bin/yc /usr/bin/yc
 fi
 yc config set folder-id "${FOLDER_ID:?}" || true
-yc container registry configure-docker --quiet
+yc container registry configure-docker
 
 # Make `docker pull cr.yandex/...` work for the ubuntu user too.
 mkdir -p /home/ubuntu/.docker
@@ -64,10 +78,11 @@ chown ubuntu:ubuntu "$REPO_DIR"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
   # /opt/leap may contain stray files from a prior partial cloud-init —
-  # clone into a sibling and merge.
-  sudo -u ubuntu git clone --branch "$BRANCH" "$REPO_URL" "$REPO_DIR.new"
-  sudo -u ubuntu cp -rT "$REPO_DIR.new/." "$REPO_DIR/"
-  rm -rf "$REPO_DIR.new"
+  # clone into /tmp (ubuntu-writable) and merge over the existing dir.
+  tmpclone=$(sudo -u ubuntu mktemp -d /tmp/leap-clone.XXXXXX)
+  sudo -u ubuntu git clone --branch "$BRANCH" "$REPO_URL" "$tmpclone"
+  sudo -u ubuntu cp -rT "$tmpclone/." "$REPO_DIR/"
+  rm -rf "$tmpclone"
 else
   sudo -u ubuntu git -C "$REPO_DIR" fetch --depth=1 origin "$BRANCH"
   sudo -u ubuntu git -C "$REPO_DIR" reset --hard "origin/$BRANCH"
