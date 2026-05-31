@@ -99,7 +99,9 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
           # Excludes runtime artifacts owned by vm-init.sh / refresh-env.sh —
           # rsync --delete would wipe them and break nginx, OAuth, certbot.
-          ARGS: "-rlgoDzvc -i --delete --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
+          # __pycache__: written by container's user (1000:1000) inside the
+          # bind-mounted backend/config — rsync as `ubuntu` can't delete them.
+          ARGS: "-rlgoDzvc -i --delete --exclude=__pycache__ --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
           SOURCE: "./"
           REMOTE_HOST: ${{ secrets.VPS_HOST }}
           REMOTE_USER: ${{ secrets.VPS_USER }}
