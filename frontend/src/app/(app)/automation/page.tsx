@@ -109,7 +109,7 @@ function AutomationContent() {
     setSortOrder("asc");
   }
 
-  const allJobs = data?.items ?? [];
+  const allJobs = useMemo(() => data?.items ?? [], [data]);
 
   const visibleJobs = useMemo(() => {
     const filtered = allJobs.filter((j) => {

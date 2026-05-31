@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -26,7 +26,7 @@ import {
   FILTER_SEGMENT_IDLE,
   FILTER_SEGMENT_WRAP,
 } from "@/lib/filter-field-classes";
-import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/recordings/filter-multi-select";
+import { FilterMultiSelect } from "@/components/recordings/filter-multi-select";
 import { FilterSelect } from "@/components/recordings/filter-select";
 import { usePlatforms } from "@/hooks/use-references";
 import { DEBOUNCE_SEARCH, PER_PAGE_LARGE } from "@/lib/constants";

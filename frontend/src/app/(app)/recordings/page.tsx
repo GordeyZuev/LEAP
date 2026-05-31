@@ -18,7 +18,7 @@ import {
   type SetStateAction,
 } from "react";
 import { apiClient } from "@/api/client";
-import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, X, Filter } from "lucide-react";
+import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
 import {

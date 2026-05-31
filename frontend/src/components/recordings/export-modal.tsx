@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Download, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -87,18 +87,18 @@ export function ExportModal({
   const hasSelected = selectedIds.length > 0;
   const useSelected = useSelectedOverride ?? (open && hasSelected);
 
-  function handleClose() {
+  const handleClose = useCallback(() => {
     setUseSelectedOverride(null);
     setError(null);
     onClose();
-  }
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 

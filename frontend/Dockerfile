@@ -24,10 +24,7 @@ RUN npm install -g pnpm@11.5.0
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Compile-time public env vars (baked into the bundle). The runtime URL is set
-# to /api so nginx can route both frontend and API under one domain.
-# Empty — frontend's apiClient appends "/api/v1" itself (see src/api/client.ts).
-# Setting "/api" here would produce "/api/api/v1/..." and 404 every request.
+# Empty — apiClient appends "/api/v1"; "/api" here → "/api/api/v1" → 404.
 ENV NEXT_PUBLIC_API_URL=
 ENV NEXT_TELEMETRY_DISABLED=1
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, Link2, List, Upload, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -61,11 +61,11 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  function handleClose() {
+  const handleClose = useCallback(() => {
     setSuccessMsg("");
     setErrorMsg("");
     onClose();
-  }
+  }, [onClose]);
 
   const { data: sourcesData } = useQuery<SourceListResponse>({
     queryKey: ["sources-list"],
@@ -145,7 +145,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 
@@ -314,7 +314,8 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                         onChange={() => {
                           setSelectedSources((prev) => {
                             const next = new Set(prev);
-                            next.has(s.id) ? next.delete(s.id) : next.add(s.id);
+                            if (next.has(s.id)) next.delete(s.id);
+                            else next.add(s.id);
                             return next;
                           });
                         }}

@@ -16,7 +16,7 @@ import {
   FILTER_SEGMENT_IDLE,
   FILTER_SEGMENT_WRAP,
 } from "@/lib/filter-field-classes";
-import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/recordings/filter-multi-select";
+import { FilterMultiSelect } from "@/components/recordings/filter-multi-select";
 import { FilterSelect } from "@/components/recordings/filter-select";
 import { usePlatforms } from "@/hooks/use-references";
 import { PER_PAGE_PRESETS } from "@/lib/constants";

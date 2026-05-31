@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -89,7 +89,7 @@ jobs:
     environment: production
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Sync compose + nginx + monitoring configs to the VPS so it always uses
       # the version that built the images.
@@ -97,14 +97,8 @@ jobs:
         uses: easingthemes/ssh-deploy@main
         env:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
-          # Runtime artifacts owned by scripts/vm-init.sh + refresh-env.sh (not
-          # in git). Without these excludes, rsync --delete wipes them and:
-          #   - nginx/nginx.conf missing → nginx defaults, :443 dies
-          #   - nginx/htpasswd missing/dir → 500 on /grafana
-          #   - .env.static missing → next refresh-env produces broken .env
-          #   - refresh-env.sh missing → can't re-fetch Lockbox on deploys
-          #   - backend/config/oauth_*.json + *_creds.json missing → OAuth defaults to localhost
-          #   - certbot/, letsencrypt/ → cert lost
+          # Excludes runtime artifacts owned by vm-init.sh / refresh-env.sh —
+          # rsync --delete would wipe them and break nginx, OAuth, certbot.
           ARGS: "-rlgoDzvc -i --delete --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
           SOURCE: "./"
           REMOTE_HOST: ${{ secrets.VPS_HOST }}
@@ -121,25 +115,14 @@ jobs:
             set -euo pipefail
             cd ${{ secrets.VPS_DEPLOY_PATH }}
 
-            # Pull the latest commit (compose files, nginx, monitoring may have changed
-            # alongside image content).
             git fetch --quiet origin main
             git reset --hard origin/main
-
-            # IAM auth to cr.yandex — the VM's service account is authoritative.
-            # Don't mask failure: if yc CLI can't configure docker, the subsequent
-            # `docker compose pull` will fail with a cryptic 'unauthorized' error.
             yc container registry configure-docker
-
-            # Re-fetch secrets from Lockbox (rotated keys, new OAuth creds, etc.).
-            # Cheap on every deploy — picks up any out-of-band rotation.
             if [ -x /opt/leap/refresh-env.sh ]; then
               /opt/leap/refresh-env.sh
             fi
-
             export IMAGE_TAG=${{ github.sha }}
             docker compose pull api celery_worker celery_beat flower frontend
             docker compose up -d --no-deps api celery_worker celery_beat flower frontend
-            # Reload nginx (config files may have changed without an image rebuild).
             docker compose up -d --no-deps nginx
             docker compose ps

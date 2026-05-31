@@ -58,10 +58,10 @@ jobs:
       SECURITY_RATE_LIMIT_ENABLED: "false"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
@@ -93,7 +93,7 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # pnpm/action-setup bypasses corepack's signature verification (which on
       # Node 22.13 rejects pnpm 11.5.0 with "Cannot find matching keyid").
@@ -103,7 +103,7 @@ jobs:
           version: 11.5.0
 
       - name: Setup Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22.13"
           cache: pnpm

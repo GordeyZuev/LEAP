@@ -102,8 +102,10 @@ IMAGE_TAG=latest
 OAUTH_BASE_URL=https://${DOMAIN:?}/api
 OAUTH_REDIRECT_BASE_URL=https://${DOMAIN}
 OAUTH_FRONTEND_REDIRECT_URL=https://${DOMAIN}/auth/callback
-# ---------------------------- CORS
-SERVER_CORS_ORIGINS=https://${DOMAIN}
+# ---------------------------- CORS (JSON for pydantic-settings list[str])
+SERVER_CORS_ORIGINS=["https://${DOMAIN}"]
+# ---------------------------- Bootstrap (needed by refresh-env.sh on deploys)
+LOCKBOX_SECRET_ID=${LOCKBOX_SECRET_ID:?}
 # ---------------------------- Logging
 LOGGING_LEVEL=INFO
 LOG_FILE=logs/app.log
@@ -115,15 +117,22 @@ chown ubuntu:ubuntu "$REPO_DIR/.env.static"
 # --- 5. /opt/leap/refresh-env.sh (Lockbox → .env + backend/config/*.json) -
 cat > "$REPO_DIR/refresh-env.sh" <<'EOF'
 #!/usr/bin/env bash
-# Re-materialize all Lockbox entries on disk:
-#   - regular keys                      -> /opt/leap/.env
-#   - keys prefixed FILE__<name>.json   -> /opt/leap/backend/config/<name>.json
+# Re-materialize Lockbox entries on disk:
+#   regular keys                  -> /opt/leap/.env
+#   keys prefixed FILE__<name>.X  -> /opt/leap/backend/config/<name>.X
 set -euo pipefail
 
-LOCKBOX_ID="${1:-$LOCKBOX_SECRET_ID}"
-ENV_OUT=/opt/leap/.env
 STATIC=/opt/leap/.env.static
+ENV_OUT=/opt/leap/.env
 CONFIG_DIR=/opt/leap/backend/config
+
+# Pick up LOCKBOX_SECRET_ID from .env.static so cron/deploy can call us
+# without setting any env vars.
+if [ -z "${LOCKBOX_SECRET_ID:-}" ] && [ -f "$STATIC" ]; then
+  # shellcheck disable=SC1090
+  LOCKBOX_SECRET_ID=$(grep '^LOCKBOX_SECRET_ID=' "$STATIC" | cut -d= -f2-)
+fi
+LOCKBOX_ID="${1:-${LOCKBOX_SECRET_ID:?LOCKBOX_SECRET_ID not set and not in $STATIC}}"
 
 mkdir -p "$CONFIG_DIR"
 payload=$(yc lockbox payload get --id "$LOCKBOX_ID" --format json)

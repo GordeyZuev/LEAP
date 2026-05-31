@@ -10,7 +10,6 @@ import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
 import { TemplateField } from "@/components/platforms/platform-fields";
 import { Toast } from "@/components/ui/toast";
-import { FILTER_CONTROL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useTimezones } from "@/hooks/use-references";
