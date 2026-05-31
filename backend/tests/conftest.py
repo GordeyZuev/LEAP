@@ -1,5 +1,11 @@
 """Shared test fixtures for all tests."""
 
+import os
+
+# Unit tests issue many HTTP calls from one TestClient IP ("testclient").
+# Disable in-process rate limiting before Settings singleton is created.
+os.environ.setdefault("SECURITY_RATE_LIMIT_ENABLED", "false")
+
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
