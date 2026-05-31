@@ -257,7 +257,7 @@ MinIO console: http://localhost:9001 (minioadmin / minioadmin).
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `terraform init` → "Invalid provider registry host" | `~/.terraformrc` missing wildcard or absent | Re-check the mirror block in §2 |
-| certbot HTTP-01 challenge fails | NS delegation hasn't propagated yet | `dig +short NS <domain>` — wait until it returns yandexcloud.net, then SSH in and re-run `sudo bash /opt/leap/bootstrap.sh` |
+| certbot HTTP-01 challenge fails | NS delegation hasn't propagated yet | `dig +short NS <domain>` — wait until it returns yandexcloud.net, then re-run `make deploy-vm-init` (idempotent; will only redo the cert step) |
 | OAuth callback returns `redirect_uri_mismatch` | Production URI not whitelisted in provider's console | Add `https://<domain>/api/v1/oauth/<provider>/callback` to each provider's allowed callback list |
 | `docker compose pull` fails on VM | YC service account missing `images.puller` role | Re-run `terraform apply` — the IAM module enforces it |
 | Grafana login fails | Forgot the auto-generated password | `make grafana-pw` |

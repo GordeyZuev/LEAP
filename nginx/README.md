@@ -7,19 +7,22 @@ service in `docker-compose.yml`.
 
 | File | When it's used |
 |---|---|
-| `nginx.conf` | What docker-compose mounts. Initially a copy of `nginx.bootstrap.conf` (HTTP only). After certbot succeeds, cloud-init replaces it with `nginx.https.conf`. |
+| `nginx.conf` | **Runtime artifact — gitignored, not committed.** Docker compose mounts it. Owned by `scripts/vm-init.sh`: initially a copy of `nginx.bootstrap.conf` (HTTP only), after certbot succeeds it's replaced with `nginx.https.conf`. Kept out of git so deploys (`git reset --hard`) don't overwrite the HTTPS version with the HTTP-only bootstrap one. |
 | `nginx.bootstrap.conf` | HTTP-only config; serves the ACME `/.well-known/` challenge so certbot can issue the first cert. |
 | `nginx.https.conf` | Final production config (HTTPS with HSTS, basic auth for `/flower` and `/grafana`). |
-| `htpasswd` | **Not in repo** — generated on the VM by the cloud-init script using the Grafana admin password from Lockbox. |
+| `htpasswd` | **Not in repo** — generated on the VM by `scripts/vm-init.sh` using the Grafana admin password from Lockbox. |
 
-## How `terraform apply` sets this up
+## How `make deploy-vm-init` sets this up
 
-Cloud-init (see `terraform/cloud-init.yaml.tftpl`) does the swap automatically:
+`scripts/vm-init.sh` (invoked over SSH by `make deploy-vm-init`, and also by
+`terraform/cloud-init.yaml.tftpl` on first boot via `systemd-run`) does the
+swap automatically:
 
 1. First boot: `nginx.conf` ← `nginx.bootstrap.conf` (HTTP)
 2. Stack starts; `/api/v1/health` becomes reachable.
 3. `certbot certonly --webroot` requests the cert.
-4. `nginx.conf` ← `nginx.https.conf`, then `docker compose up -d --no-deps nginx`.
-5. Cron job (also installed by bootstrap) renews the cert nightly.
+4. `nginx.conf` ← `nginx.https.conf`, then `docker compose up -d --no-deps --force-recreate nginx`.
+5. Cron job (also installed by the script) renews the cert nightly.
 
-If something goes wrong, manual steps are documented in `backend/docs/guides/DEPLOYMENT.md`.
+If something goes wrong, re-run `make deploy-vm-init` — it's idempotent and
+re-applies the HTTPS swap whenever a Let's Encrypt cert is already present.

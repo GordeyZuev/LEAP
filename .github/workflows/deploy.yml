@@ -97,7 +97,11 @@ jobs:
         uses: easingthemes/ssh-deploy@main
         env:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
-          ARGS: "-rlgoDzvc -i --delete --exclude=.env --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv"
+          # nginx/nginx.conf + nginx/htpasswd are runtime artifacts owned by
+          # scripts/vm-init.sh (not in git). Without explicit excludes, rsync
+          # --delete wipes them and nginx fails to start (htpasswd → 500 on
+          # /grafana; missing nginx.conf → docker recreates target as a dir).
+          ARGS: "-rlgoDzvc -i --delete --exclude=.env --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt"
           SOURCE: "./"
           REMOTE_HOST: ${{ secrets.VPS_HOST }}
           REMOTE_USER: ${{ secrets.VPS_USER }}

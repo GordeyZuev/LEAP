@@ -1,7 +1,13 @@
 #cloud-config
-# LEAP - first-boot bootstrap. Runs once on a fresh Ubuntu 22.04 VM provisioned
-# by Terraform. Idempotent: re-running bootstrap.sh (e.g. after VM restart) is
-# safe because each step checks before acting.
+# LEAP — first-boot bootstrap. Cloud-init only does the minimum needed to
+# bring `scripts/vm-init.sh` from the repo onto the VM, then delegates the
+# whole bootstrap (docker install, yc CLI, Lockbox fetch, docker compose up,
+# Let's Encrypt cert, cron jobs) to that script.
+#
+# This avoids drift: previously cloud-init had its own inline bootstrap that
+# went stale every time we fixed something in vm-init.sh. Single source of
+# truth now lives in scripts/vm-init.sh (used both here and by
+# `make deploy-vm-init`).
 #
 # Terraform interpolates these placeholders:
 #   ${folder_id}        - YC folder ID
@@ -15,221 +21,30 @@
 package_update: true
 package_upgrade: false  # avoid surprise reboots; security updates handled separately
 packages:
-  - docker.io
-  - docker-compose-plugin
   - git
-  - jq
   - curl
   - ca-certificates
-  - gnupg
-
-write_files:
-  # ------------------------------------------------------------ refresh-env.sh
-  - path: /opt/leap/refresh-env.sh
-    permissions: '0750'
-    owner: ubuntu:ubuntu
-    content: |
-      #!/usr/bin/env bash
-      # Re-fetch all Lockbox entries and materialize them on disk:
-      #   - Keys without the FILE__ prefix    -> /opt/leap/.env
-      #   - Keys prefixed FILE__<name>.json   -> /opt/leap/backend/config/<name>.json
-      #
-      # The split exists because OAuth + AI provider modules in LEAP only accept
-      # file paths, not env vars (see backend/api/services/oauth_platforms.py,
-      # backend/fireworks_module/config.py, backend/deepseek_module/config.py).
-      #
-      # Idempotent - safe to run from cron, CI deploys, or by hand.
-      set -euo pipefail
-
-      LOCKBOX_ID="${lockbox_secret_id}"
-      ENV_OUT=/opt/leap/.env
-      STATIC=/opt/leap/.env.static
-      CONFIG_DIR=/opt/leap/backend/config
-
-      mkdir -p "$CONFIG_DIR"
-
-      payload=$(yc lockbox payload get --id "$LOCKBOX_ID" --format json)
-
-      # ---- 1. Env-var entries -> .env (skip empty values) ----
-      env_tmp=$(mktemp)
-      echo "$payload" \
-        | jq -r '.entries[]
-                 | select(.key | startswith("FILE__") | not)
-                 | select(.text_value != null and .text_value != "")
-                 | "\(.key)=\(.text_value)"' \
-        > "$env_tmp"
-      cat "$STATIC" "$env_tmp" > "$ENV_OUT"
-      chmod 600 "$ENV_OUT"
-      chown ubuntu:ubuntu "$ENV_OUT"
-      rm -f "$env_tmp"
-
-      # ---- 2. File entries -> backend/config/<name>.json ----
-      # Iterate by key only; pull each value with a single jq call to avoid
-      # tricky multi-line stream parsing.
-      keys=$(echo "$payload" | jq -r '.entries[] | select(.key | startswith("FILE__")) | .key')
-      while IFS= read -r key; do
-        [ -z "$key" ] && continue
-        filename=$${key#FILE__}
-        value=$(echo "$payload" | jq -r --arg k "$key" '.entries[] | select(.key == $k) | .text_value')
-        if [ -n "$value" ] && [ "$value" != "null" ]; then
-          target="$CONFIG_DIR/$filename"
-          printf '%s\n' "$value" > "$target"
-          chmod 600 "$target"
-          chown ubuntu:ubuntu "$target"
-          echo "[refresh-env]   wrote $target"
-        fi
-      done <<< "$keys"
-
-      echo "[refresh-env] .env + config/ files updated from Lockbox $LOCKBOX_ID"
-
-  # ------------------------------------------------------------ .env.static
-  # Things that don't change across deploys and don't need to be in Lockbox.
-  - path: /opt/leap/.env.static
-    permissions: '0644'
-    owner: ubuntu:ubuntu
-    content: |
-      # ---------------------------- Database
-      DATABASE_HOST=postgres
-      DATABASE_PORT=5432
-      DATABASE_DATABASE=leap_platform
-      DATABASE_USERNAME=postgres
-      # ---------------------------- Redis / Celery
-      REDIS_HOST=redis
-      REDIS_PORT=6379
-      CELERY_BROKER_URL=redis://redis:6379/0
-      CELERY_RESULT_BACKEND=redis://redis:6379/0
-      # ---------------------------- Storage (Object Storage)
-      STORAGE_TYPE=S3
-      STORAGE_S3_BUCKET=${s3_bucket}
-      STORAGE_S3_PREFIX=storage
-      STORAGE_S3_REGION=ru-central1
-      STORAGE_S3_ENDPOINT_URL=https://storage.yandexcloud.net
-      STORAGE_S3_PRESIGN_EXPIRES=3600
-      # ---------------------------- Container Registry (for compose pull)
-      YC_REGISTRY_ID=${registry_id}
-      IMAGE_TAG=latest
-      # ---------------------------- OAuth callback URLs
-      # OAUTH_REDIRECT_BASE_URL is what backend/api/services/oauth_platforms.py
-      # reads to construct callback URIs when the provider JSON doesn't include
-      # an explicit redirect_uri. The JSON files in backend/config/ already
-      # carry the production URI, so this is a defense-in-depth fallback.
-      OAUTH_BASE_URL=https://${domain}/api
-      OAUTH_REDIRECT_BASE_URL=https://${domain}
-      OAUTH_FRONTEND_REDIRECT_URL=https://${domain}/auth/callback
-      # ---------------------------- Logging
-      LOGGING_LEVEL=INFO
-      LOG_FILE=logs/app.log
-      ERROR_LOG_FILE=logs/errors.log
-      JSON_LOG_FILE=logs/structured.json
-
-  # ------------------------------------------------------------ bootstrap.sh
-  - path: /opt/leap/bootstrap.sh
-    permissions: '0750'
-    owner: ubuntu:ubuntu
-    content: |
-      #!/usr/bin/env bash
-      # Idempotent first-boot setup. Re-running is safe.
-      set -euo pipefail
-      exec > >(tee -a /var/log/leap-bootstrap.log) 2>&1
-
-      REPO_URL="https://github.com/${github_owner}/${github_repo}.git"
-      REPO_DIR="/opt/leap"
-      DOMAIN="${domain}"
-
-      # ---- 1. Install yc CLI (skipped if already present) ----
-      if ! command -v yc >/dev/null 2>&1; then
-        curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh \
-          | bash -s -- -i /usr/local -n
-        ln -sf /usr/local/bin/yc /usr/bin/yc
-      fi
-      yc config set folder-id "${folder_id}" || true
-      yc container registry configure-docker
-
-      # ---- 2. Clone the repo (or pull if it exists) ----
-      if [ ! -d "$REPO_DIR/.git" ]; then
-        sudo -u ubuntu git clone --branch "${github_branch}" "$REPO_URL" "$REPO_DIR.tmp"
-        # Merge cloned files into pre-populated /opt/leap (we wrote .env.static here earlier).
-        sudo -u ubuntu cp -rT "$REPO_DIR.tmp/." "$REPO_DIR/"
-        rm -rf "$REPO_DIR.tmp"
-      else
-        sudo -u ubuntu git -C "$REPO_DIR" pull --ff-only origin "${github_branch}"
-      fi
-
-      cd "$REPO_DIR"
-
-      # ---- 3. Materialize secrets (.env + backend/config/*.json) ----
-      /opt/leap/refresh-env.sh
-
-      # ---- 4. nginx: start in HTTP-only mode so certbot can fetch the cert ----
-      if [ ! -L /etc/letsencrypt/live/leap ]; then
-        cp nginx/nginx.bootstrap.conf nginx/nginx.conf
-      else
-        # cert already exists from a previous run; go straight to HTTPS
-        cp nginx/nginx.https.conf nginx/nginx.conf
-      fi
-
-      # ---- 5. Pull images + start the stack ----
-      sudo -u ubuntu docker compose pull
-      sudo -u ubuntu docker compose up -d postgres redis api celery_worker celery_beat flower frontend loki promtail grafana
-      sudo -u ubuntu docker compose up -d nginx
-
-      # ---- 6. If we don't yet have a Let's Encrypt cert, request one ----
-      if [ ! -L /etc/letsencrypt/live/leap ]; then
-        # Wait for HTTP to actually respond. NB: depends on DNS already
-        # pointing $DOMAIN at this VM (NS delegation at reg.ru must be done
-        # before the certbot step succeeds). Each curl is capped at 5s so the
-        # loop is at most ~5 minutes total.
-        echo "[bootstrap] Waiting for http://$DOMAIN/api/v1/health ..."
-        health_ok=0
-        for _ in $(seq 1 60); do
-          if curl -m5 -fsS "http://$DOMAIN/api/v1/health" >/dev/null 2>&1; then
-            health_ok=1
-            break
-          fi
-          sleep 5
-        done
-        if [ "$health_ok" != "1" ]; then
-          echo "[bootstrap] WARNING: HTTP health never became ready. DNS may not be"
-          echo "[bootstrap] propagated yet. Skipping certbot — re-run sudo bash /opt/leap/bootstrap.sh"
-          echo "[bootstrap] after 'dig +short $DOMAIN' returns this VM's public IP."
-          exit 0
-        fi
-
-        mkdir -p "$REPO_DIR/certbot"
-        docker run --rm \
-          -v /etc/letsencrypt:/etc/letsencrypt \
-          -v "$REPO_DIR/certbot:/var/www/certbot" \
-          certbot/certbot certonly --webroot -w /var/www/certbot \
-            -d "$DOMAIN" --agree-tos -m "${cert_email}" --non-interactive
-
-        ln -sfn "/etc/letsencrypt/live/$DOMAIN" /etc/letsencrypt/live/leap
-
-        # Generate htpasswd for /flower and /grafana basic auth.
-        GRAFANA_PASSWORD=$(grep '^GRAFANA_PASSWORD=' "$REPO_DIR/.env" | cut -d= -f2-)
-        docker run --rm -i httpd:2.4-alpine htpasswd -nbB admin "$GRAFANA_PASSWORD" \
-          > "$REPO_DIR/nginx/htpasswd"
-        chmod 600 "$REPO_DIR/nginx/htpasswd"
-
-        # Switch to HTTPS config and reload
-        cp "$REPO_DIR/nginx/nginx.https.conf" "$REPO_DIR/nginx/nginx.conf"
-        sudo -u ubuntu docker compose up -d --no-deps nginx
-      fi
-
-      # ---- 7. Install certbot renewal + daily postgres backup cron ----
-      if ! crontab -l 2>/dev/null | grep -q certbot; then
-        (crontab -l 2>/dev/null; echo "0 3 * * * docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /opt/leap/certbot:/var/www/certbot certbot/certbot renew --quiet && docker exec leap_nginx nginx -s reload") | crontab -
-      fi
-      if ! crontab -l 2>/dev/null | grep -q pg_dump; then
-        (crontab -l 2>/dev/null; echo "0 2 * * * bash /opt/leap/scripts/pg_backup.sh >> /var/log/leap-pg-backup.log 2>&1") | crontab -
-      fi
-
-      echo "[bootstrap] LEAP stack up at https://$DOMAIN"
 
 runcmd:
   - mkdir -p /opt/leap
   - chown ubuntu:ubuntu /opt/leap
-  - usermod -aG docker ubuntu
-  # Detach via systemd so the bootstrap survives cloud-init exiting. `nohup &`
-  # in runcmd was unreliable: cloud-init's process group teardown could kill
-  # the background job before docker compose finished pulling images.
-  - systemd-run --unit=leap-bootstrap --collect --setenv=HOME=/root bash /opt/leap/bootstrap.sh
+  # Clone repo into /tmp (owned by ubuntu, no perms issues) then merge into
+  # /opt/leap. Same pattern vm-init.sh uses on re-runs.
+  - su - ubuntu -c "git clone --branch '${github_branch}' 'https://github.com/${github_owner}/${github_repo}.git' /tmp/leap-clone"
+  - su - ubuntu -c "cp -rT /tmp/leap-clone/. /opt/leap/"
+  - rm -rf /tmp/leap-clone
+  # Detach via systemd-run so the bootstrap survives cloud-init exiting.
+  # `nohup &` in runcmd was unreliable — cloud-init's process group teardown
+  # killed the background job before docker compose finished pulling images.
+  - |
+    systemd-run --unit=leap-bootstrap --collect --setenv=HOME=/root \
+      --setenv=FOLDER_ID='${folder_id}' \
+      --setenv=DOMAIN='${domain}' \
+      --setenv=CERT_EMAIL='${cert_email}' \
+      --setenv=LOCKBOX_SECRET_ID='${lockbox_secret_id}' \
+      --setenv=REGISTRY_ID='${registry_id}' \
+      --setenv=S3_BUCKET='${s3_bucket}' \
+      --setenv=GITHUB_OWNER='${github_owner}' \
+      --setenv=GITHUB_REPO='${github_repo}' \
+      --setenv=GITHUB_BRANCH='${github_branch}' \
+      bash /opt/leap/scripts/vm-init.sh

@@ -7,8 +7,43 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# Compat shim for celery-sqlalchemy-scheduler 0.3.0 (unmaintained).
+# Its `CrontabSchedule.from_schedule` reads `schedule.tz.zone`, an attribute
+# that exists on pytz timezones but NOT on Python's `zoneinfo.ZoneInfo`
+# (which Celery 5.x uses by default). ZoneInfo is a C-extension type so we
+# can't add `.zone` to it — instead we replace the scheduler's method with a
+# tz-agnostic version. Without this, every beat_schedule entry fails:
+#   AttributeError("'zoneinfo.ZoneInfo' object has no attribute 'zone'")
+import celery_sqlalchemy_scheduler.models as _csm_models  # noqa: E402
 from celery import Celery  # noqa: E402
 from celery.signals import after_setup_logger, task_prerun, worker_process_init  # noqa: E402
+
+
+def _tz_name(tz) -> str:
+    """Return the IANA name regardless of whether tz is pytz or zoneinfo."""
+    return getattr(tz, "zone", None) or getattr(tz, "key", None) or str(tz)
+
+
+@classmethod  # type: ignore[misc]
+def _patched_crontab_from_schedule(cls, session, schedule):
+    spec = {
+        "minute": schedule._orig_minute,
+        "hour": schedule._orig_hour,
+        "day_of_week": schedule._orig_day_of_week,
+        "day_of_month": schedule._orig_day_of_month,
+        "month_of_year": schedule._orig_month_of_year,
+    }
+    if schedule.tz:
+        spec["timezone"] = _tz_name(schedule.tz)
+    model = session.query(_csm_models.CrontabSchedule).filter_by(**spec).first()
+    if not model:
+        model = cls(**spec)
+        session.add(model)
+        session.commit()
+    return model
+
+
+_csm_models.CrontabSchedule.from_schedule = _patched_crontab_from_schedule
 
 from config.settings import get_settings  # noqa: E402
 from logger import get_logger, setup_logger, short_task_id  # noqa: E402

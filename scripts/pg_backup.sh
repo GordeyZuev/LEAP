@@ -26,7 +26,15 @@ if [ "$SIZE" -lt 1024 ]; then
   exit 1
 fi
 
-yc storage cp --quiet "$TMP" "s3://${BUCKET}/postgres/leap_${TS}.sql.gz"
+# yc storage s3 cp returns 0 even on partial failures — check exit code
+# of the whole pipeline AND `set -e` (set above) propagates upload failures.
+yc storage s3 cp "$TMP" "s3://${BUCKET}/postgres/leap_${TS}.sql.gz"
+rc=$?
 rm -f "$TMP"
+
+if [ "$rc" -ne 0 ]; then
+  echo "[pg_backup] $(date -Iseconds) ERROR: yc storage s3 cp exited $rc"
+  exit "$rc"
+fi
 
 echo "[pg_backup] $(date -Iseconds) uploaded s3://${BUCKET}/postgres/leap_${TS}.sql.gz (${SIZE} bytes)"

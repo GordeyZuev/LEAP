@@ -90,3 +90,13 @@ resource "yandex_resourcemanager_folder_iam_member" "vm_image_puller" {
   role      = "container-registry.images.puller"
   member    = "serviceAccount:${yandex_iam_service_account.vm.id}"
 }
+
+# storage.uploader: lets the VM SA write pg_backup dumps to the leap-backups
+# bucket (scripts/pg_backup.sh runs nightly via cron). Read access to the
+# main app bucket is not granted here — the app uses storage-sa's static
+# access key via boto3 instead.
+resource "yandex_resourcemanager_folder_iam_member" "vm_storage_uploader" {
+  folder_id = var.folder_id
+  role      = "storage.uploader"
+  member    = "serviceAccount:${yandex_iam_service_account.vm.id}"
+}

@@ -67,7 +67,7 @@ export default function RegisterPage() {
                 value={form.full_name}
                 onChange={(e) => set("full_name", e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
-                placeholder="Gordey Zuev"
+                placeholder="Loooong name"
               />
             </div>
 

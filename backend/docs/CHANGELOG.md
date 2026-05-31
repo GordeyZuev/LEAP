@@ -2,6 +2,42 @@
 
 ---
 
+## 2026-05-31: Production deploy hardening + CI fixes
+
+Без bump'a версии — фикс-релиз поверх v0.10.0 по итогам первого боевого деплоя.
+
+- **`scripts/vm-init.sh` (new)** — единый идемпотентный bootstrap-скрипт VM, исполняется и `make deploy-vm-init` (по SSH), и cloud-init (через `systemd-run --unit=leap-bootstrap --collect` — `nohup &` в runcmd был unreliable, cloud-init убивал процесс при выходе). Ставит docker-ce через `get.docker.com` (Ubuntu `docker.io` не содержит compose-plugin), удаляет конфликтующий `docker.io`/`containerd` если был. Регистрирует yc-профиль и для `root`, и для `ubuntu` (GH Actions ходит как ubuntu → нужен `yc container registry configure-docker` от его имени). Клонирует репу в `/tmp` (`/opt/leap.new` упирается в permissions).
+- **`make deploy-vm-init` (new)** — таргет читает значения из `terraform output` (vm IP, lockbox id, registry id, bucket) и `terraform.tfvars` (folder, cert email, github owner/repo/branch) через `awk -F'"'` (BSD sed на macOS не понимает `\s` в `-E`-режиме и оставлял в значениях комментарии с апострофами, ломая SSH-кавычки), пайпит скрипт по SSH с `sudo env ... bash -s < scripts/vm-init.sh`.
+- **`nginx/nginx.conf` → gitignore** — runtime-артефакт, теперь не отслеживается. Иначе `git reset --hard origin/main` в `deploy.yml` перетирал HTTPS-конфиг обратно в bootstrap-вариант, после чего nginx внутри контейнера слушал только `:80` и весь HTTPS отвечал TCP RST.
+- **`make deploy-gh-secrets`** — переписан с прямой записи (валидирует JSON ключа через `jq -e '.private_key and .service_account_id and .id'` + `jq '.'` для нормализации `<`/`>` HTML-escape'ов Terraform's `jsonencode()` — `yc-cr-login` иначе ругается "Password is invalid — must be JSON key"; читает SSH-ключ из `$HOME/.ssh/id_ed25519`).
+- **CI: backend** — pinned `uv python install 3.14.0` (3.14.5 ловил pytest-asyncio fixture-setup regression). Подняли в job-services `postgres:16` и `redis:7-alpine` + соответствующие env vars: `api.main:lifespan()` вызывает `create_database_if_not_exists()` + `alembic upgrade head` при каждом `TestClient(app)`, mock'и dependencies не помогают.
+- **CI: frontend** — `pnpm/action-setup@v4` + `actions/setup-node@v4 cache: pnpm` (на Node 22.13 corepack отказывался верифицировать подпись pnpm 11.5.0 с ошибкой `Cannot find matching keyid`). Pinned `pnpm@11.5.0` (нужен для `allowBuilds:` в `pnpm-workspace.yaml`).
+- **`frontend/Dockerfile`** — `node:20-alpine` → `node:22-alpine` (Node 20 не имел `node:sqlite`-builtin, pnpm 11 крашился), `corepack prepare pnpm@latest` → `npm install -g pnpm@11.5.0` (минуя corepack-signature-bug), `COPY` теперь включает `pnpm-workspace.yaml` (без него pnpm 11 падает с `ERR_PNPM_IGNORED_BUILDS` на `sharp`/`unrs-resolver`).
+- **`.github/workflows/deploy.yml`** — `format=short` → `format=long` для SHA-тегов (deploy step делал `IMAGE_TAG=${{ github.sha }}` — full SHA — но build-тегал short SHA, образы не находились); убран `yc container registry configure-docker --quiet` (флаг `--quiet` не существует в `yc` 1.11.0); добавлены rsync excludes на `nginx/nginx.conf`, `nginx/htpasswd`, `certbot`, `letsencrypt` — без них `rsync --delete` сносил runtime-артефакты на VM, после чего nginx падал на 500 для `/grafana` (htpasswd как директория) и переставал слушать `:443` (nginx.conf отсутствовал).
+- **`docker-compose.yml` (grafana)** — добавлен `GF_SERVER_DOMAIN=${GRAFANA_DOMAIN:-leap-platform.ru}`, `GF_SERVER_ROOT_URL` фиксирован на `https://...`. Без `GF_SERVER_DOMAIN` Grafana использовала default `localhost` и редиректила `/grafana/` → `http://localhost/grafana/` при любой внутренней навигации.
+- **`terraform/cloud-init.yaml.tftpl` — unified с `scripts/vm-init.sh`** — раньше cloud-init содержал свою копию bootstrap-логики через `write_files`, которая дрейфовала от `scripts/vm-init.sh` при каждом фиксе. Теперь cloud-init делает минимум (apt git/curl/ca-certs → git clone репы → `systemd-run` с env vars → `bash /opt/leap/scripts/vm-init.sh`). Single source of truth для будущих fresh-VM деплоев.
+- **`scripts/pg_backup.sh`** — `yc storage cp` → `yc storage s3 cp` (старая команда удалена в yc 1.11.0); добавлена проверка exit code (раньше скрипт писал "uploaded" даже при 403). Боевой backup протестирован — файл в `s3://leap-backups/postgres/`.
+- **`terraform/modules/iam` — `vm_storage_uploader`** — VM SA получил `storage.uploader` role. Без неё `pg_backup.sh` падал на 403 AccessDenied при попытке записать в `leap-backups`. App-bucket по-прежнему пишется через static key от `storage-sa` (разные SA, разные роли — least privilege).
+- **Alembic 002 idempotent** — `drop_column('recording_templates', 'priority')` теперь под guard'ом `inspect(bind).get_columns(...)`. На чистой БД колонка никогда не существовала (001 её не создаёт), миграция падала.
+- **Alembic 005 (и 003) — `autocommit_block`** — каждый `ALTER TYPE ... ADD VALUE` теперь в отдельной транзакции (`op.get_context().autocommit_block()`). 007 использует значения из 005 (`UPDATE ... WHERE status = 'TRANSCRIBING'`), и PostgreSQL запрещал использовать enum-значение в той же транзакции, где оно добавлено: `UnsafeNewEnumValueUsageError`. 007 дополнительно кастит `status::text` в `WHERE` для defense-in-depth.
+- **`backend/pyproject.toml`** — добавлен `psycopg2-binary>=2.9` (`celery-sqlalchemy-scheduler` импортирует sync psycopg2 для beat-расписаний; FastAPI продолжает на asyncpg).
+- **Celery zoneinfo shim** (`api/celery_app.py`) — `celery-sqlalchemy-scheduler` 0.3.0 (unmaintained) читает `schedule.tz.zone`, который существует только у pytz, а Celery 5.x по умолчанию использует `zoneinfo.ZoneInfo` (нет `.zone`, тип immutable C-extension). Подменяет `CrontabSchedule.from_schedule` на tz-агностичную версию через `_tz_name(tz)` (`zone || key || str(tz)`). Без шима все 6 beat-расписаний падали с `AttributeError`.
+
+### Файлы
+
+- `scripts/vm-init.sh` (**new**)
+- `Makefile` (root — все `deploy-*` таргеты, `dev-up/down/ps/logs/build`)
+- `.gitignore` (+`nginx/nginx.conf`, +`ci-sa-key.json`, +terraform секреты)
+- `.github/workflows/{ci.yml,deploy.yml}` (services, Node 22, pnpm-action-setup, full SHA, drop `--quiet`)
+- `frontend/Dockerfile` (Node 22, npm-installed pnpm, copy workspace.yaml)
+- `terraform/cloud-init.yaml.tftpl` (`systemd-run` вместо `nohup &`, убран `--quiet`)
+- `backend/alembic/versions/{002,003,005,007}_*.py` (idempotent + autocommit_block + ::text cast)
+- `backend/pyproject.toml`, `backend/uv.lock` (psycopg2-binary)
+- `backend/api/celery_app.py` (zoneinfo shim для CrontabSchedule.from_schedule)
+- `backend/docs/guides/DEPLOYMENT.md`, `nginx/README.md` (актуальные ссылки на `make deploy-vm-init`)
+
+---
+
 ## v0.10.0 (2026-05-30)
 
 **Релиз:** S3-first архитектура + production-ready инфраструктура на Yandex Cloud.
@@ -24,7 +60,7 @@ Container Registry.
 - **`cleanup_temp_files` Beat task** — ежечасно подметает осиротевшие файлы в `storage/temp/` старше 6h. Страховка от OOM/SIGKILL.
 - **Yandex Disk downloader** — `_stream_file_with_client` и `_download_yandex_api_href` пишут в temp, потом `_commit_temp_to_storage`. Public-share + API-href ветки сохранены.
 - **YaDisk upload extras** — `_upload_extra_files_to_yadisk` скачивает `segments.txt` / субтитры из storage в temp перед загрузкой на Yandex Disk.
-- **Reverse proxy** — `nginx/nginx.conf` (HTTPS, HSTS, basic auth для `/flower`, `/grafana`) и `nginx.bootstrap.conf` (HTTP-only для первичной выдачи certbot). Видео не проходит через nginx — играется напрямую из Object Storage.
+- **Reverse proxy** — `nginx/nginx.https.conf` (HTTPS, HSTS, basic auth для `/flower`, `/grafana`) и `nginx.bootstrap.conf` (HTTP-only для первичной выдачи certbot). Активный `nginx/nginx.conf` — runtime-артефакт (gitignored), `scripts/vm-init.sh` копирует в него bootstrap- или https-вариант в зависимости от наличия Let's Encrypt сертификата. Видео не проходит через nginx — играется напрямую из Object Storage.
 - **Grafana / Loki / Promtail** — observability stack в `docker-compose.yml`: Loki (30-day retention, filesystem chunks), Promtail (parsing loguru text + structured JSON), Grafana (auto-provision Loki datasource + стартовый dashboard «LEAP Overview»).
 - **Frontend Dockerfile** — multi-stage build (Next.js `output: 'standalone'`), non-root user, ~150MB финальный образ.
 - **CI/CD** — `.github/workflows/ci.yml` (PR: ruff + ty + pytest backend + lint/build frontend), `.github/workflows/deploy.yml` (push main: build → push в `cr.yandex/<id>/leap-{backend,frontend}` → SSH-deploy на VM).
@@ -46,7 +82,7 @@ Container Registry.
 - `frontend/src/app/(app)/recordings/[id]/page.tsx` (presigned URL вместо blob download)
 - `docker-compose.yml` (nginx, frontend, loki, promtail, grafana, resource limits, image refs `cr.yandex/...`)
 - `docker-compose.dev.yml` (**new** — MinIO)
-- `nginx/{nginx.conf,nginx.bootstrap.conf,README.md}` (**new**)
+- `nginx/{nginx.bootstrap.conf,nginx.https.conf,README.md}` (**new**; `nginx.conf` runtime-only, gitignored)
 - `monitoring/{loki.yml,promtail.yml,grafana_datasources.yml,grafana_dashboards.yml,dashboards/leap_overview.json}` (**new**)
 - `.github/workflows/{ci.yml,deploy.yml}` (**new**)
 - `backend/docs/guides/DEPLOYMENT.md` (полностью переписан под YC + S3-first)
