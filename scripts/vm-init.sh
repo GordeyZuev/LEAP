@@ -224,8 +224,11 @@ if [ ! -L /etc/letsencrypt/live/leap ]; then
 
     ln -sfn "/etc/letsencrypt/live/$DOMAIN" /etc/letsencrypt/live/leap
 
-    # htpasswd for /flower and /grafana basic auth
+    # htpasswd for /flower and /grafana basic auth.
+    # Docker may have created the path as an empty dir if compose mounted it
+    # before the file existed — wipe before writing.
     GRAFANA_PASSWORD=$(grep '^GRAFANA_PASSWORD=' "$REPO_DIR/.env" | cut -d= -f2-)
+    rm -rf "$REPO_DIR/nginx/htpasswd"
     htpasswd -nbB admin "$GRAFANA_PASSWORD" > "$REPO_DIR/nginx/htpasswd"
     chmod 600 "$REPO_DIR/nginx/htpasswd"
 
