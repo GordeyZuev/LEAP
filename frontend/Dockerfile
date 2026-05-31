@@ -4,10 +4,10 @@
 # -----------------------------------------------------------------------------
 # Stage 1: deps — install pnpm dependencies from a frozen lockfile
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install -g pnpm@11.5.0
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -16,10 +16,10 @@ RUN pnpm install --frozen-lockfile
 # -----------------------------------------------------------------------------
 # Stage 2: builder — compile the Next.js app
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install -g pnpm@11.5.0
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -35,7 +35,7 @@ RUN pnpm run build
 # -----------------------------------------------------------------------------
 # Stage 3: runner — minimal runtime image
 # -----------------------------------------------------------------------------
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
