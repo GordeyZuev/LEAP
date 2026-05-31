@@ -16,19 +16,24 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # PostgreSQL requires ALTER TYPE ... ADD VALUE for enums
-    # Add missing values one by one
-
-    # Add PENDING_SOURCE (new status for recordings still processing on Zoom)
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'PENDING_SOURCE' BEFORE 'INITIALIZED'")
-
-    # Add runtime statuses (in logical order)
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'DOWNLOADING' AFTER 'INITIALIZED'")
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'PROCESSING' AFTER 'PROCESSED'")
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'PREPARING' AFTER 'PROCESSING'")
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'TRANSCRIBING' AFTER 'PREPARING'")
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'UPLOADING' AFTER 'TRANSCRIBED'")
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'READY' AFTER 'UPLOADED'")
+    # PostgreSQL refuses to USE a newly-added enum value in the same
+    # transaction that ADDed it. Alembic runs the whole upgrade chain in one
+    # transaction by default, so a later migration (007) that references
+    # 'TRANSCRIBING' would fail with UnsafeNewEnumValueUsageError unless each
+    # ADD VALUE is committed via autocommit_block.
+    ctx = op.get_context()
+    new_values = [
+        ("PENDING_SOURCE", "BEFORE 'INITIALIZED'"),
+        ("DOWNLOADING", "AFTER 'INITIALIZED'"),
+        ("PROCESSING", "AFTER 'PROCESSED'"),
+        ("PREPARING", "AFTER 'PROCESSING'"),
+        ("TRANSCRIBING", "AFTER 'PREPARING'"),
+        ("UPLOADING", "AFTER 'TRANSCRIBED'"),
+        ("READY", "AFTER 'UPLOADED'"),
+    ]
+    for value, position in new_values:
+        with ctx.autocommit_block():
+            op.execute(f"ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS '{value}' {position}")
 
 
 def downgrade() -> None:

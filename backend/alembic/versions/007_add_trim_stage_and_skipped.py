@@ -26,17 +26,19 @@ def upgrade() -> None:
     # 1. Add skip_reason column to processing_stages
     op.add_column("processing_stages", sa.Column("skip_reason", sa.String(500), nullable=True))
 
-    # 2. Update aggregate statuses in recordings
+    # 2. Update aggregate statuses in recordings.
+    # ::text cast avoids "unsafe use of new enum value" if these values were
+    # only just committed by 005 — the cast bypasses enum-binding checks.
     op.execute("""
         UPDATE recordings
         SET status = 'PROCESSING'
-        WHERE status = 'TRANSCRIBING'
+        WHERE status::text = 'TRANSCRIBING'
     """)
 
     op.execute("""
         UPDATE recordings
         SET status = 'PROCESSED'
-        WHERE status IN ('TRANSCRIBED', 'PREPARING')
+        WHERE status::text IN ('TRANSCRIBED', 'PREPARING')
     """)
 
 

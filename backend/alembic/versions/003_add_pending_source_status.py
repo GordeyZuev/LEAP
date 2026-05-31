@@ -24,8 +24,10 @@ def upgrade() -> None:
     should be done in a separate migration or manually after this migration completes,
     due to PostgreSQL's constraint that new enum values must be committed before use.
     """
-    # Add PENDING_SOURCE to enum (PostgreSQL specific)
-    op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'PENDING_SOURCE' BEFORE 'INITIALIZED'")
+    # autocommit_block: PostgreSQL won't let a later migration USE this value
+    # if it's added inside the surrounding upgrade transaction.
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE processingstatus ADD VALUE IF NOT EXISTS 'PENDING_SOURCE' BEFORE 'INITIALIZED'")
 
     # Note: Cannot update existing records in the same transaction due to PostgreSQL limitations.
     # If needed, run this UPDATE manually after the migration:
