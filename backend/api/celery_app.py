@@ -7,13 +7,9 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# Compat shim for celery-sqlalchemy-scheduler 0.3.0 (unmaintained).
-# Its `CrontabSchedule.from_schedule` reads `schedule.tz.zone`, an attribute
-# that exists on pytz timezones but NOT on Python's `zoneinfo.ZoneInfo`
-# (which Celery 5.x uses by default). ZoneInfo is a C-extension type so we
-# can't add `.zone` to it — instead we replace the scheduler's method with a
-# tz-agnostic version. Without this, every beat_schedule entry fails:
-#   AttributeError("'zoneinfo.ZoneInfo' object has no attribute 'zone'")
+# Shim: celery-sqlalchemy-scheduler 0.3.0 reads tz.zone (pytz-only attr);
+# Celery 5.x uses zoneinfo.ZoneInfo which has tz.key. Patch from_schedule
+# to be tz-agnostic — otherwise beat_schedule entries fail to register.
 import celery_sqlalchemy_scheduler.models as _csm_models  # noqa: E402
 from celery import Celery  # noqa: E402
 from celery.signals import after_setup_logger, task_prerun, worker_process_init  # noqa: E402

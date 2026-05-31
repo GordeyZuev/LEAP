@@ -27,21 +27,14 @@ REPO_DIR=/opt/leap
 REPO_URL="https://github.com/${GITHUB_OWNER:?}/${GITHUB_REPO:?}.git"
 BRANCH="${GITHUB_BRANCH:-main}"
 
-# --------------------------------------------------------------------------
-# 1. Packages
-# --------------------------------------------------------------------------
-# Ubuntu stock repo ships `docker.io` but NOT `docker-compose-plugin` — the
-# plugin lives in Docker's official apt repo paired with docker-ce. Use the
-# get.docker.com convenience script: it adds the right repo and installs
-# docker-ce + the compose plugin in one shot. Idempotent: it re-installs the
-# latest each time but doesn't break a working setup.
+# --- 1. Packages ----------------------------------------------------------
+# Ubuntu's docker.io lacks the compose plugin; get.docker.com ships docker-ce
+# + compose plugin together. Purge docker.io first if present (systemd unit
+# conflict with docker-ce).
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq git jq curl ca-certificates gnupg apache2-utils
 
-# A prior run may have installed Ubuntu's `docker.io` (no compose plugin).
-# It conflicts with `docker-ce` (Docker official) on systemd units. Purge
-# before get.docker.com so the official package owns the docker.service unit.
 if dpkg -l docker.io 2>/dev/null | grep -q '^ii'; then
   apt-get remove -y --purge docker.io containerd 2>&1 | tail -3
 fi
@@ -53,10 +46,8 @@ fi
 systemctl enable --now docker
 usermod -aG docker ubuntu || true
 
-# --------------------------------------------------------------------------
-# 2. yc CLI (the VM service account is attached, so it authenticates
-#    automatically via the instance metadata service)
-# --------------------------------------------------------------------------
+# --- 2. yc CLI (auths via VM SA metadata; configured for both root + ubuntu
+#       so GH Actions deploys as ubuntu can use docker-credential-yc) -----
 if ! command -v yc >/dev/null 2>&1; then
   curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh \
     | bash -s -- -i /usr/local -n
@@ -65,24 +56,17 @@ fi
 yc config set folder-id "${FOLDER_ID:?}" || true
 yc container registry configure-docker
 
-# Configure yc + docker for the ubuntu user too, so GH Actions deploys
-# (SSH as ubuntu → `docker compose pull`) can resolve credentials via the
-# docker-credential-yc helper. yc auto-detects the VM service account from
-# the instance metadata when a profile exists, no token needed.
 sudo -u ubuntu mkdir -p /home/ubuntu/.config/yandex-cloud
 sudo -u ubuntu yc config profile create default >/dev/null 2>&1 || true
 sudo -u ubuntu yc config set folder-id "${FOLDER_ID}" || true
 sudo -u ubuntu yc container registry configure-docker
 
-# --------------------------------------------------------------------------
-# 3. Clone (or update) the repo into /opt/leap
-# --------------------------------------------------------------------------
+# --- 3. Clone (or update) the repo into /opt/leap ------------------------
 mkdir -p "$REPO_DIR"
 chown ubuntu:ubuntu "$REPO_DIR"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
-  # /opt/leap may contain stray files from a prior partial cloud-init —
-  # clone into /tmp (ubuntu-writable) and merge over the existing dir.
+  # Clone into ubuntu-writable /tmp, then merge over /opt/leap.
   tmpclone=$(sudo -u ubuntu mktemp -d /tmp/leap-clone.XXXXXX)
   sudo -u ubuntu git clone --branch "$BRANCH" "$REPO_URL" "$tmpclone"
   sudo -u ubuntu cp -rT "$tmpclone/." "$REPO_DIR/"
@@ -92,9 +76,7 @@ else
   sudo -u ubuntu git -C "$REPO_DIR" reset --hard "origin/$BRANCH"
 fi
 
-# --------------------------------------------------------------------------
-# 4. Write .env.static (values that never change between deploys)
-# --------------------------------------------------------------------------
+# --- 4. .env.static (values that never change between deploys) -----------
 cat > "$REPO_DIR/.env.static" <<EOF
 # ---------------------------- Database
 DATABASE_HOST=postgres
@@ -120,6 +102,8 @@ IMAGE_TAG=latest
 OAUTH_BASE_URL=https://${DOMAIN:?}/api
 OAUTH_REDIRECT_BASE_URL=https://${DOMAIN}
 OAUTH_FRONTEND_REDIRECT_URL=https://${DOMAIN}/auth/callback
+# ---------------------------- CORS
+SERVER_CORS_ORIGINS=https://${DOMAIN}
 # ---------------------------- Logging
 LOGGING_LEVEL=INFO
 LOG_FILE=logs/app.log
@@ -128,9 +112,7 @@ JSON_LOG_FILE=logs/structured.json
 EOF
 chown ubuntu:ubuntu "$REPO_DIR/.env.static"
 
-# --------------------------------------------------------------------------
-# 5. Install /opt/leap/refresh-env.sh (Lockbox -> .env + backend/config/*.json)
-# --------------------------------------------------------------------------
+# --- 5. /opt/leap/refresh-env.sh (Lockbox → .env + backend/config/*.json) -
 cat > "$REPO_DIR/refresh-env.sh" <<'EOF'
 #!/usr/bin/env bash
 # Re-materialize all Lockbox entries on disk:
@@ -177,14 +159,10 @@ EOF
 chmod 0750 "$REPO_DIR/refresh-env.sh"
 chown ubuntu:ubuntu "$REPO_DIR/refresh-env.sh"
 
-# --------------------------------------------------------------------------
-# 6. Materialize secrets
-# --------------------------------------------------------------------------
+# --- 6. Materialize secrets ----------------------------------------------
 LOCKBOX_SECRET_ID="${LOCKBOX_SECRET_ID:?}" bash "$REPO_DIR/refresh-env.sh"
 
-# --------------------------------------------------------------------------
-# 7. nginx: HTTP-only mode if we don't have a cert yet
-# --------------------------------------------------------------------------
+# --- 7. nginx: HTTP-only until certbot succeeds --------------------------
 cd "$REPO_DIR"
 if [ ! -L /etc/letsencrypt/live/leap ]; then
   cp nginx/nginx.bootstrap.conf nginx/nginx.conf
@@ -192,18 +170,14 @@ else
   cp nginx/nginx.https.conf nginx/nginx.conf
 fi
 
-# --------------------------------------------------------------------------
-# 8. Pull images + start the stack
-# --------------------------------------------------------------------------
+# --- 8. Pull images + start the stack ------------------------------------
 sudo -u ubuntu docker compose pull
 sudo -u ubuntu docker compose up -d \
   postgres redis api celery_worker celery_beat flower frontend \
   loki promtail grafana
 sudo -u ubuntu docker compose up -d nginx
 
-# --------------------------------------------------------------------------
-# 9. Let's Encrypt (only if no cert yet; needs DNS already pointing at us)
-# --------------------------------------------------------------------------
+# --- 9. Let's Encrypt (needs DNS pointing at us) -------------------------
 if [ ! -L /etc/letsencrypt/live/leap ]; then
   echo "[vm-init] waiting up to 5 min for http://$DOMAIN/api/v1/health ..."
   health_ok=0
@@ -228,9 +202,7 @@ if [ ! -L /etc/letsencrypt/live/leap ]; then
 
     ln -sfn "/etc/letsencrypt/live/$DOMAIN" /etc/letsencrypt/live/leap
 
-    # htpasswd for /flower and /grafana basic auth.
-    # Docker may have created the path as an empty dir if compose mounted it
-    # before the file existed — wipe before writing.
+    # htpasswd: rm first — compose may have left an empty dir at this path.
     GRAFANA_PASSWORD=$(grep '^GRAFANA_PASSWORD=' "$REPO_DIR/.env" | cut -d= -f2-)
     rm -rf "$REPO_DIR/nginx/htpasswd"
     htpasswd -nbB admin "$GRAFANA_PASSWORD" > "$REPO_DIR/nginx/htpasswd"
@@ -241,9 +213,7 @@ if [ ! -L /etc/letsencrypt/live/leap ]; then
   fi
 fi
 
-# --------------------------------------------------------------------------
-# 10. Cron: certbot renew + nightly pg_backup
-# --------------------------------------------------------------------------
+# --- 10. Cron: certbot renew + nightly pg_backup -------------------------
 if ! crontab -l 2>/dev/null | grep -q certbot; then
   (crontab -l 2>/dev/null; echo "0 3 * * * docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /opt/leap/certbot:/var/www/certbot certbot/certbot renew --quiet && docker exec leap_nginx nginx -s reload") | crontab -
 fi

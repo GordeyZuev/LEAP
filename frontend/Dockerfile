@@ -26,7 +26,9 @@ COPY . .
 
 # Compile-time public env vars (baked into the bundle). The runtime URL is set
 # to /api so nginx can route both frontend and API under one domain.
-ENV NEXT_PUBLIC_API_URL=/api
+# Empty — frontend's apiClient appends "/api/v1" itself (see src/api/client.ts).
+# Setting "/api" here would produce "/api/api/v1/..." and 404 every request.
+ENV NEXT_PUBLIC_API_URL=
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN pnpm run build

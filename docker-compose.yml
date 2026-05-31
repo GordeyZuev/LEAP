@@ -263,11 +263,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
-      # When served behind nginx under /grafana/.
-      # GF_SERVER_DOMAIN is required so generated redirects/links use the
-      # public host — without it Grafana defaults to "localhost" and any
-      # internal redirect (login → /, logout → /, OAuth callbacks) sends the
-      # browser to http://localhost/grafana/.
+      # GF_SERVER_DOMAIN: without it Grafana redirects to http://localhost/.
       GF_SERVER_DOMAIN: ${GRAFANA_DOMAIN:-leap-platform.ru}
       GF_SERVER_ROOT_URL: "https://%(domain)s/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
