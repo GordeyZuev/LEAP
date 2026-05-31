@@ -54,6 +54,8 @@ jobs:
       DATABASE_PASSWORD: postgres
       REDIS_HOST: localhost
       REDIS_PORT: "6379"
+      # TestClient shares one IP; 308 unit tests exceed the default 60 req/min cap.
+      SECURITY_RATE_LIMIT_ENABLED: "false"
 
     steps:
       - uses: actions/checkout@v4
