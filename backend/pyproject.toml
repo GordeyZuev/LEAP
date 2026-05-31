@@ -29,6 +29,9 @@ dependencies = [
     "flower>=2.0.0",
     "redis>=5.0.0",
     "celery-sqlalchemy-scheduler>=0.3.0",
+    # Sync psycopg required by celery-sqlalchemy-scheduler.
+    # FastAPI uses asyncpg, but the beat scheduler imports psycopg2 directly.
+    "psycopg2-binary>=2.9",
     "croniter>=2.0.1",
     "pytz>=2024.1",
     # Security
