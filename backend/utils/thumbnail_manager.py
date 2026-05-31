@@ -1,9 +1,18 @@
-"""User thumbnails manager"""
+"""User thumbnails manager (storage-backed).
 
-import shutil
+Thumbnails live in storage under two prefixes:
+    users/{user_slug:06d}/thumbnails/  — user-specific
+    shared/thumbnails/                 — global templates (read-only fallback)
+
+All public methods are ``async`` because they hit the storage backend.
+Synchronous path-building helpers remain for compatibility with code that only
+needs a key (``get_user_thumbnails_dir``, ``get_global_templates_dir``).
+"""
+
 from pathlib import Path
 
-from file_storage.path_builder import get_path_builder
+from file_storage.factory import get_storage_backend
+from file_storage.path_builder import get_path_builder, to_storage_key
 from logger import get_logger
 
 logger = get_logger()
@@ -12,204 +21,119 @@ SUPPORTED_IMAGE_FORMATS = (".png", ".jpg", ".jpeg")
 
 
 class ThumbnailManager:
-    """Thumbnail manager (global templates + user-specific)"""
+    """Thumbnail manager (global templates + user-specific)."""
 
     def __init__(self) -> None:
-        self.storage = get_path_builder()
+        self._builder = get_path_builder()
 
+    # ------------------------------------------------------------ key helpers
     def get_user_thumbnails_dir(self, user_slug: int) -> Path:
-        """
-        Get user thumbnails directory.
-
-        Args:
-            user_slug: User slug (6-digit integer from sequence)
-
-        Returns:
-            Path like: storage/users/user_000001/thumbnails
-        """
-        return self.storage.user_thumbnails_dir(user_slug)
+        """Return a builder Path (callers can convert via ``to_storage_key``)."""
+        return self._builder.user_thumbnails_dir(user_slug)
 
     def get_global_templates_dir(self) -> Path:
+        return self._builder.shared_thumbnails_dir()
+
+    def _user_key(self, user_slug: int, filename: str) -> str:
+        return to_storage_key(self.get_user_thumbnails_dir(user_slug) / filename)
+
+    def _shared_key(self, filename: str) -> str:
+        return to_storage_key(self._builder.shared_thumbnail(filename))
+
+    # ------------------------------------------------------------ initialization
+    async def initialize_user_thumbnails(self, user_slug: int, copy_templates: bool = True) -> None:
+        """For a new user, copy shared template thumbnails into their personal prefix.
+
+        Existing user-side files are not overwritten.
         """
-        Get global template thumbnails directory.
+        if not copy_templates:
+            logger.info(f"Skipped template copy for user {user_slug}")
+            return
 
-        Returns:
-            Path like: storage/shared/thumbnails
-        """
-        return self.storage.shared_thumbnails_dir()
+        storage = get_storage_backend()
+        try:
+            template_keys = await storage.list_keys(to_storage_key(self.get_global_templates_dir()))
+        except NotImplementedError:
+            logger.warning("Storage backend does not support list_keys; skipping template initialization")
+            return
 
-    def ensure_user_thumbnails_dir(self, user_slug: int) -> None:
-        """
-        Create user thumbnails directory.
+        copied = 0
+        for template_key in template_keys:
+            name = template_key.rsplit("/", 1)[-1]
+            if Path(name).suffix.lower() not in SUPPORTED_IMAGE_FORMATS:
+                continue
+            user_key = self._user_key(user_slug, name)
+            if await storage.exists(user_key):
+                continue
+            try:
+                content = await storage.load(template_key)
+                await storage.save(user_key, content)
+                copied += 1
+            except Exception as e:
+                logger.warning(f"Copy failed for {name}: {e}")
 
-        Args:
-            user_slug: User slug
-        """
-        user_thumbs_dir = self.get_user_thumbnails_dir(user_slug)
-        user_thumbs_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Initialized user {user_slug}: copied {copied} templates")
 
-    def initialize_user_thumbnails(self, user_slug: int, copy_templates: bool = True) -> None:
-        """
-        Initialize thumbnails for new user.
-
-        Copies global template thumbnails to user directory, allowing independent modifications.
-
-        Args:
-            user_slug: User slug
-            copy_templates: Copy global templates to user folder
-        """
-        user_thumbs_dir = self.get_user_thumbnails_dir(user_slug)
-        self.ensure_user_thumbnails_dir(user_slug)
-
-        templates_dir = self.get_global_templates_dir()
-        if copy_templates and templates_dir.exists():
-            copied_count = 0
-            for ext in SUPPORTED_IMAGE_FORMATS:
-                for template_file in templates_dir.glob(f"*{ext}"):
-                    target_file = user_thumbs_dir / template_file.name
-
-                    if not target_file.exists():
-                        try:
-                            shutil.copy2(template_file, target_file)
-                            copied_count += 1
-                        except Exception as e:
-                            logger.warning(f"Copy failed for {template_file.name}: {e}")
-
-            logger.info(f"Initialized user {user_slug}: copied {copied_count} templates")
-        else:
-            logger.info(f"Created empty thumbnails dir for user {user_slug}")
-
-    def get_thumbnail_path(
+    # ----------------------------------------------------------------- lookup
+    async def get_thumbnail_key(
         self,
         user_slug: int,
         thumbnail_name: str,
         fallback_to_template: bool = True,
-    ) -> Path | None:
-        """
-        Get thumbnail path, checking user folder first then templates.
-
-        Args:
-            user_slug: User slug
-            thumbnail_name: Thumbnail file name (e.g. "ml_extra.png")
-            fallback_to_template: Fallback to shared templates if not found
-
-        Returns:
-            Path to thumbnail or None if not found
-        """
+    ) -> str | None:
+        """Resolve a thumbnail to a storage key (user first, then shared fallback)."""
         thumbnail_name = Path(thumbnail_name).name
+        storage = get_storage_backend()
 
-        user_thumbnail = self.get_user_thumbnails_dir(user_slug) / thumbnail_name
-        if user_thumbnail.exists():
-            return user_thumbnail
+        user_key = self._user_key(user_slug, thumbnail_name)
+        if await storage.exists(user_key):
+            return user_key
 
         if fallback_to_template:
-            template_thumbnail = self.storage.shared_thumbnail(thumbnail_name)
-            if template_thumbnail.exists():
-                return template_thumbnail
+            shared_key = self._shared_key(thumbnail_name)
+            if await storage.exists(shared_key):
+                return shared_key
 
         logger.warning(f"Thumbnail not found: {thumbnail_name} for user {user_slug}")
         return None
 
-    def list_user_thumbnails(self, user_slug: int) -> list[Path]:
-        """
-        Get list of all user thumbnails.
-
-        Args:
-            user_slug: User slug
-
-        Returns:
-            List of thumbnail paths
-        """
-        user_thumbs_dir = self.get_user_thumbnails_dir(user_slug)
-
-        if not user_thumbs_dir.exists():
-            return []
-
-        thumbnails = []
-        for ext in SUPPORTED_IMAGE_FORMATS:
-            thumbnails.extend(user_thumbs_dir.glob(f"*{ext}"))
-
-        return sorted(thumbnails)
-
-    def upload_user_thumbnail(
-        self,
-        user_slug: int,
-        source_path: Path | str,
-        thumbnail_name: str | None = None,
-    ) -> Path:
-        """
-        Upload user thumbnail from source file.
-
-        Args:
-            user_slug: User slug
-            source_path: Path to source file
-            thumbnail_name: Target filename (uses original if None)
-
-        Returns:
-            Path to saved thumbnail
-
-        Raises:
-            FileNotFoundError: If source file not found
-            ValueError: If format not supported
-        """
-        source_path = Path(source_path)
-
-        if not source_path.exists():
-            raise FileNotFoundError(f"Source not found: {source_path}")
-
-        if source_path.suffix.lower() not in SUPPORTED_IMAGE_FORMATS:
-            supported = ", ".join(SUPPORTED_IMAGE_FORMATS)
-            raise ValueError(f"Unsupported format: {source_path.suffix}. Supported: {supported}")
-
-        if thumbnail_name is None:
-            thumbnail_name = source_path.name
-
-        self.ensure_user_thumbnails_dir(user_slug)
-
-        target_path = self.get_user_thumbnails_dir(user_slug) / thumbnail_name
-        shutil.copy2(source_path, target_path)
-
-        logger.info(f"Uploaded thumbnail for user {user_slug}: {thumbnail_name}")
-        return target_path
-
-    def delete_user_thumbnail(self, user_slug: int, thumbnail_name: str) -> bool:
-        """
-        Delete user thumbnail.
-
-        Returns:
-            True if deleted, False if not found
-        """
-        thumbnail_name = Path(thumbnail_name).name
-        thumbnail_path = self.get_user_thumbnails_dir(user_slug) / thumbnail_name
-
-        if not thumbnail_path.exists():
-            logger.warning(f"Thumbnail not found: {thumbnail_path}")
-            return False
-
+    async def list_user_thumbnails(self, user_slug: int) -> list[str]:
+        """Return storage keys of every supported-format thumbnail for ``user_slug``."""
+        storage = get_storage_backend()
         try:
-            thumbnail_path.unlink()
-            logger.info(f"Deleted thumbnail for user {user_slug}: {thumbnail_name}")
-            return True
-        except Exception as e:
-            logger.error(f"Delete failed for {thumbnail_path}: {e}")
-            return False
+            keys = await storage.list_keys(to_storage_key(self.get_user_thumbnails_dir(user_slug)))
+        except NotImplementedError:
+            return []
+        return sorted(k for k in keys if Path(k).suffix.lower() in SUPPORTED_IMAGE_FORMATS)
 
-    def get_thumbnail_info(self, thumbnail_path: Path) -> dict[str, int | float]:
-        """Get thumbnail file metadata."""
-        if not thumbnail_path.exists():
-            return {
-                "size_bytes": 0,
-                "size_kb": 0.0,
-                "modified_at": 0.0,
-            }
+    # ----------------------------------------------------------------- writes
+    async def write_user_thumbnail(self, user_slug: int, filename: str, content: bytes) -> str:
+        """Write thumbnail bytes to storage. Returns the storage key."""
+        if Path(filename).suffix.lower() not in SUPPORTED_IMAGE_FORMATS:
+            supported = ", ".join(SUPPORTED_IMAGE_FORMATS)
+            raise ValueError(f"Unsupported format: {Path(filename).suffix}. Supported: {supported}")
+        key = self._user_key(user_slug, filename)
+        await get_storage_backend().save(key, content)
+        logger.info(f"Wrote thumbnail for user {user_slug}: {filename}")
+        return key
 
-        stat = thumbnail_path.stat()
+    async def thumbnail_exists(self, user_slug: int, filename: str) -> bool:
+        """True iff a user-specific thumbnail with this name is in storage."""
+        return await get_storage_backend().exists(self._user_key(user_slug, filename))
 
-        return {
-            "size_bytes": stat.st_size,
-            "size_kb": round(stat.st_size / 1024, 2),
-            "modified_at": stat.st_mtime,
-        }
+    async def delete_user_thumbnail(self, user_slug: int, thumbnail_name: str) -> bool:
+        """Delete a user-specific thumbnail. Returns False if it didn't exist."""
+        thumbnail_name = Path(thumbnail_name).name
+        return await get_storage_backend().delete(self._user_key(user_slug, thumbnail_name))
+
+    # ------------------------------------------------------------------ info
+    async def get_thumbnail_info(self, storage_key: str) -> dict[str, int | float]:
+        """Return ``{size_bytes, size_kb}`` for a stored thumbnail key."""
+        storage = get_storage_backend()
+        if not await storage.exists(storage_key):
+            return {"size_bytes": 0, "size_kb": 0.0}
+        size = await storage.get_size(storage_key)
+        return {"size_bytes": size, "size_kb": round(size / 1024, 2)}
 
 
 # Global instance

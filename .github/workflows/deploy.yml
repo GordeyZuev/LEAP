@@ -1,0 +1,137 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A single in-flight deploy per environment. Don't queue — cancel the older one.
+concurrency:
+  group: deploy-${{ github.workflow }}
+  cancel-in-progress: true
+
+# Yandex Container Registry: cr.yandex/<REGISTRY_ID>/<repo>:<tag>
+#
+# Required secrets:
+#   YC_SA_JSON_CREDENTIALS  — service account auth key JSON (full file, base64 not required)
+#                              IAM role: container-registry.images.pusher
+#   YC_REGISTRY_ID          — e.g. crp1234567890abcdef
+#   VPS_HOST                — public IP/DNS of the YC Compute VM
+#   VPS_USER                — SSH user (e.g. ubuntu)
+#   VPS_SSH_KEY             — SSH private key for the VPS_USER
+#   VPS_DEPLOY_PATH         — absolute path on VPS where the repo is checked out
+env:
+  REGISTRY: cr.yandex
+  IMAGE_BACKEND: leap-backend
+  IMAGE_FRONTEND: leap-frontend
+
+jobs:
+  build-and-push:
+    name: Build & push images
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---- Yandex Cloud login --------------------------------------------
+      - name: Login to Yandex Container Registry
+        uses: yc-actions/yc-cr-login@v3
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+
+      # ---- Backend ---------------------------------------------------------
+      - name: Backend image metadata
+        id: meta_backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_BACKEND }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta_backend.outputs.tags }}
+          labels: ${{ steps.meta_backend.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      # ---- Frontend --------------------------------------------------------
+      - name: Frontend image metadata
+        id: meta_frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_FRONTEND }}
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta_frontend.outputs.tags }}
+          labels: ${{ steps.meta_frontend.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Sync compose + nginx + monitoring configs to the VPS so it always uses
+      # the version that built the images.
+      - name: Sync deploy artifacts to VPS
+        uses: easingthemes/ssh-deploy@main
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
+          ARGS: "-rlgoDzvc -i --delete --exclude=.env --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv"
+          SOURCE: "./"
+          REMOTE_HOST: ${{ secrets.VPS_HOST }}
+          REMOTE_USER: ${{ secrets.VPS_USER }}
+          TARGET: ${{ secrets.VPS_DEPLOY_PATH }}
+
+      - name: Restart stack on VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd ${{ secrets.VPS_DEPLOY_PATH }}
+
+            # Pull the latest commit (compose files, nginx, monitoring may have changed
+            # alongside image content).
+            git fetch --quiet origin main
+            git reset --hard origin/main
+
+            # IAM auth to cr.yandex — the VM's service account is authoritative.
+            # Don't mask failure: if yc CLI can't configure docker, the subsequent
+            # `docker compose pull` will fail with a cryptic 'unauthorized' error.
+            yc container registry configure-docker --quiet
+
+            # Re-fetch secrets from Lockbox (rotated keys, new OAuth creds, etc.).
+            # Cheap on every deploy — picks up any out-of-band rotation.
+            if [ -x /opt/leap/refresh-env.sh ]; then
+              /opt/leap/refresh-env.sh
+            fi
+
+            export IMAGE_TAG=${{ github.sha }}
+            docker compose pull api celery_worker celery_beat flower frontend
+            docker compose up -d --no-deps api celery_worker celery_beat flower frontend
+            # Reload nginx (config files may have changed without an image rebuild).
+            docker compose up -d --no-deps nginx
+            docker compose ps

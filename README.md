@@ -20,7 +20,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.9.7.0` (May 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.10.0` (May 2026) · **Статус:** In Active Development • Beta
 **Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
@@ -411,6 +411,15 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — краткие пользовательские изменения по последним веткам. Полная история, даты и списки файлов — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в v0.10.0** — Production-ready релиз на Yandex Cloud:
+- **S3-first хранилище** — все персистентные файлы (видео, аудио, транскрипции, субтитры, превью) живут в Object Storage (production: Yandex Object Storage; dev: MinIO). Локальный диск — только эфемерные temp-файлы FFmpeg/Fireworks.
+- **Видео-стриминг через presigned URL** — `<video src={url}>` играет напрямую из бакета с поддержкой Range-запросов; backend не проксирует видеотрафик.
+- **Production-инфраструктура** — nginx (HTTPS via Let's Encrypt), Grafana + Loki + Promtail в Docker Compose, ресурсные лимиты на все сервисы.
+- **CI/CD** — GitHub Actions: PR → lint + typecheck + тесты (backend + frontend), push в `main` → build → push в Yandex Container Registry → SSH-deploy на VM.
+- **Async TranscriptionManager / SubtitleGenerator / ThumbnailManager** — весь pipeline I/O через `StorageBackend`, никаких прямых `Path.open()` на рекординги.
+- **Beat-задача `cleanup_temp_files`** — ежечасная подметка осиротевших temp-файлов после OOM/SIGKILL.
+- **Документация** — `DEPLOYMENT.md` переписан под Yandex Cloud (Object Storage, Container Registry, Compute VM, certbot bootstrap).
 
 **Новое в v0.9.7.0:**
 - **References API** — новый эндпоинт `/api/v1/references` отдаёт фронтенду справочники: языки, гранулярности, качества, платформы, таймзоны; данные кешируются на сутки без повторных запросов.

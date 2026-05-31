@@ -36,6 +36,7 @@ import { AddVideoModal } from "@/components/recordings/add-video-modal";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { ExportModal } from "@/components/recordings/export-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { FilterSelect } from "@/components/recordings/filter-select";
 import type { ProcessingStatus } from "@/components/ui/status-badge";
 import {
   ACTIVE_POLL_STATUSES,
@@ -930,7 +931,7 @@ function RecordingsContent() {
         </div>
       </div>
 
-      {/* ── Search + Sort toolbar (immediate) ── */}
+      {/* ── Search toolbar ── */}
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1 space-y-1.5" style={{ maxWidth: "22rem" }}>
           <label htmlFor="recordings-search" className={FILTER_LABEL}>
@@ -946,35 +947,9 @@ function RecordingsContent() {
             className={FILTER_CONTROL}
           />
         </div>
-
-        <div className="space-y-1.5">
-          <span className={FILTER_LABEL}>Sort by</span>
-          <div className="flex gap-1.5">
-            <select
-              value={urlSortBy}
-              onChange={(e) => updateSort(e.target.value)}
-              className={cn(FILTER_CONTROL, "min-w-[9rem]")}
-            >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              title={urlSortOrder === "desc" ? "Descending" : "Ascending"}
-              onClick={() => updateSort(undefined, urlSortOrder === "desc" ? "asc" : "desc")}
-              className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
-            >
-              {urlSortOrder === "desc" ? "↓" : "↑"}
-            </button>
-          </div>
-        </div>
-
       </div>
 
-      {/* ── Filter card (Apply/Reset pattern) ── */}
+      {/* ── Filter card ── */}
       <div className={FILTER_CARD}>
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
           {/* Status */}
@@ -1025,31 +1000,49 @@ function RecordingsContent() {
             />
           </div>
 
-          {/* Apply + Reset */}
+          {/* Sort by (immediate) */}
           <div className="lg:col-span-3">
-            <span className={FILTER_LABEL} aria-hidden>&nbsp;</span>
-            <div className="flex gap-2">
+            <span className={FILTER_LABEL}>Sort by</span>
+            <div className="flex gap-1.5">
+              <FilterSelect
+                value={urlSortBy}
+                options={SORT_OPTIONS}
+                onChange={(v) => updateSort(v as string)}
+                className="flex-1 min-w-0"
+              />
               <button
                 type="button"
-                disabled={!filtersDirty}
-                onClick={applyFilters}
-                className={cn(
-                  "flex-1 min-h-[2.5rem] rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors",
-                  filtersDirty ? "bg-[#224C87] hover:bg-[#1a3d6e]" : "cursor-not-allowed bg-[#224C87]/35"
-                )}
+                title={urlSortOrder === "desc" ? "Descending" : "Ascending"}
+                onClick={() => updateSort(undefined, urlSortOrder === "desc" ? "asc" : "desc")}
+                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
               >
-                Apply
-              </button>
-              <button
-                type="button"
-                onClick={resetAllFilters}
-                disabled={!(filtersDirty || hasAppliedFilters)}
-                className="flex-1 min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Reset
+                {urlSortOrder === "desc" ? "↓" : "↑"}
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Apply / Reset */}
+        <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
+          <button
+            type="button"
+            disabled={!filtersDirty}
+            onClick={applyFilters}
+            className={cn(
+              "min-h-[2.5rem] rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors",
+              filtersDirty ? "bg-[#224C87] hover:bg-[#1a3d6e]" : "cursor-not-allowed bg-[#224C87]/35"
+            )}
+          >
+            Apply
+          </button>
+          <button
+            type="button"
+            onClick={resetAllFilters}
+            disabled={!(filtersDirty || hasAppliedFilters)}
+            className="min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Reset
+          </button>
         </div>
 
         <AdvancedFiltersSection

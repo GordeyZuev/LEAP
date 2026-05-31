@@ -5,7 +5,7 @@ echo "🚀 Starting LEAP..."
 
 # Ждем, пока PostgreSQL будет готов
 echo "⏳ Waiting for PostgreSQL..."
-while ! pg_isready -h ${DATABASE_HOST:-localhost} -p ${DATABASE_PORT:-5432} -U ${DATABASE_USERNAME:-postgres} > /dev/null 2>&1; do
+while ! pg_isready -h "${DATABASE_HOST:-localhost}" -p "${DATABASE_PORT:-5432}" -U "${DATABASE_USERNAME:-postgres}" > /dev/null 2>&1; do
     echo "   PostgreSQL is unavailable - sleeping"
     sleep 2
 done
@@ -34,5 +34,5 @@ python -m alembic upgrade head
 echo "✅ Migrations applied!"
 
 # Запускаем команду, переданную в CMD
-echo "🎉 Starting application: $@"
+echo "🎉 Starting application: $*"
 exec "$@"

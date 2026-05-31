@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TagInput } from "@/components/ui/tag-input";
-import { FILTER_CONTROL, FILTER_LABEL, FILTER_SELECT } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { NativeSelect } from "@/components/ui/native-select";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 
 // ---------------------------------------------------------------------------
@@ -338,15 +339,14 @@ export function YouTubeFields({
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <span className={FILTER_LABEL}>Privacy</span>
-          <select
+          <NativeSelect
             value={value.privacy}
             onChange={(e) => onChange({ privacy: e.target.value })}
-            className={cn(FILTER_SELECT, "bg-white")}
           >
             {YT_PRIVACY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="space-y-1">
           <span className={FILTER_LABEL}>Category ID</span>
@@ -488,28 +488,26 @@ export function VkFields({
       <div className={cn("grid gap-3", showPrivacyComment ? "grid-cols-2" : "grid-cols-1 max-w-[50%]")}>
         <div className="space-y-1">
           <span className={FILTER_LABEL}>Privacy — view</span>
-          <select
+          <NativeSelect
             value={value.privacy_view}
             onChange={(e) => onChange({ privacy_view: e.target.value })}
-            className={cn(FILTER_SELECT, "bg-white")}
           >
             {VK_PRIVACY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         {showPrivacyComment && (
           <div className="space-y-1">
             <span className={FILTER_LABEL}>Privacy — comments</span>
-            <select
+            <NativeSelect
               value={value.privacy_comment}
               onChange={(e) => onChange({ privacy_comment: e.target.value })}
-              className={cn(FILTER_SELECT, "bg-white")}
             >
               {VK_PRIVACY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         )}
       </div>

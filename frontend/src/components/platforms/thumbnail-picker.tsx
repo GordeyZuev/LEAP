@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Image, Upload, X, Check, Trash2, Loader2 } from "lucide-react";
+import { Image as ImageIcon, Upload, X, Check, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
@@ -36,10 +36,7 @@ function ThumbnailImage({ name, size }: { name: string; size?: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(() => blobCache.get(name) ?? null);
 
   useEffect(() => {
-    if (blobCache.has(name)) {
-      setBlobUrl(blobCache.get(name)!);
-      return;
-    }
+    if (blobCache.has(name)) return;
     let cancelled = false;
     void fetchBlobUrl(name).then((url) => {
       if (!cancelled) setBlobUrl(url);
@@ -74,10 +71,7 @@ function SmallThumbPreview({ name }: { name: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(() => blobCache.get(name) ?? null);
 
   useEffect(() => {
-    if (blobCache.has(name)) {
-      setBlobUrl(blobCache.get(name)!);
-      return;
-    }
+    if (blobCache.has(name)) return;
     let cancelled = false;
     void fetchBlobUrl(name).then((url) => {
       if (!cancelled) setBlobUrl(url);
@@ -193,7 +187,7 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
             </>
           ) : (
             <>
-              <Image size={14} className="shrink-0 text-gray-400" />
+              <ImageIcon size={14} className="shrink-0 text-gray-400" />
               <span className="flex-1 truncate text-sm text-gray-400">{placeholder}</span>
             </>
           )}

@@ -471,6 +471,7 @@ class TemplateRenderer:
         recording: Any,
         topics_display: Mapping[str, Any] | None = None,
         questions_display: Mapping[str, Any] | None = None,
+        extracted_data: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Build Jinja context from a recording model.
@@ -522,22 +523,16 @@ class TemplateRenderer:
         context["record_datetime_iso"] = format_datetime_for_template(rl, "datetime") if rl else ""
         context["publish_datetime_iso"] = format_datetime_for_template(publish_local, "datetime")
 
+        # ``extracted_data`` (active version dict from extracted.json) must be loaded
+        # by the async caller and passed in. We cannot call the (now async)
+        # TranscriptionManager from this sync helper. If not provided, fields default
+        # to empty — callers that need them must fetch the data upstream.
         summary = ""
         questions: list[str] = []
-        rec_id = getattr(recording, "id", None)
-        if owner is not None and rec_id is not None:
-            try:
-                from transcription_module.manager import get_transcription_manager
-
-                tm = get_transcription_manager()
-                if tm.has_extracted(rec_id, owner.user_slug):
-                    active = tm.get_active_extracted(rec_id, owner.user_slug)
-                    if active:
-                        summary = (active.get("summary") or "").strip()
-                        raw_q = active.get("questions") or []
-                        questions = raw_q if isinstance(raw_q, list) else []
-            except Exception as exc:
-                logger.debug("Could not load summary: %s", exc)
+        if extracted_data:
+            summary = (extracted_data.get("summary") or "").strip()
+            raw_q = extracted_data.get("questions") or []
+            questions = raw_q if isinstance(raw_q, list) else []
         context["summary"] = summary or ""
 
         if questions_display and questions_display.get("enabled"):

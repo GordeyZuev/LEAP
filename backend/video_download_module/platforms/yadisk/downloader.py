@@ -460,8 +460,9 @@ class YandexDiskDownloader(BaseDownloader):
         source_meta: dict[str, Any],
         force: bool = False,
     ) -> DownloadResult:
-        """Download video from Yandex Disk (API or public link)."""
+        """Download video from Yandex Disk (API or public link) to storage."""
         from config.settings import get_settings
+        from file_storage.factory import get_storage_backend
         from utils.pipeline_video_formats import (
             pipeline_ingress_suffixes_from_settings_formats,
             strict_suffix_from_source_name,
@@ -475,13 +476,19 @@ class YandexDiskDownloader(BaseDownloader):
             source_suffix = strict_suffix_from_source_name(source_meta.get("name"), allowed_suffixes)
         except ValueError as exc:
             raise RuntimeError(f"Ingress rejected for Yandex file: {exc}") from exc
-        target_path = self._get_target_path(recording_id, source_suffix=source_suffix)
 
-        if not force and target_path.exists() and target_path.stat().st_size > 1024:
-            return DownloadResult(
-                file_path=target_path,
-                file_size=target_path.stat().st_size,
-            )
+        target_key = self._get_target_key(recording_id, source_suffix=source_suffix)
+        storage_backend = get_storage_backend()
+
+        # Skip if already committed and not forced
+        if not force and await storage_backend.exists(target_key):
+            existing_size = await storage_backend.get_size(target_key)
+            if existing_size > 1024:
+                return DownloadResult(storage_key=target_key, file_size=existing_size)
+
+        # Stream into a local temp file; the internal Yandex helpers below all write to this Path
+        # (with their own resume / fallback logic). On success we move it into storage.
+        target_path = self._new_temp_path(source_suffix)
 
         download_method = source_meta.get("download_method", "api")
         oauth_token = self.oauth_token or source_meta.get("oauth_token")
@@ -603,15 +610,22 @@ class YandexDiskDownloader(BaseDownloader):
                     source_name=source_meta.get("name"),
                 )
 
-        if not success:
-            raise RuntimeError(f"Failed to download from Yandex Disk: {source_meta.get('name', file_path)}")
+        try:
+            if not success:
+                raise RuntimeError(f"Failed to download from Yandex Disk: {source_meta.get('name', file_path)}")
 
-        return DownloadResult(
-            file_path=target_path,
-            file_size=target_path.stat().st_size,
-            metadata={
-                "name": source_meta.get("name"),
-                "path": file_path,
-                "download_method": download_method,
-            },
-        )
+            size = await self._commit_temp_to_storage(target_path, target_key)
+            return DownloadResult(
+                storage_key=target_key,
+                file_size=size,
+                metadata={
+                    "name": source_meta.get("name"),
+                    "path": file_path,
+                    "download_method": download_method,
+                },
+            )
+        finally:
+            # Belt-and-suspenders: the commit consumes the temp; this clears partial files
+            # left by the failure path.
+            if target_path.exists():
+                target_path.unlink(missing_ok=True)

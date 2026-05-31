@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/api/client";
+import { PasswordInput } from "@/components/ui/password-input";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -58,8 +59,7 @@ export default function LoginPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Password
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -75,7 +75,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#224C87] text-white py-2.5 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors mt-2"
+              className="w-full bg-[#224C87] text-white py-2.5 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-all duration-200 mt-2"
             >
               {loading ? "Signing in…" : "Sign in"}
             </button>

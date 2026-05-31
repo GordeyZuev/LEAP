@@ -1,0 +1,13 @@
+# Auto-load dashboards from /var/lib/grafana/dashboards/
+apiVersion: 1
+
+providers:
+  - name: leap-default
+    orgId: 1
+    folder: LEAP
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

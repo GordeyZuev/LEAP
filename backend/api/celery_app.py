@@ -102,6 +102,12 @@ celery_app.conf.beat_schedule = {
         "task": "maintenance.hard_delete_recordings",
         "schedule": crontab(hour=5, minute=0),  # Every day at 5:00 UTC (Level 2)
     },
+    "cleanup-temp-files": {
+        # Safety net for FFmpeg/ASR temp files orphaned by hard kills (OOM/SIGKILL).
+        # Pipeline tasks already clean up in finally blocks; this is belt-and-braces.
+        "task": "maintenance.cleanup_temp_files",
+        "schedule": crontab(minute=15),  # Hourly at :15
+    },
 }
 
 

@@ -120,7 +120,19 @@ async def preview_template_metadata_render(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
         topics = data.topics_display if data.topics_display is not None else merged.get("topics_display")
         questions = data.questions_display if data.questions_display is not None else merged.get("questions_display")
-        ctx = TemplateRenderer.prepare_recording_context(recording, topics_display=topics, questions_display=questions)
+        # Pre-load extracted (topics/summary) so prepare_recording_context can stay sync.
+        from transcription_module.manager import get_transcription_manager
+
+        owner = getattr(recording, "owner", None)
+        extracted = None
+        if owner is not None and getattr(owner, "user_slug", None) is not None:
+            try:
+                extracted = await get_transcription_manager().get_active_extracted(recording.id, owner.user_slug)
+            except Exception as exc:
+                logger.debug("Could not load extracted for preview: %s", exc)
+        ctx = TemplateRenderer.prepare_recording_context(
+            recording, topics_display=topics, questions_display=questions, extracted_data=extracted
+        )
     else:
         ctx = build_stub_validation_context()
 

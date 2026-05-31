@@ -45,6 +45,11 @@ def _get_granularity_config(granularity: Granularity) -> dict:
     return GRANULARITY_CONFIG.get(granularity.value, GRANULARITY_CONFIG[Granularity.LONG.value])
 
 
+def _line_for_timestamp_match(line: str) -> str:
+    """Strip markdown bullets/numbering so '* [00:01:00] - topic' matches TIMESTAMP_PATTERN."""
+    return re.sub(r"^[-*•\d.)]+\s*", "", line.strip())
+
+
 def _truncate_topic(topic: str) -> str:
     """Truncate topic: by word count or char length. Keeps first part + ellipsis."""
     words = topic.split()
@@ -753,7 +758,7 @@ class TopicExtractor:
                     questions.append(q)
                 continue
 
-            timestamp_match = re.match(TIMESTAMP_PATTERN, line)
+            timestamp_match = re.match(TIMESTAMP_PATTERN, _line_for_timestamp_match(line))
             if timestamp_match:
                 in_main_topics = False
                 hours_str, minutes_str, seconds_str, topic = timestamp_match.groups()
@@ -914,7 +919,7 @@ class TopicExtractor:
             line = line.strip()
             if not line:
                 continue
-            match = re.match(TIMESTAMP_PATTERN, line)
+            match = re.match(TIMESTAMP_PATTERN, _line_for_timestamp_match(line))
             if match:
                 hours_str, minutes_str, seconds_str, topic = match.groups()
                 total_seconds = self._parse_timestamp_to_seconds(hours_str, minutes_str, seconds_str, total_duration)

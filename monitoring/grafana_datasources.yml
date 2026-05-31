@@ -1,0 +1,14 @@
+# Grafana auto-provisioning. Drop into /etc/grafana/provisioning/datasources/ —
+# Grafana picks it up on startup; no manual UI clicking required.
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    uid: loki
+    url: http://loki:3100
+    isDefault: true
+    editable: false
+    jsonData:
+      maxLines: 5000

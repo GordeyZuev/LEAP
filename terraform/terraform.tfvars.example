@@ -1,0 +1,71 @@
+# Copy this file to `terraform.tfvars` and fill in real values.
+# Never commit terraform.tfvars — it's gitignored.
+
+# ============================================================================
+# Yandex Cloud — required
+# ============================================================================
+# `yc init` first; then:  yc config get cloud-id  /  yc config get folder-id
+yc_cloud_id  = "b1g0..."
+yc_folder_id = "b1g1..."
+yc_zone      = "ru-central1-a"
+
+# If you prefer an explicit token instead of the yc CLI default profile:
+# yc_token = "AQAA..."
+
+# ============================================================================
+# Application — required
+# ============================================================================
+project_prefix = "leap"
+domain         = "leap-platform.ru"
+cert_email     = "admin@leap-platform.ru"
+
+# Your SSH public key — granted to the `ubuntu` user on the VM.
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... user@host"
+
+# Lock down SSH to your IP. Use ["0.0.0.0/0"] for fully open (NOT recommended).
+ssh_allowed_cidr = ["YOUR.PUBLIC.IP/32"]
+
+# ============================================================================
+# GitHub repo (used by VM cloud-init to clone on first boot)
+# ============================================================================
+github_owner = "GordeyZuev"
+github_repo  = "ZoomUploader"
+github_branch = "main"
+
+# ============================================================================
+# VM sizing (defaults are fine to start)
+# ============================================================================
+# vm_platform_id = "standard-v3"
+# vm_cores       = 8
+# vm_memory_gb   = 16
+# vm_disk_gb     = 100
+# vm_disk_type   = "network-ssd"
+
+# ============================================================================
+# DNS — set to false if you want to manage DNS outside of YC
+# ============================================================================
+# manage_dns = true
+
+# ============================================================================
+# OAuth + AI providers
+#
+# Auto-loaded from `backend/config/*.json` by main.tf — no need to set anything
+# here if you've already populated those files. Override below to inject raw
+# values without keeping files on disk.
+# ============================================================================
+
+# oauth_zoom_json    = "{\"client_id\":\"...\",\"client_secret\":\"...\"}"
+# oauth_youtube_json = "..."  # raw Google client_secrets.json contents
+# oauth_vk_json      = "..."
+# oauth_yadisk_json  = "..."
+
+# fireworks_api_key    = "fw_..."
+# fireworks_account_id = "..."
+# deepseek_api_key     = "sk-..."
+
+# ============================================================================
+# Grafana
+# ============================================================================
+# Password is auto-generated and stored in Lockbox — retrieve via:
+#   terraform output grafana_admin_password
+# grafana_admin_user = "admin"

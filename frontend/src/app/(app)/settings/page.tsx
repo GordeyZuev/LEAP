@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RefreshCw, ChevronDown, LogOut, Trash2 } from "lucide-react";
+import { Save, RefreshCw, ChevronDown, Eye, LogOut, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -13,10 +13,15 @@ import {
   FILTER_SEGMENT_BTN,
   FILTER_SEGMENT_IDLE,
   FILTER_SEGMENT_WRAP,
-  FILTER_SELECT,
 } from "@/lib/filter-field-classes";
 import { TagInput } from "@/components/ui/tag-input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { TemplateField } from "@/components/platforms/platform-fields";
+import {
+  MetadataPreviewResultBox,
+  type MetadataRenderPreviewData,
+} from "@/components/platforms/metadata-render-preview";
 import { useGranularities, useLanguages, useQualities, useTimezones } from "@/hooks/use-references";
 import { TOAST_LONG, TOAST_SHORT } from "@/lib/constants";
 
@@ -340,9 +345,9 @@ function StatChip({ label, value }: { label: string; value: string | number }) {
 }
 
 const BTN_PRIMARY =
-  "flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors";
+  "flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-all duration-200";
 const BTN_SECONDARY =
-  "flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors";
+  "flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-all duration-200";
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -378,6 +383,9 @@ export default function SettingsPage() {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [metadataOpen, setMetadataOpen] = useState(false);
   const [retentionOpen, setRetentionOpen] = useState(false);
+
+  const [metadataRenderPreview, setMetadataRenderPreview] = useState<MetadataRenderPreviewData | null>(null);
+  const [metadataRenderPreviewLoading, setMetadataRenderPreviewLoading] = useState(false);
 
   // ── Reset confirmation ────────────────────────────────────────────────────
   const [resetConfirm, setResetConfirm] = useState(false);
@@ -416,6 +424,7 @@ export default function SettingsPage() {
   });
 
   // ── Sync from server ──────────────────────────────────────────────────────
+  /* eslint-disable react-hooks/set-state-in-effect -- hydrate local form from fetched user/config */
   useEffect(() => {
     if (!userData) return;
     setProfile({
@@ -436,6 +445,7 @@ export default function SettingsPage() {
     if (m) setMetadata({ ...DEFAULT_METADATA, ...m });
     if (r) setRetention({ ...DEFAULT_RETENTION, ...r });
   }, [configData]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const updateProfile = useMutation({
@@ -544,6 +554,22 @@ export default function SettingsPage() {
     ? Object.entries(s.recordings_by_status).filter(([, v]) => v > 0)
     : [];
 
+  async function handleMetadataDefaultsPreview() {
+    setMetadataRenderPreviewLoading(true);
+    setMetadataRenderPreview(null);
+    try {
+      const res = await apiClient.post<MetadataRenderPreviewData>("/templates/render-preview", {
+        title_template: metadata.title_template,
+        description_template: metadata.description_template,
+      });
+      setMetadataRenderPreview(res.data);
+    } catch {
+      setMetadataRenderPreview(null);
+    } finally {
+      setMetadataRenderPreviewLoading(false);
+    }
+  }
+
   return (
     <div className="w-full min-w-0 p-6 sm:p-8 space-y-6">
       <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
@@ -606,14 +632,14 @@ export default function SettingsPage() {
           </Field>
         </div>
         <Field label="Timezone">
-          <select
+          <NativeSelect
             value={timezones.some((t) => t.value === profile.timezone) ? profile.timezone : "__custom__"}
             onChange={(e) => {
               if (e.target.value !== "__custom__") {
                 setProfile((p) => ({ ...p, timezone: e.target.value }));
               }
             }}
-            className={cn(FILTER_SELECT, "max-w-sm")}
+            wrapperClassName="max-w-sm"
           >
             {timezones.map((tz) => (
               <option key={tz.value} value={tz.value}>{tz.label}</option>
@@ -621,7 +647,7 @@ export default function SettingsPage() {
             {!timezones.some((t) => t.value === profile.timezone) && profile.timezone && (
               <option value="__custom__">{profile.timezone} (custom)</option>
             )}
-          </select>
+          </NativeSelect>
         </Field>
         {profileError && (
           <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{profileError}</p>
@@ -645,8 +671,7 @@ export default function SettingsPage() {
       <SectionCard title="Change password">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
           <Field label="Current password">
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="current-password"
               suppressHydrationWarning
               value={pwForm.current_password}
@@ -656,8 +681,7 @@ export default function SettingsPage() {
             />
           </Field>
           <Field label="New password">
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               suppressHydrationWarning
               value={pwForm.new_password}
@@ -667,8 +691,7 @@ export default function SettingsPage() {
             />
           </Field>
           <Field label="Confirm new password">
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               suppressHydrationWarning
               value={pwForm.confirm}
@@ -1034,6 +1057,20 @@ export default function SettingsPage() {
             multiline
             placeholder={"Recording from {{ date }}\n\n{{ topics }}"}
           />
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={handleMetadataDefaultsPreview}
+              disabled={metadataRenderPreviewLoading}
+              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              <Eye size={15} />
+              {metadataRenderPreviewLoading ? "Rendering…" : "Preview render"}
+            </button>
+            {metadataRenderPreview ? (
+              <MetadataPreviewResultBox preview={metadataRenderPreview} />
+            ) : null}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Field label="Date format" hint="e.g. DD.MM.YYYY or YYYY-MM-DD">
               <input
@@ -1168,8 +1205,7 @@ export default function SettingsPage() {
             <h2 className="mb-1 text-sm font-semibold text-gray-900">Delete your account?</h2>
             <p className="mb-4 text-xs text-gray-500">This is permanent and irreversible. Enter your password to confirm.</p>
             <div className="space-y-3">
-              <input
-                type="password"
+              <PasswordInput
                 autoFocus
                 value={deleteAccountPassword}
                 onChange={(e) => setDeleteAccountPassword(e.target.value)}

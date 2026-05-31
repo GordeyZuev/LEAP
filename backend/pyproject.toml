@@ -1,6 +1,6 @@
 [project]
 name = "leap"
-version = "0.9.7.0"
+version = "0.10.0"
 description = "LEAP - Lecture Enhancement & Automation Platform for intelligent video content processing"
 readme = "README.md"
 license = {text = "Business Source License 1.1"}
@@ -57,9 +57,11 @@ dependencies = [
     "openpyxl>=3.1.0",
     # Dev tools
     "ruff>=0.14.1",
-    "ulid>=1.1",
+    "python-ulid>=3.0.0",
     "aiofiles>=25.1.0",
     "gevent>=25.9.1",
+    # S3-compatible object storage
+    "aioboto3>=13.0.0",
 ]
 
 [tool.uv]
@@ -75,6 +77,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-mock>=3.15.1",
     "ty>=0.0.14",
+    "moto[s3,server]>=5.0.0",
 ]
 
 [tool.ty]

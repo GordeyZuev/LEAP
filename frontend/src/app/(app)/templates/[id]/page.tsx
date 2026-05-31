@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -23,7 +23,12 @@ import {
   type VkFieldsValue,
   type YandexDiskFieldsValue,
 } from "@/components/platforms/platform-fields";
+import {
+  MetadataPreviewResultBox,
+  type MetadataRenderPreviewData,
+} from "@/components/platforms/metadata-render-preview";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
+import { NativeSelect } from "@/components/ui/native-select";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,13 +84,6 @@ interface PresetDetail {
   platform: string;
   preset_metadata?: { description_template?: string };
 }
-interface RenderPreviewResponse {
-  valid: boolean;
-  errors: string[];
-  rendered_title: string | null;
-  rendered_description: string | null;
-}
-
 interface MatchPreviewRecording {
   id: number;
   display_name: string;
@@ -155,20 +153,20 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
   const [form, setForm] = useState<TemplateFormData>(DEFAULT_FORM);
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
-  const [preview, setPreview] = useState<RenderPreviewResponse | null>(null);
+  const [preview, setPreview] = useState<MetadataRenderPreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
   const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
   const [presetDetails, setPresetDetails] = useState<Record<number, PresetDetail>>({});
 
-  const savedSnapshot = useRef<string>(
+  const [savedSnapshot, setSavedSnapshot] = useState(() =>
     JSON.stringify({
       form: DEFAULT_FORM,
       ytFields: { ...DEFAULT_YOUTUBE_FIELDS },
       vkFields: { ...DEFAULT_VK_FIELDS },
       ydFields: { ...DEFAULT_YANDEX_DISK_FIELDS },
-    })
+    }),
   );
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -194,6 +192,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     queryFn: async () => (await apiClient.get("/presets?per_page=50")).data,
   });
 
+  /* eslint-disable react-hooks/set-state-in-effect -- hydrate form from fetched template */
   useEffect(() => {
     if (!existing) return;
     const mc = existing.metadata_config;
@@ -264,8 +263,9 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     setYtFields(newYtFields);
     setVkFields(newVkFields);
     setYdFields(newYdFields);
-    savedSnapshot.current = JSON.stringify({ form: newForm, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields });
+    setSavedSnapshot(JSON.stringify({ form: newForm, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields }));
   }, [existing]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Fetch full preset details for the "Fill from preset" feature.
   // Uses allSettled so a 404 for a deleted preset doesn't break the whole batch.
@@ -363,7 +363,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       return (await apiClient.patch(`/templates/${id}`, body)).data;
     },
     onSuccess: (result, savedForm) => {
-      savedSnapshot.current = JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields });
+      setSavedSnapshot(JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields }));
       qc.invalidateQueries({ queryKey: ["templates"] });
       qc.invalidateQueries({ queryKey: ["template", id] });
       showToast("success", "Template saved");
@@ -415,10 +415,18 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   async function handlePreview() {
     setPreviewLoading(true);
     try {
-      const res = await apiClient.post<RenderPreviewResponse>("/templates/render-preview", {
+      const body: Record<string, unknown> = {
         title_template: form.metadata_config.title_template,
         description_template: form.metadata_config.description_template,
-      });
+      };
+      if (!isNew) {
+        body.template_id = Number(id);
+      }
+      const fp = ydFields.folder_path_template?.trim();
+      const fn = ydFields.filename_template?.trim();
+      if (fp) body.folder_path_template = fp;
+      if (fn) body.filename_template = fn;
+      const res = await apiClient.post<MetadataRenderPreviewData>("/templates/render-preview", body);
       setPreview(res.data);
     } catch {
       setPreview(null);
@@ -452,7 +460,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       : "bg-gray-100 text-gray-500";
 
   const isDirty =
-    JSON.stringify({ form, ytFields, vkFields, ydFields }) !== savedSnapshot.current;
+    JSON.stringify({ form, ytFields, vkFields, ydFields }) !== savedSnapshot;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -655,26 +663,24 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Language">
-                <select
+                <NativeSelect
                   value={form.processing_config.transcription_language}
                   onChange={(e) => setPC("transcription_language", e.target.value)}
-                  className={cn(INP, "appearance-none pr-8")}
                 >
                   {languages.map((l) => (
                     <option key={l.value} value={l.value}>{l.label}</option>
                   ))}
-                </select>
+                </NativeSelect>
               </Field>
               <Field label="Topic granularity">
-                <select
+                <NativeSelect
                   value={form.processing_config.granularity}
                   onChange={(e) => setPC("granularity", e.target.value)}
-                  className={cn(INP, "appearance-none pr-8")}
                 >
                   {granularities.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
-                </select>
+                </NativeSelect>
               </Field>
             </div>
 
@@ -775,36 +781,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               {previewLoading ? "Rendering…" : "Preview render"}
             </button>
 
-            {preview && (
-              <div
-                className={cn(
-                  "rounded-xl border p-4 text-sm",
-                  preview.valid ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50",
-                )}
-              >
-                {preview.errors.length > 0 && (
-                  <div className="mb-3 space-y-1">
-                    {preview.errors.map((e, i) => (
-                      <p key={i} className="text-xs text-red-600">{e}</p>
-                    ))}
-                  </div>
-                )}
-                {preview.rendered_title && (
-                  <div className="mb-2">
-                    <p className="mb-1 text-xs text-gray-500">Title:</p>
-                    <p className="font-medium text-gray-900">{preview.rendered_title}</p>
-                  </div>
-                )}
-                {preview.rendered_description && (
-                  <div>
-                    <p className="mb-1 text-xs text-gray-500">Description:</p>
-                    <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700">
-                      {preview.rendered_description}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            )}
+            {preview && <MetadataPreviewResultBox preview={preview} />}
 
             <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
               Platform overrides

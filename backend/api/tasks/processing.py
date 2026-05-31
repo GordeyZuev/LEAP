@@ -1,7 +1,6 @@
 """Celery tasks for processing recordings with multi-tenancy support."""
 
 import asyncio
-import shutil
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -218,9 +217,11 @@ async def _async_download_recording(
             f"Download config | {format_details(max_file_size_mb=max_file_size_mb, retry_attempts=retry_attempts)}"
         )
 
-        # Check if not already downloaded
+        # Check if not already downloaded (consult storage backend, key may be S3 or LOCAL)
         if not force and recording.status == ProcessingStatus.DOWNLOADED and recording.local_video_path:
-            if Path(recording.local_video_path).exists():
+            from file_storage.factory import get_storage_backend as _get_storage
+
+            if await _get_storage().exists(recording.local_video_path):
                 return {
                     "success": True,
                     "message": "Already downloaded",
@@ -384,10 +385,7 @@ async def _download_via_external(
 
     task_self.update_progress(user_id=user_id, progress=90, status="Updating database...", step="download")
 
-    try:
-        recording.local_video_path = str(result.file_path.relative_to(Path.cwd()))
-    except ValueError:
-        recording.local_video_path = str(result.file_path)
+    recording.local_video_path = result.storage_key
     old_status = recording.status
     recording.status = ProcessingStatus.DOWNLOADED
     recording.downloaded_at = datetime.now(UTC)
@@ -627,8 +625,14 @@ async def _async_process_video(
         if not recording.local_video_path:
             raise ValueError("No video file available. Please download first.")
 
-        if not Path(recording.local_video_path).exists():
-            raise ValueError(f"Video file not found: {recording.local_video_path}")
+        from file_storage.factory import get_storage_backend
+        from file_storage.path_builder import to_storage_key as _to_storage_key
+
+        storage_backend = get_storage_backend()
+        source_storage_key = recording.local_video_path
+
+        if not await storage_backend.exists(source_storage_key):
+            raise ValueError(f"Video file not found in storage: {source_storage_key}")
 
         user_slug = recording.owner.user_slug
         storage_builder = StoragePathBuilder()
@@ -642,6 +646,11 @@ async def _async_process_video(
             output_dir=temp_dir,
         )
         processor = VideoProcessor(config)
+
+        # Materialize the source video locally for FFmpeg (it needs a real path).
+        source_suffix = Path(source_storage_key).suffix or ".mp4"
+        local_source_video = storage_builder.create_temp_file(prefix=f"trim_src_{recording_id}_", suffix=source_suffix)
+        await storage_backend.download_to_file(source_storage_key, local_source_video)
 
         task_self.update_progress(user_id, 15, "Starting video trimming...", step="trim")
 
@@ -668,7 +677,7 @@ async def _async_process_video(
 
             logger.debug("Extracting full audio")
 
-            success = await processor.extract_audio_full(recording.local_video_path, str(temp_audio_path))
+            success = await processor.extract_audio_full(str(local_source_video), str(temp_audio_path))
 
             if not success:
                 raise Exception("Failed to extract audio from video")
@@ -696,33 +705,32 @@ async def _async_process_video(
 
             # Determine output container suffix from actual stream codecs to avoid
             # stream-copy into an incompatible muxer (e.g. VP8+Vorbis into .mp4).
-            source_info = await processor.get_video_info(recording.local_video_path)
+            source_info = await processor.get_video_info(str(local_source_video))
             video_suffix = output_suffix_for_trim(source_info.get("video_codec"), source_info.get("audio_codec"))
             logger.debug(
                 f"Output container | {format_details(video_codec=source_info.get('video_codec'), audio_codec=source_info.get('audio_codec'), suffix=video_suffix)}"
             )
 
-            output_video_path = str(storage_builder.recording_video(user_slug, recording_id, suffix=video_suffix))
-            final_audio_path = str(storage_builder.recording_audio(user_slug, recording_id))
-            Path(output_video_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(final_audio_path).parent.mkdir(parents=True, exist_ok=True)
+            # Canonical storage keys for the processed artifacts.
+            output_video_key = _to_storage_key(
+                storage_builder.recording_video(user_slug, recording_id, suffix=video_suffix)
+            )
+            output_audio_key = _to_storage_key(storage_builder.recording_audio(user_slug, recording_id))
 
-            # Sound throughout entire video - skip trimming, reference original
+            # Sound throughout entire video - skip trimming, reuse source video as processed.
             if last_sound is None and first_sound == 0.0:
                 logger.info("Skipped: sound throughout entire video")
                 task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
 
-                # No trimming needed — reference original file directly to avoid a redundant copy.
-                output_video_path = recording.local_video_path
-                logger.debug(f"Processed video references original: {output_video_path}")
+                # No trim needed — keep source as processed video (avoid copying a multi-GB file).
+                output_video_key = source_storage_key
+                logger.debug(f"Processed video references source: {output_video_key}")
 
-                if Path(final_audio_path).exists():
-                    Path(final_audio_path).unlink()
-                shutil.move(str(temp_audio_path), final_audio_path)
-                logger.debug(f"Full audio saved: {final_audio_path}")
+                # Commit the extracted full audio under the canonical audio key.
+                await storage_backend.save_file(output_audio_key, temp_audio_path)
 
             else:
-                # Normal case: trim video and audio
+                # Normal case: trim video and audio (FFmpeg requires local files).
                 if last_sound is None:
                     if temp_audio_path.exists():
                         temp_audio_path.unlink()
@@ -749,7 +757,7 @@ async def _async_process_video(
                 logger.info(f"Audio boundaries | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s')}")
 
                 # Silence-based bounds can exceed container duration (padding, MP3 vs video mismatch).
-                video_meta = await processor.get_video_info(recording.local_video_path)
+                video_meta = await processor.get_video_info(str(local_source_video))
                 video_duration = float(video_meta["duration"])
                 if end_trim > video_duration:
                     logger.warning(
@@ -781,39 +789,52 @@ async def _async_process_video(
                     f"Trim window vs video | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s', video=f'{video_duration:.1f}s')}"
                 )
 
-                # Step 3: Trim video
+                # Step 3: Trim video into a local temp output.
                 task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
 
                 sub_trim_v = await timing_service.start_substep(recording_id, user_id, "TRIM", "trim_video")
                 await session.commit()
 
+                local_video_out = storage_builder.create_temp_file(
+                    prefix=f"trim_video_{recording_id}_", suffix=video_suffix
+                )
                 success = await processor.trim_video(
-                    recording.local_video_path, output_video_path, start_trim, end_trim
+                    str(local_source_video), str(local_video_out), start_trim, end_trim
                 )
 
                 if not success:
                     if temp_audio_path.exists():
                         temp_audio_path.unlink()
+                    local_video_out.unlink(missing_ok=True)
                     raise Exception("Failed to trim video")
 
                 await timing_service.complete_substep(sub_trim_v)
                 await session.commit()
 
-                # Step 4: Trim audio (stream copy - instant)
+                # Step 4: Trim audio (stream copy - instant) into a local temp output.
                 task_self.update_progress(user_id, 80, "Trimming audio...", step="trim_audio")
 
                 sub_trim_a = await timing_service.start_substep(recording_id, user_id, "TRIM", "trim_audio")
                 await session.commit()
 
-                success = await processor.trim_audio(str(temp_audio_path), final_audio_path, start_trim, end_trim)
+                local_audio_out = storage_builder.create_temp_file(prefix=f"trim_audio_{recording_id}_", suffix=".mp3")
+                success = await processor.trim_audio(str(temp_audio_path), str(local_audio_out), start_trim, end_trim)
 
                 if not success:
                     if temp_audio_path.exists():
                         temp_audio_path.unlink()
+                    local_video_out.unlink(missing_ok=True)
+                    local_audio_out.unlink(missing_ok=True)
                     raise Exception("Failed to trim audio")
 
                 await timing_service.complete_substep(sub_trim_a)
                 await session.commit()
+
+                # Commit results to storage (save_file consumes the temp on LOCAL backend).
+                await storage_backend.save_file(output_video_key, local_video_out)
+                await storage_backend.save_file(output_audio_key, local_audio_out)
+                local_video_out.unlink(missing_ok=True)
+                local_audio_out.unlink(missing_ok=True)
 
                 if temp_audio_path.exists():
                     temp_audio_path.unlink()
@@ -822,8 +843,8 @@ async def _async_process_video(
             # Step 5: Update database
             task_self.update_progress(user_id, 90, "Updating database...", step="trim")
 
-            recording.processed_video_path = output_video_path
-            recording.processed_audio_path = final_audio_path
+            recording.processed_video_path = output_video_key
+            recording.processed_audio_path = output_audio_key
 
             # Mark TRIM stage as COMPLETED
             recording.mark_stage_completed(ProcessingStageType.TRIM)
@@ -840,18 +861,21 @@ async def _async_process_video(
             await recording_repo.update(recording)
             await session.commit()
 
-            logger.debug(f"Trim output | video={output_video_path} • audio={final_audio_path}")
+            logger.debug(f"Trim output | video={output_video_key} • audio={output_audio_key}")
 
             return {
                 "success": True,
-                "processed_video_path": output_video_path,
-                "audio_path": final_audio_path,
+                "processed_video_path": output_video_key,
+                "audio_path": output_audio_key,
             }
 
         except Exception as e:
             await timing_service.fail_stage(timing, str(e))
             await session.commit()
             raise
+        finally:
+            # Always purge the local temp materialization of the source video.
+            local_source_video.unlink(missing_ok=True)
 
 
 @celery_app.task(
@@ -963,28 +987,31 @@ async def _async_transcribe_recording(
 
         logger.info(f"Transcription config | {format_details(lang=language, vocab=len(vocabulary))}")
 
-        # Priority: processed audio > processed video > original video
-        audio_path = None
+        # Priority: processed audio > processed video > original video. Each is a storage key.
+        from file_storage.factory import get_storage_backend as _get_storage
 
-        # Use saved audio file path
-        if recording.processed_audio_path:
-            audio_path = Path(recording.processed_audio_path)
-            if not audio_path.exists():
-                raise ValueError(f"Audio file not found: {audio_path}")
-        else:
-            audio_path = None
+        storage_backend = _get_storage()
+        storage_builder_t = StoragePathBuilder()
 
-        # 2. Fallback on processed or original video
-        if not audio_path:
-            audio_path = recording.processed_video_path or recording.local_video_path
-            if audio_path:
-                logger.debug(f"Using video file (audio not found): {audio_path}")
+        audio_storage_key: str | None = None
+        if recording.processed_audio_path and await storage_backend.exists(recording.processed_audio_path):
+            audio_storage_key = recording.processed_audio_path
+        elif recording.processed_video_path and await storage_backend.exists(recording.processed_video_path):
+            audio_storage_key = recording.processed_video_path
+            logger.debug(f"Using processed video for transcription: {audio_storage_key}")
+        elif recording.local_video_path and await storage_backend.exists(recording.local_video_path):
+            audio_storage_key = recording.local_video_path
+            logger.debug(f"Using original video for transcription: {audio_storage_key}")
 
-        if not audio_path:
+        if not audio_storage_key:
             raise ValueError("No audio or video file available for transcription")
 
-        if not Path(audio_path).exists():
-            raise ValueError(f"Audio/video file not found: {audio_path}")
+        # Fireworks needs a local file path — materialize the audio/video to a temp file.
+        local_audio = storage_builder_t.create_temp_file(
+            prefix=f"transcribe_{recording_id}_", suffix=Path(audio_storage_key).suffix or ".mp3"
+        )
+        await storage_backend.download_to_file(audio_storage_key, local_audio)
+        audio_path = local_audio
 
         task_self.update_progress(user_id, 20, "Loading transcription service...", step="transcribe")
 
@@ -1062,14 +1089,14 @@ async def _async_transcribe_recording(
                     "preprocessing": fireworks_config.preprocessing,
                 },
                 "audio_file": {
-                    "path": str(audio_path),
+                    "path": audio_storage_key,
                     "duration_seconds": duration,
                 },
                 "usage": transcription_result.get("usage"),
             }
 
             # Save master.json
-            transcription_manager.save_master(
+            await transcription_manager.save_master(
                 recording_id=recording_id,
                 words=words,
                 segments=segments,
@@ -1082,7 +1109,7 @@ async def _async_transcribe_recording(
             )
 
             # Generate cache files (segments.txt, words.txt)
-            transcription_manager.generate_cache_files(recording_id, user_slug)
+            await transcription_manager.generate_cache_files(recording_id, user_slug)
 
             task_self.update_progress(user_id, 90, "Updating database...", step="transcribe")
 
@@ -1122,6 +1149,9 @@ async def _async_transcribe_recording(
             await timing_service.fail_stage(timing, str(e))
             await session.commit()
             raise
+        finally:
+            # Purge the local audio materialization used by Fireworks.
+            local_audio.unlink(missing_ok=True)
 
 
 @celery_app.task(
@@ -1154,7 +1184,7 @@ def _launch_uploads_task(
     Returns:
         Dict with launched upload task IDs
     """
-    from api.tasks.upload import upload_recording_to_platform
+    from api.tasks.upload import platform_to_target_type, upload_enqueue_skip_reason, upload_recording_to_platform
 
     # Check pause flag before launching uploads
     session_maker = get_async_session_maker()
@@ -1164,6 +1194,23 @@ def _launch_uploads_task(
             recording_repo = RecordingRepository(session)
             recording = await recording_repo.get_by_id(recording_id, user_id)
             return recording.on_pause if recording else False
+
+    async def _output_skip_reason(platform: str) -> str | None:
+        async with session_maker() as session:
+            recording_repo = RecordingRepository(session)
+            recording = await recording_repo.get_by_id(recording_id, user_id)
+            if not recording:
+                return "Recording not found"
+
+            target_type = platform_to_target_type(platform)
+            preset_id = preset_map.get(platform)
+            output_target = await recording_repo.get_or_create_output_target(
+                recording=recording,
+                target_type=target_type,
+                preset_id=preset_id,
+            )
+            await session.commit()
+            return upload_enqueue_skip_reason(output_target)
 
     with logger.contextualize(
         task_id=short_task_id(self.request.id),
@@ -1184,6 +1231,20 @@ def _launch_uploads_task(
         upload_task_ids = []
         for platform in platforms:
             try:
+                skip_reason = self.run_async(_output_skip_reason(platform))
+                if skip_reason:
+                    logger.info(f"Upload launch skipped | {format_details(platform=platform, reason=skip_reason)}")
+                    upload_task_ids.append(
+                        {
+                            "platform": platform,
+                            "task_id": None,
+                            "preset_id": preset_map.get(platform),
+                            "status": "skipped",
+                            "reason": skip_reason,
+                        }
+                    )
+                    continue
+
                 preset_id = preset_map.get(platform)
                 upload_task = upload_recording_to_platform.delay(
                     recording_id, user_id, platform, preset_id, None, metadata_override
@@ -1521,16 +1582,24 @@ async def _async_extract_topics(
 
         # Check presence of transcription
         transcription_manager = get_transcription_manager()
-        if not transcription_manager.has_master(recording_id, user_slug):
+        if not await transcription_manager.has_master(recording_id, user_slug):
             raise ValueError(f"Transcription not found for recording {recording_id}. Please run transcription first.")
 
         task_self.update_progress(user_id, 20, "Loading transcription...", step="extract_topics")
 
-        # Ensure presence of segments.txt
-        segments_path = transcription_manager.ensure_segments_txt(recording_id, user_slug)
+        # Ensure segments.txt exists in storage, then materialize it for DeepSeek (requires local path).
+        from file_storage.factory import get_storage_backend
+        from file_storage.path_builder import StoragePathBuilder
+
+        storage_backend = get_storage_backend()
+        storage_builder = StoragePathBuilder()
+
+        segments_key = await transcription_manager.ensure_segments_txt(recording_id, user_slug)
+        segments_path = storage_builder.create_temp_file(prefix="segments_", suffix=".txt")
+        await storage_backend.download_to_file(segments_key, segments_path)
 
         # Get language from master.json (from transcription)
-        master = transcription_manager.load_master(recording_id, user_slug)
+        master = await transcription_manager.load_master(recording_id, user_slug)
         transcript_language = master.get("language") or "ru"
 
         # Get questions_count from resolved config (transcription.questions_count, default 3)
@@ -1615,7 +1684,7 @@ async def _async_extract_topics(
 
             # Generate version_id if not specified
             if not version_id:
-                version_id = transcription_manager.generate_version_id(recording_id, user_slug)
+                version_id = await transcription_manager.generate_version_id(recording_id, user_slug)
 
             # Collect metadata for admin (includes token usage if API returned it)
             usage_metadata = {
@@ -1631,7 +1700,7 @@ async def _async_extract_topics(
 
             # Save in extracted.json (topics + summary + questions from single DeepSeek call)
             summary_value = topics_result.get("summary", "") or ""
-            transcription_manager.add_extracted_version(
+            await transcription_manager.add_extracted_version(
                 recording_id=recording_id,
                 version_id=version_id,
                 model=model_used,
@@ -1645,6 +1714,9 @@ async def _async_extract_topics(
                 usage_metadata=usage_metadata,
                 user_slug=user_slug,
             )
+
+            # Clean up local segments temp file used by DeepSeek.
+            segments_path.unlink(missing_ok=True)
 
             # Update recording in DB (active version)
             recording.topic_timestamps = topics_result.get("topic_timestamps", [])
@@ -1753,7 +1825,7 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
 
         # Check presence of transcription
         transcription_manager = get_transcription_manager()
-        if not transcription_manager.has_master(recording_id, user_slug):
+        if not await transcription_manager.has_master(recording_id, user_slug):
             raise ValueError(f"Transcription not found for recording {recording_id}. Please run transcription first.")
 
         task_self.update_progress(user_id, 30, "Starting subtitle generation...", step="generate_subtitles")
@@ -1775,8 +1847,8 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         try:
             task_self.update_progress(user_id, 40, "Generating subtitles...", step="generate_subtitles")
 
-            # Generate subtitles
-            subtitle_paths = transcription_manager.generate_subtitles(
+            # Generate subtitles (returns storage keys, not local paths)
+            subtitle_paths = await transcription_manager.generate_subtitles(
                 recording_id=recording_id,
                 formats=formats,
                 user_slug=user_slug,
@@ -1906,11 +1978,23 @@ async def _async_poll_batch_transcription(
             if not fireworks_config.account_id:
                 raise ValueError("Batch API requires account_id in config/fireworks_creds.json")
 
-            audio_path = (
+            from file_storage.factory import get_storage_backend as _get_storage_b
+            from file_storage.path_builder import StoragePathBuilder as _Builder
+
+            _storage = _get_storage_b()
+            _builder = _Builder()
+
+            audio_storage_key_b = (
                 recording_db.processed_audio_path or recording_db.processed_video_path or recording_db.local_video_path
             )
-            if not audio_path or not Path(audio_path).exists():
+            if not audio_storage_key_b or not await _storage.exists(audio_storage_key_b):
                 raise ValueError(f"No audio/video file available for recording {recording_id}")
+
+            # Fireworks batch needs a local file; download to temp.
+            audio_path_local = _builder.create_temp_file(
+                prefix=f"batch_trans_{recording_id}_", suffix=Path(audio_storage_key_b).suffix or ".mp3"
+            )
+            await _storage.download_to_file(audio_storage_key_b, audio_path_local)
 
             full_config, _ = await resolve_full_config(session, recording_id, user_id, None)
             transcription_config = full_config.get("transcription", {})
@@ -1923,11 +2007,14 @@ async def _async_poll_batch_transcription(
 
             task_self.update_progress(user_id, 10, "Submitting batch job...", step="batch_transcribe")
 
-            batch_result = await fireworks_service.submit_batch_transcription(
-                audio_path=audio_path,
-                language=language,
-                prompt=fireworks_prompt,
-            )
+            try:
+                batch_result = await fireworks_service.submit_batch_transcription(
+                    audio_path=str(audio_path_local),
+                    language=language,
+                    prompt=fireworks_prompt,
+                )
+            finally:
+                audio_path_local.unlink(missing_ok=True)
             batch_id = batch_result.get("batch_id")
             if not batch_id:
                 raise ValueError("Batch API did not return batch_id")
@@ -2066,7 +2153,7 @@ async def _batch_transcribe_poll_and_save(
 
     task_self.update_progress(user_id, 90, "Saving transcription...", step="batch_transcribe")
 
-    transcription_manager.save_master(
+    await transcription_manager.save_master(
         recording_id=recording_id,
         words=words,
         segments=segments,
@@ -2078,7 +2165,7 @@ async def _batch_transcribe_poll_and_save(
         raw_response=transcription_result,
     )
 
-    transcription_manager.generate_cache_files(recording_id, user_slug)
+    await transcription_manager.generate_cache_files(recording_id, user_slug)
 
     # Phase 4: Update DB with results
     async with session_maker() as session:

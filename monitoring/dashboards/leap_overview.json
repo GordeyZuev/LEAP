@@ -1,0 +1,70 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "logs",
+      "title": "All recent app logs",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 10},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{app=\"leap\", source=\"backend\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "ERRORs only (last 24h)",
+      "gridPos": {"x": 0, "y": 10, "w": 24, "h": 8},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{app=\"leap\", level=~\"ERROR|CRITICAL\"}",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Log rate by level (5m)",
+      "gridPos": {"x": 0, "y": 18, "w": 24, "h": 8},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (level) (rate({app=\"leap\"} [5m]))",
+          "queryType": "range",
+          "legendFormat": "{{level}}"
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["leap"],
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "LEAP Overview",
+  "uid": "leap-overview",
+  "version": 1
+}

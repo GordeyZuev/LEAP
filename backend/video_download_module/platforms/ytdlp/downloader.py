@@ -29,90 +29,99 @@ class YtDlpDownloader(BaseDownloader):
         source_meta: dict[str, Any],
         force: bool = False,
     ) -> DownloadResult:
-        """Download video (or audio) via yt-dlp."""
+        """Download video (or audio) via yt-dlp into a temp file, then commit to storage."""
+        from file_storage.factory import get_storage_backend
+
         url = source_meta.get("url") or source_meta.get("download_url")
         if not url:
             raise ValueError("No URL in source metadata for yt-dlp download")
 
         format_pref = source_meta.get("format_preference", "mp4")
+        source_suffix = ".mp3" if self._is_audio_format(format_pref) else ".mp4"
 
-        if self._is_audio_format(format_pref):
-            source_suffix = ".mp3"
-        else:
-            source_suffix = ".mp4"
+        target_key = self._get_target_key(recording_id, source_suffix=source_suffix)
+        storage_backend = get_storage_backend()
 
-        target_path = self._get_target_path(recording_id, source_suffix=source_suffix)
-
-        if not force and target_path.exists() and target_path.stat().st_size > 1024:
-            return DownloadResult(
-                file_path=target_path,
-                file_size=target_path.stat().st_size,
-            )
-
-        target_path.parent.mkdir(parents=True, exist_ok=True)
+        # Skip if already in storage and not forced
+        if not force and await storage_backend.exists(target_key):
+            existing_size = await storage_backend.get_size(target_key)
+            if existing_size > 1024:
+                return DownloadResult(storage_key=target_key, file_size=existing_size)
 
         quality = source_meta.get("quality", "best")
-
         format_spec = self._build_format_spec(quality, format_pref)
 
-        logger.info(f"Downloading via yt-dlp: {url} -> {target_path} (format={format_pref})")
+        # yt-dlp needs a local writable path; we stream into a temp file then commit.
+        temp_path = self._new_temp_path(source_suffix)
+        # yt-dlp may produce a slightly different extension due to format negotiation; the
+        # resolver below picks up the actual output file.
+        try:
+            logger.info(f"Downloading via yt-dlp: {url} -> {temp_path} (format={format_pref})")
+            result_info = await self._run_ytdlp(url, temp_path, format_spec, format_pref)
 
-        result_info = await self._run_ytdlp(url, target_path, format_spec, format_pref)
-
-        # Log actual quality selected by yt-dlp (may differ from requested due to availability).
-        if result_info:
-            actual_height = result_info.get("height")
-            actual_ext = result_info.get("ext")
-            actual_vcodec = result_info.get("vcodec")
-            logger.info(
-                f"yt-dlp selected | height={actual_height}p ext={actual_ext} vcodec={actual_vcodec} "
-                f"(requested format={format_pref} quality={quality})"
-            )
-            if format_pref == "mp4" and actual_vcodec and actual_vcodec.startswith("vp"):
-                logger.warning(
-                    f"yt-dlp fell back to {actual_vcodec} instead of H.264 — "
-                    f"no MP4-compatible stream found for quality={quality}"
+            if result_info:
+                actual_height = result_info.get("height")
+                actual_ext = result_info.get("ext")
+                actual_vcodec = result_info.get("vcodec")
+                logger.info(
+                    f"yt-dlp selected | height={actual_height}p ext={actual_ext} vcodec={actual_vcodec} "
+                    f"(requested format={format_pref} quality={quality})"
                 )
+                if format_pref == "mp4" and actual_vcodec and actual_vcodec.startswith("vp"):
+                    logger.warning(
+                        f"yt-dlp fell back to {actual_vcodec} instead of H.264 — "
+                        f"no MP4-compatible stream found for quality={quality}"
+                    )
 
-        if not target_path.exists():
-            expected_exts = (".mp3",) if self._is_audio_format(format_pref) else (".mp4", ".mkv", ".webm", ".mov")
-            for candidate in target_path.parent.glob(f"{target_path.stem}*"):
-                if candidate.is_file() and candidate.suffix.lower() in expected_exts:
-                    canonical = self._get_target_path(recording_id, source_suffix=candidate.suffix.lower())
-                    if candidate.resolve() != canonical.resolve():
-                        old_name = candidate.name
-                        candidate.replace(canonical)
-                        logger.info("Renamed yt-dlp output | %s -> %s", old_name, canonical.name)
-                    else:
-                        logger.info("yt-dlp output at expected path | %s", canonical.name)
-                    break
+            # yt-dlp may have written to a sibling extension; recover it.
+            actual_path = self._resolve_ytdlp_output(temp_path, format_pref)
+            if actual_path is None:
+                raise RuntimeError(f"yt-dlp download completed but no file found near {temp_path}")
 
-        if not target_path.exists():
-            raise RuntimeError(f"yt-dlp download completed but file not found: {target_path}")
+            file_size = actual_path.stat().st_size
+            if file_size < 1024:
+                actual_path.unlink(missing_ok=True)
+                raise RuntimeError(f"yt-dlp produced too small file ({file_size} bytes)")
 
-        file_size = target_path.stat().st_size
-        if file_size < 1024:
-            target_path.unlink()
-            raise RuntimeError(f"yt-dlp produced too small file ({file_size} bytes)")
+            if not self._is_audio_format(format_pref):
+                validate_name = (
+                    source_meta.get("title") and f"{source_meta['title']}{actual_path.suffix}"
+                ) or actual_path.name
+                if not self._validate_file(actual_path, None, file_size, source_name=validate_name):
+                    actual_path.unlink(missing_ok=True)
+                    raise RuntimeError("yt-dlp file failed pipeline ingress sniff / whitelist validation")
 
-        if not self._is_audio_format(format_pref):
-            validate_name = (source_meta.get("title") and f"{source_meta['title']}{target_path.suffix}") or str(
-                target_path.name,
+            # If yt-dlp produced a different extension, rewrite the key to match.
+            if actual_path.suffix.lower() != source_suffix:
+                target_key = self._get_target_key(recording_id, source_suffix=actual_path.suffix.lower())
+
+            await self._commit_temp_to_storage(actual_path, target_key)
+
+            return DownloadResult(
+                storage_key=target_key,
+                file_size=file_size,
+                duration=result_info.get("duration"),
+                metadata={
+                    "title": result_info.get("title"),
+                    "uploader": result_info.get("uploader"),
+                    "extractor": result_info.get("extractor_key"),
+                },
             )
-            if not self._validate_file(target_path, None, file_size, source_name=validate_name):
-                target_path.unlink(missing_ok=True)
-                raise RuntimeError("yt-dlp file failed pipeline ingress sniff / whitelist validation")
+        finally:
+            # Clean any leftover temps (the canonical one and any siblings yt-dlp made).
+            for p in temp_path.parent.glob(f"{temp_path.stem}*"):
+                if p.is_file():
+                    p.unlink(missing_ok=True)
 
-        return DownloadResult(
-            file_path=target_path,
-            file_size=file_size,
-            duration=result_info.get("duration"),
-            metadata={
-                "title": result_info.get("title"),
-                "uploader": result_info.get("uploader"),
-                "extractor": result_info.get("extractor_key"),
-            },
-        )
+    def _resolve_ytdlp_output(self, expected_path: Path, format_pref: str) -> Path | None:
+        """yt-dlp may rename the output to a different extension; locate the actual file."""
+        if expected_path.exists():
+            return expected_path
+        expected_exts = (".mp3",) if self._is_audio_format(format_pref) else (".mp4", ".mkv", ".webm", ".mov")
+        for candidate in expected_path.parent.glob(f"{expected_path.stem}*"):
+            if candidate.is_file() and candidate.suffix.lower() in expected_exts:
+                return candidate
+        return None
 
     @staticmethod
     def _is_audio_format(format_pref: str) -> bool:

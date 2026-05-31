@@ -6,6 +6,7 @@ import { Plus, RefreshCw, Pencil, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
+import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { TOAST_SHORT } from "@/lib/constants";
@@ -338,10 +339,10 @@ export default function SourcesPage() {
                   {credsByPlatform.length === 0 ? (
                     <p className="text-sm text-gray-400">No matching credentials. <a href="/credentials" className="text-[#224C87] hover:underline">Add credentials →</a></p>
                   ) : (
-                    <select value={form.credential_id} onChange={(e) => setForm((f) => ({ ...f, credential_id: Number(e.target.value) || "" }))} className={cn(inp, "bg-white appearance-none pr-8")}>
+                    <NativeSelect value={form.credential_id} onChange={(e) => setForm((f) => ({ ...f, credential_id: Number(e.target.value) || "" }))}>
                       <option value="">— Select —</option>
                       {credsByPlatform.map((c) => <option key={c.id} value={c.id}>{c.account_name ?? `Credential #${c.id}`}</option>)}
-                    </select>
+                    </NativeSelect>
                   )}
                 </MF>
               )}
@@ -377,9 +378,9 @@ export default function SourcesPage() {
                   <MF label="URL *"><input type="url" value={form.url_url} onChange={(e) => setForm((f) => ({ ...f, url_url: e.target.value }))} placeholder="https://youtube.com/..." className={inp} /></MF>
                   <Toggle label="Playlist" checked={form.url_is_playlist} onChange={(v) => setForm((f) => ({ ...f, url_is_playlist: v }))} />
                   <MF label="Quality">
-                    <select value={form.url_quality} onChange={(e) => setForm((f) => ({ ...f, url_quality: e.target.value }))} className={cn(inp, "bg-white appearance-none pr-8")}>
+                    <NativeSelect value={form.url_quality} onChange={(e) => setForm((f) => ({ ...f, url_quality: e.target.value }))}>
                       {["best", "1080p", "720p", "480p"].map((q) => <option key={q} value={q}>{q}</option>)}
-                    </select>
+                    </NativeSelect>
                   </MF>
                 </>
               )}

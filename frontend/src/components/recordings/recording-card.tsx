@@ -178,10 +178,14 @@ export function RecordingCard({
           {r.duration > 0 && <> · {formatDuration(r.duration)}</>}
           {" · "}{formatDate(r.start_time)}
         </p>
-        {r.template_name && (
-          <p className="mt-0.5 truncate text-xs text-[#224C87]/70">
-            Template: {r.template_name}
-          </p>
+        {r.template_id != null && (
+          <Link
+            href={`/templates/${r.template_id}`}
+            className="mt-0.5 block truncate text-xs text-[#224C87]/70 transition-colors hover:text-[#224C87]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Template: {r.template_name ?? `#${r.template_id}`}
+          </Link>
         )}
       </div>
 

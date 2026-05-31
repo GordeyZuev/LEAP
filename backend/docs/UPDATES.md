@@ -9,6 +9,7 @@
 **Статус:** In Active Development • Beta.
 
 **Ключевые вехи (v0.9.6 → текущий релиз):**
+- ☁️ **v0.10.0:** Production-ready релиз на Yandex Cloud. S3-first хранилище (видео/аудио/JSON-артефакты в Object Storage), presigned URLs для видео-стриминга в браузере, nginx (HTTPS) + Grafana/Loki/Promtail в Docker Compose, CI/CD через GitHub Actions с пушем в Yandex Container Registry. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-05-30**).
 - 🚀 **v0.9.7.0:** References API (справочники для фронтенда); копирование шаблонов/пресетов/автоматизаций одной кнопкой; исправление WebM/VP8 pipeline (выбор контейнера по ffprobe); устойчивость тримминга при аудио/видео-only файлах; фронтенд v0.1 с полным редизайном страниц. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-05-20**).
 - 📦 **v0.9.6.6:** Одни правила приёма видео на всех входах (в т.ч. Яндекс.Диск и API); списки расширений только в продукте, а не через «забытые» переменные в `.env`; записи на диске как `source.<ext>`; меньше скрытой перекодировки перед YouTube/VK; обновлены гайды. Раздел **May 2026** ниже; техничка — [CHANGELOG.md](CHANGELOG.md) (**2026-05-09**).
 - 🧩 **v0.9.6.5:** Метаданные загрузки на **Jinja2** (миграции **018** / **019**), preview API для шаблонов/пресетов, **`timezone`** в профиле (`PATCH /users/me`), строже **`resolve_full_config`** перед run/dry-run; правки audio-trim. Подробности — [CHANGELOG.md](CHANGELOG.md) (2026-04-09, 2026-04-12).

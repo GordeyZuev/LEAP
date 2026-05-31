@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref so PR pushes don't pile up.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (lint + typecheck + unit tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install Python 3.14
+        run: uv python install 3.14
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint (ruff check + format)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check (ty)
+        run: uv run python -m ty check
+
+      - name: Unit tests
+        run: uv run pytest tests/unit/ --no-cov -q
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20 + pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Enable pnpm via corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Build (smoke test)
+        run: pnpm run build
+        env:
+          NEXT_PUBLIC_API_URL: /api
+          NEXT_TELEMETRY_DISABLED: "1"

@@ -331,3 +331,51 @@ def hard_delete_recordings_task():
     except Exception as e:
         logger.error("Failed to hard delete recordings: {}", str(e), exc_info=True)
         return {"status": "error", "error": str(e)}
+
+
+@celery_app.task(
+    name="maintenance.cleanup_temp_files",
+    max_retries=settings.celery.maintenance_max_retries,
+    default_retry_delay=settings.celery.maintenance_retry_delay,
+)
+def cleanup_temp_files_task(max_age_hours: int = 6):
+    """Delete stale files in ``storage/temp/`` left behind by failed pipelines.
+
+    Pipeline stages remove their own temp files in ``finally`` blocks, but a hard
+    kill (OOM, SIGKILL, worker crash) can leave temps behind. This safety-net
+    sweep runs hourly via Celery Beat and removes anything older than
+    ``max_age_hours`` (default 6h).
+    """
+    import time
+    from pathlib import Path
+
+    from file_storage.path_builder import StoragePathBuilder
+
+    try:
+        temp_dir: Path = StoragePathBuilder().temp_dir()
+        if not temp_dir.exists():
+            logger.debug(f"Temp dir does not exist: {temp_dir}")
+            return {"status": "success", "deleted": 0, "message": "Temp dir absent"}
+
+        cutoff = time.time() - max_age_hours * 3600
+        deleted = 0
+        errors: list[str] = []
+
+        for child in temp_dir.iterdir():
+            try:
+                if child.is_file() and child.stat().st_mtime < cutoff:
+                    child.unlink(missing_ok=True)
+                    deleted += 1
+            except Exception as exc:
+                errors.append(f"{child.name}: {exc}")
+
+        logger.info(f"cleanup_temp_files: deleted={deleted} errors={len(errors)} cutoff_h={max_age_hours}")
+        return {
+            "status": "success" if not errors else "partial_success",
+            "deleted": deleted,
+            "errors": errors[:10],
+        }
+
+    except Exception as e:
+        logger.error("Failed to clean temp files: {}", str(e), exc_info=True)
+        return {"status": "error", "error": str(e)}

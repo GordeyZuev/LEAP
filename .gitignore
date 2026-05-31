@@ -105,3 +105,37 @@ backend/exp_803/*
 
 backend/docs/hidden/*
 VKR/
+
+# --- Local-only personal files (do not commit) ---
+.cursor/
+dubl.tex
+finalplan.md
+title_vkr.tex
+vkrplan.txt
+# YC service account key written by `terraform output > ci-sa-key.json`
+ci-sa-key.json
+
+# --- Nginx (generated on the VM, must not be committed) ---
+nginx/htpasswd
+
+# --- Terraform ---
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfstate.backup
+terraform/crash.log
+terraform/crash.*.log
+terraform/terraform.tfvars
+terraform/terraform.tfvars.json
+terraform/*.auto.tfvars
+terraform/*.auto.tfvars.json
+terraform/override.tf
+terraform/override.tf.json
+terraform/*_override.tf
+terraform/*_override.tf.json
+terraform/ci-sa-key.json
+terraform/*-sa-key.json
+terraform/client_secrets_*.json
+terraform/.terraformrc
+terraform/terraform.rc

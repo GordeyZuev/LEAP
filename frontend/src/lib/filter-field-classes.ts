@@ -9,7 +9,7 @@ export const FILTER_CONTROL =
   "w-full min-h-[2.5rem] px-3 py-2 rounded-xl border border-[#D9D9D9] bg-white text-sm text-gray-900 outline-none transition-colors focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10";
 
 export const FILTER_SELECT =
-  "w-full min-h-[2.5rem] pl-3 pr-8 py-2 rounded-xl border border-[#D9D9D9] bg-white text-sm text-gray-900 outline-none transition-colors focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 appearance-none";
+  "w-full min-h-[2.5rem] pl-3 pr-8 py-2 rounded-xl border border-[#D9D9D9] bg-white text-sm font-medium text-gray-700 outline-none transition-colors focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 appearance-none";
 
 /** Segmented toggle group (mapping / include flags). */
 export const FILTER_SEGMENT_WRAP =

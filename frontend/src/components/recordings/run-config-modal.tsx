@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Loader2, Play, X } from "lucide-react";
+import { ChevronDown, Eye, Loader2, Play, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import {
@@ -12,8 +12,8 @@ import {
   FILTER_SEGMENT_BTN,
   FILTER_SEGMENT_IDLE,
   FILTER_SEGMENT_WRAP,
-  FILTER_SELECT,
 } from "@/lib/filter-field-classes";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   TemplateField,
   YouTubeFields,
@@ -27,6 +27,10 @@ import {
   type YandexDiskFieldsValue,
 } from "@/components/platforms/platform-fields";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
+import {
+  MetadataPreviewResultBox,
+  type MetadataRenderPreviewData,
+} from "@/components/platforms/metadata-render-preview";
 import { TagInput } from "@/components/ui/tag-input";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 
@@ -215,6 +219,9 @@ export function RunConfigModal({
   const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
 
+  const [metadataPreview, setMetadataPreview] = useState<MetadataRenderPreviewData | null>(null);
+  const [metadataPreviewLoading, setMetadataPreviewLoading] = useState(false);
+
   // ── Reference data ────────────────────────────────────────────────────────
   const { data: templatesData } = useQuery<TemplateListResponse>({
     queryKey: ["templates-dropdown"],
@@ -356,6 +363,8 @@ export function RunConfigModal({
     setYtFields({ ...DEFAULT_YOUTUBE_FIELDS });
     setVkFields({ ...DEFAULT_VK_FIELDS });
     setYdFields({ ...DEFAULT_YANDEX_DISK_FIELDS });
+    setMetadataPreview(null);
+    setMetadataPreviewLoading(false);
     /* eslint-enable react-hooks/set-state-in-effect */
     runMutation.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -491,6 +500,39 @@ export function RunConfigModal({
     if (next && !metadataOpen) setMetadataOpen(true);
   }
 
+  async function handleMetadataPreview() {
+    setMetadataPreviewLoading(true);
+    setMetadataPreview(null);
+    try {
+      const body: Record<string, unknown> = {};
+      if (mode === "single" && recordingId != null) {
+        body.recording_id = recordingId;
+      }
+      const effectiveTemplateId =
+        templateId ?? (mode === "single" ? (existingConfig?.template_id ?? null) : null);
+      if (effectiveTemplateId != null) {
+        body.template_id = effectiveTemplateId;
+      }
+      if (metadataEnabled) {
+        const tt = titleTemplate.trim();
+        const dt = descriptionTemplate.trim();
+        if (tt) body.title_template = titleTemplate;
+        if (dt) body.description_template = descriptionTemplate;
+        const folder = ydFields.folder_path_template?.trim();
+        const fname = ydFields.filename_template?.trim();
+        if (folder) body.folder_path_template = folder;
+        if (fname) body.filename_template = fname;
+      }
+
+      const res = await apiClient.post<MetadataRenderPreviewData>("/templates/render-preview", body);
+      setMetadataPreview(res.data);
+    } catch {
+      setMetadataPreview(null);
+    } finally {
+      setMetadataPreviewLoading(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
@@ -536,16 +578,15 @@ export function RunConfigModal({
               <div className="mt-4 space-y-4">
                 <div className="space-y-1.5">
                   <span className={FILTER_LABEL}>Template to use for this run</span>
-                  <select
+                  <NativeSelect
                     value={templateId ?? ""}
                     onChange={(e) => setTemplateId(e.target.value ? Number(e.target.value) : null)}
-                    className={FILTER_SELECT}
                   >
                     <option value="">Use recording&apos;s assigned template</option>
                     {(templatesData?.items ?? []).map((t) => (
                       <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
 
                 {templateId && (
@@ -773,60 +814,77 @@ export function RunConfigModal({
             </div>
 
             {metadataOpen && (
-              <div className={cn("mt-4 space-y-5", !metadataEnabled && "pointer-events-none opacity-50")}>
-                {/* Global templates */}
-                <div className="space-y-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Global</p>
-                  <TemplateField
-                    label="Title template"
-                    value={titleTemplate}
-                    onChange={setTitleTemplate}
-                    placeholder="{{ display_name }}"
-                  />
-                  <TemplateField
-                    label="Description template"
-                    value={descriptionTemplate}
-                    onChange={setDescriptionTemplate}
-                    multiline
-                    placeholder={"{{ summary }}\n\n{{ topics }}"}
-                  />
-                  <ThumbnailPicker
-                    label="Thumbnail (all platforms)"
-                    value={globalThumbnail}
-                    onChange={setGlobalThumbnail}
-                    placeholder="Platform-specific thumbnails override this"
-                  />
+              <div className="mt-4 space-y-5">
+                <div className={cn(!metadataEnabled && "pointer-events-none opacity-50")}>
+                  {/* Global templates */}
+                  <div className="space-y-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Global</p>
+                    <TemplateField
+                      label="Title template"
+                      value={titleTemplate}
+                      onChange={setTitleTemplate}
+                      placeholder="{{ display_name }}"
+                    />
+                    <TemplateField
+                      label="Description template"
+                      value={descriptionTemplate}
+                      onChange={setDescriptionTemplate}
+                      multiline
+                      placeholder={"{{ summary }}\n\n{{ topics }}"}
+                    />
+                    <ThumbnailPicker
+                      label="Thumbnail (all platforms)"
+                      value={globalThumbnail}
+                      onChange={setGlobalThumbnail}
+                      placeholder="Platform-specific thumbnails override this"
+                    />
+                  </div>
                 </div>
 
-                {/* Platform subsections */}
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Platform overrides</p>
+                  <button
+                    type="button"
+                    onClick={handleMetadataPreview}
+                    disabled={metadataPreviewLoading}
+                    className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    <Eye size={15} />
+                    {metadataPreviewLoading ? "Rendering…" : "Preview render"}
+                  </button>
+                  {metadataPreview ? <MetadataPreviewResultBox preview={metadataPreview} /> : null}
+                </div>
 
-                  <PlatformSection label="YouTube">
-                    <YouTubeFields
-                      value={ytFields}
-                      onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
-                      showThumbnail
-                      showMadeForKids
-                    />
-                  </PlatformSection>
+                <div className={cn(!metadataEnabled && "pointer-events-none opacity-50")}>
+                  {/* Platform subsections */}
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Platform overrides</p>
 
-                  <PlatformSection label="VK">
-                    <VkFields
-                      value={vkFields}
-                      onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
-                      showThumbnail
-                      showPrivacyComment
-                      showWallpost
-                    />
-                  </PlatformSection>
+                    <PlatformSection label="YouTube">
+                      <YouTubeFields
+                        value={ytFields}
+                        onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
+                        showThumbnail
+                        showMadeForKids
+                      />
+                    </PlatformSection>
 
-                  <PlatformSection label="Yandex Disk">
-                    <YandexDiskFields
-                      value={ydFields}
-                      onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
-                    />
-                  </PlatformSection>
+                    <PlatformSection label="VK">
+                      <VkFields
+                        value={vkFields}
+                        onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
+                        showThumbnail
+                        showPrivacyComment
+                        showWallpost
+                      />
+                    </PlatformSection>
+
+                    <PlatformSection label="Yandex Disk">
+                      <YandexDiskFields
+                        value={ydFields}
+                        onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
+                      />
+                    </PlatformSection>
+                  </div>
                 </div>
               </div>
             )}

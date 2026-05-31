@@ -1,10 +1,10 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Copy, Trash2 } from "lucide-react";
+import { ArrowLeft, Save, Copy, Trash2, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
@@ -20,8 +20,13 @@ import {
   DEFAULT_VK_FIELDS,
   DEFAULT_YANDEX_DISK_FIELDS,
 } from "@/components/platforms/platform-fields";
-import { FILTER_CONTROL, FILTER_LABEL, FILTER_SELECT } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  MetadataPreviewResultBox,
+  type MetadataRenderPreviewData,
+} from "@/components/platforms/metadata-render-preview";
 import { usePlatforms } from "@/hooks/use-references";
 
 type Platform = "youtube" | "vk" | "yandex_disk";
@@ -126,13 +131,16 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   const [meta,        setMeta]        = useState<PlatformMeta>({ ...DEFAULT_YOUTUBE_FIELDS });
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
-  const savedSnapshot = useRef<string>(
-    JSON.stringify({ name: "", description: "", credId: "", meta: { ...DEFAULT_YOUTUBE_FIELDS } })
+  const [savedSnapshot, setSavedSnapshot] = useState(
+    () => JSON.stringify({ name: "", description: "", credId: "", meta: { ...DEFAULT_YOUTUBE_FIELDS } }),
   );
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [pendingHref, setPendingHref] = useState("");
+
+  const [renderPreview, setRenderPreview] = useState<MetadataRenderPreviewData | null>(null);
+  const [renderPreviewLoading, setRenderPreviewLoading] = useState(false);
 
   const { data: existing } = useQuery({
     queryKey: ["preset", id],
@@ -158,7 +166,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
     setDescription(newDesc);
     setCredId(newCredId);
     setMeta(newMeta);
-    savedSnapshot.current = JSON.stringify({ name: newName, description: newDesc, credId: newCredId, meta: newMeta });
+    setSavedSnapshot(JSON.stringify({ name: newName, description: newDesc, credId: newCredId, meta: newMeta }));
   }, [existing]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -178,7 +186,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
       }
     },
     onSuccess: (result) => {
-      savedSnapshot.current = JSON.stringify({ name, description, credId, meta });
+      setSavedSnapshot(JSON.stringify({ name, description, credId, meta }));
       qc.invalidateQueries({ queryKey: ["presets"] });
       showToast("success", "Preset saved");
       if (isNew) router.push(`/presets/${result.id}`);
@@ -215,6 +223,29 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
     setMeta((prev) => ({ ...prev, ...patch } as PlatformMeta));
   }
 
+  async function handleRenderPreview() {
+    setRenderPreviewLoading(true);
+    setRenderPreview(null);
+    try {
+      const body: Record<string, unknown> = {};
+      if (platform === "youtube" || platform === "vk") {
+        const m = meta as YouTubeFieldsValue | VkFieldsValue;
+        if (m.title_template.trim()) body.title_template = m.title_template;
+        if (m.description_template.trim()) body.description_template = m.description_template;
+      } else {
+        const yd = meta as YandexDiskFieldsValue;
+        if (yd.folder_path_template?.trim()) body.folder_path_template = yd.folder_path_template;
+        if (yd.filename_template?.trim()) body.filename_template = yd.filename_template;
+      }
+      const res = await apiClient.post<MetadataRenderPreviewData>("/presets/render-preview", body);
+      setRenderPreview(res.data);
+    } catch {
+      setRenderPreview(null);
+    } finally {
+      setRenderPreviewLoading(false);
+    }
+  }
+
   const creds = (credsData?.items ?? []).filter((c) => {
     if (platform === "youtube")     return c.platform === "youtube";
     if (platform === "vk")          return c.platform === "vk_video";
@@ -223,7 +254,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   });
 
   const isDirty =
-    JSON.stringify({ name, description, credId, meta }) !== savedSnapshot.current;
+    JSON.stringify({ name, description, credId, meta }) !== savedSnapshot;
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -333,10 +364,9 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
                 </Link>
               </p>
             ) : (
-              <select
+              <NativeSelect
                 value={credId}
                 onChange={(e) => setCredId(Number(e.target.value) || "")}
-                className={cn(FILTER_SELECT, "bg-white")}
               >
                 <option value="">— Select credential —</option>
                 {creds.map((c) => (
@@ -344,7 +374,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
                     {c.account_name ?? `Credential #${c.id}`}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             )}
           </div>
         </div>
@@ -378,6 +408,19 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               onChange={patchMeta}
             />
           )}
+
+          <div className="space-y-2 border-t border-[#EAEAEA] pt-4">
+            <button
+              type="button"
+              onClick={handleRenderPreview}
+              disabled={renderPreviewLoading}
+              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+            >
+              <Eye size={15} />
+              {renderPreviewLoading ? "Rendering…" : "Preview render"}
+            </button>
+            {renderPreview ? <MetadataPreviewResultBox preview={renderPreview} /> : null}
+          </div>
         </div>
       </div>
 

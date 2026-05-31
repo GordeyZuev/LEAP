@@ -91,6 +91,22 @@ class StoragePathBuilder:
             return False
 
 
+def to_storage_key(path: Path | str, base: str = "storage") -> str:
+    """Convert a path-builder path to a storage backend key.
+
+    StoragePathBuilder returns paths like ``storage/users/000001/...`` (rooted
+    under the local storage dir). Storage backends use keys without the
+    base prefix: ``users/000001/...``. This helper normalizes both forms.
+
+    Accepts ``Path``, ``str``, or already-stripped key. Idempotent.
+    """
+    s = str(path).replace("\\", "/").lstrip("/")
+    prefix = base.strip("/") + "/"
+    if s.startswith(prefix):
+        s = s[len(prefix) :]
+    return s
+
+
 # Singleton instance
 _path_builder: StoragePathBuilder | None = None
 

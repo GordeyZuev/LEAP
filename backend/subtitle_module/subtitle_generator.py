@@ -1,10 +1,16 @@
-"""Subtitle generator from transcriptions (SRT and VTT formats)"""
+"""Subtitle generator from transcriptions (SRT and VTT formats).
 
+Reads ``segments.txt`` and writes ``subtitles.srt``/``subtitles.vtt`` through the
+storage backend. All entries live entirely in-memory (subtitle files are small)
+so no temp files are required.
+"""
+
+import io
 import re
 from dataclasses import dataclass
 from datetime import timedelta
-from pathlib import Path
 
+from file_storage.factory import get_storage_backend
 from logger import get_logger
 
 logger = get_logger()
@@ -37,8 +43,9 @@ class SubtitleGenerator:
         self.max_chars_per_line = max_chars_per_line
         self.max_lines = max_lines
 
+    # ------------------------------------------------------------------ parsing
     def _parse_timestamp_line(self, line: str) -> tuple[timedelta, timedelta, str] | None:
-        """Parse a single transcription line with timestamp"""
+        """Parse a single transcription line with timestamp."""
         match_ms = self.TIMESTAMP_PATTERN_MS.match(line)
         if match_ms:
             groups = match_ms.groups()
@@ -65,30 +72,24 @@ class SubtitleGenerator:
 
         return None
 
-    def parse_transcription_file(self, file_path: str) -> list[SubtitleEntry]:
-        """Parse transcription file and return subtitle entries"""
-        path = Path(file_path)
-        if not path.exists():
-            raise FileNotFoundError(f"Transcription file not found: {file_path}")
-
-        entries = []
-        with path.open(encoding="utf-8") as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-
-                try:
-                    parsed = self._parse_timestamp_line(line)
-                    if parsed:
-                        start_time, end_time, text = parsed
-                        if text.strip():
-                            entries.append(SubtitleEntry(start_time, end_time, text))
-                except Exception as e:
-                    logger.warning(f"Error parsing line {line_num}: {line[:50]} - {e}")
-
+    def _parse_segments_text(self, text: str) -> list[SubtitleEntry]:
+        """Parse the contents of segments.txt into SubtitleEntry objects."""
+        entries: list[SubtitleEntry] = []
+        for line_num, raw in enumerate(text.splitlines(), start=1):
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                parsed = self._parse_timestamp_line(line)
+                if parsed:
+                    start_time, end_time, body = parsed
+                    if body.strip():
+                        entries.append(SubtitleEntry(start_time, end_time, body))
+            except Exception as e:
+                logger.warning(f"Error parsing line {line_num}: {line[:50]} - {e}")
         return entries
 
+    # ----------------------------------------------------------------- format
     def _format_timedelta(self, td: timedelta, separator: str = ",") -> str:
         """Format timedelta as HH:MM:SS{separator}mmm"""
         total_seconds = int(td.total_seconds())
@@ -99,18 +100,16 @@ class SubtitleGenerator:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}{separator}{milliseconds:03d}"
 
     def _format_timedelta_srt(self, td: timedelta) -> str:
-        """Format timedelta in SRT format: HH:MM:SS,mmm"""
         return self._format_timedelta(td, ",")
 
     def _format_timedelta_vtt(self, td: timedelta) -> str:
-        """Format timedelta in VTT format: HH:MM:SS.mmm"""
         return self._format_timedelta(td, ".")
 
     def _split_text(self, text: str) -> list[str]:
-        """Split text into lines respecting max_chars_per_line and max_lines"""
+        """Split text into lines respecting max_chars_per_line and max_lines."""
         words = text.split()
-        lines = []
-        current_line = []
+        lines: list[str] = []
+        current_line: list[str] = []
         current_length = 0
 
         for word in words:
@@ -133,71 +132,73 @@ class SubtitleGenerator:
 
         return lines if lines else [text[: self.max_chars_per_line]]
 
-    def generate_srt(self, entries: list[SubtitleEntry], output_path: str) -> str:
-        """Generate subtitle file in SRT format"""
-        with Path(output_path).open("w", encoding="utf-8") as f:
-            for index, entry in enumerate(entries, start=1):
-                f.write(f"{index}\n")
-                start_str = self._format_timedelta_srt(entry.start_time)
-                end_str = self._format_timedelta_srt(entry.end_time)
-                f.write(f"{start_str} --> {end_str}\n")
+    def _render_srt(self, entries: list[SubtitleEntry]) -> str:
+        """Build SRT body in memory."""
+        buf = io.StringIO()
+        for index, entry in enumerate(entries, start=1):
+            buf.write(f"{index}\n")
+            buf.write(
+                f"{self._format_timedelta_srt(entry.start_time)} --> {self._format_timedelta_srt(entry.end_time)}\n"
+            )
+            for line in self._split_text(entry.text):
+                buf.write(f"{line}\n")
+            buf.write("\n")
+        return buf.getvalue()
 
-                for line in self._split_text(entry.text):
-                    f.write(f"{line}\n")
-                f.write("\n")
+    def _render_vtt(self, entries: list[SubtitleEntry]) -> str:
+        """Build VTT body in memory."""
+        buf = io.StringIO()
+        buf.write("WEBVTT\n\n")
+        for entry in entries:
+            buf.write(
+                f"{self._format_timedelta_vtt(entry.start_time)} --> {self._format_timedelta_vtt(entry.end_time)}\n"
+            )
+            for line in self._split_text(entry.text):
+                buf.write(f"{line}\n")
+            buf.write("\n")
+        return buf.getvalue()
 
-        return output_path
-
-    def generate_vtt(self, entries: list[SubtitleEntry], output_path: str) -> str:
-        """Generate subtitle file in VTT format"""
-        with Path(output_path).open("w", encoding="utf-8") as f:
-            f.write("WEBVTT\n\n")
-
-            for entry in entries:
-                start_str = self._format_timedelta_vtt(entry.start_time)
-                end_str = self._format_timedelta_vtt(entry.end_time)
-                f.write(f"{start_str} --> {end_str}\n")
-
-                for line in self._split_text(entry.text):
-                    f.write(f"{line}\n")
-                f.write("\n")
-
-        return output_path
-
-    def generate_from_transcription(
-        self, transcription_path: str, output_dir: str | None = None, formats: list[str] | None = None
+    # ------------------------------------------------------------------- main
+    async def generate_from_transcription(
+        self,
+        transcription_key: str,
+        output_dir_key: str,
+        formats: list[str] | None = None,
     ) -> dict[str, str]:
-        """Generate subtitles from transcription file (expects segments.txt)"""
+        """Generate subtitles from a ``segments.txt`` key in storage.
+
+        Args:
+            transcription_key: Storage key of the ``segments.txt`` (e.g.
+                ``users/000001/recordings/42/transcriptions/cache/segments.txt``).
+            output_dir_key: Storage key prefix where subtitle files will be written.
+            formats: Subset of ``{"srt", "vtt"}``. Defaults to both.
+
+        Returns:
+            ``{"srt": "<key>", "vtt": "<key>"}`` for the formats actually generated.
+        """
         formats = formats or ["srt", "vtt"]
-        trans_path = Path(transcription_path)
-        output_dir_path: Path = Path(output_dir) if output_dir else trans_path.parent
-        output_dir_path.mkdir(parents=True, exist_ok=True)
+        storage = get_storage_backend()
 
-        if trans_path.is_dir():
-            segments_path = trans_path / "segments.txt"
-            if not segments_path.exists():
-                raise FileNotFoundError(f"No segments.txt in folder: {transcription_path}")
-            trans_path = segments_path
-        elif trans_path.name != "segments.txt":
-            raise FileNotFoundError(f"Expected segments.txt, got: {transcription_path}")
+        if not await storage.exists(transcription_key):
+            raise FileNotFoundError(f"segments.txt not found in storage: {transcription_key}")
 
-        logger.info(f"Generating subtitles from {trans_path}")
-        entries = self.parse_transcription_file(str(trans_path))
-
+        segments_text = (await storage.load(transcription_key)).decode("utf-8")
+        entries = self._parse_segments_text(segments_text)
         if not entries:
-            raise ValueError(f"No entries extracted from {transcription_path}")
+            raise ValueError(f"No entries extracted from {transcription_key}")
 
-        result = {}
-        base_name = "subtitles"
+        logger.info(f"Generating subtitles from {transcription_key} | formats={formats}")
+        result: dict[str, str] = {}
+        prefix = output_dir_key.rstrip("/")
 
         if "srt" in formats:
-            srt_path = output_dir_path / f"{base_name}.srt"
-            self.generate_srt(entries, str(srt_path))
-            result["srt"] = str(srt_path)
+            key = f"{prefix}/subtitles.srt"
+            await storage.save(key, self._render_srt(entries).encode("utf-8"))
+            result["srt"] = key
 
         if "vtt" in formats:
-            vtt_path = output_dir_path / f"{base_name}.vtt"
-            self.generate_vtt(entries, str(vtt_path))
-            result["vtt"] = str(vtt_path)
+            key = f"{prefix}/subtitles.vtt"
+            await storage.save(key, self._render_vtt(entries).encode("utf-8"))
+            result["vtt"] = key
 
         return result

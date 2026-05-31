@@ -1,7 +1,6 @@
 """Zoom video downloader with resume support."""
 
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -55,8 +54,9 @@ class ZoomDownloader(BaseDownloader):
         source_meta: dict[str, Any],
         force: bool = False,
     ) -> DownloadResult:
-        """Download a Zoom recording by source metadata."""
+        """Download a Zoom recording by source metadata to storage."""
         from config.settings import get_settings
+        from file_storage.factory import get_storage_backend
         from utils.pipeline_video_formats import (
             pipeline_ingress_suffixes_from_settings_formats,
             strict_suffix_from_source_name,
@@ -70,14 +70,16 @@ class ZoomDownloader(BaseDownloader):
             get_settings().storage.supported_video_formats,
         )
         source_suffix = strict_suffix_from_source_name(source_meta.get("name"), allowed)
-        target_path = self._get_target_path(recording_id, source_suffix=source_suffix)
+        target_key = self._get_target_key(recording_id, source_suffix=source_suffix)
         validate_name = source_meta.get("name") or f"zoom{source_suffix}"
 
-        if not force and target_path.exists() and target_path.stat().st_size > 1024:
-            return DownloadResult(
-                file_path=target_path,
-                file_size=target_path.stat().st_size,
-            )
+        storage_backend = get_storage_backend()
+
+        # Skip if already in storage and not forced
+        if not force and await storage_backend.exists(target_key):
+            existing_size = await storage_backend.get_size(target_key)
+            if existing_size > 1024:
+                return DownloadResult(storage_key=target_key, file_size=existing_size)
 
         encoded_url = self._encode_download_url(download_url)
         headers, params = self._build_zoom_auth(
@@ -86,23 +88,27 @@ class ZoomDownloader(BaseDownloader):
             download_access_token=source_meta.get("download_access_token"),
         )
 
-        success = await self._download_url(
-            url=encoded_url,
-            filepath=target_path,
-            headers=headers,
-            params=params,
-            expected_size=source_meta.get("file_size", 0) or None,
-            description="Zoom recording",
-            source_name=validate_name,
-        )
+        temp_path = self._new_temp_path(source_suffix)
+        try:
+            success = await self._download_url(
+                url=encoded_url,
+                filepath=temp_path,
+                headers=headers,
+                params=params,
+                expected_size=source_meta.get("file_size", 0) or None,
+                description="Zoom recording",
+                source_name=validate_name,
+            )
 
-        if not success:
-            raise RuntimeError(f"Failed to download Zoom recording {recording_id}")
+            if not success:
+                raise RuntimeError(f"Failed to download Zoom recording {recording_id}")
 
-        return DownloadResult(
-            file_path=target_path,
-            file_size=target_path.stat().st_size,
-        )
+            size = await self._commit_temp_to_storage(temp_path, target_key)
+            return DownloadResult(storage_key=target_key, file_size=size)
+        finally:
+            # Safety: if commit threw, the temp may still be around.
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
 
     async def download_recording(
         self,
@@ -130,14 +136,17 @@ class ZoomDownloader(BaseDownloader):
             )
             return False
 
-        final_path = self._get_target_path(recording.db_id, source_suffix=source_suffix)
+        from file_storage.factory import get_storage_backend
+
+        target_key = self._get_target_key(recording.db_id, source_suffix=source_suffix)
         validate_as_name = f"zoom-recording{source_suffix}"
+        storage_backend = get_storage_backend()
 
         if (
             not force_download
             and recording.status == ProcessingStatus.DOWNLOADED
             and recording.local_video_path
-            and Path(recording.local_video_path).exists()
+            and await storage_backend.exists(recording.local_video_path)
         ):
             logger.info(f"Skipped: already downloaded | rec={recording.db_id}")
             return False
@@ -153,30 +162,33 @@ class ZoomDownloader(BaseDownloader):
             download_access_token=recording.download_access_token,
         )
 
-        success = await self._download_url(
-            url=encoded_url,
-            filepath=final_path,
-            headers=headers,
-            params=params,
-            expected_size=recording.video_file_size or None,
-            description="video file",
-            source_name=validate_as_name,
-        )
-
-        if not success:
-            recording.mark_failure(
-                reason="Error downloading file",
-                rollback_to_status=ProcessingStatus.INITIALIZED,
-                failed_at_stage="downloading",
-            )
-            logger.error(f"Download failed for recording {recording.db_id}")
-            return False
-
+        temp_path = self._new_temp_path(source_suffix)
         try:
-            recording.local_video_path = str(final_path.relative_to(Path.cwd()))
-        except ValueError:
-            recording.local_video_path = str(final_path)
-        recording.update_status(ProcessingStatus.DOWNLOADED)
-        recording.downloaded_at = datetime.now()
-        logger.info(f"Downloaded | rec={recording.db_id}")
-        return True
+            success = await self._download_url(
+                url=encoded_url,
+                filepath=temp_path,
+                headers=headers,
+                params=params,
+                expected_size=recording.video_file_size or None,
+                description="video file",
+                source_name=validate_as_name,
+            )
+
+            if not success:
+                recording.mark_failure(
+                    reason="Error downloading file",
+                    rollback_to_status=ProcessingStatus.INITIALIZED,
+                    failed_at_stage="downloading",
+                )
+                logger.error(f"Download failed for recording {recording.db_id}")
+                return False
+
+            await self._commit_temp_to_storage(temp_path, target_key)
+            recording.local_video_path = target_key
+            recording.update_status(ProcessingStatus.DOWNLOADED)
+            recording.downloaded_at = datetime.now()
+            logger.info(f"Downloaded | rec={recording.db_id}")
+            return True
+        finally:
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)

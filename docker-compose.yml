@@ -1,9 +1,27 @@
-version: '3.8'
+# Production-ish docker-compose stack for LEAP.
+#
+# Bring up the whole stack:
+#     docker compose up -d --build
+#
+# Bring up only the dev infra (for `make api` running locally):
+#     docker compose up -d postgres redis
+#
+# All persistent app data goes to S3 (Object Storage). The local `storage/`
+# bind-mount is only used for ephemeral temp files (FFmpeg scratch, ASR input).
+#
+# Production .env (alongside docker-compose.yml) must define:
+#   DB_PASSWORD, SECURITY_JWT_SECRET_KEY, SECURITY_ENCRYPTION_KEY,
+#   STORAGE_S3_BUCKET, STORAGE_S3_ACCESS_KEY_ID, STORAGE_S3_SECRET_ACCESS_KEY,
+#   STORAGE_S3_ENDPOINT_URL, STORAGE_S3_REGION
 
 services:
+  # ============================================================================
+  # Core data services
+  # ============================================================================
   postgres:
     image: postgres:15-alpine
     container_name: leap_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: leap_platform
       POSTGRES_USER: postgres
@@ -17,25 +35,44 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
   redis:
     image: redis:7-alpine
     container_name: leap_redis
+    restart: unless-stopped
+    # appendonly persists the queue/result backend across container restarts.
+    # Required so Celery tasks that were in-flight or scheduled survive a deploy.
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
-  # API
+  # ============================================================================
+  # Application
+  # ============================================================================
   api:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: leap_api
+    restart: unless-stopped
     command: python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+    env_file: .env
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -44,25 +81,35 @@ services:
       DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-      # Pydantic: SecuritySettings → SECURITY_JWT_SECRET_KEY (не JWT_SECRET_KEY). Поддержка legacy: JWT_SECRET_KEY.
+      # Pydantic: SecuritySettings → SECURITY_JWT_SECRET_KEY (not JWT_SECRET_KEY). Legacy fallback kept.
       SECURITY_JWT_SECRET_KEY: ${SECURITY_JWT_SECRET_KEY:-${JWT_SECRET_KEY:-docker-compose-dev-jwt-secret-min-32-characters}}
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
+      # Local scratch space for FFmpeg/ASR temp files. NOT persistent storage.
       - ./backend/storage:/app/storage
+      # Loguru writes here; Promtail reads from here.
+      - ./backend/logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
 
-  # Celery Worker
   celery_worker:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: leap_celery_worker
+    restart: unless-stopped
     command: python -m celery -A api.celery_app worker --loglevel=info --queues=downloads,uploads,async_operations,processing_cpu,maintenance --concurrency=8
+    env_file: .env
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -73,19 +120,30 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
       - ./backend/storage:/app/storage
+      - ./backend/logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          # Leave 3 cores of headroom on an 8-CPU VM for postgres, redis,
+          # nginx, frontend, loki, promtail, grafana, celery_beat (none of
+          # which are CPU-limited individually).
+          cpus: '3.0'
 
-  # Celery Beat (scheduler)
   celery_beat:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: leap_celery_beat
+    restart: unless-stopped
     command: python -m celery -A api.celery_app beat --loglevel=info --scheduler celery_sqlalchemy_scheduler.schedulers:DatabaseScheduler
+    env_file: .env
     environment:
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
@@ -94,31 +152,144 @@ services:
       DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+    volumes:
+      - ./backend/logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
-  # Celery Flower (мониторинг)
   flower:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: leap_flower
-    # Без entrypoint.sh: там ожидание Postgres, а у Flower нет DATABASE_HOST — иначе вечный loop на localhost:5432.
+    restart: unless-stopped
+    # Skip entrypoint.sh (waits for postgres; flower doesn't need DB).
     entrypoint: ["python", "-m", "celery"]
-    command: ["-A", "api.celery_app", "flower", "--port=5555"]
+    command: ["-A", "api.celery_app", "flower", "--port=5555", "--url_prefix=flower"]
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
-    ports:
-      - "5555:5555"
+    expose:
+      - "5555"
     depends_on:
       - redis
 
+  frontend:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-frontend:${IMAGE_TAG:-latest}
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: leap_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    expose:
+      - "3000"
+    depends_on:
+      - api
+
+  # ============================================================================
+  # Reverse proxy
+  # ============================================================================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: leap_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # On the very first deploy, mount nginx.bootstrap.conf instead until
+      # certbot has issued the first certificate; then swap back. See nginx/README.md.
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/htpasswd:/etc/nginx/htpasswd:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./certbot:/var/www/certbot:ro
+    depends_on:
+      - api
+      - frontend
+
+  # ============================================================================
+  # Observability (Loki/Promtail/Grafana stack)
+  # ============================================================================
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: leap_loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    expose:
+      - "3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: leap_promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./monitoring/promtail.yml:/etc/promtail/config.yml:ro
+      - ./backend/logs:/logs:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: leap_grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      # When served behind nginx under /grafana/
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana_datasources.yml:/etc/grafana/provisioning/datasources/loki.yml:ro
+      - ./monitoring/grafana_dashboards.yml:/etc/grafana/provisioning/dashboards/leap.yml:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
+    expose:
+      - "3000"
+    depends_on:
+      loki:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  loki_data:
+    driver: local
+  grafana_data:
     driver: local
 
 networks:

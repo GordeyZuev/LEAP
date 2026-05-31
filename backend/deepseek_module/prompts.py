@@ -20,7 +20,19 @@ TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию
 
 ## ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ ({min_topics}-{max_topics} топиков)
 
-Формат: [HH:MM:SS] - Название топика
+СТРОГИЙ ФОРМАТ ВЫВОДА (обязательно):
+- Каждая тема — отдельная строка, которая НАЧИНАЕТСЯ с таймкода: [HH:MM:SS] - Название топика
+- Без markdown: НЕ используй *, -, •, нумерацию (1.), вложенные списки и отступы перед таймкодом
+- Без префиксов вроде «Топик 1:» — только [HH:MM:SS] - и название
+
+Правильно:
+[00:05:10] - Подключение к API GigaChat
+[00:12:30] - Анализ тональности отзывов
+
+Неправильно (так НЕ пиши):
+* [00:05:10] - Подключение к API
+- [00:05:10] - Подключение к API
+1. [00:05:10] - Подключение к API
 
 КРИТИЧЕСКИЕ ПРАВИЛА:
 1. Количество: РОВНО {min_topics}-{max_topics} топиков. Если больше — объедини похожие.
@@ -33,7 +45,7 @@ TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию
 8. Только фактические темы из транскрипции.
 9. ВАЖНО: Используй РЕАЛЬНЫЕ временные метки из транскрипции [HH:MM:SS], не придумывай свои.
 
-Перед отправкой проверь: количество тем, длительность каждой ({duration_range} мин), перерывы >=8 мин.
+Перед отправкой проверь: каждая строка темы начинается с «[», количество тем, длительность каждой ({duration_range} мин), перерывы >=8 мин.
 Если нарушено — переразметь до полного соответствия.
 
 ## ВОПРОСЫ ДЛЯ САМОПРОВЕРКИ
@@ -66,7 +78,19 @@ Examples: "Stable Diffusion", "Transformer architecture", "SQL and ORM in Python
 
 ## DETAILED TOPICS ({min_topics}-{max_topics} topics)
 
-Format: [HH:MM:SS] - Topic title
+STRICT OUTPUT FORMAT (required):
+- One topic per line; each line MUST START with the timestamp: [HH:MM:SS] - Topic title
+- No markdown: do NOT use *, -, •, numbering (1.), nested lists, or indentation before the timestamp
+- No prefixes like "Topic 1:" — only [HH:MM:SS] - and the title
+
+Correct:
+[00:05:10] - GigaChat API setup
+[00:12:30] - Review sentiment analysis
+
+Wrong (do NOT write like this):
+* [00:05:10] - GigaChat API setup
+- [00:05:10] - GigaChat API setup
+1. [00:05:10] - GigaChat API setup
 
 CRITICAL RULES:
 1. Count: EXACTLY {min_topics}-{max_topics} topics. If more — merge similar ones.
@@ -79,7 +103,7 @@ CRITICAL RULES:
 8. Only factual topics from the transcript.
 9. IMPORTANT: Use REAL timestamps from the transcript [HH:MM:SS]; do not invent times.
 
-Before sending, verify: topic count, each topic duration ({duration_range} min), gaps >=8 min.
+Before sending, verify: every topic line starts with "[", topic count, each topic duration ({duration_range} min), gaps >=8 min.
 If violated — relabel until fully compliant.
 
 ## SELF-CHECK QUESTIONS

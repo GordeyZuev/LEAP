@@ -28,6 +28,63 @@ from video_upload_module.uploader_factory import create_uploader_from_db
 logger = get_logger()
 settings = get_settings()
 
+_UPLOAD_STALE_BUFFER_SECONDS = 300
+
+
+def platform_to_target_type(platform: str) -> str:
+    """Map API platform name to output target type."""
+    target_type_map = {
+        "youtube": "YOUTUBE",
+        "vk": "VK",
+        "vk_video": "VK",
+        "yandex_disk": "YANDEX_DISK",
+    }
+    return target_type_map.get(platform.lower(), platform.upper())
+
+
+def upload_enqueue_skip_reason(
+    output_target,
+    *,
+    now: datetime | None = None,
+    allow_active_upload: bool = False,
+) -> str | None:
+    if output_target.status == TargetStatus.UPLOADED and output_target.target_meta:
+        if output_target.target_meta.get("video_id"):
+            return "Already uploaded"
+
+    if output_target.status != TargetStatus.UPLOADING:
+        return None
+
+    if allow_active_upload:
+        return None
+
+    if not output_target.started_at:
+        return "Upload in progress"
+
+    started = output_target.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+
+    now = now or datetime.now(UTC)
+    stale_after = settings.celery.task_time_limit + _UPLOAD_STALE_BUFFER_SECONDS
+    if (now - started).total_seconds() < stale_after:
+        return "Upload in progress"
+
+    return None
+
+
+def _upload_skip_result(output_target, reason: str) -> dict:
+    if reason == "Already uploaded":
+        return {
+            "success": True,
+            "video_id": output_target.target_meta.get("video_id"),
+            "video_url": output_target.target_meta.get("video_url"),
+            "skipped": True,
+            "reason": reason,
+        }
+    return {"success": True, "skipped": True, "reason": reason}
+
+
 # Platform limits (API constraints)
 # vk_video is normalized to vk for lookup
 TITLE_MAX_LENGTH: dict[str, int] = {
@@ -106,11 +163,15 @@ async def _upload_extra_files_to_yadisk(
 
     from tempfile import NamedTemporaryFile
 
+    from file_storage.factory import get_storage_backend
+    from file_storage.path_builder import StoragePathBuilder
     from transcription_module.manager import get_transcription_manager
     from yandex_disk_module.client import YandexDiskClient, YandexDiskError
 
     client = YandexDiskClient(oauth_token=oauth_token)
     tm = get_transcription_manager()
+    storage = get_storage_backend()
+    storage_builder = StoragePathBuilder()
 
     async def _upload_one_local(local: Path, disk_folder: str, filename: str) -> None:
         disk_path = f"{disk_folder.rstrip('/')}/{filename}"
@@ -119,6 +180,15 @@ async def _upload_extra_files_to_yadisk(
             logger.info(f"Yandex Disk extra file uploaded | {format_details(path=disk_path)}")
         except (YandexDiskError, OSError, FileNotFoundError) as e:
             logger.warning(f"Yandex Disk extra file failed | {format_details(path=disk_path, error=str(e))}")
+
+    async def _upload_storage_key(storage_key: str, disk_folder: str, filename: str, suffix: str) -> None:
+        """Materialize a storage key to a temp file and upload it, then clean up."""
+        tmp = storage_builder.create_temp_file(prefix="yadisk_extra_", suffix=suffix)
+        try:
+            await storage.download_to_file(storage_key, tmp)
+            await _upload_one_local(tmp, disk_folder, filename)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     for key, ext, fmt in (
         ("subtitles_srt", ".srt", "srt"),
@@ -132,9 +202,8 @@ async def _upload_extra_files_to_yadisk(
         fn_t = cfg.get("filename_template")
         filename = render_jinja(fn_t, template_context) if fn_t else f"{video_base_name}{ext}"
         try:
-            paths = tm.generate_subtitles(recording_id, [fmt], user_slug)
-            local_path = Path(paths[fmt])
-            await _upload_one_local(local_path, folder, filename)
+            paths = await tm.generate_subtitles(recording_id, [fmt], user_slug)
+            await _upload_storage_key(paths[fmt], folder, filename, suffix=ext)
         except Exception as e:
             logger.warning(f"Yandex Disk {key} skipped | {format_details(error=str(e))}")
 
@@ -145,8 +214,8 @@ async def _upload_extra_files_to_yadisk(
         fn_t = cfg.get("filename_template")
         filename = render_jinja(fn_t, template_context) if fn_t else f"{video_base_name}_transcription.txt"
         try:
-            local_path = tm.ensure_segments_txt(recording_id, user_slug)
-            await _upload_one_local(local_path, folder, filename)
+            segments_key = await tm.ensure_segments_txt(recording_id, user_slug)
+            await _upload_storage_key(segments_key, folder, filename, suffix=".txt")
         except Exception as e:
             logger.warning(f"Yandex Disk transcription skipped | {format_details(error=str(e))}")
 
@@ -218,6 +287,7 @@ def upload_recording_to_platform(
                     preset_id=preset_id,
                     credential_id=credential_id,
                     metadata_override=metadata_override,
+                    allow_active_upload=self.request.retries > 0,
                 )
             )
 
@@ -279,6 +349,7 @@ async def _async_upload_recording(
     preset_id: int | None = None,
     credential_id: int | None = None,
     metadata_override: dict | None = None,
+    allow_active_upload: bool = False,
 ) -> dict:
     """
     Async function for uploading recording.
@@ -314,12 +385,7 @@ async def _async_upload_recording(
             f"Recording data | {format_details(has_main_topics=hasattr(recording, 'main_topics'), has_topic_timestamps=hasattr(recording, 'topic_timestamps'))}"
         )
 
-        target_type_map = {
-            "youtube": "YOUTUBE",
-            "vk": "VK",
-            "yandex_disk": "YANDEX_DISK",
-        }
-        target_type = target_type_map.get(platform.lower(), platform.upper())
+        target_type = platform_to_target_type(platform)
 
         output_target = await recording_repo.get_or_create_output_target(
             recording=recording,
@@ -327,26 +393,44 @@ async def _async_upload_recording(
             preset_id=preset_id,
         )
 
-        if output_target.status == TargetStatus.UPLOADED and output_target.target_meta:
-            video_id = output_target.target_meta.get("video_id")
-            video_url = output_target.target_meta.get("video_url")
-            if video_id:
-                logger.info(f"Skipped: already uploaded | {format_details(video_id=video_id)}")
-                return {
-                    "success": True,
-                    "video_id": video_id,
-                    "video_url": video_url,
-                    "skipped": True,
-                    "reason": "Already uploaded",
-                }
+        skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
+        if skip_reason:
+            logger.info(f"Skipped: {skip_reason.lower()}")
+            return _upload_skip_result(output_target, skip_reason)
 
         # Check video file exists BEFORE marking as uploading
         if not recording.processed_video_path:
             raise ResourceNotFoundError("processed video", recording_id)
 
-        video_path = recording.processed_video_path
-        if not Path(video_path).exists():
-            raise ResourceNotFoundError("video file", video_path)
+        from file_storage.factory import get_storage_backend
+        from file_storage.path_builder import StoragePathBuilder
+
+        storage_backend = get_storage_backend()
+        storage_builder = StoragePathBuilder()
+        video_storage_key = recording.processed_video_path
+        if not await storage_backend.exists(video_storage_key):
+            raise ResourceNotFoundError("video file", video_storage_key)
+
+        # Materialize the processed video to a local temp file for platform SDKs
+        # (YouTube/VK/YaDisk all require a local file). Cleaned up in finally.
+        _local_temps: list[Path] = []
+        video_temp = storage_builder.create_temp_file(
+            prefix=f"upload_{recording_id}_", suffix=Path(video_storage_key).suffix or ".mp4"
+        )
+        await storage_backend.download_to_file(video_storage_key, video_temp)
+        _local_temps.append(video_temp)
+        video_path = str(video_temp)
+
+        async def _resolve_thumbnail_to_temp(user_slug: int, filename: str) -> Path | None:
+            """Resolve a thumbnail name to a local temp file and register cleanup."""
+            tm = get_thumbnail_manager()
+            key = await tm.get_thumbnail_key(user_slug=user_slug, thumbnail_name=filename, fallback_to_template=True)
+            if key is None:
+                return None
+            tmp = storage_builder.create_temp_file(prefix="thumb_", suffix=Path(filename).suffix or ".jpg")
+            await storage_backend.download_to_file(key, tmp)
+            _local_temps.append(tmp)
+            return tmp
 
         preset_metadata = {}
         preset = None
@@ -425,8 +509,24 @@ async def _async_upload_recording(
 
         topics_display = preset_metadata.get("topics_display") if preset_metadata else None
         questions_display = preset_metadata.get("questions_display") if preset_metadata else None
+
+        # Pre-load active extraction (summary/questions) from storage; the sync
+        # prepare_recording_context can no longer touch the async TranscriptionManager.
+        owner = getattr(recording, "owner", None)
+        extracted_active: dict | None = None
+        if owner is not None and getattr(owner, "user_slug", None) is not None:
+            try:
+                from transcription_module.manager import get_transcription_manager
+
+                extracted_active = await get_transcription_manager().get_active_extracted(recording.id, owner.user_slug)
+            except Exception as exc:
+                logger.debug(f"Could not load extracted for template context: {exc}")
+
         template_context = TemplateRenderer.prepare_recording_context(
-            recording, topics_display=topics_display, questions_display=questions_display
+            recording,
+            topics_display=topics_display,
+            questions_display=questions_display,
+            extracted_data=extracted_active,
         )
 
         logger.debug(f"Preset metadata keys: {list(preset_metadata.keys()) if preset_metadata else 'None'}")
@@ -516,17 +616,10 @@ async def _async_upload_recording(
                     "thumbnail_name"
                 )
                 if thumbnail_filename:
-                    thumbnail_manager = get_thumbnail_manager()
-                    user_slug = recording.owner.user_slug
-                    resolved_path = thumbnail_manager.get_thumbnail_path(
-                        user_slug=user_slug,
-                        thumbnail_name=thumbnail_filename,
-                        fallback_to_template=True,
-                    )
-
-                    if resolved_path and resolved_path.exists():
-                        upload_params["thumbnail_path"] = str(resolved_path)
-                        logger.debug(f"Using thumbnail: {resolved_path}")
+                    thumb_local = await _resolve_thumbnail_to_temp(recording.owner.user_slug, thumbnail_filename)
+                    if thumb_local is not None:
+                        upload_params["thumbnail_path"] = str(thumb_local)
+                        logger.debug(f"Using thumbnail temp: {thumb_local}")
                     else:
                         logger.warning(f"Thumbnail not found: '{thumbnail_filename}'")
                 else:
@@ -548,17 +641,10 @@ async def _async_upload_recording(
                     "thumbnail_name"
                 )
                 if thumbnail_filename:
-                    thumbnail_manager = get_thumbnail_manager()
-                    user_slug = recording.owner.user_slug
-                    resolved_path = thumbnail_manager.get_thumbnail_path(
-                        user_slug=user_slug,
-                        thumbnail_name=thumbnail_filename,
-                        fallback_to_template=True,
-                    )
-
-                    if resolved_path and resolved_path.exists():
-                        upload_params["thumbnail_path"] = str(resolved_path)
-                        logger.debug(f"Using thumbnail: {resolved_path}")
+                    thumb_local = await _resolve_thumbnail_to_temp(recording.owner.user_slug, thumbnail_filename)
+                    if thumb_local is not None:
+                        upload_params["thumbnail_path"] = str(thumb_local)
+                        logger.debug(f"Using thumbnail temp: {thumb_local}")
                     else:
                         logger.warning(f"Thumbnail not found: '{thumbnail_filename}'")
                 else:
@@ -596,12 +682,16 @@ async def _async_upload_recording(
 
                 logger.debug(f"YaDisk folder_path={folder_path}")
 
-            # Start upload timing
             timing_service = TimingService(session)
             stage_name = f"UPLOAD:{target_type}"
             timing = await timing_service.start_stage(recording_id, user_id, stage_name)
 
-            # Mark output as UPLOADING RIGHT BEFORE actual upload starts
+            await session.refresh(output_target)
+            skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
+            if skip_reason:
+                logger.info(f"Skipped before upload start: {skip_reason.lower()}")
+                return _upload_skip_result(output_target, skip_reason)
+
             old_status = output_target.status
             output_target.started_at = datetime.now(UTC)
             await recording_repo.mark_output_uploading(output_target)
@@ -613,7 +703,6 @@ async def _async_upload_recording(
             if not upload_result or upload_result.error_message:
                 error_message = upload_result.error_message if upload_result else "Unknown error"
                 await timing_service.fail_stage(timing, f"Upload failed: {error_message}")
-                await recording_repo.mark_output_failed(output_target, f"Upload failed: {error_message}")
                 await session.commit()
                 raise Exception(f"Upload failed: {error_message}")
 
@@ -693,17 +782,21 @@ async def _async_upload_recording(
             }
 
         except Exception as e:
-            # Fail timing if it was started but not yet completed/failed
             if "timing" in locals() and timing.status == "IN_PROGRESS":
                 try:
                     await timing_service.fail_stage(timing, str(e))
+                    await session.commit()
                 except Exception:
                     logger.debug(f"Failed to record timing failure: {e}")
-
-            if output_target.status not in (TargetStatus.FAILED, TargetStatus.UPLOADED):
-                await recording_repo.mark_output_failed(output_target, str(e))
-                await session.commit()
             raise
+        finally:
+            # Always purge local temp materializations (video + thumbnail).
+            # _local_temps is local to this coroutine; safe to reference here.
+            for tmp in _local_temps:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except Exception as exc:
+                    logger.debug(f"Failed to remove temp {tmp}: {exc}")
 
 
 @celery_app.task(

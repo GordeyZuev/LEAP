@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.9.7.0", description="Application version")
+    version: str = Field(default="0.10.0", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -334,6 +334,9 @@ class StorageSettings(BaseSettings):
     s3_access_key_id: str | None = Field(default=None, description="AWS access key ID")
     s3_secret_access_key: str | None = Field(default=None, description="AWS secret access key")
     s3_endpoint_url: str | None = Field(default=None, description="Custom S3 endpoint (for S3-compatible services)")
+    s3_presign_expires: int = Field(
+        default=3600, ge=60, le=604800, description="Presigned URL TTL in seconds (max 7 days)"
+    )
 
     log_dir: str = Field(default="logs", description="Log directory")
 

@@ -38,6 +38,7 @@ from api.routers import (
     output_presets,
     recordings,
     references,
+    storage,
     tasks,
     templates,
     thumbnails,
@@ -130,6 +131,7 @@ app.include_router(automation.router)
 
 app.include_router(references.router)
 app.include_router(thumbnails.router)
+app.include_router(storage.router)
 app.include_router(admin.router)
 app.include_router(tasks.router)
 

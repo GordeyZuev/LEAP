@@ -15,7 +15,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const navItems = [
   { href: "/recordings", label: "Recordings", icon: Video },
@@ -33,11 +33,9 @@ function logout() {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-
-  useEffect(() => {
-    if (localStorage.getItem("sidebar-collapsed") === "true") setCollapsed(true);
-  }, []);
+  const [collapsed, setCollapsed] = useState(
+    () => typeof window !== "undefined" && localStorage.getItem("sidebar-collapsed") === "true",
+  );
 
   function toggleCollapsed() {
     setCollapsed((c) => {

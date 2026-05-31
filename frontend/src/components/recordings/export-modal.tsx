@@ -79,24 +79,23 @@ export function ExportModal({
 }: ExportModalProps) {
   const [format, setFormat] = useState<ExportFormat>("xlsx");
   const [verbosity, setVerbosity] = useState<ExportVerbosity>("short");
-  const [useSelected, setUseSelected] = useState(false);
+  const [useSelectedOverride, setUseSelectedOverride] = useState<boolean | null>(null);
   const [limit, setLimit] = useState("2000");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const hasSelected = selectedIds.length > 0;
+  const useSelected = useSelectedOverride ?? (open && hasSelected);
 
-  // When modal opens, default to selected if any
-  useEffect(() => {
-    if (open) {
-      setUseSelected(selectedIds.length > 0);
-      setError(null);
-    }
-  }, [open, selectedIds.length]);
+  function handleClose() {
+    setUseSelectedOverride(null);
+    setError(null);
+    onClose();
+  }
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
@@ -140,7 +139,7 @@ export function ExportModal({
       a.remove();
       URL.revokeObjectURL(blobUrl);
 
-      onClose();
+      handleClose();
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setError(detail ?? "Export failed");
@@ -152,13 +151,13 @@ export function ExportModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
     >
       <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl mx-4">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#EAEAEA] px-6 py-4">
           <h2 className="text-sm font-semibold text-gray-900">Export recordings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={18} />
           </button>
         </div>
@@ -172,14 +171,14 @@ export function ExportModal({
                 <button
                   type="button"
                   className={cn(FILTER_SEGMENT_BTN, useSelected ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => setUseSelected(true)}
+                  onClick={() => setUseSelectedOverride(true)}
                 >
                   {selectedIds.length} selected
                 </button>
                 <button
                   type="button"
                   className={cn(FILTER_SEGMENT_BTN, !useSelected ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => setUseSelected(false)}
+                  onClick={() => setUseSelectedOverride(false)}
                 >
                   All matching
                 </button>
@@ -253,7 +252,7 @@ export function ExportModal({
         <div className="flex items-center justify-end gap-3 border-t border-[#EAEAEA] px-6 py-4">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
           >
             Cancel

@@ -43,8 +43,8 @@
 | Поле | Где найти | Пример |
 |------|-----------|--------|
 | `account_id` | App Credentials → Account ID | `Ab1CdEf2GhIjKlMnO` |
-| `client_id` | App Credentials → Client ID | `Tex0m1WATNWdFfnbBmwjSg` |
-| `client_secret` | App Credentials → Client Secret | `dr8XzWRVA6Hh5FuWReynMV7Ke54UrYas` |
+| `client_id` | App Credentials → Client ID | `REPLACE_ME_zoom_client_id` |
+| `client_secret` | App Credentials → Client Secret | `REPLACE_ME_zoom_client_secret` |
 
 ### Шаг 3: Настроить Scopes
 
@@ -70,8 +70,8 @@ curl -X POST 'http://localhost:8000/api/v1/credentials/' \
     "account_name": "my_zoom_account",
     "credentials": {
       "account_id": "Ab1CdEf2GhIjKlMnO",
-      "client_id": "Tex0m1WATNWdFfnbBmwjSg",
-      "client_secret": "dr8XzWRVA6Hh5FuWReynMV7Ke54UrYas"
+      "client_id": "REPLACE_ME_zoom_client_id",
+      "client_secret": "REPLACE_ME_zoom_client_secret"
     }
   }'
 ```
@@ -84,8 +84,8 @@ curl -X POST 'http://localhost:8000/api/v1/credentials/' \
   "account_name": "my_zoom_account",
   "credentials": {
     "account_id": "Ab1CdEf2GhIjKlMnO",
-    "client_id": "Tex0m1WATNWdFfnbBmwjSg",
-    "client_secret": "dr8XzWRVA6Hh5FuWReynMV7Ke54UrYas"
+    "client_id": "REPLACE_ME_zoom_client_id",
+    "client_secret": "REPLACE_ME_zoom_client_secret"
   }
 }
 ```
@@ -299,8 +299,8 @@ curl -X POST 'http://localhost:8000/api/v1/credentials/' \
     "account_name": "company_master",
     "credentials": {
       "account_id": "Ab1CdEf2GhIjKlMnO",
-      "client_id": "Tex0m1WATNWdFfnbBmwjSg",
-      "client_secret": "dr8XzWRVA6Hh5FuWReynMV7Ke54UrYas",
+      "client_id": "REPLACE_ME_zoom_client_id",
+      "client_secret": "REPLACE_ME_zoom_client_secret",
       "is_master_account": true
     }
   }'

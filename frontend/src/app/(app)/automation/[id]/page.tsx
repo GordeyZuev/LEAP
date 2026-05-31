@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useRef, useState } from "react";
+import { use, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,6 +11,7 @@ import { TagInput } from "@/components/ui/tag-input";
 import { TemplateField } from "@/components/platforms/platform-fields";
 import { Toast } from "@/components/ui/toast";
 import { FILTER_CONTROL } from "@/lib/filter-field-classes";
+import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useTimezones } from "@/hooks/use-references";
 import { useToast } from "@/hooks/use-toast";
@@ -275,7 +276,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
   const [nextRunAt, setNextRunAt] = useState<string | null>(initialNextRunAt);
   const { toast, show: showFeedback, dismiss: dismissToast } = useToast(5000);
 
-  const savedSnapshot = useRef<string>(JSON.stringify(initialForm));
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(initialForm));
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -314,7 +315,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
       return (await apiClient.patch<AutomationJobApi>(`/automation/jobs/${jobId}`, body)).data;
     },
     onSuccess: (result, savedForm) => {
-      savedSnapshot.current = JSON.stringify(savedForm);
+      setSavedSnapshot(JSON.stringify(savedForm));
       qc.invalidateQueries({ queryKey: ["automation-jobs"] });
       showFeedback("success", "Job saved");
       if (result?.next_run_at) setNextRunAt(result.next_run_at);
@@ -382,7 +383,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
     form.template_ids.length > 0 &&
     (form.schedule_mode !== "visual" || form.weekdays.length > 0);
 
-  const isDirty = JSON.stringify(form) !== savedSnapshot.current;
+  const isDirty = JSON.stringify(form) !== savedSnapshot;
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -580,26 +581,24 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                 onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, enable_subtitles: v } }))}
               />
               <F label="Language">
-                <select
+                <NativeSelect
                   value={form.processing_config.language}
                   onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, language: e.target.value } }))}
-                  className={cn(inp, "bg-white appearance-none pr-8")}
                 >
                   <option value="ru">Русский</option>
                   <option value="en">English</option>
                   <option value="auto">Auto</option>
-                </select>
+                </NativeSelect>
               </F>
               <F label="Topic granularity">
-                <select
+                <NativeSelect
                   value={form.processing_config.granularity}
                   onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, granularity: e.target.value } }))}
-                  className={cn(inp, "bg-white appearance-none pr-8")}
                 >
                   <option value="short">Short</option>
                   <option value="medium">Medium</option>
                   <option value="long">Long</option>
-                </select>
+                </NativeSelect>
               </F>
               <TemplateField
                 label="Transcription prompt"
@@ -694,15 +693,14 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                   />
                 </F>
                 <F label="Timezone">
-                  <select
+                  <NativeSelect
                     value={form.timezone}
                     onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
-                    className={cn(inp, "appearance-none pr-8")}
                   >
                     {timezones.map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </F>
               </div>
             </div>
@@ -722,15 +720,14 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                   />
                 </F>
                 <F label="Timezone">
-                  <select
+                  <NativeSelect
                     value={form.timezone}
                     onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
-                    className={cn(inp, "appearance-none pr-8")}
                   >
                     {timezones.map(({ value, label }) => (
                       <option key={value} value={value}>{label}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </F>
               </div>
               <div className="grid grid-cols-2 gap-2">

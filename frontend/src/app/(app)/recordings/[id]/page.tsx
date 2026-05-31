@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState, type ComponentType } from "react";
+import { use, useState, type ComponentType, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -196,6 +196,33 @@ function formatDateTimeShort(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Sidebar/detail template line with optional link to /templates/:id (preset row styling). */
+function renderRecordingTemplateNavValue(opts: {
+  isMapped: boolean;
+  templateId: number | null;
+  templateName: string | null;
+}): ReactNode {
+  const { isMapped, templateId, templateName } = opts;
+  if (!isMapped) return "Не привязан";
+  const tid = templateId ?? null;
+  const nameTrimmed = templateName?.trim();
+  const name = nameTrimmed ? nameTrimmed : null;
+  if (tid != null) {
+    const linkText = name ?? `#${tid}`;
+    return (
+      <Link
+        href={`/templates/${tid}`}
+        title={linkText}
+        className="inline-block truncate text-[11px] text-gray-900 transition-colors hover:text-[#224C87]"
+      >
+        {linkText}
+      </Link>
+    );
+  }
+  if (name) return name;
+  return "Привязан";
 }
 
 // ---------------------------------------------------------------------------
@@ -402,30 +429,19 @@ function RecordingVideoPlayer({
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const blobUrlRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
-    };
-  }, []);
 
   function loadVideo() {
     setLoading(true);
     setLoadError(null);
     setProgress(0);
 
+    // Backend now returns a presigned URL that points directly at Object Storage.
+    // The <video> element handles streaming + Range requests natively — no need
+    // to download the full blob through the API.
     void apiClient
-      .get(`/recordings/${recordingId}/media?type=${variant}`, {
-        responseType: "blob",
-        onDownloadProgress: (e) => {
-          if (e.total) setProgress(Math.round((e.loaded / e.total) * 100));
-        },
-      })
+      .get<{ url: string; expires_in: number }>(`/recordings/${recordingId}/media?type=${variant}`)
       .then((res) => {
-        const url = URL.createObjectURL(res.data as Blob);
-        blobUrlRef.current = url;
-        setSrc(url);
+        setSrc(res.data.url);
       })
       .catch(() => setLoadError("Не удалось загрузить видео"))
       .finally(() => setLoading(false));
@@ -723,16 +739,19 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   const dlStem = `recording-${recording.id}`;
 
-  // Template label for info sidebar
-  const templateLabel = (() => {
-    if (!recording.is_mapped) return "Не привязан";
-    const name = recordingConfig?.template_name ?? recording.template_name;
-    const tid = recording.template_id;
-    if (name && tid != null) return `${name} (#${tid})`;
-    if (name) return name;
-    if (tid != null) return `#${tid}`;
-    return "Привязан";
-  })();
+  const templateDetailNavValue = renderRecordingTemplateNavValue(
+    recordingConfig
+      ? {
+          isMapped: recordingConfig.is_mapped,
+          templateId: recordingConfig.template_id,
+          templateName: recordingConfig.template_name,
+        }
+      : {
+          isMapped: recording.is_mapped,
+          templateId: recording.template_id,
+          templateName: recording.template_name ?? null,
+        }
+  );
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -926,11 +945,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               <dl className="space-y-3">
                 <ConfigRow
                   label="Шаблон"
-                  value={
-                    recordingConfig.template_name
-                      ? `${recordingConfig.template_name} (#${recordingConfig.template_id})`
-                      : "Не привязан"
-                  }
+                  value={renderRecordingTemplateNavValue({
+                    isMapped: recordingConfig.is_mapped,
+                    templateId: recordingConfig.template_id,
+                    templateName: recordingConfig.template_name,
+                  })}
                 />
                 {recordingConfig.has_manual_override && (
                   <ConfigRow label="Переопределение" value="Есть ручной override" highlight />
@@ -981,7 +1000,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               <InfoRow label="Длительность" value={formatDuration(recording.duration)} />
               {recording.video_file_size && <InfoRow label="Размер файла" value={formatFileSize(recording.video_file_size)} />}
               {recording.pipeline_duration_seconds ? <InfoRow label="Время пайплайна" value={`${Math.round(recording.pipeline_duration_seconds)} с`} /> : null}
-              <InfoRow label="Шаблон"       value={templateLabel} />
+              <InfoRow label="Шаблон" value={templateDetailNavValue} />
             </dl>
           </CollapsibleCard>
         </div>
@@ -1147,7 +1166,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Инфо</h2>
             <dl className="space-y-2">
               <SidebarInfoRow label="ID"          value={`#${recording.id}`} />
-              <SidebarInfoRow label="Шаблон"      value={templateLabel} />
+              <SidebarInfoRow label="Шаблон" value={templateDetailNavValue} />
               <SidebarInfoRow label="Дата"        value={formatDate(recording.start_time)} />
               {recording.duration > 0 && (
                 <SidebarInfoRow label="Длительность" value={formatDuration(recording.duration)} />
@@ -1262,20 +1281,25 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 // Helper row components
 // ---------------------------------------------------------------------------
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between gap-4">
       <dt className="shrink-0 text-sm text-gray-500">{label}</dt>
-      <dd className="text-right text-sm text-gray-900">{value}</dd>
+      <dd className="min-w-0 max-w-[65%] text-right text-sm text-gray-900">{value}</dd>
     </div>
   );
 }
 
-function SidebarInfoRow({ label, value }: { label: string; value: string }) {
+function SidebarInfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between gap-2">
       <dt className="shrink-0 text-[11px] text-gray-500">{label}</dt>
-      <dd className="min-w-0 truncate text-right text-[11px] font-medium text-gray-800" title={value}>{value}</dd>
+      <dd
+        className="min-w-0 truncate text-right text-[11px] font-medium text-gray-800"
+        title={typeof value === "string" ? value : undefined}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
@@ -1287,7 +1311,7 @@ function ConfigRow({
   highlight,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   mono?: boolean;
   highlight?: boolean;
 }) {
@@ -1296,7 +1320,7 @@ function ConfigRow({
       <dt className="shrink-0 text-sm text-gray-500">{label}</dt>
       <dd
         className={cn(
-          "text-right text-sm",
+          "min-w-0 max-w-[70%] text-right text-sm",
           highlight ? "font-medium text-amber-600" : "text-gray-900",
           mono && "font-mono text-xs"
         )}

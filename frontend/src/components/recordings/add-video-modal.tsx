@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, Link2, List, Upload, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { NativeSelect } from "@/components/ui/native-select";
 
 type Tab = "url" | "playlist" | "file" | "sync";
 
@@ -59,6 +60,12 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
 
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  function handleClose() {
+    setSuccessMsg("");
+    setErrorMsg("");
+    onClose();
+  }
 
   const { data: sourcesData } = useQuery<SourceListResponse>({
     queryKey: ["sources-list"],
@@ -133,10 +140,8 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
 
   useEffect(() => {
     if (!open) return;
-    setSuccessMsg("");
-    setErrorMsg("");
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -174,13 +179,13 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
+      onClick={(e) => { if (e.target === overlayRef.current) handleClose(); }}
     >
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
           <h2 className="text-base font-semibold text-gray-900">Add video</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+          <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
             <X size={16} />
           </button>
         </div>
@@ -223,15 +228,14 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Quality</label>
-                  <select
+                  <NativeSelect
                     value={quality}
                     onChange={(e) => setQuality(e.target.value)}
-                    className="w-full pl-3 pr-8 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 bg-white appearance-none"
                   >
                     {QUALITY_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
                 <div className="flex items-end pb-0.5">
                   <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
@@ -336,7 +340,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
         {/* Footer */}
         <div className="px-6 pb-5 flex justify-end gap-3">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="px-4 py-2.5 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50 transition-colors"
           >
             Close

@@ -1,0 +1,44 @@
+# Development-only overrides and extras.
+# Use:  docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Or simply: docker compose -f docker-compose.dev.yml up -d minio  (MinIO standalone)
+
+services:
+  # S3-compatible object storage for local development & testing.
+  # API: http://localhost:9000 (S3-compatible)
+  # Console: http://localhost:9001 (web UI: minioadmin / minioadmin)
+  minio:
+    image: minio/minio:latest
+    container_name: leap_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot job: create the dev bucket on first run.
+  minio_init:
+    image: minio/mc:latest
+    container_name: leap_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+        mc mb -p local/${STORAGE_S3_BUCKET:-leap-dev} || true &&
+        mc anonymous set download local/${STORAGE_S3_BUCKET:-leap-dev} || true &&
+        echo 'MinIO bucket ready: ${STORAGE_S3_BUCKET:-leap-dev}'
+      "
+
+volumes:
+  minio_data:
+    driver: local

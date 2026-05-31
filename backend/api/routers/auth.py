@@ -25,7 +25,6 @@ from api.schemas.auth import (
     UserUpdate,
 )
 from config.settings import get_settings
-from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
 from utils.thumbnail_manager import get_thumbnail_manager
 
@@ -75,22 +74,10 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
     await config_repo.create(user_id=user.id, config_data=default_config)
     logger.info(f"Created default config for user: user_id={user.id}")
 
-    # Create user directories
-    # TODO(S3): Replace with backend operations when S3 support added
-    # For now: direct directory creation (LOCAL only)
-    storage_builder = StoragePathBuilder()
-    user_root = storage_builder.user_root(user.user_slug)
-    user_root.mkdir(parents=True, exist_ok=True)
-
-    # Create thumbnails directory for user thumbnails
-    user_thumbnails = storage_builder.user_thumbnails_dir(user.user_slug)
-    user_thumbnails.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"Created user directories: {user_root}")
-
-    # Initialize thumbnails (copy all shared templates)
+    # Storage backend creates per-user prefixes lazily on first write — no
+    # mkdir step needed. Initialize thumbnails by copying shared templates.
     thumbnail_manager = get_thumbnail_manager()
-    thumbnail_manager.initialize_user_thumbnails(user.user_slug, copy_templates=True)
+    await thumbnail_manager.initialize_user_thumbnails(user.user_slug, copy_templates=True)
 
     await session.commit()
 

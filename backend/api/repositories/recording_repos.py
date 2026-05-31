@@ -1,8 +1,6 @@
 """Async recording repository with multi-tenancy"""
 
-import shutil
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -998,37 +996,31 @@ class RecordingRepository:
             )
             return 0
 
+        from file_storage.factory import get_storage_backend
+
+        storage = get_storage_backend()
         total_bytes = 0
 
-        # Delete original video
-        if recording.local_video_path and Path(recording.local_video_path).exists():
+        async def _delete_storage_key(label: str, key: str | None) -> int:
+            """Delete a single storage object, return bytes freed (0 on miss/error)."""
+            if not key:
+                return 0
             try:
-                size = Path(recording.local_video_path).stat().st_size
-                Path(recording.local_video_path).unlink()
-                total_bytes += size
-                logger.debug(f"Deleted local_video_path: {recording.local_video_path} ({size} bytes)")
+                if not await storage.exists(key):
+                    return 0
+                size = await storage.get_size(key)
+                await storage.delete(key)
+                logger.debug(f"Deleted {label}: {key} ({size} bytes)")
+                return size
             except Exception as e:
-                logger.warning(f"Failed to delete local_video: path={recording.local_video_path} | error={e}")
+                logger.warning(f"Failed to delete {label}: key={key} | error={e}")
+                return 0
 
-        # Delete processed video
-        if recording.processed_video_path and Path(recording.processed_video_path).exists():
-            try:
-                size = Path(recording.processed_video_path).stat().st_size
-                Path(recording.processed_video_path).unlink()
-                total_bytes += size
-                logger.debug(f"Deleted processed_video_path: {recording.processed_video_path} ({size} bytes)")
-            except Exception as e:
-                logger.warning(f"Failed to delete processed_video: path={recording.processed_video_path} | error={e}")
-
-        # Delete audio
-        if recording.processed_audio_path and Path(recording.processed_audio_path).exists():
-            try:
-                size = Path(recording.processed_audio_path).stat().st_size
-                Path(recording.processed_audio_path).unlink()
-                total_bytes += size
-                logger.debug(f"Deleted processed_audio_path: {recording.processed_audio_path} ({size} bytes)")
-            except Exception as e:
-                logger.warning(f"Failed to delete audio: path={recording.processed_audio_path} | error={e}")
+        total_bytes += await _delete_storage_key("local_video_path", recording.local_video_path)
+        # processed video may share the source key (no-trim case) — skip duplicate delete.
+        if recording.processed_video_path and recording.processed_video_path != recording.local_video_path:
+            total_bytes += await _delete_storage_key("processed_video_path", recording.processed_video_path)
+        total_bytes += await _delete_storage_key("processed_audio_path", recording.processed_audio_path)
 
         # Clear paths in DB
         recording.local_video_path = None
@@ -1057,16 +1049,27 @@ class RecordingRepository:
         if recording.delete_state != "hard":
             total_bytes += await self.cleanup_recording_files(recording)
 
-        # Delete transcription directory (master.json, extracted.json, etc)
-        if recording.transcription_dir and Path(recording.transcription_dir).exists():
+        # Delete transcription directory (master.json, extracted.json, cache/*) via storage.
+        # transcription_dir is stored as a builder path like ``storage/users/.../transcriptions``;
+        # normalize to a storage key prefix and bulk-delete every object underneath.
+        if recording.transcription_dir:
+            from file_storage.factory import get_storage_backend
+            from file_storage.path_builder import to_storage_key
+
+            storage = get_storage_backend()
+            tx_prefix = to_storage_key(recording.transcription_dir)
             try:
-                dir_path = Path(recording.transcription_dir)
-                dir_size = sum(f.stat().st_size for f in dir_path.rglob("*") if f.is_file())
-                shutil.rmtree(dir_path)
-                total_bytes += dir_size
-                logger.debug(f"Deleted transcription_dir: {recording.transcription_dir} ({dir_size} bytes)")
+                keys = await storage.list_keys(tx_prefix)
+                for key in keys:
+                    try:
+                        size = await storage.get_size(key)
+                        if await storage.delete(key):
+                            total_bytes += size
+                    except Exception as exc:
+                        logger.debug(f"Skipped {key} during transcription cleanup: {exc}")
+                logger.debug(f"Deleted transcription prefix: {tx_prefix} ({total_bytes} bytes total after dir)")
             except Exception as e:
-                logger.warning(f"Failed to delete transcription_dir: path={recording.transcription_dir} | error={e}")
+                logger.warning(f"Failed to delete transcription_dir: prefix={tx_prefix} | error={e}")
 
         # Delete from DB
         await self.session.delete(recording)

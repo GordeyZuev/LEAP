@@ -67,6 +67,31 @@ These apply to **code, APIs, and docs**.
 
 ---
 
+## Storage (S3-first)
+
+Since v0.10.0 all persistent media (`source.mp4`, processed `video.mp4`, `audio.mp3`,
+`master.json`, `extracted.json`, subtitle/segment caches, thumbnails) live in the
+storage backend — Yandex Object Storage in production, MinIO for local dev.
+The local filesystem is used **only** for ephemeral temp files used by FFmpeg /
+Fireworks ASR / platform SDKs.
+
+- **DB fields** `local_video_path`, `processed_video_path`, `processed_audio_path`,
+  `transcription_dir` hold **storage keys** (not absolute paths).
+- **All I/O** goes through `file_storage.get_storage_backend()`. Don't `Path.open()`
+  recording artifacts directly — use `storage.save/load/save_file/download_to_file`.
+- **Async**: `TranscriptionManager`, `SubtitleGenerator`, `ThumbnailManager` are async.
+  Synchronous callers (e.g. Jinja `prepare_recording_context`) must accept
+  pre-loaded data via parameters; do not call the manager from sync code.
+- **Pipeline pattern** for FFmpeg/ASR: download key → temp → process → upload temp → S3,
+  cleanup temp in `finally`. Beat task `maintenance.cleanup_temp_files` sweeps
+  orphans hourly.
+- **Frontend video** uses presigned URLs from `GET /api/v1/recordings/{id}/media`
+  (`{ url, expires_in }`). Don't proxy video bytes through the API.
+- **CORS** on the bucket must allow GET from the production frontend origin so
+  presigned URLs play in `<video>`.
+
+---
+
 ## Local debugging signals
 
 - API / app: `backend/logs/app.log`

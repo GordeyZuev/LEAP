@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import shutil
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 
 from api.auth.dependencies import check_user_quotas
@@ -99,9 +97,28 @@ _VIDEO_MEDIA_TYPES: dict[str, str] = {
 }
 
 
-def _recording_video_fs_path(recording: RecordingModel, media_kind: Literal["original", "processed"]) -> Path | None:
+def _recording_video_storage_key(recording: RecordingModel, media_kind: Literal["original", "processed"]) -> str | None:
+    """Return the storage key for a recording's video, or None if missing.
+
+    DB columns ``local_video_path`` / ``processed_video_path`` store storage keys
+    (post-S3-migration). For legacy rows starting with ``storage/`` the backend
+    ``_resolve`` strips the prefix.
+    """
     raw = recording.local_video_path if media_kind == "original" else recording.processed_video_path
-    return Path(raw) if raw else None
+    return raw if raw else None
+
+
+async def _storage_file_info(storage_key: str | None) -> dict[str, Any]:
+    """Return ``{path, exists, size_mb}`` for a storage key (None ⇒ empty dict)."""
+    if not storage_key:
+        return {}
+    from file_storage.factory import get_storage_backend
+
+    storage = get_storage_backend()
+    if not await storage.exists(storage_key):
+        return {"path": storage_key, "exists": False, "size_mb": None}
+    size = await storage.get_size(storage_key)
+    return {"path": storage_key, "exists": True, "size_mb": round(size / (1024 * 1024), 2)}
 
 
 # ============================================================================
@@ -250,7 +267,7 @@ async def export_recordings(
         txn_mgr = get_transcription_manager()
         for r in recordings:
             try:
-                active = txn_mgr.get_active_extracted(r.id, r.owner.user_slug)
+                active = await txn_mgr.get_active_extracted(r.id, r.owner.user_slug)
                 q = active.get("questions") if active else None
                 questions_by_id[r.id] = q if isinstance(q, list) else None
             except Exception:
@@ -299,8 +316,17 @@ async def get_recording_media(
         description="original = source/local file; processed = pipeline output when present",
     ),
     ctx: ServiceContext = Depends(get_service_context),
-) -> FileResponse:
-    """Stream recording video (supports Range requests for seeking)."""
+) -> dict:
+    """Return a time-limited presigned URL for direct video streaming.
+
+    The frontend should plug the ``url`` into ``<video src={url}>`` — the browser
+    will use HTTP Range requests against Object Storage natively, with no API
+    proxying. The URL expires after ``expires_in`` seconds, after which the
+    frontend can simply refetch this endpoint.
+    """
+    from config.settings import get_settings
+    from file_storage.factory import get_storage_backend
+
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
     if not recording:
@@ -309,17 +335,23 @@ async def get_recording_media(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    video_path = _recording_video_fs_path(recording, media_kind)
-    if video_path is None or not video_path.is_file():
+    storage_key = _recording_video_storage_key(recording, media_kind)
+    if not storage_key:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Video file not available for this recording",
         )
 
-    suffix = video_path.suffix.lower()
-    media_type = _VIDEO_MEDIA_TYPES.get(suffix, "application/octet-stream")
+    storage = get_storage_backend()
+    if not await storage.exists(storage_key):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video file not available for this recording",
+        )
 
-    return FileResponse(path=str(video_path), media_type=media_type, filename=video_path.name)
+    expires_in = get_settings().storage.s3_presign_expires
+    url = await storage.presigned_url(storage_key, expires_in=expires_in)
+    return {"url": url, "expires_in": expires_in}
 
 
 @router.get("/{recording_id}/files/{file_type}")
@@ -327,8 +359,16 @@ async def download_recording_artifact(
     recording_id: int,
     file_type: Literal["srt", "vtt", "transcript_json", "transcript_txt", "transcript_words"],
     ctx: ServiceContext = Depends(get_service_context),
-) -> FileResponse:
-    """Download subtitles or transcription artifacts (attachments)."""
+) -> StreamingResponse:
+    """Download subtitles or transcription artifacts (attachments).
+
+    Small text artifacts are loaded from storage and streamed back; we don't redirect
+    to a presigned URL here because callers expect a Content-Disposition attachment
+    response (browser downloads dialog).
+    """
+    from file_storage.factory import get_storage_backend
+    from file_storage.path_builder import StoragePathBuilder, to_storage_key
+
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
     if not recording:
@@ -337,41 +377,41 @@ async def download_recording_artifact(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    from transcription_module.manager import get_transcription_manager
-
-    transcription_manager = get_transcription_manager()
     user_slug = recording.owner.user_slug
-    tx_dir = transcription_manager.get_dir(recording_id, user_slug)
-    cache_dir = tx_dir / "cache"
+    builder = StoragePathBuilder()
+    tx_dir = builder.transcription_dir(user_slug, recording_id)
+    cache_dir = builder.transcription_cache_dir(user_slug, recording_id)
 
     stem = f"recording-{recording_id}"
 
     if file_type == "srt":
-        path = cache_dir / "subtitles.srt"
+        key = to_storage_key(cache_dir / "subtitles.srt")
         media_type = "application/x-subrip"
         attachment_name = f"{stem}.srt"
     elif file_type == "vtt":
-        path = cache_dir / "subtitles.vtt"
+        key = to_storage_key(cache_dir / "subtitles.vtt")
         media_type = "text/vtt"
         attachment_name = f"{stem}.vtt"
     elif file_type == "transcript_json":
-        path = tx_dir / "master.json"
+        key = to_storage_key(tx_dir / "master.json")
         media_type = "application/json"
         attachment_name = f"{stem}_transcript.json"
     elif file_type == "transcript_txt":
-        path = cache_dir / "segments.txt"
+        key = to_storage_key(cache_dir / "segments.txt")
         media_type = "text/plain; charset=utf-8"
         attachment_name = f"{stem}_transcript.txt"
     else:
-        path = cache_dir / "words.txt"
+        key = to_storage_key(cache_dir / "words.txt")
         media_type = "text/plain; charset=utf-8"
         attachment_name = f"{stem}_words.txt"
 
-    if not path.is_file():
+    storage = get_storage_backend()
+    if not await storage.exists(key):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
-    return FileResponse(
-        path=str(path),
+    content = await storage.load(key)
+    return StreamingResponse(
+        iter([content]),
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{attachment_name}"'},
     )
@@ -494,48 +534,33 @@ async def get_recording(
         "updated_at": recording.updated_at,
     }
 
-    # Video files
+    # Video files (storage keys, looked up via backend)
     videos = {}
     if recording.local_video_path:
-        path = Path(recording.local_video_path)
-        videos["original"] = {
-            "path": str(path),
-            "size_mb": round(path.stat().st_size / (1024 * 1024), 2) if path.exists() else None,
-            "exists": path.exists(),
-        }
+        videos["original"] = await _storage_file_info(recording.local_video_path)
     if recording.processed_video_path:
-        path = Path(recording.processed_video_path)
-        videos["processed"] = {
-            "path": str(path),
-            "size_mb": round(path.stat().st_size / (1024 * 1024), 2) if path.exists() else None,
-            "exists": path.exists(),
-        }
+        videos["processed"] = await _storage_file_info(recording.processed_video_path)
 
-    # Audio files
-    audio_info = {}
-    if recording.processed_audio_path:
-        audio_path = Path(recording.processed_audio_path)
-        if audio_path.exists():
-            audio_info = {
-                "path": str(audio_path),
-                "size_mb": round(audio_path.stat().st_size / (1024 * 1024), 2),
-                "exists": True,
-            }
-        else:
-            audio_info = {
-                "path": str(audio_path),
-                "exists": False,
-                "size_mb": None,
-            }
+    # Audio file
+    audio_info = await _storage_file_info(recording.processed_audio_path) if recording.processed_audio_path else {}
 
     # Get user_slug for transcription paths
     user_slug = recording.owner.user_slug
 
+    # Pre-compute storage keys for transcription artifacts (used both for "files" map and for size lookups).
+    from file_storage.factory import get_storage_backend
+    from file_storage.path_builder import to_storage_key
+
+    storage = get_storage_backend()
+    tx_dir = transcription_manager.get_dir(recording_id, user_slug)
+    master_key = to_storage_key(tx_dir / "master.json")
+    segments_key = to_storage_key(tx_dir / "cache" / "segments.txt")
+    words_key = to_storage_key(tx_dir / "cache" / "words.txt")
+
     # Transcription (hide _metadata and model from user)
-    transcription_data = None
-    if transcription_manager.has_master(recording_id, user_slug):
+    if await transcription_manager.has_master(recording_id, user_slug):
         try:
-            master = transcription_manager.load_master(recording_id, user_slug)
+            master = await transcription_manager.load_master(recording_id, user_slug)
             transcription_data = {
                 "exists": True,
                 "created_at": master.get("created_at"),
@@ -543,11 +568,9 @@ async def get_recording(
                 # Hide model from user (exists in _metadata for admin)
                 "stats": master.get("stats"),
                 "files": {
-                    "master": str(transcription_manager.get_dir(recording_id, user_slug) / "master.json"),
-                    "segments_txt": str(
-                        transcription_manager.get_dir(recording_id, user_slug) / "cache" / "segments.txt"
-                    ),
-                    "words_txt": str(transcription_manager.get_dir(recording_id, user_slug) / "cache" / "words.txt"),
+                    "master": master_key,
+                    "segments_txt": segments_key,
+                    "words_txt": words_key,
                 },
             }
         except Exception as e:
@@ -557,16 +580,14 @@ async def get_recording(
         transcription_data = {"exists": False}
 
     # Topics (all versions) from extracted.json - hide _metadata from user
-    topics_data = None
-    if transcription_manager.has_extracted(recording_id, user_slug):
+    if await transcription_manager.has_extracted(recording_id, user_slug):
         try:
-            extracted_file = transcription_manager.load_extracted(recording_id, user_slug)
+            extracted_file = await transcription_manager.load_extracted(recording_id, user_slug)
 
             # Clean versions from administrative metadata
-            versions_clean = []
-            for version in extracted_file.get("versions", []):
-                version_clean = {k: v for k, v in version.items() if k != "_metadata"}
-                versions_clean.append(version_clean)
+            versions_clean = [
+                {k: v for k, v in version.items() if k != "_metadata"} for version in extracted_file.get("versions", [])
+            ]
 
             topics_data = {
                 "exists": True,
@@ -581,14 +602,17 @@ async def get_recording(
 
     # Subtitles
     subtitles = {}
-    cache_dir = transcription_manager.get_dir(recording_id, user_slug) / "cache"
     for fmt in ["srt", "vtt"]:
-        subtitle_path = cache_dir / f"subtitles.{fmt}"
-        subtitles[fmt] = {
-            "path": str(subtitle_path) if subtitle_path.exists() else None,
-            "exists": subtitle_path.exists(),
-            "size_kb": round(subtitle_path.stat().st_size / 1024, 2) if subtitle_path.exists() else None,
-        }
+        sub_key = to_storage_key(tx_dir / "cache" / f"subtitles.{fmt}")
+        if await storage.exists(sub_key):
+            size_bytes = await storage.get_size(sub_key)
+            subtitles[fmt] = {
+                "path": sub_key,
+                "exists": True,
+                "size_kb": round(size_bytes / 1024, 2),
+            }
+        else:
+            subtitles[fmt] = {"path": None, "exists": False, "size_kb": None}
 
     # Processing stages detailed (with metadata and timestamps)
     processing_stages_detailed = None
@@ -734,18 +758,22 @@ async def add_local_recording(
 
         await ctx.session.flush()  # Get recording.id
 
-        final_path = storage_builder.recording_source(user.user_slug, created_recording.id, suffix=source_suffix)
-        final_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(temp_path), str(final_path))
+        from file_storage.factory import get_storage_backend
+        from file_storage.path_builder import to_storage_key as _to_storage_key
 
-        created_recording.local_video_path = str(final_path)
+        target_key = _to_storage_key(
+            storage_builder.recording_source(user.user_slug, created_recording.id, suffix=source_suffix)
+        )
+        await get_storage_backend().save_file(target_key, temp_path)
+
+        created_recording.local_video_path = target_key
         await ctx.session.commit()
 
         return {
             "success": True,
             "recording_id": created_recording.id,
             "display_name": created_recording.display_name,
-            "local_video_path": str(final_path),
+            "local_video_path": target_key,
         }
 
     except Exception as e:
@@ -1748,7 +1776,9 @@ async def download_recording(
         )
 
     if not force and recording.status == ProcessingStatus.DOWNLOADED and recording.local_video_path:
-        if Path(recording.local_video_path).exists():
+        from file_storage.factory import get_storage_backend as _storage_for_skip
+
+        if await _storage_for_skip().exists(recording.local_video_path):
             return {
                 "success": True,
                 "message": "Recording already downloaded",
@@ -1809,10 +1839,12 @@ async def trim_recording(
             detail="No video file available. Please download the recording first.",
         )
 
-    if not Path(recording.local_video_path).exists():
+    from file_storage.factory import get_storage_backend as _storage_for_trim
+
+    if not await _storage_for_trim().exists(recording.local_video_path):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Video file not found at path: {recording.local_video_path}",
+            detail=f"Video file not found at storage key: {recording.local_video_path}",
         )
 
     # Build manual override from config
@@ -2119,10 +2151,12 @@ async def transcribe_recording(
 
     audio_path = recording.processed_video_path or recording.local_video_path
 
-    # Check if file exists
-    if not Path(audio_path).exists():
+    # Check if file exists in storage backend
+    from file_storage.factory import get_storage_backend as _storage_for_transcribe
+
+    if not await _storage_for_transcribe().exists(audio_path):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Video file not found at path: {audio_path}"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Video file not found in storage: {audio_path}"
         )
 
     if use_batch_api:
@@ -2212,10 +2246,13 @@ async def upload_recording(
 
     video_path = recording.processed_video_path
 
-    # Check if file exists
-    if not Path(video_path).exists():
+    # Check if file exists in storage backend
+    from file_storage.factory import get_storage_backend as _storage_for_upload
+
+    if not await _storage_for_upload().exists(video_path):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Processed video file not found at path: {video_path}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Processed video file not found in storage: {video_path}",
         )
 
     # Start async task
@@ -2532,8 +2569,6 @@ async def reset_recording(
     ctx: ServiceContext = Depends(get_service_context),
 ) -> ResetRecordingResponse:
     """Reset recording to initial state, optionally deleting all processed files."""
-    from pathlib import Path
-
     from sqlalchemy import delete
 
     from database.models import OutputTargetModel, ProcessingStageModel
@@ -2553,48 +2588,40 @@ async def reset_recording(
     deleted_files = []
     errors = []
 
-    # Delete files if requested
+    # Delete files via storage backend (works for both LOCAL and S3).
     if delete_files:
-        files_to_delete = []
+        from file_storage.factory import get_storage_backend as _storage_for_reset
+        from file_storage.path_builder import to_storage_key as _to_key
 
-        # Local video
-        if recording.local_video_path:
-            files_to_delete.append(("local_video", recording.local_video_path))
+        storage = _storage_for_reset()
 
-        # Processed video
-        if recording.processed_video_path:
-            files_to_delete.append(("processed_video", recording.processed_video_path))
-
-        # Processed audio file
-        if recording.processed_audio_path:
-            audio_file = Path(recording.processed_audio_path)
-            if audio_file.exists():
-                # Delete file and its parent directory if it is empty
-                files_to_delete.append(("processed_audio_file", str(audio_file)))
-                audio_dir = audio_file.parent
-                if audio_dir.exists() and not any(audio_dir.iterdir()):
-                    files_to_delete.append(("empty_audio_dir", str(audio_dir)))
-
-        # Transcription directory
-        if recording.transcription_dir:
-            files_to_delete.append(("transcription_dir", recording.transcription_dir))
-
-        # Delete files
-        for file_type, file_path in files_to_delete:
+        async def _delete_key(label: str, key: str | None) -> None:
+            if not key:
+                return
             try:
-                path = Path(file_path)
-                if path.exists():
-                    if path.is_dir():
-                        import shutil
+                if await storage.exists(key) and await storage.delete(key):
+                    deleted_files.append({"type": label, "path": key, "is_dir": False})
+            except Exception as exc:
+                errors.append({"type": label, "path": key, "error": str(exc)})
+                logger.error(f"Failed to delete | {format_details(type=label, path=key, error=str(exc))}")
 
-                        shutil.rmtree(path)
-                        deleted_files.append({"type": file_type, "path": str(path), "is_dir": True})
-                    else:
-                        path.unlink()
-                        deleted_files.append({"type": file_type, "path": str(path), "is_dir": False})
-            except Exception as e:
-                errors.append({"type": file_type, "path": file_path, "error": str(e)})
-                logger.error(f"Failed to delete file | {format_details(type=file_type, path=file_path, error=str(e))}")
+        await _delete_key("local_video", recording.local_video_path)
+        if recording.processed_video_path and recording.processed_video_path != recording.local_video_path:
+            await _delete_key("processed_video", recording.processed_video_path)
+        await _delete_key("processed_audio_file", recording.processed_audio_path)
+
+        # Transcription artifacts are a prefix (master.json, extracted.json, cache/*).
+        if recording.transcription_dir:
+            tx_prefix = _to_key(recording.transcription_dir)
+            try:
+                for k in await storage.list_keys(tx_prefix):
+                    if await storage.delete(k):
+                        deleted_files.append({"type": "transcription_artifact", "path": k, "is_dir": False})
+            except Exception as exc:
+                errors.append({"type": "transcription_dir", "path": tx_prefix, "error": str(exc)})
+                logger.error(
+                    f"Failed to delete transcription prefix | {format_details(prefix=tx_prefix, error=str(exc))}"
+                )
 
     # Clear recording metadata
     recording.local_video_path = None

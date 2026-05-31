@@ -1,4 +1,10 @@
-"""Base downloader classes and data structures."""
+"""Base downloader classes and data structures.
+
+Downloaders stream remote video into a **local temp file** and then commit it
+to the storage backend (S3 or LOCAL) via ``save_file``. Resume of partial
+downloads happens against the temp file — once committed, the file lives only
+in storage.
+"""
 
 import asyncio
 from abc import ABC, abstractmethod
@@ -8,7 +14,8 @@ from typing import Any
 
 import httpx
 
-from file_storage.path_builder import StoragePathBuilder
+from file_storage.factory import get_storage_backend
+from file_storage.path_builder import StoragePathBuilder, to_storage_key
 from logger import get_logger
 
 logger = get_logger()
@@ -16,12 +23,24 @@ logger = get_logger()
 
 @dataclass
 class DownloadResult:
-    """Video download result."""
+    """Video download result.
 
-    file_path: Path
+    ``storage_key`` is the canonical storage key (e.g.
+    ``users/000001/recordings/42/source.mp4``); use this for DB writes.
+    ``file_path`` is kept for backward compat with callers that haven't been
+    updated yet — for the local backend it points at the actual file on disk,
+    for S3 it equals the storage key.
+    """
+
+    storage_key: str
     file_size: int
     duration: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def file_path(self) -> Path:
+        """Backward-compat accessor; callers should migrate to ``storage_key``."""
+        return Path(self.storage_key)
 
 
 class BaseDownloader(ABC):
@@ -38,12 +57,42 @@ class BaseDownloader(ABC):
         source_meta: dict[str, Any],
         force: bool = False,
     ) -> DownloadResult:
-        """Download video file. Returns DownloadResult with file path and metadata."""
+        """Download video file. Returns DownloadResult with storage_key and metadata."""
 
     def _get_target_path(self, recording_id: int, source_suffix: str = ".mp4") -> Path:
-        """Target path under recording folder (default aligns with Zoom MP4 naming)."""
+        """Path-builder Path under recording folder (default aligns with Zoom MP4 naming).
+
+        This is a path/key generator only — no file is written here. Subclasses
+        use :meth:`_get_target_key` for the storage key form, or pass the Path
+        through :func:`to_storage_key` themselves.
+        """
         suf = source_suffix if source_suffix.startswith(".") else f".{source_suffix}"
         return self.storage.recording_source(self.user_slug, recording_id, suffix=suf)
+
+    def _get_target_key(self, recording_id: int, source_suffix: str = ".mp4") -> str:
+        """Storage key for the recording's source video (canonical form)."""
+        return to_storage_key(self._get_target_path(recording_id, source_suffix))
+
+    def _new_temp_path(self, source_suffix: str = ".mp4") -> Path:
+        """Allocate a unique local temp file for streaming downloads."""
+        suf = source_suffix if source_suffix.startswith(".") else f".{source_suffix}"
+        return self.storage.create_temp_file(prefix="dl_", suffix=suf)
+
+    async def _commit_temp_to_storage(self, temp_path: Path, target_key: str) -> int:
+        """Move the temp file into storage and return final size in bytes.
+
+        Returns size from the temp file before commit (cheap stat). After this
+        call the temp file is consumed (moved on LOCAL backend, uploaded+deleted
+        in the caller's finally on S3).
+        """
+        size = temp_path.stat().st_size
+        storage = get_storage_backend()
+        await storage.save_file(target_key, temp_path)
+        # ``save_file`` consumes the temp file on the LOCAL backend (shutil.move);
+        # on S3 the file is uploaded but the local copy remains. Ensure cleanup.
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        return size
 
     async def _download_url(
         self,
@@ -57,7 +106,12 @@ class BaseDownloader(ABC):
         description: str = "file",
         source_name: str | None = None,
     ) -> bool:
-        """Generic httpx streaming download with resume support and retries."""
+        """Stream a remote URL into ``filepath`` with resume support.
+
+        ``filepath`` should be a **local temp file**; caller is responsible for
+        committing successfully-downloaded contents to storage via
+        :meth:`_commit_temp_to_storage` and for deleting the temp on failure.
+        """
         headers = dict(headers) if headers else {}
         params = dict(params) if params else {}
         cookies = dict(cookies) if cookies else {}
@@ -167,7 +221,7 @@ class BaseDownloader(ABC):
         total_size: int | None = None,
         source_name: str | None = None,
     ) -> bool:
-        """Validates downloaded file size plus container sniff (handles WebM bytes saved as *.mp4)."""
+        """Validate downloaded file size + container sniff (catches WebM saved as ``*.mp4``)."""
         try:
             from config.settings import get_settings
             from utils.pipeline_video_formats import ingress_validate_saved_media

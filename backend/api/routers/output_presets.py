@@ -20,6 +20,9 @@ from api.schemas.template import (
     PresetListResponse,
     PresetRenderPreviewRequest,
 )
+from logger import get_logger
+
+logger = get_logger()
 
 router = APIRouter(prefix="/api/v1/presets", tags=["Output Presets"])
 
@@ -76,10 +79,21 @@ async def preview_preset_metadata_render(
         recording = await recording_repo.get_by_id(data.recording_id, current_user.id)
         if not recording:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+        # Pre-load extracted (topics/summary) so prepare_recording_context can stay sync.
+        from transcription_module.manager import get_transcription_manager
+
+        owner = getattr(recording, "owner", None)
+        extracted = None
+        if owner is not None and getattr(owner, "user_slug", None) is not None:
+            try:
+                extracted = await get_transcription_manager().get_active_extracted(recording.id, owner.user_slug)
+            except Exception as exc:
+                logger.debug("Could not load extracted for preview: %s", exc)
         ctx = TemplateRenderer.prepare_recording_context(
             recording,
             topics_display=data.topics_display,
             questions_display=data.questions_display,
+            extracted_data=extracted,
         )
     else:
         ctx = build_stub_validation_context()

@@ -2,7 +2,81 @@
 
 ---
 
-## v0.9.7.0 (2026-05-20)
+## v0.10.0 (2026-05-30)
+
+**Релиз:** S3-first архитектура + production-ready инфраструктура на Yandex Cloud.
+
+Видео и все pipeline-артефакты переехали в Object Storage; локальный диск
+используется только для эфемерных temp-файлов FFmpeg/Fireworks. Подняты nginx
+(HTTPS), Grafana + Loki + Promtail, CI/CD на GitHub Actions с пушем в Yandex
+Container Registry.
+
+---
+
+## 2026-05-30: S3-first storage + production infra
+
+- **Storage backend** — `S3StorageBackend` (aioboto3) с полной поддержкой Yandex Object Storage: `save_file`/`download_to_file` (multipart автомат для >8MB), `presigned_url` (SigV4), `list_keys` с пагинацией. `LocalStorageBackend` переопределяет операции через `shutil.move`/`copy2` для нулевого overhead на dev. Совместимость с легаси-путями (`storage/users/...`) через `to_storage_key()`.
+- **Pipeline migration** — весь download/trim/transcribe/upload-флоу через `storage_backend.save_file/download_to_file` + локальные temp-файлы. FFmpeg/Fireworks работают на временных файлах, итог в S3. `processed_video_path`, `processed_audio_path`, `local_video_path`, `transcription_dir` хранят **storage keys**, не absolute paths.
+- **Async managers** — `TranscriptionManager`, `SubtitleGenerator`, `ThumbnailManager` переписаны на async + `StorageBackend`. Все вызовы из `processing.py`, `upload.py`, `recordings.py` обернуты в `await`. `TemplateRenderer.prepare_recording_context` принимает `extracted_data` параметр — sync-вызов TM убран.
+- **Video streaming** — `GET /api/v1/recordings/{id}/media?type=...` возвращает `{url, expires_in}` (presigned URL). Frontend играет `<video src={url}>` напрямую с поддержкой Range-запросов; backend не проксирует видеотрафик. CORS на бакет — для прохождения preflight в браузере.
+- **Storage stream endpoint** — `GET /api/v1/storage/stream?key=...` для LOCAL backend (dev): backend стримит файл с access-проверкой. Multi-tenancy: ключ должен начинаться с `users/user_XXXXXX/` текущего юзера или `shared/`.
+- **Hard delete + cleanup** — `RecordingRepository.cleanup_recording_files` и `delete()` удаляют через `storage.delete()` и `storage.list_keys()`. Beat-задача `cleanup_recording_files`/`hard_delete_recordings` (запуск ежедневно) работает с S3 без изменений.
+- **`cleanup_temp_files` Beat task** — ежечасно подметает осиротевшие файлы в `storage/temp/` старше 6h. Страховка от OOM/SIGKILL.
+- **Yandex Disk downloader** — `_stream_file_with_client` и `_download_yandex_api_href` пишут в temp, потом `_commit_temp_to_storage`. Public-share + API-href ветки сохранены.
+- **YaDisk upload extras** — `_upload_extra_files_to_yadisk` скачивает `segments.txt` / субтитры из storage в temp перед загрузкой на Yandex Disk.
+- **Reverse proxy** — `nginx/nginx.conf` (HTTPS, HSTS, basic auth для `/flower`, `/grafana`) и `nginx.bootstrap.conf` (HTTP-only для первичной выдачи certbot). Видео не проходит через nginx — играется напрямую из Object Storage.
+- **Grafana / Loki / Promtail** — observability stack в `docker-compose.yml`: Loki (30-day retention, filesystem chunks), Promtail (parsing loguru text + structured JSON), Grafana (auto-provision Loki datasource + стартовый dashboard «LEAP Overview»).
+- **Frontend Dockerfile** — multi-stage build (Next.js `output: 'standalone'`), non-root user, ~150MB финальный образ.
+- **CI/CD** — `.github/workflows/ci.yml` (PR: ruff + ty + pytest backend + lint/build frontend), `.github/workflows/deploy.yml` (push main: build → push в `cr.yandex/<id>/leap-{backend,frontend}` → SSH-deploy на VM).
+- **MinIO для dev** — `docker-compose.dev.yml` поднимает MinIO + автосоздание бакета `leap-dev` через `mc`. Поддержка presigned URLs идентична production.
+- **Tests** — 12 integration-тестов против реального MinIO (HTTP, multipart 12MB, presigned URL, pagination, full TranscriptionManager + SubtitleGenerator flow). +12 unit-тестов через moto + `_FakeStorage` для async менеджеров.
+
+### Файлы
+
+- `backend/file_storage/backends/{base,local,s3}.py`, `backend/file_storage/factory.py`, `backend/file_storage/path_builder.py`, `backend/file_storage/__init__.py`
+- `backend/transcription_module/manager.py`, `backend/subtitle_module/subtitle_generator.py`, `backend/utils/thumbnail_manager.py`
+- `backend/video_download_module/core/base.py`, `backend/video_download_module/downloader.py`, `backend/video_download_module/platforms/ytdlp/downloader.py`, `backend/video_download_module/platforms/yadisk/downloader.py`
+- `backend/api/tasks/processing.py`, `backend/api/tasks/upload.py`, `backend/api/tasks/maintenance.py`, `backend/api/celery_app.py`
+- `backend/api/routers/recordings.py`, `backend/api/routers/thumbnails.py`, `backend/api/routers/storage.py` (**new**), `backend/api/routers/templates.py`, `backend/api/routers/output_presets.py`, `backend/api/routers/auth.py`
+- `backend/api/repositories/recording_repos.py`, `backend/api/helpers/template_renderer.py`
+- `backend/api/main.py` (storage router)
+- `backend/config/settings.py` (presign_expires)
+- `backend/.env.example`, `backend/pyproject.toml` (+aioboto3, moto[s3,server])
+- `frontend/next.config.ts` (output: standalone), `frontend/Dockerfile` (**new**), `frontend/.dockerignore` (**new**)
+- `frontend/src/app/(app)/recordings/[id]/page.tsx` (presigned URL вместо blob download)
+- `docker-compose.yml` (nginx, frontend, loki, promtail, grafana, resource limits, image refs `cr.yandex/...`)
+- `docker-compose.dev.yml` (**new** — MinIO)
+- `nginx/{nginx.conf,nginx.bootstrap.conf,README.md}` (**new**)
+- `monitoring/{loki.yml,promtail.yml,grafana_datasources.yml,grafana_dashboards.yml,dashboards/leap_overview.json}` (**new**)
+- `.github/workflows/{ci.yml,deploy.yml}` (**new**)
+- `backend/docs/guides/DEPLOYMENT.md` (полностью переписан под YC + S3-first)
+- `CLAUDE.md` (раздел Storage)
+- `backend/tests/unit/file_storage/{test_local_backend.py,test_s3_backend.py,test_path_builder.py}` (**new**)
+- `backend/tests/unit/modules/test_transcription_manager.py` (async + `_FakeStorage`)
+- `backend/tests/unit/api/test_yadisk_extra_files.py` (storage-aware)
+- `backend/tests/integration/test_s3_minio_e2e.py` (**new** — 12 e2e tests)
+
+### Deploy notes
+
+- **Storage backend type** — впервые поддерживается production-режим `STORAGE_TYPE=S3`. Существующие prod-инсталляции на `LOCAL` продолжают работать без изменений; миграция данных делается одноразовым скриптом `aws s3 cp --recursive` (см. `DEPLOYMENT.md`).
+- **Container Registry** — образы публикуются в `cr.yandex/<YC_REGISTRY_ID>/leap-{backend,frontend}`. Чтобы VM могла pull без `docker login`, привяжите сервисный аккаунт с ролью `container-registry.images.puller` к VM.
+- **Required env vars (новые)** — `STORAGE_S3_PRESIGN_EXPIRES`, `YC_REGISTRY_ID`, `IMAGE_TAG`, `GRAFANA_USER`, `GRAFANA_PASSWORD`. См. `backend/.env.example`.
+- **CORS на бакете** — обязательно настроить allowed origin = домен фронтенда, иначе `<video>` не воспроизведёт presigned URL.
+- **Migration order** — нет миграций БД; deploy = `docker compose pull && up -d` (alembic запустится автоматически из entrypoint).
+
+---
+
+## 2026-05-22: Upload deduplication — skip duplicate VK/platform enqueue
+
+- **Upload dedup** — `upload_recording_to_platform` and `launch_uploads` skip a new task when the output target is already `UPLOADING` (within `task_time_limit` + buffer) or `UPLOADED`. Prevents parallel duplicate uploads when the pipeline re-runs or Celery retries after a transient network error.
+- **Retry status** — failed upload attempts no longer mark the output `FAILED` before Celery retries exhaust; final failure still handled in `UploadTask.on_failure`.
+
+### Файлы
+
+- `backend/api/tasks/upload.py`
+- `backend/api/tasks/processing.py`
+
+---
 
 **Релиз:** References API, copy-endpoints для шаблонов/пресетов/автоматизаций, исправление WebM/VP8 pipeline, устойчивость тримминга, фронтенд v0.1.
 
