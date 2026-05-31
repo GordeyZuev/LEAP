@@ -65,10 +65,14 @@ fi
 yc config set folder-id "${FOLDER_ID:?}" || true
 yc container registry configure-docker
 
-# Make `docker pull cr.yandex/...` work for the ubuntu user too.
-mkdir -p /home/ubuntu/.docker
-cp -f /root/.docker/config.json /home/ubuntu/.docker/config.json 2>/dev/null || true
-chown -R ubuntu:ubuntu /home/ubuntu/.docker
+# Configure yc + docker for the ubuntu user too, so GH Actions deploys
+# (SSH as ubuntu → `docker compose pull`) can resolve credentials via the
+# docker-credential-yc helper. yc auto-detects the VM service account from
+# the instance metadata when a profile exists, no token needed.
+sudo -u ubuntu mkdir -p /home/ubuntu/.config/yandex-cloud
+sudo -u ubuntu yc config profile create default >/dev/null 2>&1 || true
+sudo -u ubuntu yc config set folder-id "${FOLDER_ID}" || true
+sudo -u ubuntu yc container registry configure-docker
 
 # --------------------------------------------------------------------------
 # 3. Clone (or update) the repo into /opt/leap
