@@ -121,7 +121,8 @@ deploy-gh-secrets:
 	domain=$$($(DOMAIN_CMD)); \
 	test -n "$$registry_id" -a -n "$$domain" || { echo "  ✗ terraform outputs missing — run 'make deploy' first"; exit 1; }; \
 	tmp=$$(mktemp) && trap "rm -f $$tmp" EXIT; \
-	$(TF) output -raw ci_authorized_key_json > $$tmp; \
+	$(TF) output -raw ci_authorized_key_json \
+	  | jq '.' > $$tmp; \
 	jq -e '.private_key and .service_account_id and .id' $$tmp >/dev/null \
 	  || { echo "  ✗ ci_authorized_key_json is malformed — re-run 'make deploy'"; exit 1; }; \
 	echo "  · YC_SA_JSON_CREDENTIALS"; gh secret set YC_SA_JSON_CREDENTIALS < $$tmp; \

@@ -60,14 +60,15 @@ jobs:
       - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.13"
 
       - name: Enable pnpm via corepack
-        # Pin pnpm — `pnpm@latest` jumps to majors that break Node compat
-        # (e.g. pnpm 11 needs Node 22.13+, and trips `node:sqlite` on older).
+        # Pin to a pnpm 11.x — needed because frontend/pnpm-workspace.yaml uses
+        # `allowBuilds:`, a pnpm 11+ feature. Node 22 satisfies the runtime
+        # requirement (pnpm 11 needs Node 22.13+).
         run: |
           corepack enable
-          corepack prepare pnpm@9.15.4 --activate
+          corepack prepare pnpm@11.5.0 --activate
 
       - name: Cache pnpm store
         uses: actions/cache@v4
