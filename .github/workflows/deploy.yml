@@ -121,7 +121,7 @@ jobs:
             # IAM auth to cr.yandex — the VM's service account is authoritative.
             # Don't mask failure: if yc CLI can't configure docker, the subsequent
             # `docker compose pull` will fail with a cryptic 'unauthorized' error.
-            yc container registry configure-docker --quiet
+            yc container registry configure-docker
 
             # Re-fetch secrets from Lockbox (rotated keys, new OAuth creds, etc.).
             # Cheap on every deploy — picks up any out-of-band rotation.
