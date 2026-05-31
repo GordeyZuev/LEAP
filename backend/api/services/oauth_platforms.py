@@ -1,8 +1,14 @@
-"""OAuth platform configurations"""
+"""OAuth platform configurations.
+
+Configs are loaded lazily on first use and cached per process. Module-level
+pre-loading is intentionally avoided so the worker doesn't emit identical
+warnings four times under ``uvicorn --workers 4``.
+"""
 
 import json
 import os
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from logger import get_logger
@@ -37,6 +43,7 @@ def load_oauth_config(config_path: str) -> dict:
         return json.load(f)
 
 
+@cache
 def create_youtube_config() -> OAuthPlatformConfig:
     """Create YouTube OAuth configuration."""
     config_path = os.getenv("YOUTUBE_OAUTH_CONFIG", "config/oauth_google.json")
@@ -78,6 +85,7 @@ def create_youtube_config() -> OAuthPlatformConfig:
     )
 
 
+@cache
 def create_vk_config() -> OAuthPlatformConfig:
     """Create VK OAuth configuration with support for both old OAuth and new VK ID API."""
     config_path = os.getenv("VK_OAUTH_CONFIG", "config/oauth_vk.json")
@@ -127,6 +135,7 @@ def create_vk_config() -> OAuthPlatformConfig:
     )
 
 
+@cache
 def create_zoom_config() -> OAuthPlatformConfig:
     """Create Zoom OAuth configuration."""
     config_path = os.getenv("ZOOM_OAUTH_CONFIG", "config/oauth_zoom.json")
@@ -161,6 +170,7 @@ def create_zoom_config() -> OAuthPlatformConfig:
     )
 
 
+@cache
 def create_yandex_disk_config() -> OAuthPlatformConfig:
     """Create Yandex Disk OAuth configuration (Yandex ID + Disk REST scopes)."""
     config_path = os.getenv("YANDEX_DISK_OAUTH_CONFIG", "config/oauth_yandex_disk.json")
@@ -204,18 +214,3 @@ def get_platform_config(platform: str) -> OAuthPlatformConfig:
     if platform == "yandex_disk":
         return create_yandex_disk_config()
     raise ValueError(f"Unsupported OAuth platform: {platform}")
-
-
-# Pre-load configs for quick access
-try:
-    YOUTUBE_CONFIG = create_youtube_config()
-    VK_CONFIG = create_vk_config()
-    ZOOM_CONFIG = create_zoom_config()
-    YANDEX_DISK_CONFIG = create_yandex_disk_config()
-    logger.info("OAuth platform configurations loaded successfully")
-except Exception as e:
-    logger.warning(f"Failed to load OAuth configurations: {e}")
-    YOUTUBE_CONFIG = None
-    VK_CONFIG = None
-    ZOOM_CONFIG = None
-    YANDEX_DISK_CONFIG = None

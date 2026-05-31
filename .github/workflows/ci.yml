@@ -19,9 +19,11 @@ jobs:
       run:
         working-directory: backend
 
-    # api.main:lifespan() runs `create_database_if_not_exists()` + `alembic
-    # upgrade head` whenever TestClient(app) enters its context. Unit tests
-    # mock the queries themselves but the lifespan still needs a reachable DB.
+    # Unit tests mock the DB session (mock_db_session in conftest.py) and
+    # don't touch a real Postgres — DB bootstrapping was removed from
+    # api.main:lifespan() and now lives in the `migrate` compose service.
+    # Postgres + redis are kept here for forthcoming integration tests under
+    # tests/integration/ and for any module that connects at import time.
     services:
       postgres:
         image: postgres:16

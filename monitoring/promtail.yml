@@ -1,9 +1,13 @@
-# Promtail ships application logs from the backend container's mounted log volume
-# into Loki. Two jobs:
-#   - app: plain text loguru console logs (multi-line aware via timestamp regex)
-#   - structured: JSON logs (one event per line) → parsed and labelled
+# Promtail ships application logs from the backend container's mounted log
+# volume into Loki.
 #
-# Logs originate in backend/logs/ which is bind-mounted read-only into Promtail.
+# We ingest ONLY the structured JSON sink (backend/logger.py → structured.json)
+# so each event lands in Loki exactly once with rich labels (level, module,
+# task_id, recording_id, user_id, queue).
+#
+# The plain-text *.log files are kept on the VM for human ops (`tail -f`),
+# but are intentionally NOT shipped — they carry the same events and would
+# double every line under another labelset.
 #
 # Production note: ingest is rate-limited by Loki (see limits_config in loki.yml).
 
@@ -19,29 +23,6 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
-  # ---- Plain-text loguru logs --------------------------------------------------
-  - job_name: leap_app
-    static_configs:
-      - targets: [localhost]
-        labels:
-          app: leap
-          source: backend
-          __path__: /logs/*.log
-    pipeline_stages:
-      # Loguru lines look like:  25-02-20 14:30:15 | INFO | module | message
-      - multiline:
-          firstline: '^\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'
-          max_wait_time: 3s
-      - regex:
-          expression: '^(?P<timestamp>\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+\|\s+(?P<level>\w+)\s+\|'
-      - labels:
-          level:
-      - timestamp:
-          source: timestamp
-          format: "06-01-02 15:04:05"
-
-  # ---- Structured JSON logs (production-ready) -------------------------------
-  # backend/logger.py writes structured.json when JSON_LOG_FILE is set.
   - job_name: leap_structured
     static_configs:
       - targets: [localhost]

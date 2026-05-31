@@ -75,7 +75,6 @@
 
 **Frontend & future**
 
-- [guides/FRONTEND_DEVELOPMENT_PLAN.md](guides/FRONTEND_DEVELOPMENT_PLAN.md)
 - [guides/TASK_PROGRESS_WEBSOCKET.md](guides/TASK_PROGRESS_WEBSOCKET.md)
 
 ---

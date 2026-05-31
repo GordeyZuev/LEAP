@@ -1,10 +1,5 @@
 """FastAPI application entrypoint and router configuration."""
 
-import subprocess
-import sys
-from contextlib import asynccontextmanager
-from pathlib import Path
-
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError, ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,45 +42,8 @@ from api.routers import (
 )
 from api.shared.exceptions import APIException
 from config.settings import get_settings
-from database.config import DatabaseConfig
-from database.manager import DatabaseManager
-from logger import get_logger
-
-# Backend project root (alembic.ini, pyproject.toml); not tied to `.venv/bin` or PATH.
-BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 settings = get_settings()
-logger = get_logger()
-
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    """Lifespan: startup and shutdown."""
-    logger.info("🚀 Initializing database...")
-
-    db_config = DatabaseConfig.from_env()
-    db_manager = DatabaseManager(db_config)
-    await db_manager.create_database_if_not_exists()
-    await db_manager.close()
-
-    logger.info("✅ Database created (if not existed)")
-
-    logger.info("🔄 Applying Alembic migrations...")
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        check=False,
-        capture_output=True,
-        text=True,
-        cwd=BACKEND_ROOT,
-    )
-
-    if result.returncode != 0:
-        logger.error(f"❌ Error applying migrations: {result.stderr}")
-        raise RuntimeError(f"Migrations failed: {result.stderr}")
-
-    logger.info("✅ Migrations applied successfully")
-
-    yield
 
 
 app = FastAPI(
@@ -95,7 +53,6 @@ app = FastAPI(
     docs_url=settings.server.docs_url,
     redoc_url=settings.server.redoc_url,
     openapi_url=settings.server.openapi_url,
-    lifespan=lifespan,
 )
 
 app.add_middleware(

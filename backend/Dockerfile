@@ -18,7 +18,7 @@ RUN uv sync --frozen --no-default-groups
 
 COPY . .
 
-RUN mkdir -p storage && chmod +x /app/entrypoint.sh
+RUN mkdir -p storage && chmod +x /app/entrypoint.sh /app/migrate.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 

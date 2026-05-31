@@ -123,6 +123,12 @@ jobs:
             fi
             export IMAGE_TAG=${{ github.sha }}
             docker compose pull api celery_worker celery_beat flower frontend
+            # Run migrations synchronously BEFORE recreating app containers.
+            # `--no-deps` below defeats depends_on, so migrations must be run
+            # explicitly. `run --rm` waits for completion and bubbles the
+            # exit code — if migrations fail, the deploy fails here before
+            # the new code ever sees traffic.
+            docker compose run --rm migrate
             docker compose up -d --no-deps api celery_worker celery_beat flower frontend
             docker compose up -d --no-deps nginx
             docker compose ps
