@@ -118,5 +118,6 @@ jobs:
       - name: Build (smoke test)
         run: pnpm run build
         env:
-          NEXT_PUBLIC_API_URL: /api
+          # Empty: apiClient adds "/api/v1" itself; "/api" → "/api/api/v1" 404.
+          NEXT_PUBLIC_API_URL: ""
           NEXT_TELEMETRY_DISABLED: "1"
