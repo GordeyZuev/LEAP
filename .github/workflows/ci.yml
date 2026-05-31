@@ -28,8 +28,10 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
-      - name: Install Python 3.14
-        run: uv python install 3.14
+      - name: Install Python 3.14.0
+        # Pin to the exact patch — 3.14.5 hit a pytest-asyncio fixture-setup
+        # regression on this codebase; 3.14.0 is what we develop against.
+        run: uv python install 3.14.0
 
       - name: Sync dependencies
         run: uv sync --frozen
@@ -55,15 +57,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node 20 + pnpm
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Enable pnpm via corepack
+        # Pin pnpm — `pnpm@latest` jumps to majors that break Node compat
+        # (e.g. pnpm 11 needs Node 22.13+, and trips `node:sqlite` on older).
         run: |
           corepack enable
-          corepack prepare pnpm@latest --activate
+          corepack prepare pnpm@9.15.4 --activate
 
       - name: Cache pnpm store
         uses: actions/cache@v4

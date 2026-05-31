@@ -229,7 +229,7 @@ runcmd:
   - mkdir -p /opt/leap
   - chown ubuntu:ubuntu /opt/leap
   - usermod -aG docker ubuntu
-  # Run the bootstrap as a detached background job; cloud-init's runcmd has a
-  # max execution time and we'd rather have the VM "come up" while the stack
-  # warms in the background.
-  - nohup bash /opt/leap/bootstrap.sh > /var/log/leap-bootstrap-runcmd.log 2>&1 &
+  # Detach via systemd so the bootstrap survives cloud-init exiting. `nohup &`
+  # in runcmd was unreliable: cloud-init's process group teardown could kill
+  # the background job before docker compose finished pulling images.
+  - systemd-run --unit=leap-bootstrap --collect --setenv=HOME=/root bash /opt/leap/bootstrap.sh

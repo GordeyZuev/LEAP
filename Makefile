@@ -25,7 +25,7 @@ DOCKER_COMPOSE := $(DOCKER_COMPOSE_BIN) -f $(COMPOSE_FILE)
 YC_TOKEN_CMD := YC_TOKEN=$$(yc iam create-token)
 TF := $(YC_TOKEN_CMD) terraform -chdir=$(TERRAFORM_DIR)
 VM_IP_CMD := $(TF) output -raw vm_public_ip 2>/dev/null
-DOMAIN_CMD := $(TF) output -raw domain_url 2>/dev/null | sed 's#https://##'
+DOMAIN_CMD := $(TF) output -raw domain_url 2>/dev/null | sed -e 's|https://||'
 
 .DEFAULT_GOAL := help
 
@@ -42,6 +42,7 @@ help:
 	@echo "  make deploy-plan             — terraform plan (preview, no changes)"
 	@echo "  make deploy                  — terraform apply (creates everything in YC)"
 	@echo "  make deploy-gh-secrets       — push Terraform outputs to GitHub Secrets"
+	@echo "  make deploy-vm-init          — bootstrap the VM (install docker, fetch secrets, start stack)"
 	@echo ""
 	@echo "Daily ops (after the VM is provisioned):"
 	@echo "  make deploy-status           — show VM IP, registry ID, NS, bucket"
@@ -107,14 +108,72 @@ deploy: deploy-check
 	$(TF) apply
 
 # --- Post-deploy automation -------------------------------------------------
+# Push outputs to GitHub Secrets directly (validates JSON before writing the
+# YC SA secret — yc-cr-login is picky and a malformed value yields a cryptic
+# "Password is invalid" at build time).
 .PHONY: deploy-gh-secrets deploy-status
 deploy-gh-secrets:
-	@echo "==> Pushing Terraform outputs to GitHub Secrets..."
 	@command -v gh >/dev/null || { echo "  ✗ gh CLI not installed (brew install gh && gh auth login)"; exit 1; }
-	@$(TF) output -raw github_secrets_commands | bash
+	@command -v jq >/dev/null || { echo "  ✗ jq not installed (brew install jq)"; exit 1; }
+	@test -f $$HOME/.ssh/id_ed25519 || { echo "  ✗ $$HOME/.ssh/id_ed25519 not found (matches var.ssh_public_key)"; exit 1; }
+	@echo "==> Pushing Terraform outputs to GitHub Secrets..."
+	@registry_id=$$($(TF) output -raw registry_id 2>/dev/null); \
+	domain=$$($(DOMAIN_CMD)); \
+	test -n "$$registry_id" -a -n "$$domain" || { echo "  ✗ terraform outputs missing — run 'make deploy' first"; exit 1; }; \
+	tmp=$$(mktemp) && trap "rm -f $$tmp" EXIT; \
+	$(TF) output -raw ci_authorized_key_json > $$tmp; \
+	jq -e '.private_key and .service_account_id and .id' $$tmp >/dev/null \
+	  || { echo "  ✗ ci_authorized_key_json is malformed — re-run 'make deploy'"; exit 1; }; \
+	echo "  · YC_SA_JSON_CREDENTIALS"; gh secret set YC_SA_JSON_CREDENTIALS < $$tmp; \
+	echo "  · YC_REGISTRY_ID";         gh secret set YC_REGISTRY_ID --body "$$registry_id"; \
+	echo "  · VPS_HOST";                gh secret set VPS_HOST --body "$$domain"; \
+	echo "  · VPS_USER";                gh secret set VPS_USER --body "ubuntu"; \
+	echo "  · VPS_SSH_KEY";             gh secret set VPS_SSH_KEY < $$HOME/.ssh/id_ed25519; \
+	echo "  · VPS_DEPLOY_PATH";         gh secret set VPS_DEPLOY_PATH --body "/opt/leap"
+	@echo "✓ Done. Verify: gh secret list"
 
 deploy-status:
 	@$(TF) output
+
+# --- VM bootstrap (one-shot after `make deploy`, idempotent thereafter) -----
+# Pipes scripts/vm-init.sh over SSH and runs it with sudo. All required values
+# come from Terraform outputs (single source of truth) + tfvars (for vars not
+# exposed as outputs). Safe to re-run; the script is idempotent.
+.PHONY: deploy-vm-init
+deploy-vm-init:
+	@test -f $(TERRAFORM_DIR)/terraform.tfvars || { echo "terraform.tfvars missing"; exit 1; }
+	@ip=$$($(VM_IP_CMD)); \
+	test -n "$$ip" || { echo "VM not provisioned yet (run 'make deploy' first)"; exit 1; }; \
+	echo "==> Bootstrapping VM at $$ip"; \
+	folder_id=$$(grep -E '^\s*yc_folder_id' $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
+	cert_email=$$(grep -E '^\s*cert_email'  $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
+	gh_owner=$$(grep -E '^\s*github_owner'  $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
+	gh_repo=$$(grep   -E '^\s*github_repo'  $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
+	gh_branch=$$(grep -E '^\s*github_branch' $(TERRAFORM_DIR)/terraform.tfvars | sed -E 's/.*=\s*"([^"]+)".*/\1/'); \
+	gh_repo=$${gh_repo:-ZoomUploader}; gh_branch=$${gh_branch:-main}; \
+	domain=$$($(DOMAIN_CMD)); \
+	registry_id=$$($(TF) output -raw registry_id 2>/dev/null); \
+	lockbox_id=$$($(TF) output -raw lockbox_secret_id 2>/dev/null); \
+	bucket=$$($(TF) output -raw main_bucket 2>/dev/null); \
+	for v in folder_id cert_email gh_owner domain registry_id lockbox_id bucket; do \
+	  eval "val=\$$$$v"; test -n "$$val" || { echo "ERROR: $$v is empty"; exit 1; }; \
+	done; \
+	ssh -o StrictHostKeyChecking=accept-new ubuntu@$$ip \
+	  "sudo env \
+	     FOLDER_ID='$$folder_id' \
+	     DOMAIN='$$domain' \
+	     CERT_EMAIL='$$cert_email' \
+	     LOCKBOX_SECRET_ID='$$lockbox_id' \
+	     REGISTRY_ID='$$registry_id' \
+	     S3_BUCKET='$$bucket' \
+	     GITHUB_OWNER='$$gh_owner' \
+	     GITHUB_REPO='$$gh_repo' \
+	     GITHUB_BRANCH='$$gh_branch' \
+	     bash -s" < scripts/vm-init.sh
+	@echo ""
+	@echo "✓ VM bootstrap finished. Verify with:"
+	@echo "    make deploy-smoke-test    # https health check"
+	@echo "    make deploy-app-logs      # docker compose logs"
 
 # --- Daily ops --------------------------------------------------------------
 .PHONY: deploy-ssh deploy-logs deploy-app-logs deploy-refresh-env \
