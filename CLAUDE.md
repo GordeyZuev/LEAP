@@ -133,6 +133,7 @@ When you change behavior, update at least one of:
 | REST API surface           | `backend/docs/TECHNICAL.md`, OpenAPI via code                  |
 | Auth / OAuth / creds       | `backend/docs/guides/OAUTH.md`, `CREDENTIAL_SECURITY.md`       |
 | Celery / workers / queues  | `backend/docs/guides/CELERY_*.md`, `AUTOMATION_CELERY_BEAT.md` |
+| Observability / logs / metrics | `backend/docs/guides/MONITORING.md`, `monitoring/*`        |
 | Templates / Jinja metadata | `backend/docs/guides/JINJA_METADATA_TEMPLATES.md`              |
 | Deployment / env vars      | `backend/docs/guides/DEPLOYMENT.md`, `.env.example`            |
 

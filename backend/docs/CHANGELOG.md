@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-06-01: Celery worker healthcheck and Redis queue priorities
+
+- **Removed unused Redis priority transport** (`backend/api/celery_app.py`) — `broker_transport_options` with `priority_steps` / `sep: ':'` was never used (no `priority=` on `apply_async`), but it broke Celery remote control (`inspect ping` → kombu pidbox `ValueError: not enough values to unpack`). Docker healthcheck then reported **unhealthy** while the worker process stayed up without consuming queues.
+- **Worker healthcheck** (`docker-compose.yml`, `backend/scripts/celery_worker_healthcheck.py`) — checks worker process + Redis ping + queue depth not stuck for `CELERY_HEALTH_STUCK_SEC` (default 300s). Replaces `celery inspect ping`.
+- **Deploy:** rebuild/pull the backend image and `docker compose up -d --no-deps --force-recreate celery_worker`. Until the new image is live, the old `broker_transport_options` + `inspect ping` healthcheck remain — workers can stop consuming after ~minutes (symptom: queues `async_operations` / `processing_cpu` &gt; 0, no `Received task`). One-off: `docker compose restart celery_worker`.
+
+### Files
+
+- `backend/api/celery_app.py`
+- `backend/scripts/celery_worker_healthcheck.py`
+- `docker-compose.yml`
+
+---
+
 ## 2026-06-01: HttpOnly cookie auth + CSRF (browser flow)
 
 Без bump'a версии — security hardening. The browser frontend no longer stores

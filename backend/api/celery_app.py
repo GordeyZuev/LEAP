@@ -118,13 +118,6 @@ celery_app.conf.task_routes = {
     "maintenance.*": {"queue": "maintenance"},
 }
 
-# Queue priorities
-celery_app.conf.broker_transport_options = {
-    "priority_steps": list(range(10)),  # 0-9, where 9 is highest priority
-    "sep": ":",
-    "queue_order_strategy": "priority",
-}
-
 # Celery Beat schedule for periodic tasks
 from celery.schedules import crontab  # noqa: E402
 
