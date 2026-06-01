@@ -113,6 +113,12 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       # Pydantic: SecuritySettings → SECURITY_JWT_SECRET_KEY (not JWT_SECRET_KEY). Legacy fallback kept.
       SECURITY_JWT_SECRET_KEY: ${SECURITY_JWT_SECRET_KEY:-${JWT_SECRET_KEY:-docker-compose-dev-jwt-secret-min-32-characters}}
+      # Observability. JSON_LOG_FILE path is tailed by Promtail — keep in
+      # lockstep with monitoring/promtail.yml.
+      JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
+      LOG_FILE: ${LOG_FILE:-/app/logs/app.log}
+      ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/error.log}
+      MONITORING_PROMETHEUS_ENABLED: ${MONITORING_PROMETHEUS_ENABLED:-true}
     expose:
       - "8000"
     volumes:
@@ -157,6 +163,9 @@ services:
       DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
+      LOG_FILE: ${LOG_FILE:-/app/logs/celery-worker.log}
+      ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/celery-worker.error.log}
     volumes:
       - ./backend/storage:/app/storage
       - ./backend/logs:/app/logs
@@ -200,6 +209,9 @@ services:
       DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
+      LOG_FILE: ${LOG_FILE:-/app/logs/celery-beat.log}
+      ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/celery-beat.error.log}
     volumes:
       - ./backend/logs:/app/logs
       - ./backend/config:/app/config:ro
@@ -269,8 +281,56 @@ services:
       - frontend
 
   # ============================================================================
-  # Observability (Loki/Promtail/Grafana stack)
+  # Observability — see backend/docs/guides/MONITORING.md
+  # Logs:    loguru → structured.json → promtail → loki
+  # Metrics: api /metrics + celery-exporter → prometheus → grafana
   # ============================================================================
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: leap_prometheus
+    restart: unless-stopped
+    # Subpath mode so nginx can serve /prometheus/ behind basic-auth.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+      - --web.external-url=/prometheus
+      - --web.route-prefix=/prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    expose:
+      - "9090"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/prometheus/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Queue depth + per-task duration metrics. Listens to Celery events on
+  # Redis; no DB writes. Workers emit events by default.
+  celery_exporter:
+    image: danihodovic/celery-exporter:0.10.10
+    container_name: leap_celery_exporter
+    restart: unless-stopped
+    environment:
+      CE_BROKER_URL: redis://redis:6379/0
+      CE_ACCEPT_CONTENT: "json"
+    expose:
+      - "9808"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
   loki:
     image: grafana/loki:3.0.0
     container_name: leap_loki
@@ -340,6 +400,8 @@ volumes:
   redis_data:
     driver: local
   loki_data:
+    driver: local
+  prometheus_data:
     driver: local
   grafana_data:
     driver: local

@@ -9,6 +9,13 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   title: "LEAP",
   description: "AI-powered educational video processing platform",
+  icons: {
+    // Transparent symbol — blue mark reads on both light and dark browser tabs.
+    icon: "/logo_symb.svg",
+    shortcut: "/logo_symb.svg",
+    // iOS prefers an opaque, app-icon-like asset for the home screen.
+    apple: "/logo_inverse.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

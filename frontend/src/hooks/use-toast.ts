@@ -9,16 +9,19 @@ export interface ToastState {
 }
 
 const ANIM_OUT = 150;
-let globalSerial = 0;
 
 export function useToast(defaultMs = 4000) {
   const [toast, setToast] = useState<ToastState | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const exitRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-instance serial counter. Avoids the cross-instance and concurrent-
+  // rendering hazards of a module-level mutable counter, while still letting
+  // the auto-dismiss timer guard against firing on a superseded toast.
+  const serialRef = useRef(0);
 
   const dismiss = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (exitRef.current)  clearTimeout(exitRef.current);
+    if (exitRef.current) clearTimeout(exitRef.current);
     setToast((s) => (s ? { ...s, exiting: true } : null));
     exitRef.current = setTimeout(() => setToast(null), ANIM_OUT);
   }, []);
@@ -26,8 +29,9 @@ export function useToast(defaultMs = 4000) {
   const show = useCallback(
     (type: ToastType, msg: string, ms?: number) => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (exitRef.current)  clearTimeout(exitRef.current);
-      const serial = ++globalSerial;
+      if (exitRef.current) clearTimeout(exitRef.current);
+      serialRef.current += 1;
+      const serial = serialRef.current;
       const duration = ms ?? defaultMs;
       setToast({ type, msg, serial, exiting: false });
       timerRef.current = setTimeout(() => {

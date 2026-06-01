@@ -1,9 +1,9 @@
-"""Authentication and authorization dependencies"""
+"""Authentication and authorization dependencies."""
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth.cookies import ACCESS_COOKIE_NAME
 from api.auth.security import JWTHelper
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import UserRepository
@@ -12,17 +12,31 @@ from logger import get_logger
 
 logger = get_logger()
 
-security = HTTPBearer()
+
+def _extract_access_token(request: Request) -> str | None:
+    """Pull an access token from ``Authorization: Bearer`` (preferred) or the access cookie.
+
+    Bearer takes precedence so an explicit header always wins over a cookie left
+    from a different browser session.
+    """
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip() or None
+    return request.cookies.get(ACCESS_COOKIE_NAME)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> UserInDB:
-    """
-    Get current user from JWT token.
-    """
-    token = credentials.credentials
+    """Get current user from JWT token (header or httpOnly cookie)."""
+    token = _extract_access_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     payload = JWTHelper.verify_token(token, token_type="access")
     if not payload:
@@ -55,6 +69,11 @@ async def get_current_user(
             detail="User account is deactivated",
         )
 
+    # Surface the authenticated user_id to the HTTP access-log middleware
+    # (and any other downstream code that reads request.state). Truncated to
+    # the leading 8 chars to match the convention used elsewhere in logs.
+    request.state.user_id = str(user.id)[:8]
+
     return user
 
 
@@ -73,9 +92,7 @@ async def check_user_quotas(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> UserInDB:
-    """
-    Check user quotas (new subscription system).
-    """
+    """Check user quotas (new subscription system)."""
     from api.services.quota_service import QuotaService
 
     quota_service = QuotaService(session)

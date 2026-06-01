@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { Fragment, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TagInput } from "@/components/ui/tag-input";
@@ -31,51 +31,52 @@ const JINJA_VARS: { value: string; description: string }[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// TemplateField — input/textarea with cursor-aware Jinja2 variable insertion
+// TemplateField — textarea-backed editor with overlay-based Jinja2 highlighting.
+//
+// The previous implementation used contentEditable + innerHTML which is a
+// classic XSS surface (any future relaxation of the escape step becomes an
+// injection point) and inconsistent across browsers. This version uses a
+// hidden-text textarea with a React-rendered overlay div — no string→HTML.
 // ---------------------------------------------------------------------------
 
-function highlightTemplate(text: string, multiline: boolean): string {
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  const withNewlines = multiline ? escaped.replace(/\n/g, "&#10;") : escaped;
-  return withNewlines.replace(
-    /(\{\{[^}]*\}\})/g,
-    '<span style="color:#224C87;font-weight:500;">$1</span>',
-  );
-}
+const TOKEN_REGEX = /(\{\{[^}]*\}\})/g;
 
-function getCaretOffset(el: HTMLElement): number {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return 0;
-  const range = sel.getRangeAt(0);
-  const pre = range.cloneRange();
-  pre.selectNodeContents(el);
-  pre.setEnd(range.endContainer, range.endOffset);
-  return pre.toString().length;
-}
-
-function setCaretOffset(el: HTMLElement, offset: number): void {
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  let rem = offset;
-  while (walker.nextNode()) {
-    const node = walker.currentNode as Text;
-    if (rem <= node.length) {
-      const range = document.createRange();
-      range.setStart(node, rem);
-      range.collapse(true);
-      window.getSelection()?.removeAllRanges();
-      window.getSelection()?.addRange(range);
-      return;
+function renderHighlightedTokens(text: string): ReactNode[] {
+  if (!text) return [];
+  const out: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  TOKEN_REGEX.lastIndex = 0;
+  while ((match = TOKEN_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      out.push(<Fragment key={`t-${key++}`}>{text.slice(lastIndex, match.index)}</Fragment>);
     }
-    rem -= node.length;
+    out.push(
+      <span key={`v-${key++}`} className="font-medium text-[#224C87]">
+        {match[0]}
+      </span>,
+    );
+    lastIndex = TOKEN_REGEX.lastIndex;
   }
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  range.collapse(false);
-  window.getSelection()?.removeAllRanges();
-  window.getSelection()?.addRange(range);
+  if (lastIndex < text.length) {
+    out.push(<Fragment key={`t-${key++}`}>{text.slice(lastIndex)}</Fragment>);
+  }
+  // Trailing newlines aren't measured by inline content in the overlay div —
+  // append a zero-width space so the last empty line stays visible.
+  if (text.endsWith("\n")) {
+    out.push(<Fragment key="trail">{"​"}</Fragment>);
+  }
+  return out;
+}
+
+interface TemplateFieldProps {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  multiline?: boolean;
+  placeholder?: string;
+  rows?: number;
 }
 
 export function TemplateField({
@@ -84,48 +85,26 @@ export function TemplateField({
   onChange,
   multiline = false,
   placeholder,
-  rows: _rows = 3,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  multiline?: boolean;
-  placeholder?: string;
-  rows?: number;
-}) {
-  const editorRef = useRef<HTMLDivElement>(null);
+  rows = 3,
+}: TemplateFieldProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastValue = useRef(value);
+  const fieldId = useId();
+  const listboxId = useId();
   const [acOpen, setAcOpen] = useState(false);
   const [acQuery, setAcQuery] = useState("");
 
-  // Initial render
-  useEffect(() => {
-    if (editorRef.current) {
-      editorRef.current.innerHTML = highlightTemplate(value, multiline);
-      lastValue.current = value;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const filtered = useMemo(
+    () =>
+      JINJA_VARS.filter((v) =>
+        v.value.toLowerCase().startsWith(acQuery.toLowerCase()),
+      ),
+    [acQuery],
+  );
 
-  // Sync externally controlled value changes (not during user typing)
-  useEffect(() => {
-    const el = editorRef.current;
-    if (!el || lastValue.current === value) return;
-    lastValue.current = value;
-    el.innerHTML = highlightTemplate(value, multiline);
-  }, [value, multiline]);
-
-  function handleInput(e: React.FormEvent<HTMLDivElement>) {
-    const el = e.currentTarget;
-    const rawText = el.innerText ?? "";
-    const text = multiline ? rawText.replace(/\n$/, "") : rawText.replace(/\n/g, "");
-    const offset = getCaretOffset(el);
-    onChange(text);
-    lastValue.current = text;
-    el.innerHTML = highlightTemplate(text, multiline);
-    setCaretOffset(el, Math.min(offset, text.length));
-    const before = text.slice(0, offset);
+  function updateAcFromCaret(text: string, caret: number) {
+    const before = text.slice(0, caret);
     const match = before.match(/\{\{\s*(\w*)$/);
     if (match) {
       setAcOpen(true);
@@ -136,101 +115,142 @@ export function TemplateField({
     }
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key === "Enter") {
-      if (!multiline) {
-        e.preventDefault();
-      } else {
-        // Insert literal \n so DOM stays as text nodes (not <div>/<br>)
-        e.preventDefault();
-        document.execCommand("insertText", false, "\n");
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const ta = e.currentTarget;
+    let next = ta.value;
+    if (!multiline) {
+      // Strip newlines so a paste of multi-line content doesn't break the
+      // single-line layout. Replace with a space to preserve word boundaries.
+      const stripped = next.replace(/\r?\n/g, " ");
+      if (stripped !== next) {
+        const caret = ta.selectionStart;
+        next = stripped;
+        // Schedule caret restoration after React applies the new value.
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.setSelectionRange(caret, caret);
+          }
+        });
       }
+    }
+    onChange(next);
+    updateAcFromCaret(next, ta.selectionStart);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !multiline) {
+      e.preventDefault();
     }
   }
 
-  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
-    e.preventDefault();
-    document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
-  }
-
-  function insertVar(varName: string) {
-    const el = editorRef.current;
-    if (!el) return;
-    const rawText = el.innerText ?? "";
-    const text = multiline ? rawText.replace(/\n$/, "") : rawText.replace(/\n/g, "");
-    const offset = getCaretOffset(el);
-    const before = text.slice(0, offset);
-    const after = text.slice(offset);
-    const newBefore = before.replace(/\{\{\s*\w*$/, `{{ ${varName} }}`);
-    const newVal = newBefore + after;
-    onChange(newVal);
-    lastValue.current = newVal;
-    el.innerHTML = highlightTemplate(newVal, multiline);
-    setCaretOffset(el, newBefore.length);
-    setAcOpen(false);
-    setAcQuery("");
-    el.focus();
+  function handleScroll(e: React.UIEvent<HTMLTextAreaElement>) {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    overlay.scrollTop = e.currentTarget.scrollTop;
+    overlay.scrollLeft = e.currentTarget.scrollLeft;
   }
 
   function handleBlur() {
     blurTimer.current = setTimeout(() => setAcOpen(false), 150);
   }
 
-  const filtered = JINJA_VARS.filter((v) =>
-    v.value.toLowerCase().startsWith(acQuery.toLowerCase()),
-  );
+  function insertVar(varName: string) {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const caret = ta.selectionStart;
+    const before = value.slice(0, caret);
+    const after = value.slice(caret);
+    const newBefore = before.replace(/\{\{\s*\w*$/, `{{ ${varName} }}`);
+    const newVal = newBefore + after;
+    onChange(newVal);
+    setAcOpen(false);
+    setAcQuery("");
+    // Restore focus + place caret right after the inserted token.
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(newBefore.length, newBefore.length);
+      }
+    });
+  }
+
+  const sharedTextStyle = "px-3 py-2 text-sm leading-[1.4]";
+  const fontClass = multiline ? "font-mono text-xs leading-[1.5]" : "";
 
   return (
     <div className="space-y-1">
-      <span className={FILTER_LABEL}>{label}</span>
+      <label htmlFor={fieldId} className={FILTER_LABEL}>
+        {label}
+      </label>
       <div className="relative">
+        {/* Overlay: renders highlighted tokens. aria-hidden — textarea is the
+            accessible/keyboardable surface. Padding + font must match the
+            textarea exactly so glyphs align under the (invisible) text. */}
         <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          role="textbox"
-          aria-multiline={multiline}
-          onInput={handleInput}
+          ref={overlayRef}
+          aria-hidden="true"
+          className={cn(
+            FILTER_CONTROL,
+            sharedTextStyle,
+            fontClass,
+            "pointer-events-none absolute inset-0 select-none overflow-hidden whitespace-pre-wrap break-words text-gray-900",
+            multiline ? "" : "whitespace-pre",
+          )}
+        >
+          {renderHighlightedTokens(value)}
+        </div>
+
+        <textarea
+          ref={textareaRef}
+          id={fieldId}
+          value={value}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
+          onScroll={handleScroll}
           onBlur={handleBlur}
+          onSelect={(e) => updateAcFromCaret(value, e.currentTarget.selectionStart)}
+          rows={multiline ? rows : 1}
           spellCheck={false}
-          style={
-            multiline
-              ? { minHeight: "4.5rem", whiteSpace: "pre-wrap", wordBreak: "break-word" }
-              : { whiteSpace: "nowrap", overflowX: "hidden" }
-          }
-          className={cn(FILTER_CONTROL, multiline && "font-mono text-xs", "cursor-text")}
+          aria-autocomplete="list"
+          aria-controls={acOpen ? listboxId : undefined}
+          placeholder={placeholder}
+          // The textarea is the source of truth and the focusable surface.
+          // `text-transparent` hides the typed text so only the overlay is
+          // visible; `caret-current` shows the caret so the user sees where
+          // they're typing.
+          className={cn(
+            FILTER_CONTROL,
+            sharedTextStyle,
+            fontClass,
+            "relative z-10 block w-full resize-none bg-transparent text-transparent caret-current placeholder:text-gray-400",
+            multiline ? "whitespace-pre-wrap break-words" : "whitespace-pre overflow-x-auto",
+          )}
+          style={multiline ? { minHeight: "4.5rem" } : undefined}
         />
-        {!value && placeholder && (
-          <div
-            aria-hidden="true"
-            className={cn(
-              "pointer-events-none absolute left-3 top-2 select-none text-gray-400",
-              multiline ? "font-mono text-xs" : "text-sm",
-            )}
-          >
-            {placeholder}
-          </div>
-        )}
+
         {acOpen && filtered.length > 0 && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
+          <ul
+            id={listboxId}
+            role="listbox"
+            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-[#D9D9D9] bg-white shadow-lg"
+          >
             {filtered.map((v) => (
-              <button
-                key={v.value}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  if (blurTimer.current) clearTimeout(blurTimer.current);
-                  insertVar(v.value);
-                }}
-                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
-              >
-                <code className="shrink-0 font-mono text-xs text-[#224C87]">{`{{ ${v.value} }}`}</code>
-                <span className="text-xs text-gray-400">{v.description}</span>
-              </button>
+              <li key={v.value} role="option" aria-selected={false}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    if (blurTimer.current) clearTimeout(blurTimer.current);
+                    insertVar(v.value);
+                  }}
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                >
+                  <code className="shrink-0 font-mono text-xs text-[#224C87]">{`{{ ${v.value} }}`}</code>
+                  <span className="text-xs text-gray-400">{v.description}</span>
+                </button>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
       <p className="flex items-center gap-1 text-[11px] text-gray-400">

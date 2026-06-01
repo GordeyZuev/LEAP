@@ -1,15 +1,15 @@
-# Promtail ships application logs from the backend container's mounted log
-# volume into Loki.
+# Ships backend/logs/structured.json (loguru ``serialize=True``) to Loki.
 #
-# We ingest ONLY the structured JSON sink (backend/logger.py → structured.json)
-# so each event lands in Loki exactly once with rich labels (level, module,
-# task_id, recording_id, user_id, queue).
+# Label policy:
+#   labels (low cardinality, indexed):
+#     level, module, queue, method, route, status_code, task_name,
+#     task_state, platform, exception_class
+#   NOT labels (high cardinality, parsed at query time via ``| json``):
+#     request_id, task_id, recording_id, user_id, duration_ms
 #
-# The plain-text *.log files are kept on the VM for human ops (`tail -f`),
-# but are intentionally NOT shipped — they carry the same events and would
-# double every line under another labelset.
-#
-# Production note: ingest is rate-limited by Loki (see limits_config in loki.yml).
+# The raw JSON envelope is preserved in the log line so LogQL can pivot on
+# any of the non-label fields as ``record_extra_*`` after ``| json``. Grafana
+# log panels render the human-readable text via ``| line_format "{{.text}}"``.
 
 server:
   http_listen_port: 9080
@@ -34,16 +34,24 @@ scrape_configs:
     pipeline_stages:
       - json:
           expressions:
-            level: level
-            module: module
-            recording_id: recording_id
-            task_id: task_id
-            user_id: user_id
-            queue: queue
+            level: record.level.name
+            module: record.extra.module
+            queue: record.extra.queue
+            platform: record.extra.platform
+            method: record.extra.method
+            route: record.extra.route
+            status_code: record.extra.status_code
+            task_name: record.extra.task_name
+            task_state: record.extra.task_state
+            exception_class: record.extra.exception_class
       - labels:
           level:
           module:
-          recording_id:
-          task_id:
-          user_id:
           queue:
+          platform:
+          method:
+          route:
+          status_code:
+          task_name:
+          task_state:
+          exception_class:

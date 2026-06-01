@@ -65,6 +65,9 @@ dependencies = [
     "gevent>=25.9.1",
     # S3-compatible object storage
     "aioboto3>=13.0.0",
+    # Observability: Prometheus instrumentation for FastAPI (RED metrics
+    # exposed at /metrics, scraped by the prometheus container).
+    "prometheus-fastapi-instrumentator>=7.0.0",
 ]
 
 [tool.uv]

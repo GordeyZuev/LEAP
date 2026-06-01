@@ -3,18 +3,20 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
+import { useSession } from "@/hooks/use-session";
+
+// Gates the (app) section on an authenticated session. Renders a placeholder
+// until session status is known so protected pages never paint before redirect.
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const status = useSession();
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      router.replace("/login");
-    }
-  }, [router]);
+    if (status === "anonymous") router.replace("/login");
+  }, [status, router]);
 
-  // Render children — if token is missing the redirect happens above.
-  // Pages will briefly mount but the API calls will 401 and the interceptor
-  // will also redirect, so this is safe.
+  if (status !== "authenticated") {
+    return <div className="flex h-full items-center justify-center bg-[#FAFAFA]" aria-hidden="true" />;
+  }
   return <>{children}</>;
 }

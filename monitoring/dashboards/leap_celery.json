@@ -1,0 +1,172 @@
+{
+  "annotations": {"list": []},
+  "description": "Celery worker health, queue depth, task throughput and per-task duration. Sources: danihodovic/celery-exporter (celery_* metrics) + structured logs from task_postrun/failure/retry signals.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"title": "API", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Tasks / sec (5m)",
+      "gridPos": {"x": 0, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(celery_task_sent_total[5m]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "Failure rate (5m)",
+      "gridPos": {"x": 6, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "100 * sum(rate(celery_task_failed_total[5m])) / clamp_min(sum(rate(celery_task_received_total[5m])), 1e-9)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "Active workers",
+      "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "count(celery_worker_up == 1)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "type": "stat",
+      "title": "Pending tasks (all queues)",
+      "gridPos": {"x": 18, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(celery_queue_length)"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 50}, {"color": "red", "value": 200}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "type": "row",
+      "title": "Queues",
+      "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue depth (pending tasks per queue)",
+      "gridPos": {"x": 0, "y": 6, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "celery_queue_length", "legendFormat": "{{queue_name}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 25, "stacking": {"mode": "none"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max", "lastNotNull"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Task rate by state",
+      "gridPos": {"x": 12, "y": 6, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(celery_task_succeeded_total[5m]))", "legendFormat": "succeeded"},
+        {"refId": "B", "expr": "sum(rate(celery_task_failed_total[5m]))", "legendFormat": "failed"},
+        {"refId": "C", "expr": "sum(rate(celery_task_retried_total[5m]))", "legendFormat": "retried"},
+        {"refId": "D", "expr": "sum(rate(celery_task_revoked_total[5m]))", "legendFormat": "revoked"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 25, "stacking": {"mode": "normal"}}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "succeeded"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
+        {"matcher": {"id": "byName", "options": "failed"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+        {"matcher": {"id": "byName", "options": "retried"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
+        {"matcher": {"id": "byName", "options": "revoked"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]}
+      ]},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+    },
+    {
+      "type": "row",
+      "title": "Per-task",
+      "gridPos": {"x": 0, "y": 15, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Top 10 tasks by throughput",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "topk(10, sum by (name) (rate(celery_task_succeeded_total[5m])))", "legendFormat": "{{name}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+    },
+    {
+      "type": "table",
+      "title": "Top 10 slowest tasks (p95)",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "topk(10, histogram_quantile(0.95, sum by (name, le) (rate(celery_task_runtime_bucket[10m]))))", "instant": true, "format": "table"}
+      ],
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true, "job": true, "service": true, "__name__": true}, "indexByName": {"name": 0, "Value": 1}, "renameByName": {"name": "Task", "Value": "p95 (s)"}}}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 2}, "overrides": [
+        {"matcher": {"id": "byName", "options": "p95 (s)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 30}, {"color": "red", "value": 120}]}}]}
+      ]}
+    },
+    {
+      "type": "row",
+      "title": "Failures",
+      "gridPos": {"x": 0, "y": 25, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Failures by task name",
+      "gridPos": {"x": 0, "y": 26, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (name) (rate(celery_task_failed_total[5m])) > 0", "legendFormat": "{{name}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}
+    },
+    {
+      "type": "logs",
+      "title": "Recent task failures (logs)",
+      "gridPos": {"x": 12, "y": 26, "w": 12, "h": 8},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "{app=\"leap\", task_state=\"FAILURE\"} | json | line_format \"{{.text}}\""}
+      ],
+      "options": {"showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["leap", "celery"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "LEAP Celery",
+  "uid": "leap-celery",
+  "version": 1
+}

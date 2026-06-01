@@ -263,6 +263,29 @@ class SecuritySettings(BaseSettings):
     rate_limit_per_minute: int = Field(default=60, ge=1, description="Requests per minute limit")
     rate_limit_per_hour: int = Field(default=1000, ge=1, description="Requests per hour limit")
 
+    # Cookie-based session auth (the browser flow). Headers stay as a parallel
+    # path for CLI / server-to-server callers.
+    cookie_secure: bool = Field(
+        default=True,
+        description="Set Secure flag on auth cookies. Required for SameSite=None; set to false only on plain-HTTP local dev.",
+    )
+    cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        description="SameSite policy for auth cookies. Use 'none' (+ secure=true) when frontend and API live on different sites.",
+    )
+    cookie_domain: str | None = Field(
+        default=None,
+        description="Domain attribute for auth cookies. Leave unset for host-only cookies; set e.g. '.example.com' to share across subdomains.",
+    )
+    # State-changing requests authenticated by cookie must include this header
+    # matching the csrf_token cookie. Bearer-authenticated requests are exempt.
+    csrf_header_name: str = Field(
+        default="X-CSRF-Token", description="Header carrying the CSRF token for cookie-auth requests."
+    )
+    csrf_cookie_name: str = Field(
+        default="csrf_token", description="Name of the NON-httpOnly cookie holding the CSRF token."
+    )
+
     @field_validator("jwt_secret_key")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:

@@ -101,9 +101,15 @@ IMAGE_TAG=latest
 # ---------------------------- OAuth callback URLs
 OAUTH_BASE_URL=https://${DOMAIN:?}/api
 OAUTH_REDIRECT_BASE_URL=https://${DOMAIN}
-OAUTH_FRONTEND_REDIRECT_URL=https://${DOMAIN}/auth/callback
+OAUTH_FRONTEND_REDIRECT_URL=https://${DOMAIN}
 # ---------------------------- CORS (JSON for pydantic-settings list[str])
 SERVER_CORS_ORIGINS=["https://${DOMAIN}"]
+# ---------------------------- Session cookies (browser auth flow)
+# HTTPS-terminated by nginx; frontend + API share \${DOMAIN}, so host-only
+# Lax cookies are sufficient. Switch SAMESITE=none + set a domain if you
+# split frontend and API across different sites.
+SECURITY_COOKIE_SECURE=true
+SECURITY_COOKIE_SAMESITE=lax
 # ---------------------------- Bootstrap (needed by refresh-env.sh on deploys)
 LOCKBOX_SECRET_ID=${LOCKBOX_SECRET_ID:?}
 # ---------------------------- Logging

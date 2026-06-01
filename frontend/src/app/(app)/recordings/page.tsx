@@ -36,6 +36,7 @@ import { AddVideoModal } from "@/components/recordings/add-video-modal";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { ExportModal } from "@/components/recordings/export-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Pagination } from "@/components/ui/pagination";
 import { FilterSelect } from "@/components/recordings/filter-select";
 import type { ProcessingStatus } from "@/components/ui/status-badge";
 import {
@@ -166,6 +167,8 @@ function advancedDraftCount(d: RecordingsFilterDraft): number {
 
 interface RecordingsPagedResultsProps {
   queryParamsString: string;
+  page: number;
+  onPageChange: (page: number) => void;
   loadingRecordingId: number | null;
   selected: Set<number>;
   setSelected: Dispatch<SetStateAction<Set<number>>>;
@@ -190,6 +193,8 @@ interface RecordingsPagedResultsProps {
 
 function RecordingsPagedResults({
   queryParamsString,
+  page,
+  onPageChange,
   loadingRecordingId,
   selected,
   setSelected,
@@ -211,7 +216,6 @@ function RecordingsPagedResults({
   setResetDeleteFiles,
   onBulkRunWithConfig,
 }: RecordingsPagedResultsProps) {
-  const [page, setPage] = useState(1);
   const [pipelineMenuOpen, setPipelineMenuOpen] = useState(false);
   const pipelineMenuRef = useRef<HTMLDivElement>(null);
   const qcInner = useQueryClient();
@@ -264,10 +268,17 @@ function RecordingsPagedResults({
     refetchIntervalInBackground: false,
   });
 
+  // Self-correct out-of-range `page` (e.g. after deletes, shared stale links).
+  useEffect(() => {
+    if (!data) return;
+    if (data.total === 0) {
+      if (page !== 1) onPageChange(1);
+    } else if (page > data.total_pages) {
+      onPageChange(data.total_pages);
+    }
+  }, [data, page, onPageChange]);
+
   const recordings = data?.items ?? [];
-  const totalPages = data?.total_pages ?? 1;
-  const hasPrev = page > 1;
-  const hasNext = page < totalPages;
   const isBulkLoading =
     bulkRun.isPending || bulkPause.isPending || bulkDelete.isPending || bulkReset.isPending ||
     bulkDownload.isPending || bulkTranscribe.isPending || bulkTopics.isPending ||
@@ -422,32 +433,15 @@ function RecordingsPagedResults({
         </div>
       )}
 
-      {data && data.total > 0 && (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-gray-600">
-            Page {page} of {totalPages}
-            <span className="text-gray-400"> · </span>
-            {data.total} recording{data.total !== 1 ? "s" : ""}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={!hasPrev}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={!hasNext}
-              onClick={() => setPage((p) => p + 1)}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {data && (
+        <Pagination
+          page={page}
+          totalPages={data.total_pages}
+          total={data.total}
+          perPage={PER_PAGE_RECORDINGS}
+          onPageChange={onPageChange}
+          itemLabel="recording"
+        />
       )}
 
       {/* Bulk delete confirm */}
@@ -631,13 +625,14 @@ function RecordingsContent() {
   const qc = useQueryClient();
   const urlKey = searchParams.toString();
 
-  // --- Immediate controls (search + sort) ---
+  // --- Immediate controls (search + sort + page) ---
   const urlSearch = searchParams.get("search") ?? "";
   const urlSortBy = (() => {
     const raw = searchParams.get("sort_by") ?? "start_time";
     return SORT_BY_ALLOWED.has(raw) ? raw : "start_time";
   })();
   const urlSortOrder: "asc" | "desc" = searchParams.get("sort_order") === "asc" ? "asc" : "desc";
+  const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
 
   // --- Selection state ---
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -679,6 +674,7 @@ function RecordingsContent() {
     const p = new URLSearchParams(searchParams.toString());
     if (trimmed) p.set("search", trimmed);
     else p.delete("search");
+    p.delete("page");
     router.replace(`?${p.toString()}`);
     setSelected(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -688,9 +684,20 @@ function RecordingsContent() {
     const p = new URLSearchParams(searchParams.toString());
     if (field !== undefined) p.set("sort_by", field);
     if (order !== undefined) p.set("sort_order", order);
+    p.delete("page");
     router.replace(`?${p.toString()}`);
     setSelected(new Set());
   }
+
+  const setPage = useCallback(
+    (next: number) => {
+      const p = new URLSearchParams(searchParams.toString());
+      if (next <= 1) p.delete("page");
+      else p.set("page", String(next));
+      router.replace(`?${p.toString()}`);
+    },
+    [router, searchParams],
+  );
 
   // --- Filter draft (Apply/Reset pattern) ---
   const [filterDraft, setFilterDraft] = useState<RecordingsFilterDraft>(() =>
@@ -904,7 +911,13 @@ function RecordingsContent() {
   }
 
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
-  const appliedKey = urlKey;
+  // Remount results when filters change, but NOT on plain page navigation —
+  // otherwise paging would reset internal state (open menus, etc.).
+  const appliedKey = useMemo(() => {
+    const p = new URLSearchParams(urlKey);
+    p.delete("page");
+    return p.toString();
+  }, [urlKey]);
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -1055,7 +1068,9 @@ function RecordingsContent() {
       {/* Results */}
       <RecordingsPagedResults
         key={appliedKey}
-        queryParamsString={urlKey}
+        queryParamsString={appliedKey}
+        page={urlPage}
+        onPageChange={setPage}
         loadingRecordingId={loadingRecordingId}
         selected={selected}
         setSelected={setSelected}
@@ -1142,7 +1157,7 @@ function RecordingsContent() {
         open={exportOpen}
         onClose={() => setExportOpen(false)}
         selectedIds={selectedIds}
-        appliedFilterParams={urlKey}
+        appliedFilterParams={appliedKey}
       />
 
       <AddVideoModal open={addModalOpen} onClose={() => setAddModalOpen(false)} />

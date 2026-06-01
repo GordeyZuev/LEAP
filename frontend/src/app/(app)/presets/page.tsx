@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
@@ -18,6 +18,7 @@ import {
 } from "@/lib/filter-field-classes";
 import { FilterMultiSelect } from "@/components/recordings/filter-multi-select";
 import { FilterSelect } from "@/components/recordings/filter-select";
+import { Pagination } from "@/components/ui/pagination";
 import { usePlatforms } from "@/hooks/use-references";
 import { PER_PAGE_PRESETS } from "@/lib/constants";
 
@@ -104,11 +105,11 @@ interface PresetsPagedGridProps {
   activeFilter: ActiveFilter;
   sortBy: string;
   sortOrder: string;
+  page: number;
+  onPageChange: (page: number) => void;
 }
 
-function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder }: PresetsPagedGridProps) {
-  const [page, setPage] = useState(1);
-
+function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, onPageChange }: PresetsPagedGridProps) {
   const { data, isLoading, error } = useQuery<PresetListResponse>({
     queryKey: ["presets", platforms, activeFilter, sortBy, sortOrder, page],
     queryFn: async () => {
@@ -125,10 +126,17 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder }: Preset
     },
   });
 
+  // Self-correct out-of-range `page` (e.g. after deletes, shared stale links).
+  useEffect(() => {
+    if (!data) return;
+    if (data.total === 0) {
+      if (page !== 1) onPageChange(1);
+    } else if (page > data.total_pages) {
+      onPageChange(data.total_pages);
+    }
+  }, [data, page, onPageChange]);
+
   const presets = data?.items ?? [];
-  const totalPages = data?.total_pages ?? 1;
-  const hasPrev = page > 1;
-  const hasNext = page < totalPages;
 
   return (
     <>
@@ -178,32 +186,15 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder }: Preset
         </div>
       )}
 
-      {data && data.total > 0 && (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-gray-600">
-            Page {page} of {totalPages}
-            <span className="text-gray-400"> · </span>
-            {data.total} preset{data.total !== 1 ? "s" : ""}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={!hasPrev}
-              onClick={() => setPage((pg) => Math.max(1, pg - 1))}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={!hasNext}
-              onClick={() => setPage((pg) => pg + 1)}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {data && (
+        <Pagination
+          page={page}
+          totalPages={data.total_pages}
+          total={data.total}
+          perPage={PER_PAGE_PRESETS}
+          onPageChange={onPageChange}
+          itemLabel="preset"
+        />
       )}
     </>
   );
@@ -218,6 +209,7 @@ function PresetsContent() {
   const searchParams = useSearchParams();
   const { data: platformOptions = [] } = usePlatforms();
   const urlKey = searchParams.toString();
+  const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
 
   const [draft, setDraft] = useState<PresetFilterDraft>(() => draftFromUrl(searchParams));
   const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
@@ -228,6 +220,23 @@ function PresetsContent() {
 
   const appliedDraft = useMemo(() => draftFromUrl(new URLSearchParams(urlKey)), [urlKey]);
   const isDirty = draftSignature(draft) !== draftSignature(appliedDraft);
+
+  // Filter key excludes `page` so paging doesn't remount the grid (and its query state).
+  const filterKey = useMemo(() => {
+    const p = new URLSearchParams(urlKey);
+    p.delete("page");
+    return p.toString();
+  }, [urlKey]);
+
+  const setPage = useCallback(
+    (next: number) => {
+      const p = new URLSearchParams(searchParams.toString());
+      if (next <= 1) p.delete("page");
+      else p.set("page", String(next));
+      router.replace(`?${p.toString()}`);
+    },
+    [router, searchParams],
+  );
 
   const hasAppliedFilters =
     appliedDraft.platforms.length > 0 ||
@@ -363,11 +372,13 @@ function PresetsContent() {
       )}
 
       <PresetsPagedGrid
-        key={urlKey}
+        key={filterKey}
         platforms={appliedDraft.platforms}
         activeFilter={appliedDraft.activeFilter}
         sortBy={appliedDraft.sortBy}
         sortOrder={appliedDraft.sortOrder}
+        page={urlPage}
+        onPageChange={setPage}
       />
     </div>
   );

@@ -1,4 +1,20 @@
+import os from "os";
+
 import type { NextConfig } from "next";
+
+function getLanAddresses(): string[] {
+  const addresses: string[] = [];
+  for (const iface of Object.values(os.networkInterfaces())) {
+    if (!iface) continue;
+    for (const config of iface) {
+      const isIpv4 = String(config.family) === "IPv4";
+      if (isIpv4 && !config.internal) {
+        addresses.push(config.address);
+      }
+    }
+  }
+  return addresses;
+}
 
 const envOrigins =
   process.env.NEXT_DEV_ALLOWED_ORIGINS?.split(",")
@@ -6,11 +22,12 @@ const envOrigins =
     .filter(Boolean) ?? [];
 
 const nextConfig: NextConfig = {
-  // Standalone output: builds a self-contained .next/standalone directory
-  // (server.js + minimal node_modules) used by the Docker runtime stage.
   output: "standalone",
-  // LAN IPs for HMR via Network URL. Set in .env.local: NEXT_DEV_ALLOWED_ORIGINS=ip1,ip2,...
-  allowedDevOrigins: [...new Set(envOrigins)],
+  allowedDevOrigins: [...new Set([...getLanAddresses(), ...envOrigins])],
+  images: {
+    dangerouslyAllowSVG: true,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+  },
 };
 
 export default nextConfig;

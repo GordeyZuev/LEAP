@@ -1,0 +1,138 @@
+{
+  "annotations": {"list": []},
+  "description": "Recording pipeline health: download → trim → transcribe → topics → subtitles → upload. Stage throughput, latency and failures are derived from celery-exporter metrics plus structured task logs.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"title": "Celery", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Throughput",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Recordings completed (24h)",
+      "gridPos": {"x": 0, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(celery_task_succeeded_total{name=\"api.tasks.processing.run_recording\"}[24h]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "Uploads (24h)",
+      "gridPos": {"x": 6, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(celery_task_succeeded_total{name=~\"api.tasks.upload..*\"}[24h]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "Pipeline failures (24h)",
+      "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(celery_task_failed_total{name=~\"api.tasks.processing..*|api.tasks.upload..*\"}[24h]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "Worst stage p95 (5m)",
+      "gridPos": {"x": 18, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "max(histogram_quantile(0.95, sum by (name, le) (rate(celery_task_runtime_bucket{name=~\"api.tasks.processing..*|api.tasks.upload..*\"}[5m]))))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 60}, {"color": "red", "value": 300}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "type": "row",
+      "title": "Stage latency",
+      "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 duration per pipeline stage",
+      "gridPos": {"x": 0, "y": 6, "w": 24, "h": 10},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.95, sum by (name, le) (rate(celery_task_runtime_bucket{name=~\"api.tasks.processing..*|api.tasks.upload..*\"}[5m])))", "legendFormat": "{{name}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+    },
+    {
+      "type": "row",
+      "title": "Stage throughput & failures",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Successful tasks per stage",
+      "gridPos": {"x": 0, "y": 17, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (name) (rate(celery_task_succeeded_total{name=~\"api.tasks.processing..*|api.tasks.upload..*\"}[5m]))", "legendFormat": "{{name}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 25, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Failed tasks per stage",
+      "gridPos": {"x": 12, "y": 17, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (name) (rate(celery_task_failed_total{name=~\"api.tasks.processing..*|api.tasks.upload..*\"}[5m])) > 0", "legendFormat": "{{name}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"}}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}
+    },
+    {
+      "type": "row",
+      "title": "Recordings stream",
+      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "title": "Recent pipeline events (Celery tasks)",
+      "gridPos": {"x": 0, "y": 27, "w": 24, "h": 10},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "{app=\"leap\", task_name=~\"api.tasks.processing..+|api.tasks.upload..+\"} | json | line_format \"{{.text}}\""}
+      ],
+      "options": {"showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["leap", "pipeline"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "LEAP Pipeline",
+  "uid": "leap-pipeline",
+  "version": 1
+}

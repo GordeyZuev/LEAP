@@ -93,6 +93,9 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
         log_file = env_log_file
 
     logger.remove()
+    # Default ``extra`` declared upfront so the JSON sink emits a stable
+    # schema for every event (HTTP, Celery, startup) — Promtail can rely on
+    # field paths existing without conditionals.
     logger.configure(
         extra={
             "module": "app",
@@ -100,6 +103,15 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
             "recording_id": None,
             "user_id": None,
             "platform": None,
+            "request_id": None,
+            "method": None,
+            "path": None,
+            "route": None,
+            "status_code": None,
+            "duration_ms": None,
+            "queue": None,
+            "task_name": None,
+            "task_state": None,
         }
     )
 

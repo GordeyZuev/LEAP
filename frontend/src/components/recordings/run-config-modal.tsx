@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Eye, Loader2, Play, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { Modal } from "@/components/ui/modal";
 import {
   FILTER_CONTROL,
   FILTER_LABEL,
@@ -181,6 +182,7 @@ export function RunConfigModal({
   onSuccess,
 }: RunConfigModalProps) {
   const qc = useQueryClient();
+  const titleId = useId();
   const { data: languages = [] } = useLanguages();
   const { data: granularities = [] } = useGranularities();
 
@@ -451,16 +453,6 @@ export function RunConfigModal({
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, existingConfig]);
 
-  // ── ESC to close ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   const count = mode === "bulk" ? (recordingIds?.length ?? 0) : 1;
   const title =
     mode === "single"
@@ -534,16 +526,20 @@ export function RunConfigModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      labelledBy={titleId}
+      panelClassName="flex max-h-[92vh] max-w-2xl flex-col bg-white"
     >
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-xl mx-4">
+      <>
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-[#EAEAEA] px-6 py-4">
-          <h2 className="min-w-0 truncate text-sm font-semibold text-gray-900">{title}</h2>
+          <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-gray-900">{title}</h2>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close dialog"
             className="ml-4 shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
           >
             <X size={18} />
@@ -915,7 +911,7 @@ export function RunConfigModal({
             Run
           </button>
         </div>
-      </div>
-    </div>
+      </>
+    </Modal>
   );
 }

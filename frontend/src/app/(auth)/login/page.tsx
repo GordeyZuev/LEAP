@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/api/client";
 import { PasswordInput } from "@/components/ui/password-input";
+import { Logo } from "@/components/layout/logo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,12 +16,13 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading) return;
     setError("");
     setLoading(true);
     try {
-      const { data } = await apiClient.post("/auth/login", { email, password });
-      localStorage.setItem("access_token", data.access_token);
-      localStorage.setItem("refresh_token", data.refresh_token);
+      // Server sets httpOnly session cookies + CSRF cookie on the response.
+      // We don't read or store any tokens client-side.
+      await apiClient.post("/auth/login", { email, password });
       router.push("/recordings");
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })
@@ -34,51 +36,62 @@ export default function LoginPage() {
   return (
     <div className="min-h-full flex items-center justify-center bg-[#FAFAFA] px-4">
       <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-[#224C87]">LEAP</h1>
-          <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
+        <div className="flex flex-col items-center mb-10">
+          <Logo size={48} />
+          <p className="text-sm font-semibold tracking-[0.2em] text-[#224C87] mt-5">LEAP</p>
+          <p className="text-xs text-gray-400 mt-1.5">Sign in to your account</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-[#D9D9D9] p-8">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Email
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
-                placeholder="you@example.com"
-              />
-            </div>
+            <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
+              <div>
+                <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Email
+                </label>
+                <input
+                  id="login-email"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  inputMode="email"
+                  autoFocus
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                  placeholder="you@example.com"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Password
-              </label>
-              <PasswordInput
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
-                placeholder="••••••••"
-              />
-            </div>
+              <div>
+                <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Password
+                </label>
+                <PasswordInput
+                  id="login-password"
+                  required
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                  placeholder="••••••••"
+                />
+              </div>
 
-            {error && (
-              <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{error}</p>
-            )}
+              {error && (
+                <p role="alert" aria-live="polite" className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">
+                  {error}
+                </p>
+              )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#224C87] text-white py-2.5 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-all duration-200 mt-2"
-            >
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-[#224C87] text-white py-2.5 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-all duration-200 mt-2"
+              >
+                {loading ? "Signing in…" : "Sign in"}
+              </button>
+            </fieldset>
           </form>
         </div>
 

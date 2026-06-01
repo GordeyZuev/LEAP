@@ -31,9 +31,13 @@ class LoginRequest(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    """Request for refreshing token."""
+    """Request for refreshing token.
 
-    refresh_token: str = Field(..., description="Refresh token")
+    Browser flow leaves this empty (token comes from the refresh cookie).
+    CLI clients pass the token in the body.
+    """
+
+    refresh_token: str | None = Field(default=None, description="Refresh token (browser clients omit — uses cookie).")
 
 
 class ChangePasswordRequest(BaseModel):

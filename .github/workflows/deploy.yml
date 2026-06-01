@@ -132,5 +132,11 @@ jobs:
             # the new code ever sees traffic.
             docker compose run --rm migrate
             docker compose up -d --no-deps api celery_worker celery_beat flower frontend
+            # --force-recreate so bind-mounted config files (prometheus.yml,
+            # promtail.yml, grafana_datasources.yml) re-load. `up -d` alone
+            # only detects YAML-spec drift, not file-content drift. Loki is
+            # excluded — it owns ingestion state and its config is stable.
+            docker compose up -d loki
+            docker compose up -d --force-recreate prometheus celery_exporter promtail grafana
             docker compose up -d --no-deps nginx
             docker compose ps

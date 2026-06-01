@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useDebounce } from "@/hooks/use-debounce";
 import { FilterSelect } from "@/components/recordings/filter-select";
+import { Pagination } from "@/components/ui/pagination";
 import { DEBOUNCE_SEARCH, PER_PAGE_TEMPLATES } from "@/lib/constants";
 import {
   FILTER_CARD,
@@ -133,10 +134,19 @@ function TemplatesContent() {
     },
   });
 
+  // Self-correct out-of-range `page` (e.g. after deletes, shared stale links).
+  useEffect(() => {
+    if (!data) return;
+    if (data.total === 0) {
+      if (urlPage !== 1) setPage(1);
+    } else if (urlPage > data.total_pages) {
+      setPage(data.total_pages);
+    }
+    // setPage closes over searchParams via router; safe to omit from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, urlPage]);
+
   const templates = data?.items ?? [];
-  const totalPages = data?.total_pages ?? 1;
-  const hasPrev = urlPage > 1;
-  const hasNext = urlPage < totalPages;
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -308,32 +318,16 @@ function TemplatesContent() {
         </table>
       </div>
 
-      {data && data.total > 0 && (
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-gray-600">
-            Page {urlPage} of {totalPages}
-            <span className="text-gray-400"> · </span>
-            {data.total} template{data.total !== 1 ? "s" : ""}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={!hasPrev}
-              onClick={() => setPage(urlPage - 1)}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={!hasNext}
-              onClick={() => setPage(urlPage + 1)}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {data && (
+        <Pagination
+          page={urlPage}
+          totalPages={data.total_pages}
+          total={data.total}
+          perPage={PER_PAGE_TEMPLATES}
+          onPageChange={setPage}
+          itemLabel="template"
+          className="mt-5"
+        />
       )}
     </div>
   );

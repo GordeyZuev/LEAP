@@ -1,13 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, Link2, List, Upload, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Modal } from "@/components/ui/modal";
 
 type Tab = "url" | "playlist" | "file" | "sync";
+
+// 5 GB hard cap on direct file uploads. Anything larger hits nginx
+// client_max_body_size before the backend ever sees it — better to reject
+// upfront with a clear message than to upload for an hour and see 413.
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
+
+// Hosts the backend recognizes for URL/playlist ingestion (via yt-dlp). The
+// check is a friendly client-side guard, not a security boundary — the backend
+// still validates.
+const SUPPORTED_VIDEO_HOSTS = [
+  "youtube.com",
+  "youtu.be",
+  "vk.com",
+  "vk.ru",
+  "rutube.ru",
+  "vimeo.com",
+];
+
+function isLikelySupportedUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    return SUPPORTED_VIDEO_HOSTS.some(
+      (host) => u.hostname === host || u.hostname.endsWith(`.${host}`),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
+  return `${(bytes / 1024).toFixed(0)} KB`;
+}
 
 interface SourceItem {
   id: number;
@@ -42,7 +78,7 @@ const TABS = [
 
 export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
   const qc = useQueryClient();
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const [tab, setTab] = useState<Tab>("url");
 
   // URL / Playlist state
@@ -138,30 +174,28 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     },
   });
 
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, handleClose]);
-
-  if (!open) return null;
-
   const isLoading = addUrl.isPending || addPlaylist.isPending || uploadFile.isPending || syncSource.isPending;
 
   function handleSubmit() {
+    if (isLoading) return;
     setSuccessMsg("");
     setErrorMsg("");
-    if (tab === "url") {
-      if (!url.trim()) { setErrorMsg("Enter a URL"); return; }
-      addUrl.mutate({ url: url.trim(), quality, auto_run: autoRun });
-    } else if (tab === "playlist") {
-      if (!url.trim()) { setErrorMsg("Enter a playlist URL"); return; }
-      addPlaylist.mutate({ url: url.trim(), quality, auto_run: autoRun });
+    if (tab === "url" || tab === "playlist") {
+      const trimmed = url.trim();
+      if (!trimmed) { setErrorMsg(tab === "url" ? "Enter a URL" : "Enter a playlist URL"); return; }
+      if (!isLikelySupportedUrl(trimmed)) {
+        setErrorMsg(`Unsupported URL. Try: ${SUPPORTED_VIDEO_HOSTS.join(", ")}`);
+        return;
+      }
+      const payload = { url: trimmed, quality, auto_run: autoRun };
+      if (tab === "url") addUrl.mutate(payload);
+      else addPlaylist.mutate(payload);
     } else if (tab === "file") {
       if (!file) { setErrorMsg("Select a file"); return; }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setErrorMsg(`File is too large (${formatBytes(file.size)}). Max allowed: ${formatBytes(MAX_UPLOAD_BYTES)}.`);
+        return;
+      }
       uploadFile.mutate({ f: file, displayName: fileDisplayName });
     } else if (tab === "sync") {
       if (selectedSources.size === 0) { setErrorMsg("Select at least one source"); return; }
@@ -176,16 +210,17 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     "Start sync";
 
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === overlayRef.current) handleClose(); }}
-    >
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
+    <Modal open={open} onClose={handleClose} labelledBy={titleId} panelClassName="max-w-md overflow-hidden">
+      <div className="bg-white">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
-          <h2 className="text-base font-semibold text-gray-900">Add video</h2>
-          <button onClick={handleClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+          <h2 id={titleId} className="text-base font-semibold text-gray-900">Add video</h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="Close dialog"
+            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          >
             <X size={16} />
           </button>
         </div>
@@ -276,6 +311,15 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0] ?? null;
+                      if (f && f.size > MAX_UPLOAD_BYTES) {
+                        setErrorMsg(
+                          `File is too large (${formatBytes(f.size)}). Max allowed: ${formatBytes(MAX_UPLOAD_BYTES)}.`,
+                        );
+                        setFile(null);
+                        e.target.value = "";
+                        return;
+                      }
+                      setErrorMsg("");
                       setFile(f);
                       if (f && !fileDisplayName) {
                         setFileDisplayName(f.name.replace(/\.[^/.]+$/, ""));
@@ -355,6 +399,6 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

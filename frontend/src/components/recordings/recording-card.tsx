@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
+import { cn, formatDate } from "@/lib/utils";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 
 interface UploadInfo {
@@ -46,10 +46,6 @@ interface RecordingCardProps {
   onDelete?: (id: number) => void;
   onRestore?: (id: number) => void;
   loadingId?: number | null;
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function formatDuration(seconds: number) {
@@ -165,7 +161,8 @@ export function RecordingCard({
       <div className="px-4 pb-1">
         <Link
           href={`/recordings/${r.id}`}
-          className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900 transition-colors hover:text-[#224C87]"
+          title={r.display_name}
+          className="line-clamp-2 text-sm font-semibold leading-snug text-gray-900 transition-colors hover:text-[#224C87] [overflow-wrap:anywhere]"
         >
           {r.display_name}
         </Link>
@@ -194,23 +191,36 @@ export function RecordingCard({
         <div className="flex flex-wrap gap-2 px-4 pb-3">
           {uploadEntries.map(([platform, info]) => {
             const cfg = UPLOAD_STATUS_CONFIG[info.status] ?? UPLOAD_STATUS_CONFIG["NOT_UPLOADED"];
+            const label = PLATFORM_LABELS[platform] ?? platform;
+            const linked = info.url && info.status === "UPLOADED";
+            const dot = <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />;
+            if (linked) {
+              return (
+                <a
+                  key={platform}
+                  href={info.url!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  title={`Open on ${label}`}
+                  className={cn(
+                    "inline-flex items-center gap-1 text-xs font-medium transition-colors hover:underline",
+                    cfg.text,
+                  )}
+                >
+                  {dot}
+                  {label}
+                  <ExternalLink size={10} className="opacity-60" />
+                </a>
+              );
+            }
             return (
               <span
                 key={platform}
                 className={cn("inline-flex items-center gap-1 text-xs font-medium", cfg.text)}
               >
-                <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
-                {PLATFORM_LABELS[platform] ?? platform}
-                {info.url && info.status === "UPLOADED" && (
-                  <a
-                    href={info.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <ExternalLink size={10} className="opacity-60 hover:opacity-100" />
-                  </a>
-                )}
+                {dot}
+                {label}
               </span>
             );
           })}
@@ -274,7 +284,7 @@ export function RecordingCard({
                     {onRunWithConfig && (
                       <MenuItem
                         icon={Settings2}
-                        label="Run with config…"
+                        label="Run with config"
                         onClick={() => { setMenuOpen(false); onRunWithConfig(r.id); }}
                       />
                     )}
@@ -302,13 +312,6 @@ export function RecordingCard({
             )}
           </>
         )}
-
-        <Link
-          href={`/recordings/${r.id}`}
-          className="flex h-8 w-8 items-center justify-center rounded-xl border border-[#D9D9D9] bg-white transition-colors hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
-        >
-          <ArrowRight size={14} />
-        </Link>
       </div>
     </div>
   );

@@ -10,9 +10,18 @@ if str(project_root) not in sys.path:
 # Shim: celery-sqlalchemy-scheduler 0.3.0 reads tz.zone (pytz-only attr);
 # Celery 5.x uses zoneinfo.ZoneInfo which has tz.key. Patch from_schedule
 # to be tz-agnostic — otherwise beat_schedule entries fail to register.
+import time  # noqa: E402
+
 import celery_sqlalchemy_scheduler.models as _csm_models  # noqa: E402
 from celery import Celery  # noqa: E402
-from celery.signals import after_setup_logger, task_prerun, worker_process_init  # noqa: E402
+from celery.signals import (  # noqa: E402
+    after_setup_logger,
+    task_failure,
+    task_postrun,
+    task_prerun,
+    task_retry,
+    worker_process_init,
+)
 
 
 def _tz_name(tz) -> str:
@@ -22,12 +31,15 @@ def _tz_name(tz) -> str:
 
 @classmethod  # type: ignore[misc]
 def _patched_crontab_from_schedule(cls, session, schedule):
+    # str() cast: celery 5.6+ keeps _orig_* as int when crontab(hour=3, minute=0)
+    # is called with int literals; DB columns are VARCHAR so the implicit
+    # `WHERE minute = 0` raises "operator does not exist: varchar = integer".
     spec = {
-        "minute": schedule._orig_minute,
-        "hour": schedule._orig_hour,
-        "day_of_week": schedule._orig_day_of_week,
-        "day_of_month": schedule._orig_day_of_month,
-        "month_of_year": schedule._orig_month_of_year,
+        "minute": str(schedule._orig_minute),
+        "hour": str(schedule._orig_hour),
+        "day_of_week": str(schedule._orig_day_of_week),
+        "day_of_month": str(schedule._orig_day_of_month),
+        "month_of_year": str(schedule._orig_month_of_year),
     }
     if schedule.tz:
         spec["timezone"] = _tz_name(schedule.tz)
@@ -163,12 +175,84 @@ def _reinit_loguru_in_child(**_kwargs):
 
 
 # ---------------------------------------------------------------------------
-# Task signals
+# Task signals — structured lifecycle events for Loki / Grafana
 # ---------------------------------------------------------------------------
+
+
+def _task_queue(task) -> str:
+    delivery_info = getattr(task.request, "delivery_info", None) or {}
+    return delivery_info.get("routing_key") or delivery_info.get("exchange") or "celery"
+
+
+def _short_name(name: str | None) -> str:
+    return name.rsplit(".", 1)[-1] if name else "unknown"
+
+
+# Per-process map of task_id → start time; cleared on postrun.
+_TASK_STARTED_AT: dict[str, float] = {}
 
 
 @task_prerun.connect
 def task_prerun_handler(task_id, task, *_args, **_kwargs):
-    """Log task dispatch (DEBUG — Celery already logs 'received' at INFO)."""
-    task_short = task.name.rsplit(".", 1)[-1] if task.name else "unknown"
-    logger.debug(f"Worker executing | task={task_short} • id={short_task_id(task_id)}")
+    _TASK_STARTED_AT[task_id] = time.perf_counter()
+    logger.bind(
+        task_id=short_task_id(task_id),
+        task_name=task.name,
+        queue=_task_queue(task),
+        task_state="STARTED",
+    ).debug("Task started | task={} • id={}", _short_name(task.name), short_task_id(task_id))
+
+
+@task_postrun.connect
+def task_postrun_handler(task_id, task, *, state, **_kwargs):
+    started = _TASK_STARTED_AT.pop(task_id, None)
+    duration_ms = round((time.perf_counter() - started) * 1000, 2) if started is not None else None
+    # FAILURE is logged at ERROR by task_failure; keep postrun at INFO so
+    # dashboards don't double-count failures.
+    level = "INFO" if state == "SUCCESS" else "WARNING"
+    logger.bind(
+        task_id=short_task_id(task_id),
+        task_name=task.name,
+        queue=_task_queue(task),
+        task_state=state,
+        duration_ms=duration_ms,
+    ).log(
+        level,
+        "Task {} | task={} • id={} • {}ms",
+        state.lower(),
+        _short_name(task.name),
+        short_task_id(task_id),
+        f"{duration_ms:.1f}" if duration_ms is not None else "?",
+    )
+
+
+@task_failure.connect
+def task_failure_handler(task_id, exception, _traceback, einfo, *, sender, **_kwargs):
+    logger.bind(
+        task_id=short_task_id(task_id),
+        task_name=getattr(sender, "name", None),
+        queue=_task_queue(sender) if sender is not None else None,
+        task_state="FAILURE",
+        exception_class=type(exception).__name__,
+    ).opt(exception=einfo.exception if einfo else exception).error(
+        "Task failed | task={} • id={} • {}: {}",
+        _short_name(getattr(sender, "name", None)),
+        short_task_id(task_id),
+        type(exception).__name__,
+        exception,
+    )
+
+
+@task_retry.connect
+def task_retry_handler(request, reason, *, sender, **_kwargs):
+    logger.bind(
+        task_id=short_task_id(request.id),
+        task_name=getattr(sender, "name", None),
+        queue=_task_queue(sender) if sender is not None else None,
+        task_state="RETRY",
+    ).warning(
+        "Task retry | task={} • id={} • reason={}",
+        _short_name(getattr(sender, "name", None)),
+        short_task_id(request.id),
+        reason,
+    )

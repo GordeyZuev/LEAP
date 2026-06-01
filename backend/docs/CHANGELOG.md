@@ -2,6 +2,124 @@
 
 ---
 
+## 2026-06-01: HttpOnly cookie auth + CSRF (browser flow)
+
+Без bump'a версии — security hardening. The browser frontend no longer stores
+JWTs in `localStorage`; the backend now sets httpOnly `access_token` /
+`refresh_token` cookies on `/auth/login` and `/auth/refresh` and clears them
+on `/auth/logout`. CLI / server-to-server clients keep the existing
+`Authorization: Bearer` flow — `get_current_user` accepts either source.
+
+- **Cookie helpers** (`backend/api/auth/cookies.py`) — sets `access_token`
+  (httpOnly, path `/`), `refresh_token` (httpOnly, path `/api/v1/auth`), and
+  a NON-httpOnly `csrf_token` cookie used for the double-submit defence. Flags
+  (`secure`, `samesite`, `domain`) come from `SecuritySettings`.
+- **CSRF middleware** (`backend/api/middleware/csrf.py` +
+  `backend/api/auth/csrf.py`) — applied globally; rejects mutating requests
+  (POST/PUT/PATCH/DELETE) that carry an auth cookie unless the
+  `X-CSRF-Token` header matches the `csrf_token` cookie. Bearer-authenticated
+  requests and safe methods short-circuit. Constant-time comparison.
+- **Auth router** (`backend/api/routers/auth.py`) — `/auth/login` and
+  `/auth/refresh` now return a `SessionResponse` (`csrf_token` + a TokenPair
+  for CLI clients) and set the three cookies on the response. `/auth/refresh`
+  and `/auth/logout` accept the refresh token from the cookie or the body.
+- **Dependencies** (`backend/api/auth/dependencies.py`) — `get_current_user`
+  reads the access token from `Authorization: Bearer` (CLI) or the
+  `access_token` cookie (browser), in that order.
+- **Settings** (`backend/config/settings.py`) — new `SECURITY_COOKIE_SECURE`,
+  `SECURITY_COOKIE_SAMESITE`, `SECURITY_COOKIE_DOMAIN`,
+  `SECURITY_CSRF_HEADER_NAME`, `SECURITY_CSRF_COOKIE_NAME`. See
+  `backend/.env.example` for the recommended production values.
+- **Frontend** — `apiClient` now sends `withCredentials: true`, drops the
+  `Authorization` header injection, and attaches `X-CSRF-Token` (read from
+  `document.cookie`) on every mutating request. Refresh interceptor calls
+  `/auth/refresh` (cookie-only) and is deduped via an in-flight promise.
+  `AuthGuard` and `(auth)/layout` verify sessions via `GET /users/me`
+  instead of reading `localStorage`. Logout calls `POST /auth/logout`.
+
+### Файлы
+
+- `backend/api/auth/cookies.py`, `backend/api/auth/csrf.py`, `backend/api/auth/dependencies.py`
+- `backend/api/middleware/csrf.py`, `backend/api/main.py`
+- `backend/api/routers/auth.py`
+- `backend/api/schemas/auth/__init__.py`, `backend/api/schemas/auth/request.py`, `backend/api/schemas/auth/token.py`
+- `backend/config/settings.py`, `backend/.env.example`
+- `frontend/src/api/client.ts`, `frontend/src/lib/auth.ts`
+- `frontend/src/components/layout/auth-guard.tsx`, `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/app/(auth)/layout.tsx`, `frontend/src/app/(auth)/login/page.tsx`, `frontend/src/app/(auth)/register/page.tsx`
+
+### Deploy notes
+
+- The CORS allowlist on the API must include the production frontend origin
+  by name (no wildcards) — browsers refuse credentialed requests against
+  `Access-Control-Allow-Origin: *`. Set `SERVER_CORS_ORIGINS=https://app.example.com` (comma-separated for multiple).
+- Set `SECURITY_COOKIE_SECURE=true` in production. If the frontend lives on
+  a different site (cross-site, not same-site), set `SECURITY_COOKIE_SAMESITE=none`
+  (still requires `secure=true`).
+- Sessions issued before this rollout (Bearer tokens in localStorage) keep
+  working through the Bearer path until they expire; users who refresh the
+  page after this deploy will get redirected to `/login`. No DB migration.
+
+---
+
+## 2026-06-01: Production-grade observability (Loki + Prometheus + Grafana)
+
+Без bump'a версии — extending the existing Loki/Promtail/Grafana stack with
+metrics, structured HTTP access logs, Celery lifecycle events, and four
+purpose-built dashboards. See `backend/docs/guides/MONITORING.md` for the
+full runbook.
+
+- **HTTP access log → INFO + structured fields** (`backend/api/middleware/logging.py`) — one event per request with `request_id` (uuid4, also echoed as `X-Request-ID` response header), `method`, `path`, `route` (FastAPI route template — bounded cardinality), `status_code`, `duration_ms`, `user_id`, `client_ip`, `user_agent`, `bytes_sent`. Status-based log level (4xx → WARNING, 5xx → ERROR) so red bars in Grafana actually mean errors. Health/metrics polling excluded.
+- **`request.state.user_id`** (`backend/api/auth/dependencies.py`) — `get_current_user` now stamps the truncated user id onto request state so the access-log middleware can include it without parsing the JWT a second time.
+- **Loguru schema** (`backend/logger.py`) — default `extra` extended with HTTP fields (`request_id`, `method`, `path`, `route`, `status_code`, `duration_ms`) and Celery lifecycle fields (`queue`, `task_name`, `task_state`). Ensures structured JSON sink always emits a stable schema across HTTP, Celery and startup events.
+- **Celery lifecycle signals** (`backend/api/celery_app.py`) — `task_postrun`, `task_failure`, `task_retry` emit structured INFO/WARNING/ERROR events with `task_name`, `queue`, `task_state`, `duration_ms`, and (on failure) `exception_class` + traceback. `task_prerun` is DEBUG to avoid double-logging Celery's own "received" line.
+- **Prometheus FastAPI instrumentation** (`backend/api/observability/metrics.py`) — `prometheus-fastapi-instrumentator` mounted at `/metrics` under the `leap_http_*` namespace: counter `leap_http_requests_total{method,handler,status}`, histogram `leap_http_request_duration_seconds`, request/response size summaries, in-progress gauge. Handler label is the route template (`/api/v1/recordings/{id}`), so cardinality is bounded.
+- **Prometheus container** (`docker-compose.yml`, `monitoring/prometheus.yml`) — `prom/prometheus:v2.55.0`, 30-day retention, runs at `/prometheus/` subpath (`--web.route-prefix`) so nginx can serve it behind basic-auth at `https://${DOMAIN}/prometheus`. Scrapes `api:8000`, `celery_exporter:9808`, and itself.
+- **Celery exporter** (`docker-compose.yml`) — `danihodovic/celery-exporter:0.10.10` listens on Celery events over the Redis broker and serves `celery_*` metrics: queue depth, per-task counters (sent/received/started/succeeded/failed/retried), runtime histograms, worker health.
+- **Grafana datasources** (`monitoring/grafana_datasources.yml`) — auto-provisions both **Loki** (with a `request_id` derived field that opens a correlated query) and **Prometheus** (default datasource, POST queries for big PromQL bodies).
+- **Promtail label policy** (`monitoring/promtail.yml`) — fixed the JSON path bug (loguru's `serialize=True` nests under `record.*` — the old config never extracted labels). New explicit policy: low-cardinality fields (`level, module, queue, method, route, status_code, task_name, task_state, platform`) become labels; high-cardinality fields (`request_id, task_id, recording_id, user_id`) stay in the body and are queryable via `| json` in LogQL. Promotes the formatted `text` to the Loki log line via the `output` stage so panels show the message, not the JSON envelope.
+- **Dashboards** (`monitoring/dashboards/`) — four purpose-built dashboards replacing the single legacy "Overview":
+  - `leap_api.json` — RPS, error rate %, p50/p95/p99 latency, top routes, slowest routes, 5xx breakdown + live 5xx log stream
+  - `leap_celery.json` — task throughput by state, queue depth per queue, p95 task duration, failures by name + recent failure log stream
+  - `leap_pipeline.json` — recordings/uploads completed (24h), worst-stage p95, stage-by-stage duration and throughput, per-recording event stream
+  - `leap_errors.json` — log rate by level, top noisy modules, top exception types, recent ERRORs, all 4xx+5xx access events
+- **nginx `/prometheus/` route** (`nginx/nginx.https.conf`) — basic-auth gate matching the existing `/grafana/` and `/flower/` patterns; reuses the htpasswd file.
+- **Deploy auto-rollout** (`.github/workflows/deploy.yml`) — added `docker compose up -d prometheus celery_exporter loki promtail grafana` after the app rollout so changes to `monitoring/*` configs propagate without a separate manual step.
+- **Env vars** (`docker-compose.yml`, `backend/.env.example`) — `JSON_LOG_FILE`, `LOG_FILE`, `ERROR_LOG_FILE`, `MONITORING_PROMETHEUS_ENABLED` defaulted at the compose level so production `.env` doesn't need changes for the rollout. Celery worker/beat write to the same `structured.json` Promtail tails, so task events land in Loki under a unified labelset.
+- **`prometheus-fastapi-instrumentator>=7.0.0`** added to `backend/pyproject.toml`.
+
+### Production rollout
+
+This is the **first deploy** that introduces new infra containers
+(`prometheus`, `celery_exporter`) and config-file changes for the
+existing infra. Follow the steps in
+[guides/MONITORING.md → Rolling out to an already-deployed VM](guides/MONITORING.md#rolling-out-to-an-already-deployed-vm)
+on the next deploy. Subsequent deploys are zero-touch via the updated
+`deploy.yml`.
+
+### Файлы
+
+- `backend/api/middleware/logging.py` (полный rewrite — access log → INFO + structured)
+- `backend/api/auth/dependencies.py` (+ `request.state.user_id`)
+- `backend/api/celery_app.py` (`task_postrun` / `task_failure` / `task_retry`)
+- `backend/api/observability/__init__.py`, `backend/api/observability/metrics.py` (**new**)
+- `backend/api/main.py` (wire `setup_prometheus`)
+- `backend/logger.py` (extended default `extra` schema)
+- `backend/pyproject.toml` (`prometheus-fastapi-instrumentator`)
+- `backend/.env.example` (observability env vars)
+- `backend/docs/guides/MONITORING.md` (**new** — full runbook)
+- `backend/docs/INDEX.md` (link to MONITORING)
+- `docker-compose.yml` (prometheus, celery_exporter, JSON_LOG_FILE env)
+- `nginx/nginx.https.conf` (`/prometheus/` route)
+- `monitoring/prometheus.yml` (**new**)
+- `monitoring/promtail.yml` (label policy + correct JSON paths)
+- `monitoring/grafana_datasources.yml` (+ Prometheus DS, request_id derived field)
+- `monitoring/dashboards/leap_api.json`, `leap_celery.json`, `leap_pipeline.json`, `leap_errors.json` (**new**)
+- `monitoring/dashboards/leap_overview.json` (**removed** — replaced by the four above)
+- `.github/workflows/deploy.yml` (auto-rollout observability containers)
+
+---
+
 ## 2026-05-31: Production deploy hardening + CI fixes
 
 Без bump'a версии — фикс-релиз поверх v0.10.0 по итогам первого боевого деплоя.

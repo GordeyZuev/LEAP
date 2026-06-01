@@ -64,6 +64,10 @@
 - [guides/BATCH_TESTING.md](guides/BATCH_TESTING.md)
 - [guides/CELERY_WORKERS_GUIDE.md](guides/CELERY_WORKERS_GUIDE.md)
 - [guides/CELERY_ASYNCIO_TECHNICAL.md](guides/CELERY_ASYNCIO_TECHNICAL.md)
+
+**Observability**
+
+- [guides/MONITORING.md](guides/MONITORING.md) — Loki/Promtail/Grafana + Prometheus, dashboards, label policy, prod rollout
 - [hidden/ASR_MODELS_DEEP_DIVE.md](hidden/ASR_MODELS_DEEP_DIVE.md) — подробный разбор моделей ASR (черновик / внутренняя заметка)
 
 **Storage & ingestion**
@@ -89,6 +93,7 @@
 | Architecture | [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md), [ADR_OVERVIEW.md](ADR_OVERVIEW.md) |
 | API | [TECHNICAL.md](TECHNICAL.md) |
 | VK | [guides/VK_INTEGRATION.md](guides/VK_INTEGRATION.md) |
+| Observability | [guides/MONITORING.md](guides/MONITORING.md) |
 
 ---
 

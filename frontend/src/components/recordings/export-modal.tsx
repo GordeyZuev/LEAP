@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Download, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { Modal } from "@/components/ui/modal";
 import {
   FILTER_LABEL,
   FILTER_SEGMENT_ACTIVE,
@@ -77,6 +78,7 @@ export function ExportModal({
   selectedIds,
   appliedFilterParams,
 }: ExportModalProps) {
+  const titleId = useId();
   const [format, setFormat] = useState<ExportFormat>("xlsx");
   const [verbosity, setVerbosity] = useState<ExportVerbosity>("short");
   const [useSelectedOverride, setUseSelectedOverride] = useState<boolean | null>(null);
@@ -93,16 +95,8 @@ export function ExportModal({
     onClose();
   }, [onClose]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, handleClose]);
-
-  if (!open) return null;
-
   async function handleExport() {
+    if (loading) return;
     setLoading(true);
     setError(null);
 
@@ -149,15 +143,17 @@ export function ExportModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
-    >
-      <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl mx-4">
+    <Modal open={open} onClose={handleClose} labelledBy={titleId} panelClassName="max-w-sm">
+      <div className="bg-white">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#EAEAEA] px-6 py-4">
-          <h2 className="text-sm font-semibold text-gray-900">Export recordings</h2>
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+          <h2 id={titleId} className="text-sm font-semibold text-gray-900">Export recordings</h2>
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="Close dialog"
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
             <X size={18} />
           </button>
         </div>
@@ -272,6 +268,6 @@ export function ExportModal({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

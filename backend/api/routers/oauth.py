@@ -297,14 +297,14 @@ async def youtube_callback(
         await save_oauth_credentials(user_id, "youtube", token_data, config, session)
 
         logger.info(f"YouTube OAuth completed successfully: user_id={user_id}")
-        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=youtube")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_success=true&platform=youtube")
 
     except ValueError as e:
         logger.error(f"YouTube OAuth callback error: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error=invalid_state&platform=youtube")
     except Exception as e:
         logger.error(f"YouTube OAuth callback failed: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error=token_exchange_failed&platform=youtube")
 
 
 @router.get("/vk/authorize", response_model=OAuthAuthorizeResponse)
@@ -513,7 +513,7 @@ async def vk_callback(
 
     if error:
         _log_oauth_callback_provider_error("VK", error)
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error={error}&platform=vk_video")
 
     try:
         # Validate state to get user_id and code_verifier (for PKCE)
@@ -538,14 +538,14 @@ async def vk_callback(
         await save_oauth_credentials(user_id, "vk_video", token_data, config, session)
 
         logger.info(f"VK OAuth completed successfully: user_id={user_id}")
-        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=vk")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_success=true&platform=vk_video")
 
     except ValueError as e:
         logger.error(f"VK OAuth callback error: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error=invalid_state&platform=vk_video")
     except Exception as e:
         logger.error(f"VK OAuth callback failed: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error=token_exchange_failed&platform=vk_video")
 
 
 @router.get("/zoom/authorize", response_model=OAuthAuthorizeResponse)
@@ -586,7 +586,7 @@ async def zoom_callback(
 
     if error:
         _log_oauth_callback_provider_error("Zoom", error)
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error={error}&platform=zoom")
 
     try:
         # Validate state to get user_id
@@ -610,14 +610,14 @@ async def zoom_callback(
         await save_oauth_credentials(user_id, "zoom", token_data, config, session)
 
         logger.info(f"Zoom OAuth completed successfully: user_id={user_id}")
-        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=zoom")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_success=true&platform=zoom")
 
     except ValueError as e:
         logger.error(f"Zoom OAuth callback error: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error=invalid_state&platform=zoom")
     except Exception as e:
         logger.error(f"Zoom OAuth callback failed: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error=token_exchange_failed&platform=zoom")
 
 
 @router.get("/yandex_disk/authorize", response_model=OAuthAuthorizeResponse)
@@ -658,7 +658,7 @@ async def yandex_disk_callback(
 
     if error:
         _log_oauth_callback_provider_error("Yandex Disk", error)
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error={error}")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error={error}&platform=yandex_disk")
 
     try:
         metadata = await state_manager.validate_state(state)
@@ -679,11 +679,13 @@ async def yandex_disk_callback(
         await save_oauth_credentials(user_id, "yandex_disk", token_data, config, session)
 
         logger.info(f"Yandex Disk OAuth completed successfully: user_id={user_id}")
-        return RedirectResponse(url=f"{frontend_url}/settings/platforms?oauth_success=true&platform=yandex_disk")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_success=true&platform=yandex_disk")
 
     except ValueError as e:
         logger.error(f"Yandex Disk OAuth callback error: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=invalid_state")
+        return RedirectResponse(url=f"{frontend_url}/credentials?oauth_error=invalid_state&platform=yandex_disk")
     except Exception as e:
         logger.error(f"Yandex Disk OAuth callback failed: {e}")
-        return RedirectResponse(url=f"{frontend_url}/?oauth_error=token_exchange_failed")
+        return RedirectResponse(
+            url=f"{frontend_url}/credentials?oauth_error=token_exchange_failed&platform=yandex_disk"
+        )

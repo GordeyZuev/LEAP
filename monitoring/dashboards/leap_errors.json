@@ -1,0 +1,158 @@
+{
+  "annotations": {"list": []},
+  "description": "Errors and warnings across the whole stack — log-driven dashboard backed by Loki. Use this as the first stop when something feels off; drill into LEAP API / Celery for metric context.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {"title": "API", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
+  ],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "ERRORs (5m)",
+      "gridPos": {"x": 0, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "sum(count_over_time({app=\"leap\", level=\"ERROR\"}[5m]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "CRITICAL (5m)",
+      "gridPos": {"x": 6, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "sum(count_over_time({app=\"leap\", level=\"CRITICAL\"}[5m]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "type": "stat",
+      "title": "WARNINGs (5m)",
+      "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "sum(count_over_time({app=\"leap\", level=\"WARNING\"}[5m]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}, {"color": "yellow", "value": 20}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
+    },
+    {
+      "type": "stat",
+      "title": "5xx requests (5m)",
+      "gridPos": {"x": 18, "y": 1, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(leap_http_requests_total{status=~\"5..\"}[5m]))"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"}
+    },
+    {
+      "type": "row",
+      "title": "Trends",
+      "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Log rate by level (5m)",
+      "gridPos": {"x": 0, "y": 6, "w": 12, "h": 9},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "sum by (level) (rate({app=\"leap\"}[5m]))", "legendFormat": "{{level}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "logs/s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 25, "stacking": {"mode": "normal"}}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "ERROR"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]},
+        {"matcher": {"id": "byName", "options": "WARNING"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
+        {"matcher": {"id": "byName", "options": "INFO"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]},
+        {"matcher": {"id": "byName", "options": "DEBUG"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "purple"}}]},
+        {"matcher": {"id": "byName", "options": "CRITICAL"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "dark-red"}}]}
+      ]},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Top 10 noisy modules (ERROR+)",
+      "gridPos": {"x": 12, "y": 6, "w": 12, "h": 9},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "topk(10, sum by (module) (rate({app=\"leap\", level=~\"ERROR|CRITICAL\"}[5m])))", "legendFormat": "{{module}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "logs/s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}}},
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+    },
+    {
+      "type": "row",
+      "title": "Top offenders",
+      "gridPos": {"x": 0, "y": 15, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Top exception types",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 9},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "topk(15, sum by (exception_class) (count_over_time({app=\"leap\", exception_class!=\"\"}[1h])))", "instant": true, "format": "table"}
+      ],
+      "transformations": [
+        {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true}, "renameByName": {"exception_class": "Exception", "Value": "Count (1h)"}}}
+      ],
+      "fieldConfig": {"defaults": {"custom": {"align": "left"}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "Count (1h)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 50}]}}]}
+      ]}
+    },
+    {
+      "type": "logs",
+      "title": "Recent ERRORs (live)",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 9},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "{app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | line_format \"{{.text}}\""}
+      ],
+      "options": {"showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true}
+    },
+    {
+      "type": "row",
+      "title": "By request",
+      "gridPos": {"x": 0, "y": 25, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "title": "All access-log errors (4xx + 5xx)",
+      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 10},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [
+        {"refId": "A", "expr": "{app=\"leap\", module=\"http.access\", status_code=~\"4..|5..\"} | json | line_format \"{{.text}}\""}
+      ],
+      "options": {"showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["leap", "errors"],
+  "templating": {"list": []},
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "LEAP Errors & Logs",
+  "uid": "leap-errors",
+  "version": 1
+}

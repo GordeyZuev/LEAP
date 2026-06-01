@@ -8,10 +8,11 @@ import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
   CheckCircle2, XCircle, Clock, Loader2, SkipForward, RotateCcw, Settings2, ChevronDown, ArchiveRestore, FilePlus2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDate, formatDateTimeShort } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Modal } from "@/components/ui/modal";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { ACTIVE_POLL_STATUSES, POLL_INTERVAL_DETAIL } from "@/lib/constants";
 
@@ -149,10 +150,6 @@ interface RecordingConfigResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
-}
-
 function formatDuration(seconds: number) {
   if (!seconds) return "—";
   const h = Math.floor(seconds / 3600);
@@ -187,15 +184,6 @@ function formatStageDuration(startedAt: string | null, completedAt: string | nul
   if (h > 0) return `${h}ч ${m}м`;
   if (m > 0) return `${m}м ${s}с`;
   return `${s}с`;
-}
-
-function formatDateTimeShort(iso: string): string {
-  return new Date(iso).toLocaleString("ru-RU", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 /** Sidebar/detail template line with optional link to /templates/:id (preset row styling). */
@@ -1223,56 +1211,60 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       />
 
       {/* Create template modal */}
-      {createTemplateOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={(e) => { if (e.currentTarget === e.target) { setCreateTemplateOpen(false); } }}
-        >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="mb-4 text-sm font-semibold text-gray-900">Создать шаблон из записи</h2>
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Название шаблона</label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={createTemplateName}
-                  onChange={(e) => setCreateTemplateName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && createTemplateName.trim()) createTemplate.mutate(createTemplateName.trim());
-                    if (e.key === "Escape") setCreateTemplateOpen(false);
-                  }}
-                  placeholder="Название шаблона"
-                  className="w-full rounded-xl border border-[#D9D9D9] px-3 py-2 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
-                />
-              </div>
-              {createTemplate.isError && (
-                <p className="text-xs text-red-500">
-                  {(createTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка"}
-                </p>
-              )}
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setCreateTemplateOpen(false)}
-                  className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                >
-                  Отмена
-                </button>
-                <button
-                  type="button"
-                  disabled={!createTemplateName.trim() || createTemplate.isPending}
-                  onClick={() => createTemplate.mutate(createTemplateName.trim())}
-                  className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
-                >
-                  {createTemplate.isPending ? <Loader2 size={14} className="animate-spin" /> : <FilePlus2 size={14} />}
-                  Создать
-                </button>
-              </div>
+      <Modal
+        open={createTemplateOpen}
+        onClose={() => setCreateTemplateOpen(false)}
+        label="Создать шаблон из записи"
+        panelClassName="max-w-sm"
+      >
+        <div className="p-6">
+          <h2 className="mb-4 text-sm font-semibold text-gray-900">Создать шаблон из записи</h2>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label htmlFor="new-template-name" className="text-xs font-medium text-gray-500">
+                Название шаблона
+              </label>
+              <input
+                id="new-template-name"
+                type="text"
+                autoFocus
+                value={createTemplateName}
+                onChange={(e) => setCreateTemplateName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && createTemplateName.trim()) {
+                    createTemplate.mutate(createTemplateName.trim());
+                  }
+                }}
+                placeholder="Название шаблона"
+                className="w-full rounded-xl border border-[#D9D9D9] px-3 py-2 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
+              />
+            </div>
+            {createTemplate.isError && (
+              <p className="text-xs text-red-500">
+                {(createTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка"}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setCreateTemplateOpen(false)}
+                className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={!createTemplateName.trim() || createTemplate.isPending}
+                onClick={() => createTemplate.mutate(createTemplateName.trim())}
+                className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
+              >
+                {createTemplate.isPending ? <Loader2 size={14} className="animate-spin" /> : <FilePlus2 size={14} />}
+                Создать
+              </button>
             </div>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

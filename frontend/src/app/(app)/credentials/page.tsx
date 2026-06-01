@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -11,10 +12,11 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDateTime, formatRelative } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import {
@@ -30,6 +32,7 @@ import { FilterMultiSelect } from "@/components/recordings/filter-multi-select";
 import { FilterSelect } from "@/components/recordings/filter-select";
 import { usePlatforms } from "@/hooks/use-references";
 import { DEBOUNCE_SEARCH, PER_PAGE_LARGE } from "@/lib/constants";
+import { isAllowedOAuthUrl } from "@/lib/auth";
 
 interface CredentialItem {
   id: number;
@@ -91,26 +94,6 @@ const MANUAL_FIELDS: Partial<Record<PlatformKey, ManualFieldDef[]>> = {
   ],
 };
 
-function formatDate(isoString: string | null): string {
-  if (!isoString) return "—";
-  return new Date(isoString).toLocaleString("en-GB", {
-    day: "numeric", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
-}
-
-function formatRelative(isoString: string | null): string {
-  if (!isoString) return "—";
-  const diff = Date.now() - new Date(isoString).getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function sortCredentials(items: CredentialItem[], sortBy: SortField, sortOrder: "asc" | "desc"): CredentialItem[] {
   const sorted = [...items].sort((a, b) => {
     let cmp = 0;
@@ -132,6 +115,8 @@ type AddStep = null | "platform" | "connect";
 
 export default function CredentialsPage() {
   const qc = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: platformFilterOptions = [] } = usePlatforms();
 
   // Filter state
@@ -155,6 +140,22 @@ export default function CredentialsPage() {
   const [renameModal, setRenameModal] = useState<{ cred: CredentialItem; value: string } | null>(null);
   const [renameError, setRenameError] = useState("");
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
+
+  // Handle OAuth callback result from backend redirect
+  useEffect(() => {
+    const success = searchParams.get("oauth_success");
+    const error = searchParams.get("oauth_error");
+    const platform = searchParams.get("platform");
+    if (!success && !error) return;
+    const platformLabel = platform ? PLATFORM_MAP[platform as PlatformKey]?.label ?? platform : "platform";
+    if (success === "true") {
+      showToast("success", `${platformLabel} connected`);
+      qc.invalidateQueries({ queryKey: ["credentials-list"] });
+    } else if (error) {
+      showToast("error", `${platformLabel} connection failed: ${error.replace(/_/g, " ")}`);
+    }
+    router.replace("/credentials");
+  }, [searchParams, router, showToast, qc]);
 
   // Disconnect state
   const [disconnectId, setDisconnectId] = useState<number | null>(null);
@@ -204,12 +205,19 @@ export default function CredentialsPage() {
   async function handleOAuthConnect(oauthPath: string) {
     try {
       const res = await apiClient.get<{ authorization_url: string }>(oauthPath);
-      if (res.data?.authorization_url) {
-        window.location.href = res.data.authorization_url;
+      const url = res.data?.authorization_url;
+      if (!url) {
+        showToast("error", "OAuth provider did not return a redirect URL");
+        return;
       }
+      if (!isAllowedOAuthUrl(url)) {
+        showToast("error", "Refused to redirect to an untrusted OAuth host");
+        return;
+      }
+      window.location.href = url;
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      alert(msg ?? "Failed to initiate OAuth");
+      showToast("error", msg ?? "Failed to initiate OAuth");
     }
   }
 
@@ -303,8 +311,6 @@ export default function CredentialsPage() {
     sortBy,
     sortOrder
   );
-
-  // ref for search input — not needed since search is controlled via state
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -504,48 +510,63 @@ export default function CredentialsPage() {
       </div>
 
       {/* Add modal — Step 1: choose platform */}
-      {addStep === "platform" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
-              <h2 className="text-base font-semibold text-gray-900">Add connection</h2>
-              <button onClick={closeAddModal} className="p-1.5 rounded-lg hover:bg-gray-100">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="px-6 py-5">
-              <p className="text-sm text-gray-500 mb-4">Choose a platform to connect</p>
-              <div className="grid grid-cols-2 gap-3">
-                {PLATFORMS.map((p) => (
-                  <button
-                    key={p.key}
-                    onClick={() => selectPlatform(p.key)}
-                    className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-[#D9D9D9] hover:border-[#224C87] hover:bg-blue-50/40 transition-colors text-sm font-medium text-gray-700"
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+      <Modal
+        open={addStep === "platform"}
+        onClose={closeAddModal}
+        label="Add connection"
+        panelClassName="max-w-md"
+      >
+        <div className="bg-white">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
+            <h2 className="text-base font-semibold text-gray-900">Add connection</h2>
+            <button
+              type="button"
+              onClick={closeAddModal}
+              aria-label="Close dialog"
+              className="p-1.5 rounded-lg hover:bg-gray-100"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="px-6 py-5">
+            <p className="text-sm text-gray-500 mb-4">Choose a platform to connect</p>
+            <div className="grid grid-cols-2 gap-3">
+              {PLATFORMS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => selectPlatform(p.key)}
+                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-[#D9D9D9] hover:border-[#224C87] hover:bg-blue-50/40 transition-colors text-sm font-medium text-gray-700"
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
-      )}
+      </Modal>
 
       {/* Add modal — Step 2: connect */}
       {addStep === "connect" && selectedPlatform && (() => {
         const platform = PLATFORM_MAP[selectedPlatform];
         const manualFieldDefs = MANUAL_FIELDS[selectedPlatform] ?? [];
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
+          <Modal
+            open
+            onClose={closeAddModal}
+            label={`Connect ${platform.label}`}
+            panelClassName="max-w-md"
+          >
+            <div className="bg-white">
               <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     onClick={() => setAddStep("platform")}
                     className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
-                    title="Back"
+                    aria-label="Back to platform selection"
                   >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M10 3L5 8L10 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </button>
@@ -553,7 +574,12 @@ export default function CredentialsPage() {
                     Connect {platform.label}
                   </h2>
                 </div>
-                <button onClick={closeAddModal} className="p-1.5 rounded-lg hover:bg-gray-100">
+                <button
+                  type="button"
+                  onClick={closeAddModal}
+                  aria-label="Close dialog"
+                  className="p-1.5 rounded-lg hover:bg-gray-100"
+                >
                   <X size={16} />
                 </button>
               </div>
@@ -584,6 +610,7 @@ export default function CredentialsPage() {
                       You will be redirected to {platform.label} to authorize access.
                     </p>
                     <button
+                      type="button"
                       onClick={() => handleOAuthConnect(platform.oauthPath)}
                       className="w-full py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] transition-colors"
                     >
@@ -625,12 +652,14 @@ export default function CredentialsPage() {
                     )}
                     <div className="flex justify-end gap-3 pt-1">
                       <button
+                        type="button"
                         onClick={closeAddModal}
                         className="px-4 py-2.5 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50"
                       >
                         Cancel
                       </button>
                       <button
+                        type="button"
                         onClick={submitManual}
                         disabled={connectManual.isPending}
                         className="px-5 py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
@@ -642,7 +671,7 @@ export default function CredentialsPage() {
                 )}
               </div>
             </div>
-          </div>
+          </Modal>
         );
       })()}
 
@@ -651,11 +680,21 @@ export default function CredentialsPage() {
         const { cred, value } = renameModal;
         const platform = PLATFORM_MAP[cred.platform as PlatformKey];
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4">
+          <Modal
+            open
+            onClose={closeRenameModal}
+            label="Connection details"
+            panelClassName="max-w-sm"
+          >
+            <div className="bg-white">
               <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
                 <h2 className="text-base font-semibold text-gray-900">Connection details</h2>
-                <button onClick={closeRenameModal} className="p-1.5 rounded-lg hover:bg-gray-100">
+                <button
+                  type="button"
+                  onClick={closeRenameModal}
+                  aria-label="Close dialog"
+                  className="p-1.5 rounded-lg hover:bg-gray-100"
+                >
                   <X size={16} />
                 </button>
               </div>
@@ -676,15 +715,15 @@ export default function CredentialsPage() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Created</span>
-                  <span className="text-sm text-gray-700">{formatDate(cred.created_at)}</span>
+                  <span className="text-sm text-gray-700">{formatDateTime(cred.created_at)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Updated</span>
-                  <span className="text-sm text-gray-700">{formatDate(cred.updated_at)}</span>
+                  <span className="text-sm text-gray-700">{formatDateTime(cred.updated_at)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Last used</span>
-                  <span className="text-sm text-gray-700">{cred.last_used_at ? formatDate(cred.last_used_at) : "Never"}</span>
+                  <span className="text-sm text-gray-700">{cred.last_used_at ? formatDateTime(cred.last_used_at) : "Never"}</span>
                 </div>
               </div>
 
@@ -711,12 +750,14 @@ export default function CredentialsPage() {
                 )}
                 <div className="flex justify-end gap-3">
                   <button
+                    type="button"
                     onClick={closeRenameModal}
                     className="px-4 py-2.5 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50"
                   >
                     Cancel
                   </button>
                   <button
+                    type="button"
                     onClick={() => rename.mutate({ id: cred.id, account_name: value || null })}
                     disabled={rename.isPending}
                     className="px-5 py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
@@ -726,7 +767,7 @@ export default function CredentialsPage() {
                 </div>
               </div>
             </div>
-          </div>
+          </Modal>
         );
       })()}
 

@@ -1,5 +1,3 @@
-# Grafana auto-provisioning. Drop into /etc/grafana/provisioning/datasources/ —
-# Grafana picks it up on startup; no manual UI clicking required.
 apiVersion: 1
 
 datasources:
@@ -8,7 +6,24 @@ datasources:
     access: proxy
     uid: loki
     url: http://loki:3100
-    isDefault: true
+    isDefault: false
     editable: false
     jsonData:
       maxLines: 5000
+      # Click-through on request_id in any log row → query all logs with that id.
+      derivedFields:
+        - name: request_id
+          matcherRegex: "\"request_id\":\\s*\"([^\"]+)\""
+          url: "/explore?orgId=1&left={\"datasource\":\"loki\",\"queries\":[{\"refId\":\"A\",\"expr\":\"{app=\\\"leap\\\"} |= \\\"${__value.raw}\\\"\"}]}"
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: prometheus
+    # Subpath: prometheus runs with --web.route-prefix=/prometheus.
+    url: http://prometheus:9090/prometheus
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s

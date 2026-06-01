@@ -30,7 +30,7 @@ from .subscription import (
     UserSubscriptionResponse,
     UserSubscriptionUpdate,
 )
-from .token import RefreshTokenBase, RefreshTokenCreate, RefreshTokenInDB, TokenPair
+from .token import RefreshTokenBase, RefreshTokenCreate, RefreshTokenInDB, SessionResponse, TokenPair
 from .user import UserBase, UserCreate, UserInDB, UserResponse, UserUpdate
 
 __all__ = [
@@ -53,6 +53,7 @@ __all__ = [
     # Requests
     "RegisterRequest",
     # Subscription Plans
+    "SessionResponse",
     "SubscriptionPlanCreate",
     "SubscriptionPlanInDB",
     "SubscriptionPlanResponse",
