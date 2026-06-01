@@ -67,6 +67,22 @@ class UserRepository:
         await self.session.refresh(db_user)
         return UserInDB.model_validate(db_user)
 
+    async def bump_token_version(self, user_id: str) -> int | None:
+        """Atomically increment ``token_version`` and return the new value.
+
+        Invalidates every live JWT for this user — used by logout-all and
+        password change.
+        """
+        result = await self.session.execute(
+            update(UserModel)
+            .where(UserModel.id == user_id)
+            .values(token_version=UserModel.token_version + 1)
+            .returning(UserModel.token_version)
+        )
+        new_version = result.scalar_one_or_none()
+        await self.session.commit()
+        return new_version
+
 
 class RefreshTokenRepository:
     """Repository for working with refresh tokens."""
@@ -75,11 +91,15 @@ class RefreshTokenRepository:
         self.session = session
 
     async def create(self, token_data: RefreshTokenCreate) -> RefreshTokenInDB:
-        """Create refresh token."""
+        """Create refresh token, including device metadata when provided."""
         refresh_token = RefreshTokenModel(
             user_id=token_data.user_id,
             token=token_data.token,
             expires_at=token_data.expires_at,
+            last_used_at=datetime.now(UTC),
+            user_agent=token_data.user_agent,
+            ip_hash=token_data.ip_hash,
+            device_label=token_data.device_label,
         )
         self.session.add(refresh_token)
         await self.session.commit()
@@ -132,6 +152,54 @@ class RefreshTokenRepository:
         )
         await self.session.commit()
         return result.rowcount
+
+    async def list_active_by_user(self, user_id: str) -> list[RefreshTokenInDB]:
+        """Return non-revoked, non-expired refresh tokens for a user.
+
+        Ordered by ``last_used_at DESC`` so the UI shows the freshest session
+        first. Rows that have never been touched (NULL last_used_at) sink to
+        the bottom.
+        """
+        result = await self.session.execute(
+            select(RefreshTokenModel)
+            .where(
+                RefreshTokenModel.user_id == user_id,
+                RefreshTokenModel.expires_at > datetime.now(UTC),
+                RefreshTokenModel.is_revoked.is_(False),
+            )
+            .order_by(RefreshTokenModel.last_used_at.desc().nullslast())
+        )
+        return [RefreshTokenInDB.model_validate(t) for t in result.scalars().all()]
+
+    async def get_by_id_for_user(self, token_id: int, user_id: str) -> RefreshTokenInDB | None:
+        """Fetch a refresh token row scoped to the owning user (multi-tenancy guard)."""
+        result = await self.session.execute(
+            select(RefreshTokenModel).where(
+                RefreshTokenModel.id == token_id,
+                RefreshTokenModel.user_id == user_id,
+            )
+        )
+        db_token = result.scalars().first()
+        if not db_token:
+            return None
+        return RefreshTokenInDB.model_validate(db_token)
+
+    async def revoke_by_id(self, token_id: int) -> bool:
+        """Mark a single refresh token revoked. Returns whether a row was affected."""
+        result = await self.session.execute(
+            update(RefreshTokenModel)
+            .where(RefreshTokenModel.id == token_id, RefreshTokenModel.is_revoked.is_(False))
+            .values(is_revoked=True)
+        )
+        await self.session.commit()
+        return result.rowcount > 0
+
+    async def touch_last_used(self, token: str) -> None:
+        """Stamp ``last_used_at`` on the matching refresh row (best-effort, no return)."""
+        await self.session.execute(
+            update(RefreshTokenModel).where(RefreshTokenModel.token == token).values(last_used_at=datetime.now(UTC))
+        )
+        await self.session.commit()
 
 
 class UserCredentialRepository:

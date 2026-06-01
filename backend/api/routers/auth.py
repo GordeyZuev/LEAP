@@ -17,6 +17,8 @@ from api.auth.cookies import (
     generate_csrf_token,
     set_auth_cookies,
 )
+from api.auth.dependencies import get_current_user
+from api.auth.device import extract_client_ip, hash_ip, parse_device_label
 from api.auth.security import JWTHelper, PasswordHelper
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import (
@@ -31,6 +33,8 @@ from api.schemas.auth import (
     RefreshTokenCreate,
     RefreshTokenRequest,
     RegisterRequest,
+    SessionInfo,
+    SessionListResponse,
     SessionResponse,
     UserCreate,
     UserInDB,
@@ -58,20 +62,32 @@ def _resolve_refresh_token(request: Request, body: RefreshTokenRequest) -> str:
 async def _issue_session(
     *,
     user: UserInDB,
+    request: Request,
     response: Response,
     token_repo: RefreshTokenRepository,
 ) -> SessionResponse:
     """Mint a fresh token pair, persist the refresh token, and write session cookies.
 
-    Shared by ``/auth/login`` and ``/auth/refresh`` so both paths produce an
-    identical session shape.
+    Shared by ``/auth/login``, ``/auth/refresh``, and ``/auth/logout-others`` so
+    all session-issuing paths produce an identical shape and capture the same
+    device metadata.
     """
-    access_token = JWTHelper.create_access_token({"user_id": user.id, "email": user.email})
-    refresh_token = JWTHelper.create_refresh_token({"user_id": user.id})
+    access_token = JWTHelper.create_access_token({"user_id": user.id, "email": user.email, "tv": user.token_version})
+    refresh_token = JWTHelper.create_refresh_token({"user_id": user.id, "tv": user.token_version})
+
+    user_agent = request.headers.get("user-agent")
+    client_ip = extract_client_ip(request)
 
     expires_at = datetime.now(UTC) + timedelta(days=settings.security.jwt_refresh_token_expire_days)
     await token_repo.create(
-        token_data=RefreshTokenCreate(user_id=user.id, token=refresh_token, expires_at=expires_at),
+        token_data=RefreshTokenCreate(
+            user_id=user.id,
+            token=refresh_token,
+            expires_at=expires_at,
+            user_agent=user_agent[:500] if user_agent else None,
+            ip_hash=hash_ip(client_ip),
+            device_label=parse_device_label(user_agent),
+        ),
     )
 
     csrf_token = generate_csrf_token()
@@ -131,16 +147,17 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
 
 @router.post("/login", response_model=SessionResponse)
 async def login(
-    request: LoginRequest,
+    request: Request,
     response: Response,
+    body: LoginRequest,
     session: AsyncSession = Depends(get_db_session),
 ):
     """Authenticate the user and issue a fresh session (cookies + JSON body)."""
     user_repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
 
-    user = await user_repo.get_by_email(request.email)
-    if not user or not PasswordHelper.verify_password(request.password, user.hashed_password):
+    user = await user_repo.get_by_email(body.email)
+    if not user or not PasswordHelper.verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
     if not user.is_active:
@@ -148,7 +165,7 @@ async def login(
 
     await user_repo.update(user.id, UserUpdate(last_login_at=datetime.now(UTC)))
 
-    session_response = await _issue_session(user=user, response=response, token_repo=token_repo)
+    session_response = await _issue_session(user=user, request=request, response=response, token_repo=token_repo)
     logger.info(f"User logged in: {user.email} (ID: {user.id})")
     return session_response
 
@@ -157,10 +174,11 @@ async def login(
 async def refresh_token(
     request: Request,
     response: Response,
-    body: RefreshTokenRequest,
+    body: RefreshTokenRequest | None = None,
     session: AsyncSession = Depends(get_db_session),
 ):
     """Rotate access + refresh tokens. Accepts the old refresh from cookie or body."""
+    body = body or RefreshTokenRequest()
     user_repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
 
@@ -182,9 +200,13 @@ async def refresh_token(
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not found or inactive")
 
+    if payload.get("tv") != user.token_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session invalidated")
+
+    await token_repo.touch_last_used(raw_refresh)
     await token_repo.revoke(raw_refresh)
 
-    session_response = await _issue_session(user=user, response=response, token_repo=token_repo)
+    session_response = await _issue_session(user=user, request=request, response=response, token_repo=token_repo)
     logger.info(f"Token refreshed for user: {user.email} (ID: {user.id})")
     return session_response
 
@@ -215,30 +237,114 @@ async def logout(
 
 @router.post("/logout-all", response_model=LogoutAllResponse)
 async def logout_all(
-    request: Request,
     response: Response,
-    body: RefreshTokenRequest,
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> LogoutAllResponse:
-    """Revoke every refresh token owned by the user behind the current session."""
+    """Revoke every active session for the current user across all devices.
+
+    Bumps ``users.token_version`` so any access token already in flight starts
+    failing at the next protected request (no 30-min lag). Also revokes refresh
+    rows for audit / per-session UI visibility.
+    """
+    user_repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
 
-    raw_refresh = _resolve_refresh_token(request, body)
-
-    payload = JWTHelper.verify_token(raw_refresh, token_type="refresh")
-    if not payload:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
-
-    user_id = payload.get("user_id")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-
-    count = await token_repo.revoke_all_by_user(user_id)
+    await user_repo.bump_token_version(current_user.id)
+    count = await token_repo.revoke_all_by_user(current_user.id)
     clear_auth_cookies(response)
 
-    logger.info(f"User {user_id} logged out from all devices ({count} tokens revoked)")
+    logger.info(f"User {current_user.id} logged out from all devices ({count} tokens revoked)")
 
     return LogoutAllResponse(
         message="Successfully logged out from all devices",
         revoked_tokens=count,
     )
+
+
+@router.post("/logout-others", response_model=SessionResponse)
+async def logout_others(
+    request: Request,
+    response: Response,
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> SessionResponse:
+    """Sign out every other device while keeping the current session alive.
+
+    Implementation: bump ``token_version`` (kills every JWT for this user) and
+    immediately mint a fresh pair for the caller. Other devices fail their next
+    request; the caller's cookies are silently rotated.
+    """
+    user_repo = UserRepository(session)
+    token_repo = RefreshTokenRepository(session)
+
+    await user_repo.bump_token_version(current_user.id)
+    revoked = await token_repo.revoke_all_by_user(current_user.id)
+
+    fresh_user = await user_repo.get_by_id(current_user.id)
+    if not fresh_user:
+        # Shouldn't happen — `get_current_user` just resolved the row.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    session_response = await _issue_session(user=fresh_user, request=request, response=response, token_repo=token_repo)
+    logger.info(f"User {current_user.id} logged out from other devices ({max(revoked - 1, 0)} other sessions revoked)")
+    return session_response
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(
+    request: Request,
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> SessionListResponse:
+    """List active refresh-token sessions for the current user."""
+    token_repo = RefreshTokenRepository(session)
+    sessions = await token_repo.list_active_by_user(current_user.id)
+
+    current_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
+    return SessionListResponse(
+        sessions=[
+            SessionInfo(
+                id=s.id,
+                device_label=s.device_label,
+                user_agent=s.user_agent,
+                last_used_at=s.last_used_at,
+                created_at=s.created_at,
+                is_current=bool(current_refresh and s.token == current_refresh),
+            )
+            for s in sessions
+        ]
+    )
+
+
+@router.delete("/sessions/{session_id}", response_model=LogoutResponse)
+async def revoke_session(
+    session_id: int,
+    request: Request,
+    response: Response,
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> LogoutResponse:
+    """Revoke a specific refresh-token session owned by the current user.
+
+    Does NOT bump ``token_version`` — per-device revocation is eventually
+    consistent (the revoked device's access token dies on next refresh, which
+    happens within ``jwt_access_token_expire_minutes``). For an instant nuke
+    use ``/auth/logout-all`` instead.
+    """
+    token_repo = RefreshTokenRepository(session)
+
+    target = await token_repo.get_by_id_for_user(session_id, current_user.id)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    await token_repo.revoke_by_id(session_id)
+
+    current_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
+    if current_refresh and target.token == current_refresh:
+        # Caller revoked their own current session — strip cookies so the
+        # browser is forced back through login on the next request.
+        clear_auth_cookies(response)
+
+    logger.info(f"User {current_user.id} revoked session {session_id}")
+    return LogoutResponse(message="Session revoked")

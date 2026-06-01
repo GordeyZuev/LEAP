@@ -69,6 +69,16 @@ async def get_current_user(
             detail="User account is deactivated",
         )
 
+    # `tv` is bumped on logout-all and password change; mismatch means this
+    # access token was issued before the kill-switch fired. Old tokens without
+    # the claim (pre-022 deploy) compare `None != int` and also get rejected.
+    if payload.get("tv") != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session invalidated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # Surface the authenticated user_id to the HTTP access-log middleware
     # (and any other downstream code that reads request.state). Truncated to
     # the leading 8 chars to match the convention used elsewhere in logs.

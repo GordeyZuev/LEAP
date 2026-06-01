@@ -20,7 +20,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.10.0` (May 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.10.1` (June 2026) · **Статус:** In Active Development • Beta
 **Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
@@ -411,6 +411,14 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — краткие пользовательские изменения по последним веткам. Полная история, даты и списки файлов — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в v0.10.1** — Мгновенный logout-all и управление сессиями:
+- **Instant kill-switch** — `users.token_version` встроен в каждый JWT как `tv`-claim и сверяется в `get_current_user` против только что загруженной строки юзера (без дополнительного запроса в БД). Бамп инвалидирует все access/refresh токены юзера мгновенно — больше нет лага до 30 минут после клика «Log out all devices».
+- **Управление сессиями в UI** — в `Settings` появилась секция «Active sessions» со списком устройств (device label, last active, current-бейдж) и per-device кнопкой Revoke. Отдельно: «Log out other devices» (текущая сессия остаётся живой) и красная «Log out all devices» (включая текущее, редирект на /login) с confirm-модалкой.
+- **Новые ручки** — `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{id}`, `POST /api/v1/auth/logout-others`.
+- **Метаданные устройств** — `refresh_tokens` теперь хранит `user_agent`, `device_label` (`Chrome · macOS` и т.п.), peppered `ip_hash` (raw IP не персистится — см. `CREDENTIAL_SECURITY.md`) и `last_used_at`.
+- **Bump при смене пароля** — `POST /users/me/password` теперь бампит `token_version`, мгновенно выкидывая все сессии.
+- **Deploy break** — после `alembic upgrade head` (revision 022) старые access-токены без `tv`-claim перестанут проходить проверку; все юзеры будут перелогинены один раз. См. [guides/SESSIONS.md](backend/docs/guides/SESSIONS.md).
 
 **Новое в v0.10.0** — Production-ready релиз на Yandex Cloud:
 - **S3-first хранилище** — все персистентные файлы (видео, аудио, транскрипции, субтитры, превью) живут в Object Storage (production: Yandex Object Storage; dev: MinIO). Локальный диск — только эфемерные temp-файлы FFmpeg/Fireworks.

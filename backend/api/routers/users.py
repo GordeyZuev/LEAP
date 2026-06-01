@@ -170,12 +170,13 @@ async def change_password(
     db_user.hashed_password = new_hashed_password
     await session.commit()
 
-    # Revoke all refresh tokens (logout on all devices)
+    # Force every live JWT (access + refresh) to fail at the next protected
+    # request: bump the user-level token_version (instant) and mark refresh
+    # rows revoked so the audit/UI list reflects the kill.
+    user_repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
-    result = await session.execute(select(RefreshTokenModel).where(RefreshTokenModel.user_id == current_user.id))
-    tokens = result.scalars().all()
-    for token in tokens:
-        await token_repo.revoke(token.token)
+    await user_repo.bump_token_version(current_user.id)
+    await token_repo.revoke_all_by_user(current_user.id)
 
     logger.info(f"Password changed for user: {current_user.email} (ID: {current_user.id})")
 

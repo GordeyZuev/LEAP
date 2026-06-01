@@ -16,6 +16,9 @@ class RefreshTokenCreate(RefreshTokenBase):
 
     user_id: str
     expires_at: datetime
+    user_agent: str | None = None
+    ip_hash: str | None = None
+    device_label: str | None = None
 
 
 class RefreshTokenInDB(RefreshTokenBase):
@@ -26,8 +29,34 @@ class RefreshTokenInDB(RefreshTokenBase):
     expires_at: datetime
     is_revoked: bool = False
     created_at: datetime
+    last_used_at: datetime | None = None
+    user_agent: str | None = None
+    ip_hash: str | None = None
+    device_label: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SessionInfo(BaseModel):
+    """One active refresh-token session for the ``/auth/sessions`` UI."""
+
+    id: int
+    device_label: str | None = None
+    user_agent: str | None = None
+    last_used_at: datetime | None = None
+    created_at: datetime
+    is_current: bool = Field(
+        default=False,
+        description="True for the session matching the refresh cookie on the current request.",
+    )
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SessionListResponse(BaseModel):
+    """Response envelope for ``GET /auth/sessions``."""
+
+    sessions: list[SessionInfo]
 
 
 class TokenPair(BaseModel):

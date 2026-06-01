@@ -2,6 +2,84 @@
 
 ---
 
+## v0.10.1 (2026-06-01)
+
+**Instant "logout all devices" + per-device session management.** Introduces a
+user-level token-version kill-switch so revoking sessions takes effect on the
+next protected request (previously: up to `jwt_access_token_expire_minutes`
+lag while old access tokens lived out their TTL). Settings page now lists
+active sessions with per-device revoke and a separate "Log out other devices"
+action.
+
+- **Token version kill-switch** (`backend/database/auth_models.py`,
+  `backend/api/auth/dependencies.py`, `backend/api/routers/auth.py`,
+  `backend/api/routers/users.py`) — every JWT carries a `tv` claim. On
+  `/auth/logout-all` and `POST /users/me/password` the user-level
+  `token_version` is bumped, instantly invalidating every live access /
+  refresh token for that user. `get_current_user` compares the claim against
+  the user row it already loads, so there is no extra DB round-trip.
+- **New endpoints** (`backend/api/routers/auth.py`):
+  - `GET /api/v1/auth/sessions` — list active refresh-token sessions for the
+    current user with `device_label`, `last_used_at`, and `is_current`.
+  - `DELETE /api/v1/auth/sessions/{id}` — revoke a specific session
+    (per-device, eventually consistent within the access-token TTL).
+  - `POST /api/v1/auth/logout-others` — bump `token_version`, then mint a
+    fresh pair for the calling device so the current session stays alive.
+- **Per-session device metadata** (`backend/alembic/versions/022_*.py`,
+  `backend/database/auth_models.py`, `backend/api/auth/device.py`) — every
+  refresh token now persists `user_agent`, `device_label`, peppered `ip_hash`
+  (never the raw IP, per `CREDENTIAL_SECURITY.md`), and `last_used_at`.
+- **`/auth/logout-all` is now auth'd via access token** (was: refresh token
+  in cookie/body). The route depends on `get_current_user`, simplifying the
+  contract and aligning with the new instant-kill semantics.
+- **Frontend** (`frontend/src/api/sessions.ts`,
+  `frontend/src/app/(app)/settings/page.tsx`) — new "Active sessions" section
+  above the Danger Zone showing each session with a "Revoke" action and a
+  "Log out other devices" button. Danger Zone "Log out all" now opens a red
+  confirm modal and bounces to `/login` on success.
+
+### Deploy
+
+1. `alembic upgrade head` (revision **022**) — adds `users.token_version` and
+   four columns to `refresh_tokens`. Reversible via `alembic downgrade 021`.
+2. Restart API + workers.
+
+**Breaking — every active user will be forced to log in once.** Pre-022
+access tokens were issued without the `tv` claim; the new
+`get_current_user` rejects them (`payload.get("tv") != user.token_version`).
+Browsers will redirect through `/auth/refresh` → 401 → `/login` on the next
+page load. No data is lost.
+
+**Breaking for CLI clients — `/auth/logout-all` now requires an access
+token, not a refresh token.** The route is `Depends(get_current_user)`, so
+scripts that previously called it with `Authorization: Bearer <refresh>`
+(or a body refresh) must switch to passing the **access** token in
+`Authorization: Bearer …`. The browser flow is unaffected because the access
+cookie is sent automatically.
+
+### Файлы
+
+- `backend/alembic/versions/022_token_version_and_session_metadata.py`
+- `backend/database/auth_models.py`
+- `backend/api/auth/security.py`
+- `backend/api/auth/dependencies.py`
+- `backend/api/auth/device.py` *(new)*
+- `backend/api/routers/auth.py`
+- `backend/api/routers/users.py`
+- `backend/api/repositories/auth_repos.py`
+- `backend/api/schemas/auth/token.py`
+- `backend/api/schemas/auth/user.py`
+- `backend/api/schemas/auth/__init__.py`
+- `backend/tests/conftest.py`
+- `backend/tests/unit/api/test_token_version_jwt.py` *(new)*
+- `backend/tests/unit/api/test_device_parser.py` *(new)*
+- `backend/tests/unit/api/test_get_current_user_tv.py` *(new)*
+- `backend/tests/unit/api/test_auth_sessions.py` *(new)*
+- `frontend/src/api/sessions.ts` *(new)*
+- `frontend/src/app/(app)/settings/page.tsx`
+
+---
+
 ## 2026-06-01: Celery worker healthcheck and Redis queue priorities
 
 - **Removed unused Redis priority transport** (`backend/api/celery_app.py`) — `broker_transport_options` with `priority_steps` / `sep: ':'` was never used (no `priority=` on `apply_async`), but it broke Celery remote control (`inspect ping` → kombu pidbox `ValueError: not enough values to unpack`). Docker healthcheck then reported **unhealthy** while the worker process stayed up without consuming queues.

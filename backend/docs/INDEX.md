@@ -50,6 +50,10 @@
 
 - [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md)
 
+**Auth & sessions**
+
+- [guides/SESSIONS.md](guides/SESSIONS.md) — token_version kill-switch, active-sessions UI, incident-response cookbook
+
 **Credentials & platforms**
 
 - [guides/OAUTH.md](guides/OAUTH.md)

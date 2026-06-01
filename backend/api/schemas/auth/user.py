@@ -79,6 +79,9 @@ class UserInDB(UserBase):
     can_manage_credentials: bool = True
     can_export_data: bool = True
 
+    # --- Session kill-switch ---
+    token_version: int = 0
+
     # --- Timestamps ---
     created_at: datetime
     updated_at: datetime

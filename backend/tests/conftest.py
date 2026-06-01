@@ -26,6 +26,7 @@ def mock_user():
     user.timezone = "UTC"
     user.user_slug = "test_user"
     user.can_create_templates = True
+    user.token_version = 0
     user.created_at = datetime.now(UTC)
     user.last_login_at = datetime.now(UTC)
     return user
@@ -44,6 +45,7 @@ def mock_admin_user():
     user.timezone = "UTC"
     user.user_slug = "admin_user"
     user.can_create_templates = True
+    user.token_version = 0
     user.created_at = datetime.now(UTC)
     user.last_login_at = datetime.now(UTC)
     return user

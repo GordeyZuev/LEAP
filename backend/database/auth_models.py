@@ -39,6 +39,11 @@ class UserModel(Base):
     role: Mapped[str] = mapped_column(String(50), default="user", nullable=False)
     timezone: Mapped[str] = mapped_column(String(50), default="UTC", nullable=False)
 
+    # --- Session kill-switch ---
+    # Embedded into every JWT as ``tv`` claim. Incremented on logout-all and
+    # password change to invalidate every live token for this user in one shot.
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+
     # --- Permissions ---
     can_transcribe: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     can_process_video: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -221,6 +226,13 @@ class RefreshTokenModel(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     is_revoked = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    # --- Device metadata for "Active sessions" UI ---
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    # sha256(ip || jwt_secret_key); raw IP is never persisted per CREDENTIAL_SECURITY.
+    ip_hash = Column(String(64), nullable=True)
+    device_label = Column(String(100), nullable=True)
 
     def __repr__(self):
         return f"<RefreshToken(id={self.id}, user_id={self.user_id}, revoked={self.is_revoked})>"

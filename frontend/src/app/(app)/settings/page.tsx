@@ -2,10 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RefreshCw, ChevronDown, Eye, LogOut, Trash2 } from "lucide-react";
+import { Save, RefreshCw, ChevronDown, Eye, LogOut, Trash2, Monitor, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, formatRelative } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import {
+  fetchSessions,
+  logoutAllDevices,
+  logoutOtherDevices,
+  revokeSession,
+  type SessionInfo,
+} from "@/api/sessions";
 import {
   FILTER_CONTROL,
   FILTER_LABEL,
@@ -394,7 +401,10 @@ export default function SettingsPage() {
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
   const [deleteAccountError, setDeleteAccountError] = useState("");
-  const [logoutAllSuccess, setLogoutAllSuccess] = useState(false);
+  const [logoutAllOpen, setLogoutAllOpen] = useState(false);
+  const [logoutOthersOpen, setLogoutOthersOpen] = useState(false);
+  const [revokeSessionTarget, setRevokeSessionTarget] = useState<SessionInfo | null>(null);
+  const [sessionsToast, setSessionsToast] = useState("");
 
   // ── Reference data ───────────────────────────────────────────────────────
   const { data: languages = [] } = useLanguages();
@@ -421,6 +431,12 @@ export default function SettingsPage() {
   const { data: statsData } = useQuery<UserStats>({
     queryKey: ["user-stats"],
     queryFn: async () => (await apiClient.get<UserStats>("/users/me/stats")).data,
+  });
+
+  const { data: sessions = [], isLoading: sessionsLoading } = useQuery<SessionInfo[]>({
+    queryKey: ["auth-sessions"],
+    queryFn: fetchSessions,
+    refetchOnWindowFocus: true,
   });
 
   // ── Sync from server ──────────────────────────────────────────────────────
@@ -508,10 +524,34 @@ export default function SettingsPage() {
   });
 
   const logoutAll = useMutation({
-    mutationFn: () => apiClient.post("/auth/logout-all"),
+    mutationFn: logoutAllDevices,
     onSuccess: () => {
-      setLogoutAllSuccess(true);
-      setTimeout(() => setLogoutAllSuccess(false), TOAST_LONG);
+      // Token version was bumped — current cookies are dead. Drop client state
+      // and bounce to /login; the 401 interceptor would do this anyway on the
+      // next request, but this is snappier UX.
+      qc.clear();
+      setLogoutAllOpen(false);
+      router.push("/login");
+    },
+  });
+
+  const logoutOthers = useMutation({
+    mutationFn: logoutOtherDevices,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["auth-sessions"] });
+      setLogoutOthersOpen(false);
+      setSessionsToast("Signed out from other devices.");
+      setTimeout(() => setSessionsToast(""), TOAST_LONG);
+    },
+  });
+
+  const revokeOne = useMutation({
+    mutationFn: (id: number) => revokeSession(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["auth-sessions"] });
+      setRevokeSessionTarget(null);
+      setSessionsToast("Session revoked.");
+      setTimeout(() => setSessionsToast(""), TOAST_LONG);
     },
   });
 
@@ -1153,6 +1193,71 @@ export default function SettingsPage() {
         </div>
       </SectionCard>
 
+      {/* ── Active sessions ─────────────────────────────────────────────────── */}
+      <SectionCard
+        title="Active sessions"
+        action={
+          <button
+            type="button"
+            onClick={() => setLogoutOthersOpen(true)}
+            disabled={sessions.length <= 1 || logoutOthers.isPending}
+            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-40"
+          >
+            <LogOut size={13} />
+            Log out other devices
+          </button>
+        }
+      >
+        {sessionsLoading ? (
+          <p className="text-sm text-gray-400">Loading…</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-sm text-gray-400">No active sessions.</p>
+        ) : (
+          <ul className="space-y-2">
+            {sessions.map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-[#EDEDED] bg-white px-4 py-3"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="shrink-0 rounded-lg bg-gray-50 p-2 text-gray-600">
+                    <Monitor size={16} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {s.device_label || "Unknown device"}
+                      </p>
+                      {s.is_current && (
+                        <span className="rounded-md bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-600">
+                          Current
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Last active {formatRelative(s.last_used_at) || "—"}
+                    </p>
+                  </div>
+                </div>
+                {!s.is_current && (
+                  <button
+                    type="button"
+                    onClick={() => setRevokeSessionTarget(s)}
+                    className="shrink-0 flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    <X size={12} />
+                    Revoke
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {sessionsToast && (
+          <p className="text-sm text-green-600 bg-green-50 rounded-xl px-3 py-2 mt-3">{sessionsToast}</p>
+        )}
+      </SectionCard>
+
       {/* ── Danger Zone ─────────────────────────────────────────────────────── */}
       <div className="rounded-2xl border border-red-200 bg-white shadow-sm">
         <div className="px-6 py-4 border-b border-red-100">
@@ -1162,21 +1267,18 @@ export default function SettingsPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-gray-800">Log out all devices</p>
-              <p className="text-xs text-gray-400 mt-0.5">Invalidates all active sessions. You will need to log in again on each device.</p>
+              <p className="text-xs text-gray-400 mt-0.5">Signs you out everywhere, including this device. You will need to log in again.</p>
             </div>
             <button
               type="button"
-              onClick={() => logoutAll.mutate()}
+              onClick={() => setLogoutAllOpen(true)}
               disabled={logoutAll.isPending}
-              className="shrink-0 flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+              className="shrink-0 flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
             >
               <LogOut size={14} />
-              {logoutAll.isPending ? "Logging out…" : "Log out all"}
+              Log out all
             </button>
           </div>
-          {logoutAllSuccess && (
-            <p className="text-sm text-green-600 bg-green-50 rounded-xl px-3 py-2">All sessions terminated.</p>
-          )}
 
           <div className="border-t border-[#F0F0F0] pt-4 flex items-start justify-between gap-4">
             <div>
@@ -1194,6 +1296,101 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Logout-all confirmation */}
+      {logoutAllOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => { if (e.currentTarget === e.target) setLogoutAllOpen(false); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-1 text-sm font-semibold text-gray-900">Log out everywhere?</h2>
+            <p className="mb-4 text-xs text-gray-500">You will be signed out on every device, including this one.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setLogoutAllOpen(false)}
+                className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={logoutAll.isPending}
+                onClick={() => logoutAll.mutate()}
+                className="flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+              >
+                {logoutAll.isPending ? <RefreshCw size={13} className="animate-spin" /> : <LogOut size={13} />}
+                Log out all
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Logout-others confirmation */}
+      {logoutOthersOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => { if (e.currentTarget === e.target) setLogoutOthersOpen(false); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-1 text-sm font-semibold text-gray-900">Sign out other devices?</h2>
+            <p className="mb-4 text-xs text-gray-500">This device will stay signed in. All other sessions will be revoked.</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setLogoutOthersOpen(false)}
+                className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={logoutOthers.isPending}
+                onClick={() => logoutOthers.mutate()}
+                className="flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:opacity-50"
+              >
+                {logoutOthers.isPending ? <RefreshCw size={13} className="animate-spin" /> : <LogOut size={13} />}
+                Sign out others
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revoke single session confirmation */}
+      {revokeSessionTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => { if (e.currentTarget === e.target) setRevokeSessionTarget(null); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-1 text-sm font-semibold text-gray-900">Revoke this session?</h2>
+            <p className="mb-4 text-xs text-gray-500">
+              {revokeSessionTarget.device_label || "Unknown device"} will be signed out on its next request.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRevokeSessionTarget(null)}
+                className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={revokeOne.isPending}
+                onClick={() => revokeOne.mutate(revokeSessionTarget.id)}
+                className="flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:opacity-50"
+              >
+                {revokeOne.isPending ? <RefreshCw size={13} className="animate-spin" /> : <X size={13} />}
+                Revoke
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete account modal */}
       {deleteAccountOpen && (

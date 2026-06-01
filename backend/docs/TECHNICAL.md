@@ -832,6 +832,31 @@ POST /api/v1/recordings/bulk/run
 POST /api/v1/recordings/bulk/upload
 ```
 
+#### Authentication & Sessions
+
+```bash
+# Session bootstrap (sets httpOnly cookies; CSRF token in body)
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+POST /api/v1/auth/refresh         # body or refresh cookie; rotates pair
+
+# Single-device logout
+POST /api/v1/auth/logout          # revokes the current refresh + clears cookies
+
+# Multi-device controls (require authenticated access token)
+POST /api/v1/auth/logout-all      # instant: bumps users.token_version, revokes all refresh
+POST /api/v1/auth/logout-others   # bumps token_version, mints a fresh pair for the caller
+GET  /api/v1/auth/sessions        # list active sessions (device_label, last_used_at, is_current)
+DELETE /api/v1/auth/sessions/{id} # revoke a specific session (eventually consistent ≤ access TTL)
+```
+
+Token version (`users.token_version`) is embedded into every JWT as the `tv`
+claim and verified by `get_current_user` against the user row it already
+loads. Bumping the counter invalidates every live access / refresh token for
+that user. Per-device revoke does NOT bump the version — the revoked
+device's access token expires naturally on the next refresh attempt
+(`SECURITY_JWT_ACCESS_TOKEN_EXPIRE_MINUTES`, default 30 min).
+
 #### Template Management
 
 ```bash
