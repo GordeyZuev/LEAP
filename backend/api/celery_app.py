@@ -54,6 +54,41 @@ def _patched_crontab_from_schedule(cls, session, schedule):
 
 _csm_models.CrontabSchedule.from_schedule = _patched_crontab_from_schedule
 
+
+# Shim 2: celery-sqlalchemy-scheduler 0.3.0 uses pre-SQLAlchemy-2.0 syntax in
+# PeriodicTaskChanged — `select([Model])` (list arg) and `Query.get()` — both
+# rejected by SQLAlchemy 2.x. We replace the two offending classmethods with
+# 2.x-style equivalents.
+import datetime as _dt  # noqa: E402
+
+from sqlalchemy import insert as _sa_insert, select as _sa_select, update as _sa_update  # noqa: E402
+
+
+@classmethod  # type: ignore[misc]
+def _patched_update_changed(_cls, _mapper, connection, _target):
+    stmt = _sa_select(_csm_models.PeriodicTaskChanged).where(_csm_models.PeriodicTaskChanged.id == 1).limit(1)
+    row = connection.execute(stmt).first()
+    now = _dt.datetime.now()
+    if row is None:
+        connection.execute(_sa_insert(_csm_models.PeriodicTaskChanged).values(id=1, last_update=now))
+    else:
+        connection.execute(
+            _sa_update(_csm_models.PeriodicTaskChanged)
+            .where(_csm_models.PeriodicTaskChanged.id == 1)
+            .values(last_update=now)
+        )
+
+
+@classmethod  # type: ignore[misc]
+def _patched_last_change(_cls, session):
+    row = session.get(_csm_models.PeriodicTaskChanged, 1)
+    return row.last_update if row else None
+
+
+_csm_models.PeriodicTaskChanged.update_changed = _patched_update_changed
+_csm_models.PeriodicTaskChanged.last_change = _patched_last_change
+
+
 from contextlib import ExitStack  # noqa: E402
 
 from config.settings import get_settings  # noqa: E402

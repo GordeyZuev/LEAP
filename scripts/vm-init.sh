@@ -258,7 +258,11 @@ if [ ! -L /etc/letsencrypt/live/leap ]; then
     chmod 600 "$REPO_DIR/nginx/htpasswd"
 
     cp nginx/nginx.https.conf nginx/nginx.conf
-    sudo -u ubuntu docker compose up -d --no-deps nginx
+    # --force-recreate is critical: nginx.conf is a bind-mount, and compose
+    # doesn't detect file-content drift — without --force-recreate, the
+    # already-running nginx keeps the old (bootstrap, HTTP-only) config in
+    # memory and TLS handshake on :443 fails.
+    sudo -u ubuntu docker compose up -d --no-deps --force-recreate nginx
   fi
 fi
 
