@@ -11,6 +11,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
 from api.helpers.status_manager import update_aggregate_status
+from api.observability import track_pipeline_stage
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository
 from api.services.config_utils import resolve_full_config
@@ -79,7 +80,8 @@ def download_recording_task(
 
             self.update_progress(user_id=user_id, progress=10, status="Initializing download...", step="download")
 
-            result = self.run_async(_async_download_recording(self, recording_id, user_id, force, manual_override))
+            with track_pipeline_stage("download"):
+                result = self.run_async(_async_download_recording(self, recording_id, user_id, force, manual_override))
 
             return self.build_result(
                 user_id=user_id,
@@ -555,7 +557,8 @@ def trim_video_task(
 
             self.update_progress(user_id, 10, "Initializing video trimming...", step="trim")
 
-            result = self.run_async(_async_process_video(self, recording_id, user_id, manual_override))
+            with track_pipeline_stage("trim"):
+                result = self.run_async(_async_process_video(self, recording_id, user_id, manual_override))
 
             return self.build_result(
                 user_id=user_id,
@@ -919,7 +922,8 @@ def transcribe_recording_task(
 
             self.update_progress(user_id, 10, "Initializing transcription...", step="transcribe")
 
-            result = self.run_async(_async_transcribe_recording(self, recording_id, user_id, manual_override))
+            with track_pipeline_stage("transcribe"):
+                result = self.run_async(_async_transcribe_recording(self, recording_id, user_id, manual_override))
 
             return self.build_result(
                 user_id=user_id,
@@ -1535,7 +1539,8 @@ def extract_topics_task(
 
             self.update_progress(user_id, 10, "Initializing topic extraction...", step="extract_topics")
 
-            result = self.run_async(_async_extract_topics(self, recording_id, user_id, granularity, version_id))
+            with track_pipeline_stage("extract_topics"):
+                result = self.run_async(_async_extract_topics(self, recording_id, user_id, granularity, version_id))
 
             return self.build_result(
                 user_id=user_id,
@@ -1790,7 +1795,8 @@ def generate_subtitles_task(
 
             self.update_progress(user_id, 20, "Initializing subtitle generation...", step="generate_subtitles")
 
-            result = self.run_async(_async_generate_subtitles(self, recording_id, user_id, formats))
+            with track_pipeline_stage("generate_subtitles"):
+                result = self.run_async(_async_generate_subtitles(self, recording_id, user_id, formats))
 
             return self.build_result(
                 user_id=user_id,

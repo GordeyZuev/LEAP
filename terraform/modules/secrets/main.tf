@@ -95,6 +95,13 @@ variable "grafana_admin_user" {
   type = string
 }
 
+# Loki S3 backend — bucket name comes from the storage module; the same
+# storage SA static key is reused (it has full S3 access in the folder).
+variable "loki_s3_bucket" {
+  type        = string
+  description = "Object Storage bucket holding Loki chunks + TSDB index"
+}
+
 # ---------------------------------------------------------------------------
 # Auto-generated secrets
 # ---------------------------------------------------------------------------
@@ -109,6 +116,11 @@ resource "random_password" "jwt_secret" {
 }
 
 resource "random_password" "grafana_admin_password" {
+  length  = 24
+  special = false
+}
+
+resource "random_password" "grafana_ro_password" {
   length  = 24
   special = false
 }
@@ -154,6 +166,13 @@ resource "yandex_lockbox_secret_version" "v1" {
     key        = "GRAFANA_PASSWORD"
     text_value = random_password.grafana_admin_password.result
   }
+  # Postgres role used by Grafana's LEAP-DB datasource (provisioned by
+  # alembic migration 023). Migration is a no-op when this is unset, so
+  # bootstrapping order is: terraform apply → refresh-env.sh → migrate.
+  entries {
+    key        = "GRAFANA_RO_PASSWORD"
+    text_value = random_password.grafana_ro_password.result
+  }
 
   # S3 credentials
   entries {
@@ -162,6 +181,21 @@ resource "yandex_lockbox_secret_version" "v1" {
   }
   entries {
     key        = "STORAGE_S3_SECRET_ACCESS_KEY"
+    text_value = var.storage_secret_access_key
+  }
+
+  # Loki S3 backend — chunks + index in the dedicated logs bucket.
+  # Re-uses the storage SA static key (already authorised in the folder).
+  entries {
+    key        = "LOKI_S3_BUCKET"
+    text_value = var.loki_s3_bucket
+  }
+  entries {
+    key        = "LOKI_S3_ACCESS_KEY_ID"
+    text_value = var.storage_access_key_id
+  }
+  entries {
+    key        = "LOKI_S3_SECRET_ACCESS_KEY"
     text_value = var.storage_secret_access_key
   }
 

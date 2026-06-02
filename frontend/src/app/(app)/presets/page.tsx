@@ -1,23 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
-import {
-  FILTER_CARD,
-  FILTER_CONTROL,
-  FILTER_LABEL,
-  FILTER_SEGMENT_ACTIVE,
-  FILTER_SEGMENT_BTN,
-  FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
-} from "@/lib/filter-field-classes";
-import { FilterMultiSelect } from "@/components/recordings/filter-multi-select";
-import { FilterSelect } from "@/components/recordings/filter-select";
+import { FilterBar } from "@/components/filters/filter-bar";
+import { SortControl } from "@/components/filters/sort-control";
+import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
+import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
 import { Pagination } from "@/components/ui/pagination";
 import { usePlatforms } from "@/hooks/use-references";
 import { PER_PAGE_PRESETS } from "@/lib/constants";
@@ -64,24 +57,17 @@ const SORT_ALLOWED = new Set(SORT_OPTIONS.map((o) => o.value));
 type ActiveFilter = "all" | "active" | "inactive";
 
 // ---------------------------------------------------------------------------
-// Filter draft
+// Filters (read from URL)
 // ---------------------------------------------------------------------------
 
-interface PresetFilterDraft {
+interface PresetFilters {
   platforms: string[];
   activeFilter: ActiveFilter;
   sortBy: string;
   sortOrder: "asc" | "desc";
 }
 
-const DEFAULT_DRAFT: PresetFilterDraft = {
-  platforms: [],
-  activeFilter: "all",
-  sortBy: "created_at",
-  sortOrder: "desc",
-};
-
-function draftFromUrl(sp: URLSearchParams): PresetFilterDraft {
+function filtersFromUrl(sp: URLSearchParams): PresetFilters {
   const platforms = sp.getAll("platform").filter((p) => ALLOWED_PLATFORMS.has(p));
   const activeRaw = sp.get("active_filter");
   const activeFilter: ActiveFilter =
@@ -90,10 +76,6 @@ function draftFromUrl(sp: URLSearchParams): PresetFilterDraft {
   const sortBy = SORT_ALLOWED.has(sortByRaw) ? sortByRaw : "created_at";
   const sortOrder: "asc" | "desc" = sp.get("sort_order") === "asc" ? "asc" : "desc";
   return { platforms, activeFilter, sortBy, sortOrder };
-}
-
-function draftSignature(d: PresetFilterDraft): string {
-  return [d.platforms.slice().sort().join(","), d.activeFilter, d.sortBy, d.sortOrder].join("|");
 }
 
 // ---------------------------------------------------------------------------
@@ -211,15 +193,7 @@ function PresetsContent() {
   const urlKey = searchParams.toString();
   const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
 
-  const [draft, setDraft] = useState<PresetFilterDraft>(() => draftFromUrl(searchParams));
-  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
-
-  const patchDraft = useCallback((patch: Partial<PresetFilterDraft>) => {
-    setDraft((d) => ({ ...d, ...patch }));
-  }, []);
-
-  const appliedDraft = useMemo(() => draftFromUrl(new URLSearchParams(urlKey)), [urlKey]);
-  const isDirty = draftSignature(draft) !== draftSignature(appliedDraft);
+  const filters = useMemo(() => filtersFromUrl(new URLSearchParams(urlKey)), [urlKey]);
 
   // Filter key excludes `page` so paging doesn't remount the grid (and its query state).
   const filterKey = useMemo(() => {
@@ -238,40 +212,28 @@ function PresetsContent() {
     [router, searchParams],
   );
 
-  const hasAppliedFilters =
-    appliedDraft.platforms.length > 0 ||
-    appliedDraft.activeFilter !== "all" ||
-    appliedDraft.sortBy !== "created_at" ||
-    appliedDraft.sortOrder !== "desc";
+  // Instant apply: every control writes straight to the URL (drops `page`).
+  const commit = useCallback(
+    (mutate: (p: URLSearchParams) => void) => {
+      const p = new URLSearchParams(urlKey);
+      mutate(p);
+      p.delete("page");
+      router.replace(`?${p.toString()}`);
+    },
+    [urlKey, router],
+  );
 
-  function applyFilters() {
-    const p = new URLSearchParams();
-    draft.platforms.forEach((pl) => p.append("platform", pl));
-    if (draft.activeFilter !== "all") p.set("active_filter", draft.activeFilter);
-    if (draft.sortBy !== "created_at") p.set("sort_by", draft.sortBy);
-    if (draft.sortOrder !== "desc") p.set("sort_order", draft.sortOrder);
-    router.replace(`?${p.toString()}`);
-    setPlatformDropdownOpen(false);
-  }
+  const hasActiveFilters =
+    filters.platforms.length > 0 ||
+    filters.activeFilter !== "all" ||
+    filters.sortBy !== "created_at" ||
+    filters.sortOrder !== "desc";
 
-  function resetFilters() {
-    setDraft(DEFAULT_DRAFT);
-    router.replace("?");
-    setPlatformDropdownOpen(false);
-  }
-
-  const toggleDraftPlatform = useCallback((val: string) => {
-    setDraft((d) => ({
-      ...d,
-      platforms: d.platforms.includes(val)
-        ? d.platforms.filter((x) => x !== val)
-        : [...d.platforms, val],
-    }));
-  }, []);
+  const resetFilters = useCallback(() => router.replace("?"), [router]);
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-5 flex min-h-[2.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Output Presets</h1>
         <Link
           href="/presets/new"
@@ -281,102 +243,63 @@ function PresetsContent() {
         </Link>
       </div>
 
-      {/* Filter card */}
-      <div className={FILTER_CARD}>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
-          {/* Platform multi-select */}
-          <div className="lg:col-span-3">
-            <FilterMultiSelect<string>
-              label="Platform"
-              emptySummary="All platforms"
-              selectedIds={draft.platforms}
-              options={platformOptions}
-              open={platformDropdownOpen}
-              onOpenChange={setPlatformDropdownOpen}
-              onToggle={toggleDraftPlatform}
-            />
-          </div>
-
-          {/* Active status */}
-          <div className="lg:col-span-3">
-            <span className={FILTER_LABEL}>Status</span>
-            <div className={FILTER_SEGMENT_WRAP}>
-              {(["all", "active", "inactive"] as ActiveFilter[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={cn(
-                    FILTER_SEGMENT_BTN,
-                    draft.activeFilter === v ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
-                  )}
-                  onClick={() => patchDraft({ activeFilter: v })}
-                >
-                  {v === "all" ? "All" : v === "active" ? "Active" : "Inactive"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Sort */}
-          <div className="lg:col-span-3">
-            <span className={FILTER_LABEL}>Sort by</span>
-            <div className="flex gap-1.5">
-              <FilterSelect
-                value={draft.sortBy}
-                options={SORT_OPTIONS}
-                onChange={(v) => patchDraft({ sortBy: v as string })}
-                className="flex-1 min-w-0"
-              />
-              <button
-                type="button"
-                title={draft.sortOrder === "desc" ? "Descending" : "Ascending"}
-                onClick={() => patchDraft({ sortOrder: draft.sortOrder === "desc" ? "asc" : "desc" })}
-                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
-              >
-                {draft.sortOrder === "desc" ? "↓" : "↑"}
-              </button>
-            </div>
-          </div>
-
-          {/* Apply + Reset */}
-          <div className="lg:col-span-3">
-            <span className={FILTER_LABEL} aria-hidden>&nbsp;</span>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                disabled={!isDirty}
-                onClick={applyFilters}
-                className={cn(
-                  "flex-1 min-h-[2.5rem] rounded-xl px-3 py-2 text-sm font-semibold text-white transition-colors",
-                  isDirty ? "bg-[#224C87] hover:bg-[#1a3d6e]" : "cursor-not-allowed bg-[#224C87]/35"
-                )}
-              >
-                Apply
-              </button>
-              <button
-                type="button"
-                onClick={resetFilters}
-                disabled={!(isDirty || hasAppliedFilters)}
-                className="flex-1 min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Reset
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Backdrop */}
-      {platformDropdownOpen && (
-        <div className="fixed inset-0 z-[35]" aria-hidden onClick={() => setPlatformDropdownOpen(false)} />
-      )}
+      {/* Filters */}
+      <FilterBar
+        controls={[
+          <FilterMultiSelect<string>
+            key="platform"
+            label="Platform"
+            emptySummary="All platforms"
+            value={filters.platforms}
+            options={platformOptions}
+            onChange={(next) =>
+              commit((p) => {
+                p.delete("platform");
+                next.forEach((pl) => p.append("platform", pl));
+              })
+            }
+          />,
+          <SegmentedFilter
+            key="status"
+            label="Status"
+            value={filters.activeFilter}
+            options={ACTIVE_STATUS_OPTIONS}
+            onChange={(v) =>
+              commit((p) => {
+                if (v === "all") p.delete("active_filter");
+                else p.set("active_filter", v);
+              })
+            }
+          />,
+        ]}
+        sort={
+          <SortControl
+            value={filters.sortBy}
+            order={filters.sortOrder}
+            options={SORT_OPTIONS}
+            onChange={(f) =>
+              commit((p) => {
+                if (f === "created_at") p.delete("sort_by");
+                else p.set("sort_by", f);
+              })
+            }
+            onToggleOrder={() =>
+              commit((p) => {
+                if (filters.sortOrder === "desc") p.set("sort_order", "asc");
+                else p.delete("sort_order");
+              })
+            }
+          />
+        }
+        onClearAll={hasActiveFilters ? resetFilters : undefined}
+      />
 
       <PresetsPagedGrid
         key={filterKey}
-        platforms={appliedDraft.platforms}
-        activeFilter={appliedDraft.activeFilter}
-        sortBy={appliedDraft.sortBy}
-        sortOrder={appliedDraft.sortOrder}
+        platforms={filters.platforms}
+        activeFilter={filters.activeFilter}
+        sortBy={filters.sortBy}
+        sortOrder={filters.sortOrder}
         page={urlPage}
         onPageChange={setPage}
       />

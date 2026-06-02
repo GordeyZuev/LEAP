@@ -1,7 +1,13 @@
-# Minimal single-binary Loki configuration suitable for a single VM deployment.
-# All data stored on a local volume (filesystem index + chunks). For an HA setup
-# swap in S3 chunks_storage and Memberlist clustering, but for one Hetzner-class
-# VM this is enough and reliably cheaper to operate.
+# Loki configuration with S3-backed chunks + TSDB index.
+#
+# Chunks and index live in Yandex Object Storage (S3-compatible). The local
+# `/loki` volume holds only the active TSDB shipper buffer and the compactor
+# working dir — both ephemeral and rebuilt from S3 on container start. Loki is
+# effectively stateless: lose the VM, spin up a new one against the same
+# bucket, all history is back.
+#
+# Env vars (injected by docker-compose from .env):
+#   LOKI_S3_BUCKET, LOKI_S3_ACCESS_KEY_ID, LOKI_S3_SECRET_ACCESS_KEY
 
 auth_enabled: false
 
@@ -13,28 +19,39 @@ server:
 common:
   path_prefix: /loki
   storage:
-    filesystem:
-      chunks_directory: /loki/chunks
-      rules_directory: /loki/rules
+    s3:
+      endpoint: storage.yandexcloud.net
+      region: ru-central1
+      bucketnames: ${LOKI_S3_BUCKET}
+      access_key_id: ${LOKI_S3_ACCESS_KEY_ID}
+      secret_access_key: ${LOKI_S3_SECRET_ACCESS_KEY}
+      s3forcepathstyle: true
+      insecure: false
   replication_factor: 1
   ring:
     kvstore:
       store: inmemory
 
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-shipper-active
+    cache_location: /loki/tsdb-shipper-cache
+    cache_ttl: 24h
+
 schema_config:
   configs:
-    - from: 2024-01-01
+    - from: 2026-06-02
       store: tsdb
-      object_store: filesystem
+      object_store: s3
       schema: v13
       index:
-        prefix: index_
+        prefix: leap_index_
         period: 24h
 
 limits_config:
   reject_old_samples: true
   reject_old_samples_max_age: 168h        # 7 days
-  retention_period: 720h                  # 30 days
+  retention_period: 2160h                 # 90 days
   ingestion_rate_mb: 16
   ingestion_burst_size_mb: 32
   max_query_series: 5000
@@ -45,7 +62,9 @@ limits_config:
 compactor:
   working_directory: /loki/compactor
   retention_enabled: true
-  delete_request_store: filesystem
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 50
+  delete_request_store: s3
 
 ruler:
   storage:

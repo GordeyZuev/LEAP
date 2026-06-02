@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, RefreshCw, ChevronDown, Eye, LogOut, Trash2, Monitor, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { cn, formatRelative } from "@/lib/utils";
+import { cn, formatRelative, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { useToast } from "@/hooks/use-toast";
+import { Toast } from "@/components/ui/toast";
 import {
   fetchSessions,
   logoutAllDevices,
@@ -186,18 +188,16 @@ const DEFAULT_RETENTION: RetentionConfig = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function extractError(err: unknown): string {
-  type ApiErr = { response?: { data?: { detail?: string | { msg: string }[] } } };
-  const e = err as ApiErr | null;
-  const detail = e?.response?.data?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return detail[0]?.msg ?? "Unknown error";
-  return "Request failed";
-}
-
 function fmtNum(n: number | null | undefined, decimals = 0): string {
   if (n == null) return "∞";
   return decimals > 0 ? n.toFixed(decimals) : String(n);
+}
+
+const MONTH_YEAR_FORMATTER = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric" });
+function formatMonthYear(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : MONTH_YEAR_FORMATTER.format(d);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,58 +295,11 @@ function Collapsible({
   );
 }
 
-function QuotaBar({
-  label,
-  used,
-  limit,
-  suffix = "",
-}: {
-  label: string;
-  used: number;
-  limit: number | null;
-  suffix?: string;
-}) {
-  const pct = limit ? Math.min((used / limit) * 100, 100) : 0;
-  const warn = pct >= 80;
-  const crit = pct >= 95;
-  const usedStr = suffix ? used.toFixed(2) : String(used);
+function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-gray-600">{label}</span>
-        <span
-          className={cn(
-            "text-xs tabular-nums",
-            crit ? "text-red-500" : warn ? "text-amber-500" : "text-gray-500"
-          )}
-        >
-          {usedStr}{suffix} / {fmtNum(limit)}{limit !== null ? suffix : ""}
-        </span>
-      </div>
-      {limit !== null ? (
-        <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-          <div
-            className={cn(
-              "h-full rounded-full transition-all duration-500",
-              crit ? "bg-red-400" : warn ? "bg-amber-400" : "bg-[#224C87]"
-            )}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      ) : (
-        <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
-          <div className="h-full w-0 rounded-full bg-[#224C87]" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StatChip({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div>
-      <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-      <p className="text-base font-semibold text-gray-900 tabular-nums">{value}</p>
+    <div className="flex items-baseline justify-between gap-3 border-b border-[#F0F0F0] py-2.5 last:border-0">
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm font-semibold tabular-nums text-gray-900">{value}</span>
     </div>
   );
 }
@@ -363,15 +316,16 @@ const BTN_SECONDARY =
 export default function SettingsPage() {
   const qc = useQueryClient();
   const router = useRouter();
+  const { toast, show: showToast, dismiss: dismissToast } = useToast(TOAST_SHORT);
 
   // ── Profile ───────────────────────────────────────────────────────────────
   const [profile, setProfile] = useState({ full_name: "", email: "", timezone: "" });
-  const [profileSuccess, setProfileSuccess] = useState("");
-  const [profileError, setProfileError] = useState("");
 
   // ── Password ──────────────────────────────────────────────────────────────
   const [pwForm, setPwForm] = useState({ current_password: "", new_password: "", confirm: "" });
-  const [pwSuccess, setPwSuccess] = useState("");
+  // Password feedback stays inline (next to the fields), unlike one-off action
+  // confirmations which use toasts — validation/credential errors are clearer
+  // when they sit by the form and don't auto-dismiss.
   const [pwError, setPwError] = useState("");
 
   // ── Config ────────────────────────────────────────────────────────────────
@@ -381,8 +335,6 @@ export default function SettingsPage() {
   const [upload, setUpload] = useState<UploadConfig>(DEFAULT_UPLOAD);
   const [metadata, setMetadata] = useState<MetadataConfig>(DEFAULT_METADATA);
   const [retention, setRetention] = useState<RetentionConfig>(DEFAULT_RETENTION);
-  const [configSuccess, setConfigSuccess] = useState("");
-  const [configError, setConfigError] = useState("");
 
   // ── Collapsible open states ───────────────────────────────────────────────
   const [transcriptionAdvOpen, setTranscriptionAdvOpen] = useState(false);
@@ -404,7 +356,6 @@ export default function SettingsPage() {
   const [logoutAllOpen, setLogoutAllOpen] = useState(false);
   const [logoutOthersOpen, setLogoutOthersOpen] = useState(false);
   const [revokeSessionTarget, setRevokeSessionTarget] = useState<SessionInfo | null>(null);
-  const [sessionsToast, setSessionsToast] = useState("");
 
   // ── Reference data ───────────────────────────────────────────────────────
   const { data: languages = [] } = useLanguages();
@@ -472,11 +423,9 @@ export default function SettingsPage() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-me"] });
-      setProfileSuccess("Saved!");
-      setProfileError("");
-      setTimeout(() => setProfileSuccess(""), TOAST_SHORT);
+      showToast("success", "Profile saved");
     },
-    onError: (err) => setProfileError(extractError(err)),
+    onError: (err) => showToast("error", extractApiError(err)),
   });
 
   const changePassword = useMutation({
@@ -486,12 +435,11 @@ export default function SettingsPage() {
         new_password: pwForm.new_password,
       }),
     onSuccess: () => {
-      setPwSuccess("Password changed. All sessions terminated.");
       setPwError("");
+      showToast("success", "Password changed. All sessions terminated.", TOAST_LONG);
       setPwForm({ current_password: "", new_password: "", confirm: "" });
-      setTimeout(() => setPwSuccess(""), TOAST_LONG);
     },
-    onError: (err) => setPwError(extractError(err)),
+    onError: (err) => setPwError(extractApiError(err)),
   });
 
   const updateConfig = useMutation({
@@ -506,21 +454,19 @@ export default function SettingsPage() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-config"] });
-      setConfigSuccess("Saved!");
-      setConfigError("");
-      setTimeout(() => setConfigSuccess(""), TOAST_SHORT);
+      showToast("success", "Settings saved");
     },
-    onError: (err) => setConfigError(extractError(err)),
+    onError: (err) => showToast("error", extractApiError(err)),
   });
 
   const resetConfig = useMutation({
     mutationFn: () => apiClient.post("/users/me/config/reset"),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-config"] });
-      setConfigSuccess("Reset to defaults.");
       setResetConfirm(false);
-      setTimeout(() => setConfigSuccess(""), TOAST_SHORT);
+      showToast("success", "Reset to defaults");
     },
+    onError: (err) => showToast("error", extractApiError(err)),
   });
 
   const logoutAll = useMutation({
@@ -540,9 +486,9 @@ export default function SettingsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["auth-sessions"] });
       setLogoutOthersOpen(false);
-      setSessionsToast("Signed out from other devices.");
-      setTimeout(() => setSessionsToast(""), TOAST_LONG);
+      showToast("success", "Signed out from other devices");
     },
+    onError: (err) => showToast("error", extractApiError(err)),
   });
 
   const revokeOne = useMutation({
@@ -550,9 +496,9 @@ export default function SettingsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["auth-sessions"] });
       setRevokeSessionTarget(null);
-      setSessionsToast("Session revoked.");
-      setTimeout(() => setSessionsToast(""), TOAST_LONG);
+      showToast("success", "Session revoked");
     },
+    onError: (err) => showToast("error", extractApiError(err)),
   });
 
   const deleteAccount = useMutation({
@@ -561,7 +507,7 @@ export default function SettingsPage() {
       qc.clear();
       router.push("/login");
     },
-    onError: (err) => setDeleteAccountError(extractError(err)),
+    onError: (err) => setDeleteAccountError(extractApiError(err)),
   });
 
   // ── Password submit ───────────────────────────────────────────────────────
@@ -590,9 +536,21 @@ export default function SettingsPage() {
   // Stats helpers
   const s = statsData;
   const transcribedMin = s ? Math.floor(s.transcription_total_seconds / 60) : 0;
-  const statusEntries = s
-    ? Object.entries(s.recordings_by_status).filter(([, v]) => v > 0)
-    : [];
+  const memberSince = formatMonthYear(userData?.created_at);
+  const roleLabel = userData?.role ? userData.role.charAt(0).toUpperCase() + userData.role.slice(1) : null;
+
+  // Usage figures (numbers only — used / limit).
+  const statRows: { label: string; value: string }[] = [];
+  if (quotaData) {
+    statRows.push({ label: "Recordings / month", value: `${recUsed} / ${fmtNum(recLimit)}` });
+    statRows.push({ label: "Storage", value: `${stUsedGb.toFixed(2)} / ${fmtNum(stLimitGb)} GB` });
+    statRows.push({ label: "Concurrent tasks", value: `${ctUsed} / ${fmtNum(ctLimit)}` });
+    statRows.push({ label: "Automation jobs", value: `${ajUsed} / ${fmtNum(ajLimit)}` });
+  }
+  if (statsData) {
+    statRows.push({ label: "Transcribed", value: `${transcribedMin} min` });
+    statRows.push({ label: "Total recordings", value: String(s!.recordings_total) });
+  }
 
   async function handleMetadataDefaultsPreview() {
     setMetadataRenderPreviewLoading(true);
@@ -611,43 +569,54 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="w-full min-w-0 p-6 sm:p-8 space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
+    <div className="w-full min-w-0 p-6 sm:p-8">
+      {/* Header — same height + margin as list pages so the first card lines up */}
+      <div className="mb-5 flex min-h-[2.5rem] items-center">
+        <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
+      </div>
 
-      {/* ── Usage & Quota ────────────────────────────────────────────────── */}
-      {(quotaData || statsData) && (
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-sm font-semibold text-gray-900">Usage &amp; Quota</h2>
-            {planName && (
-              <span className="text-xs font-medium text-[#224C87] bg-[#224C87]/8 px-2.5 py-1 rounded-full">
-                {planName}
-              </span>
-            )}
+      <div className="space-y-6">
+      {/* ── Profile hero + usage ─────────────────────────────────────────── */}
+      {userData ? (
+        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-6 sm:p-7">
+          {/* Identity */}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="truncate text-2xl font-semibold text-gray-900">
+                {userData.full_name?.trim() || userData.email}
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                {userData.email}
+                {memberSince !== "—" && (
+                  <span className="text-gray-400"> · Member since {memberSince}</span>
+                )}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {planName && (
+                <span className="rounded-full bg-[#224C87]/8 px-3 py-1 text-xs font-semibold text-[#224C87]">
+                  {planName}
+                </span>
+              )}
+              {roleLabel && (
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                  {roleLabel}
+                </span>
+              )}
+            </div>
           </div>
 
-          {quotaData && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-4">
-              <QuotaBar label="Recordings / month" used={recUsed} limit={recLimit} />
-              <QuotaBar label="Storage" used={stUsedGb} limit={stLimitGb} suffix=" GB" />
-              <QuotaBar label="Concurrent tasks" used={ctUsed} limit={ctLimit} />
-              <QuotaBar label="Automation jobs" used={ajUsed} limit={ajLimit} />
-            </div>
-          )}
-
-          {statsData && (
-            <div className="mt-5 pt-5 border-t border-[#F0F0F0]">
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-4">
-                <StatChip label="Total recordings" value={s!.recordings_total} />
-                <StatChip label="Storage used" value={`${s!.storage_gb.toFixed(2)} GB`} />
-                <StatChip label="Transcribed" value={`${transcribedMin} min`} />
-                {statusEntries.map(([status, count]) => (
-                  <StatChip key={status} label={status} value={count} />
-                ))}
-              </div>
+          {/* Usage — numbers only, two columns */}
+          {statRows.length > 0 && (
+            <div className="mt-6 grid grid-cols-1 gap-x-12 border-t border-[#F0F0F0] pt-4 sm:grid-cols-2">
+              {statRows.map((r) => (
+                <StatRow key={r.label} label={r.label} value={r.value} />
+              ))}
             </div>
           )}
         </div>
+      ) : (
+        <div className="h-40 animate-pulse rounded-2xl border border-[#D9D9D9] bg-white" />
       )}
 
       {/* ── Profile ──────────────────────────────────────────────────────── */}
@@ -689,12 +658,6 @@ export default function SettingsPage() {
             )}
           </NativeSelect>
         </Field>
-        {profileError && (
-          <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{profileError}</p>
-        )}
-        {profileSuccess && (
-          <p className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded-xl">{profileSuccess}</p>
-        )}
         <div className="flex justify-end">
           <button
             onClick={() => updateProfile.mutate()}
@@ -743,9 +706,6 @@ export default function SettingsPage() {
         </div>
         {pwError && (
           <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{pwError}</p>
-        )}
-        {pwSuccess && (
-          <p className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded-xl">{pwSuccess}</p>
         )}
         <div className="flex justify-end">
           <button
@@ -1174,13 +1134,6 @@ export default function SettingsPage() {
           </div>
         </Collapsible>
 
-        {configError && (
-          <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{configError}</p>
-        )}
-        {configSuccess && (
-          <p className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded-xl">{configSuccess}</p>
-        )}
-
         <div className="flex justify-end">
           <button
             onClick={() => updateConfig.mutate()}
@@ -1194,20 +1147,7 @@ export default function SettingsPage() {
       </SectionCard>
 
       {/* ── Active sessions ─────────────────────────────────────────────────── */}
-      <SectionCard
-        title="Active sessions"
-        action={
-          <button
-            type="button"
-            onClick={() => setLogoutOthersOpen(true)}
-            disabled={sessions.length <= 1 || logoutOthers.isPending}
-            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-40"
-          >
-            <LogOut size={13} />
-            Log out other devices
-          </button>
-        }
-      >
+      <SectionCard title="Active sessions">
         {sessionsLoading ? (
           <p className="text-sm text-gray-400">Loading…</p>
         ) : sessions.length === 0 ? (
@@ -1253,9 +1193,28 @@ export default function SettingsPage() {
             ))}
           </ul>
         )}
-        {sessionsToast && (
-          <p className="text-sm text-green-600 bg-green-50 rounded-xl px-3 py-2 mt-3">{sessionsToast}</p>
-        )}
+
+        {/* Sign-out actions live with the sessions they affect. */}
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[#F0F0F0] pt-4">
+          <button
+            type="button"
+            onClick={() => setLogoutOthersOpen(true)}
+            disabled={sessions.length <= 1 || logoutOthers.isPending}
+            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-40"
+          >
+            <LogOut size={14} />
+            Sign out other devices
+          </button>
+          <button
+            type="button"
+            onClick={() => setLogoutAllOpen(true)}
+            disabled={logoutAll.isPending}
+            className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+          >
+            <LogOut size={14} />
+            Sign out everywhere
+          </button>
+        </div>
       </SectionCard>
 
       {/* ── Danger Zone ─────────────────────────────────────────────────────── */}
@@ -1263,24 +1222,8 @@ export default function SettingsPage() {
         <div className="px-6 py-4 border-b border-red-100">
           <h2 className="text-sm font-semibold text-red-600">Danger Zone</h2>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="p-6">
           <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-gray-800">Log out all devices</p>
-              <p className="text-xs text-gray-400 mt-0.5">Signs you out everywhere, including this device. You will need to log in again.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setLogoutAllOpen(true)}
-              disabled={logoutAll.isPending}
-              className="shrink-0 flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
-            >
-              <LogOut size={14} />
-              Log out all
-            </button>
-          </div>
-
-          <div className="border-t border-[#F0F0F0] pt-4 flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-gray-800">Delete account</p>
               <p className="text-xs text-gray-400 mt-0.5">Permanently delete your account and all data. This cannot be undone.</p>
@@ -1438,6 +1381,17 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {toast && (
+        <Toast
+          key={toast.serial}
+          type={toast.type}
+          message={toast.msg}
+          exiting={toast.exiting}
+          onDismiss={dismissToast}
+        />
+      )}
+      </div>
     </div>
   );
 }

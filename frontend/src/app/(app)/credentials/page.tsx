@@ -19,17 +19,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
-import {
-  FILTER_CARD,
-  FILTER_CONTROL,
-  FILTER_LABEL,
-  FILTER_SEGMENT_ACTIVE,
-  FILTER_SEGMENT_BTN,
-  FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
-} from "@/lib/filter-field-classes";
-import { FilterMultiSelect } from "@/components/recordings/filter-multi-select";
-import { FilterSelect } from "@/components/recordings/filter-select";
+import { FilterBar } from "@/components/filters/filter-bar";
+import { SearchInput } from "@/components/filters/search-input";
+import { SortControl } from "@/components/filters/sort-control";
+import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
+import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
 import { usePlatforms } from "@/hooks/use-references";
 import { DEBOUNCE_SEARCH, PER_PAGE_LARGE } from "@/lib/constants";
 import { isAllowedOAuthUrl } from "@/lib/auth";
@@ -125,7 +119,6 @@ export default function CredentialsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortBy, setSortBy] = useState<SortField>("created_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
   const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
 
   // Add modal state
@@ -272,12 +265,6 @@ export default function CredentialsPage() {
     setRenameError("");
   }
 
-  function togglePlatformFilter(val: string) {
-    setPlatformFilter((prev) =>
-      prev.includes(val) ? prev.filter((x) => x !== val) : [...prev, val]
-    );
-  }
-
   function resetFilters() {
     setSearchInput("");
     setPlatformFilter([]);
@@ -314,7 +301,7 @@ export default function CredentialsPage() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-5 flex items-center justify-between">
+      <div className="mb-5 flex min-h-[2.5rem] items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Credentials</h1>
         <button
           onClick={openAddModal}
@@ -325,101 +312,44 @@ export default function CredentialsPage() {
         </button>
       </div>
 
-      {/* Search toolbar */}
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div className="min-w-0 flex-1 space-y-1.5" style={{ maxWidth: "22rem" }}>
-          <label htmlFor="creds-search" className={FILTER_LABEL}>Search</label>
-          <input
+      {/* Filters */}
+      <FilterBar
+        search={
+          <SearchInput
             id="creds-search"
-            type="search"
-            placeholder="By name or platform…"
-            autoComplete="off"
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className={FILTER_CONTROL}
+            onChange={setSearchInput}
+            placeholder="By name or platform…"
           />
-        </div>
-      </div>
-
-      {/* Filter card */}
-      <div className={FILTER_CARD}>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
-          {/* Platform multi-select */}
-          <div className="lg:col-span-4">
-            <FilterMultiSelect<string>
-              label="Platform"
-              emptySummary="All platforms"
-              selectedIds={platformFilter}
-              options={platformFilterOptions}
-              open={platformDropdownOpen}
-              onOpenChange={setPlatformDropdownOpen}
-              onToggle={togglePlatformFilter}
-            />
-          </div>
-
-          {/* Status */}
-          <div className="lg:col-span-4">
-            <span className={FILTER_LABEL}>Status</span>
-            <div className={FILTER_SEGMENT_WRAP}>
-              {(["all", "active", "inactive"] as StatusFilter[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={cn(
-                    FILTER_SEGMENT_BTN,
-                    statusFilter === v ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
-                  )}
-                  onClick={() => setStatusFilter(v)}
-                >
-                  {v === "all" ? "All" : v === "active" ? "Active" : "Inactive"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Sort */}
-          <div className="lg:col-span-4">
-            <span className={FILTER_LABEL}>Sort by</span>
-            <div className="flex gap-1.5">
-              <FilterSelect
-                value={sortBy}
-                options={SORT_OPTIONS}
-                onChange={(v) => setSortBy(v as SortField)}
-                className="flex-1 min-w-0"
-              />
-              <button
-                type="button"
-                title={sortOrder === "desc" ? "Descending" : "Ascending"}
-                onClick={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
-                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
-              >
-                {sortOrder === "desc" ? "↓" : "↑"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {hasActiveFilters && (
-          <div className="border-t border-gray-100 pt-4">
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-            >
-              Reset filters
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Backdrop for platform dropdown */}
-      {platformDropdownOpen && (
-        <div
-          className="fixed inset-0 z-[35]"
-          aria-hidden
-          onClick={() => setPlatformDropdownOpen(false)}
-        />
-      )}
+        }
+        controls={[
+          <FilterMultiSelect<string>
+            key="platform"
+            label="Platform"
+            emptySummary="All platforms"
+            value={platformFilter}
+            options={platformFilterOptions}
+            onChange={setPlatformFilter}
+          />,
+          <SegmentedFilter
+            key="status"
+            label="Status"
+            value={statusFilter}
+            options={ACTIVE_STATUS_OPTIONS}
+            onChange={(v) => setStatusFilter(v)}
+          />,
+        ]}
+        sort={
+          <SortControl
+            value={sortBy}
+            order={sortOrder}
+            options={SORT_OPTIONS}
+            onChange={(f) => setSortBy(f as SortField)}
+            onToggleOrder={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+          />
+        }
+        onClearAll={hasActiveFilters ? resetFilters : undefined}
+      />
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm overflow-hidden">

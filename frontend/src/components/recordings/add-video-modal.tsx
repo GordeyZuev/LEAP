@@ -90,12 +90,27 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileDisplayName, setFileDisplayName] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
 
   // Source sync state
   const [selectedSources, setSelectedSources] = useState<Set<number>>(new Set());
 
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  // Shared accept path for both click-select and drag & drop: enforce the size
+  // cap up front and seed the display name from the filename on first pick.
+  const acceptFile = useCallback((f: File | null) => {
+    if (!f) return;
+    if (f.size > MAX_UPLOAD_BYTES) {
+      setErrorMsg(`File is too large (${formatBytes(f.size)}). Max allowed: ${formatBytes(MAX_UPLOAD_BYTES)}.`);
+      setFile(null);
+      return;
+    }
+    setErrorMsg("");
+    setFile(f);
+    setFileDisplayName((prev) => prev || f.name.replace(/\.[^/.]+$/, ""));
+  }, []);
 
   const handleClose = useCallback(() => {
     setSuccessMsg("");
@@ -294,15 +309,29 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                 <div
                   className={cn(
                     "border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors",
-                    file ? "border-[#224C87] bg-[#224C87]/5" : "border-[#D9D9D9] hover:border-[#224C87]/50"
+                    isDragging
+                      ? "border-[#224C87] bg-[#224C87]/10"
+                      : file
+                        ? "border-[#224C87] bg-[#224C87]/5"
+                        : "border-[#D9D9D9] hover:border-[#224C87]/50"
                   )}
                   onClick={() => fileRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    acceptFile(e.dataTransfer.files?.[0] ?? null);
+                  }}
                 >
                   <Upload size={24} className="mx-auto mb-2 text-gray-400" />
                   {file ? (
                     <p className="text-sm font-medium text-[#224C87]">{file.name}</p>
                   ) : (
-                    <p className="text-sm text-gray-500">Click to select a video file</p>
+                    <>
+                      <p className="text-sm text-gray-500">Drag &amp; drop a video file, or click to select</p>
+                      <p className="mt-1 text-xs text-gray-400">Up to {formatBytes(MAX_UPLOAD_BYTES)}</p>
+                    </>
                   )}
                   <input
                     ref={fileRef}
@@ -310,20 +339,8 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                     accept="video/*"
                     className="hidden"
                     onChange={(e) => {
-                      const f = e.target.files?.[0] ?? null;
-                      if (f && f.size > MAX_UPLOAD_BYTES) {
-                        setErrorMsg(
-                          `File is too large (${formatBytes(f.size)}). Max allowed: ${formatBytes(MAX_UPLOAD_BYTES)}.`,
-                        );
-                        setFile(null);
-                        e.target.value = "";
-                        return;
-                      }
-                      setErrorMsg("");
-                      setFile(f);
-                      if (f && !fileDisplayName) {
-                        setFileDisplayName(f.name.replace(/\.[^/.]+$/, ""));
-                      }
+                      acceptFile(e.target.files?.[0] ?? null);
+                      e.target.value = "";
                     }}
                   />
                 </div>

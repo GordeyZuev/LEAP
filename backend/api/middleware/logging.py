@@ -12,7 +12,13 @@ from logger import get_logger
 logger = get_logger("http.access")
 
 # High-frequency polling endpoints — skipping keeps Loki signal-to-noise high.
-_SKIP_PATHS: frozenset[str] = frozenset({"/api/v1/health", "/metrics"})
+_SKIP_PATHS: frozenset[str] = frozenset(
+    {
+        "/api/v1/health/live",
+        "/api/v1/health/ready",
+        "/metrics",
+    }
+)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):

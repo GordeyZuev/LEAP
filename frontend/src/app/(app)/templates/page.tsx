@@ -8,18 +8,12 @@ import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useDebounce } from "@/hooks/use-debounce";
-import { FilterSelect } from "@/components/recordings/filter-select";
+import { FilterBar } from "@/components/filters/filter-bar";
+import { SearchInput } from "@/components/filters/search-input";
+import { SortControl } from "@/components/filters/sort-control";
+import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
 import { Pagination } from "@/components/ui/pagination";
 import { DEBOUNCE_SEARCH, PER_PAGE_TEMPLATES } from "@/lib/constants";
-import {
-  FILTER_CARD,
-  FILTER_CONTROL,
-  FILTER_LABEL,
-  FILTER_SEGMENT_ACTIVE,
-  FILTER_SEGMENT_BTN,
-  FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
-} from "@/lib/filter-field-classes";
 
 interface TemplateListItem {
   id: number;
@@ -150,7 +144,7 @@ function TemplatesContent() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-5 flex min-h-[2.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Templates</h1>
         <Link
           href="/templates/new"
@@ -161,84 +155,36 @@ function TemplatesContent() {
         </Link>
       </div>
 
-      {/* Search toolbar — только поиск */}
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div className="min-w-0 flex-1 space-y-1.5" style={{ maxWidth: "22rem" }}>
-          <label htmlFor="templates-search" className={FILTER_LABEL}>
-            Search
-          </label>
-          <input
+      {/* Filters */}
+      <FilterBar
+        search={
+          <SearchInput
             id="templates-search"
-            type="search"
-            placeholder="By template name…"
-            autoComplete="off"
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className={FILTER_CONTROL}
+            onChange={setSearchInput}
+            placeholder="By template name…"
           />
-        </div>
-      </div>
-
-      {/* Filter card — status + sort + reset */}
-      <div className={FILTER_CARD}>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
-          {/* Status */}
-          <div className="lg:col-span-4">
-            <span className={FILTER_LABEL}>Status</span>
-            <div className={FILTER_SEGMENT_WRAP}>
-              {(["all", "active", "inactive"] as IsActiveFilter[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={cn(
-                    FILTER_SEGMENT_BTN,
-                    isActiveFilter === v ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
-                  )}
-                  onClick={() =>
-                    setParam("is_active", v === "all" ? null : v === "active" ? "true" : "false")
-                  }
-                >
-                  {v === "all" ? "All" : v === "active" ? "Active" : "Inactive"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Sort */}
-          <div className="lg:col-span-4">
-            <span className={FILTER_LABEL}>Sort by</span>
-            <div className="flex gap-1.5">
-              <FilterSelect
-                value={sortBy}
-                options={SORT_OPTIONS}
-                onChange={(v) => setParam("sort_by", v as string)}
-                className="flex-1 min-w-0"
-              />
-              <button
-                type="button"
-                title={sortOrder === "desc" ? "Descending" : "Ascending"}
-                onClick={() => setParam("sort_order", sortOrder === "desc" ? "asc" : "desc")}
-                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
-              >
-                {sortOrder === "desc" ? "↓" : "↑"}
-              </button>
-            </div>
-          </div>
-
-          {/* Reset */}
-          <div className="lg:col-span-4">
-            <span className={FILTER_LABEL} aria-hidden>&nbsp;</span>
-            <button
-              type="button"
-              onClick={resetFilters}
-              disabled={!hasActiveFilters}
-              className="w-full min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-      </div>
+        }
+        controls={[
+          <SegmentedFilter
+            key="status"
+            label="Status"
+            value={isActiveFilter}
+            options={ACTIVE_STATUS_OPTIONS}
+            onChange={(v) => setParam("is_active", v === "all" ? null : v === "active" ? "true" : "false")}
+          />,
+        ]}
+        sort={
+          <SortControl
+            value={sortBy}
+            order={sortOrder}
+            options={SORT_OPTIONS}
+            onChange={(f) => setParam("sort_by", f)}
+            onToggleOrder={() => setParam("sort_order", sortOrder === "desc" ? "asc" : "desc")}
+          />
+        }
+        onClearAll={hasActiveFilters ? resetFilters : undefined}
+      />
 
       {/* Table */}
       <div className="overflow-hidden rounded-2xl border border-[#D9D9D9] bg-white shadow-sm">

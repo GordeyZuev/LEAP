@@ -18,26 +18,24 @@ import {
   type SetStateAction,
 } from "react";
 import { apiClient } from "@/api/client";
-import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter, Video } from "lucide-react";
+import { cn, extractApiError } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
-import {
-  FILTER_CARD,
-  FILTER_CONTROL,
-  FILTER_LABEL,
-  FILTER_SEGMENT_ACTIVE,
-  FILTER_SEGMENT_BTN,
-  FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
-} from "@/lib/filter-field-classes";
+import { useToast } from "@/hooks/use-toast";
+import { Toast } from "@/components/ui/toast";
+import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { RecordingCard, type RecordingCardData } from "@/components/recordings/recording-card";
-import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/recordings/filter-multi-select";
+import { FilterBar } from "@/components/filters/filter-bar";
+import { SearchInput } from "@/components/filters/search-input";
+import { SortControl } from "@/components/filters/sort-control";
+import { SegmentedFilter } from "@/components/filters/segmented-filter";
+import { FilterMultiSelect, type FilterMultiSelectOption } from "@/components/filters/filter-multi-select";
+import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { AddVideoModal } from "@/components/recordings/add-video-modal";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { ExportModal } from "@/components/recordings/export-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Pagination } from "@/components/ui/pagination";
-import { FilterSelect } from "@/components/recordings/filter-select";
 import type { ProcessingStatus } from "@/components/ui/status-badge";
 import {
   ACTIVE_POLL_STATUSES,
@@ -88,11 +86,15 @@ const SORT_OPTIONS = [
 
 const SORT_BY_ALLOWED = new Set(SORT_OPTIONS.map((o) => o.value));
 
+const STATUS_LABEL_BY_VALUE = new Map(STATUS_OPTIONS.map((o) => [o.value, o.label]));
+
+type Notify = (type: "success" | "error" | "info", msg: string) => void;
+
 // ---------------------------------------------------------------------------
-// Filter draft — only filter fields (search + sort are immediate / URL-direct)
+// Filters — all read from / written to the URL; everything applies instantly
 // ---------------------------------------------------------------------------
 
-interface RecordingsFilterDraft {
+interface RecordingsFilters {
   status: ProcessingStatus[];
   templateIds: number[];
   sourceIds: number[];
@@ -102,17 +104,6 @@ interface RecordingsFilterDraft {
   fromDate: string;
   toDate: string;
 }
-
-const DEFAULT_FILTER_DRAFT: RecordingsFilterDraft = {
-  status: [],
-  templateIds: [],
-  sourceIds: [],
-  isMapped: null,
-  includeBlank: false,
-  includeDeleted: false,
-  fromDate: "",
-  toDate: "",
-};
 
 function parsePositiveIntParams(sp: URLSearchParams, key: string): number[] {
   const xs = sp.getAll(key).map((s) => parseInt(s, 10)).filter((n) => !Number.isNaN(n) && n > 0);
@@ -125,7 +116,7 @@ function parseIsMappedFromUrl(raw: string | null): boolean | null {
   return null;
 }
 
-function filterDraftFromUrl(sp: URLSearchParams): RecordingsFilterDraft {
+function filtersFromUrl(sp: URLSearchParams): RecordingsFilters {
   return {
     status: sp.getAll("status") as ProcessingStatus[],
     templateIds: parsePositiveIntParams(sp, "template_id"),
@@ -138,26 +129,13 @@ function filterDraftFromUrl(sp: URLSearchParams): RecordingsFilterDraft {
   };
 }
 
-function filterDraftSignature(d: RecordingsFilterDraft): string {
-  return [
-    [...d.status].sort().join(","),
-    d.templateIds.join(","),
-    d.sourceIds.join(","),
-    d.isMapped === null ? "" : d.isMapped ? "1" : "0",
-    d.includeBlank ? "1" : "0",
-    d.includeDeleted ? "1" : "0",
-    d.fromDate,
-    d.toDate,
-  ].join("|");
-}
-
-function advancedDraftCount(d: RecordingsFilterDraft): number {
+function advancedCount(f: RecordingsFilters): number {
   return (
-    (d.isMapped !== null ? 1 : 0) +
-    (d.fromDate ? 1 : 0) +
-    (d.toDate ? 1 : 0) +
-    (d.includeBlank ? 1 : 0) +
-    (d.includeDeleted ? 1 : 0)
+    (f.isMapped !== null ? 1 : 0) +
+    (f.fromDate ? 1 : 0) +
+    (f.toDate ? 1 : 0) +
+    (f.includeBlank ? 1 : 0) +
+    (f.includeDeleted ? 1 : 0)
   );
 }
 
@@ -189,6 +167,9 @@ interface RecordingsPagedResultsProps {
   resetDeleteFiles: boolean;
   setResetDeleteFiles: (v: boolean) => void;
   onBulkRunWithConfig: () => void;
+  notify: Notify;
+  onAddVideo: () => void;
+  onResetFilters: () => void;
 }
 
 function RecordingsPagedResults({
@@ -215,31 +196,30 @@ function RecordingsPagedResults({
   resetDeleteFiles,
   setResetDeleteFiles,
   onBulkRunWithConfig,
+  notify,
+  onAddVideo,
+  onResetFilters,
 }: RecordingsPagedResultsProps) {
   const [pipelineMenuOpen, setPipelineMenuOpen] = useState(false);
   const pipelineMenuRef = useRef<HTMLDivElement>(null);
   const qcInner = useQueryClient();
 
-  const bulkDownload = useMutation({
-    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/download", { recording_ids: ids }),
-    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
-  });
-  const bulkTranscribe = useMutation({
-    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/transcribe", { recording_ids: ids }),
-    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
-  });
-  const bulkTopics = useMutation({
-    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/topics", { recording_ids: ids }),
-    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
-  });
-  const bulkSubtitles = useMutation({
-    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/subtitles", { recording_ids: ids }),
-    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
-  });
-  const bulkUpload = useMutation({
-    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/upload", { recording_ids: ids }),
-    onSuccess: () => qcInner.invalidateQueries({ queryKey: ["recordings"] }),
-  });
+  function usePipelineMutation(path: string, label: string) {
+    return useMutation({
+      mutationFn: (ids: number[]) => apiClient.post(path, { recording_ids: ids }),
+      onSuccess: () => {
+        qcInner.invalidateQueries({ queryKey: ["recordings"] });
+        notify("success", `${label} started`);
+      },
+      onError: (e) => notify("error", extractApiError(e, `${label} failed`)),
+    });
+  }
+
+  const bulkDownload = usePipelineMutation("/recordings/bulk/download", "Download");
+  const bulkTranscribe = usePipelineMutation("/recordings/bulk/transcribe", "Transcription");
+  const bulkTopics = usePipelineMutation("/recordings/bulk/topics", "Topic extraction");
+  const bulkSubtitles = usePipelineMutation("/recordings/bulk/subtitles", "Subtitle generation");
+  const bulkUpload = usePipelineMutation("/recordings/bulk/upload", "Upload");
 
   useEffect(() => {
     if (!pipelineMenuOpen) return;
@@ -408,8 +388,31 @@ function RecordingsPagedResults({
       )}
 
       {!isLoading && !error && recordings.length === 0 && (
-        <div className="py-16 text-center text-sm text-gray-400">
-          {hasActiveFilters ? "No recordings match your filters" : "No recordings yet"}
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <div className="rounded-2xl bg-gray-50 p-3 text-gray-300">
+            <Video size={28} strokeWidth={1.5} />
+          </div>
+          <p className="text-sm font-medium text-gray-500">
+            {hasActiveFilters ? "No recordings match your filters" : "No recordings yet"}
+          </p>
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={onResetFilters}
+              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              Reset filters
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onAddVideo}
+              className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e]"
+            >
+              <Plus size={16} />
+              Add video
+            </button>
+          )}
         </div>
       )}
 
@@ -491,20 +494,16 @@ function RecordingsPagedResults({
 // ---------------------------------------------------------------------------
 
 interface AdvancedFiltersSectionProps {
-  draft: RecordingsFilterDraft;
-  patchDraft: (patch: Partial<RecordingsFilterDraft>) => void;
-  draftAdvancedCount: number;
+  filters: RecordingsFilters;
+  onPatch: (patch: Partial<RecordingsFilters>) => void;
 }
 
-function AdvancedFiltersSection({
-  draft,
-  patchDraft,
-  draftAdvancedCount,
-}: AdvancedFiltersSectionProps) {
-  const [sectionOpen, setSectionOpen] = useState(() => draftAdvancedCount > 0);
+function AdvancedFiltersSection({ filters, onPatch }: AdvancedFiltersSectionProps) {
+  const count = advancedCount(filters);
+  const [sectionOpen, setSectionOpen] = useState(() => count > 0);
 
   return (
-    <div className="border-t border-gray-100 pt-4">
+    <>
       <button
         type="button"
         onClick={() => setSectionOpen((v) => !v)}
@@ -513,9 +512,9 @@ function AdvancedFiltersSection({
       >
         <Filter size={16} className="shrink-0 opacity-90" />
         Scope &amp; visibility
-        {draftAdvancedCount > 0 && (
+        {count > 0 && (
           <span className="rounded-full bg-[#224C87]/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#224C87]">
-            {draftAdvancedCount}
+            {count}
           </span>
         )}
         <ChevronDown
@@ -526,92 +525,62 @@ function AdvancedFiltersSection({
 
       {sectionOpen && (
         <div className="mt-4 space-y-5">
-          {/* Row 1 — date range on one line */}
+          {/* Date range */}
           <div className="space-y-1.5">
             <span className={FILTER_LABEL}>Recording start date</span>
             <div className="flex items-center gap-3">
               <input
                 type="date"
                 aria-label="From date"
-                value={draft.fromDate}
-                onChange={(e) => patchDraft({ fromDate: e.target.value })}
+                value={filters.fromDate}
+                onChange={(e) => onPatch({ fromDate: e.target.value })}
                 className={cn(FILTER_CONTROL, "max-w-[11rem]")}
               />
               <span className="text-gray-400 select-none">—</span>
               <input
                 type="date"
                 aria-label="To date"
-                value={draft.toDate}
-                onChange={(e) => patchDraft({ toDate: e.target.value })}
+                value={filters.toDate}
+                onChange={(e) => onPatch({ toDate: e.target.value })}
                 className={cn(FILTER_CONTROL, "max-w-[11rem]")}
               />
             </div>
           </div>
 
-          {/* Row 2 — three toggles */}
-          <div className="flex flex-wrap gap-x-8 gap-y-4">
-            <div className="space-y-1.5">
-              <span className={FILTER_LABEL}>Template mapping</span>
-              <div className={FILTER_SEGMENT_WRAP}>
-                {([null, true, false] as const).map((val) => (
-                  <button
-                    key={String(val)}
-                    type="button"
-                    className={cn(
-                      FILTER_SEGMENT_BTN,
-                      draft.isMapped === val ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
-                    )}
-                    onClick={() => patchDraft({ isMapped: val })}
-                  >
-                    {val === null ? "Any" : val ? "Mapped" : "Not mapped"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <span className={FILTER_LABEL}>Blank recordings</span>
-              <div className={FILTER_SEGMENT_WRAP}>
-                <button
-                  type="button"
-                  className={cn(FILTER_SEGMENT_BTN, !draft.includeBlank ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => patchDraft({ includeBlank: false })}
-                >
-                  Standard
-                </button>
-                <button
-                  type="button"
-                  className={cn(FILTER_SEGMENT_BTN, draft.includeBlank ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => patchDraft({ includeBlank: true })}
-                >
-                  Include blanks
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <span className={FILTER_LABEL}>Deleted recordings</span>
-              <div className={FILTER_SEGMENT_WRAP}>
-                <button
-                  type="button"
-                  className={cn(FILTER_SEGMENT_BTN, !draft.includeDeleted ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => patchDraft({ includeDeleted: false })}
-                >
-                  Standard
-                </button>
-                <button
-                  type="button"
-                  className={cn(FILTER_SEGMENT_BTN, draft.includeDeleted ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => patchDraft({ includeDeleted: true })}
-                >
-                  Include deleted
-                </button>
-              </div>
-            </div>
+          {/* Segmented toggles */}
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3">
+            <SegmentedFilter
+              label="Template mapping"
+              value={filters.isMapped === null ? "any" : filters.isMapped ? "mapped" : "unmapped"}
+              options={[
+                { value: "any", label: "Any" },
+                { value: "mapped", label: "Mapped" },
+                { value: "unmapped", label: "Not mapped" },
+              ]}
+              onChange={(v) => onPatch({ isMapped: v === "any" ? null : v === "mapped" })}
+            />
+            <SegmentedFilter
+              label="Blank recordings"
+              value={filters.includeBlank ? "include" : "standard"}
+              options={[
+                { value: "standard", label: "Standard" },
+                { value: "include", label: "Include blanks" },
+              ]}
+              onChange={(v) => onPatch({ includeBlank: v === "include" })}
+            />
+            <SegmentedFilter
+              label="Deleted recordings"
+              value={filters.includeDeleted ? "include" : "standard"}
+              options={[
+                { value: "standard", label: "Standard" },
+                { value: "include", label: "Include deleted" },
+              ]}
+              onChange={(v) => onPatch({ includeDeleted: v === "include" })}
+            />
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -623,6 +592,7 @@ function RecordingsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const qc = useQueryClient();
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const urlKey = searchParams.toString();
 
   // --- Immediate controls (search + sort + page) ---
@@ -699,23 +669,61 @@ function RecordingsContent() {
     [router, searchParams],
   );
 
-  // --- Filter draft (Apply/Reset pattern) ---
-  const [filterDraft, setFilterDraft] = useState<RecordingsFilterDraft>(() =>
-    filterDraftFromUrl(searchParams)
+  // --- Current filters (read from URL) + instant-apply URL writers ---
+  const filters = useMemo(() => filtersFromUrl(new URLSearchParams(urlKey)), [urlKey]);
+
+  const commitFilters = useCallback(
+    (mutate: (p: URLSearchParams) => void) => {
+      const p = new URLSearchParams(urlKey);
+      mutate(p);
+      p.delete("page");
+      router.replace(`?${p.toString()}`);
+      setSelected(new Set());
+    },
+    [urlKey, router],
   );
 
-  const patchDraft = useCallback((patch: Partial<RecordingsFilterDraft>) => {
-    setFilterDraft((d) => ({ ...d, ...patch }));
-  }, []);
-
-  const appliedFilterDraft = useMemo(() => filterDraftFromUrl(new URLSearchParams(urlKey)), [urlKey]);
-  const filtersDirty = useMemo(
-    () => filterDraftSignature(filterDraft) !== filterDraftSignature(appliedFilterDraft),
-    [filterDraft, appliedFilterDraft]
+  // Multi-selects commit their whole selection at once (on dropdown close).
+  const setMultiParam = useCallback(
+    (key: string, values: (string | number)[]) => {
+      commitFilters((p) => {
+        p.delete(key);
+        values.forEach((v) => p.append(key, String(v)));
+      });
+    },
+    [commitFilters],
   );
-  const draftAdvCount = advancedDraftCount(filterDraft);
 
-  const hasAppliedFilters = useMemo(() => {
+  // Scope & visibility (segments + dates) write their field instantly.
+  const patchFilters = useCallback(
+    (patch: Partial<RecordingsFilters>) => {
+      commitFilters((p) => {
+        if ("isMapped" in patch) {
+          if (patch.isMapped == null) p.delete("is_mapped");
+          else p.set("is_mapped", patch.isMapped ? "true" : "false");
+        }
+        if ("includeBlank" in patch) {
+          if (patch.includeBlank) p.set("include_blank", "true");
+          else p.delete("include_blank");
+        }
+        if ("includeDeleted" in patch) {
+          if (patch.includeDeleted) p.set("include_deleted", "true");
+          else p.delete("include_deleted");
+        }
+        if ("fromDate" in patch) {
+          if (patch.fromDate) p.set("from_date", patch.fromDate);
+          else p.delete("from_date");
+        }
+        if ("toDate" in patch) {
+          if (patch.toDate) p.set("to_date", patch.toDate);
+          else p.delete("to_date");
+        }
+      });
+    },
+    [commitFilters],
+  );
+
+  const hasActiveFilters = useMemo(() => {
     const sp = new URLSearchParams(urlKey);
     return !!(
       sp.get("search") ||
@@ -731,17 +739,6 @@ function RecordingsContent() {
       sp.get("sort_order") === "asc"
     );
   }, [urlKey]);
-
-  // --- Dropdown state ---
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
-  const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
-
-  function closeAllDropdowns() {
-    setStatusDropdownOpen(false);
-    setTemplateDropdownOpen(false);
-    setSourceDropdownOpen(false);
-  }
 
   // --- Reference data ---
   const { data: templatesData } = useQuery<TemplateListResponse>({
@@ -770,84 +767,42 @@ function RecordingsContent() {
     [sourcesData]
   );
 
-  const toggleDraftTemplateId = useCallback((id: number) => {
-    setFilterDraft((d) => {
-      const next = d.templateIds.includes(id)
-        ? d.templateIds.filter((x) => x !== id)
-        : [...d.templateIds, id].sort((a, b) => a - b);
-      return { ...d, templateIds: next };
-    });
-  }, []);
-
-  const toggleDraftSourceId = useCallback((id: number) => {
-    setFilterDraft((d) => {
-      const next = d.sourceIds.includes(id)
-        ? d.sourceIds.filter((x) => x !== id)
-        : [...d.sourceIds, id].sort((a, b) => a - b);
-      return { ...d, sourceIds: next };
-    });
-  }, []);
-
-  const toggleDraftStatus = useCallback((s: ProcessingStatus) => {
-    setFilterDraft((d) => ({
-      ...d,
-      status: d.status.includes(s) ? d.status.filter((x) => x !== s) : [...d.status, s],
-    }));
-  }, []);
-
   // --- Loading tracking per recording ---
   const [loadingRecordingId, setLoadingRecordingId] = useState<number | null>(null);
 
-  // --- Apply / Reset ---
-  function applyFilters() {
-    const p = new URLSearchParams();
-    const trimmedSearch = searchInput.trim();
-    if (trimmedSearch) { p.set("search", trimmedSearch); lastAppliedSearchRef.current = trimmedSearch; }
-    p.set("sort_by", urlSortBy);
-    p.set("sort_order", urlSortOrder);
-    filterDraft.status.forEach((s) => p.append("status", s));
-    filterDraft.templateIds.forEach((id) => p.append("template_id", String(id)));
-    filterDraft.sourceIds.forEach((id) => p.append("source_id", String(id)));
-    if (filterDraft.isMapped !== null) p.set("is_mapped", filterDraft.isMapped ? "true" : "false");
-    if (filterDraft.includeBlank) p.set("include_blank", "true");
-    if (filterDraft.includeDeleted) p.set("include_deleted", "true");
-    if (filterDraft.fromDate) p.set("from_date", filterDraft.fromDate);
-    if (filterDraft.toDate) p.set("to_date", filterDraft.toDate);
-    router.replace(`?${p.toString()}`);
-    setSelected(new Set());
-    closeAllDropdowns();
-  }
-
-  function resetAllFilters() {
-    setFilterDraft(DEFAULT_FILTER_DRAFT);
+  // Clear search + every filter at once.
+  const resetAllFilters = useCallback(() => {
     setSearchInput("");
     lastAppliedSearchRef.current = "";
     router.replace("?");
     setSelected(new Set());
-    closeAllDropdowns();
-  }
+  }, [router]);
 
   // --- Mutations ---
   const bulkRun = useMutation({
     mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/run", { recording_ids: ids }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); showToast("success", "Pipeline started"); },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to start pipeline")),
   });
 
   const bulkPause = useMutation({
     mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/pause", { recording_ids: ids }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); showToast("success", "Paused"); },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to pause")),
   });
 
   const bulkDelete = useMutation({
     mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/delete", { recording_ids: ids }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); showToast("success", "Recordings deleted"); },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to delete")),
   });
 
   // Bulk reset: parallel individual reset calls
   const bulkReset = useMutation({
     mutationFn: ({ ids, deleteFiles }: { ids: number[]; deleteFiles: boolean }) =>
       Promise.all(ids.map((id) => apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: deleteFiles } }))),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); showToast("success", "Recordings reset"); },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to reset")),
   });
 
   const singleRun = useMutation({
@@ -855,6 +810,7 @@ function RecordingsContent() {
     onMutate: (id) => setLoadingRecordingId(id),
     onSettled: () => setLoadingRecordingId(null),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to start pipeline")),
   });
 
   const singlePause = useMutation({
@@ -862,22 +818,26 @@ function RecordingsContent() {
     onMutate: (id) => setLoadingRecordingId(id),
     onSettled: () => setLoadingRecordingId(null),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to pause")),
   });
 
   const singleReset = useMutation({
     mutationFn: ({ id, deleteFiles }: { id: number; deleteFiles: boolean }) =>
       apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: deleteFiles } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to reset")),
   });
 
   const singleDelete = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/recordings/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to delete")),
   });
 
   const singleRestore = useMutation({
     mutationFn: (id: number) => apiClient.post(`/recordings/${id}/restore`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to restore")),
   });
 
   // --- Card action handlers ---
@@ -919,10 +879,78 @@ function RecordingsContent() {
     return p.toString();
   }, [urlKey]);
 
+  // --- Applied-filter chips (derived from URL) ---
+  const templateLabel = useCallback(
+    (id: number) => templateOptions.find((o) => o.value === id)?.label ?? `#${id}`,
+    [templateOptions],
+  );
+  const sourceLabel = useCallback(
+    (id: number) => sourceOptions.find((o) => o.value === id)?.label ?? `#${id}`,
+    [sourceOptions],
+  );
+
+  const appliedChips = useMemo<FilterChipItem[]>(() => {
+    const f = filters;
+    const chips: FilterChipItem[] = [];
+
+    if (urlSearch) {
+      chips.push({
+        key: "search",
+        label: `Search: "${urlSearch}"`,
+        onRemove: () => {
+          // Clear the input too; the debounced effect would otherwise re-add it.
+          setSearchInput("");
+          commitFilters((p) => p.delete("search"));
+        },
+      });
+    }
+    f.status.forEach((st) =>
+      chips.push({
+        key: `status:${st}`,
+        label: STATUS_LABEL_BY_VALUE.get(st) ?? st,
+        onRemove: () => setMultiParam("status", f.status.filter((x) => x !== st)),
+      }),
+    );
+    f.templateIds.forEach((id) =>
+      chips.push({
+        key: `template:${id}`,
+        label: `Template: ${templateLabel(id)}`,
+        onRemove: () => setMultiParam("template_id", f.templateIds.filter((x) => x !== id)),
+      }),
+    );
+    f.sourceIds.forEach((id) =>
+      chips.push({
+        key: `source:${id}`,
+        label: `Source: ${sourceLabel(id)}`,
+        onRemove: () => setMultiParam("source_id", f.sourceIds.filter((x) => x !== id)),
+      }),
+    );
+    if (f.isMapped !== null) {
+      chips.push({
+        key: "is_mapped",
+        label: f.isMapped ? "Mapped" : "Not mapped",
+        onRemove: () => patchFilters({ isMapped: null }),
+      });
+    }
+    if (f.fromDate) {
+      chips.push({ key: "from_date", label: `From ${f.fromDate}`, onRemove: () => patchFilters({ fromDate: "" }) });
+    }
+    if (f.toDate) {
+      chips.push({ key: "to_date", label: `To ${f.toDate}`, onRemove: () => patchFilters({ toDate: "" }) });
+    }
+    if (f.includeBlank) {
+      chips.push({ key: "include_blank", label: "Include blanks", onRemove: () => patchFilters({ includeBlank: false }) });
+    }
+    if (f.includeDeleted) {
+      chips.push({ key: "include_deleted", label: "Include deleted", onRemove: () => patchFilters({ includeDeleted: false }) });
+    }
+    return chips;
+  }, [filters, urlSearch, templateLabel, sourceLabel, commitFilters, setMultiParam, patchFilters]);
+
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
       {/* Page header */}
-      <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-5 flex min-h-[2.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Recordings</h1>
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -944,126 +972,55 @@ function RecordingsContent() {
         </div>
       </div>
 
-      {/* ── Search toolbar ── */}
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div className="min-w-0 flex-1 space-y-1.5" style={{ maxWidth: "22rem" }}>
-          <label htmlFor="recordings-search" className={FILTER_LABEL}>
-            Search
-          </label>
-          <input
+      {/* ── Filters ── */}
+      <FilterBar
+        search={
+          <SearchInput
             id="recordings-search"
-            type="search"
-            placeholder="By display name…"
-            autoComplete="off"
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className={FILTER_CONTROL}
+            onChange={setSearchInput}
+            placeholder="By display name…"
           />
-        </div>
-      </div>
-
-      {/* ── Filter card ── */}
-      <div className={FILTER_CARD}>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-12 lg:items-end">
-          {/* Status */}
-          <div className="lg:col-span-3">
-            <FilterMultiSelect<ProcessingStatus>
-              label="Status"
-              emptySummary="All statuses"
-              selectedIds={filterDraft.status}
-              options={STATUS_OPTIONS}
-              open={statusDropdownOpen}
-              onOpenChange={(next) => {
-                setStatusDropdownOpen(next);
-                if (next) { setTemplateDropdownOpen(false); setSourceDropdownOpen(false); }
-              }}
-              onToggle={toggleDraftStatus}
-            />
-          </div>
-
-          {/* Templates */}
-          <div className="lg:col-span-3">
-            <FilterMultiSelect
-              label="Templates"
-              emptySummary="All templates"
-              selectedIds={filterDraft.templateIds}
-              options={templateOptions}
-              open={templateDropdownOpen}
-              onOpenChange={(next) => {
-                setTemplateDropdownOpen(next);
-                if (next) { setStatusDropdownOpen(false); setSourceDropdownOpen(false); }
-              }}
-              onToggle={toggleDraftTemplateId}
-            />
-          </div>
-
-          {/* Sources */}
-          <div className="lg:col-span-3">
-            <FilterMultiSelect
-              label="Sources"
-              emptySummary="All sources"
-              selectedIds={filterDraft.sourceIds}
-              options={sourceOptions}
-              open={sourceDropdownOpen}
-              onOpenChange={(next) => {
-                setSourceDropdownOpen(next);
-                if (next) { setStatusDropdownOpen(false); setTemplateDropdownOpen(false); }
-              }}
-              onToggle={toggleDraftSourceId}
-            />
-          </div>
-
-          {/* Sort by (immediate) */}
-          <div className="lg:col-span-3">
-            <span className={FILTER_LABEL}>Sort by</span>
-            <div className="flex gap-1.5">
-              <FilterSelect
-                value={urlSortBy}
-                options={SORT_OPTIONS}
-                onChange={(v) => updateSort(v as string)}
-                className="flex-1 min-w-0"
-              />
-              <button
-                type="button"
-                title={urlSortOrder === "desc" ? "Descending" : "Ascending"}
-                onClick={() => updateSort(undefined, urlSortOrder === "desc" ? "asc" : "desc")}
-                className={cn(FILTER_CONTROL, "w-11 shrink-0 px-0 text-center font-mono")}
-              >
-                {urlSortOrder === "desc" ? "↓" : "↑"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Apply / Reset */}
-        <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
-          <button
-            type="button"
-            disabled={!filtersDirty}
-            onClick={applyFilters}
-            className={cn(
-              "min-h-[2.5rem] rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors",
-              filtersDirty ? "bg-[#224C87] hover:bg-[#1a3d6e]" : "cursor-not-allowed bg-[#224C87]/35"
-            )}
-          >
-            Apply
-          </button>
-          <button
-            type="button"
-            onClick={resetAllFilters}
-            disabled={!(filtersDirty || hasAppliedFilters)}
-            className="min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Reset
-          </button>
-        </div>
-
-        <AdvancedFiltersSection
-          draft={filterDraft}
-          patchDraft={patchDraft}
-          draftAdvancedCount={draftAdvCount}
-        />
-      </div>
+        }
+        controls={[
+          <FilterMultiSelect<ProcessingStatus>
+            key="status"
+            label="Status"
+            emptySummary="All statuses"
+            value={filters.status}
+            options={STATUS_OPTIONS}
+            onChange={(next) => setMultiParam("status", next)}
+          />,
+          <FilterMultiSelect
+            key="templates"
+            label="Templates"
+            emptySummary="All templates"
+            value={filters.templateIds}
+            options={templateOptions}
+            onChange={(next) => setMultiParam("template_id", next)}
+          />,
+          <FilterMultiSelect
+            key="sources"
+            label="Sources"
+            emptySummary="All sources"
+            value={filters.sourceIds}
+            options={sourceOptions}
+            onChange={(next) => setMultiParam("source_id", next)}
+          />,
+        ]}
+        sort={
+          <SortControl
+            value={urlSortBy}
+            order={urlSortOrder}
+            options={SORT_OPTIONS}
+            onChange={(field) => updateSort(field)}
+            onToggleOrder={() => updateSort(undefined, urlSortOrder === "desc" ? "asc" : "desc")}
+          />
+        }
+        onClearAll={hasActiveFilters ? resetAllFilters : undefined}
+        advanced={<AdvancedFiltersSection filters={filters} onPatch={patchFilters} />}
+        chips={<FilterChips chips={appliedChips} />}
+      />
 
       {/* Results */}
       <RecordingsPagedResults
@@ -1091,16 +1048,10 @@ function RecordingsContent() {
         resetDeleteFiles={resetDeleteFiles}
         setResetDeleteFiles={setResetDeleteFiles}
         onBulkRunWithConfig={handleBulkRunWithConfig}
+        notify={showToast}
+        onAddVideo={() => setAddModalOpen(true)}
+        onResetFilters={resetAllFilters}
       />
-
-      {/* Backdrop to close filter dropdowns */}
-      {(statusDropdownOpen || templateDropdownOpen || sourceDropdownOpen) && (
-        <div
-          className="fixed inset-0 z-[35]"
-          aria-hidden
-          onClick={closeAllDropdowns}
-        />
-      )}
 
       {/* Single reset confirm */}
       <ConfirmDialog
@@ -1161,6 +1112,16 @@ function RecordingsContent() {
       />
 
       <AddVideoModal open={addModalOpen} onClose={() => setAddModalOpen(false)} />
+
+      {toast && (
+        <Toast
+          key={toast.serial}
+          type={toast.type}
+          message={toast.msg}
+          exiting={toast.exiting}
+          onDismiss={dismissToast}
+        />
+      )}
     </div>
   );
 }

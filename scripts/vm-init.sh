@@ -185,6 +185,40 @@ else
   cp nginx/nginx.https.conf nginx/nginx.conf
 fi
 
+# --- 7a. External named volumes (protected from `docker compose down -v`) -
+for vol in leap_postgres_data leap_redis_data leap_loki_data \
+           leap_prometheus_data leap_grafana_data; do
+  if ! docker volume inspect "$vol" >/dev/null 2>&1; then
+    docker volume create "$vol"
+    echo "[vm-init] created external volume $vol"
+  fi
+done
+
+# --- 7b. Host-level logrotate safety net ---------------------------------
+cat > /etc/logrotate.d/leap <<'EOF'
+/opt/leap/backend/logs/*.log {
+    weekly
+    rotate 4
+    maxsize 200M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+
+/opt/leap/backend/logs/*.json {
+    weekly
+    rotate 4
+    maxsize 500M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+
 # --- 8. Pull images + start the stack ------------------------------------
 sudo -u ubuntu docker compose pull
 sudo -u ubuntu docker compose up -d \
@@ -194,10 +228,10 @@ sudo -u ubuntu docker compose up -d nginx
 
 # --- 9. Let's Encrypt (needs DNS pointing at us) -------------------------
 if [ ! -L /etc/letsencrypt/live/leap ]; then
-  echo "[vm-init] waiting up to 5 min for http://$DOMAIN/api/v1/health ..."
+  echo "[vm-init] waiting up to 5 min for http://$DOMAIN/api/v1/health/live ..."
   health_ok=0
   for _ in $(seq 1 60); do
-    if curl -m5 -fsS "http://$DOMAIN/api/v1/health" >/dev/null 2>&1; then
+    if curl -m5 -fsS "http://$DOMAIN/api/v1/health/live" >/dev/null 2>&1; then
       health_ok=1
       break
     fi
@@ -228,12 +262,15 @@ if [ ! -L /etc/letsencrypt/live/leap ]; then
   fi
 fi
 
-# --- 10. Cron: certbot renew + nightly pg_backup -------------------------
+# --- 10. Cron: certbot renew + nightly pg_backup + redis_backup ----------
 if ! crontab -l 2>/dev/null | grep -q certbot; then
   (crontab -l 2>/dev/null; echo "0 3 * * * docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /opt/leap/certbot:/var/www/certbot certbot/certbot renew --quiet && docker exec leap_nginx nginx -s reload") | crontab -
 fi
 if ! crontab -l 2>/dev/null | grep -q pg_backup; then
   (crontab -l 2>/dev/null; echo "0 2 * * * bash /opt/leap/scripts/pg_backup.sh >> /var/log/leap-pg-backup.log 2>&1") | crontab -
+fi
+if ! crontab -l 2>/dev/null | grep -q redis_backup; then
+  (crontab -l 2>/dev/null; echo "15 4 * * * bash /opt/leap/scripts/redis_backup.sh >> /var/log/leap-redis-backup.log 2>&1") | crontab -
 fi
 
 echo "[vm-init] $(date -Iseconds) done — https://$DOMAIN"

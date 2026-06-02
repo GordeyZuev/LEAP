@@ -129,6 +129,7 @@ ignore = [
     "N999",   # Allow any module names
     "ARG001", # Unused arguments (upgrade/downgrade signatures)
     "F401",   # Unused imports
+    "S608",   # SQL DDL via string formatting (hardcoded migration content)
 ]
 
 # Scripts and CLI

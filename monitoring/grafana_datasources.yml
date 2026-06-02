@@ -27,3 +27,24 @@ datasources:
     jsonData:
       httpMethod: POST
       timeInterval: 15s
+
+  # Business-overview dashboard reads from Postgres via the grafana_ro role
+  # (see alembic/versions/023_grafana_ro_role.py). Whitelisted tables only.
+  - name: LEAP-DB
+    type: postgres
+    access: proxy
+    uid: leap_db
+    url: postgres:5432
+    user: grafana_ro
+    secureJsonData:
+      password: ${GRAFANA_RO_PASSWORD}
+    isDefault: false
+    editable: false
+    jsonData:
+      database: leap_platform
+      sslmode: disable
+      maxOpenConns: 5
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+      postgresVersion: 1500
+      timescaledb: false

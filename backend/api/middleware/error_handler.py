@@ -10,9 +10,18 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from api.shared.exceptions import APIException
 from config.settings import get_settings
-from logger import get_logger
+from logger import get_logger, short_user_id
 
 logger = get_logger()
+
+
+def _bound(request: Request):
+    """Logger bound to user_id / request_id from request.state."""
+    user_id = getattr(request.state, "user_id", None)
+    return logger.bind(
+        user_id=short_user_id(user_id) if user_id else None,
+        request_id=getattr(request.state, "request_id", None),
+    )
 
 
 def _expose_internal_error_detail() -> bool:
@@ -44,14 +53,14 @@ async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONR
     )
 
 
-async def global_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler."""
     try:
         exc_str = str(exc)
     except Exception:
         exc_str = repr(exc)
 
-    logger.error("Unhandled exception: {}", exc_str, exc_info=exc)
+    _bound(request).error("Unhandled exception: {}", exc_str, exc_info=exc)
 
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -97,9 +106,9 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
     )
 
 
-async def response_validation_exception_handler(_request: Request, exc: ResponseValidationError) -> JSONResponse:
+async def response_validation_exception_handler(request: Request, exc: ResponseValidationError) -> JSONResponse:
     """Response validation exception handler."""
-    logger.error("Response validation error: {}", exc, exc_info=exc)
+    _bound(request).error("Response validation error: {}", exc, exc_info=exc)
 
     errors = []
     for error in exc.errors():
@@ -125,9 +134,9 @@ async def response_validation_exception_handler(_request: Request, exc: Response
     )
 
 
-async def sqlalchemy_exception_handler(_request: Request, exc: SQLAlchemyError) -> JSONResponse:
+async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     """SQLAlchemy exception handler."""
-    logger.error("Database error: {}", exc, exc_info=exc)
+    _bound(request).error("Database error: {}", exc, exc_info=exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

@@ -97,6 +97,8 @@ module "secrets" {
 
   grafana_admin_user = var.grafana_admin_user
 
+  loki_s3_bucket = module.storage.logs_bucket_name
+
   # Grant the VM service account permission to read this secret
   vm_service_account_id = module.iam.vm_sa_id
 }

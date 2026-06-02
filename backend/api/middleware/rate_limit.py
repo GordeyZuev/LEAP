@@ -27,7 +27,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not settings.security.rate_limit_enabled:
             return await call_next(request)
 
-        if request.url.path == "/health":
+        if request.url.path.startswith("/api/v1/health"):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"

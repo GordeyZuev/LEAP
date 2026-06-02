@@ -34,6 +34,10 @@ output "backups_bucket" {
   value = module.storage.backups_bucket_name
 }
 
+output "logs_bucket" {
+  value = module.storage.logs_bucket_name
+}
+
 output "ns_servers" {
   description = "NS records to set at the registrar (reg.ru) for DNS delegation"
   value       = var.manage_dns ? module.dns[0].ns_servers : null

@@ -134,6 +134,13 @@ class LocalStorageBackend(StorageBackend):
                 keys.append(str(rel))
         return sorted(keys)
 
+    async def health_check(self) -> None:
+        """Verify the base directory exists and is writable."""
+        if not self.base.exists():
+            raise FileNotFoundError(f"Local storage base path missing: {self.base}")
+        if not self.base.is_dir():
+            raise NotADirectoryError(f"Local storage base path is not a directory: {self.base}")
+
     def _get_total_size(self) -> int:
         """Calculate total storage size (used for quota checks)"""
         return sum(

@@ -2,6 +2,130 @@
 
 ---
 
+## v0.10.2 (2026-06-02)
+
+**Observability hardening and deploy safety.** Loki chunks moved off-host to
+Yandex Object Storage so the VM becomes effectively stateless. A new business
+overview dashboard (`LEAP Overview`) answers product questions — active users,
+recordings, uploads, success rate, MRR — directly from Postgres via a
+read-only `grafana_ro` role. Pipeline-stage durations are now exposed as a
+custom Prometheus histogram with per-stage and per-platform labels. Health
+checks split into `/health/live` and `/health/ready` with real dependency
+probes (DB / Redis / S3). All persistent volumes are marked `external: true`
+so `docker compose down -v` no longer wipes data; Redis gets a nightly RDB
+snapshot to the backups bucket alongside the existing pg_backup.
+
+### Deploy
+
+1. `alembic upgrade head` (revision **023**) — creates the `grafana_ro` PG
+   role with SELECT on a whitelist of business tables. `GRAFANA_RO_PASSWORD`
+   MUST be set in Lockbox before running; the migration aborts loudly
+   (`RuntimeError`) when the env var is missing. Re-running the migration is
+   a no-op when the role already exists.
+2. **On the VM**, create external named volumes (idempotent):
+   ```bash
+   docker volume create leap_postgres_data leap_redis_data \
+                        leap_loki_data leap_prometheus_data leap_grafana_data
+   ```
+   For a fresh VM, `scripts/vm-init.sh` does this automatically. For existing
+   deploys, run once before `docker compose up -d`.
+3. Add `LOKI_S3_BUCKET`, `LOKI_S3_ACCESS_KEY_ID`, `LOKI_S3_SECRET_ACCESS_KEY`
+   (Object Storage service account with `storage.editor` on the logs bucket)
+   to Lockbox.
+4. `docker compose pull && docker compose up -d` — picks up new healthcheck
+   path, Loki S3 config, new Grafana datasource, and overview dashboard.
+
+**Breaking — external monitors hitting `/api/v1/health` must move to
+`/api/v1/health/live` (process probe) or `/api/v1/health/ready` (full
+readiness with 503 on dep failure).**
+
+### Файлы
+
+- **Backend safety / health**
+  - `backend/api/routers/health.py` — split into `/live` + `/ready` with
+    DB / Redis / S3 probes; `_check_storage` caches the S3 head_bucket result
+    for 60s so per-scrape readiness probes don't hammer the bucket.
+  - `backend/api/schemas/common/health.py` — `LivenessResponse`,
+    `ReadinessResponse`, `HealthCheckResult` schemas.
+  - `backend/file_storage/backends/{base,local,s3}.py` — new
+    `health_check()` method on `StorageBackend`; S3 uses `head_bucket`,
+    local checks the base path exists.
+  - `backend/api/middleware/{logging,rate_limit}.py` — exempt
+    `/api/v1/health/*` from access logging and rate limiting.
+  - `docker-compose.yml` — container healthcheck points at `/health/live`;
+    critical volumes (`postgres_data`, `redis_data`, `loki_data`,
+    `prometheus_data`, `grafana_data`) marked `external: true`.
+  - `scripts/redis_backup.sh` (new) — nightly `BGSAVE` → gzip → S3
+    (`leap-backups/redis/`); cron in `scripts/vm-init.sh` at 04:15 UTC.
+  - `Makefile` — `deploy-backup-redis`, `deploy-safe-down`,
+    `dev-init-volumes` targets.
+
+- **Observability metrics + log durability**
+  - `monitoring/loki.yml` — switched from filesystem to S3 backend (TSDB
+    shipper + AWS object store); retention extended 30 d → 90 d; compactor
+    `delete_request_store=s3`.
+  - `backend/api/observability/metrics.py` — new histograms
+    `leap_pipeline_stage_duration_seconds`,
+    `leap_external_api_duration_seconds`; new counter
+    `leap_pipeline_recording_total`; lazy collector for
+    `leap_queue_oldest_task_age_seconds` (reads Redis on each scrape).
+    `track_pipeline_stage()` and `track_external_api()` context managers.
+  - `backend/api/celery_app.py` — `task_prerun_handler` now extracts
+    `recording_id` / `user_id` from task args and binds them via
+    `logger.contextualize()` for the task lifetime; `task_postrun_handler`
+    closes the bracket. `before_task_publish` records enqueue time per
+    queue in a Redis sorted set; `task_prerun` removes it on dequeue.
+  - `backend/api/middleware/error_handler.py` — error logs now bind
+    `user_id` / `request_id` from `request.state` so DB / unhandled errors
+    are queryable by tenant.
+  - `backend/api/tasks/{processing,upload}.py` — `track_pipeline_stage`
+    wraps each major stage (download, trim, transcribe, extract_topics,
+    generate_subtitles, upload[platform]); removed a batch of DEBUG-noise
+    log lines (template / metadata key dumps).
+  - `backend/scripts/observability_smoke.py` (new) — triggers a synthetic
+    failing Celery task and asserts that `structured.json` contains
+    `recording_id`, `user_id`, `task_id`, `exception_class` for the
+    `FAILURE` state.
+
+- **Dashboards (Grafana)**
+  - `monitoring/dashboards/leap_overview.json` (new) — business overview:
+    today's stats (active users / recordings / uploads / success rate / MRR),
+    7-day trends (recordings, uploads by platform, signups, success%),
+    tenant health (top users, success by platform, plan mix, quota
+    distribution), red flags (stuck recordings, failures by stage / platform,
+    error rate).
+  - `monitoring/dashboards/leap_pipeline.json` — added p50 / p95 / p99 from
+    the new histogram; per-platform breakdown for upload; recordings-in-
+    flight by status; e2e pipeline duration distribution.
+  - `monitoring/dashboards/leap_api.json` — replaced
+    `In-flight requests` stat with `4xx rate`; added `Top 10 routes by 4xx`
+    + `Latency p95 heatmap by route`.
+  - `monitoring/dashboards/leap_celery.json` — added `Retry success rate`
+    stat and `Oldest task age per queue` time-series; dropped
+    `Tasks / sec` (duplicated `Task rate by state`).
+  - `monitoring/dashboards/leap_errors.json` — dropped duplicated
+    `5xx requests` and `All access-log errors` (already in `leap_api`);
+    added `Errors by recording_id` + `Errors by user_id` tables.
+  - `monitoring/grafana_datasources.yml` — new `LEAP-DB` Postgres
+    datasource (read-only role).
+  - `docker-compose.yml` — `GF_DEFAULT_HOME_DASHBOARD_PATH` pins
+    `leap_overview` as the landing page.
+
+- **Database**
+  - `backend/alembic/versions/023_grafana_ro_role.py` (new) — creates
+    `grafana_ro` role + grants SELECT on `users`, `recordings`,
+    `output_targets`, `user_subscriptions`, `subscription_plans`,
+    `quota_usage`, `user_credentials`. Password from `GRAFANA_RO_PASSWORD`
+    env var (passed through the migrate container).
+
+- **Docs / config**
+  - `backend/.env.example` — `LOKI_S3_*` placeholders.
+  - `scripts/vm-init.sh` — `docker volume create` step, host-level
+    `logrotate` config for `/opt/leap/backend/logs/*.{log,json}`, cron entry
+    for `redis_backup.sh`.
+
+---
+
 ## v0.10.1 (2026-06-01)
 
 **Instant "logout all devices" + per-device session management.** Introduces a
@@ -77,6 +201,27 @@ cookie is sent automatically.
 - `backend/tests/unit/api/test_auth_sessions.py` *(new)*
 - `frontend/src/api/sessions.ts` *(new)*
 - `frontend/src/app/(app)/settings/page.tsx`
+
+---
+
+## 2026-06-03: Frontend UI — unified filters, Settings/account, drag & drop
+
+Frontend-only polish shipped under v0.10.2 (no API or DB changes).
+
+- **Unified filter/search toolbar** across Recordings, Templates, Presets, Sources, Credentials, Automation — one shared `FilterBar` puts search + filters + sort + "Clear all" on a single row (no more detached Apply/Reset block). Filters now **apply instantly**: single-selects / segmented toggles / sort write immediately, multi-selects commit **on dropdown close**, search stays debounced — so API load stays ≈ one request per intentional action. Active filters show as removable chips (Recordings). **Sources** gained search + type filter + sort (it had none before).
+- **Settings / account** — top of the page reworked into a profile block (name, email, "Member since", plan/role badges) with key usage as **plain numbers** (recordings / storage / transcribed / concurrent / automation; no chart). Session actions consolidated into **Active sessions** ("Sign out other devices" + "Sign out everywhere"); **Danger Zone** now holds only "Delete account". One-off action feedback uses toasts; password validation / credential errors stay inline next to the form.
+- **Add video** — file upload now supports **drag & drop** (same size guard as click-to-select).
+- **Consistency** — all toolbar controls share one height (matched to the segmented toggle), every page header is a fixed height so toolbars and the Settings card line up across sections, and the sidebar no longer duplicates the Settings link. Shared `extractApiError` helper reused for toast/error messages.
+
+### Файлы
+
+- `frontend/src/components/filters/` *(new: `filter-bar`, `search-input`, `sort-control`, `segmented-filter`, `filter-chips`, plus relocated `filter-select` / `filter-multi-select`)*
+- `frontend/src/app/(app)/{recordings,templates,presets,sources,credentials,automation,settings}/page.tsx`
+- `frontend/src/components/recordings/add-video-modal.tsx`, `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/lib/filter-field-classes.ts`, `frontend/src/lib/utils.ts`
+- *Removed:* `frontend/src/components/recordings/filter-select.tsx`, `filter-multi-select.tsx`, `frontend/src/components/ui/stat-donut.tsx`
+
+**Deploy:** frontend-only — rebuild/redeploy the frontend image; no migration, no backend restart.
 
 ---
 

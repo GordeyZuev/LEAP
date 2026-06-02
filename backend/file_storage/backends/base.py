@@ -69,6 +69,10 @@ class StorageBackend(ABC):
         """
         raise NotImplementedError("This backend does not implement list_keys")
 
+    async def health_check(self) -> None:
+        """Verify the backend is reachable. Raises on failure."""
+        raise NotImplementedError("This backend does not implement health_check")
+
 
 class StorageQuotaExceededError(Exception):
     """Raised when storage quota is exceeded"""

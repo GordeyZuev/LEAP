@@ -203,21 +203,93 @@ Full env var reference: [backend/.env.example](../../.env.example).
 ## Operational commands (cheat sheet)
 
 ```bash
-make status        # everything Terraform knows about the deploy
-make ssh           # ssh ubuntu@<vm-ip>
-make logs          # tail bootstrap log
-make app-logs      # tail docker compose logs api celery_worker frontend
-make refresh-env   # pull latest secrets from Lockbox + compose up -d
-make smoke-test    # GET /api/v1/health
-make grafana-pw    # print Grafana admin password
+make deploy-status        # everything Terraform knows about the deploy
+make deploy-ssh           # ssh ubuntu@<vm-ip>
+make deploy-logs          # tail bootstrap log
+make deploy-app-logs      # tail docker compose logs api celery_worker frontend
+make deploy-refresh-env   # pull latest secrets from Lockbox + compose up -d
+make deploy-smoke-test    # GET /api/v1/health/ready
+make deploy-grafana-pw    # print Grafana admin password
+
+# Backups
+make deploy-backup-pg     # ad-hoc pg_dump → s3://leap-backups/postgres/
+make deploy-backup-redis  # ad-hoc Redis RDB → s3://leap-backups/redis/
+make deploy-safe-down     # stop services WITHOUT wiping volumes (no -v)
 ```
 
-Postgres backup (run as cron on the VM):
+## Volume safety & recovery
+
+Critical data lives in named volumes flagged `external: true`. The `down -v`
+flag of `docker compose` only removes compose-owned volumes, so external
+volumes survive deliberate or accidental teardowns. Survivors:
+
+| Volume                 | Holds                          | Survives `down` | Survives `down -v` | Survives host reboot |
+| ---------------------- | ------------------------------ | --------------- | ------------------ | -------------------- |
+| `leap_postgres_data`   | PostgreSQL data dir            | ✓               | ✓                  | ✓                    |
+| `leap_redis_data`      | Redis AOF                      | ✓               | ✓                  | ✓                    |
+| `leap_loki_data`       | Loki TSDB cache (rebuildable)  | ✓               | ✓                  | ✓ (cache rebuilt from S3) |
+| `leap_prometheus_data` | Prometheus TSDB (30d)          | ✓               | ✓                  | ✓                    |
+| `leap_grafana_data`    | Dashboards / users / prefs     | ✓               | ✓                  | ✓                    |
+| `./backend/logs`       | Bind mount, host filesystem    | ✓               | ✓                  | ✓                    |
+
+**Fresh host bootstrap:** `scripts/vm-init.sh` creates the volumes
+idempotently. For an out-of-band first run:
 
 ```bash
-docker exec leap_postgres pg_dump -U postgres leap_platform | gzip > backup.sql.gz
-yc storage cp backup.sql.gz s3://leap-backups/postgres/$(date +%Y%m%d).sql.gz
+docker volume create leap_postgres_data leap_redis_data \
+                     leap_loki_data leap_prometheus_data leap_grafana_data
 ```
+
+**To deliberately wipe a volume:**
+
+```bash
+docker compose stop postgres        # stop the service holding it
+docker volume rm leap_postgres_data
+docker volume create leap_postgres_data
+docker compose start postgres
+```
+
+## Backups
+
+| What       | Schedule          | Script                       | Destination                  |
+| ---------- | ----------------- | ---------------------------- | ---------------------------- |
+| Postgres   | 02:00 UTC daily   | `scripts/pg_backup.sh`       | `s3://leap-backups/postgres/`|
+| Redis      | 04:15 UTC daily   | `scripts/redis_backup.sh`    | `s3://leap-backups/redis/`   |
+| Loki logs  | continuous        | Loki S3 backend (TSDB chunks)| `s3://${LOKI_S3_BUCKET}/`    |
+
+Cron entries are installed by `scripts/vm-init.sh`. Re-run
+`make deploy-vm-init` after editing the script to refresh the crontab.
+
+**Restoring Postgres** (point-in-time-recovery is out of scope; this is a
+full dump restore):
+
+```bash
+yc storage s3 cp s3://leap-backups/postgres/leap_<TS>.sql.gz - | gunzip \
+  | docker exec -i leap_postgres psql -U postgres leap_platform
+```
+
+**Restoring Redis:**
+
+```bash
+docker compose stop redis
+yc storage s3 cp s3://leap-backups/redis/leap_redis_<TS>.rdb.gz - | gunzip \
+  | docker exec -i leap_redis tee /data/dump.rdb >/dev/null
+docker compose start redis
+```
+
+## Loki recovery on a new host
+
+Because Loki chunks + index live in Object Storage (`LOKI_S3_BUCKET`), a new
+VM can read the full history with zero migration:
+
+```bash
+# On the new host, after vm-init.sh + docker compose up -d.
+# Grafana → Explore → Loki: query for "last 30d" — historical logs appear
+# as Loki rebuilds the local TSDB cache from the S3 chunks.
+```
+
+The `leap_loki_data` named volume only holds the local TSDB shipper buffer
+and compactor working dir (≤ 100 MB, rebuildable). Losing it is a no-op.
 
 ---
 

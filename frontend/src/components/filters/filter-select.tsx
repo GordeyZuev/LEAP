@@ -44,7 +44,7 @@ export function FilterSelect<V extends string | number = string>({
         onClick={() => setOpen((o) => !o)}
         className={cn(
           FILTER_CONTROL,
-          "flex min-h-[2.5rem] w-full items-center justify-between gap-2 text-left font-medium text-gray-700"
+          "flex w-full items-center justify-between gap-2 text-left font-medium text-gray-700"
         )}
       >
         <span className="truncate">{selected?.label ?? "—"}</span>

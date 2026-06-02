@@ -61,3 +61,21 @@ resource "yandex_storage_bucket" "backups" {
     }
   }
 }
+
+# Loki chunks + TSDB index live here. Loki retention is 90 d (loki.yml);
+# bucket lifecycle is a safety net at 100 d in case retention misses anything.
+resource "yandex_storage_bucket" "logs" {
+  folder_id  = var.folder_id
+  bucket     = "${var.project_prefix}-logs"
+  access_key = var.storage_access_key_id
+  secret_key = var.storage_secret_access_key
+
+  lifecycle_rule {
+    id      = "expire-old-chunks"
+    enabled = true
+
+    expiration {
+      days = 100
+    }
+  }
+}

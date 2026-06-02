@@ -116,6 +116,39 @@ Exposed at `http://celery_exporter:9808/metrics`:
 | `celery_task_runtime_bucket`        | histogram | `name` (+ `le`)       |
 | `celery_worker_up`                  | gauge     | `hostname`            |
 
+### Custom LEAP metrics (`backend/api/observability/metrics.py`)
+
+Exposed on the same `http://api:8000/metrics` endpoint:
+
+| Metric                                          | Type      | Labels                                  |
+| ----------------------------------------------- | --------- | --------------------------------------- |
+| `leap_pipeline_stage_duration_seconds_bucket`   | histogram | `stage, platform, status` (+ `le`)      |
+| `leap_pipeline_recording_total`                 | counter   | `outcome, platform`                     |
+| `leap_external_api_duration_seconds_bucket`     | histogram | `provider, endpoint, status` (+ `le`)   |
+| `leap_queue_oldest_task_age_seconds`            | gauge     | `queue`                                 |
+
+- `stage` ∈ {`download`, `trim`, `transcribe`, `extract_topics`,
+  `generate_subtitles`, `upload`}.
+- `status` ∈ {`success`, `failure`} — recorded by the
+  `track_pipeline_stage` / `track_external_api` context managers in
+  `api.observability.metrics`.
+- `leap_queue_oldest_task_age_seconds` is implemented as a lazy collector
+  that reads a Redis sorted set (`leap:enq:<queue>`) on every scrape. The
+  set is populated by the `before_task_publish` signal in `celery_app.py`
+  and cleaned by `task_prerun`.
+
+### Health endpoints (`backend/api/routers/health.py`)
+
+| Endpoint                  | Purpose                                                 |
+| ------------------------- | ------------------------------------------------------- |
+| `GET /api/v1/health/live` | Process is alive. No external calls. Docker probe.      |
+| `GET /api/v1/health/ready`| DB + Redis + storage backend reachable. LB / Grafana.   |
+
+`/ready` returns `503` with a JSON body
+`{ready: false, checks: {db: "ok", redis: "fail", storage: "ok"}}` when any
+dependency probe fails. The storage check (S3 `head_bucket`) is cached for
+60 s so per-scrape readiness probes don't hammer the bucket.
+
 ## Useful queries
 
 ### LogQL
@@ -164,6 +197,10 @@ sum(rate(celery_task_failed_total[5m])) by (name)
 | `ERROR_LOG_FILE`                    | `/app/logs/error.log`            | Plain-text error-only sink                     |
 | `LOG_LEVEL`                         | `INFO`                           | Loguru console level                           |
 | `MONITORING_PROMETHEUS_ENABLED`     | `true`                           | Mount `/metrics` endpoint                      |
+| `LOKI_S3_BUCKET`                    | —                                | Yandex Object Storage bucket for Loki chunks   |
+| `LOKI_S3_ACCESS_KEY_ID`             | —                                | Service-account static access key id           |
+| `LOKI_S3_SECRET_ACCESS_KEY`         | —                                | Service-account static secret                  |
+| `GRAFANA_RO_PASSWORD`               | `rotate-me-immediately`          | PG password for `grafana_ro` read-only role    |
 
 All four are wired into `api`, `celery_worker`, `celery_beat` in
 `docker-compose.yml` with `${VAR:-default}` so production `.env` can override
@@ -171,12 +208,17 @@ without redeploying.
 
 ## Dashboards
 
-| File                                    | UID             | What it answers                                  |
-| --------------------------------------- | --------------- | ------------------------------------------------ |
-| `dashboards/leap_api.json`              | `leap-api`      | API: RPS, latency, errors, top routes            |
-| `dashboards/leap_celery.json`           | `leap-celery`   | Workers, queue depth, task durations, failures   |
-| `dashboards/leap_pipeline.json`         | `leap-pipeline` | Recordings throughput per stage + per-recording stream |
-| `dashboards/leap_errors.json`           | `leap-errors`   | Log levels, top noisy modules, recent errors     |
+Dashboards are deliberately small — only the panels that answer questions an
+operator/owner actually asks. Add panels only when an incident or product
+question forces the need, not pre-emptively.
+
+| File                                    | UID              | Panels | What it answers                                                  |
+| --------------------------------------- | ---------------- | -----: | ---------------------------------------------------------------- |
+| `dashboards/leap_overview.json`         | `leap-overview`  | 11     | **Default home.** Business: active users, recordings, uploads, MRR, success rate, top users, upload success by platform, stuck recordings, failed by stage. |
+| `dashboards/leap_pipeline.json`         | `leap-pipeline`  |  6     | Pipeline: 24h throughput, stage duration p50/p95/p99, stage failure %, recordings in flight by status. |
+| `dashboards/leap_api.json`              | `leap-api`       | 10     | API: RPS, 5xx%, p95, 4xx%, latency percentiles, RPS by HTTP method, top routes by RPS / p95, 5xx by route + recent 5xx logs. |
+| `dashboards/leap_celery.json`           | `leap-celery`    |  7     | Celery: failure rate, active workers, pending tasks, per-queue depth + oldest task age, failures by task name + recent failures logs. |
+| `dashboards/leap_errors.json`           | `leap-errors`    |  6     | Errors: ERROR/CRITICAL count, distinct affected recordings, top exception types, recent ERRORs, errors grouped by recording_id and user_id. |
 
 Auto-provisioned from `monitoring/grafana_dashboards.yml` — drop a new JSON
 into `monitoring/dashboards/`, redeploy, Grafana picks it up within 30s.

@@ -1,40 +1,30 @@
 {
   "annotations": {"list": []},
-  "description": "HTTP traffic for the LEAP FastAPI: RED metrics (Rate, Errors, Duration) plus route-level breakdowns. Source: prometheus-fastapi-instrumentator at /metrics under the leap_http_* namespace.",
+  "description": "HTTP traffic essentials: pulse (RPS / errors / latency), method mix, hot/slow routes, recent 5xx. Source: prometheus-fastapi-instrumentator (leap_http_*).",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
   "links": [
-    {"title": "Pipeline", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
+    {"title": "Drill-down", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
   ],
   "panels": [
-    {
-      "type": "row",
-      "title": "Overview",
-      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
-      "collapsed": false,
-      "panels": []
-    },
+    {"type": "row", "title": "Pulse", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "stat",
       "title": "Requests / sec (5m)",
       "gridPos": {"x": 0, "y": 1, "w": 6, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "sum(rate(leap_http_requests_total[5m]))"}
-      ],
+      "targets": [{"refId": "A", "expr": "sum(rate(leap_http_requests_total[5m]))"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
       "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}}
     },
     {
       "type": "stat",
-      "title": "Error rate (5xx, 5m)",
+      "title": "5xx rate (5m)",
       "gridPos": {"x": 6, "y": 1, "w": 6, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "100 * sum(rate(leap_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(leap_http_requests_total[5m])), 1e-9)"}
-      ],
+      "targets": [{"refId": "A", "expr": "100 * sum(rate(leap_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(leap_http_requests_total[5m])), 1e-9)"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"},
       "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}}
     },
@@ -43,33 +33,24 @@
       "title": "p95 latency (5m)",
       "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(leap_http_request_duration_seconds_bucket[5m])))"}
-      ],
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(leap_http_request_duration_seconds_bucket[5m])))"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"},
       "fieldConfig": {"defaults": {"unit": "s", "decimals": 3, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.5}, {"color": "red", "value": 2}]}}}
     },
     {
       "type": "stat",
-      "title": "In-flight requests",
+      "title": "4xx rate (5m)",
       "gridPos": {"x": 18, "y": 1, "w": 6, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "sum(leap_http_requests_inprogress)"}
-      ],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"},
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+      "targets": [{"refId": "A", "expr": "100 * sum(rate(leap_http_requests_total{status=~\"4..\"}[5m])) / clamp_min(sum(rate(leap_http_requests_total[5m])), 1e-9)"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"},
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 2, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 20}]}}}
     },
-    {
-      "type": "row",
-      "title": "Latency & throughput",
-      "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1},
-      "collapsed": false,
-      "panels": []
-    },
+
+    {"type": "row", "title": "Traffic shape", "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "timeseries",
-      "title": "Latency percentiles (s)",
+      "title": "Latency p50 / p95 / p99",
       "gridPos": {"x": 0, "y": 6, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
@@ -82,35 +63,27 @@
     },
     {
       "type": "timeseries",
-      "title": "Requests / sec by status class",
+      "title": "Requests / sec by method",
       "gridPos": {"x": 12, "y": 6, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "sum by (status) (label_replace(rate(leap_http_requests_total[5m]), \"status\", \"${1}xx\", \"status\", \"(.).*\"))", "legendFormat": "{{status}}"}
-      ],
+      "targets": [{"refId": "A", "expr": "sum by (method) (rate(leap_http_requests_total[5m]))", "legendFormat": "{{method}}"}],
       "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 30, "stacking": {"mode": "normal"}}}, "overrides": [
-        {"matcher": {"id": "byName", "options": "2xx"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
-        {"matcher": {"id": "byName", "options": "3xx"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]},
-        {"matcher": {"id": "byName", "options": "4xx"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
-        {"matcher": {"id": "byName", "options": "5xx"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
+        {"matcher": {"id": "byName", "options": "GET"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]},
+        {"matcher": {"id": "byName", "options": "POST"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "blue"}}]},
+        {"matcher": {"id": "byName", "options": "PUT"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]},
+        {"matcher": {"id": "byName", "options": "PATCH"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "orange"}}]},
+        {"matcher": {"id": "byName", "options": "DELETE"}, "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]}
       ]},
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean"]}}
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
     },
-    {
-      "type": "row",
-      "title": "Per-route",
-      "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1},
-      "collapsed": false,
-      "panels": []
-    },
+
+    {"type": "row", "title": "Per-route", "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "timeseries",
       "title": "Top 10 routes by RPS",
       "gridPos": {"x": 0, "y": 15, "w": 12, "h": 9},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "topk(10, sum by (handler) (rate(leap_http_requests_total[5m])))", "legendFormat": "{{handler}}"}
-      ],
+      "targets": [{"refId": "A", "expr": "topk(10, sum by (handler) (rate(leap_http_requests_total[5m])))", "legendFormat": "{{handler}}"}],
       "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}}},
       "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
     },
@@ -119,9 +92,7 @@
       "title": "Top 10 slowest routes (p95)",
       "gridPos": {"x": 12, "y": 15, "w": 12, "h": 9},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "topk(10, histogram_quantile(0.95, sum by (handler, le) (rate(leap_http_request_duration_seconds_bucket[5m]))))", "instant": true, "format": "table"}
-      ],
+      "targets": [{"refId": "A", "expr": "topk(10, histogram_quantile(0.95, sum by (handler, le) (rate(leap_http_request_duration_seconds_bucket[5m]))))", "instant": true, "format": "table"}],
       "transformations": [
         {"id": "organize", "options": {"excludeByName": {"Time": true, "job": true, "service": true, "__name__": true}, "indexByName": {"handler": 0, "Value": 1}, "renameByName": {"handler": "Route", "Value": "p95 (s)"}}}
       ],
@@ -129,21 +100,14 @@
         {"matcher": {"id": "byName", "options": "p95 (s)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.5}, {"color": "red", "value": 2}]}}]}
       ]}
     },
-    {
-      "type": "row",
-      "title": "Errors",
-      "gridPos": {"x": 0, "y": 24, "w": 24, "h": 1},
-      "collapsed": false,
-      "panels": []
-    },
+
+    {"type": "row", "title": "5xx", "gridPos": {"x": 0, "y": 24, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "timeseries",
       "title": "5xx errors by route",
       "gridPos": {"x": 0, "y": 25, "w": 12, "h": 8},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {"refId": "A", "expr": "sum by (handler) (rate(leap_http_requests_total{status=~\"5..\"}[5m]))", "legendFormat": "{{handler}}"}
-      ],
+      "targets": [{"refId": "A", "expr": "sum by (handler) (rate(leap_http_requests_total{status=~\"5..\"}[5m]))", "legendFormat": "{{handler}}"}],
       "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"}}}},
       "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}
     },
@@ -152,9 +116,7 @@
       "title": "Recent 5xx (logs)",
       "gridPos": {"x": 12, "y": 25, "w": 12, "h": 8},
       "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [
-        {"refId": "A", "expr": "{app=\"leap\", module=\"http.access\", status_code=~\"5..\"} | json | line_format \"{{.text}}\""}
-      ],
+      "targets": [{"refId": "A", "expr": "{app=\"leap\", module=\"http.access\", status_code=~\"5..\"} | json | line_format \"{{.text}}\""}],
       "options": {"showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true}
     }
   ],

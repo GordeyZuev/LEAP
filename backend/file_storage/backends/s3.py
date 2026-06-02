@@ -154,3 +154,8 @@ class S3StorageBackend(StorageBackend):
                     break
                 continuation_token = response.get("NextContinuationToken")
         return keys
+
+    async def health_check(self) -> None:
+        """Verify the bucket is reachable. head_bucket = single HEAD request."""
+        async with self._client() as s3:
+            await s3.head_bucket(Bucket=self.bucket)

@@ -50,10 +50,12 @@ help:
 	@echo "  make deploy-logs             — tail VM cloud-init bootstrap log"
 	@echo "  make deploy-app-logs         — tail docker compose logs on the VM"
 	@echo "  make deploy-refresh-env      — re-fetch Lockbox secrets, restart stack"
-	@echo "  make deploy-smoke-test       — curl https://<domain>/api/v1/health"
+	@echo "  make deploy-smoke-test       — curl https://<domain>/api/v1/health/ready"
 	@echo "  make deploy-grafana-pw       — print Grafana admin password"
 	@echo "  make deploy-rollback IMAGE_TAG=<sha>  — roll back to a previous image tag"
 	@echo "  make deploy-backup-pg        — pg_dump on demand, upload to backups bucket"
+	@echo "  make deploy-backup-redis     — redis BGSAVE on demand, upload to backups bucket"
+	@echo "  make deploy-safe-down        — stop services WITHOUT wiping volumes"
 	@echo ""
 	@echo "DESTRUCTIVE:"
 	@echo "  make deploy-destroy          — wipe EVERYTHING in YC (requires 'yes' confirm)"
@@ -180,7 +182,8 @@ deploy-vm-init:
 
 # --- Daily ops --------------------------------------------------------------
 .PHONY: deploy-ssh deploy-logs deploy-app-logs deploy-refresh-env \
-        deploy-smoke-test deploy-grafana-pw deploy-rollback deploy-backup-pg
+        deploy-smoke-test deploy-grafana-pw deploy-rollback \
+        deploy-backup-pg deploy-backup-redis deploy-safe-down
 deploy-ssh:
 	@ip=$$($(VM_IP_CMD)); \
 	test -n "$$ip" || { echo "VM not provisioned yet (run 'make deploy')"; exit 1; }; \
@@ -204,8 +207,8 @@ deploy-refresh-env:
 deploy-smoke-test:
 	@domain=$$($(DOMAIN_CMD)); \
 	test -n "$$domain" || { echo "Domain unknown — has 'make deploy' been run?"; exit 1; }; \
-	echo "GET https://$$domain/api/v1/health"; \
-	curl -fsS "https://$$domain/api/v1/health" && echo " ✓"
+	echo "GET https://$$domain/api/v1/health/ready"; \
+	curl -fsS "https://$$domain/api/v1/health/ready" && echo " ✓"
 
 deploy-grafana-pw:
 	@$(TF) output -raw grafana_admin_password; echo
@@ -224,6 +227,19 @@ deploy-backup-pg:
 	test -n "$$ip" || { echo "VM not provisioned yet"; exit 1; }; \
 	ssh ubuntu@$$ip 'bash /opt/leap/scripts/pg_backup.sh'
 
+# On-demand Redis backup → leap-backups bucket (same script as nightly cron)
+deploy-backup-redis:
+	@ip=$$($(VM_IP_CMD)); \
+	test -n "$$ip" || { echo "VM not provisioned yet"; exit 1; }; \
+	ssh ubuntu@$$ip 'bash /opt/leap/scripts/redis_backup.sh'
+
+# Safe stack stop: omits `-v` so external named volumes (postgres/redis/loki/
+# prometheus/grafana) are never wiped. Use this instead of `docker compose down -v`.
+deploy-safe-down:
+	@ip=$$($(VM_IP_CMD)); \
+	test -n "$$ip" || { echo "VM not provisioned yet"; exit 1; }; \
+	ssh ubuntu@$$ip 'cd /opt/leap && docker compose down --remove-orphans'
+
 # --- DESTRUCTIVE ------------------------------------------------------------
 .PHONY: deploy-destroy
 deploy-destroy:
@@ -234,10 +250,20 @@ deploy-destroy:
 # ============================================================================
 # LOCAL DEVELOPMENT (Docker Compose)
 # ============================================================================
-.PHONY: dev-up dev-down dev-ps dev-logs dev-build
-dev-up:
+.PHONY: dev-up dev-down dev-ps dev-logs dev-build dev-init-volumes
+# External volumes (declared `external: true` in docker-compose.yml) must
+# exist before `compose up`. Idempotent — re-creating a volume is a no-op.
+dev-init-volumes:
+	@for vol in leap_postgres_data leap_redis_data leap_loki_data \
+	            leap_prometheus_data leap_grafana_data; do \
+	  docker volume inspect "$$vol" >/dev/null 2>&1 || docker volume create "$$vol"; \
+	done
+
+dev-up: dev-init-volumes
 	$(DOCKER_COMPOSE) up -d postgres redis
 
+# Note: `docker compose down` (no -v) by design does NOT remove external
+# volumes. To wipe local dev data, run: docker volume rm leap_postgres_data ...
 dev-down:
 	$(DOCKER_COMPOSE) down
 

@@ -20,7 +20,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.10.1` (June 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.10.2` (June 2026) · **Статус:** In Active Development • Beta
 **Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
@@ -411,6 +411,13 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — краткие пользовательские изменения по последним веткам. Полная история, даты и списки файлов — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в v0.10.2** — обновление UI (+ observability и deploy safety под капотом):
+- **Единый UI фильтров** — общий тулбар поиска/фильтров/сортировки во всех разделах (Recordings, Templates, Presets, Sources, Credentials, Automation) с **мгновенным применением** (без кнопки Apply; мульти-селекты применяются при закрытии, поиск — с debounce), активные фильтры — чипами. В Sources добавлен поиск.
+- **Settings/аккаунт** — профиль сверху с ключевыми цифрами использования (без графика), управление сессиями собрано в «Active sessions», Danger Zone — только удаление аккаунта; drag & drop при загрузке файла. Единые высоты контролов и выравнивание всех разделов.
+- **Observability (под капотом)** — Loki переехал в Object Storage (VM stateless, retention 90 дней), бизнес-дашборд `LEAP Overview` в Grafana, custom Prometheus-метрики (длительность стадий пайплайна, возраст очередей) и `recording_id`/`user_id`/`task_id` во всех error-логах.
+- **Reliability** — deep health checks (`/health/live`, `/health/ready`), ежедневный backup Redis в S3, external volumes (`docker compose down -v` больше не сносит данные).
+- **Deploy break** — после `alembic upgrade head` (revision 023) создаётся PG-роль `grafana_ro`; задайте `GRAFANA_RO_PASSWORD` в Lockbox перед миграцией. После деплоя: `docker volume create leap_postgres_data leap_redis_data leap_loki_data leap_prometheus_data leap_grafana_data` (idempotent).
 
 **Новое в v0.10.1** — Мгновенный logout-all и управление сессиями:
 - **Instant kill-switch** — `users.token_version` встроен в каждый JWT как `tv`-claim и сверяется в `get_current_user` против только что загруженной строки юзера (без дополнительного запроса в БД). Бамп инвалидирует все access/refresh токены юзера мгновенно — больше нет лага до 30 минут после клика «Log out all devices».

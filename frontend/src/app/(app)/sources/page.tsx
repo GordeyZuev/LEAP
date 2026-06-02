@@ -2,14 +2,19 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, RefreshCw, Pencil, Trash2, X } from "lucide-react";
+import { Plus, RefreshCw, Pencil, Trash2, X, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { TOAST_SHORT } from "@/lib/constants";
+import { useDebounce } from "@/hooks/use-debounce";
+import { FilterBar } from "@/components/filters/filter-bar";
+import { SearchInput } from "@/components/filters/search-input";
+import { SortControl } from "@/components/filters/sort-control";
+import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
+import { DEBOUNCE_SEARCH, TOAST_SHORT } from "@/lib/constants";
 
 type SourceType = "ZOOM" | "YANDEX_DISK" | "VIDEO_URL";
 
@@ -83,8 +88,25 @@ const SOURCE_TYPE_COLORS: Record<string, string> = {
   VIDEO_URL:   "bg-purple-100 text-purple-700",
 };
 
+const SORT_OPTIONS = [
+  { value: "name",         label: "Name" },
+  { value: "last_sync_at", label: "Last sync" },
+];
+
+type SortField = "name" | "last_sync_at";
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function sortSources(items: SourceItem[], sortBy: SortField, sortOrder: "asc" | "desc"): SourceItem[] {
+  return [...items].sort((a, b) => {
+    const cmp =
+      sortBy === "name"
+        ? a.name.localeCompare(b.name)
+        : (a.last_sync_at ?? "").localeCompare(b.last_sync_at ?? "");
+    return sortOrder === "asc" ? cmp : -cmp;
+  });
 }
 
 function buildSourceBody(form: SourceForm) {
@@ -127,6 +149,13 @@ export default function SourcesPage() {
   const [formError, setFormError] = useState("");
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast(TOAST_SHORT);
+
+  // Filters (client-side — this list isn't paginated)
+  const [searchInput, setSearchInput] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<SortField>("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
 
   const { data, isLoading, error } = useQuery<SourceListResponse>({
     queryKey: ["sources"],
@@ -223,11 +252,35 @@ export default function SourcesPage() {
     return false;
   });
 
+  // React Compiler memoizes these plain derivations automatically.
   const sources = data?.items ?? [];
+  const typeOptions = [...new Set(sources.map((s) => s.source_type))].map((t) => ({
+    value: t,
+    label: SOURCE_TYPE_LABELS[t] ?? t,
+  }));
+  const hasActiveFilters = !!debouncedSearch || typeFilter.length > 0 || sortBy !== "name" || sortOrder !== "asc";
+  function resetFilters() {
+    setSearchInput("");
+    setTypeFilter([]);
+    setSortBy("name");
+    setSortOrder("asc");
+  }
+  const visibleSources = sortSources(
+    sources.filter((s) => {
+      if (debouncedSearch) {
+        const q = debouncedSearch.toLowerCase();
+        if (!s.name.toLowerCase().includes(q) && !(s.description ?? "").toLowerCase().includes(q)) return false;
+      }
+      if (typeFilter.length > 0 && !typeFilter.includes(s.source_type)) return false;
+      return true;
+    }),
+    sortBy,
+    sortOrder,
+  );
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6 gap-3">
+    <div className="w-full min-w-0 p-6 sm:p-8">
+      <div className="mb-5 flex min-h-[2.5rem] items-center justify-between gap-3">
         <h1 className="text-xl font-semibold text-gray-900">Input Sources</h1>
         <div className="flex items-center gap-2">
           {sources.length > 0 && (
@@ -249,6 +302,40 @@ export default function SourcesPage() {
         </div>
       </div>
 
+      {/* Filters — only meaningful once there are sources */}
+      {sources.length > 0 && (
+        <FilterBar
+          search={
+            <SearchInput
+              id="sources-search"
+              value={searchInput}
+              onChange={setSearchInput}
+              placeholder="By name or description…"
+            />
+          }
+          controls={[
+            <FilterMultiSelect<string>
+              key="type"
+              label="Type"
+              emptySummary="All types"
+              value={typeFilter}
+              options={typeOptions}
+              onChange={setTypeFilter}
+            />,
+          ]}
+          sort={
+            <SortControl
+              value={sortBy}
+              order={sortOrder}
+              options={SORT_OPTIONS}
+              onChange={(f) => setSortBy(f as SortField)}
+              onToggleOrder={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+            />
+          }
+          onClearAll={hasActiveFilters ? resetFilters : undefined}
+        />
+      )}
+
       {isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => <div key={i} className="bg-white rounded-2xl border border-[#D9D9D9] h-32 animate-pulse" />)}
@@ -256,12 +343,27 @@ export default function SourcesPage() {
       )}
       {error && <p className="text-sm text-red-400">Failed to load sources</p>}
       {!isLoading && !error && sources.length === 0 && (
-        <p className="text-sm text-gray-400 py-12 text-center">No sources yet</p>
+        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+          <div className="rounded-2xl bg-gray-50 p-3 text-gray-300">
+            <Database size={28} strokeWidth={1.5} />
+          </div>
+          <p className="text-sm font-medium text-gray-500">No sources yet</p>
+          <button
+            type="button"
+            onClick={openCreate}
+            className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e]"
+          >
+            <Plus size={16} /> Add source
+          </button>
+        </div>
+      )}
+      {!isLoading && !error && sources.length > 0 && visibleSources.length === 0 && (
+        <p className="py-16 text-center text-sm text-gray-400">No sources match your filters</p>
       )}
 
-      {!isLoading && !error && sources.length > 0 && (
+      {!isLoading && !error && visibleSources.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sources.map((s) => (
+          {visibleSources.map((s) => (
             <div key={s.id} className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-semibold text-gray-900 flex-1">{s.name}</span>

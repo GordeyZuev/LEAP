@@ -37,7 +37,7 @@ def _deduplicate_by_name(connection, table_name, group_cols):
     """
     group_expr = ", ".join(group_cols)
     # Find groups that have duplicates (table/column names are hardcoded, not user input)
-    dup_sql = f"SELECT {group_expr}, COUNT(*) as cnt FROM {table_name} GROUP BY {group_expr} HAVING COUNT(*) > 1"  # noqa: S608
+    dup_sql = f"SELECT {group_expr}, COUNT(*) as cnt FROM {table_name} GROUP BY {group_expr} HAVING COUNT(*) > 1"
     dup_query = sa.text(dup_sql)
     duplicates = connection.execute(dup_query).fetchall()
 
@@ -58,7 +58,7 @@ def _deduplicate_by_name(connection, table_name, group_cols):
         where_clause = " AND ".join(where_parts)
 
         # Get all rows in this duplicate group, ordered by id (keep first, rename rest)
-        rows_sql = f"SELECT id, name FROM {table_name} WHERE {where_clause} ORDER BY id ASC"  # noqa: S608
+        rows_sql = f"SELECT id, name FROM {table_name} WHERE {where_clause} ORDER BY id ASC"
         rows_query = sa.text(rows_sql)
         rows = connection.execute(rows_query, params).fetchall()
 
@@ -68,7 +68,7 @@ def _deduplicate_by_name(connection, table_name, group_cols):
             original_name = row[1]
             new_name = f"{original_name} ({seq})"
             connection.execute(
-                sa.text(f"UPDATE {table_name} SET name = :new_name WHERE id = :id"),  # noqa: S608
+                sa.text(f"UPDATE {table_name} SET name = :new_name WHERE id = :id"),
                 {"new_name": new_name, "id": row_id},
             )
 

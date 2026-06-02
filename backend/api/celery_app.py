@@ -16,6 +16,7 @@ import celery_sqlalchemy_scheduler.models as _csm_models  # noqa: E402
 from celery import Celery  # noqa: E402
 from celery.signals import (  # noqa: E402
     after_setup_logger,
+    before_task_publish,
     task_failure,
     task_postrun,
     task_prerun,
@@ -53,8 +54,10 @@ def _patched_crontab_from_schedule(cls, session, schedule):
 
 _csm_models.CrontabSchedule.from_schedule = _patched_crontab_from_schedule
 
+from contextlib import ExitStack  # noqa: E402
+
 from config.settings import get_settings  # noqa: E402
-from logger import get_logger, setup_logger, short_task_id  # noqa: E402
+from logger import get_logger, setup_logger, short_task_id, short_user_id  # noqa: E402
 
 settings = get_settings()
 database_url = settings.database.sync_url
@@ -181,35 +184,70 @@ def _short_name(name: str | None) -> str:
     return name.rsplit(".", 1)[-1] if name else "unknown"
 
 
-# Per-process map of task_id → start time; cleared on postrun.
-_TASK_STARTED_AT: dict[str, float] = {}
+# Per-process map of task_id → (start time, contextualize stack); cleared on
+# postrun. The ExitStack holds the loguru contextualize CM so every log
+# emitted *inside* the task body inherits task_id/recording_id/user_id without
+# the task code having to bind them manually.
+_TASK_STATE: dict[str, tuple[float, ExitStack]] = {}
+
+
+def _extract_known_context(task) -> dict[str, object]:
+    """Pull recording_id / user_id from a task's args or kwargs.
+
+    Convention across LEAP tasks: ``recording_id`` and ``user_id`` are always
+    the first two positional arguments (after ``self`` for bound tasks).
+    Kwargs override positional matches.
+    """
+    kwargs = getattr(task.request, "kwargs", None) or {}
+    args = getattr(task.request, "args", None) or []
+
+    recording_id = kwargs.get("recording_id")
+    user_id = kwargs.get("user_id")
+
+    if recording_id is None and len(args) >= 1 and isinstance(args[0], int):
+        recording_id = args[0]
+    if user_id is None and len(args) >= 2 and isinstance(args[1], str):
+        user_id = args[1]
+
+    ctx: dict[str, object] = {}
+    if recording_id is not None:
+        ctx["recording_id"] = recording_id
+    if user_id is not None:
+        ctx["user_id"] = short_user_id(user_id)
+    return ctx
 
 
 @task_prerun.connect
 def task_prerun_handler(task_id, task, *_args, **_kwargs):
-    _TASK_STARTED_AT[task_id] = time.perf_counter()
-    logger.bind(
-        task_id=short_task_id(task_id),
-        task_name=task.name,
-        queue=_task_queue(task),
-        task_state="STARTED",
-    ).debug("Task started | task={} • id={}", _short_name(task.name), short_task_id(task_id))
+    extra_context = _extract_known_context(task)
+
+    stack = ExitStack()
+    stack.enter_context(
+        logger.contextualize(
+            task_id=short_task_id(task_id),
+            task_name=task.name,
+            queue=_task_queue(task),
+            **extra_context,
+        )
+    )
+
+    _TASK_STATE[task_id] = (time.perf_counter(), stack)
+    logger.bind(task_state="STARTED").debug(
+        "Task started | task={} • id={}",
+        _short_name(task.name),
+        short_task_id(task_id),
+    )
 
 
 @task_postrun.connect
 def task_postrun_handler(task_id, task, *, state, **_kwargs):
-    started = _TASK_STARTED_AT.pop(task_id, None)
+    entry = _TASK_STATE.pop(task_id, None)
+    started, stack = entry if entry is not None else (None, None)
     duration_ms = round((time.perf_counter() - started) * 1000, 2) if started is not None else None
     # FAILURE is logged at ERROR by task_failure; keep postrun at INFO so
     # dashboards don't double-count failures.
     level = "INFO" if state == "SUCCESS" else "WARNING"
-    logger.bind(
-        task_id=short_task_id(task_id),
-        task_name=task.name,
-        queue=_task_queue(task),
-        task_state=state,
-        duration_ms=duration_ms,
-    ).log(
+    logger.bind(task_state=state, duration_ms=duration_ms).log(
         level,
         "Task {} | task={} • id={} • {}ms",
         state.lower(),
@@ -217,6 +255,9 @@ def task_postrun_handler(task_id, task, *, state, **_kwargs):
         short_task_id(task_id),
         f"{duration_ms:.1f}" if duration_ms is not None else "?",
     )
+
+    if stack is not None:
+        stack.close()
 
 
 @task_failure.connect
@@ -249,3 +290,42 @@ def task_retry_handler(request, reason, *, sender, **_kwargs):
         short_task_id(request.id),
         reason,
     )
+
+
+# ---------------------------------------------------------------------------
+# Queue age tracking — sorted-set of enqueue timestamps per queue, exposed as
+# `leap_queue_oldest_task_age_seconds` by a lazy collector in
+# api.observability.metrics. ZADD on publish, ZREM on prerun.
+# ---------------------------------------------------------------------------
+import redis  # noqa: E402
+
+from api.observability.metrics import ENQUEUE_KEY_PREFIX  # noqa: E402
+
+_publish_redis_client: redis.Redis | None = None
+
+
+def _publish_redis() -> redis.Redis:
+    global _publish_redis_client
+    if _publish_redis_client is None:
+        _publish_redis_client = redis.Redis.from_url(settings.celery.broker_url, decode_responses=True)
+    return _publish_redis_client
+
+
+@before_task_publish.connect
+def _record_enqueue_time(_sender=None, headers=None, properties=None, routing_key=None, **_kw):
+    task_id = (headers or {}).get("id") or (properties or {}).get("correlation_id")
+    if not task_id:
+        return
+    queue = routing_key or "celery"
+    try:
+        _publish_redis().zadd(f"{ENQUEUE_KEY_PREFIX}{queue}", {task_id: time.time()})
+    except Exception as exc:
+        logger.debug("Failed to record enqueue time for {}: {}", task_id, exc)
+
+
+@task_prerun.connect
+def _clear_enqueue_time(task_id, task, *_args, **_kwargs):
+    try:
+        _publish_redis().zrem(f"{ENQUEUE_KEY_PREFIX}{_task_queue(task)}", task_id)
+    except Exception as exc:
+        logger.debug("Failed to clear enqueue time for {}: {}", task_id, exc)

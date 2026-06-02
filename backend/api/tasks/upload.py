@@ -10,6 +10,7 @@ from api.celery_app import celery_app
 from api.core.context import ServiceContext
 from api.dependencies import get_async_session_maker
 from api.helpers.template_renderer import TemplateRenderer, render_jinja, render_upload_title_and_description
+from api.observability import track_pipeline_stage
 from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
@@ -279,17 +280,18 @@ def upload_recording_to_platform(
         try:
             logger.info(f"Uploading | {format_details(metadata_override=bool(metadata_override))}")
 
-            result = self.run_async(
-                _async_upload_recording(
-                    recording_id=recording_id,
-                    user_id=user_id,
-                    platform=platform,
-                    preset_id=preset_id,
-                    credential_id=credential_id,
-                    metadata_override=metadata_override,
-                    allow_active_upload=self.request.retries > 0,
+            with track_pipeline_stage("upload", platform=platform):
+                result = self.run_async(
+                    _async_upload_recording(
+                        recording_id=recording_id,
+                        user_id=user_id,
+                        platform=platform,
+                        preset_id=preset_id,
+                        credential_id=credential_id,
+                        metadata_override=metadata_override,
+                        allow_active_upload=self.request.retries > 0,
+                    )
                 )
-            )
 
             return self.build_result(
                 user_id=user_id,
@@ -380,11 +382,6 @@ async def _async_upload_recording(
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
-        logger.debug("Recording loaded from DB")
-        logger.debug(
-            f"Recording data | {format_details(has_main_topics=hasattr(recording, 'main_topics'), has_topic_timestamps=hasattr(recording, 'topic_timestamps'))}"
-        )
-
         target_type = platform_to_target_type(platform)
 
         output_target = await recording_repo.get_or_create_output_target(
@@ -469,10 +466,8 @@ async def _async_upload_recording(
             preset_metadata = await config_resolver.resolve_upload_metadata(
                 recording=recording, user_id=user_id, preset_id=preset.id
             )
-            logger.debug(f"Resolved metadata from preset | {format_details(keys=list(preset_metadata.keys()))}")
 
             if metadata_override:
-                logger.debug(f"Applying metadata_override | {format_details(keys=list(metadata_override.keys()))}")
                 preset_metadata = config_resolver._merge_configs(preset_metadata, metadata_override)
 
             platform_map = {
@@ -529,9 +524,6 @@ async def _async_upload_recording(
             extracted_data=extracted_active,
         )
 
-        logger.debug(f"Preset metadata keys: {list(preset_metadata.keys()) if preset_metadata else 'None'}")
-        logger.debug(f"Template context keys: {list(template_context.keys())}")
-
         try:
             auth_success = await uploader.authenticate()
             if not auth_success:
@@ -543,15 +535,9 @@ async def _async_upload_recording(
             title_template = preset_metadata.get("title_template", "{{ display_name }}")
             description_template = preset_metadata.get("description_template", "Uploaded on {{ record_date_iso }}")
 
-            logger.debug(f"title_template: {title_template[:100]}...")
-            logger.debug(f"description_template: {description_template[:200]}...")
-
             title, description = render_upload_title_and_description(
                 title_template, description_template, template_context
             )
-
-            logger.debug(f"Rendered title: {title[:100] if title else 'EMPTY'}")
-            logger.debug(f"Rendered description length: {len(description)} chars")
 
             if not title:
                 logger.warning("Title is empty, using fallback")
@@ -568,9 +554,6 @@ async def _async_upload_recording(
                     description += f"\n\n{topics_str}"
                 if questions_display and questions_display.get("enabled") and template_context.get("questions"):
                     description += f"\n\n{template_context['questions']}"
-
-            logger.debug(f"Final title: {title[:50]}...")
-            logger.debug(f"Final description length: {len(description)}")
 
             original_title_len = len(title)
             title = _truncate_title_for_platform(title, platform)
@@ -605,9 +588,6 @@ async def _async_upload_recording(
                 )
                 if playlist_id:
                     upload_params["playlist_id"] = playlist_id
-                    logger.debug(f"Using playlist_id: {playlist_id}")
-                else:
-                    logger.debug("No playlist_id found in metadata")
 
                 if "publish_at" in preset_metadata:
                     upload_params["publish_at"] = preset_metadata["publish_at"]
@@ -619,11 +599,8 @@ async def _async_upload_recording(
                     thumb_local = await _resolve_thumbnail_to_temp(recording.owner.user_slug, thumbnail_filename)
                     if thumb_local is not None:
                         upload_params["thumbnail_path"] = str(thumb_local)
-                        logger.debug(f"Using thumbnail temp: {thumb_local}")
                     else:
                         logger.warning(f"Thumbnail not found: '{thumbnail_filename}'")
-                else:
-                    logger.debug("No thumbnail_name found in metadata")
 
                 for key in ["made_for_kids", "embeddable", "license", "public_stats_viewable"]:
                     if key in preset_metadata:
@@ -633,9 +610,6 @@ async def _async_upload_recording(
                 album_id = preset_metadata.get("album_id") or preset_metadata.get("vk", {}).get("album_id")
                 if album_id:
                     upload_params["album_id"] = str(album_id)
-                    logger.debug(f"Using album_id: {album_id}")
-                else:
-                    logger.debug("No album_id found in metadata")
 
                 thumbnail_filename = preset_metadata.get("vk", {}).get("thumbnail_name") or preset_metadata.get(
                     "thumbnail_name"
@@ -644,7 +618,6 @@ async def _async_upload_recording(
                     thumb_local = await _resolve_thumbnail_to_temp(recording.owner.user_slug, thumbnail_filename)
                     if thumb_local is not None:
                         upload_params["thumbnail_path"] = str(thumb_local)
-                        logger.debug(f"Using thumbnail temp: {thumb_local}")
                     else:
                         logger.warning(f"Thumbnail not found: '{thumbnail_filename}'")
                 else:
@@ -679,8 +652,6 @@ async def _async_upload_recording(
                     upload_params["publish"] = bool(yd_block["publish"])
                 elif preset_metadata.get("publish") is True:
                     upload_params["publish"] = True
-
-                logger.debug(f"YaDisk folder_path={folder_path}")
 
             timing_service = TimingService(session)
             stage_name = f"UPLOAD:{target_type}"
