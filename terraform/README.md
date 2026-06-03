@@ -41,7 +41,9 @@ modules/dns              — DNS zone + A record (optional, on by default)
 ## Local dev notes
 
 - `terraform fmt -recursive` — autoformat
-- The `external` data source in `modules/secrets/scripts/generate_fernet.py`
-  runs Python 3 (stdlib only) to mint a Fernet key. Make sure `python3` is on PATH.
+- The Fernet key for `SECURITY_ENCRYPTION_KEY` is produced by
+  `random_id.fernet_key` (32 random bytes via `b64_url`) in the secrets
+  module. Stateful — value persists across plans/applies, encrypted DB rows
+  stay decryptable.
 - State is local by default. For team use, configure a remote backend in
   Object Storage (see DEPLOYMENT.md §Operational).

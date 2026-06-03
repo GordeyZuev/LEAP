@@ -124,6 +124,85 @@ readiness with 503 on dep failure).**
     `logrotate` config for `/opt/leap/backend/logs/*.{log,json}`, cron entry
     for `redis_backup.sh`.
 
+### 2026-06-03: VM durability hotpatch
+
+**The previous deploy recreated the production VM** (its boot disk was
+destroyed with it, taking all docker volumes — postgres, redis, loki,
+prometheus, grafana). Public IP changed under DNS. Data restored from
+nightly `pg_backup`, and three architectural gaps got closed in one commit:
+
+1. **Static reserved IP** (`yandex_vpc_address.main`) bound via
+   `network_interface.nat_ip_address`. Future VM recreates no longer change
+   the public IP, so DNS A records and browser caches stay valid.
+2. **Persistent secondary data disk** (`yandex_compute_disk.data`, 50 GB,
+   `lifecycle.prevent_destroy = true`) attached via `secondary_disk` with
+   `auto_delete = false`. `scripts/vm-init.sh` detects, formats (only if no
+   filesystem present), and mounts it at `/var/lib/docker/volumes` — so every
+   named docker volume now physically lives on a disk that outlives the VM.
+3. **Lifecycle protection on the VM** — `lifecycle { prevent_destroy = true;
+   ignore_changes = [metadata, boot_disk[0].initialize_params[0].image_id] }`
+   on `yandex_compute_instance.vm`. Blocks accidental destroy; freezes Ubuntu
+   image and cloud-init template from forcing recreation. If a future
+   `terraform plan` wants to destroy the VM, the apply now fails loudly
+   instead of silently nuking the disk.
+
+The `prevent_destroy` block is in this commit too — it doesn't fight the
+apply unless the plan itself asks for destroy. If it does fight, that's the
+intended safety net telling you to stop and investigate.
+
+#### Deploy
+
+1. `terraform plan` from `terraform/` — must show **only** in-place changes:
+   ```
+   + yandex_vpc_address.main                       (new)
+   + yandex_compute_disk.data                      (new)
+   ~ yandex_compute_instance.vm                    (add secondary_disk + nat_ip_address + lifecycle — IN-PLACE)
+   ```
+   **STOP** if plan wants `destroy and then create replacement` on the VM —
+   identify the force-replacement attribute first. `prevent_destroy` will
+   block the apply in that case anyway, but the right move is to investigate
+   what's drifting and resolve it.
+2. `make deploy`. **Note:** the VM's public IP will change from the current
+   ephemeral one to a newly-reserved static one. DNS auto-updates via the
+   `module.dns` reference; expect 1–5 min of DNS propagation.
+3. SSH and migrate data from boot disk → new disk (~5–10 min downtime):
+   ```bash
+   make deploy-ssh
+   sudo -i
+   NEW_DISK=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" && $1!~/^(vda|sda)$/ {print "/dev/"$1; exit}')
+   echo "New disk: $NEW_DISK"
+   mkfs.ext4 -F -L leap-data "$NEW_DISK"
+   mkdir -p /mnt/newdata && mount "$NEW_DISK" /mnt/newdata
+   cd /opt/leap && docker compose stop
+   rsync -aHAX --info=progress2 /var/lib/docker/volumes/ /mnt/newdata/
+   umount /mnt/newdata
+   mv /var/lib/docker/volumes /var/lib/docker/volumes.old
+   mkdir -p /var/lib/docker/volumes
+   echo "UUID=$(blkid -s UUID -o value "$NEW_DISK") /var/lib/docker/volumes ext4 defaults,nofail 0 2" >> /etc/fstab
+   mount /var/lib/docker/volumes
+   docker compose up -d
+   ```
+4. Verify: `curl https://leap-platform.ru/api/v1/health/ready` returns
+   `{"ready": true, ...}`. See `DEPLOYMENT.md → VM durability` for rollback /
+   intentional-replace procedures.
+5. After 24h of stability: `sudo rm -rf /var/lib/docker/volumes.old` on the
+   VM to free space taken by the (now obsolete) boot-disk copy.
+
+#### Файлы
+
+- `terraform/modules/compute/main.tf` — new `yandex_vpc_address.main`, new
+  `yandex_compute_disk.data` (with `lifecycle.prevent_destroy`),
+  `secondary_disk` block on the VM, `nat_ip_address` bound on the network
+  interface, and `lifecycle { prevent_destroy + ignore_changes }` on the VM.
+- `terraform/modules/compute/outputs.tf` — new `data_disk_id` output.
+- `scripts/vm-init.sh` — idempotent block (after docker install, before stack
+  start) that detects the secondary device via `lsblk` (excluding `vda/sda`),
+  formats with `mkfs.ext4 -L leap-data` only when no filesystem is present,
+  mounts at `/var/lib/docker/volumes`, and adds an fstab entry. Safety check:
+  refuses to mount if `/var/lib/docker/volumes` already has data (would
+  shadow existing volumes); operator must rsync manually first.
+- `backend/docs/guides/DEPLOYMENT.md` — new "VM durability" section.
+
 ---
 
 ## v0.10.1 (2026-06-01)

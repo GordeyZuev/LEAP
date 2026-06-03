@@ -249,6 +249,50 @@ docker volume create leap_postgres_data
 docker compose start postgres
 ```
 
+## VM durability
+
+The VM itself is replaceable, but stateful data must not be. Three layers:
+
+| Layer | Resource | What it protects against |
+|---|---|---|
+| **Static reserved IP** | `yandex_vpc_address.main` in compute module | VM recreate → DNS stays valid (same IP) |
+| **Persistent secondary disk** | `yandex_compute_disk.data` with `auto_delete = false` + `lifecycle.prevent_destroy` | VM recreate → docker volumes stay (postgres, redis, loki, prometheus, grafana live there) |
+| **Instance lifecycle** | `yandex_compute_instance.vm` with `prevent_destroy = true` + `ignore_changes = [metadata, image_id]` | Accidental destroy/replace blocked; Ubuntu / cloud-init changes do not force recreation |
+
+### What survives a VM recreate
+
+| Asset | Where | Survives? |
+| --- | --- | --- |
+| Postgres data | `leap_postgres_data` on secondary disk | ✓ |
+| Redis AOF + result backend | `leap_redis_data` on secondary disk | ✓ |
+| Loki TSDB cache (chunks already in S3) | `leap_loki_data` on secondary disk | ✓ |
+| Prometheus TSDB | `leap_prometheus_data` on secondary disk | ✓ |
+| Grafana dashboards/prefs | `leap_grafana_data` on secondary disk | ✓ |
+| Recordings media | `s3://leap-platform-storage/` | ✓ (external) |
+| pg + redis backups | `s3://leap-backups/` | ✓ (external) |
+| Loki chunks + index | `s3://leap-logs/` | ✓ (external) |
+
+### Operational consequences of `prevent_destroy`
+
+Once the `lifecycle` block is enabled on `yandex_compute_instance.vm`:
+
+| Action | Behaviour |
+| --- | --- |
+| Change `var.vm_cores` / `vm_memory_gb` | in-place update, no recreate |
+| Change `var.vm_image_family` (Ubuntu) | Terraform ignores (`ignore_changes = boot_disk[0]…`). Upgrade Ubuntu via `apt-get` on the live VM instead. |
+| Change `cloud_init` template | Terraform ignores (`ignore_changes = metadata`). To apply: `make deploy-vm-init` re-runs the script on the live VM. |
+| Change `var.vm_disk_gb` (boot disk size) | Forces replacement → blocked by `prevent_destroy`. |
+| `make deploy-destroy` | Blocked. To intentionally destroy: comment out `prevent_destroy`, apply, then restore the block. |
+
+This is **intentional friction** on destructive operations. Cost: 30 seconds of manual editing when you actually mean to destroy. Benefit: no more silent VM recreates.
+
+### Replacing the VM intentionally (rare)
+
+1. SSH in, `pg_backup.sh` + `redis_backup.sh` ad-hoc.
+2. Locally: comment out `lifecycle { prevent_destroy = true }` in `terraform/modules/compute/main.tf`, `terraform apply` — VM is destroyed, new VM comes up with the **same IP** and **same data disk** (both `prevent_destroy`).
+3. Cloud-init runs `vm-init.sh`, which mounts the existing `/var/lib/docker/volumes` from the data disk, then `docker compose up -d` finds all volumes populated and starts everything as before.
+4. Restore `prevent_destroy` block, commit.
+
 ## Backups
 
 | What       | Schedule          | Script                       | Destination                  |

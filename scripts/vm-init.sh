@@ -46,6 +46,39 @@ fi
 systemctl enable --now docker
 usermod -aG docker ubuntu || true
 
+# --- 1a. Mount persistent data disk at /var/lib/docker/volumes ------------
+# Terraform attaches a secondary disk (yandex_compute_disk.data) with
+# auto_delete=false. It survives VM recreation, so docker named volumes
+# (postgres, redis, loki, prometheus, grafana) survive too. Detection
+# excludes the boot disk (vda/sda). Idempotent — safe to re-run.
+#
+# Safety net: if /var/lib/docker/volumes already has data (we're running on
+# an existing VM with volumes on the boot disk), refuse to auto-mount —
+# mounting an empty new disk over a non-empty directory would shadow the
+# existing data. Operator must rsync first; see DEPLOYMENT.md → VM durability.
+DATA_DEVICE=$(lsblk -ndo NAME,TYPE | awk '$2=="disk" && $1!~/^(vda|sda)$/ {print "/dev/"$1; exit}')
+mkdir -p /var/lib/docker/volumes
+EXISTING_VOLUME_ENTRIES=$(find /var/lib/docker/volumes -mindepth 1 -maxdepth 1 2>/dev/null | head -1)
+
+if [ -n "$DATA_DEVICE" ] && ! mountpoint -q /var/lib/docker/volumes; then
+  if [ -n "$EXISTING_VOLUME_ENTRIES" ]; then
+    echo "[vm-init] WARN: $DATA_DEVICE present but /var/lib/docker/volumes has data —"
+    echo "[vm-init]       refusing to auto-mount (would hide existing volumes)."
+    echo "[vm-init]       Migrate manually: see DEPLOYMENT.md → VM durability."
+  else
+    echo "[vm-init] preparing $DATA_DEVICE for /var/lib/docker/volumes"
+    if ! blkid "$DATA_DEVICE" >/dev/null 2>&1; then
+      mkfs.ext4 -F -L leap-data "$DATA_DEVICE"
+    fi
+    systemctl stop docker || true
+    if ! grep -q "/var/lib/docker/volumes" /etc/fstab; then
+      echo "UUID=$(blkid -s UUID -o value "$DATA_DEVICE") /var/lib/docker/volumes ext4 defaults,nofail 0 2" >> /etc/fstab
+    fi
+    mount /var/lib/docker/volumes
+    systemctl start docker
+  fi
+fi
+
 # --- 2. yc CLI (auths via VM SA metadata; configured for both root + ubuntu
 #       so GH Actions deploys as ubuntu can use docker-credential-yc) -----
 if ! command -v yc >/dev/null 2>&1; then

@@ -417,6 +417,7 @@ PROCESSING → PROCESSED → UPLOADING → READY
 - **Settings/аккаунт** — профиль сверху с ключевыми цифрами использования (без графика), управление сессиями собрано в «Active sessions», Danger Zone — только удаление аккаунта; drag & drop при загрузке файла. Единые высоты контролов и выравнивание всех разделов.
 - **Observability (под капотом)** — Loki переехал в Object Storage (VM stateless, retention 90 дней), бизнес-дашборд `LEAP Overview` в Grafana, custom Prometheus-метрики (длительность стадий пайплайна, возраст очередей) и `recording_id`/`user_id`/`task_id` во всех error-логах.
 - **Reliability** — deep health checks (`/health/live`, `/health/ready`), ежедневный backup Redis в S3, external volumes (`docker compose down -v` больше не сносит данные).
+- **VM durability** — статический reserved IP (`yandex_vpc_address`), persistent secondary disk (50 GB) под `/var/lib/docker/volumes` (`auto_delete=false`), и `lifecycle { prevent_destroy + ignore_changes [metadata, image_id] }` на инстансе. Данные docker-волумов переживают пересоздание VM; случайный `terraform apply destroy` блокируется. См. `DEPLOYMENT.md → VM durability` для процедуры rollout.
 - **Deploy break** — после `alembic upgrade head` (revision 023) создаётся PG-роль `grafana_ro`; задайте `GRAFANA_RO_PASSWORD` в Lockbox перед миграцией. После деплоя: `docker volume create leap_postgres_data leap_redis_data leap_loki_data leap_prometheus_data leap_grafana_data` (idempotent).
 
 **Новое в v0.10.1** — Мгновенный logout-all и управление сессиями:
