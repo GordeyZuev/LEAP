@@ -288,7 +288,7 @@ if [ ! -L /etc/letsencrypt/live/leap ]; then
     GRAFANA_PASSWORD=$(grep '^GRAFANA_PASSWORD=' "$REPO_DIR/.env" | cut -d= -f2-)
     rm -rf "$REPO_DIR/nginx/htpasswd"
     htpasswd -nbB admin "$GRAFANA_PASSWORD" > "$REPO_DIR/nginx/htpasswd"
-    chmod 600 "$REPO_DIR/nginx/htpasswd"
+    chmod 644 "$REPO_DIR/nginx/htpasswd"
 
     cp nginx/nginx.https.conf nginx/nginx.conf
     # --force-recreate is critical: nginx.conf is a bind-mount, and compose

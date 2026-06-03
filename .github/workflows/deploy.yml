@@ -99,8 +99,6 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
           # Excludes runtime artifacts owned by vm-init.sh / refresh-env.sh —
           # rsync --delete would wipe them and break nginx, OAuth, certbot.
-          # __pycache__: written by container's user (1000:1000) inside the
-          # bind-mounted backend/config — rsync as `ubuntu` can't delete them.
           ARGS: "-rlgoDzvc -i --delete --exclude=__pycache__ --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
           SOURCE: "./"
           REMOTE_HOST: ${{ secrets.VPS_HOST }}
@@ -133,10 +131,11 @@ jobs:
             docker compose run --rm migrate
             docker compose up -d --no-deps api celery_worker celery_beat flower frontend
             # --force-recreate so bind-mounted config files (prometheus.yml,
-            # promtail.yml, grafana_datasources.yml) re-load. `up -d` alone
-            # only detects YAML-spec drift, not file-content drift. Loki is
-            # excluded — it owns ingestion state and its config is stable.
+            # promtail.yml, grafana_datasources.yml, dashboards/*.json, nginx
+            # conf + htpasswd) re-load. `up -d` alone only detects YAML-spec
+            # drift, not file-content drift. Loki excluded — it owns ingestion
+            # state and its config is stable.
             docker compose up -d loki
             docker compose up -d --force-recreate prometheus celery_exporter promtail grafana
-            docker compose up -d --no-deps nginx
+            docker compose up -d --no-deps --force-recreate nginx
             docker compose ps
