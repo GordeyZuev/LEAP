@@ -2,6 +2,88 @@
 
 ---
 
+## v0.10.3 (2026-06-06)
+
+**UI parity for presets, templates & recordings.** Surfaced backend metadata
+capabilities that previously had no UI: full YouTube/VK/Yandex preset fields,
+template-level overrides (`YouTubeMetadataConfig` / `VKMetadataConfig` expanded
+— fields were silently dropped at validation before), recording config editing
+and template binding, Trim in rerun controls, unified `FilterSelect` popovers,
+collapsible Advanced sections. VK upload wiring fixes (`disable_comments` →
+`no_comments`, `compression` forwarded to `video.save`, nested
+`metadata_config.vk` honored). No DB migration — `metadata_config` is JSONB.
+
+→ Detailed bullets: section **2026-06-06** below.
+
+---
+
+## 2026-06-06: UI parity for presets, templates & recordings
+
+Surfaced backend capabilities that previously had no UI. No API contract removals;
+one additive schema change (below).
+
+- **Preset editor — full metadata.** YouTube presets now expose `embeddable`, `license`,
+  `default_language`, scheduled `publish_at`, `disable_comments`, `rating_disabled`,
+  `notify_subscribers`, and structured `topics_display` / `questions_display`. VK adds
+  `repeat`, `compression`, `disable_comments`, and the same display configs. Yandex Disk
+  adds `title`/`description` templates and the sidecar-file uploads (`subtitles_srt`,
+  `subtitles_vtt`, `transcription`, `description_txt`).
+- **Template editor.** Exposes common `topics_display` / `questions_display` and
+  `output_config.upload_captions`.
+- **`YouTubeMetadataConfig` expanded (backend).** Template `metadata_config.youtube` now
+  accepts the same overrides as `YouTubePresetMetadata`: `category_id` (validated positive
+  int), `tags`, `made_for_kids`, `embeddable`, `license`, `default_language`,
+  `disable_comments`, `rating_disabled`, `notify_subscribers`. All optional (`None` =
+  inherit). Previously the editor sent `category_id`/`tags`/`made_for_kids` but they were
+  silently dropped at validation (`extra="ignore"`) even though the upload pipeline honored
+  them. No migration — `metadata_config` is JSONB.
+- **Recording detail.** Added Trim to the per-stage rerun controls; per-recording config
+  editing (reuses the run-with-config modal in save mode → `PUT/DELETE /config`); and
+  bind/unbind to an existing template (`POST/DELETE /{id}/template`). The video player now
+  opens automatically for an available recording (no extra click).
+- **Recordings list.** Added Trim to the bulk pipeline menu.
+- **Run-with-config parity.** The run/edit-config modal now exposes the common
+  `topics_display` / `questions_display`, matching the template editor.
+- **`VKMetadataConfig` expanded (backend).** Added `privacy_view`, `privacy_comment`,
+  `wallpost` (the template/run-config VK override already sent these but they were silently
+  dropped), plus `repeat`, `compression`, `disable_comments`. Added `publish_at` to
+  `YouTubeMetadataConfig`. All optional; JSONB, no migration.
+- **VK upload wiring.** Preset/template `disable_comments` now maps to VK API `no_comments`;
+  `compression` is forwarded to `video.save` (both were accepted in schemas/UI but previously
+  dropped before upload). Upload also reads nested `metadata_config.vk`; template and run-config
+  modals now serialize `repeat` / `compression` / `disable_comments` via `vkFieldsToApi`.
+- **Unified selectors.** All form/modal selects render the shared custom popover
+  (`FilterSelect`) — previously native `<select>`. `NativeSelect` is now a drop-in wrapper,
+  and the popover renders via a portal so it never clips inside scrollable modals.
+- **Friendlier editors.** Extended platform options live under a collapsible "Advanced"
+  with toggles laid out in a 2-column grid (so the switch sits next to its label instead of
+  spanning the full row).
+
+> Note: extended upload-target scalars (YouTube `embeddable`/`license`/`publish_at`/…, VK
+> `repeat`/`compression`) remain **preset-scoped** in the UI. The schema accepts them at the
+> template level (honored by the upload pipeline), but the editors only surface them on
+> presets to avoid ambiguous "override vs inherit" toggles. Structured topics/questions
+> display IS consistent across presets, templates and run-with-config.
+
+### Файлы
+
+- `backend/api/schemas/template/metadata_config.py`
+- `backend/api/tasks/upload.py`
+- `backend/video_upload_module/config_factory.py`
+- `backend/video_upload_module/platforms/vk/uploader.py`
+- `backend/tests/unit/api/test_youtube_metadata_config.py`
+- `backend/tests/unit/video_upload_module/test_vk_uploader_params.py`
+- `backend/docs/guides/VK_INTEGRATION.md`
+- `frontend/src/api/client.ts`
+- `frontend/src/components/platforms/{platform-fields,display-config-fields,platform-toggle}.tsx`
+- `frontend/src/components/ui/native-select.tsx`, `frontend/src/components/filters/filter-select.tsx`
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`, `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`, `frontend/src/app/(app)/recordings/page.tsx`
+- `frontend/src/app/(auth)/login/page.tsx`, `frontend/src/app/(auth)/register/page.tsx`
+
+---
+
 ## v0.10.2 (2026-06-02)
 
 **Observability hardening and deploy safety.** Loki chunks moved off-host to

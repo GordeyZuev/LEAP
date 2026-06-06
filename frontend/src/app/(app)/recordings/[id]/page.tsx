@@ -1,12 +1,13 @@
 "use client";
 
-import { use, useState, type ComponentType, type ReactNode } from "react";
+import { use, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
   CheckCircle2, XCircle, Clock, Loader2, SkipForward, RotateCcw, Settings2, ChevronDown, ArchiveRestore, FilePlus2,
+  Link2, Unlink, Pencil,
 } from "lucide-react";
 import { cn, formatDate, formatDateTimeShort } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -414,7 +415,7 @@ function RecordingVideoPlayer({
   sizeLabel?: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // auto-loads on mount
   const [progress, setProgress] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -434,6 +435,15 @@ function RecordingVideoPlayer({
       .catch(() => setLoadError("Не удалось загрузить видео"))
       .finally(() => setLoading(false));
   }
+
+  // Auto-load the presigned URL on mount so the player opens immediately for an
+  // available recording. The component is keyed by variant, so switching the
+  // processed/original tab remounts and re-fetches the correct URL.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadVideo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (src) {
     return (
@@ -532,10 +542,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [resetConfirm, setResetConfirm] = useState(false);
   const [resetDeleteFiles, setResetDeleteFiles] = useState(false);
   const [runConfigOpen, setRunConfigOpen] = useState(false);
+  const [configEditOpen, setConfigEditOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [mediaDownloadError, setMediaDownloadError] = useState<string | null>(null);
   const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
   const [createTemplateName, setCreateTemplateName] = useState("");
+  const [bindTemplateOpen, setBindTemplateOpen] = useState(false);
 
   // Config is loaded eagerly so template_name is available for Info sidebar
   const { data: recordingConfig, isLoading: configLoading } = useQuery<RecordingConfigResponse>({
@@ -591,6 +603,36 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     },
   });
 
+  function invalidateConfigQueries() {
+    qc.invalidateQueries({ queryKey: ["recording", id] });
+    qc.invalidateQueries({ queryKey: ["recording-config", Number(id)] });
+  }
+
+  const resetConfig = useMutation({
+    mutationFn: () => apiClient.delete(`/recordings/${id}/config`),
+    onSuccess: invalidateConfigQueries,
+  });
+
+  const bindTemplate = useMutation({
+    mutationFn: (templateId: number) => apiClient.post(`/recordings/${id}/template/${templateId}`),
+    onSuccess: () => {
+      setBindTemplateOpen(false);
+      invalidateConfigQueries();
+    },
+  });
+
+  const unbindTemplate = useMutation({
+    mutationFn: () => apiClient.delete(`/recordings/${id}/template`),
+    onSuccess: invalidateConfigQueries,
+  });
+
+  // Templates list for the "bind to existing template" picker (lazy: only when open).
+  const { data: bindTemplatesData } = useQuery<{ items: { id: number; name: string }[] }>({
+    queryKey: ["templates-bind-list"],
+    queryFn: async () => (await apiClient.get("/templates?per_page=100")).data,
+    enabled: bindTemplateOpen,
+  });
+
   const uploadTo = useMutation({
     mutationFn: (platform: string) =>
       apiClient.post(`/recordings/${id}/upload/${platform.toLowerCase()}`),
@@ -606,6 +648,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   const STAGE_RERUN_ENDPOINT: Record<string, string> = {
     DOWNLOAD:           `/recordings/${id}/download`,
+    TRIM:               `/recordings/${id}/trim`,
     TRANSCRIBE:         `/recordings/${id}/transcribe?force=true`,
     EXTRACT_TOPICS:     `/recordings/${id}/topics`,
     GENERATE_SUBTITLES: `/recordings/${id}/subtitles`,
@@ -930,6 +973,27 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             ) : !recordingConfig ? (
               <p className="text-sm text-gray-400">Нет данных</p>
             ) : (
+              <>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfigEditOpen(true)}
+                  className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-[#224C87] hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                >
+                  <Pencil size={12} /> Редактировать
+                </button>
+                {recordingConfig.has_manual_override && (
+                  <button
+                    type="button"
+                    onClick={() => resetConfig.mutate()}
+                    disabled={resetConfig.isPending}
+                    className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {resetConfig.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                    Сбросить override
+                  </button>
+                )}
+              </div>
               <dl className="space-y-3">
                 <ConfigRow
                   label="Шаблон"
@@ -974,6 +1038,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   );
                 })()}
               </dl>
+              </>
             )}
           </CollapsibleCard>
 
@@ -1059,13 +1124,33 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   <Trash2 size={13} />
                 </button>
               </div>
-              <button
-                onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
-              >
-                <FilePlus2 size={13} />
-                Создать шаблон
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                >
+                  <FilePlus2 size={13} />
+                  Создать шаблон
+                </button>
+                {(recordingConfig?.is_mapped ?? recording.is_mapped) ? (
+                  <button
+                    onClick={() => unbindTemplate.mutate()}
+                    disabled={unbindTemplate.isPending}
+                    title="Отвязать шаблон"
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {unbindTemplate.isPending ? <Loader2 size={13} className="animate-spin" /> : <Unlink size={13} />}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setBindTemplateOpen(true)}
+                    title="Привязать шаблон"
+                    className="flex items-center justify-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                  >
+                    <Link2 size={13} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1209,6 +1294,59 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         recordingName={recording.display_name}
         onSuccess={() => qc.invalidateQueries({ queryKey: ["recording", id] })}
       />
+
+      <RunConfigModal
+        open={configEditOpen}
+        onClose={() => setConfigEditOpen(false)}
+        mode="single"
+        submitMode="save"
+        recordingId={Number(id)}
+        recordingName={recording.display_name}
+      />
+
+      {/* Bind to existing template modal */}
+      <Modal
+        open={bindTemplateOpen}
+        onClose={() => setBindTemplateOpen(false)}
+        label="Привязать шаблон"
+        panelClassName="max-w-sm"
+      >
+        <div className="p-6">
+          <h2 className="mb-4 text-sm font-semibold text-gray-900">Привязать к шаблону</h2>
+          {bindTemplate.isError && (
+            <p className="mb-3 text-xs text-red-500">
+              {(bindTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка"}
+            </p>
+          )}
+          <div className="max-h-72 space-y-1.5 overflow-y-auto">
+            {(bindTemplatesData?.items ?? []).length === 0 ? (
+              <p className="py-6 text-center text-sm text-gray-400">Нет шаблонов</p>
+            ) : (
+              bindTemplatesData!.items.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={bindTemplate.isPending}
+                  onClick={() => bindTemplate.mutate(t.id)}
+                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2.5 text-left text-sm font-medium text-gray-800 transition-colors hover:border-[#224C87] hover:bg-[#224C87]/5 disabled:opacity-50"
+                >
+                  <span className="min-w-0 truncate">{t.name}</span>
+                  <Link2 size={13} className="shrink-0 text-gray-400" />
+                </button>
+              ))
+            )}
+          </div>
+          <div className="flex justify-end pt-4">
+            <button
+              type="button"
+              onClick={() => setBindTemplateOpen(false)}
+              className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Create template modal */}
       <Modal

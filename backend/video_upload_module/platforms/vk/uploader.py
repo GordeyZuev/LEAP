@@ -254,13 +254,20 @@ class VKUploader(BaseUploader):
 
     async def _get_upload_url(self, name: str, description: str = "", album_id: str | None = None, **kwargs) -> str:
         """Get video upload URL."""
+        no_comments = kwargs.get("no_comments")
+        if no_comments is None and "disable_comments" in kwargs:
+            no_comments = kwargs["disable_comments"]
+        if no_comments is None:
+            no_comments = self.config.no_comments
+
         params = {
             "name": name,
             "description": description,
             "privacy_view": kwargs.get("privacy_view", self.config.privacy_view),
             "privacy_comment": kwargs.get("privacy_comment", self.config.privacy_comment),
-            "no_comments": int(kwargs.get("no_comments", self.config.no_comments)),
+            "no_comments": int(no_comments),
             "repeat": int(kwargs.get("repeat", self.config.repeat)),
+            "compression": int(kwargs.get("compression", self.config.compression)),
         }
 
         group_id = kwargs.get("group_id", self.config.group_id)

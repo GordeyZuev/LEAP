@@ -19,6 +19,12 @@ import {
   DEFAULT_YOUTUBE_FIELDS,
   DEFAULT_VK_FIELDS,
   DEFAULT_YANDEX_DISK_FIELDS,
+  youtubeFieldsFromApi,
+  vkFieldsFromApi,
+  yandexFieldsFromApi,
+  youtubeFieldsToApi,
+  vkFieldsToApi,
+  yandexFieldsToApi,
 } from "@/components/platforms/platform-fields";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -50,66 +56,20 @@ function getDefaultMeta(platform: Platform): PlatformMeta {
 }
 
 function coerceMeta(platform: Platform, raw: unknown): PlatformMeta {
-  const base = getDefaultMeta(platform);
-  if (!raw || typeof raw !== "object") return base;
-  const o = raw as Record<string, unknown>;
-
-  if (platform === "youtube") {
-    const priv = o.privacy;
-    const privacy =
-      priv === "public" || priv === "private" || priv === "unlisted"
-        ? priv
-        : (base as YouTubeFieldsValue).privacy;
-    const tagList = o.tags;
-    return {
-      title_template:       o.title_template       != null ? String(o.title_template)       : "",
-      description_template: o.description_template != null ? String(o.description_template) : "",
-      privacy,
-      category_id:    o.category_id    != null ? String(o.category_id)    : "",
-      playlist_id:    o.playlist_id    != null ? String(o.playlist_id)    : "",
-      thumbnail_name: o.thumbnail_name != null ? String(o.thumbnail_name) : "",
-      tags:           Array.isArray(tagList) ? tagList.filter((t): t is string => typeof t === "string") : [],
-      made_for_kids:  Boolean(o.made_for_kids),
-    } satisfies YouTubeFieldsValue;
-  }
-
-  if (platform === "vk") {
-    const pv = o.privacy_view;
-    const pc = o.privacy_comment;
-    return {
-      title_template:       o.title_template       != null ? String(o.title_template)       : "",
-      description_template: o.description_template != null ? String(o.description_template) : "",
-      privacy_view:    pv != null ? String(pv)    : "",
-      privacy_comment: pc != null ? String(pc)    : "",
-      group_id:        o.group_id    != null ? String(o.group_id)    : "",
-      album_id:        o.album_id    != null ? String(o.album_id)    : "",
-      thumbnail_name:  o.thumbnail_name != null ? String(o.thumbnail_name) : "",
-      wallpost:        Boolean(o.wallpost),
-    } satisfies VkFieldsValue;
-  }
-
-  return {
-    folder_path_template: o.folder_path_template != null ? String(o.folder_path_template) : (base as YandexDiskFieldsValue).folder_path_template,
-    filename_template:    o.filename_template    != null ? String(o.filename_template)    : "",
-    overwrite: Boolean(o.overwrite),
-    publish:   Boolean(o.publish),
-  } satisfies YandexDiskFieldsValue;
+  if (platform === "youtube") return youtubeFieldsFromApi(raw);
+  if (platform === "vk") return vkFieldsFromApi(raw);
+  return yandexFieldsFromApi(raw);
 }
 
 // ---------------------------------------------------------------------------
-// Serialise meta back to API format
+// Serialise meta back to API format (presets include per-platform display
+// config and the full Yandex extended fields).
 // ---------------------------------------------------------------------------
 
 function serialiseMeta(platform: Platform, meta: PlatformMeta): Record<string, unknown> {
-  if (platform === "vk") {
-    const vk = meta as VkFieldsValue;
-    return {
-      ...vk,
-      privacy_view:    vk.privacy_view    !== "" ? Number(vk.privacy_view)    : undefined,
-      privacy_comment: vk.privacy_comment !== "" ? Number(vk.privacy_comment) : undefined,
-    };
-  }
-  return meta as unknown as Record<string, unknown>;
+  if (platform === "youtube") return youtubeFieldsToApi(meta as YouTubeFieldsValue, { includeDisplay: true });
+  if (platform === "vk") return vkFieldsToApi(meta as VkFieldsValue, { includeDisplay: true });
+  return yandexFieldsToApi(meta as YandexDiskFieldsValue, { includeExtended: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +349,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               onChange={patchMeta}
               showThumbnail
               showMadeForKids
+              showExtended
+              showDisplayConfig
             />
           )}
 
@@ -399,6 +361,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               showThumbnail
               showPrivacyComment
               showWallpost
+              showExtended
+              showDisplayConfig
             />
           )}
 
@@ -406,6 +370,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
             <YandexDiskFields
               value={meta as YandexDiskFieldsValue}
               onChange={patchMeta}
+              showExtended
             />
           )}
 

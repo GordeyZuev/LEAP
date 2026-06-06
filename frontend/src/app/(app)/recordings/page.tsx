@@ -216,6 +216,7 @@ function RecordingsPagedResults({
   }
 
   const bulkDownload = usePipelineMutation("/recordings/bulk/download", "Download");
+  const bulkTrim = usePipelineMutation("/recordings/bulk/trim", "Trim");
   const bulkTranscribe = usePipelineMutation("/recordings/bulk/transcribe", "Transcription");
   const bulkTopics = usePipelineMutation("/recordings/bulk/topics", "Topic extraction");
   const bulkSubtitles = usePipelineMutation("/recordings/bulk/subtitles", "Subtitle generation");
@@ -261,7 +262,7 @@ function RecordingsPagedResults({
   const recordings = data?.items ?? [];
   const isBulkLoading =
     bulkRun.isPending || bulkPause.isPending || bulkDelete.isPending || bulkReset.isPending ||
-    bulkDownload.isPending || bulkTranscribe.isPending || bulkTopics.isPending ||
+    bulkDownload.isPending || bulkTrim.isPending || bulkTranscribe.isPending || bulkTopics.isPending ||
     bulkSubtitles.isPending || bulkUpload.isPending;
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
 
@@ -346,6 +347,7 @@ function RecordingsPagedResults({
               <div className="absolute left-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
                 {[
                   { label: "Download",   fn: () => { bulkDownload.mutate(selectedIds); setPipelineMenuOpen(false); } },
+                  { label: "Trim",       fn: () => { bulkTrim.mutate(selectedIds); setPipelineMenuOpen(false); } },
                   { label: "Transcribe", fn: () => { bulkTranscribe.mutate(selectedIds); setPipelineMenuOpen(false); } },
                   { label: "Topics",     fn: () => { bulkTopics.mutate(selectedIds); setPipelineMenuOpen(false); } },
                   { label: "Subtitles",  fn: () => { bulkSubtitles.mutate(selectedIds); setPipelineMenuOpen(false); } },

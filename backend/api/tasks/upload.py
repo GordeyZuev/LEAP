@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select
@@ -30,6 +31,31 @@ logger = get_logger()
 settings = get_settings()
 
 _UPLOAD_STALE_BUFFER_SECONDS = 300
+
+
+def _vk_upload_params_from_metadata(preset_metadata: dict[str, Any]) -> dict[str, Any]:
+    """Build VK video.save kwargs from flat or nested ``metadata_config.vk`` fields."""
+    vk_block = preset_metadata.get("vk")
+    if not isinstance(vk_block, dict):
+        vk_block = {}
+
+    params: dict[str, Any] = {}
+    for key in ("group_id", "privacy_view", "privacy_comment", "repeat", "wallpost", "compression"):
+        if key in preset_metadata:
+            params[key] = preset_metadata[key]
+        elif key in vk_block:
+            params[key] = vk_block[key]
+
+    if "no_comments" in preset_metadata:
+        params["no_comments"] = preset_metadata["no_comments"]
+    elif "disable_comments" in preset_metadata:
+        params["no_comments"] = preset_metadata["disable_comments"]
+    elif "no_comments" in vk_block:
+        params["no_comments"] = vk_block["no_comments"]
+    elif "disable_comments" in vk_block:
+        params["no_comments"] = vk_block["disable_comments"]
+
+    return params
 
 
 def platform_to_target_type(platform: str) -> str:
@@ -623,9 +649,7 @@ async def _async_upload_recording(
                 else:
                     logger.debug("No thumbnail_name found in metadata")
 
-                for key in ["group_id", "privacy_view", "privacy_comment", "no_comments", "repeat", "wallpost"]:
-                    if key in preset_metadata:
-                        upload_params[key] = preset_metadata[key]
+                upload_params.update(_vk_upload_params_from_metadata(preset_metadata))
 
             elif platform.lower() == "yandex_disk":
                 # Resolve folder path template

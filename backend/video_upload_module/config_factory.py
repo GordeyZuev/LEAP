@@ -27,6 +27,7 @@ class VKConfig(BaseModel):
     privacy_comment: int = 0
     no_comments: bool = False
     repeat: bool = False
+    compression: bool = False
     album_id: int | None = None
     app_id: str = "54249533"
     scope: str = "video,groups,wall"

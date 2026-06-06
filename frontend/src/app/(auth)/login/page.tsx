@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/api/client";
+import { extractApiError } from "@/lib/utils";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
 
@@ -25,9 +26,7 @@ export default function LoginPage() {
       await apiClient.post("/auth/login", { email, password });
       router.push("/recordings");
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })
-        ?.response?.data?.detail;
-      setError(detail ?? "Invalid email or password");
+      setError(extractApiError(err, "Invalid email or password"));
     } finally {
       setLoading(false);
     }

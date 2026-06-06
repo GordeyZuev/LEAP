@@ -19,6 +19,10 @@ import {
   DEFAULT_YOUTUBE_FIELDS,
   DEFAULT_VK_FIELDS,
   DEFAULT_YANDEX_DISK_FIELDS,
+  youtubeFieldsFromApi,
+  vkFieldsFromApi,
+  vkFieldsToApi,
+  yandexFieldsFromApi,
   type YouTubeFieldsValue,
   type VkFieldsValue,
   type YandexDiskFieldsValue,
@@ -27,6 +31,14 @@ import {
   MetadataPreviewResultBox,
   type MetadataRenderPreviewData,
 } from "@/components/platforms/metadata-render-preview";
+import {
+  DisplayConfigFields,
+  type DisplayConfig,
+  DEFAULT_TOPICS_DISPLAY,
+  DEFAULT_QUESTIONS_DISPLAY,
+  toDisplayPayload,
+  fromDisplayPayload,
+} from "@/components/platforms/display-config-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { NativeSelect } from "@/components/ui/native-select";
 
@@ -59,11 +71,14 @@ interface ProcessingConfig {
 interface MetadataConfig {
   title_template: string;
   description_template: string;
+  topics_display: DisplayConfig;
+  questions_display: DisplayConfig;
 }
 
 interface OutputConfig {
   preset_ids: number[];
   auto_upload: boolean;
+  upload_captions: boolean;
 }
 
 interface TemplateFormData {
@@ -129,10 +144,13 @@ const DEFAULT_FORM: TemplateFormData = {
   metadata_config: {
     title_template: "",
     description_template: "",
+    topics_display: { ...DEFAULT_TOPICS_DISPLAY },
+    questions_display: { ...DEFAULT_QUESTIONS_DISPLAY },
   },
   output_config: {
     preset_ids: [],
     auto_upload: false,
+    upload_captions: true,
   },
 };
 
@@ -227,38 +245,18 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       metadata_config: {
         title_template: mc?.title_template ?? "",
         description_template: mc?.description_template ?? "",
+        topics_display: fromDisplayPayload(mc?.topics_display, "topics"),
+        questions_display: fromDisplayPayload(mc?.questions_display, "questions"),
       },
       output_config: {
         preset_ids: existing.output_config?.preset_ids ?? [],
         auto_upload: existing.output_config?.auto_upload ?? false,
+        upload_captions: existing.output_config?.upload_captions ?? true,
       },
     };
-    const newYtFields: YouTubeFieldsValue = mc?.youtube ? {
-      title_template: mc.youtube.title_template ?? "",
-      description_template: mc.youtube.description_template ?? "",
-      privacy: mc.youtube.privacy ?? "",
-      category_id: mc.youtube.category_id != null ? String(mc.youtube.category_id) : "",
-      playlist_id: mc.youtube.playlist_id ?? "",
-      thumbnail_name: mc.youtube.thumbnail_name ?? "",
-      tags: mc.youtube.tags ?? [],
-      made_for_kids: mc.youtube.made_for_kids ?? false,
-    } : { ...DEFAULT_YOUTUBE_FIELDS };
-    const newVkFields: VkFieldsValue = mc?.vk ? {
-      title_template: mc.vk.title_template ?? "",
-      description_template: mc.vk.description_template ?? "",
-      privacy_view: mc.vk.privacy_view != null ? String(mc.vk.privacy_view) : "",
-      privacy_comment: mc.vk.privacy_comment != null ? String(mc.vk.privacy_comment) : "",
-      group_id: mc.vk.group_id != null ? String(mc.vk.group_id) : "",
-      album_id: mc.vk.album_id != null ? String(mc.vk.album_id) : "",
-      thumbnail_name: mc.vk.thumbnail_name ?? "",
-      wallpost: mc.vk.wallpost ?? false,
-    } : { ...DEFAULT_VK_FIELDS };
-    const newYdFields: YandexDiskFieldsValue = mc?.yandex_disk ? {
-      folder_path_template: mc.yandex_disk.folder_path_template ?? "",
-      filename_template: mc.yandex_disk.filename_template ?? "",
-      overwrite: mc.yandex_disk.overwrite ?? false,
-      publish: mc.yandex_disk.publish ?? false,
-    } : { ...DEFAULT_YANDEX_DISK_FIELDS };
+    const newYtFields = youtubeFieldsFromApi(mc?.youtube);
+    const newVkFields = vkFieldsFromApi(mc?.vk);
+    const newYdFields = yandexFieldsFromApi(mc?.yandex_disk);
     setForm(newForm);
     setYtFields(newYtFields);
     setVkFields(newVkFields);
@@ -303,15 +301,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       if (ytFields.tags.length > 0) yt.tags = ytFields.tags;
       if (ytFields.made_for_kids) yt.made_for_kids = true;
 
-      const vk: Record<string, unknown> = {};
-      if (vkFields.group_id) vk.group_id = vkFields.group_id;
-      if (vkFields.album_id) vk.album_id = vkFields.album_id;
-      if (vkFields.thumbnail_name) vk.thumbnail_name = vkFields.thumbnail_name;
-      if (vkFields.title_template) vk.title_template = vkFields.title_template;
-      if (vkFields.description_template) vk.description_template = vkFields.description_template;
-      if (vkFields.privacy_view !== "") vk.privacy_view = Number(vkFields.privacy_view);
-      if (vkFields.privacy_comment !== "") vk.privacy_comment = Number(vkFields.privacy_comment);
-      if (vkFields.wallpost) vk.wallpost = true;
+      const vk = vkFieldsToApi(vkFields, { sparseBools: true });
 
       const yd: Record<string, unknown> = {};
       if (ydFields.folder_path_template) yd.folder_path_template = ydFields.folder_path_template;
@@ -323,6 +313,10 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         title_template: data.metadata_config.title_template || undefined,
         description_template: data.metadata_config.description_template || undefined,
       };
+      const tdPayload = toDisplayPayload(data.metadata_config.topics_display, "topics");
+      if (tdPayload) metaConfig.topics_display = tdPayload;
+      const qdPayload = toDisplayPayload(data.metadata_config.questions_display, "questions");
+      if (qdPayload) metaConfig.questions_display = qdPayload;
       if (Object.keys(yt).length > 0) metaConfig.youtube = yt;
       if (Object.keys(vk).length > 0) metaConfig.vk = vk;
       if (Object.keys(yd).length > 0) metaConfig.yandex_disk = yd;
@@ -752,6 +746,11 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               checked={form.output_config.auto_upload}
               onChange={(v) => setOC("auto_upload", v)}
             />
+            <Toggle
+              label="Upload captions / subtitles"
+              checked={form.output_config.upload_captions}
+              onChange={(v) => setOC("upload_captions", v)}
+            />
           </Section>
 
           {/* Metadata */}
@@ -782,6 +781,25 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </button>
 
             {preview && <MetadataPreviewResultBox preview={preview} />}
+
+            <DisplayConfigFields
+              label="Topics in description"
+              hint="How {{ topics }} renders in title/description templates"
+              kind="topics"
+              value={form.metadata_config.topics_display}
+              onChange={(patch) =>
+                setMC("topics_display", { ...form.metadata_config.topics_display, ...patch })
+              }
+            />
+            <DisplayConfigFields
+              label="Questions in description"
+              hint="How {{ questions }} renders in title/description templates"
+              kind="questions"
+              value={form.metadata_config.questions_display}
+              onChange={(patch) =>
+                setMC("questions_display", { ...form.metadata_config.questions_display, ...patch })
+              }
+            />
 
             <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
               Platform overrides

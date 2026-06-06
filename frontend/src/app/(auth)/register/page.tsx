@@ -7,7 +7,7 @@ import { Check } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
-import { cn } from "@/lib/utils";
+import { cn, extractApiError } from "@/lib/utils";
 
 interface PasswordRule {
   id: string;
@@ -62,9 +62,7 @@ export default function RegisterPage() {
       });
       router.push("/recordings");
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setError(msg ?? "Registration failed");
+      setError(extractApiError(err, "Registration failed"));
     } finally {
       setLoading(false);
     }

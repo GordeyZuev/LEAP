@@ -251,8 +251,9 @@ POST /api/v1/recordings/123/upload/vk
 - `album_id` - альбом
 - `privacy_view` - приватность просмотра (0=all, 1=friends, 2=friends_of_friends, 3=only_me)
 - `privacy_comment` - приватность комментариев
-- `disable_comments` - отключить комментарии
+- `disable_comments` - отключить комментарии (в VK API — `no_comments`)
 - `repeat` - зациклить видео
+- `compression` - сжатие на стороне VK
 - `wallpost` - опубликовать на стену
 
 **Example:**

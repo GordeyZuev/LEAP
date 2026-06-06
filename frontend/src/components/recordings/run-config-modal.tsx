@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Eye, Loader2, Play, X } from "lucide-react";
+import { ChevronDown, Eye, Loader2, Play, Save, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
@@ -23,10 +23,22 @@ import {
   DEFAULT_YOUTUBE_FIELDS,
   DEFAULT_VK_FIELDS,
   DEFAULT_YANDEX_DISK_FIELDS,
+  youtubeFieldsFromApi,
+  vkFieldsFromApi,
+  vkFieldsToApi,
+  yandexFieldsFromApi,
   type YouTubeFieldsValue,
   type VkFieldsValue,
   type YandexDiskFieldsValue,
 } from "@/components/platforms/platform-fields";
+import {
+  DisplayConfigFields,
+  type DisplayConfig,
+  DEFAULT_TOPICS_DISPLAY,
+  DEFAULT_QUESTIONS_DISPLAY,
+  toDisplayPayload,
+  fromDisplayPayload,
+} from "@/components/platforms/display-config-fields";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import {
   MetadataPreviewResultBox,
@@ -71,6 +83,8 @@ interface RecordingConfigResponse {
   metadata_config: {
     title_template?: string;
     description_template?: string;
+    topics_display?: Record<string, unknown>;
+    questions_display?: Record<string, unknown>;
     youtube?: {
       privacy?: string;
       playlist_id?: string;
@@ -108,6 +122,9 @@ export interface RunConfigModalProps {
   recordingName?: string;
   recordingIds?: number[];
   onSuccess?: () => void;
+  /** "run" launches the pipeline; "save" persists per-recording config via
+   *  PUT /config without running (single mode only). */
+  submitMode?: "run" | "save";
 }
 
 // ---------------------------------------------------------------------------
@@ -180,8 +197,10 @@ export function RunConfigModal({
   recordingName,
   recordingIds,
   onSuccess,
+  submitMode = "run",
 }: RunConfigModalProps) {
   const qc = useQueryClient();
+  const isSave = submitMode === "save";
   const titleId = useId();
   const { data: languages = [] } = useLanguages();
   const { data: granularities = [] } = useGranularities();
@@ -217,6 +236,8 @@ export function RunConfigModal({
   const [titleTemplate, setTitleTemplate] = useState("");
   const [descriptionTemplate, setDescriptionTemplate] = useState("");
   const [globalThumbnail, setGlobalThumbnail] = useState("");
+  const [topicsDisplay, setTopicsDisplay] = useState<DisplayConfig>({ ...DEFAULT_TOPICS_DISPLAY });
+  const [questionsDisplay, setQuestionsDisplay] = useState<DisplayConfig>({ ...DEFAULT_QUESTIONS_DISPLAY });
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
   const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
@@ -283,6 +304,10 @@ export function RunConfigModal({
         const meta: Record<string, unknown> = {};
         if (titleTemplate) meta.title_template = titleTemplate;
         if (descriptionTemplate) meta.description_template = descriptionTemplate;
+        const tdPayload = toDisplayPayload(topicsDisplay, "topics");
+        if (tdPayload) meta.topics_display = tdPayload;
+        const qdPayload = toDisplayPayload(questionsDisplay, "questions");
+        if (qdPayload) meta.questions_display = qdPayload;
 
         const yt: Record<string, unknown> = {};
         if (ytFields.privacy) yt.privacy = ytFields.privacy;
@@ -296,16 +321,9 @@ export function RunConfigModal({
         if (ytFields.made_for_kids) yt.made_for_kids = true;
         if (Object.keys(yt).length > 0) meta.youtube = yt;
 
-        const vk: Record<string, unknown> = {};
-        if (vkFields.group_id) vk.group_id = vkFields.group_id;
-        if (vkFields.album_id) vk.album_id = vkFields.album_id;
+        const vk = vkFieldsToApi(vkFields, { sparseBools: true });
         const vkThumb = vkFields.thumbnail_name || globalThumbnail;
         if (vkThumb) vk.thumbnail_name = vkThumb;
-        if (vkFields.title_template) vk.title_template = vkFields.title_template;
-        if (vkFields.description_template) vk.description_template = vkFields.description_template;
-        if (vkFields.privacy_view !== "") vk.privacy_view = Number(vkFields.privacy_view);
-        if (vkFields.privacy_comment !== "") vk.privacy_comment = Number(vkFields.privacy_comment);
-        if (vkFields.wallpost) vk.wallpost = true;
         if (Object.keys(vk).length > 0) meta.vk = vk;
 
         const yd: Record<string, unknown> = {};
@@ -318,6 +336,14 @@ export function RunConfigModal({
         if (Object.keys(meta).length > 0) body.metadata_config = meta;
       }
 
+      if (isSave) {
+        // PUT /config persists only processing + output overrides (no run).
+        return apiClient.put(`/recordings/${recordingId}/config`, {
+          processing_config: body.processing_config,
+          output_config: body.output_config,
+        });
+      }
+
       if (mode === "single") {
         return apiClient.post(`/recordings/${recordingId}/run`, body);
       }
@@ -328,7 +354,10 @@ export function RunConfigModal({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recordings"] });
-      if (recordingId) qc.invalidateQueries({ queryKey: ["recording", String(recordingId)] });
+      if (recordingId) {
+        qc.invalidateQueries({ queryKey: ["recording", String(recordingId)] });
+        qc.invalidateQueries({ queryKey: ["recording-config", recordingId] });
+      }
       onSuccess?.();
       onClose();
     },
@@ -362,6 +391,8 @@ export function RunConfigModal({
     setTitleTemplate("");
     setDescriptionTemplate("");
     setGlobalThumbnail("");
+    setTopicsDisplay({ ...DEFAULT_TOPICS_DISPLAY });
+    setQuestionsDisplay({ ...DEFAULT_QUESTIONS_DISPLAY });
     setYtFields({ ...DEFAULT_YOUTUBE_FIELDS });
     setVkFields({ ...DEFAULT_VK_FIELDS });
     setYdFields({ ...DEFAULT_YANDEX_DISK_FIELDS });
@@ -411,51 +442,19 @@ export function RunConfigModal({
       setMetadataOpen(true);
       if (mc.title_template) setTitleTemplate(mc.title_template);
       if (mc.description_template) setDescriptionTemplate(mc.description_template);
-
-      if (mc.youtube) {
-        const yt = mc.youtube;
-        setYtFields({
-          title_template: yt.title_template ?? "",
-          description_template: yt.description_template ?? "",
-          privacy: yt.privacy ?? "",
-          category_id: yt.category_id != null ? String(yt.category_id) : "",
-          playlist_id: yt.playlist_id ?? "",
-          thumbnail_name: yt.thumbnail_name ?? "",
-          tags: yt.tags ?? [],
-          made_for_kids: yt.made_for_kids ?? false,
-        });
-      }
-
-      if (mc.vk) {
-        const vk = mc.vk;
-        setVkFields({
-          title_template: vk.title_template ?? "",
-          description_template: vk.description_template ?? "",
-          privacy_view: vk.privacy_view != null ? String(vk.privacy_view) : "",
-          privacy_comment: vk.privacy_comment != null ? String(vk.privacy_comment) : "",
-          group_id: vk.group_id != null ? String(vk.group_id) : "",
-          album_id: vk.album_id != null ? String(vk.album_id) : "",
-          thumbnail_name: vk.thumbnail_name ?? "",
-          wallpost: vk.wallpost ?? false,
-        });
-      }
-
-      if (mc.yandex_disk) {
-        const yd = mc.yandex_disk;
-        setYdFields({
-          folder_path_template: yd.folder_path_template ?? "",
-          filename_template: yd.filename_template ?? "",
-          overwrite: yd.overwrite ?? false,
-          publish: yd.publish ?? false,
-        });
-      }
+      if (mc.topics_display) setTopicsDisplay(fromDisplayPayload(mc.topics_display, "topics"));
+      if (mc.questions_display) setQuestionsDisplay(fromDisplayPayload(mc.questions_display, "questions"));
+      if (mc.youtube) setYtFields(youtubeFieldsFromApi(mc.youtube));
+      if (mc.vk) setVkFields(vkFieldsFromApi(mc.vk));
+      if (mc.yandex_disk) setYdFields(yandexFieldsFromApi(mc.yandex_disk));
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, existingConfig]);
 
   const count = mode === "bulk" ? (recordingIds?.length ?? 0) : 1;
-  const title =
-    mode === "single"
+  const title = isSave
+    ? `Edit configuration${recordingName ? `: "${recordingName}"` : recordingId ? ` #${recordingId}` : ""}`
+    : mode === "single"
       ? `Run with config${recordingName ? `: "${recordingName}"` : recordingId ? ` #${recordingId}` : ""}`
       : `Bulk run ${count} recording${count !== 1 ? "s" : ""} with config`;
 
@@ -556,6 +555,7 @@ export function RunConfigModal({
           ) : <>
 
           {/* ── Template ────────────────────────────────────────────────── */}
+          {!isSave && (
           <div className="px-6 py-4">
             <button
               type="button"
@@ -607,6 +607,7 @@ export function RunConfigModal({
               </div>
             )}
           </div>
+          )}
 
           {/* ── Processing ──────────────────────────────────────────────── */}
           <div className="px-6 py-4">
@@ -790,6 +791,7 @@ export function RunConfigModal({
           </div>
 
           {/* ── Metadata & Platform overrides ───────────────────────────── */}
+          {!isSave && (
           <div className="px-6 py-4">
             <div className="flex items-center gap-3">
               <SectionToggle enabled={metadataEnabled} onToggle={handleMetadataToggle} />
@@ -833,6 +835,20 @@ export function RunConfigModal({
                       value={globalThumbnail}
                       onChange={setGlobalThumbnail}
                       placeholder="Platform-specific thumbnails override this"
+                    />
+                    <DisplayConfigFields
+                      label="Topics in description"
+                      hint="How {{ topics }} renders in title/description templates"
+                      kind="topics"
+                      value={topicsDisplay}
+                      onChange={(patch) => setTopicsDisplay((f) => ({ ...f, ...patch }))}
+                    />
+                    <DisplayConfigFields
+                      label="Questions in description"
+                      hint="How {{ questions }} renders in title/description templates"
+                      kind="questions"
+                      value={questionsDisplay}
+                      onChange={(patch) => setQuestionsDisplay((f) => ({ ...f, ...patch }))}
                     />
                   </div>
                 </div>
@@ -885,6 +901,7 @@ export function RunConfigModal({
               </div>
             )}
           </div>
+          )}
 
           </>}
         </div>
@@ -907,8 +924,14 @@ export function RunConfigModal({
             disabled={runMutation.isPending}
             className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
           >
-            {runMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            Run
+            {runMutation.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : isSave ? (
+              <Save size={14} />
+            ) : (
+              <Play size={14} />
+            )}
+            {isSave ? "Save" : "Run"}
           </button>
         </div>
       </>

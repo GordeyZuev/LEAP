@@ -53,10 +53,21 @@ function redirectToLogin() {
   }
 }
 
+// 401 on these routes is an auth failure, not an expired session — do not refresh.
+const AUTH_PUBLIC_PATHS = ["/auth/login", "/auth/register"];
+
+function isAuthPublicRequest(url: string | undefined): boolean {
+  return Boolean(url && AUTH_PUBLIC_PATHS.some((path) => url.includes(path)));
+}
+
 apiClient.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig | undefined;
+    if (isAuthPublicRequest(original?.url)) {
+      return Promise.reject(error);
+    }
+
     if (!original || error.response?.status !== 401 || retriedRequests.has(original)) {
       if (error.response?.status === 401) redirectToLogin();
       return Promise.reject(error);

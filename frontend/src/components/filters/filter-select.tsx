@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FILTER_CONTROL } from "@/lib/filter-field-classes";
@@ -15,6 +16,7 @@ interface FilterSelectProps<V extends string | number = string> {
   options: FilterSelectOption<V>[];
   onChange: (value: V) => void;
   className?: string;
+  disabled?: boolean;
 }
 
 export function FilterSelect<V extends string | number = string>({
@@ -22,29 +24,56 @@ export function FilterSelect<V extends string | number = string>({
   options,
   onChange,
   className,
+  disabled = false,
 }: FilterSelectProps<V>) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  // Dropdown is portalled to <body> with fixed positioning so it never gets
+  // clipped by a scrollable parent (modals, overflow containers).
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    setCoords({ top: r.bottom + 6, left: r.left, width: r.width });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
+    function close() { setOpen(false); }
     function onMouseDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+        // Clicks inside the portalled panel are handled by the option buttons
+        // (which close on select); any other click closes the menu.
+        const panel = document.getElementById("filter-select-panel");
+        if (!panel || !panel.contains(e.target as Node)) close();
+      }
     }
     document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
+    // Reposition is non-trivial across nested scrollers — closing on scroll is
+    // the simplest correct behavior.
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
   }, [open]);
 
   const selected = options.find((o) => o.value === value);
 
   return (
-    <div ref={ref} className={cn("relative", className)}>
+    <div className={cn("relative", className)}>
       <button
+        ref={triggerRef}
         type="button"
+        disabled={disabled}
         onClick={() => setOpen((o) => !o)}
         className={cn(
           FILTER_CONTROL,
-          "flex w-full items-center justify-between gap-2 text-left font-medium text-gray-700"
+          "flex w-full items-center justify-between gap-2 text-left font-medium text-gray-700",
+          disabled && "cursor-not-allowed opacity-50"
         )}
       >
         <span className="truncate">{selected?.label ?? "—"}</span>
@@ -54,8 +83,12 @@ export function FilterSelect<V extends string | number = string>({
         />
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-[50] mt-1.5 w-[min(100vw-2rem,17rem)] overflow-auto rounded-2xl border border-[#D9D9D9] bg-white p-2 shadow-xl">
+      {open && coords && createPortal(
+        <div
+          id="filter-select-panel"
+          style={{ position: "fixed", top: coords.top, left: coords.left, width: Math.max(coords.width, 176) }}
+          className="z-[100] max-h-72 overflow-auto rounded-2xl border border-[#D9D9D9] bg-white p-2 shadow-xl"
+        >
           {options.map((opt) => (
             <button
               key={String(opt.value)}
@@ -72,7 +105,8 @@ export function FilterSelect<V extends string | number = string>({
               {opt.value === value && <Check size={14} className="shrink-0" />}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

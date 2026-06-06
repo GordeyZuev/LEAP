@@ -21,6 +21,16 @@ class VKMetadataConfig(BaseModel):
     title_template: str | None = Field(None, max_length=500, description="VK-specific title template")
     description_template: str | None = Field(None, max_length=5000, description="VK-specific description template")
 
+    # Overrides mirroring VKPresetMetadata (all optional: None = inherit from preset).
+    privacy_view: int | None = Field(None, ge=0, le=3, description="Who can view (0=all,1=friends,2=fof,3=only me)")
+    privacy_comment: int | None = Field(
+        None, ge=0, le=3, description="Who can comment (0=all,1=friends,2=fof,3=only me)"
+    )
+    wallpost: bool | None = Field(None, description="Post to wall on upload")
+    disable_comments: bool | None = Field(None, description="Disable comments completely")
+    repeat: bool | None = Field(None, description="Loop playback")
+    compression: bool | None = Field(None, description="VK-side video compression")
+
     @field_validator("title_template", mode="before")
     @classmethod
     def _vk_title_jinja(cls, v: str | None) -> str | None:
@@ -44,6 +54,31 @@ class YouTubeMetadataConfig(BaseModel):
     )
     title_template: str | None = Field(None, max_length=500, description="YouTube-specific title template")
     description_template: str | None = Field(None, max_length=5000, description="YouTube-specific description template")
+
+    # Overrides mirroring YouTubePresetMetadata (all optional: None = inherit from preset/base).
+    category_id: str | None = Field(None, description="YouTube category override (e.g. '27' = Education)")
+    tags: list[str] | None = Field(None, max_length=500, description="Video tags override (max 500)")
+    made_for_kids: bool | None = Field(None, description="Content for kids (COPPA)")
+    embeddable: bool | None = Field(None, description="Allow embedding on other sites")
+    license: str | None = Field(None, description="License type (youtube, creativeCommon)")
+    default_language: str | None = Field(None, description="Default language", examples=["ru", "en"])
+    publish_at: str | None = Field(None, description="ISO 8601 publish date/time (scheduled publishing)")
+    disable_comments: bool | None = Field(None, description="Disable comments")
+    rating_disabled: bool | None = Field(None, description="Disable like/dislike ratings")
+    notify_subscribers: bool | None = Field(None, description="Notify subscribers about publication")
+
+    @field_validator("category_id")
+    @classmethod
+    def validate_category_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            cat_int = int(v)
+            if cat_int < 1:
+                raise ValueError("category_id must be positive")
+        except ValueError:
+            raise ValueError("category_id must be a number")
+        return str(cat_int)
 
     @field_validator("title_template", mode="before")
     @classmethod
