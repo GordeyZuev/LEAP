@@ -153,14 +153,8 @@ def should_allow_transcription(recording: RecordingModel) -> bool:
 
 
 def can_pause(recording: RecordingModel) -> bool:
-    """Check if recording can be paused (only during active processing)."""
-    if recording.on_pause:
-        return False
-    return recording.status in [
-        ProcessingStatus.DOWNLOADING,
-        ProcessingStatus.PROCESSING,
-        ProcessingStatus.UPLOADING,
-    ]
+    """Check if recording can be paused: only when pipeline is actively running."""
+    return recording.on_air and not recording.on_pause
 
 
 def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:

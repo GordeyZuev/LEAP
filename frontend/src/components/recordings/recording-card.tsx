@@ -25,6 +25,7 @@ export interface RecordingCardData {
   duration: number;
   failed: boolean;
   on_pause: boolean;
+  on_air: boolean;
   source: SourceInfo | null;
   template_id: number | null;
   template_name: string | null;

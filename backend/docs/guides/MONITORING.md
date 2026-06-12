@@ -137,6 +137,13 @@ Exposed on the same `http://api:8000/metrics` endpoint:
   set is populated by the `before_task_publish` signal in `celery_app.py`
   and cleaned by `task_prerun`.
 
+**Pipeline stage histogram caveat:** `track_pipeline_stage()` runs inside
+Celery workers, but Prometheus only scrapes the API process (`api:8000`).
+Those worker-local counters are **not** visible to Grafana today. The
+**LEAP Pipeline** dashboard reads stage duration / failure rate from the
+Postgres `stage_timings` table instead (migration **025** grants
+`grafana_ro` SELECT on it).
+
 ### Health endpoints (`backend/api/routers/health.py`)
 
 | Endpoint                  | Purpose                                                 |
@@ -165,6 +172,16 @@ dependency probe fails. The storage check (S3 `head_bucket`) is cached for
 
 # Failed Celery tasks with their exception class
 {app="leap", task_state="FAILURE", exception_class="ValueError"}
+
+# Distinct recordings with ERROR logs (LEAP Errors dashboard)
+count(count by (record_extra_recording_id) (
+  count_over_time({app="leap", level=~"ERROR|CRITICAL"} | json | record_extra_recording_id != "" [1h])
+))
+
+# Top recordings by error count
+topk(10, sum by (record_extra_recording_id) (
+  count_over_time({app="leap", level=~"ERROR|CRITICAL"} | json | record_extra_recording_id != "" [1h])
+))
 ```
 
 ### PromQL
@@ -214,11 +231,11 @@ question forces the need, not pre-emptively.
 
 | File                                    | UID              | Panels | What it answers                                                  |
 | --------------------------------------- | ---------------- | -----: | ---------------------------------------------------------------- |
-| `dashboards/leap_overview.json`         | `leap-overview`  | 11     | **Default home.** Business: active users, recordings, uploads, MRR, success rate, top users, upload success by platform, stuck recordings, failed by stage. |
-| `dashboards/leap_pipeline.json`         | `leap-pipeline`  |  6     | Pipeline: 24h throughput, stage duration p50/p95/p99, stage failure %, recordings in flight by status. |
+| `dashboards/leap_overview.json`         | `leap-overview`  | 11     | **Default home.** Business stats (fixed 24h) + trends/health tied to dashboard time range via `$__timeFilter`. |
+| `dashboards/leap_pipeline.json`         | `leap-pipeline`  |  6     | Pipeline: 24h Celery throughput, stage duration/failure from Postgres `stage_timings`, in-flight by status. |
 | `dashboards/leap_api.json`              | `leap-api`       | 10     | API: RPS, 5xx%, p95, 4xx%, latency percentiles, RPS by HTTP method, top routes by RPS / p95, 5xx by route + recent 5xx logs. |
 | `dashboards/leap_celery.json`           | `leap-celery`    |  7     | Celery: failure rate, active workers, pending tasks, per-queue depth + oldest task age, failures by task name + recent failures logs. |
-| `dashboards/leap_errors.json`           | `leap-errors`    |  6     | Errors: ERROR/CRITICAL count, distinct affected recordings, top exception types, recent ERRORs, errors grouped by recording_id and user_id. |
+| `dashboards/leap_errors.json`           | `leap-errors`    |  6     | Errors: ERROR/CRITICAL count, distinct affected recordings, Celery exception types, recent ERRORs, errors by recording / user (`record_extra_*` after `\| json`). |
 
 Auto-provisioned from `monitoring/grafana_dashboards.yml` — drop a new JSON
 into `monitoring/dashboards/`, redeploy, Grafana picks it up within 30s.
@@ -273,6 +290,11 @@ curl -s http://localhost:9090/prometheus/api/v1/targets | jq '.data.activeTarget
 
 # Grafana sees both datasources:
 # open https://${DOMAIN}/grafana/datasources — both Loki and Prometheus must be green
+
+# LEAP-DB (Overview / Pipeline Postgres panels):
+# Data sources → LEAP-DB → Save & test must succeed.
+docker compose exec postgres psql -U postgres -d leap_platform -c "\du grafana_ro"
+docker compose exec postgres psql -U postgres -d leap_platform -c "\dp stage_timings"
 ```
 
 ## Cardinality budget
@@ -293,9 +315,12 @@ If you add a new label, do the math first.
 
 | Symptom                                                | Likely cause                                                      | Fix                                                      |
 | ------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------- |
-| Grafana panels empty, "No data"                        | App not writing `structured.json`                                 | Check `JSON_LOG_FILE` env in container; restart app      |
+| **Overview / Pipeline Postgres panels** all empty      | `grafana_ro` role missing or LEAP-DB password mismatch            | Set `GRAFANA_RO_PASSWORD` in Lockbox; run migration **023** (role) + **025** (`stage_timings` grant); restart Grafana |
+| **Pipeline stage duration** panels empty               | Migration **025** not applied or `grafana_ro` lacks `stage_timings` | `make migrate`; verify `\dp stage_timings` shows `grafana_ro=r/postgres` |
+| **Errors → Who's affected** always zero                | LogQL used bare `recording_id` instead of `record_extra_recording_id` after `\| json` | Use fixed `leap_errors.json` (2026-06-12+)               |
+| Grafana panels empty, "No data" (Loki)                 | App not writing `structured.json`                                 | Check `JSON_LOG_FILE` env in container; restart app      |
 | Loki has data but `level`/`module` labels are missing  | Promtail config out of sync with loguru's `serialize=True` schema | Restart promtail; verify with `promtail --check-config`  |
-| Prometheus targets DOWN for `leap-api`                 | `/metrics` not exposed                                            | Confirm `MONITORING_PROMETHEUS_ENABLED=true`             |
+| Prometheus targets DOWN for `leap-api`                 | `/metrics` not exposed                                            | Confirm `MONITORING_PROMETHEUS_ENABLED=true` on **api** container |
 | `celery_queue_length` always 0                         | celery-exporter can't read events                                 | Worker must run with default `worker_send_task_events`   |
 | `request_id` blank in logs                             | Middleware order — `LoggingMiddleware` registered after handlers  | Keep `app.add_middleware(LoggingMiddleware)` in `main.py` |
 

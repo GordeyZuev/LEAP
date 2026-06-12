@@ -6,6 +6,7 @@ from .maintenance import (
     cleanup_expired_tokens_task,
     cleanup_recording_files_task,
     hard_delete_recordings_task,
+    reset_stale_active_recordings_task,
 )
 from .processing import (
     download_recording_task,

@@ -32,6 +32,8 @@ def create_mock_recording(
     recording.deleted = deleted
     recording.failed = failed
     recording.on_pause = kwargs.get("on_pause", False)
+    recording.on_air = kwargs.get("on_air", False)
+    recording.pipeline_task_id = kwargs.get("pipeline_task_id")
     recording.pause_requested_at = kwargs.get("pause_requested_at")
     recording.start_time = kwargs.get("start_time", datetime.now(UTC))
     recording.duration = kwargs.get("duration", 3600)

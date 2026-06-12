@@ -17,3 +17,9 @@ export const TOAST_LONG = 5000;
 
 // Recording statuses that trigger active polling
 export const ACTIVE_POLL_STATUSES = new Set(["DOWNLOADING", "PROCESSING", "UPLOADING"]);
+
+// Returns true if a recording needs active polling (on_air is the canonical signal;
+// status-based check is a fallback for recordings created before the on_air migration).
+export function needsActivePoll(recording: { on_air?: boolean; status: string }): boolean {
+  return recording.on_air === true || ACTIVE_POLL_STATUSES.has(recording.status);
+}

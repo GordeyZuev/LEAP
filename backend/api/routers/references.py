@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 
 from api.auth.dependencies import get_current_user
 from api.schemas.auth import UserInDB
+from api.schemas.template.preset_metadata import display_config_defaults_payload
 
 router = APIRouter(prefix="/api/v1/references", tags=["References"])
 
@@ -84,3 +85,11 @@ async def get_platforms(_: UserInDB = Depends(get_current_user)) -> list[dict]:
 async def get_timezones(_: UserInDB = Depends(get_current_user)) -> list[dict]:
     """Supported timezones."""
     return _TIMEZONES
+
+
+@router.get("/display-config-defaults")
+async def get_display_config_defaults(
+    _: UserInDB = Depends(get_current_user),
+) -> dict:
+    """Effective defaults and validation bounds for topics_display / questions_display editors."""
+    return display_config_defaults_payload()

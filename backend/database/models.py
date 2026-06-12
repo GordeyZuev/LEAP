@@ -96,6 +96,10 @@ class RecordingModel(Base):
     pipeline_duration_seconds: Mapped[float | None] = mapped_column(Float)
     final_duration: Mapped[float | None] = mapped_column(Float)
 
+    # --- Pipeline activity ---
+    on_air: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    pipeline_task_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+
     # --- Pause state ---
     on_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     pause_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

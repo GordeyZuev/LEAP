@@ -51,18 +51,18 @@
       "title": "MRR (₽)",
       "gridPos": {"x": 20, "y": 1, "w": 4, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(SUM(p.price_monthly), 0) AS value FROM user_subscriptions s JOIN subscription_plans p ON p.id = s.plan_id WHERE (s.expires_at IS NULL OR s.expires_at > NOW());"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(SUM(p.price_monthly), 0) AS value FROM user_subscriptions s JOIN subscription_plans p ON p.id = s.plan_id WHERE p.is_active AND p.price_monthly > 0 AND (s.expires_at IS NULL OR s.expires_at > NOW());"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none"},
       "fieldConfig": {"defaults": {"unit": "currencyRUB", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}}
     },
 
-    {"type": "row", "title": "Trends (7 days)", "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {"type": "row", "title": "Trends (dashboard time range)", "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "timeseries",
       "title": "Recordings per day",
       "gridPos": {"x": 0, "y": 6, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', created_at) AS time, COUNT(*) AS value FROM recordings WHERE created_at > NOW() - INTERVAL '7 days' GROUP BY 1 ORDER BY 1;"}],
+      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', created_at) AS time, COUNT(*) AS value FROM recordings WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1;"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1}}}
     },
     {
@@ -70,28 +70,28 @@
       "title": "Uploads per day by platform",
       "gridPos": {"x": 12, "y": 6, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', uploaded_at) AS time, target_type AS metric, COUNT(*) AS value FROM output_targets WHERE status = 'UPLOADED' AND uploaded_at > NOW() - INTERVAL '7 days' GROUP BY 1, 2 ORDER BY 1;"}],
+      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', uploaded_at) AS time, target_type::text AS metric, COUNT(*) AS value FROM output_targets WHERE status = 'UPLOADED' AND $__timeFilter(uploaded_at) GROUP BY 1, 2 ORDER BY 1;"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 80, "stacking": {"mode": "normal"}}}},
       "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}
     },
 
-    {"type": "row", "title": "Health", "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {"type": "row", "title": "Health (dashboard time range)", "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "table",
-      "title": "Top users by recordings (7d)",
+      "title": "Top users by recordings",
       "gridPos": {"x": 0, "y": 15, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT u.email, COUNT(r.*) AS recordings, ROUND(COALESCE(SUM(r.final_duration), 0)::numeric / 60, 1) AS total_minutes FROM recordings r JOIN users u ON u.id = r.user_id WHERE r.created_at > NOW() - INTERVAL '7 days' GROUP BY u.email ORDER BY recordings DESC LIMIT 10;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT u.email, COUNT(r.*) AS recordings, ROUND(COALESCE(SUM(r.final_duration), 0)::numeric / 60, 1) AS total_minutes FROM recordings r JOIN users u ON u.id = r.user_id WHERE $__timeFilter(r.created_at) GROUP BY u.email ORDER BY recordings DESC LIMIT 10;"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}, "overrides": [
         {"matcher": {"id": "byName", "options": "recordings"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}]}
       ]}
     },
     {
       "type": "barchart",
-      "title": "Upload success rate by platform (7d)",
+      "title": "Upload success rate by platform",
       "gridPos": {"x": 12, "y": 15, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT target_type AS platform, ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'UPLOADED') / NULLIF(COUNT(*), 0), 1) AS success_pct FROM output_targets WHERE created_at > NOW() - INTERVAL '7 days' GROUP BY 1 ORDER BY 2 DESC;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT target_type::text AS platform, ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'UPLOADED') / NULLIF(COUNT(*), 0), 1) AS success_pct FROM output_targets WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 2 DESC;"}],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 85}, {"color": "green", "value": 95}]}}},
       "options": {"orientation": "horizontal", "xField": "platform", "showValue": "always"}
     },
@@ -102,7 +102,7 @@
       "title": "Stuck recordings (>2h in same status)",
       "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT id, user_id, status, ROUND(EXTRACT(EPOCH FROM NOW() - updated_at) / 3600, 1) AS hours_stuck, display_name FROM recordings WHERE status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') AND NOT failed AND NOT deleted AND updated_at < NOW() - INTERVAL '2 hours' ORDER BY hours_stuck DESC LIMIT 20;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT id, user_id, status, ROUND(EXTRACT(EPOCH FROM NOW() - updated_at) / 3600, 1) AS hours_stuck, display_name FROM recordings WHERE status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') AND NOT failed AND NOT deleted AND NOT on_pause AND updated_at < NOW() - INTERVAL '2 hours' ORDER BY hours_stuck DESC LIMIT 20;"}],
       "fieldConfig": {"defaults": {}, "overrides": [
         {"matcher": {"id": "byName", "options": "hours_stuck"}, "properties": [{"id": "unit", "value": "h"}, {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 12}]}}]}
       ]}
@@ -126,5 +126,5 @@
   "timezone": "",
   "title": "LEAP Overview",
   "uid": "leap-overview",
-  "version": 1
+  "version": 2
 }

@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/api/client";
+import type { DisplayConfigDefaultsPayload } from "@/lib/display-config-defaults";
+import { DISPLAY_CONFIG_PLACEHOLDER } from "@/lib/display-config-defaults";
 
 interface ReferenceItem {
   value: string;
@@ -52,6 +54,20 @@ export function useTimezones() {
   return useQuery({
     queryKey: ["references", "timezones"],
     queryFn: () => fetchReference("timezones"),
+    ...QUERY_OPTIONS,
+  });
+}
+
+export function useDisplayConfigDefaults() {
+  return useQuery({
+    queryKey: ["references", "display-config-defaults"],
+    queryFn: async () => {
+      const { data } = await apiClient.get<DisplayConfigDefaultsPayload>(
+        "/references/display-config-defaults",
+      );
+      return data;
+    },
+    placeholderData: DISPLAY_CONFIG_PLACEHOLDER,
     ...QUERY_OPTIONS,
   });
 }

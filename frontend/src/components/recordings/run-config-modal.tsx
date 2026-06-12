@@ -34,10 +34,11 @@ import {
 import {
   DisplayConfigFields,
   type DisplayConfig,
-  DEFAULT_TOPICS_DISPLAY,
-  DEFAULT_QUESTIONS_DISPLAY,
+  defaultTopicsDisplay,
+  defaultQuestionsDisplay,
   toDisplayPayload,
   fromDisplayPayload,
+  appendDisplayConfigPreviewBody,
 } from "@/components/platforms/display-config-fields";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import {
@@ -236,8 +237,8 @@ export function RunConfigModal({
   const [titleTemplate, setTitleTemplate] = useState("");
   const [descriptionTemplate, setDescriptionTemplate] = useState("");
   const [globalThumbnail, setGlobalThumbnail] = useState("");
-  const [topicsDisplay, setTopicsDisplay] = useState<DisplayConfig>({ ...DEFAULT_TOPICS_DISPLAY });
-  const [questionsDisplay, setQuestionsDisplay] = useState<DisplayConfig>({ ...DEFAULT_QUESTIONS_DISPLAY });
+  const [topicsDisplay, setTopicsDisplay] = useState<DisplayConfig>(() => defaultTopicsDisplay());
+  const [questionsDisplay, setQuestionsDisplay] = useState<DisplayConfig>(() => defaultQuestionsDisplay());
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
   const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
@@ -391,8 +392,8 @@ export function RunConfigModal({
     setTitleTemplate("");
     setDescriptionTemplate("");
     setGlobalThumbnail("");
-    setTopicsDisplay({ ...DEFAULT_TOPICS_DISPLAY });
-    setQuestionsDisplay({ ...DEFAULT_QUESTIONS_DISPLAY });
+    setTopicsDisplay(defaultTopicsDisplay());
+    setQuestionsDisplay(defaultQuestionsDisplay());
     setYtFields({ ...DEFAULT_YOUTUBE_FIELDS });
     setVkFields({ ...DEFAULT_VK_FIELDS });
     setYdFields({ ...DEFAULT_YANDEX_DISK_FIELDS });
@@ -442,8 +443,8 @@ export function RunConfigModal({
       setMetadataOpen(true);
       if (mc.title_template) setTitleTemplate(mc.title_template);
       if (mc.description_template) setDescriptionTemplate(mc.description_template);
-      if (mc.topics_display) setTopicsDisplay(fromDisplayPayload(mc.topics_display, "topics"));
-      if (mc.questions_display) setQuestionsDisplay(fromDisplayPayload(mc.questions_display, "questions"));
+      setTopicsDisplay(fromDisplayPayload(mc.topics_display, "topics"));
+      setQuestionsDisplay(fromDisplayPayload(mc.questions_display, "questions"));
       if (mc.youtube) setYtFields(youtubeFieldsFromApi(mc.youtube));
       if (mc.vk) setVkFields(vkFieldsFromApi(mc.vk));
       if (mc.yandex_disk) setYdFields(yandexFieldsFromApi(mc.yandex_disk));
@@ -513,6 +514,7 @@ export function RunConfigModal({
         const fname = ydFields.filename_template?.trim();
         if (folder) body.folder_path_template = folder;
         if (fname) body.filename_template = fname;
+        appendDisplayConfigPreviewBody(body, topicsDisplay, questionsDisplay);
       }
 
       const res = await apiClient.post<MetadataRenderPreviewData>("/templates/render-preview", body);

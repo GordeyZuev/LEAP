@@ -572,11 +572,20 @@ async def _async_upload_recording(
                 logger.warning("Description is empty, using fallback")
                 fallback_desc = render_jinja("Uploaded on {{ record_date_iso }}", template_context)
                 description = fallback_desc or "Uploaded"
-                if recording.main_topics:
+                topics_for_fallback: list[Any] = []
+                tts = getattr(recording, "topic_timestamps", None)
+                if tts and isinstance(tts, (list, tuple)):
+                    topics_for_fallback = list(tts)
+                elif recording.main_topics:
+                    mt = recording.main_topics
+                    topics_for_fallback = list(mt) if isinstance(mt, (list, tuple)) else [mt]
+                if topics_for_fallback:
                     if topics_display and topics_display.get("enabled", True):
-                        topics_str = TemplateRenderer._format_topics_list(recording.main_topics, topics_display)
+                        topics_str = TemplateRenderer._format_topics_list(topics_for_fallback, topics_display)
                     else:
-                        topics_str = ", ".join(recording.main_topics[:5])
+                        topics_str = ", ".join(
+                            str(t.get("topic", t) if isinstance(t, dict) else t) for t in topics_for_fallback[:5]
+                        )
                     description += f"\n\n{topics_str}"
                 if questions_display and questions_display.get("enabled") and template_context.get("questions"):
                     description += f"\n\n{template_context['questions']}"

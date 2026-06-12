@@ -182,6 +182,12 @@ celery_app.conf.beat_schedule = {
         "task": "maintenance.cleanup_temp_files",
         "schedule": crontab(minute=15),  # Hourly at :15
     },
+    "reset-stale-active-recordings": {
+        # Clears on_air=True recordings whose pipeline_started_at is older than 2h.
+        # Protects against worker crashes that leave on_air stuck forever.
+        "task": "maintenance.reset_stale_active_recordings",
+        "schedule": crontab(minute="*/30"),  # Every 30 minutes
+    },
 }
 
 

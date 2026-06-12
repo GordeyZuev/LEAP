@@ -149,3 +149,20 @@ class TestPrepareRecordingContext:
         assert ctx["record_timestamp_local"] == ""
         assert ctx["publish_timestamp_local"]
         assert len(ctx["record_date_iso"]) == 10 and ctx["record_date_iso"].count("-") == 2
+
+    def test_topics_without_display_config_uses_full_list_not_hidden_cap(self) -> None:
+        """When topics_display is omitted, all topic_timestamps are formatted (default max_count=999)."""
+        topics = [{"topic": f"Topic {i}", "start": float(i * 60)} for i in range(15)]
+        rec = SimpleNamespace(
+            display_name="Lecture",
+            start_time=datetime(2026, 6, 6, 10, 0, 0, tzinfo=UTC),
+            duration=3600.0,
+            id=1,
+            main_topics=None,
+            topic_timestamps=topics,
+            owner=None,
+        )
+        ctx = TemplateRenderer.prepare_recording_context(rec)
+        assert ctx["topics"].count("\n") == 14
+        assert "15. Topic 14" in ctx["topics"]
+        assert "11. Topic 10" in ctx["topics"]

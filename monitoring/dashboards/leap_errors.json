@@ -24,7 +24,7 @@
       "title": "Distinct affected recordings (1h)",
       "gridPos": {"x": 12, "y": 1, "w": 12, "h": 4},
       "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "sum(count by (recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | recording_id != \"\" [1h])))"}],
+      "targets": [{"refId": "A", "expr": "count(count by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id != \"\" [1h])))"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 25}]}}},
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none"}
     },
@@ -55,12 +55,12 @@
     {"type": "row", "title": "Who's affected", "gridPos": {"x": 0, "y": 15, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "table",
-      "title": "Errors by recording_id (1h)",
+      "title": "Errors by recording (1h)",
       "gridPos": {"x": 0, "y": 16, "w": 12, "h": 9},
       "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "topk(10, sum by (recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | recording_id != \"\" [1h])))", "instant": true, "format": "table"}],
+      "targets": [{"refId": "A", "expr": "topk(10, sum by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id != \"\" [1h])))", "instant": true, "format": "table"}],
       "transformations": [
-        {"id": "organize", "options": {"renameByName": {"recording_id": "Recording", "Value": "Errors (1h)"}, "excludeByName": {"Time": true, "__name__": true}}}
+        {"id": "organize", "options": {"renameByName": {"record_extra_recording_id": "Recording", "Value": "Errors (1h)"}, "excludeByName": {"Time": true, "__name__": true}}}
       ],
       "fieldConfig": {"defaults": {}, "overrides": [
         {"matcher": {"id": "byName", "options": "Errors (1h)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 10}]}}]}
@@ -68,12 +68,12 @@
     },
     {
       "type": "table",
-      "title": "Errors by user_id (1h)",
+      "title": "Errors by user (1h, 8-char id)",
       "gridPos": {"x": 12, "y": 16, "w": 12, "h": 9},
       "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "topk(10, sum by (user_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | user_id != \"\" [1h])))", "instant": true, "format": "table"}],
+      "targets": [{"refId": "A", "expr": "topk(10, sum by (record_extra_user_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_user_id != \"\" [1h])))", "instant": true, "format": "table"}],
       "transformations": [
-        {"id": "organize", "options": {"renameByName": {"user_id": "User", "Value": "Errors (1h)"}, "excludeByName": {"Time": true, "__name__": true}}}
+        {"id": "organize", "options": {"renameByName": {"record_extra_user_id": "User", "Value": "Errors (1h)"}, "excludeByName": {"Time": true, "__name__": true}}}
       ],
       "fieldConfig": {"defaults": {}, "overrides": [
         {"matcher": {"id": "byName", "options": "Errors (1h)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 10}]}}]}
@@ -89,5 +89,5 @@
   "timezone": "",
   "title": "LEAP Errors & Logs",
   "uid": "leap-errors",
-  "version": 1
+  "version": 2
 }

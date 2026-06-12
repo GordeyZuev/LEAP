@@ -38,11 +38,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Pagination } from "@/components/ui/pagination";
 import type { ProcessingStatus } from "@/components/ui/status-badge";
 import {
-  ACTIVE_POLL_STATUSES,
   DEBOUNCE_SEARCH,
   PER_PAGE_LARGE,
   PER_PAGE_RECORDINGS,
   POLL_INTERVAL_LIST,
+  needsActivePoll,
 } from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
@@ -244,7 +244,7 @@ function RecordingsPagedResults({
     },
     refetchInterval: (q) => {
       const items = q.state.data?.items ?? [];
-      return items.some((r) => ACTIVE_POLL_STATUSES.has(r.status)) ? POLL_INTERVAL_LIST : false;
+      return items.some((r) => needsActivePoll(r)) ? POLL_INTERVAL_LIST : false;
     },
     refetchIntervalInBackground: false,
   });

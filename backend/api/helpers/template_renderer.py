@@ -339,28 +339,34 @@ class TemplateRenderer:
     @staticmethod
     def _format_topics_list(
         topics: Sequence[Any],
-        config: Mapping[str, Any],
+        config: Mapping[str, Any] | None,
     ) -> str:
-        cfg: dict[str, Any] = dict(config)
+        from api.schemas.template.preset_metadata import normalize_topics_display
+
+        raw = dict(config) if config else {}
+        cfg = normalize_topics_display(raw)
 
         if not cfg.get("enabled", True) or not topics:
             return ""
 
         # Preset metadata uses `show_timestamps`; user config TopicsDisplay uses `include_timestamps`.
-        show_timestamps = bool(
-            cfg["show_timestamps"] if "show_timestamps" in cfg else cfg.get("include_timestamps", True)
-        )
+        if "show_timestamps" in raw:
+            show_timestamps = bool(raw["show_timestamps"])
+        elif "include_timestamps" in raw:
+            show_timestamps = bool(raw["include_timestamps"])
+        else:
+            show_timestamps = bool(cfg["show_timestamps"])
 
         normalized_topics = [
             item if isinstance(item, dict) else {"topic": str(item), "start": None, "end": None} for item in topics
         ]
 
-        min_length = cfg.get("min_length") or 0
-        max_length = cfg.get("max_length") or 999
+        min_length = int(cfg["min_length"])
+        max_length = int(cfg["max_length"])
 
         filtered_topics = [t for t in normalized_topics if min_length <= len(str(t.get("topic", ""))) <= max_length]
 
-        max_count = cfg.get("max_count") or 999
+        max_count = int(cfg["max_count"])
         if max_count > 0:
             filtered_topics = filtered_topics[:max_count]
 
@@ -402,20 +408,22 @@ class TemplateRenderer:
         return formatted
 
     @staticmethod
-    def _format_questions_list(questions: list[str], config: Mapping[str, Any]) -> str:
-        cfg: dict[str, Any] = dict(config)
+    def _format_questions_list(questions: list[str], config: Mapping[str, Any] | None) -> str:
+        from api.schemas.template.preset_metadata import normalize_questions_display
+
+        cfg = normalize_questions_display(config)
 
         if not cfg.get("enabled", False) or not questions:
             return ""
         if not isinstance(questions, list):
             return ""
 
-        min_length = cfg.get("min_length") or 0
-        max_length = cfg.get("max_length") or 1000
+        min_length = int(cfg["min_length"])
+        max_length = int(cfg["max_length"])
 
         filtered = [q.strip() for q in questions if q and min_length <= len(q.strip()) <= max_length]
 
-        max_count = cfg.get("max_count") or 20
+        max_count = int(cfg["max_count"])
         if max_count > 0:
             filtered = filtered[:max_count]
 
@@ -535,8 +543,14 @@ class TemplateRenderer:
             questions = raw_q if isinstance(raw_q, list) else []
         context["summary"] = summary or ""
 
-        if questions_display and questions_display.get("enabled"):
-            context["questions"] = TemplateRenderer._format_questions_list(questions, dict(questions_display))
+        if questions_display is not None:
+            from api.schemas.template.preset_metadata import normalize_questions_display
+
+            q_cfg = normalize_questions_display(questions_display)
+            if q_cfg.get("enabled"):
+                context["questions"] = TemplateRenderer._format_questions_list(questions, q_cfg)
+            else:
+                context["questions"] = ""
         else:
             context["questions"] = ""
 
@@ -557,16 +571,7 @@ class TemplateRenderer:
             topics_for_description = list(main_topics)
 
         if topics_for_description:
-            if topics_display:
-                context["topics"] = TemplateRenderer._format_topics_list(topics_for_description, dict(topics_display))
-            elif topics_for_description and isinstance(topics_for_description[0], dict):
-                context["topics"] = "\n".join(
-                    f"{i + 1}. {item.get('topic', '')}" for i, item in enumerate(topics_for_description[:10])
-                )
-            else:
-                context["topics"] = "\n".join(
-                    f"{i + 1}. {topic}" for i, topic in enumerate(topics_for_description[:10])
-                )
+            context["topics"] = TemplateRenderer._format_topics_list(topics_for_description, topics_display)
         else:
             context["topics"] = ""
 

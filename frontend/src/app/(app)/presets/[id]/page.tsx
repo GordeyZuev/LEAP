@@ -26,6 +26,7 @@ import {
   vkFieldsToApi,
   yandexFieldsToApi,
 } from "@/components/platforms/platform-fields";
+import { appendDisplayConfigPreviewBody } from "@/components/platforms/display-config-fields";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -192,6 +193,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
         const m = meta as YouTubeFieldsValue | VkFieldsValue;
         if (m.title_template.trim()) body.title_template = m.title_template;
         if (m.description_template.trim()) body.description_template = m.description_template;
+        appendDisplayConfigPreviewBody(body, m.topics_display, m.questions_display);
       } else {
         const yd = meta as YandexDiskFieldsValue;
         if (yd.folder_path_template?.trim()) body.folder_path_template = yd.folder_path_template;

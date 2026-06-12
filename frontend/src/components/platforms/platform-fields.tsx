@@ -11,11 +11,13 @@ import { PlatformToggle } from "@/components/platforms/platform-toggle";
 import {
   DisplayConfigFields,
   type DisplayConfig,
-  DEFAULT_TOPICS_DISPLAY,
-  DEFAULT_QUESTIONS_DISPLAY,
+  defaultTopicsDisplay,
+  defaultQuestionsDisplay,
   toDisplayPayload,
   fromDisplayPayload,
 } from "@/components/platforms/display-config-fields";
+import type { DisplayConfigDefaultsPayload } from "@/lib/display-config-defaults";
+import { DISPLAY_CONFIG_PLACEHOLDER } from "@/lib/display-config-defaults";
 
 // Re-exported for existing importers.
 export { PlatformToggle };
@@ -336,8 +338,8 @@ export const DEFAULT_YOUTUBE_FIELDS: YouTubeFieldsValue = {
   disable_comments: false,
   rating_disabled: false,
   notify_subscribers: true,
-  topics_display: { ...DEFAULT_TOPICS_DISPLAY },
-  questions_display: { ...DEFAULT_QUESTIONS_DISPLAY },
+  topics_display: defaultTopicsDisplay(),
+  questions_display: defaultQuestionsDisplay(),
 };
 
 const YT_PRIVACY_OPTIONS = [
@@ -533,8 +535,8 @@ export const DEFAULT_VK_FIELDS: VkFieldsValue = {
   repeat: false,
   compression: false,
   disable_comments: false,
-  topics_display: { ...DEFAULT_TOPICS_DISPLAY },
-  questions_display: { ...DEFAULT_QUESTIONS_DISPLAY },
+  topics_display: defaultTopicsDisplay(),
+  questions_display: defaultQuestionsDisplay(),
 };
 
 const VK_PRIVACY_OPTIONS = [
@@ -863,7 +865,10 @@ export function YandexDiskFields({
 // (template-level YandexDiskMetadataConfig does not support them).
 // ---------------------------------------------------------------------------
 
-export function youtubeFieldsFromApi(raw: unknown): YouTubeFieldsValue {
+export function youtubeFieldsFromApi(
+  raw: unknown,
+  defaults: DisplayConfigDefaultsPayload = DISPLAY_CONFIG_PLACEHOLDER,
+): YouTubeFieldsValue {
   const base = { ...DEFAULT_YOUTUBE_FIELDS };
   if (!raw || typeof raw !== "object") return base;
   const o = raw as Record<string, unknown>;
@@ -886,8 +891,8 @@ export function youtubeFieldsFromApi(raw: unknown): YouTubeFieldsValue {
     disable_comments:   Boolean(o.disable_comments),
     rating_disabled:    Boolean(o.rating_disabled),
     notify_subscribers: o.notify_subscribers != null ? Boolean(o.notify_subscribers) : true,
-    topics_display:     fromDisplayPayload(o.topics_display, "topics"),
-    questions_display:  fromDisplayPayload(o.questions_display, "questions"),
+    topics_display:     fromDisplayPayload(o.topics_display, "topics", defaults),
+    questions_display:  fromDisplayPayload(o.questions_display, "questions", defaults),
   };
 }
 
@@ -921,7 +926,10 @@ export function youtubeFieldsToApi(
   return out;
 }
 
-export function vkFieldsFromApi(raw: unknown): VkFieldsValue {
+export function vkFieldsFromApi(
+  raw: unknown,
+  defaults: DisplayConfigDefaultsPayload = DISPLAY_CONFIG_PLACEHOLDER,
+): VkFieldsValue {
   const base = { ...DEFAULT_VK_FIELDS };
   if (!raw || typeof raw !== "object") return base;
   const o = raw as Record<string, unknown>;
@@ -938,8 +946,8 @@ export function vkFieldsFromApi(raw: unknown): VkFieldsValue {
     repeat:          Boolean(o.repeat),
     compression:     Boolean(o.compression),
     disable_comments: Boolean(o.disable_comments),
-    topics_display:    fromDisplayPayload(o.topics_display, "topics"),
-    questions_display: fromDisplayPayload(o.questions_display, "questions"),
+    topics_display:    fromDisplayPayload(o.topics_display, "topics", defaults),
+    questions_display: fromDisplayPayload(o.questions_display, "questions", defaults),
   };
 }
 

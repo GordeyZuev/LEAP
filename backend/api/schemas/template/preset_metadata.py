@@ -1,8 +1,12 @@
 """Typed schemas for preset_metadata"""
 
-from enum import Enum, StrEnum
+from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from collections.abc import Mapping
+from enum import Enum, StrEnum
+from typing import Any, Self
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 
@@ -37,6 +41,19 @@ class TopicsDisplayConfig(BaseModel):
             return v if v else None
         return v
 
+    @model_validator(mode="after")
+    def apply_effective_defaults(self) -> Self:
+        """Null numeric fields mean «use render default» (same as TemplateRenderer._format_topics_list)."""
+        if self.max_count is None:
+            self.max_count = 999
+        if self.min_length is None:
+            self.min_length = 0
+        if self.max_length is None:
+            self.max_length = 999
+        if self.prefix is None:
+            self.prefix = ""
+        return self
+
 
 class QuestionsDisplayConfig(BaseModel):
     """Display settings for self-check questions in description templates."""
@@ -61,6 +78,18 @@ class QuestionsDisplayConfig(BaseModel):
             v = v.strip()
             return v if v else None
         return v
+
+    @model_validator(mode="after")
+    def apply_effective_defaults(self) -> Self:
+        if self.max_count is None:
+            self.max_count = 20
+        if self.min_length is None:
+            self.min_length = 0
+        if self.max_length is None:
+            self.max_length = 1000
+        if self.prefix is None:
+            self.prefix = ""
+        return self
 
 
 class YouTubePrivacy(StrEnum):
@@ -293,3 +322,42 @@ class YandexDiskPresetMetadata(BaseModel):
 
 
 PresetMetadata = YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata
+
+_NUMERIC_BOUND_FIELDS = ("max_count", "min_length", "max_length")
+
+
+def normalize_topics_display(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Merge partial/null topics_display with effective render defaults."""
+    return TopicsDisplayConfig.model_validate(dict(raw or {})).model_dump(mode="json")
+
+
+def normalize_questions_display(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Merge partial/null questions_display with effective render defaults."""
+    return QuestionsDisplayConfig.model_validate(dict(raw or {})).model_dump(mode="json")
+
+
+def _numeric_field_bounds(model: type[BaseModel]) -> dict[str, dict[str, int]]:
+    bounds: dict[str, dict[str, int]] = {}
+    for name in _NUMERIC_BOUND_FIELDS:
+        ge, le = 0, 999999
+        for item in model.model_fields[name].metadata:
+            item_ge = getattr(item, "ge", None)
+            item_le = getattr(item, "le", None)
+            if item_ge is not None:
+                ge = item_ge
+            if item_le is not None:
+                le = item_le
+        bounds[name] = {"min": int(ge), "max": int(le)}
+    return bounds
+
+
+def display_config_defaults_payload() -> dict[str, Any]:
+    """Payload for GET /api/v1/references/display-config-defaults."""
+    return {
+        "topics": normalize_topics_display(None),
+        "questions": normalize_questions_display(None),
+        "bounds": {
+            "topics": _numeric_field_bounds(TopicsDisplayConfig),
+            "questions": _numeric_field_bounds(QuestionsDisplayConfig),
+        },
+    }

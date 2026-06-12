@@ -2,6 +2,187 @@
 
 ---
 
+## 2026-06-12: Pipeline reliability — `on_air` flag, hard pause, idempotency
+
+**Alembic migrations 024 + 025** — apply before deploying this version.
+
+- **`on_air` boolean field** added to `recordings` (indexed, `DEFAULT FALSE`). Acts as the
+  single source of truth for "is a Celery pipeline actively running for this recording?".
+  Set atomically before every `.delay()` call in `_execute_smart_run`, cleared by the new
+  `_finalize_pipeline_task` terminal step, by `on_failure` handlers, and by hard pause.
+  Replaces the fragile status-based active-pipeline checks that could get stuck on worker crash.
+- **`pipeline_task_id` VARCHAR(200)** added to `recordings`. Stores the Celery chain ID so
+  the chain can be revoked on pause and stale pipelines detected by maintenance.
+- **Hard pause** (`POST /{id}/pause`, `POST /bulk-pause`). Replaced the old soft-drain
+  behaviour with an immediate rollback: status rolls back to the nearest stable state
+  (`DOWNLOADING→INITIALIZED`, `PROCESSING→DOWNLOADED`, `UPLOADING→PROCESSED`), all
+  `IN_PROGRESS` processing stages revert to `PENDING`, the Celery chain is soft-revoked
+  (`terminate=False`), and `on_air=False`. Resume is a plain `POST /{id}/run` — no special
+  path needed.
+- **`smart_run` idempotency guard.** `_execute_smart_run` now rejects with `HTTP 409` if
+  `recording.on_air is True`, eliminating the race window where two concurrent `/run`
+  requests could both slip through the old status check.
+- **`_finalize_pipeline_task`** — new terminal Celery task appended to every pipeline chain.
+  Clears `on_air`, `pipeline_task_id`, records `pipeline_completed_at` and
+  `pipeline_duration_seconds`, runs `update_aggregate_status`.
+- **Processing stage idempotency.** `_async_trim_video`, `_async_transcribe_recording`,
+  `_async_extract_topics`, `_async_generate_subtitles` each check whether the stage was
+  already `COMPLETED` before re-executing — safe to re-run after partial failures.
+- **Stale-pipeline maintenance task** (`maintenance.reset_stale_active_recordings`). Runs
+  every 30 minutes via Celery Beat. Finds recordings where `on_air=True` and
+  `pipeline_started_at < now − 2 h` (worker crash / ungraceful shutdown), rolls back status,
+  and clears `on_air`. Protects against recordings stuck "forever in pipeline".
+- **`/reset` fix.** The reset endpoint now revokes the active Celery chain (if any) and
+  clears `on_air` / `pipeline_task_id` before wiping recording state. Previously a reset on
+  an active recording would leave `on_air=True`, blocking all future `/run` calls with 409.
+- **Upload-only path fix.** When `smart_run` dispatches `_launch_uploads_task` from
+  `PROCESSED`/`UPLOADED` status, it now uses a two-step chain
+  `_launch_uploads_task → _finalize_pipeline_task`, so `on_air` is reliably cleared after
+  upload dispatch. Previously `on_air` was never cleared on this path (stuck True until the
+  2-hour maintenance window).
+- **`run_recording_task` early-exit fix.** Blank-record and no-steps-enabled early returns
+  inside the orchestrator now explicitly clear `on_air=False` / `pipeline_task_id=None`
+  in the DB, since these paths never reach `_finalize_pipeline_task`.
+- **Post-pause resume fix (PROCESSED with pending stages).** If a task (e.g. FFmpeg trim)
+  completes naturally after a pause and advances `status→PROCESSED`, subsequent stages
+  (transcription, topics, subtitles) remain PENDING. `smart_run` previously went directly
+  to the upload path for any `PROCESSED` recording, silently skipping all remaining stages.
+  Now `_execute_smart_run` detects PENDING processing stages on a PROCESSED recording and
+  re-dispatches `run_recording_task`; idempotency guards in each task skip already-COMPLETED
+  stages, so only the pending work is repeated.
+- **`_finalize_pipeline_task` pause guard.** If finalize runs despite being revoked (e.g.
+  worker did not receive the revoke broadcast in time), it now skips `update_aggregate_status`
+  when `on_pause=True`, preventing the pipeline completion logic from overwriting the status
+  that was rolled back by the pause handler.
+- **Broker-failure safety.** All four `.delay()` / `.apply_async()` calls in
+  `_execute_smart_run` are now wrapped in `try/except`: if the Celery broker is unavailable
+  the handler clears `on_air=False` before raising `HTTP 502`, preventing the recording from
+  getting stuck in an "active pipeline" state until the 2-hour maintenance window.
+- **Maintenance NULL guard.** `reset_stale_active_recordings_task` previously only matched
+  `on_air=True` recordings where `pipeline_started_at < threshold`. SQL excludes NULLs, so a
+  recording where `on_air=True` but `pipeline_started_at IS NULL` (worker crashed before the
+  orchestrator task set it) would never be reset. Query now also catches that case via
+  `OR (pipeline_started_at IS NULL AND updated_at < threshold)`.
+- **`on_pause` commit on no-op resume.** `_execute_smart_run` cleared `on_pause=False`
+  in-memory for all paths, but only committed it as part of the `on_air=True` write.
+  The "no pending uploads", READY, and fallback return paths returned without committing,
+  leaving `on_pause=True` in the DB despite a successful `/run` response. Fixed by tracking
+  `_was_paused` and committing on those paths before returning.
+- **API schema** — `on_air: bool` exposed on `RecordingListItem` and `RecordingResponse`.
+  `PipelineControlMixin.can_pause` now returns `on_air and not on_pause`; `can_run` blocks
+  when `on_air=True` regardless of status.
+- **Frontend polling.** `needsActivePoll()` helper in `constants.ts` returns `true` when
+  `on_air===true` (or status is in `ACTIVE_POLL_STATUSES` as a fallback for older records).
+  Both the recordings list and detail page use it for the poll-interval decision.
+
+### Deploy order
+
+1. Run `make migrate` (`alembic upgrade head` → revisions **024**, **025**).
+2. Deploy backend.
+3. Restart Grafana (or wait ~30s for dashboard file reload).
+4. Deploy frontend.
+
+No existing data migration needed — all existing recordings get `on_air=FALSE` by the
+column default. Stale stuck recordings will be fixed by the first maintenance run after deploy.
+
+### Файлы
+
+- `backend/alembic/versions/024_on_air_and_pipeline_task_id.py` (новый)
+- `backend/database/models.py`
+- `backend/api/helpers/status_manager.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/tasks/base.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/tasks/maintenance.py`
+- `backend/api/tasks/__init__.py`
+- `backend/api/celery_app.py`
+- `backend/api/schemas/recording/response.py`
+- `backend/tests/unit/api/test_pause_resume.py`
+- `backend/tests/fixtures/factories.py`
+- `frontend/src/lib/constants.ts`
+- `frontend/src/app/(app)/recordings/page.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/components/recordings/recording-card.tsx`
+
+---
+
+## 2026-06-12: Grafana dashboard fixes
+
+- **LEAP Errors** — LogQL panels now use `record_extra_recording_id` /
+  `record_extra_user_id` after `| json` (loguru nested fields). **Distinct
+  affected recordings** uses `count(count by (...))` instead of `sum(...)`.
+- **LEAP Pipeline** — stage duration p50/p95/p99 and stage failure % read from
+  Postgres `stage_timings` (Celery worker histograms are not scraped today).
+  Celery throughput regex fixed (`api.tasks.upload.*`). In-flight chart excludes
+  `on_pause` recordings.
+- **LEAP Overview** — trends / health panels honour dashboard time range via
+  `$__timeFilter`; MRR excludes inactive/free plans; stuck list excludes paused
+  recordings.
+- **Database** — `backend/alembic/versions/025_grafana_ro_stage_timings.py`
+  grants `grafana_ro` SELECT on `stage_timings` when the role exists.
+- **Docs** — `backend/docs/guides/MONITORING.md` failure modes + LogQL examples.
+
+### Файлы
+
+- `monitoring/dashboards/leap_errors.json`
+- `monitoring/dashboards/leap_pipeline.json`
+- `monitoring/dashboards/leap_overview.json`
+- `backend/alembic/versions/025_grafana_ro_stage_timings.py`
+- `backend/docs/guides/MONITORING.md`
+
+---
+
+## v0.10.4 (2026-06-12)
+
+**Релиз: Stable upload & Fixes.** Надёжность пайплайна через `on_air` /
+`pipeline_task_id` (жёсткая пауза, идемпотентные этапы, maintenance для
+застрявших записей). Исправлены upload-only и resume после паузы. Единые
+defaults тем/вопросов между UI, preview и upload. Grafana: LogQL, stage timings
+из Postgres, фильтры по времени и `on_pause`.
+
+**Alembic migrations 024 + 025** — apply before deploying this version.
+
+→ Detailed bullets: sections **2026-06-12** (pipeline reliability + Grafana)
+below.
+
+### Deploy order
+
+1. Run `make migrate` (`alembic upgrade head` → revisions **024**, **025**).
+2. Deploy backend + Celery workers + Beat.
+3. Restart Grafana (or wait ~30s for dashboard file reload).
+4. Deploy frontend.
+
+No existing data migration needed — all existing recordings get `on_air=FALSE`
+by the column default. Stale stuck recordings are fixed by the first maintenance
+run after deploy.
+
+### Файлы
+
+- `backend/alembic/versions/024_on_air_and_pipeline_task_id.py`
+- `backend/alembic/versions/025_grafana_ro_stage_timings.py`
+- `backend/database/models.py`
+- `backend/api/helpers/status_manager.py`
+- `backend/api/helpers/template_renderer.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/references.py`
+- `backend/api/schemas/recording/response.py`
+- `backend/api/schemas/template/preset_metadata.py`
+- `backend/api/tasks/base.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/tasks/maintenance.py`
+- `backend/api/tasks/upload.py`
+- `backend/api/celery_app.py`
+- `backend/tests/unit/api/test_pause_resume.py`
+- `frontend/src/lib/constants.ts`
+- `frontend/src/lib/display-config-defaults.ts`
+- `frontend/src/components/platforms/display-config-fields.tsx`
+- `monitoring/dashboards/leap_errors.json`
+- `monitoring/dashboards/leap_pipeline.json`
+- `monitoring/dashboards/leap_overview.json`
+- `backend/docs/guides/MONITORING.md`
+
+---
+
 ## v0.10.3 (2026-06-06)
 
 **UI parity for presets, templates & recordings.** Surfaced backend metadata
@@ -13,7 +194,50 @@ collapsible Advanced sections. VK upload wiring fixes (`disable_comments` →
 `no_comments`, `compression` forwarded to `video.save`, nested
 `metadata_config.vk` honored). No DB migration — `metadata_config` is JSONB.
 
-→ Detailed bullets: section **2026-06-06** below.
+→ Detailed bullets: sections **2026-06-06** and **2026-06-06 (display defaults)** below.
+
+---
+
+## 2026-06-06: topics/questions display — effective defaults and render parity
+
+Fixes mismatch between **UI «Темы и таймкоды»** (full `topic_timestamps`) and **`{{ topics }}`**
+in upload descriptions (often truncated to 10 items, no timestamps). No DB migration.
+
+- **Effective defaults (single source of truth).** `TopicsDisplayConfig` / `QuestionsDisplayConfig`
+  in `preset_metadata.py` apply render defaults via `@model_validator` (`max_count` **999** for
+  topics, **20** for questions when unset). `normalize_topics_display()` /
+  `normalize_questions_display()` used by the template renderer and tests — removed duplicated
+  default literals elsewhere.
+- **`GET /api/v1/references/display-config-defaults`** — returns effective defaults plus numeric
+  field bounds for editors (`topics` / `questions` / `bounds`). Frontend loads via React Query
+  with a matching placeholder until the API responds.
+- **Render fix.** `prepare_recording_context` formats **`topic_timestamps`** (fallback:
+  `main_topics`); when `topics_display` is omitted, **all** topics are included (default
+  `max_count=999`), not a hidden `[:10]` cap. Legacy user-config key **`include_timestamps`**
+  is honored alongside **`show_timestamps`**.
+- **Save / preview parity.** Editors send `{ enabled: false }` when the block is disabled (so
+  deep-merge overrides stored config). Render-preview requests from preset, template, and
+  run-with-config include `topics_display` / `questions_display` from the form.
+- **Upload fallback.** Empty-description fallback appends topics from `topic_timestamps` (same
+  priority as the main path), not only `main_topics`.
+
+### Файлы
+
+- `backend/api/schemas/template/preset_metadata.py`
+- `backend/api/helpers/template_renderer.py`
+- `backend/api/routers/references.py`
+- `backend/api/tasks/upload.py`
+- `backend/tests/unit/api/schemas/template/test_display_config_defaults.py`
+- `backend/tests/unit/api/helpers/test_template_renderer_jinja.py`
+- `frontend/src/lib/display-config-defaults.ts`
+- `frontend/src/hooks/use-references.ts`
+- `frontend/src/components/platforms/display-config-defaults-prefetch.tsx`
+- `frontend/src/components/platforms/display-config-fields.tsx`
+- `frontend/src/components/platforms/platform-fields.tsx`
+- `frontend/src/app/(app)/layout.tsx`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `frontend/src/components/recordings/run-config-modal.tsx`
 
 ---
 

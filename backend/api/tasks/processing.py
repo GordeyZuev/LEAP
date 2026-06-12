@@ -604,6 +604,12 @@ async def _async_process_video(
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
+        # Idempotency: skip if trim already completed successfully
+        trim_stage = next((s for s in recording.processing_stages if s.stage_type == ProcessingStageType.TRIM), None)
+        if trim_stage and trim_stage.status == ProcessingStageStatus.COMPLETED:
+            logger.info("Skipped: trim already completed")
+            return {"status": "skipped", "reason": "already_completed"}
+
         recording_repo = RecordingRepository(session)
 
         # Reset failure flags if retrying after trim failure
@@ -981,6 +987,12 @@ async def _async_transcribe_recording(
         transcribe_stage = next(
             (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.TRANSCRIBE), None
         )
+
+        # Idempotency: skip if transcription already completed successfully
+        if transcribe_stage and transcribe_stage.status == ProcessingStageStatus.COMPLETED:
+            logger.info("Skipped: transcription already completed")
+            return {"status": "skipped", "reason": "already_completed"}
+
         if transcribe_stage and transcribe_stage.status == ProcessingStageStatus.FAILED:
             logger.info(f"Retrying transcription | {format_details(attempt=transcribe_stage.retry_count + 1)}")
 
@@ -1156,6 +1168,51 @@ async def _async_transcribe_recording(
         finally:
             # Purge the local audio materialization used by Fireworks.
             local_audio.unlink(missing_ok=True)
+
+
+@celery_app.task(
+    bind=True,
+    base=ProcessingTask,
+    name="api.tasks.processing.finalize_pipeline",
+    max_retries=0,
+)
+def _finalize_pipeline_task(self, recording_id: int, user_id: str) -> dict:
+    """
+    Terminal step appended to every pipeline chain.
+
+    Clears on_air / pipeline_task_id and records pipeline_completed_at so the
+    recording lands in a clean "at rest" state regardless of which path the
+    chain took. Also updates the aggregate status one final time.
+    """
+    session_maker = get_async_session_maker()
+
+    async def _finalize():
+        async with session_maker() as session:
+            repo = RecordingRepository(session)
+            rec = await repo.get_by_id(recording_id, user_id)
+            if not rec:
+                logger.warning(f"finalize_pipeline: recording {recording_id} not found — skipping")
+                return
+            # If the recording was paused while the pipeline was running, the pause
+            # handler already cleared on_air and rolled back status. Running
+            # update_aggregate_status here would overwrite that rollback.
+            if rec.on_pause:
+                logger.info(f"finalize_pipeline: recording {recording_id} is paused — skipping status update")
+                rec.on_air = False
+                rec.pipeline_task_id = None
+                await session.commit()
+                return
+            rec.on_air = False
+            rec.pipeline_task_id = None
+            completed_at = datetime.now(UTC)
+            rec.pipeline_completed_at = completed_at
+            if rec.pipeline_started_at:
+                rec.pipeline_duration_seconds = (completed_at - rec.pipeline_started_at).total_seconds()
+            update_aggregate_status(rec)
+            await session.commit()
+
+    self.run_async(_finalize())
+    return self.build_result(user_id=user_id, status="completed", recording_id=recording_id)
 
 
 @celery_app.task(
@@ -1378,6 +1435,8 @@ def run_recording_task(
                     if rec:
                         rec.status = ProcessingStatus.SKIPPED
                         rec.failed_reason = "Blank record (too short or too small)"
+                        rec.on_air = False
+                        rec.pipeline_task_id = None
                         await session.commit()
 
             self.run_async(_mark_skipped())
@@ -1442,6 +1501,18 @@ def run_recording_task(
 
         if not task_chain:
             logger.warning("No processing steps enabled")
+
+            # Clear on_air since no chain will run _finalize_pipeline_task.
+            async def _clear_on_air_no_steps():
+                async with session_maker() as session:
+                    repo = RecordingRepository(session)
+                    rec = await repo.get_by_id(recording_id, user_id)
+                    if rec:
+                        rec.on_air = False
+                        rec.pipeline_task_id = None
+                        await session.commit()
+
+            self.run_async(_clear_on_air_no_steps())
             return self.build_result(
                 user_id=user_id,
                 status="completed",
@@ -1472,9 +1543,23 @@ def run_recording_task(
 
             logger.debug(f"Added upload launcher | {format_details(platforms=platforms)}")
 
+        # Always append finalize step — clears on_air and records completion time
+        task_chain.append(_finalize_pipeline_task.si(recording_id, user_id))
+
         # Launch chain
         chain_signature = chain(*task_chain)
         chain_result = chain_signature.apply_async()
+
+        # Store the actual chain ID so pause can revoke it
+        async def _store_chain_id():
+            async with session_maker() as session:
+                repo = RecordingRepository(session)
+                rec = await repo.get_by_id(recording_id, user_id)
+                if rec:
+                    rec.pipeline_task_id = chain_result.id
+                    await session.commit()
+
+        self.run_async(_store_chain_id())
 
         logger.info(
             f"Pipeline launched | {format_details(tasks=len(task_chain), chain_id=short_task_id(chain_result.id))}"
@@ -1581,6 +1666,14 @@ async def _async_extract_topics(
         if recording.on_pause:
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
+
+        # Idempotency: skip if topics already extracted successfully
+        topics_stage = next(
+            (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.EXTRACT_TOPICS), None
+        )
+        if topics_stage and topics_stage.status == ProcessingStageStatus.COMPLETED:
+            logger.info("Skipped: topic extraction already completed")
+            return {"status": "skipped", "reason": "already_completed"}
 
         # Get user_slug for path generation
         user_slug = recording.owner.user_slug
@@ -1825,6 +1918,14 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         if recording.on_pause:
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
+
+        # Idempotency: skip if subtitles already generated successfully
+        subs_stage = next(
+            (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.GENERATE_SUBTITLES), None
+        )
+        if subs_stage and subs_stage.status == ProcessingStageStatus.COMPLETED:
+            logger.info("Skipped: subtitle generation already completed")
+            return {"status": "skipped", "reason": "already_completed"}
 
         # Get user_slug for path generation
         user_slug = recording.owner.user_slug

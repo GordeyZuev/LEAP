@@ -379,3 +379,83 @@ def cleanup_temp_files_task(max_age_hours: int = 6):
     except Exception as e:
         logger.error("Failed to clean temp files: {}", str(e), exc_info=True)
         return {"status": "error", "error": str(e)}
+
+
+@celery_app.task(
+    name="maintenance.reset_stale_active_recordings",
+    max_retries=settings.celery.maintenance_max_retries,
+    default_retry_delay=settings.celery.maintenance_retry_delay,
+)
+def reset_stale_active_recordings_task(stale_hours: float = 2.0):
+    """
+    Periodic task to reset on_air=True recordings whose pipeline has been
+    running longer than `stale_hours`. Protects against worker crashes that
+    leave on_air stuck without a live Celery task.
+
+    Rolls back status to the nearest stable state and clears on_air /
+    pipeline_task_id so smart_run can re-launch the pipeline cleanly.
+
+    Runs every 30 minutes (configured in Celery Beat).
+    """
+    from datetime import timedelta
+
+    from models.recording import ProcessingStageStatus, ProcessingStatus
+
+    async def _reset():
+        session_maker = get_async_session_maker()
+        threshold = datetime.now(UTC) - timedelta(hours=stale_hours)
+
+        async with session_maker() as session:
+            # Also catch recordings where pipeline_started_at IS NULL — this happens when
+            # a worker died before the orchestrator task had a chance to set it. Use
+            # updated_at as the fallback staleness signal in that case.
+            from sqlalchemy import or_
+
+            result = await session.execute(
+                select(RecordingModel)
+                .where(RecordingModel.on_air.is_(True))
+                .where(
+                    or_(
+                        RecordingModel.pipeline_started_at < threshold,
+                        (RecordingModel.pipeline_started_at.is_(None)) & (RecordingModel.updated_at < threshold),
+                    )
+                )
+                .options(
+                    selectinload(RecordingModel.processing_stages),
+                    selectinload(RecordingModel.outputs),
+                )
+            )
+            stale = result.scalars().all()
+
+            if not stale:
+                return 0
+
+            _rollback_map = {
+                ProcessingStatus.DOWNLOADING: ProcessingStatus.INITIALIZED,
+                ProcessingStatus.PROCESSING: ProcessingStatus.DOWNLOADED,
+                ProcessingStatus.UPLOADING: ProcessingStatus.PROCESSED,
+            }
+
+            for rec in stale:
+                rec.status = _rollback_map.get(rec.status, rec.status)
+                for stage in rec.processing_stages:
+                    if stage.status == ProcessingStageStatus.IN_PROGRESS:
+                        stage.status = ProcessingStageStatus.PENDING
+                        stage.started_at = None
+                rec.on_air = False
+                rec.pipeline_task_id = None
+                logger.warning(
+                    f"Stale pipeline reset | rec={rec.id} user={rec.user_id} "
+                    f"started={rec.pipeline_started_at} new_status={rec.status}"
+                )
+
+            await session.commit()
+            return len(stale)
+
+    try:
+        reset_count = asyncio.run(_reset())
+        logger.info(f"reset_stale_active_recordings: reset={reset_count} threshold_h={stale_hours}")
+        return {"status": "success", "reset": reset_count}
+    except Exception as e:
+        logger.error(f"Failed to reset stale active recordings: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)}

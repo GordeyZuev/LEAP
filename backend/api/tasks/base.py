@@ -162,6 +162,8 @@ class ProcessingTask(BaseTask):
                 asyncio.run(self._handle_failure_async(recording_id, user_id, failed_at_stage, stage_type, exc))
                 logger.error(f"Processing failed at {failed_at_stage}: {exc!r}")
             else:
+                # Orchestrator or unknown task: still clear on_air
+                asyncio.run(self._clear_on_air_async(recording_id, user_id))
                 logger.error(f"Processing failed: {exc!r}")
 
     async def _handle_failure_async(
@@ -195,8 +197,24 @@ class ProcessingTask(BaseTask):
                 allow_errors = transcription_config.get("allow_errors", False)
                 await failure_handler.handle_transcribe_failure(recording, stage_type, error_msg, allow_errors)
 
+            recording.on_air = False
+            recording.pipeline_task_id = None
             await repo.update(recording)
             await session.commit()
+
+    async def _clear_on_air_async(self, recording_id: int, user_id: str) -> None:
+        """Clear on_air and pipeline_task_id without other status changes."""
+        from api.dependencies import get_async_session_maker
+        from api.repositories.recording_repos import RecordingRepository
+
+        async with get_async_session_maker()() as session:
+            repo = RecordingRepository(session)
+            recording = await repo.get_by_id(recording_id, user_id)
+            if recording:
+                recording.on_air = False
+                recording.pipeline_task_id = None
+                await repo.update(recording)
+                await session.commit()
 
 
 class UploadTask(BaseTask):
@@ -236,6 +254,8 @@ class UploadTask(BaseTask):
             error_msg = str(exc)
             await failure_handler.handle_upload_failure(recording, platform, error_msg)
 
+            recording.on_air = False
+            recording.pipeline_task_id = None
             await repo.update(recording)
             await session.commit()
 

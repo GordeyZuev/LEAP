@@ -15,7 +15,7 @@ import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
-import { ACTIVE_POLL_STATUSES, POLL_INTERVAL_DETAIL } from "@/lib/constants";
+import { POLL_INTERVAL_DETAIL, needsActivePoll } from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +96,7 @@ interface RecordingDetail {
   failed_reason: string | null;
   failed_at_stage?: string | null;
   on_pause: boolean;
+  on_air: boolean;
   source: SourceResponse | null;
   outputs: OutputTarget[];
   processing_stages: ProcessingStage[];
@@ -562,8 +563,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       return res.data;
     },
     refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      return s && ACTIVE_POLL_STATUSES.has(s) ? POLL_INTERVAL_DETAIL : false;
+      const d = q.state.data;
+      return d && needsActivePoll(d) ? POLL_INTERVAL_DETAIL : false;
     },
     refetchIntervalInBackground: false,
   });

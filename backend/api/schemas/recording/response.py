@@ -122,6 +122,7 @@ class PipelineControlMixin(BaseModel):
     status: ProcessingStatus
     failed: bool
     on_pause: bool = False
+    on_air: bool = False
 
     @computed_field
     @property
@@ -136,14 +137,8 @@ class PipelineControlMixin(BaseModel):
     @computed_field
     @property
     def can_pause(self) -> bool:
-        """True if recording can be paused right now."""
-        if self.on_pause:
-            return False
-        return self.status in [
-            ProcessingStatus.DOWNLOADING,
-            ProcessingStatus.PROCESSING,
-            ProcessingStatus.UPLOADING,
-        ]
+        """True if recording can be paused: pipeline must be on_air and not already paused."""
+        return self.on_air and not self.on_pause
 
     @computed_field
     @property
@@ -151,25 +146,19 @@ class PipelineControlMixin(BaseModel):
         """True if calling /run will take a meaningful action.
 
         Returns False when:
+        - on_air=True (pipeline already active)
         - READY (already complete)
         - PENDING_SOURCE / EXPIRED (cannot process)
-        - Runtime + not paused (already running)
-        - On pause + runtime (stage still completing, wait for it)
         """
-        if self.on_pause:
-            # Pause requested but stage still running — not ready to run yet
-            return not self.is_runtime
+        if self.on_air:
+            return False
         if self.failed:
             return True
-        return (
-            self.status
-            not in [
-                ProcessingStatus.READY,
-                ProcessingStatus.PENDING_SOURCE,
-                ProcessingStatus.EXPIRED,
-            ]
-            and not self.is_runtime
-        )
+        return self.status not in [
+            ProcessingStatus.READY,
+            ProcessingStatus.PENDING_SOURCE,
+            ProcessingStatus.EXPIRED,
+        ]
 
 
 class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
@@ -194,6 +183,7 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     failed: bool = False
     failed_at_stage: str | None = None
     on_pause: bool = False
+    on_air: bool = False
 
     # --- Deletion state ---
     deleted: bool = False
@@ -240,6 +230,7 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     failed_at_stage: str | None = None
     on_pause: bool = False
     pause_requested_at: datetime | None = None
+    on_air: bool = False
 
     # --- Deletion state ---
     deleted: bool = False

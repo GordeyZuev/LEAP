@@ -82,7 +82,7 @@ from database.models import RecordingModel
 from file_storage.path_builder import StoragePathBuilder
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models import ProcessingStatus
-from models.recording import SourceType, TargetStatus
+from models.recording import ProcessingStageStatus, SourceType, TargetStatus
 from utils.pipeline_video_formats import ingress_validate_saved_media, strict_suffix_from_source_name
 
 router = APIRouter(prefix="/api/v1/recordings", tags=["Recordings"])
@@ -1305,13 +1305,33 @@ async def bulk_pause_recordings(
                 {
                     "recording_id": recording_id,
                     "status": "skipped",
-                    "error": f"Cannot pause in status {recording.status}",
+                    "error": "No active pipeline (on_air=False)",
                     "task_id": None,
                 }
             )
             continue
 
+        # Hard pause: revoke chain, rollback status, clear on_air
+        if recording.pipeline_task_id:
+            from api.celery_app import celery_app
+
+            celery_app.control.revoke(recording.pipeline_task_id, terminate=False)
+
+        _pause_rollback = {
+            ProcessingStatus.DOWNLOADING: ProcessingStatus.INITIALIZED,
+            ProcessingStatus.PROCESSING: ProcessingStatus.DOWNLOADED,
+            ProcessingStatus.UPLOADING: ProcessingStatus.PROCESSED,
+        }
+        recording.status = _pause_rollback.get(recording.status, recording.status)
+
+        for stage in recording.processing_stages:
+            if stage.status == ProcessingStageStatus.IN_PROGRESS:
+                stage.status = ProcessingStageStatus.PENDING
+                stage.started_at = None
+
+        recording.on_air = False
         recording.on_pause = True
+        recording.pipeline_task_id = None
         recording.pause_requested_at = datetime.now(UTC)
         paused_count += 1
 
@@ -1947,16 +1967,26 @@ async def _execute_smart_run(
     Unified smart run: determine the right action based on current state.
 
     State machine:
+    - on_air=True → 409 (pipeline already active)
     - INITIALIZED/SKIPPED → start full pipeline (download → process → upload)
     - DOWNLOADED → start processing pipeline (skip download)
-    - DOWNLOADING/PROCESSING/UPLOADING → reject if running, or clear pause flag
     - PROCESSED/UPLOADED → ensure output targets from config, then upload pending/failed
     - READY → already complete
     - EXPIRED/PENDING_SOURCE → reject
+
+    on_pause is cleared here so a paused recording resumes normally through the
+    status-based routing below (status is already stable after hard pause).
     """
     from api.tasks.processing import _launch_uploads_task, run_recording_task
 
     current_status = recording.status
+
+    # --- Guard: pipeline already active ---
+    if recording.on_air:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recording already has an active pipeline. Use /pause to stop it.",
+        )
 
     # --- Reject terminal/unprocessable statuses ---
     if current_status == ProcessingStatus.EXPIRED:
@@ -1970,30 +2000,11 @@ async def _execute_smart_run(
             detail="Recording is waiting for source. Cannot run yet.",
         )
 
-    # --- Runtime statuses: already running ---
-    if current_status in [ProcessingStatus.DOWNLOADING, ProcessingStatus.PROCESSING, ProcessingStatus.UPLOADING]:
-        if recording.on_pause:
-            # Clear pause flag — existing chain will continue naturally
-            recording.on_pause = False
-            recording.pause_requested_at = None
-            await ctx.session.commit()
-            logger.info(f"Smart run: cleared pause flag | {format_details(rec=recording_id, status=current_status)}")
-            return RecordingOperationResponse(
-                success=True,
-                recording_id=recording_id,
-                message="Pipeline will continue after current stage completes",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Recording is already being processed (status={current_status}). "
-            "Use /pause to stop, or wait for completion.",
-        )
-
-    # --- Clear pause flag if set (for non-runtime statuses) ---
+    # --- Clear pause flag if set (after hard pause status is already stable) ---
+    _was_paused = recording.on_pause
     if recording.on_pause:
         recording.on_pause = False
         recording.pause_requested_at = None
-        await ctx.session.commit()
 
     if current_status in [
         ProcessingStatus.INITIALIZED,
@@ -2013,11 +2024,23 @@ async def _execute_smart_run(
 
     # 1. Fresh start: INITIALIZED or SKIPPED → full pipeline
     if current_status in [ProcessingStatus.INITIALIZED, ProcessingStatus.SKIPPED]:
-        task = run_recording_task.delay(
-            recording_id=recording_id,
-            user_id=ctx.user_id,
-            manual_override=manual_override,
-        )
+        recording.on_air = True
+        await ctx.session.commit()
+        try:
+            task = run_recording_task.delay(
+                recording_id=recording_id,
+                user_id=ctx.user_id,
+                manual_override=manual_override,
+            )
+        except Exception as exc:
+            recording.on_air = False
+            await ctx.session.commit()
+            logger.error(f"Smart run: failed to dispatch pipeline | {format_details(rec=recording_id, error=exc)}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to dispatch pipeline task"
+            ) from exc
+        recording.pipeline_task_id = task.id
+        await ctx.session.commit()
         logger.info(f"Smart run: starting full pipeline | {format_details(rec=recording_id, status=current_status)}")
         return RecordingOperationResponse(
             success=True,
@@ -2028,11 +2051,23 @@ async def _execute_smart_run(
 
     # 2. Processing: DOWNLOADED → start processing (skip download)
     if current_status == ProcessingStatus.DOWNLOADED:
-        task = run_recording_task.delay(
-            recording_id=recording_id,
-            user_id=ctx.user_id,
-            manual_override=manual_override,
-        )
+        recording.on_air = True
+        await ctx.session.commit()
+        try:
+            task = run_recording_task.delay(
+                recording_id=recording_id,
+                user_id=ctx.user_id,
+                manual_override=manual_override,
+            )
+        except Exception as exc:
+            recording.on_air = False
+            await ctx.session.commit()
+            logger.error(f"Smart run: failed to dispatch pipeline | {format_details(rec=recording_id, error=exc)}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to dispatch pipeline task"
+            ) from exc
+        recording.pipeline_task_id = task.id
+        await ctx.session.commit()
         logger.info(f"Smart run: continuing processing | {format_details(rec=recording_id)}")
         return RecordingOperationResponse(
             success=True,
@@ -2043,6 +2078,40 @@ async def _execute_smart_run(
 
     # 3. Upload phase: PROCESSED, UPLOADED → ensure targets from config, then upload pending/failed
     if current_status in [ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADED]:
+        # Guard: if processing stages are still PENDING the pipeline was paused mid-run
+        # (e.g. trim completed after pause handler ran, pushed status→PROCESSED while
+        # transcription stages remain PENDING). Re-enter the processing pipeline so
+        # the idempotency guards skip already-completed stages.
+        await ctx.session.refresh(recording, ["processing_stages"])
+        pending_stages = [s for s in recording.processing_stages if s.status == ProcessingStageStatus.PENDING]
+        if pending_stages:
+            recording.on_air = True
+            await ctx.session.commit()
+            try:
+                task = run_recording_task.delay(
+                    recording_id=recording_id,
+                    user_id=ctx.user_id,
+                    manual_override=manual_override,
+                )
+            except Exception as exc:
+                recording.on_air = False
+                await ctx.session.commit()
+                logger.error(f"Smart run: failed to dispatch pipeline | {format_details(rec=recording_id, error=exc)}")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to dispatch pipeline task"
+                ) from exc
+            recording.pipeline_task_id = task.id
+            await ctx.session.commit()
+            logger.info(
+                f"Smart run: re-entering pipeline (incomplete stages) | {format_details(rec=recording_id, pending=len(pending_stages))}"
+            )
+            return RecordingOperationResponse(
+                success=True,
+                task_id=task.id,
+                recording_id=recording_id,
+                message=f"Resuming processing pipeline ({len(pending_stages)} stage(s) still pending)",
+            )
+
         from api.helpers.pipeline_initializer import ensure_output_targets
 
         try:
@@ -2077,13 +2146,33 @@ async def _execute_smart_run(
                 if output.preset_id:
                     preset_map[platform] = output.preset_id
 
-            task = _launch_uploads_task.delay(
-                recording_id=recording_id,
-                user_id=ctx.user_id,
-                platforms=platforms,
-                preset_map=preset_map,
-                metadata_override=full_config.get("metadata_config"),
-            )
+            from celery import chain as celery_chain
+
+            from api.tasks.processing import _finalize_pipeline_task
+
+            recording.on_air = True
+            await ctx.session.commit()
+            # Chain finalize after launch so on_air is cleared when all uploads are dispatched.
+            try:
+                task = celery_chain(
+                    _launch_uploads_task.si(
+                        recording_id=recording_id,
+                        user_id=ctx.user_id,
+                        platforms=platforms,
+                        preset_map=preset_map,
+                        metadata_override=full_config.get("metadata_config"),
+                    ),
+                    _finalize_pipeline_task.si(recording_id, ctx.user_id),
+                ).apply_async()
+            except Exception as exc:
+                recording.on_air = False
+                await ctx.session.commit()
+                logger.error(f"Smart run: failed to dispatch uploads | {format_details(rec=recording_id, error=exc)}")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to dispatch upload task"
+                ) from exc
+            recording.pipeline_task_id = task.id
+            await ctx.session.commit()
 
             logger.info(f"Smart run: uploading targets | {format_details(count=len(targets), rec=recording_id)}")
             return RecordingOperationResponse(
@@ -2093,6 +2182,8 @@ async def _execute_smart_run(
                 message=f"Uploading {len(targets)} target(s)",
             )
 
+        if _was_paused:
+            await ctx.session.commit()
         return RecordingOperationResponse(
             success=True,
             recording_id=recording_id,
@@ -2101,6 +2192,8 @@ async def _execute_smart_run(
 
     # 4. Already complete
     if current_status == ProcessingStatus.READY:
+        if _was_paused:
+            await ctx.session.commit()
         return RecordingOperationResponse(
             success=True,
             recording_id=recording_id,
@@ -2108,6 +2201,8 @@ async def _execute_smart_run(
         )
 
     # Fallback: unexpected status
+    if _was_paused:
+        await ctx.session.commit()
     return RecordingOperationResponse(
         success=True,
         recording_id=recording_id,
@@ -2520,7 +2615,11 @@ async def pause_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> PauseRecordingResponse:
-    """Soft pause: wait for current stage to complete, then stop pipeline."""
+    """
+    Hard pause: immediately marks pipeline as inactive and rolls back to a stable
+    status. The currently-running Celery task completes naturally, but no further
+    tasks in the chain will execute (revoked). Resume via POST /{id}/run.
+    """
     from datetime import UTC, datetime
 
     from api.helpers.status_manager import can_pause
@@ -2543,21 +2642,43 @@ async def pause_recording(
     if not can_pause(recording):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot pause recording in status {recording.status}. "
-            "Pause is only available during active processing (DOWNLOADING, PROCESSING, UPLOADING).",
+            detail="Cannot pause recording: no active pipeline (on_air=False).",
         )
 
+    # Soft-revoke the chain so queued tasks won't start; running task finishes cleanly
+    if recording.pipeline_task_id:
+        from api.celery_app import celery_app
+
+        celery_app.control.revoke(recording.pipeline_task_id, terminate=False)
+
+    # Immediate rollback to stable status so smart_run can resume correctly
+    _pause_rollback = {
+        ProcessingStatus.DOWNLOADING: ProcessingStatus.INITIALIZED,
+        ProcessingStatus.PROCESSING: ProcessingStatus.DOWNLOADED,
+        ProcessingStatus.UPLOADING: ProcessingStatus.PROCESSED,
+    }
+    stable_status = _pause_rollback.get(recording.status, recording.status)
+    recording.status = stable_status
+
+    # Reset any IN_PROGRESS stages to PENDING so they re-run on resume
+    for stage in recording.processing_stages:
+        if stage.status == ProcessingStageStatus.IN_PROGRESS:
+            stage.status = ProcessingStageStatus.PENDING
+            stage.started_at = None
+
+    recording.on_air = False
     recording.on_pause = True
+    recording.pipeline_task_id = None
     recording.pause_requested_at = datetime.now(UTC)
     await ctx.session.commit()
 
-    logger.info(f"Pause requested | {format_details(rec=recording_id, status=recording.status)}")
+    logger.info(f"Paused (hard) | {format_details(rec=recording_id, rolled_back_to=stable_status)}")
 
     return PauseRecordingResponse(
         success=True,
         recording_id=recording_id,
-        message="Pause requested. Current stage will complete before stopping.",
-        status=recording.status,
+        message="Pipeline paused. Use /run to resume.",
+        status=stable_status,
         on_pause=True,
     )
 
@@ -2623,6 +2744,13 @@ async def reset_recording(
                     f"Failed to delete transcription prefix | {format_details(prefix=tx_prefix, error=str(exc))}"
                 )
 
+    # If pipeline is active, revoke it before resetting so no orphan tasks run.
+    if recording.on_air and recording.pipeline_task_id:
+        from api.celery_app import celery_app
+
+        celery_app.control.revoke(recording.pipeline_task_id, terminate=False)
+        logger.info(f"Reset: revoked active chain | rec={recording_id} task={recording.pipeline_task_id}")
+
     # Clear recording metadata
     recording.local_video_path = None
     recording.processed_video_path = None
@@ -2635,6 +2763,8 @@ async def reset_recording(
     recording.failed_reason = None
     recording.on_pause = False
     recording.pause_requested_at = None
+    recording.on_air = False
+    recording.pipeline_task_id = None
 
     source_processing_incomplete = (
         recording.source.meta.get("source_processing_incomplete", False)

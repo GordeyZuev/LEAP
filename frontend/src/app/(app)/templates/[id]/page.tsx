@@ -34,10 +34,11 @@ import {
 import {
   DisplayConfigFields,
   type DisplayConfig,
-  DEFAULT_TOPICS_DISPLAY,
-  DEFAULT_QUESTIONS_DISPLAY,
+  defaultTopicsDisplay,
+  defaultQuestionsDisplay,
   toDisplayPayload,
   fromDisplayPayload,
+  appendDisplayConfigPreviewBody,
 } from "@/components/platforms/display-config-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -144,8 +145,8 @@ const DEFAULT_FORM: TemplateFormData = {
   metadata_config: {
     title_template: "",
     description_template: "",
-    topics_display: { ...DEFAULT_TOPICS_DISPLAY },
-    questions_display: { ...DEFAULT_QUESTIONS_DISPLAY },
+    topics_display: defaultTopicsDisplay(),
+    questions_display: defaultQuestionsDisplay(),
   },
   output_config: {
     preset_ids: [],
@@ -420,6 +421,11 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       const fn = ydFields.filename_template?.trim();
       if (fp) body.folder_path_template = fp;
       if (fn) body.filename_template = fn;
+      appendDisplayConfigPreviewBody(
+        body,
+        form.metadata_config.topics_display,
+        form.metadata_config.questions_display,
+      );
       const res = await apiClient.post<MetadataRenderPreviewData>("/templates/render-preview", body);
       setPreview(res.data);
     } catch {
