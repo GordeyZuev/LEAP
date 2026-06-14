@@ -39,6 +39,13 @@ class OutputTargetResponse(BaseModel):
     retry_count: int = 0
     preset: PresetInfo | None = None
 
+    @computed_field
+    @property
+    def duration_seconds(self) -> float | None:
+        if self.started_at and self.uploaded_at:
+            return (self.uploaded_at - self.started_at).total_seconds()
+        return None
+
 
 class ProcessingStageResponse(BaseModel):
     """Processing stage status."""
@@ -51,6 +58,13 @@ class ProcessingStageResponse(BaseModel):
     retry_count: int = 0
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+    @computed_field
+    @property
+    def duration_seconds(self) -> float | None:
+        if self.started_at and self.completed_at:
+            return (self.completed_at - self.started_at).total_seconds()
+        return None
 
 
 class SourceInfo(BaseModel):
@@ -217,6 +231,17 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     source: SourceResponse | None = None
     outputs: list[OutputTargetResponse] = Field(default_factory=list)
     processing_stages: list[ProcessingStageResponse] = Field(default_factory=list)
+
+    # --- Download timing ---
+    download_started_at: datetime | None = None
+    downloaded_at: datetime | None = None
+
+    @computed_field
+    @property
+    def download_duration_seconds(self) -> float | None:
+        if self.download_started_at and self.downloaded_at:
+            return (self.downloaded_at - self.download_started_at).total_seconds()
+        return None
 
     # --- Pipeline timing ---
     pipeline_started_at: datetime | None = None

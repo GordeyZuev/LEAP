@@ -10,7 +10,7 @@ class ExtractTopicsRequest(BaseModel):
 
     model: str = Field(
         default="deepseek",
-        description="Model for extraction of topics: 'deepseek' or 'fireworks_deepseek'",
+        description="Model for extraction of topics: 'deepseek'",
     )
     granularity: Granularity = Field(
         default=Granularity.LONG,

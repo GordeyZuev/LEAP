@@ -7,7 +7,7 @@
 | Что | Где хранится | Защита |
 |-----|----------------|--------|
 | Токены пользователей (после OAuth / ручного ввода) | Таблица `user_credentials`, поле `encrypted_data` | Fernet (`api/auth/encryption.py`) |
-| Ключи AI (Fireworks ASR, DeepSeek и т.д.) | JSON: `config/fireworks_creds.json`, `config/deepseek_creds.json`, … | Не шифруются приложением; файл вне VCS, права ОС. Шаблоны: `config/examples/*.json.example` |
+| Ключи AI (AssemblyAI ASR, DeepSeek и т.д.) | JSON: `config/assemblyai_creds.json`, `config/deepseek_creds.json`, … | Не шифруются приложением; файл вне VCS, права ОС. Шаблоны: `config/examples/*.json.example` |
 | Секреты OAuth-приложения (client id/secret для провайдера) | `.env`: `OAUTH_*`, плюс опционально `OAUTH_BASE_URL` | Env; не путать с токенами пользователя в БД |
 | JWT, пароль БД, Redis, S3 | `.env` / секреты оркестратора | См. `.env.example` |
 

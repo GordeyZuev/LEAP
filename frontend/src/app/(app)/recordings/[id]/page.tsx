@@ -1,13 +1,13 @@
 "use client";
 
-import { use, useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { use, useState, useRef, forwardRef, type ComponentType, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
   CheckCircle2, XCircle, Clock, Loader2, SkipForward, RotateCcw, Settings2, ChevronDown, ArchiveRestore, FilePlus2,
-  Link2, Unlink, Pencil,
+  Link2, Unlink, Pencil, VideoOff, Search,
 } from "lucide-react";
 import { cn, formatDate, formatDateTimeShort } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -29,6 +29,7 @@ interface ProcessingStage {
   started_at: string | null;
   completed_at: string | null;
   retry_count: number;
+  duration_seconds?: number | null;
 }
 
 interface OutputTarget {
@@ -38,7 +39,9 @@ interface OutputTarget {
   target_meta: Record<string, unknown>;
   failed: boolean;
   failed_reason: string | null;
+  started_at: string | null;
   uploaded_at: string | null;
+  duration_seconds: number | null;
   preset: { id: number; name: string } | null;
 }
 
@@ -100,6 +103,9 @@ interface RecordingDetail {
   source: SourceResponse | null;
   outputs: OutputTarget[];
   processing_stages: ProcessingStage[];
+  download_started_at: string | null;
+  downloaded_at: string | null;
+  download_duration_seconds: number | null;
   pipeline_started_at: string | null;
   pipeline_completed_at: string | null;
   soft_deleted_at?: string | null;
@@ -186,6 +192,11 @@ function formatStageDuration(startedAt: string | null, completedAt: string | nul
   if (h > 0) return `${h}ч ${m}м`;
   if (m > 0) return `${m}м ${s}с`;
   return `${s}с`;
+}
+
+function formatStageTime(completedAt: string | null): string {
+  if (!completedAt) return "";
+  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(completedAt));
 }
 
 /** Sidebar/detail template line with optional link to /templates/:id (preset row styling). */
@@ -308,21 +319,27 @@ function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
   const Icon = cfg.icon;
   const name = STAGE_META[canon]?.name ?? stage.stage_type;
   const dur = formatStageDuration(stage.started_at, stage.completed_at);
+  const time = formatStageTime(stage.completed_at);
 
   return (
-    <div className="flex items-center gap-2 py-1.5">
-      <Icon
-        size={13}
-        className={cn(
-          ICON_COLOR[status] ?? "text-gray-400",
-          status === "IN_PROGRESS" && "animate-spin"
+    <div className="py-1.5">
+      <div className="flex items-center gap-2">
+        <Icon
+          size={13}
+          className={cn(
+            ICON_COLOR[status] ?? "text-gray-400",
+            status === "IN_PROGRESS" && "animate-spin"
+          )}
+        />
+        <span className="flex-1 text-xs font-medium text-gray-700">{name}</span>
+        {stage.retry_count > 0 && (
+          <span className="text-[10px] text-amber-500">×{stage.retry_count}</span>
         )}
-      />
-      <span className="flex-1 text-xs font-medium text-gray-700">{name}</span>
-      {stage.retry_count > 0 && (
-        <span className="text-[10px] text-amber-500">×{stage.retry_count}</span>
+        {dur && <span className="shrink-0 text-[10px] tabular-nums text-gray-400">{dur}</span>}
+      </div>
+      {time && (
+        <p className="ml-[21px] text-[10px] text-gray-300">{time}</p>
       )}
-      {dur && <span className="shrink-0 text-[10px] tabular-nums text-gray-400">{dur}</span>}
     </div>
   );
 }
@@ -348,6 +365,7 @@ function PlatformOutputRow({
   const label = TARGET_LABELS[output.target_type] ?? output.target_type;
   const url = output.target_meta?.video_url as string | undefined;
   const canUpload = readyToUpload && output.status === "NOT_UPLOADED";
+  const uploadDur = formatStageDuration(output.started_at, output.uploaded_at);
 
   return (
     <div className="flex items-start gap-2.5 py-2.5">
@@ -372,7 +390,10 @@ function PlatformOutputRow({
           <p className="break-words text-[11px] text-red-500">{output.failed_reason}</p>
         )}
         {output.uploaded_at && (
-          <p className="text-[10px] text-gray-400">{formatDateTimeShort(output.uploaded_at)}</p>
+          <p className="text-[10px] text-gray-400">
+            {formatDateTimeShort(output.uploaded_at)}
+            {uploadDur && <span className="ml-1 tabular-nums">· {uploadDur}</span>}
+          </p>
         )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
@@ -406,97 +427,57 @@ function PlatformOutputRow({
 // RecordingVideoPlayer
 // ---------------------------------------------------------------------------
 
-function RecordingVideoPlayer({
-  recordingId,
-  variant,
-  sizeLabel,
-}: {
+const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
   recordingId: string;
   variant: "processed" | "original";
-  sizeLabel?: string;
-}) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true); // auto-loads on mount
-  const [progress, setProgress] = useState(0);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  function loadVideo() {
-    setLoading(true);
-    setLoadError(null);
-    setProgress(0);
-
-    // Backend now returns a presigned URL that points directly at Object Storage.
-    // The <video> element handles streaming + Range requests natively — no need
-    // to download the full blob through the API.
-    void apiClient
-      .get<{ url: string; expires_in: number }>(`/recordings/${recordingId}/media?type=${variant}`)
-      .then((res) => {
-        setSrc(res.data.url);
-      })
-      .catch(() => setLoadError("Не удалось загрузить видео"))
-      .finally(() => setLoading(false));
-  }
-
-  // Auto-load the presigned URL on mount so the player opens immediately for an
-  // available recording. The component is keyed by variant, so switching the
-  // processed/original tab remounts and re-fetches the correct URL.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadVideo();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (src) {
-    return (
-      <video
-        src={src}
-        controls
-        preload="metadata"
-        className="w-full rounded-xl bg-black max-h-[min(480px,70vh)]"
-      />
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-[#EFEFEF] bg-gray-50 py-12">
-        <div className="h-1.5 w-48 overflow-hidden rounded-full bg-gray-200">
-          <div
-            className="h-full rounded-full bg-[#224C87] transition-all duration-300"
-            style={{ width: `${progress || 2}%` }}
-          />
-        </div>
-        <p className="text-xs text-gray-400">
-          Загрузка{progress > 0 ? ` ${progress}%` : "…"}
-        </p>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-red-100 bg-red-50 py-10">
-        <p className="text-sm text-red-500">{loadError}</p>
-        <button type="button" onClick={loadVideo} className="text-xs text-[#224C87] hover:underline">
-          Повторить
-        </button>
-      </div>
-    );
-  }
+}>(function RecordingVideoPlayer({ recordingId, variant }, ref) {
+  // Backend returns a presigned URL pointing directly at Object Storage;
+  // the <video> element handles streaming + Range requests natively.
+  const { data: src, isLoading: loading, isError, refetch } = useQuery({
+    queryKey: ["recording-media", recordingId, variant],
+    queryFn: async () => {
+      const res = await apiClient.get<{ url: string; expires_in: number }>(
+        `/recordings/${recordingId}/media?type=${variant}`,
+      );
+      return res.data.url;
+    },
+  });
+  const loadError = isError ? "Не удалось загрузить видео" : null;
 
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-[#EFEFEF] bg-gray-50 py-12">
-      <button
-        type="button"
-        onClick={loadVideo}
-        className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
-      >
-        Загрузить видео
-      </button>
-      {sizeLabel && <p className="text-xs text-gray-400">{sizeLabel}</p>}
+    <div className={cn(
+      "relative aspect-video w-full overflow-hidden rounded-xl",
+      src ? "bg-black" : "bg-[#F5F5F5]"
+    )}>
+      {src ? (
+        <video
+          ref={ref}
+          src={src}
+          controls
+          preload="metadata"
+          className="h-full w-full object-contain"
+        />
+      ) : loading ? (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Loader2 size={20} className="animate-spin text-gray-300" />
+        </div>
+      ) : loadError ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <VideoOff size={22} className="text-gray-300" />
+          <p className="text-xs text-gray-400">{loadError}</p>
+          <button type="button" onClick={() => void refetch()} className="text-xs text-[#224C87] hover:underline">
+            Повторить
+          </button>
+        </div>
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <VideoOff size={22} className="text-gray-300" />
+          <p className="text-xs text-gray-400">Видео пока недоступно</p>
+        </div>
+      )}
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Collapsible card helper
@@ -539,6 +520,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const router = useRouter();
   const qc = useQueryClient();
   const [videoTabChoice, setVideoTabChoice] = useState<"processed" | "original" | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [resetDeleteFiles, setResetDeleteFiles] = useState(false);
@@ -549,6 +531,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
   const [createTemplateName, setCreateTemplateName] = useState("");
   const [bindTemplateOpen, setBindTemplateOpen] = useState(false);
+  const [bindTemplateSearch, setBindTemplateSearch] = useState("");
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
 
   // Config is loaded eagerly so template_name is available for Info sidebar
   const { data: recordingConfig, isLoading: configLoading } = useQuery<RecordingConfigResponse>({
@@ -604,6 +589,14 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     },
   });
 
+  const renameRec = useMutation({
+    mutationFn: (display_name: string) => apiClient.patch(`/recordings/${id}`, { display_name }),
+    onSuccess: () => {
+      setNameEditing(false);
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+    },
+  });
+
   function invalidateConfigQueries() {
     qc.invalidateQueries({ queryKey: ["recording", id] });
     qc.invalidateQueries({ queryKey: ["recording-config", Number(id)] });
@@ -646,28 +639,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       setUploadError(msg ?? "Upload failed");
     },
   });
-
-  const STAGE_RERUN_ENDPOINT: Record<string, string> = {
-    DOWNLOAD:           `/recordings/${id}/download`,
-    TRIM:               `/recordings/${id}/trim`,
-    TRANSCRIBE:         `/recordings/${id}/transcribe?force=true`,
-    EXTRACT_TOPICS:     `/recordings/${id}/topics`,
-    GENERATE_SUBTITLES: `/recordings/${id}/subtitles`,
-  };
-
-  const [rerunningStage, setRerunningStage] = useState<string | null>(null);
-
-  async function handleStageRerun(stageType: string) {
-    const endpoint = STAGE_RERUN_ENDPOINT[normalizeStageType(stageType)];
-    if (!endpoint) return;
-    setRerunningStage(stageType);
-    try {
-      await apiClient.post(endpoint);
-      qc.invalidateQueries({ queryKey: ["recording", id] });
-    } finally {
-      setRerunningStage(null);
-    }
-  }
 
   const hasProcessedVid = !!recording?.videos?.processed?.exists;
   const hasOriginalVid = !!recording?.videos?.original?.exists;
@@ -733,9 +704,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         status: phaseToStageStatus(ingressLifecycle.phase),
         failed: ingressLifecycle.phase === "failed",
         failed_reason: ingressLifecycle.phase === "failed" ? (ingressLifecycle.hint ?? null) : null,
-        started_at: null,
-        completed_at: null,
+        started_at: recording.download_started_at,
+        completed_at: recording.downloaded_at,
         retry_count: 0,
+        duration_seconds: recording.download_duration_seconds,
       }
     : null;
 
@@ -797,9 +769,36 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           Записи
         </Link>
         <span className="text-gray-300">/</span>
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900">
-          {recording.display_name}
-        </h1>
+        {nameEditing ? (
+          <form
+            className="min-w-0 flex-1 flex items-center gap-2"
+            onSubmit={(e) => { e.preventDefault(); if (nameDraft.trim()) renameRec.mutate(nameDraft.trim()); }}
+          >
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setNameEditing(false); }}
+              className="flex-1 truncate rounded-lg border border-[#224C87] bg-white px-2 py-1 text-lg font-semibold text-gray-900 outline-none"
+            />
+            <button type="submit" disabled={renameRec.isPending || !nameDraft.trim()} className="text-xs text-[#224C87] hover:underline disabled:opacity-40">Сохранить</button>
+            <button type="button" onClick={() => setNameEditing(false)} className="text-xs text-gray-400 hover:underline">Отмена</button>
+          </form>
+        ) : (
+          <div className="min-w-0 flex-1 flex items-center gap-2 group">
+            <h1 className="min-w-0 truncate text-lg font-semibold text-gray-900">
+              {recording.display_name}
+            </h1>
+            <button
+              type="button"
+              onClick={() => { setNameDraft(recording.display_name); setNameEditing(true); }}
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-600"
+              title="Переименовать"
+            >
+              <Pencil size={14} />
+            </button>
+          </div>
+        )}
         <StatusBadge status={recording.status} failed={recording.failed} />
       </div>
 
@@ -822,63 +821,62 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         <div className="min-w-0 flex-1 space-y-6">
 
           {/* Video */}
-          {hasVideoFiles && (
-            <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Видео</h2>
-              {hasProcessedVid && hasOriginalVid && (
-                <div className="mb-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setVideoTabChoice("processed")}
-                    className={cn(
-                      "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
-                      videoTab === "processed"
-                        ? "border-[#224C87] bg-[#224C87]/10 text-[#224C87]"
-                        : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
-                    )}
-                  >
-                    Обработанное
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVideoTabChoice("original")}
-                    className={cn(
-                      "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
-                      videoTab === "original"
-                        ? "border-[#224C87] bg-[#224C87]/10 text-[#224C87]"
-                        : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
-                    )}
-                  >
-                    Исходное
-                  </button>
-                </div>
-              )}
-              {videoTab === "processed" && hasProcessedVid && (
-                <RecordingVideoPlayer
-                  key={`${id}-processed`}
-                  recordingId={id}
-                  variant="processed"
-                  sizeLabel={
-                    recording.videos?.processed?.size_mb != null
-                      ? `${recording.videos.processed.size_mb} МБ`
-                      : undefined
-                  }
-                />
-              )}
-              {videoTab === "original" && hasOriginalVid && (
-                <RecordingVideoPlayer
-                  key={`${id}-original`}
-                  recordingId={id}
-                  variant="original"
-                  sizeLabel={
-                    recording.videos?.original?.size_mb != null
-                      ? `${recording.videos.original.size_mb} МБ`
-                      : undefined
-                  }
-                />
-              )}
-            </div>
-          )}
+          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Видео</h2>
+            {!hasVideoFiles ? (
+              <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-[#F5F5F5]">
+                <VideoOff size={22} className="text-gray-300" />
+                <p className="text-xs text-gray-400">Видео пока недоступно</p>
+              </div>
+            ) : (
+              <>
+                {hasProcessedVid && hasOriginalVid && (
+                  <div className="mb-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVideoTabChoice("processed")}
+                      className={cn(
+                        "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
+                        videoTab === "processed"
+                          ? "border-[#224C87] bg-[#224C87]/10 text-[#224C87]"
+                          : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      Обработанное
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVideoTabChoice("original")}
+                      className={cn(
+                        "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
+                        videoTab === "original"
+                          ? "border-[#224C87] bg-[#224C87]/10 text-[#224C87]"
+                          : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      Исходное
+                    </button>
+                  </div>
+                )}
+                {videoTab === "processed" && hasProcessedVid && (
+                  <RecordingVideoPlayer
+                    ref={videoRef}
+                    key={`${id}-processed`}
+                    recordingId={id}
+                    variant="processed"
+                  />
+                )}
+                {videoTab === "original" && hasOriginalVid && (
+                  <RecordingVideoPlayer
+                    ref={videoRef}
+                    key={`${id}-original`}
+                    recordingId={id}
+                    variant="original"
+                  />
+                )}
+              </>
+            )}
+          </div>
 
           {/* Media & Downloads */}
           {showMediaSection && (
@@ -946,9 +944,19 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 <ol className="space-y-2">
                   {topicTimestamps.map((t, i) => (
                     <li key={i} className="flex items-baseline gap-3">
-                      <span className="w-12 shrink-0 font-mono text-xs text-[#224C87]">
+                      <button
+                        type="button"
+                        title="Перейти к этому моменту"
+                        onClick={() => {
+                          if (videoRef.current?.src) {
+                            videoRef.current.currentTime = t.start;
+                            videoRef.current.play().catch(() => {});
+                          }
+                        }}
+                        className="w-12 shrink-0 font-mono text-xs text-[#224C87] hover:underline"
+                      >
                         {formatTimecode(t.start)}
-                      </span>
+                      </button>
                       <span className="text-sm text-gray-800">{t.topic}</span>
                       {t.end != null && (
                         <span className="ml-auto shrink-0 font-mono text-[11px] text-gray-300">
@@ -1171,28 +1179,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               <div className="divide-y divide-[#F5F5F5]">
                 {allPipelineStages.map((s) => {
                   const canon = normalizeStageType(s.stage_type);
-                  const canRerun = !!STAGE_RERUN_ENDPOINT[canon] &&
-                    !["PENDING", "IN_PROGRESS"].includes(s.failed ? "FAILED" : s.status.toUpperCase());
-                  const isRerunning = rerunningStage === s.stage_type;
                   return (
-                    <div key={canon} className="flex items-center gap-1">
-                      <div className="flex-1 min-w-0">
-                        <PipelineCompactRow stage={s} />
-                      </div>
-                      {canRerun && (
-                        <button
-                          type="button"
-                          title="Перезапустить этап"
-                          disabled={isRerunning || !!rerunningStage}
-                          onClick={() => handleStageRerun(s.stage_type)}
-                          className="shrink-0 rounded-lg border border-[#D9D9D9] bg-white p-1 text-gray-400 transition-colors hover:border-[#224C87] hover:bg-[#224C87]/5 hover:text-[#224C87] disabled:opacity-40"
-                        >
-                          {isRerunning
-                            ? <Loader2 size={11} className="animate-spin" />
-                            : <RotateCcw size={11} />}
-                        </button>
-                      )}
-                    </div>
+                    <PipelineCompactRow key={canon} stage={s} />
                   );
                 })}
               </div>
@@ -1308,7 +1296,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       {/* Bind to existing template modal */}
       <Modal
         open={bindTemplateOpen}
-        onClose={() => setBindTemplateOpen(false)}
+        onClose={() => { setBindTemplateOpen(false); setBindTemplateSearch(""); }}
         label="Привязать шаблон"
         panelClassName="max-w-sm"
       >
@@ -1319,28 +1307,43 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               {(bindTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка"}
             </p>
           )}
-          <div className="max-h-72 space-y-1.5 overflow-y-auto">
-            {(bindTemplatesData?.items ?? []).length === 0 ? (
-              <p className="py-6 text-center text-sm text-gray-400">Нет шаблонов</p>
-            ) : (
-              bindTemplatesData!.items.map((t) => (
+          <div className="relative mb-3">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Поиск шаблонов…"
+              value={bindTemplateSearch}
+              onChange={(e) => setBindTemplateSearch(e.target.value)}
+              className="w-full rounded-xl border border-[#D9D9D9] py-2 pl-8 pr-3 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
+            />
+          </div>
+          <div className="max-h-64 space-y-1.5 overflow-y-auto">
+            {(() => {
+              const allItems = bindTemplatesData?.items ?? [];
+              const filtered = bindTemplateSearch.trim()
+                ? allItems.filter((t) => t.name.toLowerCase().includes(bindTemplateSearch.toLowerCase()))
+                : allItems;
+              if (filtered.length === 0) {
+                return <p className="py-6 text-center text-sm text-gray-400">{allItems.length === 0 ? "Нет шаблонов" : "Ничего не найдено"}</p>;
+              }
+              return filtered.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   disabled={bindTemplate.isPending}
-                  onClick={() => bindTemplate.mutate(t.id)}
+                  onClick={() => { bindTemplate.mutate(t.id); setBindTemplateSearch(""); }}
                   className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2.5 text-left text-sm font-medium text-gray-800 transition-colors hover:border-[#224C87] hover:bg-[#224C87]/5 disabled:opacity-50"
                 >
                   <span className="min-w-0 truncate">{t.name}</span>
                   <Link2 size={13} className="shrink-0 text-gray-400" />
                 </button>
-              ))
-            )}
+              ));
+            })()}
           </div>
           <div className="flex justify-end pt-4">
             <button
               type="button"
-              onClick={() => setBindTemplateOpen(false)}
+              onClick={() => { setBindTemplateOpen(false); setBindTemplateSearch(""); }}
               className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
               Отмена

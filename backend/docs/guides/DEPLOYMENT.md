@@ -30,11 +30,11 @@ These are unavoidable because they involve external accounts.
 | **Google OAuth client** | Cloud Console → OAuth client (Web) → download `client_secrets.json` | ~10 min |
 | **VK app** | vk.com/apps → Standalone app → app_id + secure key | ~5 min |
 | **Yandex OAuth client** | oauth.yandex.com/client/new → client_id + secret | ~5 min |
-| **Fireworks** | fireworks.ai/account/api-keys | ~3 min |
+| **AssemblyAI** | assemblyai.com/app/account | ~3 min |
 | **DeepSeek** | platform.deepseek.com/api_keys | ~3 min |
 
 Save the OAuth credentials into `backend/config/oauth_*.json` and AI keys
-into `backend/config/{fireworks,deepseek}_creds.json` — those files are
+into `backend/config/{assemblyai,deepseek}_creds.json` — those files are
 gitignored and consumed verbatim by Terraform. Templates are in
 `backend/config/examples/`.
 
@@ -99,9 +99,8 @@ oauth_youtube_json = file("../backend/config/oauth_google.json")
 oauth_vk_json      = file("../backend/config/oauth_vk.json")
 oauth_yadisk_json  = file("../backend/config/oauth_yandex_disk.json")
 
-fireworks_api_key    = jsondecode(file("../backend/config/fireworks_creds.json")).api_key
-fireworks_account_id = jsondecode(file("../backend/config/fireworks_creds.json")).account_id
-deepseek_api_key     = jsondecode(file("../backend/config/deepseek_creds.json")).api_key
+assemblyai_api_key = jsondecode(file("../backend/config/assemblyai_creds.json")).api_key
+deepseek_api_key   = jsondecode(file("../backend/config/deepseek_creds.json")).api_key
 ```
 
 Defaults for everything else (VM size, region, DNS zone) are sensible.
@@ -185,7 +184,7 @@ Three layers, merged into `/opt/leap/.env` on the VM:
 |---|---|---|---|
 | **Static** | `terraform/cloud-init.yaml.tftpl` `.env.static` block | `DATABASE_HOST=postgres`, `STORAGE_S3_REGION=ru-central1`, `OAUTH_BASE_URL=https://…/api`, `IMAGE_TAG=latest` | Edit the template + `terraform apply` |
 | **Lockbox secrets** | `yandex_lockbox_secret_version` in `terraform/modules/secrets/main.tf` | `DB_PASSWORD`, `SECURITY_JWT_SECRET_KEY`, `SECURITY_ENCRYPTION_KEY`, `STORAGE_S3_ACCESS_KEY_ID`, `OAUTH_*_CLIENT_ID/SECRET`, `GRAFANA_PASSWORD` | Edit Terraform vars + `terraform apply`, OR rotate via `yc lockbox secret add-version` |
-| **Config files** | `FILE__<name>.json` entries in Lockbox → materialized to `backend/config/` on the VM by `refresh-env.sh` | `backend/config/oauth_zoom.json`, `fireworks_creds.json`, `deepseek_creds.json`, etc. | Edit local file → `terraform apply` (re-uploads to Lockbox) |
+| **Config files** | `FILE__<name>.json` entries in Lockbox → materialized to `backend/config/` on the VM by `refresh-env.sh` | `backend/config/oauth_zoom.json`, `assemblyai_creds.json`, `deepseek_creds.json`, etc. | Edit local file → `terraform apply` (re-uploads to Lockbox) |
 
 To inspect / change without re-running Terraform:
 

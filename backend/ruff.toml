@@ -155,7 +155,7 @@ known-first-party = [
     "subtitle_module",
     "transcription_module",
     "deepseek_module",
-    "fireworks_module",
+    "assemblyai_module",
     "yandex_disk_module",
 ]
 force-single-line = false

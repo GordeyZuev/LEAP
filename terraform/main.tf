@@ -15,7 +15,7 @@ provider "yandex" {
 #
 # Terraform `.tfvars` doesn't allow function calls, so we read the files here
 # instead. These paths are stable (relative to the `terraform/` directory).
-# Override via `var.oauth_*_json` / `var.fireworks_*` / `var.deepseek_api_key`
+# Override via `var.oauth_*_json` / `var.assemblyai_api_key` / `var.deepseek_api_key`
 # in tfvars if you want to inject creds without keeping files on disk.
 # ---------------------------------------------------------------------------
 locals {
@@ -26,9 +26,8 @@ locals {
   oauth_vk_json      = var.oauth_vk_json != "" ? var.oauth_vk_json : try(file("${local.config_dir}/oauth_vk.json"), "")
   oauth_yadisk_json  = var.oauth_yadisk_json != "" ? var.oauth_yadisk_json : try(file("${local.config_dir}/oauth_yandex_disk.json"), "")
 
-  fireworks_creds      = try(jsondecode(file("${local.config_dir}/fireworks_creds.json")), {})
-  fireworks_api_key    = var.fireworks_api_key != "" ? var.fireworks_api_key : try(local.fireworks_creds.api_key, "")
-  fireworks_account_id = var.fireworks_account_id != "" ? var.fireworks_account_id : try(local.fireworks_creds.account_id, "")
+  assemblyai_creds   = try(jsondecode(file("${local.config_dir}/assemblyai_creds.json")), {})
+  assemblyai_api_key = var.assemblyai_api_key != "" ? var.assemblyai_api_key : try(local.assemblyai_creds.api_key, "")
 
   deepseek_creds   = try(jsondecode(file("${local.config_dir}/deepseek_creds.json")), {})
   deepseek_api_key = var.deepseek_api_key != "" ? var.deepseek_api_key : try(local.deepseek_creds.api_key, "")
@@ -91,9 +90,8 @@ module "secrets" {
   oauth_vk_json      = local.oauth_vk_json
   oauth_yadisk_json  = local.oauth_yadisk_json
 
-  fireworks_api_key    = local.fireworks_api_key
-  fireworks_account_id = local.fireworks_account_id
-  deepseek_api_key     = local.deepseek_api_key
+  assemblyai_api_key = local.assemblyai_api_key
+  deepseek_api_key   = local.deepseek_api_key
 
   grafana_admin_user = var.grafana_admin_user
 

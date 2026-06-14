@@ -1,6 +1,6 @@
 """Zoom video downloader with resume support."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -152,6 +152,7 @@ class ZoomDownloader(BaseDownloader):
             return False
 
         recording.update_status(ProcessingStatus.DOWNLOADING)
+        recording.download_started_at = datetime.now(UTC)
         logger.info(f"Downloading | rec={recording.db_id}")
         logger.debug(f"Recording name: {recording.display_name}")
 
@@ -186,7 +187,7 @@ class ZoomDownloader(BaseDownloader):
             await self._commit_temp_to_storage(temp_path, target_key)
             recording.local_video_path = target_key
             recording.update_status(ProcessingStatus.DOWNLOADED)
-            recording.downloaded_at = datetime.now()
+            recording.downloaded_at = datetime.now(UTC)
             logger.info(f"Downloaded | rec={recording.db_id}")
             return True
         finally:

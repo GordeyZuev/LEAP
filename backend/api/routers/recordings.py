@@ -63,6 +63,7 @@ from api.schemas.recording.request import (
     BulkTrimRequest,
     BulkUploadRequest,
     ConfigOverrideRequest,
+    RecordingUpdateRequest,
     TrimVideoRequest,
 )
 from api.schemas.recording.response import (
@@ -216,6 +217,7 @@ async def list_recordings(
                 failed_at_stage=r.failed_at_stage,
                 is_mapped=r.is_mapped,
                 on_pause=r.on_pause,
+                on_air=r.on_air,
                 template_id=r.template_id,
                 template_name=r.template.name if r.template else None,
                 source=_build_source_info(r),
@@ -444,6 +446,7 @@ async def get_recording(
             failed_at_stage=recording.failed_at_stage,
             is_mapped=recording.is_mapped,
             on_pause=recording.on_pause,
+            on_air=recording.on_air,
             template_id=recording.template_id,
             template_name=recording.template.name if recording.template else None,
             source=_build_source_info(recording),
@@ -514,11 +517,14 @@ async def get_recording(
             for stage in recording.processing_stages
         ],
         "on_pause": recording.on_pause,
+        "on_air": recording.on_air,
         "pause_requested_at": recording.pause_requested_at,
         "failed": recording.failed,
         "failed_at": recording.failed_at,
         "failed_reason": recording.failed_reason,
         "failed_at_stage": recording.failed_at_stage,
+        "download_started_at": recording.download_started_at,
+        "downloaded_at": recording.downloaded_at,
         "pipeline_started_at": recording.pipeline_started_at,
         "pipeline_completed_at": recording.pipeline_completed_at,
         "pipeline_duration_seconds": recording.pipeline_duration_seconds,
@@ -667,6 +673,55 @@ async def get_recording(
         subtitles=subtitles,
         processing_stages_detailed=processing_stages_detailed,
         uploads=uploads if uploads else None,
+    )
+
+
+@router.patch("/{recording_id}", response_model=RecordingListItem)
+async def update_recording(
+    recording_id: int,
+    data: RecordingUpdateRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> RecordingListItem:
+    """Partially update recording metadata (e.g. display_name)."""
+    recording_repo = RecordingRepository(ctx.session)
+
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
+
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(recording, field, value)
+
+    await recording_repo.update(recording)
+    await ctx.session.commit()
+
+    logger.info(f"Updated recording metadata | {format_details(rec=recording_id)}")
+
+    return RecordingListItem(
+        id=recording.id,
+        display_name=recording.display_name,
+        start_time=recording.start_time,
+        duration=recording.duration,
+        status=recording.status,
+        failed=recording.failed,
+        failed_at_stage=recording.failed_at_stage,
+        is_mapped=recording.is_mapped,
+        on_pause=recording.on_pause,
+        on_air=recording.on_air,
+        template_id=recording.template_id,
+        template_name=recording.template.name if recording.template else None,
+        source=_build_source_info(recording),
+        uploads=_build_uploads_dict(recording.outputs),
+        processing_stages=_build_processing_stages(recording.processing_stages),
+        deleted=recording.deleted,
+        deleted_at=recording.deleted_at,
+        delete_state=recording.delete_state,
+        deletion_reason=recording.deletion_reason,
+        soft_deleted_at=recording.soft_deleted_at,
+        hard_delete_at=recording.hard_delete_at,
+        expire_at=recording.expire_at,
+        created_at=recording.created_at,
+        updated_at=recording.updated_at,
     )
 
 
@@ -1145,7 +1200,7 @@ async def bulk_transcribe_recordings(
 ) -> RecordingBulkOperationResponse:
     """Bulk transcription of multiple recordings (async tasks)."""
     from api.helpers.status_manager import should_allow_transcription
-    from api.tasks.processing import batch_transcribe_recording_task, transcribe_recording_task
+    from api.tasks.processing import transcribe_recording_task
 
     recording_ids = await _resolve_recording_ids(data.recording_ids, data.filters, data.limit, ctx)
 
@@ -1211,32 +1266,16 @@ async def bulk_transcribe_recordings(
                 )
                 continue
 
-            if data.use_batch_api:
-                task = batch_transcribe_recording_task.delay(
-                    recording_id=recording_id,
-                    user_id=ctx.user_id,
-                    poll_interval=data.poll_interval,
-                    max_wait_time=data.max_wait_time,
-                )
-                task_info = {
-                    "recording_id": recording_id,
-                    "status": "queued",
-                    "task_id": task.id,
-                    "mode": "batch_api",
-                    "check_status_url": f"/api/v1/tasks/{task.id}",
-                }
-            else:
-                task = transcribe_recording_task.delay(
-                    recording_id=recording_id,
-                    user_id=ctx.user_id,
-                )
-                task_info = {
-                    "recording_id": recording_id,
-                    "status": "queued",
-                    "task_id": task.id,
-                    "mode": "sync_api",
-                    "check_status_url": f"/api/v1/tasks/{task.id}",
-                }
+            task = transcribe_recording_task.delay(
+                recording_id=recording_id,
+                user_id=ctx.user_id,
+            )
+            task_info = {
+                "recording_id": recording_id,
+                "status": "queued",
+                "task_id": task.id,
+                "check_status_url": f"/api/v1/tasks/{task.id}",
+            }
 
             tasks.append(task_info)
 
@@ -1259,7 +1298,6 @@ async def bulk_transcribe_recordings(
         "queued_count": queued_count,
         "skipped_count": skipped_count,
         "error_count": error_count,
-        "mode": "batch_api" if data.use_batch_api else "sync_api",
         "tasks": tasks,
     }
 
@@ -2213,14 +2251,12 @@ async def _execute_smart_run(
 @router.post("/{recording_id}/transcribe", response_model=RecordingOperationResponse)
 async def transcribe_recording(
     recording_id: int,
-    use_batch_api: bool = Query(False, description="Use Batch API (cheaper, but requires polling)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> RecordingOperationResponse:
-    """Transcribe recording using Fireworks API (async task). Use /topics endpoint for topic extraction."""
+    """Transcribe recording via AssemblyAI (async task). Use /topics endpoint for topic extraction."""
     from api.helpers.status_manager import should_allow_transcription
-    from api.tasks.processing import batch_transcribe_recording_task, transcribe_recording_task
+    from api.tasks.processing import transcribe_recording_task
 
-    # Get recording from DB
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
 
@@ -2229,7 +2265,6 @@ async def transcribe_recording(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found or you don't have access"
         )
 
-    # Check if transcription can be started
     if not should_allow_transcription(recording):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2237,7 +2272,6 @@ async def transcribe_recording(
             f"Transcription is already completed or in progress.",
         )
 
-    # Check if file for processing exists
     if not recording.processed_video_path and not recording.local_video_path:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2246,7 +2280,6 @@ async def transcribe_recording(
 
     audio_path = recording.processed_video_path or recording.local_video_path
 
-    # Check if file exists in storage backend
     from file_storage.factory import get_storage_backend as _storage_for_transcribe
 
     if not await _storage_for_transcribe().exists(audio_path):
@@ -2254,27 +2287,6 @@ async def transcribe_recording(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Video file not found in storage: {audio_path}"
         )
 
-    if use_batch_api:
-        task = batch_transcribe_recording_task.delay(
-            recording_id=recording_id,
-            user_id=ctx.user_id,
-        )
-
-        logger.info(
-            f"Batch transcription task created | {format_details(task=short_task_id(task.id), rec=recording_id, user=short_user_id(ctx.user_id))}"
-        )
-
-        return {
-            "success": True,
-            "task_id": task.id,
-            "recording_id": recording_id,
-            "mode": "batch_api",
-            "status": "queued",
-            "message": "Batch transcription task queued. File upload and polling handled by worker.",
-            "check_status_url": f"/api/v1/tasks/{task.id}",
-        }
-
-    # Synchronous API mode
     task = transcribe_recording_task.delay(
         recording_id=recording_id,
         user_id=ctx.user_id,
@@ -2288,7 +2300,6 @@ async def transcribe_recording(
         "success": True,
         "task_id": task.id,
         "recording_id": recording_id,
-        "mode": "sync_api",
         "status": "queued",
         "message": "Transcription task has been queued",
         "check_status_url": f"/api/v1/tasks/{task.id}",
@@ -2516,7 +2527,7 @@ async def get_recording_config(
     )
 
 
-@router.put("/{recording_id}/config", response_model=ConfigUpdateResponse)
+@router.patch("/{recording_id}/config", response_model=ConfigUpdateResponse)
 async def update_recording_config(
     recording_id: int,
     data: RecordingConfigUpdateRequest,

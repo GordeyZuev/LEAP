@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.10.4", description="Application version")
+    version: str = Field(default="0.10.4.1", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -681,79 +681,41 @@ class RetentionSettings(BaseSettings):
 
 
 # ============================================================================
-# FIREWORKS ASR (application-level, not per-user)
+# ASSEMBLYAI ASR (application-level, not per-user)
 # ============================================================================
 
 
-class FireworksSettings(BaseSettings):
-    """Fireworks Audio API operational settings. Credentials stay in config/fireworks_creds.json."""
+class AssemblyAISettings(BaseSettings):
+    """AssemblyAI operational settings. API key stays in config/assemblyai_creds.json."""
 
     model_config = SettingsConfigDict(
-        env_prefix="FIREWORKS_",
+        env_prefix="ASSEMBLYAI_",
         case_sensitive=False,
         extra="ignore",
     )
 
-    model: Literal["whisper-v3", "whisper-v3-turbo"] = Field(
-        default="whisper-v3-turbo",
-        description="ASR model for transcription",
+    speech_models: list[str] = Field(
+        default_factory=lambda: ["universal-3-pro", "universal-2"],
+        description="Speech models in priority order (first available wins)",
     )
-    base_url: str = Field(
-        default="https://audio-turbo.api.fireworks.ai",
-        description="Overridden at runtime from model by FireworksConfig",
-    )
-    batch_base_url: str = Field(
-        default="https://audio-batch.api.fireworks.ai",
-        description="Base URL for Batch API",
-    )
-    language: str | None = Field(
+    language_code: str | None = Field(
         default="ru",
-        description="Default language code (per-recording override in request params)",
+        description="Default language code (per-recording override available). None = language_detection.",
     )
-    response_format: Literal["json", "text", "srt", "verbose_json", "vtt"] = Field(
-        default="verbose_json",
-        description="Response format from API",
+    language_detection: bool = Field(
+        default=False,
+        description="Enable automatic language detection (overrides language_code if True)",
     )
-    timestamp_granularities: list[Literal["word", "segment"]] | None = Field(
-        default_factory=lambda: ["word", "segment"],
-        description="Timestamp granularities for verbose_json",
+    poll_interval: float = Field(
+        default=3.0,
+        ge=1.0,
+        description="Polling interval in seconds",
     )
-    alignment_model: Literal["mms_fa", "tdnn_ffn", "gentle"] | None = Field(
-        default=None,
-        description="Alignment model",
+    max_wait_seconds: float = Field(
+        default=3600.0,
+        ge=60.0,
+        description="Maximum wait time for transcription (seconds). 90-min lecture + queue buffer.",
     )
-    diarize: bool = Field(default=False, description="Speaker diarization")
-    vad_model: Literal["silero", "whisperx-pyannet"] | None = Field(
-        default="whisperx-pyannet",
-        description="VAD model",
-    )
-    temperature: float | list[float] | None = Field(
-        default=0.01,
-        description="Sampling temperature",
-    )
-    preprocessing: Literal["none", "dynamic", "soft_dynamic", "bass_dynamic"] | None = Field(
-        default="dynamic",
-        description="Audio preprocessing mode",
-    )
-    min_speakers: int | None = Field(default=None, ge=1, description="Min speakers if diarize")
-    max_speakers: int | None = Field(default=None, ge=1, description="Max speakers if diarize")
-    max_file_size_mb: int = Field(default=1024, ge=1, description="Max file size in MB")
-    audio_bitrate: str = Field(default="64k", description="Audio bitrate for processing")
-    audio_sample_rate: int = Field(default=16000, ge=8000, le=48000, description="Sample rate Hz")
-    retry_attempts: int = Field(default=3, ge=1, description="Retry attempts on error")
-    retry_delay: float = Field(default=2.0, ge=0.0, description="Base retry delay seconds")
-
-    @field_validator("timestamp_granularities", mode="before")
-    @classmethod
-    def _parse_ts_gran(cls, v: Any) -> list[str] | None:
-        if v is None:
-            return None
-        if isinstance(v, str):
-            return [g.strip() for g in v.split(",") if g.strip()]
-        if isinstance(v, list):
-            valid = {"word", "segment"}
-            return [g for g in v if g in valid]
-        return None
 
 
 # ============================================================================
@@ -775,44 +737,6 @@ class DeepSeekSettings(BaseSettings):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Temperature")
     max_tokens: int = Field(default=8000, ge=100, le=8192, description="Max tokens")
     top_p: float | None = Field(default=None, ge=0.0, le=1.0, description="Top-p")
-    top_k: int | None = Field(default=None, ge=1, description="Top-k (Fireworks)")
-    presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Presence penalty")
-    frequency_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Frequency penalty")
-    reasoning_effort: Literal["low", "medium", "high", "none"] | None = Field(
-        default=None,
-        description="Reasoning effort (Fireworks)",
-    )
-    seed: int | None = Field(default=None, description="Random seed")
-    timeout: float = Field(default=120.0, ge=1.0, description="Request timeout seconds")
-
-    @field_validator("base_url")
-    @classmethod
-    def _strip_base_url(cls, v: str) -> str:
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("base_url must start with http:// or https://")
-        return v.rstrip("/")
-
-
-class DeepSeekFireworksSettings(BaseSettings):
-    """DeepSeek via Fireworks (fallback topic extraction). api_key in config/deepseek_fireworks_creds.json."""
-
-    model_config = SettingsConfigDict(
-        env_prefix="DEEPSEEK_FIREWORKS_",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-    model: str = Field(
-        default="accounts/fireworks/models/deepseek-v3",
-        description="Fireworks-hosted DeepSeek model id",
-    )
-    base_url: str = Field(
-        default="https://api.fireworks.ai/inference/v1",
-        description="Fireworks OpenAI-compatible endpoint",
-    )
-    temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Temperature")
-    max_tokens: int = Field(default=8000, ge=100, le=8192, description="Max tokens")
-    top_p: float | None = Field(default=None, ge=0.0, le=1.0, description="Top-p")
     top_k: int | None = Field(default=None, ge=1, description="Top-k")
     presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Presence penalty")
     frequency_penalty: float | None = Field(default=None, ge=-2.0, le=2.0, description="Frequency penalty")
@@ -822,16 +746,10 @@ class DeepSeekFireworksSettings(BaseSettings):
     )
     seed: int | None = Field(default=None, description="Random seed")
     timeout: float = Field(default=120.0, ge=1.0, description="Request timeout seconds")
-    completion_token_ceiling: int = Field(
-        default=4096,
-        ge=100,
-        le=8192,
-        description="Clamp max_tokens to this value for Fireworks chat completions (non-stream request limit).",
-    )
 
     @field_validator("base_url")
     @classmethod
-    def _strip_base_url_fw(cls, v: str) -> str:
+    def _strip_base_url(cls, v: str) -> str:
         if not v.startswith(("http://", "https://")):
             raise ValueError("base_url must start with http:// or https://")
         return v.rstrip("/")
@@ -868,9 +786,8 @@ class Settings(BaseSettings):
     processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
     ytdlp: YtdlpSettings = Field(default_factory=YtdlpSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
-    fireworks: FireworksSettings = Field(default_factory=FireworksSettings)
+    assemblyai: AssemblyAISettings = Field(default_factory=AssemblyAISettings)
     deepseek: DeepSeekSettings = Field(default_factory=DeepSeekSettings)
-    deepseek_fireworks: DeepSeekFireworksSettings = Field(default_factory=DeepSeekFireworksSettings)
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
@@ -948,7 +865,6 @@ DEFAULT_USER_CONFIG = {
     "transcription": {
         "enable_transcription": True,
         "language": "ru",
-        "prompt": "",
         "vocabulary": [],
         "granularity": "long",
         "enable_topics": True,

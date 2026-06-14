@@ -1,7 +1,5 @@
 """Celery tasks for processing recordings with multi-tenancy support."""
 
-import asyncio
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -21,7 +19,6 @@ from config.settings import get_settings
 from database.models import RecordingModel
 from deepseek_module import DeepSeekConfig, TopicExtractor
 from file_storage.path_builder import StoragePathBuilder
-from fireworks_module import FireworksConfig, FireworksTranscriptionService
 from logger import format_details, format_status_change, get_logger, short_task_id, short_user_id
 from models import MeetingRecording, ProcessingStageStatus, ProcessingStageType, ProcessingStatus
 from transcription_module.manager import get_transcription_manager
@@ -373,6 +370,7 @@ async def _download_via_external(
 
     old_status = recording.status
     recording.status = ProcessingStatus.DOWNLOADING
+    recording.download_started_at = datetime.now(UTC)
     logger.info(format_status_change("Recording", old_status, recording.status))
     await recording_repo.update(recording)
     await session.commit()
@@ -903,12 +901,12 @@ def transcribe_recording_task(
     """
     Transcription of recording with ADMIN credentials (template-driven).
 
-    IMPORTANT: Only transcription (Fireworks), WITHOUT topic extraction.
+    IMPORTANT: Only transcription (AssemblyAI), WITHOUT topic extraction.
     For topic extraction, use extract_topics_task.
 
     Config parameters used:
     - transcription.language (default: "ru")
-    - transcription.prompt (default: "")
+    - transcription.vocabulary (list[str], fed as keyterms_prompt)
 
     Args:
         recording_id: ID of recording
@@ -956,16 +954,17 @@ async def _async_transcribe_recording(
     """
     Async function for transcription with ADMIN credentials (template-driven).
 
-    IMPORTANT: Only transcription (Fireworks), WITHOUT topic extraction.
+    IMPORTANT: Only transcription (AssemblyAI), WITHOUT topic extraction.
     Topic extraction is done separately through /topics endpoint.
 
     Config parameters used:
     - transcription.language (default: "ru")
-    - transcription.prompt (default: "")
-    ASR model/temperature: application settings (FireworksSettings / env FIREWORKS_*), not per-user.
+    - transcription.vocabulary (list[str], fed as keyterms_prompt)
+    ASR model: application settings (AssemblyAISettings / env ASSEMBLYAI_*), not per-user.
     """
     from api.services.config_utils import resolve_full_config
-    from fireworks_module import FireworksConfig, FireworksTranscriptionService
+    from assemblyai_module import AssemblyAIConfig, AssemblyAITranscriptionService
+    from transcription_module.keyterms import compose_keyterms
     from transcription_module.manager import get_transcription_manager
 
     session_maker = get_async_session_maker()
@@ -997,8 +996,7 @@ async def _async_transcribe_recording(
             logger.info(f"Retrying transcription | {format_details(attempt=transcribe_stage.retry_count + 1)}")
 
         # Extract transcription parameters
-        language = transcription_config.get("language", "ru")
-        user_prompt = transcription_config.get("prompt", "")
+        language = transcription_config.get("language") or None
         vocabulary = transcription_config.get("vocabulary") or []
 
         logger.info(f"Transcription config | {format_details(lang=language, vocab=len(vocabulary))}")
@@ -1007,7 +1005,6 @@ async def _async_transcribe_recording(
         from file_storage.factory import get_storage_backend as _get_storage
 
         storage_backend = _get_storage()
-        storage_builder_t = StoragePathBuilder()
 
         audio_storage_key: str | None = None
         if recording.processed_audio_path and await storage_backend.exists(recording.processed_audio_path):
@@ -1022,18 +1019,17 @@ async def _async_transcribe_recording(
         if not audio_storage_key:
             raise ValueError("No audio or video file available for transcription")
 
-        # Fireworks needs a local file path — materialize the audio/video to a temp file.
-        local_audio = storage_builder_t.create_temp_file(
-            prefix=f"transcribe_{recording_id}_", suffix=Path(audio_storage_key).suffix or ".mp3"
-        )
-        await storage_backend.download_to_file(audio_storage_key, local_audio)
-        audio_path = local_audio
-
         task_self.update_progress(user_id, 20, "Loading transcription service...", step="transcribe")
 
-        # Load ADMIN credentials (only Fireworks)
-        fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
-        fireworks_service = FireworksTranscriptionService(fireworks_config)
+        aai_config = AssemblyAIConfig.from_file("config/assemblyai_creds.json")
+        aai_service = AssemblyAITranscriptionService(aai_config)
+        aai_model = (aai_config.settings.speech_models or ["universal-2"])[0]
+
+        keyterms = compose_keyterms(vocabulary, recording.display_name)
+        if keyterms:
+            logger.info(f"Transcription keyterms | count={len(keyterms)} | preview={keyterms[:3]}")
+        else:
+            logger.info("Transcription keyterms | (none)")
 
         task_self.update_progress(user_id, 25, "Starting transcription...", step="transcribe")
 
@@ -1049,7 +1045,7 @@ async def _async_transcribe_recording(
             recording_id,
             user_id,
             "TRANSCRIBE",
-            meta={"language": language, "model": "fireworks"},
+            meta={"language": language, "model": aai_model},
         )
         await recording_repo.update(recording)
         await session.commit()
@@ -1057,87 +1053,64 @@ async def _async_transcribe_recording(
         try:
             task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
 
-            fireworks_prompt = fireworks_service.compose_fireworks_prompt(
-                user_prompt, recording.display_name, vocabulary, language=language
-            )
-
-            if fireworks_prompt:
-                logger.info(
-                    f"Transcription prompt | len={len(fireworks_prompt)} | preview={fireworks_prompt[:80]!r}..."
-                )
-            else:
-                logger.info("Transcription prompt | (empty)")
-
-            transcription_result = await fireworks_service.transcribe_audio(
-                audio_path=str(audio_path),
+            transcription_result = await aai_service.transcribe_audio(
+                audio_storage_key=audio_storage_key,
                 language=language,
-                prompt=fireworks_prompt,
+                keyterms=keyterms,
             )
 
             task_self.update_progress(user_id, 70, "Saving transcription...", step="transcribe")
 
-            # Save only master.json (WITHOUT extracted.json)
             transcription_manager = get_transcription_manager()
             user_slug = recording.owner.user_slug
             transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
 
-            # Prepare data for admin
             words = transcription_result.get("words", [])
             segments = transcription_result.get("segments", [])
             detected_language = transcription_result.get("language", language)
 
-            # Calculate duration from last segment
             duration = 0.0
-            if segments and len(segments) > 0:
-                last_segment = segments[-1]
-                duration = last_segment.get("end", 0.0)
+            if segments:
+                duration = segments[-1].get("end", 0.0)
 
-            # Collect metadata for admin (for cost calculation)
             usage_metadata = {
-                "model": fireworks_config.model,
-                "prompt_used": fireworks_prompt,
+                "model": aai_model,
+                "speech_models": aai_config.settings.speech_models,
+                "keyterms_count": len(keyterms),
                 "config": {
-                    "temperature": fireworks_config.temperature,
                     "language": language,
                     "detected_language": detected_language,
-                    "response_format": fireworks_config.response_format,
-                    "timestamp_granularities": fireworks_config.timestamp_granularities,
-                    "preprocessing": fireworks_config.preprocessing,
+                    "language_detection": aai_config.settings.language_detection,
                 },
                 "audio_file": {
                     "path": audio_storage_key,
                     "duration_seconds": duration,
                 },
-                "usage": transcription_result.get("usage"),
             }
 
-            # Save master.json
             await transcription_manager.save_master(
                 recording_id=recording_id,
                 words=words,
                 segments=segments,
                 language=language,
-                model="fireworks",
+                model=aai_model,
                 duration=duration,
                 usage_metadata=usage_metadata,
                 user_slug=user_slug,
                 raw_response=transcription_result,
             )
 
-            # Generate cache files (segments.txt, words.txt)
             await transcription_manager.generate_cache_files(recording_id, user_slug)
 
             task_self.update_progress(user_id, 90, "Updating database...", step="transcribe")
 
-            # Update recording in DB (without topics)
             recording.transcription_dir = str(transcription_dir)
             recording.transcription_info = transcription_result
             recording.final_duration = duration or None
 
-            # Mark transcription stage as completed
             recording.mark_stage_completed(
                 ProcessingStageType.TRANSCRIBE,
-                meta={"transcription_dir": str(transcription_dir), "language": language, "model": "fireworks"},
+                meta={"transcription_dir": str(transcription_dir), "language": language, "model": aai_model},
             )
 
             update_aggregate_status(recording)
@@ -1165,9 +1138,6 @@ async def _async_transcribe_recording(
             await timing_service.fail_stage(timing, str(e))
             await session.commit()
             raise
-        finally:
-            # Purge the local audio materialization used by Fireworks.
-            local_audio.unlink(missing_ok=True)
 
 
 @celery_app.task(
@@ -1601,9 +1571,7 @@ def extract_topics_task(
     """
     Extract topics from existing transcription (only admin credentials).
 
-    Model is selected automatically with retries and fallbacks:
-    1. First deepseek (primary model)
-    2. Fallback on fireworks_deepseek on error
+    Uses DeepSeek (primary model); failure raises and fails the stage.
 
     Args:
         recording_id: ID of recording
@@ -1646,13 +1614,7 @@ def extract_topics_task(
 async def _async_extract_topics(
     task_self, recording_id: int, user_id: str, granularity: str, version_id: str | None
 ) -> dict:
-    """
-    Async function for extracting topics with automatic model selection.
-
-    Strategy:
-    1. Try with deepseek (primary model)
-    2. Fallback on fireworks_deepseek on error
-    """
+    """Async function for extracting topics via DeepSeek. Failure raises — no fallback."""
     session_maker = get_async_session_maker()
 
     async with session_maker() as session:
@@ -1726,54 +1688,21 @@ async def _async_extract_topics(
         await session.commit()
 
         try:
-            # Try extracting topics with fallback strategy
-            topics_result = None
-            model_used = None
-            last_error = None
+            logger.info("Topics: extracting via DeepSeek")
+            task_self.update_progress(user_id, 40, "Extracting topics (deepseek)...", step="extract_topics")
 
-            # Strategy 1: DeepSeek (primary model)
-            try:
-                logger.info("Topics: trying primary model deepseek")
-                task_self.update_progress(user_id, 40, "Extracting topics (deepseek)...", step="extract_topics")
+            deepseek_config = DeepSeekConfig.from_file("config/deepseek_creds.json")
+            topic_extractor = TopicExtractor(deepseek_config)
 
-                deepseek_config = DeepSeekConfig.from_file("config/deepseek_creds.json")
-                topic_extractor = TopicExtractor(deepseek_config)
-
-                topics_result = await topic_extractor.extract_topics_from_file(
-                    segments_file_path=str(segments_path),
-                    recording_topic=recording.display_name,
-                    granularity=granularity,
-                    language=transcript_language,
-                    questions_count=questions_count,
-                )
-                model_used = "deepseek"
-                logger.info("Topics extracted with deepseek")
-
-            except Exception as e:
-                logger.warning(f"DeepSeek failed: {e}, trying fallback")
-                last_error = e
-
-                # Strategy 2: Fireworks DeepSeek (fallback)
-                try:
-                    logger.info("Topics: trying fallback model fireworks_deepseek")
-                    task_self.update_progress(user_id, 50, "Extracting topics (fallback)...", step="extract_topics")
-
-                    deepseek_config = DeepSeekConfig.from_file("config/deepseek_fireworks_creds.json")
-                    topic_extractor = TopicExtractor(deepseek_config)
-
-                    topics_result = await topic_extractor.extract_topics_from_file(
-                        segments_file_path=str(segments_path),
-                        recording_topic=recording.display_name,
-                        granularity=granularity,
-                        language=transcript_language,
-                        questions_count=questions_count,
-                    )
-                    model_used = "fireworks_deepseek"
-                    logger.info("Topics extracted with fireworks_deepseek")
-
-                except Exception as e2:
-                    logger.error(f"All topic models failed | primary={last_error} • fallback={e2}")
-                    raise ValueError(f"Failed to extract topics with all models. Primary: {last_error}, Fallback: {e2}")
+            topics_result = await topic_extractor.extract_topics_from_file(
+                segments_file_path=str(segments_path),
+                recording_topic=recording.display_name,
+                granularity=granularity,
+                language=transcript_language,
+                questions_count=questions_count,
+            )
+            model_used = "deepseek"
+            logger.info("Topics extracted with deepseek")
 
             if not topics_result:
                 raise ValueError("Failed to extract topics: no result returned")
@@ -1787,10 +1716,9 @@ async def _async_extract_topics(
             # Collect metadata for admin (includes token usage if API returned it)
             usage_metadata = {
                 "model": model_used,
-                "prompt_used": "See TopicExtractor code for prompt generation",
                 "config": {
-                    "temperature": deepseek_config.temperature if deepseek_config else None,
-                    "max_tokens": deepseek_config.max_tokens if deepseek_config else None,
+                    "temperature": deepseek_config.temperature,
+                    "max_tokens": deepseek_config.max_tokens,
                 },
             }
             if topics_result.get("usage"):
@@ -1992,335 +1920,3 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
             await timing_service.fail_stage(timing, str(e))
             await session.commit()
             raise
-
-
-@celery_app.task(
-    bind=True,
-    base=ProcessingTask,
-    name="api.tasks.processing.batch_transcribe_recording",
-    max_retries=settings.celery.processing_max_retries,
-    default_retry_delay=settings.celery.processing_retry_delay,
-)
-def batch_transcribe_recording_task(
-    self,
-    recording_id: int,
-    user_id: str,
-    batch_id: str | None = None,
-    poll_interval: float = 5.0,
-    max_wait_time: float = 3000.0,
-) -> dict:
-    """Batch API transcription: submit (if needed) + poll + save.
-
-    When batch_id is provided (single endpoint), skips submission and polls directly.
-    When batch_id is None (bulk endpoint), submits the batch job first.
-    """
-    with logger.contextualize(
-        task_id=short_task_id(self.request.id),
-        recording_id=recording_id,
-        user_id=short_user_id(user_id),
-    ):
-        try:
-            logger.info(f"Batch transcription | {format_details(batch_id=batch_id or 'will_submit')}")
-
-            self.update_progress(user_id, 5, "Starting batch transcription...", step="batch_transcribe")
-
-            result = self.run_async(
-                _async_poll_batch_transcription(
-                    self,
-                    recording_id,
-                    user_id,
-                    batch_id,
-                    poll_interval,
-                    max_wait_time,
-                )
-            )
-
-            return self.build_result(
-                user_id=user_id,
-                status="completed",
-                recording_id=recording_id,
-                **result,
-            )
-
-        except TimeoutError as exc:
-            logger.error(
-                f"Batch transcription timeout | {format_details(batch_id=batch_id, max_wait=f'{max_wait_time}s')}"
-            )
-            raise self.retry(countdown=600, exc=exc)
-
-        except SoftTimeLimitExceeded:
-            logger.error("Soft time limit exceeded")
-            raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
-
-        except Exception as exc:
-            logger.error(f"Error in batch transcription: {exc!r}", exc_info=True)
-            raise self.retry(exc=exc)
-
-
-async def _async_poll_batch_transcription(
-    task_self,
-    recording_id: int,
-    user_id: str,
-    batch_id: str | None,
-    poll_interval: float,
-    max_wait_time: float,
-) -> dict:
-    """Async batch transcription: optional submit, poll until done, save results."""
-    session_maker = get_async_session_maker()
-    fireworks_config = FireworksConfig.from_file("config/fireworks_creds.json")
-    fireworks_service = FireworksTranscriptionService(fireworks_config)
-
-    # Phase 1: Load recording, submit batch if needed, mark IN_PROGRESS
-    async with session_maker() as session:
-        recording_repo = RecordingRepository(session)
-        recording_db = await recording_repo.get_by_id(recording_id, user_id)
-
-        if not recording_db:
-            raise ValueError(f"Recording {recording_id} not found for user {user_id}")
-
-        user_slug = recording_db.owner.user_slug
-
-        # Submit batch job if batch_id not provided (bulk endpoint path)
-        if batch_id is None:
-            if not fireworks_config.account_id:
-                raise ValueError("Batch API requires account_id in config/fireworks_creds.json")
-
-            from file_storage.factory import get_storage_backend as _get_storage_b
-            from file_storage.path_builder import StoragePathBuilder as _Builder
-
-            _storage = _get_storage_b()
-            _builder = _Builder()
-
-            audio_storage_key_b = (
-                recording_db.processed_audio_path or recording_db.processed_video_path or recording_db.local_video_path
-            )
-            if not audio_storage_key_b or not await _storage.exists(audio_storage_key_b):
-                raise ValueError(f"No audio/video file available for recording {recording_id}")
-
-            # Fireworks batch needs a local file; download to temp.
-            audio_path_local = _builder.create_temp_file(
-                prefix=f"batch_trans_{recording_id}_", suffix=Path(audio_storage_key_b).suffix or ".mp3"
-            )
-            await _storage.download_to_file(audio_storage_key_b, audio_path_local)
-
-            full_config, _ = await resolve_full_config(session, recording_id, user_id, None)
-            transcription_config = full_config.get("transcription", {})
-            language = transcription_config.get("language", "ru")
-            user_prompt = transcription_config.get("prompt", "")
-            vocabulary = transcription_config.get("vocabulary") or []
-            fireworks_prompt = fireworks_service.compose_fireworks_prompt(
-                user_prompt, recording_db.display_name, vocabulary, language=language
-            )
-
-            task_self.update_progress(user_id, 10, "Submitting batch job...", step="batch_transcribe")
-
-            try:
-                batch_result = await fireworks_service.submit_batch_transcription(
-                    audio_path=str(audio_path_local),
-                    language=language,
-                    prompt=fireworks_prompt,
-                )
-            finally:
-                audio_path_local.unlink(missing_ok=True)
-            batch_id = batch_result.get("batch_id")
-            if not batch_id:
-                raise ValueError("Batch API did not return batch_id")
-
-            logger.info(f"Batch submitted | {format_details(batch_id=batch_id)}")
-
-        # Mark TRANSCRIBE stage as IN_PROGRESS
-        recording_db.mark_stage_in_progress(ProcessingStageType.TRANSCRIBE)
-        update_aggregate_status(recording_db)
-
-        timing_service = TimingService(session)
-        timing = await timing_service.start_stage(
-            recording_id,
-            user_id,
-            "TRANSCRIBE",
-            meta={"batch_id": batch_id, "model": "fireworks"},
-        )
-        timing_id = timing.id
-
-        await recording_repo.update(recording_db)
-        await session.commit()
-
-    # Phase 2: Poll (no DB session held open)
-    try:
-        return await _batch_transcribe_poll_and_save(
-            task_self,
-            session_maker,
-            fireworks_config,
-            fireworks_service,
-            recording_id,
-            user_id,
-            user_slug,
-            batch_id,
-            timing_id,
-            poll_interval,
-            max_wait_time,
-        )
-    except Exception as e:
-        # Record timing failure in a fresh session
-        async with session_maker() as session:
-            ts = TimingService(session)
-            t = await ts.get_by_id(timing_id)
-            if t and t.status == "IN_PROGRESS":
-                await ts.fail_stage(t, str(e))
-                await session.commit()
-        raise
-
-
-async def _batch_transcribe_poll_and_save(
-    task_self,
-    session_maker,
-    fireworks_config,
-    fireworks_service,
-    recording_id: int,
-    user_id: str,
-    user_slug: int,
-    batch_id: str,
-    timing_id: int,
-    poll_interval: float,
-    max_wait_time: float,
-) -> dict:
-    """Poll batch transcription status, parse result, save to disk and DB."""
-    task_self.update_progress(user_id, 15, "Waiting for batch transcription...", step="batch_transcribe")
-
-    start_time = time.time()
-    attempt = 0
-    completed_response: dict | None = None
-    terminal_statuses = {"failed", "error", "cancelled"}
-
-    while True:
-        attempt += 1
-        elapsed = time.time() - start_time
-
-        if elapsed > max_wait_time:
-            raise TimeoutError(
-                f"Batch transcription {batch_id} not completed after {max_wait_time}s (attempts: {attempt})"
-            )
-
-        status_response = await fireworks_service.check_batch_status(batch_id)
-        batch_status = status_response.get("status", "unknown")
-
-        progress = min(20 + int((elapsed / max_wait_time) * 60), 80)
-        task_self.update_progress(
-            user_id,
-            progress,
-            f"Batch transcribing... ({batch_status}, {elapsed:.0f}s)",
-            step="batch_transcribe",
-            batch_id=batch_id,
-            attempt=attempt,
-        )
-
-        if batch_status == "completed":
-            completed_response = status_response
-            logger.success(
-                f"Batch transcription complete | {format_details(batch_id=batch_id, elapsed=f'{elapsed:.1f}s', attempts=attempt)}"
-            )
-            break
-
-        if batch_status in terminal_statuses:
-            raise RuntimeError(
-                f"Batch {batch_id} failed with status '{batch_status}': {status_response.get('error', 'no details')}"
-            )
-
-        logger.debug(
-            f"Batch polling | {format_details(batch_id=batch_id, status=batch_status, attempt=attempt, elapsed=f'{elapsed:.1f}s')}"
-        )
-        await asyncio.sleep(poll_interval)
-
-    elapsed = time.time() - start_time
-
-    # Phase 3: Parse result, save to disk and DB
-    task_self.update_progress(user_id, 85, "Parsing batch result...", step="batch_transcribe")
-
-    transcription_result = await fireworks_service.get_batch_result(batch_id, status_response=completed_response)
-
-    words = transcription_result.get("words", [])
-    segments = transcription_result.get("segments", [])
-    language = transcription_result.get("language", "ru")
-
-    duration = 0.0
-    if segments:
-        duration = segments[-1].get("end", 0.0)
-
-    usage_metadata = {
-        "model": fireworks_config.model,
-        "batch_id": batch_id,
-        "config": {
-            "language": language,
-            "response_format": fireworks_config.response_format,
-            "timestamp_granularities": fireworks_config.timestamp_granularities,
-        },
-        "audio_file": {"duration_seconds": duration},
-    }
-
-    transcription_manager = get_transcription_manager()
-
-    task_self.update_progress(user_id, 90, "Saving transcription...", step="batch_transcribe")
-
-    await transcription_manager.save_master(
-        recording_id=recording_id,
-        words=words,
-        segments=segments,
-        language=language,
-        model="fireworks",
-        duration=duration,
-        usage_metadata=usage_metadata,
-        user_slug=user_slug,
-        raw_response=transcription_result,
-    )
-
-    await transcription_manager.generate_cache_files(recording_id, user_slug)
-
-    # Phase 4: Update DB with results
-    async with session_maker() as session:
-        recording_repo = RecordingRepository(session)
-        recording_db = await recording_repo.get_by_id(recording_id, user_id)
-
-        if not recording_db:
-            raise ValueError(f"Recording {recording_id} disappeared during batch processing")
-
-        transcription_dir = transcription_manager.get_dir(recording_id, user_slug)
-        recording_db.transcription_dir = str(transcription_dir)
-        recording_db.transcription_info = transcription_result
-        recording_db.final_duration = duration or None
-
-        recording_db.mark_stage_completed(
-            ProcessingStageType.TRANSCRIBE,
-            meta={
-                "batch_id": batch_id,
-                "language": language,
-                "words_count": len(words),
-                "segments_count": len(segments),
-                "elapsed_seconds": elapsed,
-            },
-        )
-        update_aggregate_status(recording_db)
-
-        # Complete timing row from Phase 1
-        timing_service = TimingService(session)
-        timing = await timing_service.get_by_id(timing_id)
-        if timing:
-            await timing_service.complete_stage(
-                timing, meta={"batch_id": batch_id, "language": language, "words": len(words)}
-            )
-        _update_pipeline_completed(recording_db)
-
-        await recording_repo.update(recording_db)
-        await session.commit()
-
-    logger.success(
-        f"Batch transcription saved | {format_details(words=len(words), segments=len(segments), lang=language, elapsed=f'{elapsed:.1f}s')}"
-    )
-
-    return {
-        "success": True,
-        "batch_id": batch_id,
-        "language": language,
-        "words_count": len(words),
-        "segments_count": len(segments),
-        "elapsed_seconds": elapsed,
-        "attempts": attempt,
-    }

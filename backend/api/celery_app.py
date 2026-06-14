@@ -147,7 +147,6 @@ celery_app.conf.task_routes = {
     "api.tasks.processing.transcribe_recording": {"queue": "async_operations"},
     "api.tasks.processing.extract_topics": {"queue": "async_operations"},
     "api.tasks.processing.generate_subtitles": {"queue": "async_operations"},
-    "api.tasks.processing.batch_transcribe_recording": {"queue": "async_operations"},
     "api.tasks.processing.run_recording": {"queue": "async_operations"},
     "api.tasks.processing.launch_uploads": {"queue": "async_operations"},
     "api.tasks.template.*": {"queue": "async_operations"},

@@ -78,12 +78,9 @@ locals {
 }
 
 # AI providers
-variable "fireworks_api_key" {
+variable "assemblyai_api_key" {
   type      = string
   sensitive = true
-}
-variable "fireworks_account_id" {
-  type = string
 }
 variable "deepseek_api_key" {
   type      = string
@@ -259,10 +256,9 @@ resource "yandex_lockbox_secret_version" "v1" {
   }
 
   entries {
-    key = "FILE__fireworks_creds.json"
+    key = "FILE__assemblyai_creds.json"
     text_value = jsonencode({
-      api_key    = var.fireworks_api_key
-      account_id = var.fireworks_account_id
+      api_key = var.assemblyai_api_key
     })
   }
 

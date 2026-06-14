@@ -222,6 +222,7 @@ class MeetingRecording:
         self.processed_video_path: str | None = meeting_data.get("processed_video_path")
         self.processed_audio_path: str | None = meeting_data.get("processed_audio_path")
         self.transcription_dir: str | None = meeting_data.get("transcription_dir")
+        self.download_started_at: datetime | None = meeting_data.get("download_started_at")
         self.downloaded_at: datetime | None = meeting_data.get("downloaded_at")
 
         # Additional info about files and downloading (for Zoom sources)

@@ -159,7 +159,7 @@ def _build_uploads_dict(outputs) -> dict:
         if not platform:
             continue
         st = output.status
-        status_str = (getattr(st, "value", st) or "").lower() or "unknown"
+        status_str = getattr(st, "value", st) or "NOT_UPLOADED"
         url = None
         if output.target_meta:
             url = (

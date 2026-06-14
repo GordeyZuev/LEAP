@@ -59,8 +59,7 @@ github_branch = "main"
 # oauth_vk_json      = "..."
 # oauth_yadisk_json  = "..."
 
-# fireworks_api_key    = "fw_..."
-# fireworks_account_id = "..."
+# assemblyai_api_key = "aai_..."
 # deepseek_api_key     = "sk-..."
 
 # ============================================================================

@@ -2,6 +2,57 @@
 
 ---
 
+## v0.10.4.1 (2026-06-14)
+
+Релиз: миграция ASR с Fireworks на AssemblyAI; см. раздел **2026-06-14** ниже.
+
+**Alembic migration 026** (`download_started_at`) — apply before or with this deploy.
+
+---
+
+## 2026-06-14: Fireworks → AssemblyAI migration
+
+### Breaking changes
+
+- **Fireworks ASR removed.** Transcription now uses **AssemblyAI Universal-2/3-Pro**.
+  Requires `config/assemblyai_creds.json` — `{"api_key": "aai_..."}`.
+  Remove `config/fireworks_creds.json` and `config/deepseek_fireworks_creds.json` from VM after deploy.
+- **`use_batch_api` removed** from `POST /transcribe` and `POST /bulk/transcribe`.
+  All transcription is async poll via AssemblyAI (submit → poll until completed).
+- **`fireworks_deepseek` topic fallback removed.** `POST /topics` now uses DeepSeek directly only.
+  If DeepSeek fails, the stage fails — no silent fallback.
+
+### Behavior changes
+
+- `transcription.prompt` no longer affects ASR. Vocabulary terms from the template
+  and `recording.display_name` are sent as `keyterms_prompt` to AssemblyAI.
+- Default `transcription_model` changed from `"fireworks"` to `"universal-2"` in all schemas.
+- `CredentialPlatform.FIREWORKS` → `ASSEMBLYAI` in enum and credentials status endpoint.
+
+### Deploy order (prod `/opt/leap`)
+
+1. Create AssemblyAI account, add `api_key` to Lockbox: rename secret entry
+   `FILE__fireworks_creds.json` → `FILE__assemblyai_creds.json` (or apply Terraform).
+2. Ensure S3 presigned GET URLs are reachable from AssemblyAI servers
+   (`curl` the presigned URL from an external host).
+3. Deploy code + `uv sync`.
+4. `docker compose restart celery_worker` (and API if creds loaded at startup).
+5. Re-run any stuck TRANSCRIBE recording to verify end-to-end.
+6. Delete `config/fireworks_creds.json` and `config/deepseek_fireworks_creds.json` from VM.
+
+### Files changed
+
+- `backend/assemblyai_module/` — new module (config, service)
+- `backend/transcription_module/keyterms.py`, `normalize.py` — new shared helpers
+- `backend/fireworks_module/` — **deleted**
+- `backend/api/tasks/processing.py` — wired AssemblyAI, removed batch tasks
+- `backend/api/routers/recordings.py`, `credentials.py` — removed batch/fireworks
+- `backend/deepseek_module/topic_extractor.py` — removed Fireworks fallback
+- `backend/config/settings.py` — `AssemblyAISettings` added, `FireworksSettings`/`DeepSeekFireworksSettings` removed
+- `terraform/` — Lockbox key renamed, `fireworks_*` vars → `assemblyai_api_key`
+
+---
+
 ## 2026-06-12: Pipeline reliability — `on_air` flag, hard pause, idempotency
 
 **Alembic migrations 024 + 025** — apply before deploying this version.

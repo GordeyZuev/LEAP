@@ -59,7 +59,6 @@ interface TrimmingConfig {
 interface TranscriptionConfig {
   enable_transcription: boolean;
   language: string;
-  prompt: string;
   vocabulary: string[];
   allow_errors: boolean;
   enable_topics: boolean;
@@ -147,7 +146,6 @@ const DEFAULT_TRIMMING: TrimmingConfig = {
 const DEFAULT_TRANSCRIPTION: TranscriptionConfig = {
   enable_transcription: true,
   language: "ru",
-  prompt: "",
   vocabulary: [],
   allow_errors: false,
   enable_topics: true,
@@ -755,7 +753,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-0.5">
           <Toggle
             label="Enable transcription"
-            hint="ASR via Fireworks/Whisper"
+            hint="ASR via AssemblyAI"
             checked={transcription.enable_transcription}
             onChange={(v) => setTranscription((c) => ({ ...c, enable_transcription: v }))}
           />
@@ -880,14 +878,6 @@ export default function SettingsPage() {
               />
             </Field>
           )}
-
-          <TemplateField
-            label="Transcription prompt"
-            value={transcription.prompt}
-            onChange={(v) => setTranscription((c) => ({ ...c, prompt: v }))}
-            multiline
-            placeholder="University lecture: machine learning, neural networks…"
-          />
 
           <Field label="Vocabulary" hint="Key terms that improve recognition accuracy">
             <TagInput

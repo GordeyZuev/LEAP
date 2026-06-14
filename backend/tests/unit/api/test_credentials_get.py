@@ -306,7 +306,7 @@ class TestCheckCredentialsStatus:
         status_map = data["credentials_status"]
 
         # Check for key platforms
-        expected_platforms = ["zoom", "youtube", "vk_video", "fireworks"]
+        expected_platforms = ["zoom", "youtube", "vk_video", "assemblyai"]
         for platform in expected_platforms:
             assert platform in status_map
 

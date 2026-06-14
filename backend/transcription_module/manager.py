@@ -60,7 +60,7 @@ class TranscriptionManager:
         words: list[dict],
         segments: list[dict],
         language: str = "ru",
-        model: str = "fireworks",
+        model: str = "universal-2",
         duration: float = 0.0,
         usage_metadata: dict | None = None,
         user_slug: int | None = None,

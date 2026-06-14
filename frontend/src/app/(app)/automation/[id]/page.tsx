@@ -8,7 +8,6 @@ import { ArrowLeft, Save, Play, FlaskConical, Clock, Copy, Trash2 } from "lucide
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
-import { TemplateField } from "@/components/platforms/platform-fields";
 import { Toast } from "@/components/ui/toast";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -28,7 +27,6 @@ interface AutomationProcessingConfig {
   enable_subtitles: boolean;
   language: string;
   granularity: string;
-  prompt: string;
   allow_errors: boolean;
   questions_count: number;
   vocabulary: string[];
@@ -95,7 +93,6 @@ const DEFAULT_PROCESSING_CONFIG: AutomationProcessingConfig = {
   enable_subtitles: true,
   language: "ru",
   granularity: "medium",
-  prompt: "",
   allow_errors: false,
   questions_count: 5,
   vocabulary: [],
@@ -166,7 +163,6 @@ function apiJobToForm(job: AutomationJobApi): JobForm {
       enable_subtitles: (t?.enable_subtitles as boolean | undefined) ?? true,
       language: (t?.language as string | undefined) ?? "ru",
       granularity: (t?.granularity as string | undefined) ?? "medium",
-      prompt: (t?.prompt as string | undefined) ?? "",
       allow_errors: (t?.allow_errors as boolean | undefined) ?? false,
       questions_count: (t?.questions_count as number | undefined) ?? 5,
       vocabulary: (t?.vocabulary as string[] | undefined) ?? [],
@@ -302,7 +298,6 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                 enable_subtitles: data.processing_config.enable_subtitles,
                 language: data.processing_config.language,
                 granularity: data.processing_config.granularity,
-                ...(data.processing_config.prompt ? { prompt: data.processing_config.prompt } : {}),
                 allow_errors: data.processing_config.allow_errors,
                 questions_count: data.processing_config.questions_count,
                 ...(data.processing_config.vocabulary.length > 0 ? { vocabulary: data.processing_config.vocabulary } : {}),
@@ -599,13 +594,6 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                   <option value="long">Long</option>
                 </NativeSelect>
               </F>
-              <TemplateField
-                label="Transcription prompt"
-                value={form.processing_config.prompt}
-                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, prompt: v } }))}
-                multiline
-                placeholder="University lecture: machine learning, neural networks…"
-              />
               <Toggle
                 label="Allow transcription errors"
                 checked={form.processing_config.allow_errors}

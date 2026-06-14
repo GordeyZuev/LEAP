@@ -109,6 +109,7 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadName, setUploadName] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
@@ -157,12 +158,31 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
+  function acceptFile(f: File) {
     setUploadFile(f);
     setUploadName(f.name.replace(/\.[^.]+$/, ""));
     setUploadError("");
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) acceptFile(f);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith("image/")) acceptFile(f);
   }
 
   const thumbnails = data?.thumbnails ?? [];
@@ -271,36 +291,46 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
                   className="hidden"
                   onChange={handleFileChange}
                 />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => fileRef.current?.click()}
-                    className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                  >
-                    <Upload size={13} />
-                    {uploadFile ? uploadFile.name : "Choose file…"}
-                  </button>
-                  {uploadFile && (
-                    <>
-                      <input
-                        type="text"
-                        value={uploadName}
-                        onChange={(e) => setUploadName(e.target.value)}
-                        placeholder="filename (no extension)"
-                        className={cn(FILTER_CONTROL, "flex-1 text-xs")}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => upload.mutate()}
-                        disabled={upload.isPending || !uploadName}
-                        className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
-                      >
-                        {upload.isPending ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                        Upload
-                      </button>
-                    </>
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileRef.current?.click()}
+                  className={cn(
+                    "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-5 transition-colors",
+                    isDragging
+                      ? "border-[#224C87] bg-[#224C87]/5"
+                      : uploadFile
+                        ? "border-[#224C87]/40 bg-[#224C87]/5"
+                        : "border-[#D9D9D9] hover:border-[#224C87]/40 hover:bg-white"
                   )}
+                >
+                  <Upload size={18} className={uploadFile ? "text-[#224C87]" : "text-gray-400"} />
+                  <p className="text-center text-xs text-gray-500">
+                    {uploadFile ? uploadFile.name : "Drag image here or click to choose"}
+                  </p>
                 </div>
+                {uploadFile && (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={uploadName}
+                      onChange={(e) => setUploadName(e.target.value)}
+                      placeholder="filename (no extension)"
+                      className={cn(FILTER_CONTROL, "flex-1 text-xs")}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => upload.mutate()}
+                      disabled={upload.isPending || !uploadName}
+                      className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
+                    >
+                      {upload.isPending ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                      Upload
+                    </button>
+                  </div>
+                )}
                 {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}
               </div>
             </div>

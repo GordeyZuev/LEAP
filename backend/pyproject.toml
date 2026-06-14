@@ -1,6 +1,6 @@
 [project]
 name = "leap"
-version = "0.10.4"
+version = "0.10.4.1"
 description = "LEAP - Lecture Enhancement & Automation Platform for intelligent video content processing"
 readme = "README.md"
 license = {text = "Business Source License 1.1"}
@@ -54,7 +54,6 @@ dependencies = [
     # VK API
     "vk-api>=11.10.0",
     # AI/Transcription
-    "fireworks-ai>=0.15.15",
     "openai>=2.8.1",
     # Export
     "openpyxl>=3.1.0",
@@ -112,7 +111,7 @@ include = [
     "subtitle_module",
     "transcription_module",
     "deepseek_module",
-    "fireworks_module",
+    "assemblyai_module",
     "file_storage",
     "yandex_disk_module",
 ]

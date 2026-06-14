@@ -70,7 +70,7 @@ async def check_credentials_status(
 ) -> CredentialStatusResponse:
     cred_repo = UserCredentialRepository(session)
 
-    platforms = ["zoom", "youtube", "vk_video", "fireworks", "deepseek", "yandex_disk"]
+    platforms = ["zoom", "youtube", "vk_video", "assemblyai", "deepseek", "yandex_disk"]
 
     status_map = {}
     for platform in platforms:

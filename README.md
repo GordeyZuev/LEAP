@@ -20,8 +20,8 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.10.4` (June 2026) · **Статус:** In Active Development • Beta
-**Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (Whisper, DeepSeek) • `yt-dlp` • `ruff & ty`
+**Версия:** `v0.10.4.1` (June 2026) · **Статус:** In Active Development • Beta
+**Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (AssemblyAI, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
 **Структура репозитория:** API — [`backend/`](backend/) (`uv`, `make`, тесты, Celery); веб-клиент — [`frontend/`](frontend/) (`npm`, Next.js). В **корне** — [`docker-compose.yml`](docker-compose.yml) и [`Makefile`](Makefile) для Docker.
@@ -411,6 +411,12 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — что изменилось для пользователей и операторов. Полная история — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в `v0.10.4.1`** — AssemblyAI вместо Fireworks:
+- **Транскрипция** — AssemblyAI Universal-2/3-Pro; сегменты через `/sentences` (точнее, чем эвристика по словам).
+- **Keyterms** — термины из шаблона и название записи улучшают распознавание (поле `prompt` в ASR убрано).
+- **Деплой** — нужен `config/assemblyai_creds.json` (`api_key`); `fireworks_creds.json` и batch Fireworks API удалены.
+- **Темы** — только DeepSeek; fallback через Fireworks DeepSeek убран.
 
 **Новое в `v0.10.4`** — стабильнее пайплайн и публикация:
 - **Надёжная обработка** — запись больше не «зависает» в активном пайплайне после сбоя воркера: новый флаг `on_air`, автоматический сброс застрявших записей, защита от двойного запуска.

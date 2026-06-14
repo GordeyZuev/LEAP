@@ -5,7 +5,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import httpx
 from openai import AsyncOpenAI
 
 from api.shared.enums import Granularity
@@ -72,43 +71,18 @@ def _normalize_granularity(value: Granularity | str | None) -> Granularity:
 
 
 class TopicExtractor:
-    """Extract topics from transcription using DeepSeek or Fireworks API."""
+    """Extract topics from transcription using DeepSeek API."""
 
     def __init__(self, config: DeepSeekConfig):
         self.config = config
 
-        base = (config.base_url or "").lower()
-        allowed_domains = ("deepseek.com", "fireworks.ai")
+        self.client = AsyncOpenAI(
+            api_key=config.api_key,
+            base_url=config.base_url,
+        )
 
-        if not any(domain in base for domain in allowed_domains):
-            raise ValueError(
-                "Invalid TopicExtractor endpoint. "
-                "Expected DeepSeek API (https://api.deepseek.com/v1) "
-                "or Fireworks API (https://api.fireworks.ai/inference/v1). "
-                f"Got: {config.base_url}"
-            )
-
-        self.is_fireworks = "fireworks.ai" in base
-
-        if self.is_fireworks:
-            self.client = None  # Use httpx directly for Fireworks-specific params
-            self.api_key = config.api_key
-            self.base_url = config.base_url
-        else:
-            self.client = AsyncOpenAI(
-                api_key=config.api_key,
-                base_url=config.base_url,
-            )
-            self.api_key = None
-            self.base_url = None
-
-        if self.is_fireworks:
-            provider = "fireworks_deepseek"
-        else:
-            provider = "deepseek"
         logger.info(
-            f"TopicExtractor initialized: provider={provider} | base_url={config.base_url} | model={config.model}",
-            provider=provider,
+            f"TopicExtractor initialized: base_url={config.base_url} | model={config.model}",
             base_url=config.base_url,
             model=config.model,
         )
@@ -122,7 +96,7 @@ class TopicExtractor:
         questions_count: int = 3,
     ) -> dict[str, Any]:
         """
-        Extract topics from transcription via DeepSeek/Fireworks.
+        Extract topics from transcription via DeepSeek.
 
         Args:
             segments: List of segments with timestamps (required).
@@ -452,33 +426,27 @@ class TopicExtractor:
         prompt = template.format(**prompt_params)
 
         try:
-            # Usage: optional. OpenAI-compatible APIs return usage when available.
             usage: dict[str, int] | None = None
-            if self.is_fireworks:
-                content, usage = await self._fireworks_request(prompt, system_prompt=system_prompt)
-            else:
-                if self.client is None:
-                    raise ValueError("DeepSeek client not initialized")
-                response = await self.client.chat.completions.create(
-                    model=self.config.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
-                    **self.config.to_request_params(),
-                )
-                if not hasattr(response, "choices") or not response.choices:
-                    error_msg = f"Unexpected DeepSeek API response format: type={type(response)}, value={response}"
-                    logger.error(error_msg)
-                    raise ValueError(error_msg)
-                content = response.choices[0].message.content.strip()
-                if hasattr(response, "usage") and response.usage is not None:
-                    u = response.usage
-                    usage = {
-                        "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
-                        "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
-                        "total_tokens": getattr(u, "total_tokens", 0) or 0,
-                    }
+            response = await self.client.chat.completions.create(
+                model=self.config.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                **self.config.to_request_params(),
+            )
+            if not hasattr(response, "choices") or not response.choices:
+                error_msg = f"Unexpected DeepSeek API response format: type={type(response)}, value={response}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            content = response.choices[0].message.content.strip()
+            if hasattr(response, "usage") and response.usage is not None:
+                u = response.usage
+                usage = {
+                    "prompt_tokens": getattr(u, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(u, "completion_tokens", 0) or 0,
+                    "total_tokens": getattr(u, "total_tokens", 0) or 0,
+                }
 
             if not content:
                 return {"main_topics": [], "topic_timestamps": [], "summary": "", "questions": [], "usage": usage}
@@ -508,122 +476,6 @@ class TopicExtractor:
                 "questions": [],
                 "long_pauses": [],
             }
-
-    async def _fireworks_request(
-        self, prompt: str, *, system_prompt: str | None = None
-    ) -> tuple[str, dict[str, int] | None]:
-        """
-        Direct HTTP request to Fireworks API with model, max_tokens, top_p, top_k, etc.
-
-        Args:
-            prompt: User prompt to send.
-            system_prompt: System message (defaults to Russian SYSTEM_PROMPT).
-
-        Returns:
-            Tuple of (content, usage dict or None). Usage has prompt_tokens, completion_tokens, total_tokens.
-        """
-        sys_msg = system_prompt if system_prompt is not None else SYSTEM_PROMPT
-        url = f"{self.base_url}/chat/completions"
-
-        params: dict[str, Any] = {
-            "max_tokens": self.config.max_tokens,
-            "top_k": self.config.top_k,
-            "presence_penalty": self.config.presence_penalty,
-            "frequency_penalty": self.config.frequency_penalty,
-            "temperature": self.config.temperature,
-        }
-
-        if self.config.top_k != 1 and self.config.top_p is not None:
-            params["top_p"] = self.config.top_p
-
-        ceiling = self.config.completion_token_ceiling
-        if ceiling is None:
-            ceiling = 4096
-        if params.get("max_tokens", 0) > ceiling:
-            logger.warning(
-                f"⚠️ max_tokens={params.get('max_tokens')} exceeds Fireworks completion_token_ceiling ({ceiling}). "
-                f"Reducing to {ceiling}."
-            )
-            params["max_tokens"] = ceiling
-
-        params = {k: v for k, v in params.items() if v is not None}
-
-        payload = {
-            "model": self.config.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": sys_msg,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            **params,
-        }
-
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-
-        timeout = httpx.Timeout(self.config.timeout, connect=10.0)
-
-        logger.debug(f"Fireworks API request: url={url} | model={self.config.model} | params={list(params.keys())}")
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                response = await client.post(url, json=payload, headers=headers)
-
-                if response.status_code != 200:
-                    self._log_api_error(response, url, payload, params)
-                    response.raise_for_status()
-
-                data = response.json()
-
-                if "choices" not in data or not data["choices"]:
-                    raise ValueError(f"Invalid Fireworks API response format: {data}")
-
-                content = data["choices"][0]["message"]["content"].strip()
-                usage = None
-                u = data.get("usage")
-                if u:
-                    usage = {
-                        "prompt_tokens": u.get("prompt_tokens", u.get("input_tokens", 0)) or 0,
-                        "completion_tokens": u.get("completion_tokens", u.get("output_tokens", 0)) or 0,
-                        "total_tokens": u.get("total_tokens", 0) or 0,
-                    }
-                return content, usage
-            except httpx.HTTPStatusError as e:
-                if e.response is not None:
-                    self._log_http_error(e.response)
-                raise
-
-    def _log_api_error(self, response: httpx.Response, url: str, payload: dict, params: dict) -> None:
-        """Log Fireworks API error response."""
-        try:
-            error_text = str(response.json())
-        except Exception:
-            error_text = response.text
-
-        logger.error(
-            f"❌ Fireworks API error (status {response.status_code}):\n"
-            f"URL: {url}\n"
-            f"Payload keys: {list(payload.keys())}\n"
-            f"Params: {params}\n"
-            f"Response: {error_text[:2000]}"
-        )
-
-    def _log_http_error(self, response: httpx.Response) -> None:
-        """Log HTTP error details."""
-        try:
-            error_data = response.json()
-            logger.error(f"Fireworks API error: data={error_data}", error_data=error_data)
-        except Exception:
-            error_text = response.text
-            logger.error(f"Fireworks API error: text={error_text[:1000]}", error_text=error_text[:1000])
 
     def _detect_long_pauses(self, segments: list[dict], min_gap_minutes: float = 8.0) -> list[dict]:
         """

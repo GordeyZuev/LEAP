@@ -12,7 +12,10 @@ class ProcessingPreferences(BaseModel):
     enable_subtitles: bool = Field(True, description="Enable generation of subtitles")
     enable_topics: bool = Field(True, description="Enable extraction of topics")
     granularity: Granularity = Field(Granularity.LONG, description="Level of detail: short, medium, or long")
-    transcription_model: str = Field("fireworks", description="Model for transcription")
+    transcription_model: str = Field(
+        "universal-2",
+        description="AssemblyAI speech model (universal-2, universal-3-pro). Metadata only — actual model set via ASSEMBLYAI_SPEECH_MODELS env.",
+    )
     topic_model: str = Field("deepseek", description="Model for extraction of topics")
 
     model_config = ConfigDict(
@@ -22,7 +25,7 @@ class ProcessingPreferences(BaseModel):
                 "enable_subtitles": True,
                 "enable_topics": True,
                 "granularity": Granularity.LONG,
-                "transcription_model": "fireworks",
+                "transcription_model": "universal-2",
                 "topic_model": "deepseek",
             }
         }

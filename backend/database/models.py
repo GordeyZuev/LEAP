@@ -74,6 +74,7 @@ class RecordingModel(Base):
     processed_video_path: Mapped[str | None] = mapped_column(String(1000))
     processed_audio_path: Mapped[str | None] = mapped_column(String(1000))
     transcription_dir: Mapped[str | None] = mapped_column(String(1000))
+    download_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     video_file_size: Mapped[int | None] = mapped_column(BigInteger)
 

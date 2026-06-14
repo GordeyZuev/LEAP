@@ -19,7 +19,7 @@ class TrimmingConfig(BaseModel):
 
 
 class TranscriptionConfig(BaseModel):
-    """Per-user transcription preferences. ASR provider, model, and temperature are application-level (see FireworksSettings)."""
+    """Per-user transcription preferences. ASR provider, model, and temperature are application-level (see AssemblyAISettings)."""
 
     model_config = ConfigDict(extra="ignore")
 

@@ -70,7 +70,6 @@ interface RecordingConfigResponse {
       enable_transcription?: boolean;
       enable_topics?: boolean;
       enable_subtitles?: boolean;
-      prompt?: string;
       allow_errors?: boolean;
       questions_count?: number;
       vocabulary?: string[];
@@ -219,7 +218,6 @@ export function RunConfigModal({
   const [enableTranscription, setEnableTranscription] = useState(true);
   const [enableTopics, setEnableTopics] = useState(true);
   const [enableSubtitles, setEnableSubtitles] = useState(true);
-  const [transcriptionPrompt, setTranscriptionPrompt] = useState("");
   const [allowErrors, setAllowErrors] = useState(false);
   const [questionsCount, setQuestionsCount] = useState(5);
   const [vocabulary, setVocabulary] = useState<string[]>([]);
@@ -284,7 +282,6 @@ export function RunConfigModal({
             enable_subtitles: enableSubtitles,
             language,
             granularity,
-            ...(transcriptionPrompt ? { prompt: transcriptionPrompt } : {}),
             allow_errors: allowErrors,
             questions_count: questionsCount,
             ...(vocabulary.length > 0 ? { vocabulary } : {}),
@@ -338,8 +335,7 @@ export function RunConfigModal({
       }
 
       if (isSave) {
-        // PUT /config persists only processing + output overrides (no run).
-        return apiClient.put(`/recordings/${recordingId}/config`, {
+        return apiClient.patch(`/recordings/${recordingId}/config`, {
           processing_config: body.processing_config,
           output_config: body.output_config,
         });
@@ -378,7 +374,6 @@ export function RunConfigModal({
     setEnableTranscription(true);
     setEnableTopics(true);
     setEnableSubtitles(true);
-    setTranscriptionPrompt("");
     setAllowErrors(false);
     setQuestionsCount(5);
     setVocabulary([]);
@@ -421,7 +416,6 @@ export function RunConfigModal({
         if (t.enable_transcription != null) setEnableTranscription(t.enable_transcription);
         if (t.enable_topics != null) setEnableTopics(t.enable_topics);
         if (t.enable_subtitles != null) setEnableSubtitles(t.enable_subtitles);
-        if (t.prompt != null) setTranscriptionPrompt(t.prompt);
         if (t.allow_errors != null) setAllowErrors(t.allow_errors);
         if (t.questions_count != null) setQuestionsCount(t.questions_count);
         if (t.vocabulary != null) setVocabulary(t.vocabulary);
@@ -682,14 +676,6 @@ export function RunConfigModal({
                     </label>
                   ))}
                 </div>
-
-                <TemplateField
-                  label="Transcription prompt"
-                  value={transcriptionPrompt}
-                  onChange={setTranscriptionPrompt}
-                  multiline
-                  placeholder="University lecture: machine learning, neural networks…"
-                />
 
                 <label className="flex cursor-pointer items-center gap-2.5">
                   <input

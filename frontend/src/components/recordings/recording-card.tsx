@@ -64,11 +64,11 @@ const PLATFORM_LABELS: Record<string, string> = {
   yandex_disk: "YaDisk",
 };
 
-const UPLOAD_STATUS_CONFIG: Record<string, { dot: string; text: string }> = {
-  UPLOADED:     { dot: "bg-green-400",                   text: "text-green-600" },
-  UPLOADING:    { dot: "bg-blue-400 animate-pulse",      text: "text-blue-600" },
-  FAILED:       { dot: "bg-red-400",                     text: "text-red-500" },
-  NOT_UPLOADED: { dot: "bg-gray-300",                    text: "text-gray-400" },
+const UPLOAD_STATUS_DOT: Record<string, string> = {
+  UPLOADED:     "bg-green-400",
+  UPLOADING:    "bg-blue-400 animate-pulse",
+  FAILED:       "bg-red-400",
+  NOT_UPLOADED: "bg-gray-300",
 };
 
 // ---------------------------------------------------------------------------
@@ -191,10 +191,10 @@ export function RecordingCard({
       {uploadEntries.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 pb-3">
           {uploadEntries.map(([platform, info]) => {
-            const cfg = UPLOAD_STATUS_CONFIG[info.status] ?? UPLOAD_STATUS_CONFIG["NOT_UPLOADED"];
+            const dotClass = UPLOAD_STATUS_DOT[info.status] ?? UPLOAD_STATUS_DOT["NOT_UPLOADED"];
             const label = PLATFORM_LABELS[platform] ?? platform;
             const linked = info.url && info.status === "UPLOADED";
-            const dot = <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />;
+            const dot = <span className={cn("h-1.5 w-1.5 rounded-full", dotClass)} />;
             if (linked) {
               return (
                 <a
@@ -204,10 +204,7 @@ export function RecordingCard({
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   title={`Open on ${label}`}
-                  className={cn(
-                    "inline-flex items-center gap-1 text-xs font-medium transition-colors hover:underline",
-                    cfg.text,
-                  )}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-[#224C87] transition-colors hover:underline"
                 >
                   {dot}
                   {label}
@@ -218,7 +215,7 @@ export function RecordingCard({
             return (
               <span
                 key={platform}
-                className={cn("inline-flex items-center gap-1 text-xs font-medium", cfg.text)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-gray-700"
               >
                 {dot}
                 {label}

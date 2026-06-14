@@ -15,7 +15,7 @@ logger = get_logger()
 
 
 class DeepSeekConfig(BaseSettings):
-    """DeepSeek API configuration (direct or via Fireworks)"""
+    """DeepSeek API configuration"""
 
     model_config = SettingsConfigDict(
         env_file=None,
@@ -30,7 +30,7 @@ class DeepSeekConfig(BaseSettings):
     )
     base_url: str = Field(
         default="https://api.deepseek.com/v1",
-        description="Base URL for API (DeepSeek or Fireworks endpoint)",
+        description="Base URL for API",
     )
 
     temperature: float = Field(
@@ -55,7 +55,7 @@ class DeepSeekConfig(BaseSettings):
     top_k: int | None = Field(
         default=None,
         ge=1,
-        description="Top-k sampling (Fireworks-specific)",
+        description="Top-k sampling",
     )
     presence_penalty: float | None = Field(
         default=None,
@@ -71,7 +71,7 @@ class DeepSeekConfig(BaseSettings):
     )
     reasoning_effort: Literal["low", "medium", "high", "none"] | None = Field(
         default=None,
-        description="Reasoning effort level (Fireworks-specific)",
+        description="Reasoning effort level",
     )
     seed: int | None = Field(
         default=None,
@@ -85,7 +85,7 @@ class DeepSeekConfig(BaseSettings):
     )
     completion_token_ceiling: int | None = Field(
         default=None,
-        description="Fireworks chat API only: clamp max_tokens to this ceiling. None when using direct DeepSeek API.",
+        description="Clamp max_tokens to this ceiling if set.",
     )
 
     @field_validator("base_url")
@@ -98,11 +98,6 @@ class DeepSeekConfig(BaseSettings):
 
     @model_validator(mode="after")
     def validate_config(self) -> DeepSeekConfig:
-        """Warn when Fireworks-specific params are set without Fireworks endpoint."""
-        if (
-            self.top_k is not None or self.reasoning_effort is not None
-        ) and "fireworks.ai" not in self.base_url.lower():
-            logger.warning("Fireworks-specific parameters set without Fireworks endpoint. May not work.")
         return self
 
     @classmethod
@@ -137,10 +132,7 @@ class DeepSeekConfig(BaseSettings):
         from config.settings import get_settings
 
         settings = get_settings()
-        if "deepseek_fireworks" in config_file:
-            ops = settings.deepseek_fireworks.model_dump()
-        else:
-            ops = settings.deepseek.model_dump()
+        ops = settings.deepseek.model_dump()
 
         try:
             return cls(api_key=api_key, **ops)
@@ -148,20 +140,8 @@ class DeepSeekConfig(BaseSettings):
             logger.error("DeepSeek config validation failed: {}", e)
             raise
 
-    def to_request_params(self, use_fireworks_extras: bool = False) -> dict[str, Any]:
-        """
-        Build params dict for chat.completions.create().
-
-        Supports DeepSeek and Fireworks DeepSeek (OpenAI-compatible API).
-        use_fireworks_extras=False by default since standard OpenAI client
-        does not support top_k, reasoning_effort.
-
-        Args:
-            use_fireworks_extras: If True, include top_k and reasoning_effort
-
-        Returns:
-            Params for API request
-        """
+    def to_request_params(self) -> dict[str, Any]:
+        """Build params dict for chat.completions.create()."""
         params: dict[str, Any] = {
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
@@ -173,14 +153,6 @@ class DeepSeekConfig(BaseSettings):
             params["presence_penalty"] = self.presence_penalty
         if self.frequency_penalty is not None:
             params["frequency_penalty"] = self.frequency_penalty
-
-        # Fireworks-specific parameters (not supported by standard OpenAI client)
-        if use_fireworks_extras:
-            if self.top_k is not None:
-                params["top_k"] = self.top_k
-            if self.reasoning_effort is not None:
-                params["reasoning_effort"] = self.reasoning_effort
-
         if self.seed is not None:
             params["seed"] = self.seed
 

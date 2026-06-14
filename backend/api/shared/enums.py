@@ -30,5 +30,5 @@ class CredentialPlatform(StrEnum):
     YOUTUBE = "youtube"
     VK_VIDEO = "vk_video"
     YANDEX_DISK = "yandex_disk"
-    FIREWORKS = "fireworks"
+    ASSEMBLYAI = "assemblyai"
     DEEPSEEK = "deepseek"

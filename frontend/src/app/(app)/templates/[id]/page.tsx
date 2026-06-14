@@ -42,6 +42,7 @@ import {
 } from "@/components/platforms/display-config-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { NativeSelect } from "@/components/ui/native-select";
+import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +64,6 @@ interface ProcessingConfig {
   enable_subtitles: boolean;
   granularity: string;
   transcription_language: string;
-  transcription_prompt: string;
   allow_errors: boolean;
   questions_count: number;
   vocabulary: string[];
@@ -137,7 +137,6 @@ const DEFAULT_FORM: TemplateFormData = {
     enable_subtitles: true,
     granularity: "medium",
     transcription_language: "ru",
-    transcription_prompt: "",
     allow_errors: false,
     questions_count: 5,
     vocabulary: [],
@@ -177,6 +176,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
   const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
+  const [globalThumbnail, setGlobalThumbnail] = useState("");
   const [presetDetails, setPresetDetails] = useState<Record<number, PresetDetail>>({});
 
   const [savedSnapshot, setSavedSnapshot] = useState(() =>
@@ -185,6 +185,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       ytFields: { ...DEFAULT_YOUTUBE_FIELDS },
       vkFields: { ...DEFAULT_VK_FIELDS },
       ydFields: { ...DEFAULT_YANDEX_DISK_FIELDS },
+      globalThumbnail: "",
     }),
   );
   const [confirmCopy, setConfirmCopy] = useState(false);
@@ -237,7 +238,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           enable_subtitles: pc?.enable_subtitles ?? true,
           granularity: pc?.granularity ?? "medium",
           transcription_language: pc?.language ?? "ru",
-          transcription_prompt: pc?.prompt ?? "",
           allow_errors: pc?.allow_errors ?? false,
           questions_count: pc?.questions_count ?? 5,
           vocabulary: pc?.vocabulary ?? [],
@@ -258,11 +258,13 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     const newYtFields = youtubeFieldsFromApi(mc?.youtube);
     const newVkFields = vkFieldsFromApi(mc?.vk);
     const newYdFields = yandexFieldsFromApi(mc?.yandex_disk);
+    const newGlobalThumbnail = mc?.thumbnail_name ?? "";
     setForm(newForm);
     setYtFields(newYtFields);
     setVkFields(newVkFields);
     setYdFields(newYdFields);
-    setSavedSnapshot(JSON.stringify({ form: newForm, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields }));
+    setGlobalThumbnail(newGlobalThumbnail);
+    setSavedSnapshot(JSON.stringify({ form: newForm, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields, globalThumbnail: newGlobalThumbnail }));
   }, [existing]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -321,6 +323,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       if (Object.keys(yt).length > 0) metaConfig.youtube = yt;
       if (Object.keys(vk).length > 0) metaConfig.vk = vk;
       if (Object.keys(yd).length > 0) metaConfig.yandex_disk = yd;
+      if (globalThumbnail) metaConfig.thumbnail_name = globalThumbnail;
       const hasMetadata = Object.values(metaConfig).some((v) => v != null);
 
       const body = {
@@ -342,7 +345,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             enable_subtitles: data.processing_config.enable_subtitles,
             granularity: data.processing_config.granularity,
             language: data.processing_config.transcription_language || undefined,
-            prompt: data.processing_config.transcription_prompt || undefined,
             allow_errors: data.processing_config.allow_errors,
             questions_count: data.processing_config.questions_count,
             vocabulary: data.processing_config.vocabulary.length > 0 ? data.processing_config.vocabulary : undefined,
@@ -358,7 +360,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       return (await apiClient.patch(`/templates/${id}`, body)).data;
     },
     onSuccess: (result, savedForm) => {
-      setSavedSnapshot(JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields }));
+      setSavedSnapshot(JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields, globalThumbnail }));
       qc.invalidateQueries({ queryKey: ["templates"] });
       qc.invalidateQueries({ queryKey: ["template", id] });
       showToast("success", "Template saved");
@@ -460,7 +462,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       : "bg-gray-100 text-gray-500";
 
   const isDirty =
-    JSON.stringify({ form, ytFields, vkFields, ydFields }) !== savedSnapshot;
+    JSON.stringify({ form, ytFields, vkFields, ydFields, globalThumbnail }) !== savedSnapshot;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -695,14 +697,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               />
             </Field>
 
-            <TemplateField
-              label="Transcription prompt"
-              value={form.processing_config.transcription_prompt}
-              onChange={(v) => setPC("transcription_prompt", v)}
-              multiline
-              placeholder="University lecture: machine learning, neural networks…"
-            />
-
             <Field label="Vocabulary" hint="Domain-specific terms to improve transcription accuracy">
               <TagInput
                 tags={form.processing_config.vocabulary}
@@ -762,6 +756,13 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           {/* Metadata */}
           <Section title="Metadata templates">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Global</p>
+
+            <ThumbnailPicker
+              label="Cover image (all platforms)"
+              placeholder="No cover image"
+              value={globalThumbnail}
+              onChange={setGlobalThumbnail}
+            />
 
             <TemplateField
               label="Title template"

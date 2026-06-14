@@ -12,7 +12,6 @@ class TranscriptionProcessingConfigUpdate(BaseModel):
     model_config = BASE_MODEL_CONFIG
 
     enable_transcription: bool | None = Field(None, description="Enable transcription")
-    prompt: str | None = Field(None, description="Prompt to improve transcription quality")
     language: str | None = Field(None, description="Audio language (ru, en, ...)")
     allow_errors: bool | None = Field(
         None,

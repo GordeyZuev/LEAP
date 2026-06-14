@@ -173,18 +173,13 @@ variable "oauth_yadisk_json" {
 }
 
 # ============================================================================
-# AI providers (Fireworks ASR, DeepSeek topic extraction)
+# AI providers (AssemblyAI ASR, DeepSeek topic extraction)
 # ============================================================================
 
-variable "fireworks_api_key" {
-  type      = string
-  sensitive = true
-  default   = ""
-}
-
-variable "fireworks_account_id" {
-  description = "Fireworks account ID (used by the batch transcription API). Optional."
+variable "assemblyai_api_key" {
+  description = "AssemblyAI API key for speech-to-text transcription."
   type        = string
+  sensitive   = true
   default     = ""
 }
 

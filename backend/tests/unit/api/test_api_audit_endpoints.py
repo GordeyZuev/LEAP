@@ -35,10 +35,10 @@ class TestOAuthFrontendRedirect:
 
 @pytest.mark.unit
 class TestRecordingConfigTypedSchema:
-    """Tests for PUT /recordings/{id}/config with typed RecordingConfigUpdateRequest."""
+    """Tests for PATCH /recordings/{id}/config with typed RecordingConfigUpdateRequest."""
 
     def test_put_config_accepts_typed_body(self, client, mocker, mock_user):
-        """PUT config accepts RecordingConfigUpdateRequest with processing_config, output_config."""
+        """PATCH config accepts RecordingConfigUpdateRequest with processing_config, output_config."""
         mock_recording = create_mock_recording(
             record_id=1,
             user_id=mock_user.id,
@@ -59,7 +59,7 @@ class TestRecordingConfigTypedSchema:
         # Use None so handler builds proper dict (MagicMock is truthy and would pollute overrides)
         mock_recording.processing_preferences = None
 
-        response = client.put(
+        response = client.patch(
             "/api/v1/recordings/1/config",
             json={
                 "processing_config": {
@@ -75,7 +75,7 @@ class TestRecordingConfigTypedSchema:
         assert data["message"] == "Configuration saved"
 
     def test_put_config_rejects_invalid_granularity(self, client, mocker, mock_user):
-        """PUT config rejects invalid granularity value."""
+        """PATCH config rejects invalid granularity value."""
         mock_recording = create_mock_recording(record_id=1, user_id=mock_user.id)
 
         mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
@@ -83,7 +83,7 @@ class TestRecordingConfigTypedSchema:
         mock_repo_instance.get_by_id = AsyncMock(return_value=mock_recording)
         mock_repo.return_value = mock_repo_instance
 
-        response = client.put(
+        response = client.patch(
             "/api/v1/recordings/1/config",
             json={
                 "processing_config": {

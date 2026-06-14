@@ -178,7 +178,10 @@ class ConfigOverrideRequest(BaseModel):
 class ProcessRecordingRequest(BaseModel):
     """Request for processing recording."""
 
-    transcription_model: str = Field("fireworks", description="Transcription model")
+    transcription_model: str = Field(
+        "universal-2",
+        description="AssemblyAI speech model (universal-2, universal-3-pro). Metadata only.",
+    )
     granularity: Granularity = Field(Granularity.LONG, description="Topic extraction: short, medium, or long")
     topic_model: str = Field("deepseek", description="Topic extraction model")
     platforms: list[str] = Field(default_factory=list, description="Upload platforms")
@@ -187,7 +190,7 @@ class ProcessRecordingRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "transcription_model": "fireworks",
+                "transcription_model": "universal-2",
                 "granularity": "long",
                 "topic_model": "deepseek",
                 "platforms": ["youtube"],
@@ -286,7 +289,7 @@ class UpdateRecordingRequest(BaseModel):
                     "enable_subtitles": True,
                     "enable_topics": True,
                     "granularity": "long",
-                    "transcription_model": "fireworks",
+                    "transcription_model": "universal-2",
                     "topic_model": "deepseek",
                 }
             }
@@ -396,10 +399,6 @@ class BulkTrimRequest(BulkOperationRequest):
 class BulkTranscribeRequest(BulkOperationRequest):
     """Bulk transcription of recordings."""
 
-    use_batch_api: bool = Field(False, description="Use Fireworks Batch API (saves ~50%, but slower)")
-    poll_interval: float = Field(5.0, description="Polling interval for Batch API (seconds)")
-    max_wait_time: float = Field(3000.0, description="Maximum wait time for Batch API polling (seconds)")
-
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -409,9 +408,6 @@ class BulkTranscribeRequest(BulkOperationRequest):
                     "from_date": "2025-12-01",
                     "to_date": "2025-12-31",
                 },
-                "use_batch_api": True,
-                "poll_interval": 5.0,
-                "max_wait_time": 3000.0,
                 "limit": 100,
             }
         }
@@ -585,3 +581,14 @@ class BulkDeleteRequest(BulkOperationRequest):
             ]
         }
     )
+
+
+# ============================================================================
+# Recording metadata update
+# ============================================================================
+
+
+class RecordingUpdateRequest(BaseModel):
+    """Partial update of recording metadata."""
+
+    display_name: str | None = Field(None, min_length=1, max_length=500)
