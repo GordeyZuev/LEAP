@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Modal } from "@/components/ui/modal";
+import { ProgressBar } from "@/components/ui/progress-bar";
 
 type Tab = "url" | "playlist" | "file" | "sync";
 
@@ -97,6 +98,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
 
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   // Shared accept path for both click-select and drag & drop: enforce the size
   // cap up front and seed the display name from the filename on first pick.
@@ -115,6 +117,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
   const handleClose = useCallback(() => {
     setSuccessMsg("");
     setErrorMsg("");
+    setUploadProgress(null);
     onClose();
   }, [onClose]);
 
@@ -164,15 +167,20 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
       const name = displayName.trim() || f.name.replace(/\.[^/.]+$/, "");
       return apiClient.post(`/recordings?display_name=${encodeURIComponent(name)}`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: (evt) => {
+          if (evt.total) setUploadProgress(Math.round((evt.loaded / evt.total) * 100));
+        },
       });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recordings"] });
+      setUploadProgress(null);
       setSuccessMsg("File uploaded!");
       setFile(null);
       setFileDisplayName("");
     },
     onError: (err: unknown) => {
+      setUploadProgress(null);
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       setErrorMsg(msg ?? "Failed to upload file");
     },
@@ -355,6 +363,21 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                   className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
                 />
               </div>
+              {uploadFile.isPending && uploadProgress !== null && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-gray-400">
+                    <span>{uploadProgress < 100 ? "Uploading…" : "Processing…"}</span>
+                    {uploadProgress < 100 && (
+                      <span className="tabular-nums">{uploadProgress}%</span>
+                    )}
+                  </div>
+                  {uploadProgress < 100 ? (
+                    <ProgressBar variant="determinate" value={uploadProgress} />
+                  ) : (
+                    <ProgressBar variant="indeterminate" />
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -412,7 +435,13 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
             disabled={isLoading}
             className="px-5 py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
           >
-            {isLoading ? "Loading…" : submitLabel}
+            {uploadFile.isPending && uploadProgress !== null
+              ? uploadProgress < 100
+                ? `${uploadProgress}%`
+                : "Processing…"
+              : isLoading
+                ? "Loading…"
+                : submitLabel}
           </button>
         </div>
       </div>

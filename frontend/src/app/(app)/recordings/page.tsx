@@ -242,6 +242,7 @@ function RecordingsPagedResults({
       const res = await apiClient.get<RecordingListResponse>(`/recordings?${p.toString()}`);
       return res.data;
     },
+    staleTime: 30_000,
     refetchInterval: (q) => {
       const items = q.state.data?.items ?? [];
       return items.some((r) => needsActivePoll(r)) ? POLL_INTERVAL_LIST : false;

@@ -4,9 +4,23 @@
 
 ## v0.10.4.1 (2026-06-14)
 
-Релиз: миграция ASR с Fireworks на AssemblyAI; см. раздел **2026-06-14** ниже.
+Релиз: миграция ASR с Fireworks на AssemblyAI; UI — прогресс-бары и оптимизация polling.
 
 **Alembic migration 026** (`download_started_at`) — apply before or with this deploy.
+
+---
+
+## 2026-06-17: UI — прогресс-бары и staleTime
+
+- **Upload** — реальный % загрузки файла через `onUploadProgress`; после 100 % — "Processing…" до ответа сервера.
+- **Download** — indeterminate bar под статус-бейджем пока `status === "DOWNLOADING"`.
+- **staleTime** — список записей 30 сек, страница записи 10 сек; меньше лишних запросов при навигации.
+
+### Файлы
+
+- `frontend/src/app/globals.css`, `frontend/src/components/ui/progress-bar.tsx` (новый)
+- `frontend/src/components/recordings/add-video-modal.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`, `recordings/page.tsx`
 
 ---
 

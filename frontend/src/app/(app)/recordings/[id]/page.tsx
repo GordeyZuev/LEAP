@@ -12,6 +12,7 @@ import {
 import { cn, formatDate, formatDateTimeShort } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
@@ -547,6 +548,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       const res = await apiClient.get<RecordingDetail>(`/recordings/${id}?detailed=true`);
       return res.data;
     },
+    staleTime: 10_000,
     refetchInterval: (q) => {
       const d = q.state.data;
       return d && needsActivePoll(d) ? POLL_INTERVAL_DETAIL : false;
@@ -801,6 +803,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         )}
         <StatusBadge status={recording.status} failed={recording.failed} />
       </div>
+      {recording.status === "DOWNLOADING" && (
+        <ProgressBar variant="indeterminate" className="mt-2 mb-1" />
+      )}
 
       {/* ── Error banners ── */}
       {recording.failed && recording.failed_reason && (
