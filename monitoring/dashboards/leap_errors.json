@@ -1,142 +1,669 @@
 {
-  "annotations": {"list": []},
+  "annotations": {
+    "list": []
+  },
   "description": "Errors essentials — Loki log stream plus Postgres fallbacks when logs are unavailable. Shows what breaks, where, and for whom.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
   "links": [
-    {"title": "Drill-down", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
+    {
+      "title": "Drill-down",
+      "type": "dashboards",
+      "tags": [
+        "leap"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
   ],
   "panels": [
-    {"type": "row", "title": "Pulse (Loki)", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "row",
+      "title": "Pulse (Loki)",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "stat",
       "title": "ERROR / CRITICAL (5m)",
       "description": "Count of error-level log lines in the last 5 minutes.",
-      "gridPos": {"x": 0, "y": 1, "w": 6, "h": 4},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "sum(count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"}[5m]))"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "value_and_name"}
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"}[5m]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      }
     },
     {
       "type": "stat",
       "title": "WARNING (5m)",
       "description": "Warning-level log lines — often retries or degraded paths.",
-      "gridPos": {"x": 6, "y": 1, "w": 6, "h": 4},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "sum(count_over_time({app=\"leap\", level=\"WARNING\"}[5m]))"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "orange", "value": 25}]}}},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "value_and_name"}
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({app=\"leap\", level=\"WARNING\"}[5m]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "orange",
+                "value": 25
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      }
     },
     {
       "type": "stat",
       "title": "HTTP 5xx (5m)",
       "description": "Server errors from the HTTP access log stream.",
-      "gridPos": {"x": 12, "y": 1, "w": 6, "h": 4},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "sum(count_over_time({app=\"leap\", module=\"http.access\", status_code=~\"5..\"}[5m]))"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 5}]}}},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area", "textMode": "value_and_name"}
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({app=\"leap\", module=\"http.access\", status_code=~\"5..\"}[5m]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      }
     },
     {
       "type": "stat",
       "title": "Affected recordings (1h)",
       "description": "Distinct recording IDs mentioned in ERROR/CRITICAL logs.",
-      "gridPos": {"x": 18, "y": 1, "w": 6, "h": 4},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "count(count by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id > 0 [1h])))"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 25}]}}},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name"}
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(count by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id > 0 [1h])))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      }
     },
-
     {
       "type": "timeseries",
       "title": "Error log rate",
       "description": "ERROR and CRITICAL lines per minute over the dashboard time range.",
-      "gridPos": {"x": 0, "y": 5, "w": 24, "h": 7},
-      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
       "targets": [
-        {"refId": "A", "expr": "sum(count_over_time({app=\"leap\", level=\"ERROR\"}[1m]))", "legendFormat": "ERROR"},
-        {"refId": "B", "expr": "sum(count_over_time({app=\"leap\", level=\"CRITICAL\"}[1m]))", "legendFormat": "CRITICAL"}
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({app=\"leap\", level=\"ERROR\"}[1m]))",
+          "legendFormat": "ERROR"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(count_over_time({app=\"leap\", level=\"CRITICAL\"}[1m]))",
+          "legendFormat": "CRITICAL"
+        }
       ],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 60, "stacking": {"mode": "normal"}}}},
-      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     },
-
-    {"type": "row", "title": "What's breaking (Loki)", "gridPos": {"x": 0, "y": 12, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "row",
+      "title": "What's breaking (Loki)",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "table",
       "title": "Top exception types (1h)",
       "description": "Uses the exception_class Loki label set by Celery task_failure logs.",
-      "gridPos": {"x": 0, "y": 13, "w": 12, "h": 9},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "topk(15, sum by (exception_class) (count_over_time({app=\"leap\", exception_class=~\".+\"}[1h])))", "instant": true, "format": "table"}],
-      "transformations": [
-        {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true}, "renameByName": {"exception_class": "Exception", "Value": "Count (1h)"}}}
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(15, sum by (exception_class) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | exception_class != \"\" [1h])))",
+          "instant": true,
+          "format": "table"
+        }
       ],
-      "fieldConfig": {"defaults": {"custom": {"align": "left"}}, "overrides": [
-        {"matcher": {"id": "byName", "options": "Count (1h)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 50}]}}]}
-      ]}
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            },
+            "renameByName": {
+              "exception_class": "Exception",
+              "Value": "Count (1h)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Count (1h)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 5
+                    },
+                    {
+                      "color": "red",
+                      "value": 50
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "logs",
       "title": "Recent ERROR / CRITICAL",
       "description": "Latest error log lines (parsed from JSON; one row per event).",
-      "gridPos": {"x": 12, "y": 13, "w": 12, "h": 9},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "{app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | line_format \"{{.text}}\""}],
-      "options": {"showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "dedupStrategy": "none", "enableLogDetails": true, "showLabels": false}
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | line_format \"{{.text}}\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showLabels": false
+      }
     },
-
-    {"type": "row", "title": "Who's affected (Loki)", "gridPos": {"x": 0, "y": 22, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "row",
+      "title": "Who's affected (Loki)",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "table",
       "title": "Errors by recording (1h)",
-      "gridPos": {"x": 0, "y": 23, "w": 12, "h": 9},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "topk(10, sum by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id > 0 [1h])))", "instant": true, "format": "table"}],
-      "transformations": [
-        {"id": "organize", "options": {"renameByName": {"record_extra_recording_id": "Recording ID", "Value": "Errors (1h)"}, "excludeByName": {"Time": true, "__name__": true}}}
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id > 0 [1h])))",
+          "instant": true,
+          "format": "table"
+        }
       ],
-      "fieldConfig": {"defaults": {}, "overrides": [
-        {"matcher": {"id": "byName", "options": "Errors (1h)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 10}]}}]}
-      ]}
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "record_extra_recording_id": "Recording ID",
+              "Value": "Errors (1h)"
+            },
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errors (1h)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "yellow",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
     {
       "type": "table",
       "title": "Errors by user (1h)",
       "description": "User id is truncated to 8 chars in logs for privacy.",
-      "gridPos": {"x": 12, "y": 23, "w": 12, "h": 9},
-      "datasource": {"type": "loki", "uid": "loki"},
-      "targets": [{"refId": "A", "expr": "topk(10, sum by (record_extra_user_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_user_id != \"\" [1h])))", "instant": true, "format": "table"}],
-      "transformations": [
-        {"id": "organize", "options": {"renameByName": {"record_extra_user_id": "User (8-char)", "Value": "Errors (1h)"}, "excludeByName": {"Time": true, "__name__": true}}}
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (record_extra_user_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_user_id != \"\" [1h])))",
+          "instant": true,
+          "format": "table"
+        }
       ],
-      "fieldConfig": {"defaults": {}, "overrides": [
-        {"matcher": {"id": "byName", "options": "Errors (1h)"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 10}]}}]}
-      ]}
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "record_extra_user_id": "User (8-char)",
+              "Value": "Errors (1h)"
+            },
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errors (1h)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "yellow",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
     },
-
-    {"type": "row", "title": "Database fallback (always available)", "gridPos": {"x": 0, "y": 32, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "row",
+      "title": "Database fallback (always available)",
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "table",
       "title": "Recent failed recordings (24h)",
       "description": "Authoritative list from Postgres — works even when Loki is empty.",
-      "gridPos": {"x": 0, "y": 33, "w": 24, "h": 9},
-      "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT r.id, u.email, r.failed_at_stage AS stage, LEFT(COALESCE(r.failed_reason, ''), 160) AS reason, r.failed_at AT TIME ZONE 'UTC' AS failed_at_utc FROM recordings r LEFT JOIN users u ON u.id = r.user_id WHERE r.failed AND r.failed_at > NOW() - INTERVAL '24 hours' ORDER BY r.failed_at DESC LIMIT 25;"}],
-      "fieldConfig": {"defaults": {"custom": {"align": "left"}}, "overrides": [
-        {"matcher": {"id": "byName", "options": "failed_at_utc"}, "properties": [{"id": "custom.width", "value": 180}]}
-      ]}
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "leap_db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT r.id, u.email, r.failed_at_stage AS stage, LEFT(COALESCE(r.failed_reason, ''), 160) AS reason, r.failed_at AT TIME ZONE 'UTC' AS failed_at_utc FROM recordings r LEFT JOIN users u ON u.id = r.user_id WHERE r.failed AND r.failed_at > NOW() - INTERVAL '24 hours' ORDER BY r.failed_at DESC LIMIT 25;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failed_at_utc"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["leap", "errors"],
-  "templating": {"list": []},
-  "time": {"from": "now-6h", "to": "now"},
+  "tags": [
+    "leap",
+    "errors"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "",
   "title": "LEAP Errors & Logs",

@@ -9,6 +9,7 @@ import {
   Database,
   Key,
   Zap,
+  BookOpen,
   Settings,
   LogOut,
   ChevronsLeft,
@@ -132,6 +133,14 @@ export function Sidebar() {
 
       {/* Bottom */}
       <div className="px-2 pb-4 space-y-1">
+        <Link
+          href="/docs"
+          title={collapsed ? "Documentation" : undefined}
+          className={linkClass(pathname === "/docs" || pathname.startsWith("/docs/"))}
+        >
+          <BookOpen size={18} strokeWidth={1.75} className="shrink-0" />
+          <span className={labelClass}>Documentation</span>
+        </Link>
         <Link
           href="/settings"
           title={collapsed ? "Settings" : undefined}

@@ -1,5 +1,8 @@
 """Reference data endpoints: static enumerations exposed to the frontend."""
 
+import datetime
+import zoneinfo
+
 from fastapi import APIRouter, Depends
 
 from api.auth.dependencies import get_current_user
@@ -33,28 +36,30 @@ _PLATFORMS = [
     {"value": "zoom", "label": "Zoom"},
 ]
 
-_TIMEZONES = [
-    {"value": "Pacific/Honolulu", "label": "UTC−10  Pacific/Honolulu"},
-    {"value": "America/Anchorage", "label": "UTC−9   America/Anchorage"},
-    {"value": "America/Los_Angeles", "label": "UTC−8   America/Los_Angeles"},
-    {"value": "America/Denver", "label": "UTC−7   America/Denver"},
-    {"value": "America/Chicago", "label": "UTC−6   America/Chicago"},
-    {"value": "America/New_York", "label": "UTC−5   America/New_York"},
-    {"value": "America/Sao_Paulo", "label": "UTC−3   America/Sao_Paulo"},
-    {"value": "Europe/London", "label": "UTC+0   Europe/London"},
-    {"value": "Europe/Berlin", "label": "UTC+1   Europe/Berlin"},
-    {"value": "Europe/Helsinki", "label": "UTC+2   Europe/Helsinki"},
-    {"value": "Europe/Moscow", "label": "UTC+3   Europe/Moscow"},
-    {"value": "Asia/Dubai", "label": "UTC+4   Asia/Dubai"},
-    {"value": "Asia/Tashkent", "label": "UTC+5   Asia/Tashkent"},
-    {"value": "Asia/Kolkata", "label": "UTC+5:30 Asia/Kolkata"},
-    {"value": "Asia/Almaty", "label": "UTC+6   Asia/Almaty"},
-    {"value": "Asia/Bangkok", "label": "UTC+7   Asia/Bangkok"},
-    {"value": "Asia/Shanghai", "label": "UTC+8   Asia/Shanghai"},
-    {"value": "Asia/Tokyo", "label": "UTC+9   Asia/Tokyo"},
-    {"value": "Australia/Sydney", "label": "UTC+10  Australia/Sydney"},
-    {"value": "Pacific/Auckland", "label": "UTC+12  Pacific/Auckland"},
-]
+
+def _build_timezones() -> list[dict]:
+    # Use a fixed reference date (northern-hemisphere winter) so offsets reflect
+    # standard time, not DST, giving stable sort order year-round.
+    ref = datetime.datetime(2024, 1, 15, tzinfo=datetime.UTC)
+    rows = []
+    for name in zoneinfo.available_timezones():
+        try:
+            tz = zoneinfo.ZoneInfo(name)
+        except zoneinfo.ZoneInfoNotFoundError:
+            continue
+        offset = ref.astimezone(tz).utcoffset()
+        if offset is None:
+            continue
+        total_minutes = int(offset.total_seconds() // 60)
+        h, m = divmod(abs(total_minutes), 60)
+        sign = "+" if total_minutes >= 0 else "−"
+        offset_str = f"UTC{sign}{h}" if m == 0 else f"UTC{sign}{h}:{m:02d}"
+        rows.append((total_minutes, name, {"value": name, "label": f"{offset_str} {name}"}))
+    rows.sort(key=lambda x: (x[0], x[1]))
+    return [r[2] for r in rows]
+
+
+_TIMEZONES = _build_timezones()
 
 
 @router.get("/languages")

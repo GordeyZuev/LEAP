@@ -52,18 +52,23 @@ export function FilterSelect<V extends string | number = string>({
       if (triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
         // Clicks inside the portalled panel are handled by the option buttons
         // (which close on select); any other click closes the menu.
-        const panel = document.getElementById("filter-select-panel");
-        if (!panel || !panel.contains(e.target as Node)) close();
+        if (!panelRef.current || !panelRef.current.contains(e.target as Node)) close();
       }
+    }
+    function onScroll(e: Event) {
+      // Ignore scroll events from within the panel itself (e.g. scrollIntoView
+      // on the active option triggers a scroll on the overflow container).
+      if (panelRef.current && panelRef.current.contains(e.target as Node)) return;
+      close();
     }
     document.addEventListener("mousedown", onMouseDown);
     // Reposition is non-trivial across nested scrollers — closing on scroll is
     // the simplest correct behavior.
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", close);
     return () => {
       document.removeEventListener("mousedown", onMouseDown);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", close);
     };
   }, [open]);

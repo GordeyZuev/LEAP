@@ -1,81 +1,358 @@
 {
-  "annotations": {"list": []},
+  "annotations": {
+    "list": []
+  },
   "description": "Recording pipeline essentials: throughput, where it slows down, where it breaks. Throughput from celery-exporter; stage duration/failure from Postgres stage_timings (authoritative); in-flight state from recordings.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "id": null,
   "links": [
-    {"title": "Drill-down", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
+    {
+      "title": "Drill-down",
+      "type": "dashboards",
+      "tags": [
+        "leap"
+      ],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
   ],
   "panels": [
-    {"type": "row", "title": "Throughput (24h)", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "row",
+      "title": "Throughput (24h)",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "stat",
       "title": "Recordings completed",
-      "gridPos": {"x": 0, "y": 1, "w": 8, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "sum(increase(celery_task_succeeded_total{name=\"api.tasks.processing.run_recording\"}[24h]))"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(celery_task_succeeded_total{name=\"api.tasks.processing.run_recording\"}[24h]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
     {
       "type": "stat",
       "title": "Uploads",
-      "gridPos": {"x": 8, "y": 1, "w": 8, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "sum(increase(celery_task_succeeded_total{name=~\"api.tasks.upload.*\"}[24h]))"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area"}
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(celery_task_succeeded_total{name=~\"api.tasks.upload.*\"}[24h]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
     },
     {
       "type": "stat",
       "title": "Pipeline failures",
-      "gridPos": {"x": 16, "y": 1, "w": 8, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "sum(increase(celery_task_failed_total{name=~\"api.tasks.processing.*|api.tasks.upload.*\"}[24h]))"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}},
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "area"}
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 8,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(celery_task_failed_total{name=~\"api.tasks.processing.*|api.tasks.upload.*\"}[24h]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      }
     },
-
-    {"type": "row", "title": "Stages (from stage_timings)", "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "row",
+      "title": "Stages (from stage_timings)",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
     {
       "type": "timeseries",
       "title": "Stage duration p50 / p95 / p99",
-      "gridPos": {"x": 0, "y": 6, "w": 24, "h": 10},
-      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "leap_db"
+      },
       "targets": [
-        {"refId": "A", "format": "time_series", "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type || ' p50' AS metric, percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_seconds) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND duration_seconds IS NOT NULL AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"},
-        {"refId": "B", "format": "time_series", "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type || ' p95' AS metric, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_seconds) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND duration_seconds IS NOT NULL AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"},
-        {"refId": "C", "format": "time_series", "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type || ' p99' AS metric, percentile_cont(0.99) WITHIN GROUP (ORDER BY duration_seconds) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND duration_seconds IS NOT NULL AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"}
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type || ' p50' AS metric, percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_seconds) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND duration_seconds IS NOT NULL AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"
+        },
+        {
+          "refId": "B",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type || ' p95' AS metric, percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_seconds) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND duration_seconds IS NOT NULL AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"
+        },
+        {
+          "refId": "C",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type || ' p99' AS metric, percentile_cont(0.99) WITHIN GROUP (ORDER BY duration_seconds) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND duration_seconds IS NOT NULL AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"
+        }
       ],
-      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10}}},
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      }
     },
     {
       "type": "timeseries",
       "title": "Stage failure rate %",
-      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type AS metric, 100.0 * COUNT(*) FILTER (WHERE status = 'FAILED') / NULLIF(COUNT(*), 0) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"}],
-      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 5}, {"color": "red", "value": 20}]}, "custom": {"drawStyle": "line", "fillOpacity": 25}}},
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]}}
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "leap_db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(completed_at, $__interval) AS time, stage_type AS metric, 100.0 * COUNT(*) FILTER (WHERE status = 'FAILED') / NULLIF(COUNT(*), 0) AS value FROM stage_timings WHERE $__timeFilter(completed_at) AND substep IS NULL GROUP BY 1, stage_type ORDER BY 1;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 25
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        }
+      }
     },
     {
       "type": "barchart",
       "title": "Recordings in flight (by status)",
-      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
-      "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT status::text AS stage, COUNT(*) AS recordings FROM recordings WHERE NOT failed AND NOT deleted AND NOT on_pause AND status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') GROUP BY 1 ORDER BY 2 DESC;"}],
-      "fieldConfig": {"defaults": {"unit": "short"}},
-      "options": {"orientation": "horizontal", "xField": "stage", "showValue": "always"}
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "leap_db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT status::text AS stage, COUNT(*) AS recordings FROM recordings WHERE NOT failed AND NOT deleted AND NOT on_pause AND status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') GROUP BY 1 ORDER BY 2 DESC;"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      },
+      "options": {
+        "orientation": "horizontal",
+        "xField": "stage",
+        "showValue": "always"
+      }
     }
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["leap", "pipeline"],
-  "templating": {"list": []},
-  "time": {"from": "now-6h", "to": "now"},
+  "tags": [
+    "leap",
+    "pipeline"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "",
   "title": "LEAP Pipeline",

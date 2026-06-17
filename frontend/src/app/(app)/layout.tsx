@@ -1,5 +1,6 @@
 import { AuthGuard } from "@/components/layout/auth-guard";
 import { Sidebar } from "@/components/layout/sidebar";
+import { Footer } from "@/components/layout/footer";
 import { DisplayConfigDefaultsPrefetch } from "@/components/platforms/display-config-defaults-prefetch";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -8,7 +9,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <DisplayConfigDefaultsPrefetch />
       <div className="flex h-full">
         <Sidebar />
-        <main className="flex-1 overflow-auto bg-[#FAFAFA]">{children}</main>
+        <main className="flex-1 overflow-auto bg-[#FAFAFA]">
+          <div className="min-h-full flex flex-col">
+            <div className="flex-1">{children}</div>
+            <Footer />
+          </div>
+        </main>
       </div>
     </AuthGuard>
   );
