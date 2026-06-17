@@ -8,6 +8,7 @@ import { ArrowLeft, Save, Eye, Copy, ChevronDown, Trash2, RefreshCw, Users, X } 
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
+import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -488,58 +489,46 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         </h1>
 
         {!isNew && (
-          <button
-            onClick={() => setConfirmCopy(true)}
-            disabled={copyTemplate.isPending}
-            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Copy size={15} />
-            {copyTemplate.isPending ? "Copying…" : "Copy"}
-          </button>
+          <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyTemplate.isPending} icon={<Copy size={15} />} pendingLabel="Copying…">
+            Copy
+          </ActionButton>
         )}
 
         {!isNew && (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            disabled={deleteTemplate.isPending}
-            className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
-          >
-            <Trash2 size={15} />
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteTemplate.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50">
             Delete
-          </button>
+          </ActionButton>
         )}
 
         {!isNew && (
-          <button
-            onClick={handleMatchPreview}
-            disabled={matchPreviewLoading}
-            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Users size={15} />
+          <ActionButton variant="secondary" onClick={handleMatchPreview} isPending={matchPreviewLoading} icon={<Users size={15} />} pendingLabel="Loading…">
             Preview matches
-          </button>
+          </ActionButton>
         )}
 
         {!isNew && (
-          <button
+          <ActionButton
+            variant="secondary"
             onClick={() => rematch.mutate()}
-            disabled={rematch.isPending}
+            isPending={rematch.isPending}
+            icon={<RefreshCw size={15} />}
+            pendingLabel="Rematching…"
             title="Re-match recordings against this template's rules"
-            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
           >
-            {rematch.isPending ? <RefreshCw size={15} className="animate-spin" /> : <RefreshCw size={15} />}
             Rematch
-          </button>
+          </ActionButton>
         )}
 
-        <button
+        <ActionButton
           onClick={() => save.mutate(form)}
-          disabled={save.isPending || !form.name}
-          className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
+          isPending={save.isPending}
+          isSuccess={save.isSuccess}
+          disabled={!form.name}
+          icon={<Save size={15} />}
+          pendingLabel="Saving…"
         >
-          <Save size={15} />
-          {save.isPending ? "Saving…" : "Save"}
-        </button>
+          Save
+        </ActionButton>
       </div>
 
 
@@ -778,14 +767,15 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               placeholder={"Recording from {{ date }}\n\nTopics:\n{{ topics }}"}
             />
 
-            <button
+            <ActionButton
+              variant="secondary"
               onClick={handlePreview}
-              disabled={previewLoading}
-              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+              isPending={previewLoading}
+              icon={<Eye size={15} />}
+              pendingLabel="Rendering…"
             >
-              <Eye size={15} />
-              {previewLoading ? "Rendering…" : "Preview render"}
-            </button>
+              Preview render
+            </ActionButton>
 
             {preview && <MetadataPreviewResultBox preview={preview} />}
 

@@ -298,6 +298,22 @@ class UserCredentialRepository:
             return True
         return False
 
+    async def update_last_used(self, credential_id: int) -> None:
+        """Stamp last_used_at on the credential row (best-effort)."""
+        await self.session.execute(
+            update(UserCredentialModel)
+            .where(UserCredentialModel.id == credential_id)
+            .values(last_used_at=datetime.now(UTC))
+        )
+        await self.session.commit()
+
+    async def set_needs_reauth(self, credential_id: int, value: bool) -> None:
+        """Set or clear the needs_reauth flag on a credential."""
+        await self.session.execute(
+            update(UserCredentialModel).where(UserCredentialModel.id == credential_id).values(needs_reauth=value)
+        )
+        await self.session.commit()
+
     async def find_by_user(self, user_id: str) -> list[UserCredentialInDB]:
         """Get all user credentials."""
         result = await self.session.execute(select(UserCredentialModel).where(UserCredentialModel.user_id == user_id))

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
+import { ActionButton } from "@/components/ui/action-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useTimezones } from "@/hooks/use-references";
@@ -397,65 +398,39 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         <h1 className="text-lg font-semibold text-gray-900 flex-1 min-w-0 truncate">{headerTitle}</h1>
 
         {!isNew && (
-          <button
-            type="button"
-            onClick={() => dryRun.mutate()}
-            disabled={dryRun.isPending}
-            title="Run without real changes"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-          >
-            <FlaskConical size={15} />
-            {dryRun.isPending ? "Checking…" : "Dry run"}
-          </button>
+          <ActionButton variant="secondary" onClick={() => dryRun.mutate()} isPending={dryRun.isPending} icon={<FlaskConical size={15} />} pendingLabel="Checking…" title="Run without real changes">
+            Dry run
+          </ActionButton>
         )}
 
         {!isNew && (
-          <button
-            type="button"
-            onClick={() => runNow.mutate()}
-            disabled={runNow.isPending}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-          >
-            <Play size={15} />
-            {runNow.isPending ? "Running…" : "Run now"}
-          </button>
+          <ActionButton variant="secondary" onClick={() => runNow.mutate()} isPending={runNow.isPending} icon={<Play size={15} />} pendingLabel="Running…">
+            Run now
+          </ActionButton>
         )}
 
         {!isNew && (
-          <button
-            type="button"
-            onClick={() => setConfirmCopy(true)}
-            disabled={copyJob.isPending}
-            title="Create a copy of the job"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-          >
-            <Copy size={15} />
-            {copyJob.isPending ? "Copying…" : "Copy"}
-          </button>
+          <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyJob.isPending} icon={<Copy size={15} />} pendingLabel="Copying…" title="Create a copy of the job">
+            Copy
+          </ActionButton>
         )}
 
         {!isNew && (
-          <button
-            type="button"
-            onClick={() => setConfirmDelete(true)}
-            disabled={deleteJob.isPending}
-            title="Delete job"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-200 text-sm font-medium text-red-500 hover:bg-red-50 disabled:opacity-50 transition-colors"
-          >
-            <Trash2 size={15} />
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteJob.isPending} icon={<Trash2 size={15} />} title="Delete job" className="border-red-200 text-red-500 hover:bg-red-50">
             Delete
-          </button>
+          </ActionButton>
         )}
 
-        <button
-          type="button"
+        <ActionButton
           onClick={() => save.mutate(form)}
-          disabled={save.isPending || !canSave}
-          className="flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+          isPending={save.isPending}
+          isSuccess={save.isSuccess}
+          disabled={!canSave}
+          icon={<Save size={15} />}
+          pendingLabel="Saving…"
         >
-          <Save size={15} />
-          {save.isPending ? "Saving…" : "Save"}
-        </button>
+          Save
+        </ActionButton>
       </div>
 
 

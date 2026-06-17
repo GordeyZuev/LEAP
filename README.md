@@ -412,11 +412,14 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 Ниже — что изменилось для пользователей и операторов. Полная история — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
 
-**Новое в `v0.10.4.1`** — AssemblyAI вместо Fireworks:
+**Новое в `v0.10.4.1`** — AssemblyAI, UI credentials и компонент ActionButton:
 - **Транскрипция** — AssemblyAI Universal-2/3-Pro; сегменты через `/sentences` (точнее, чем эвристика по словам).
 - **Keyterms** — термины из шаблона и название записи улучшают распознавание (поле `prompt` в ASR убрано).
 - **Деплой** — нужен `config/assemblyai_creds.json` (`api_key`); `fireworks_creds.json` и batch Fireworks API удалены.
 - **Темы** — только DeepSeek; fallback через Fireworks DeepSeek убран.
+- **Credentials — Last Used** — поле «Last used» теперь реально заполняется после каждой загрузки.
+- **Credentials — Re-auth needed** — при сбое токена во время загрузки бейдж меняется с «Connected» на янтарный «Re-auth needed»; сбрасывается автоматически после повторного OAuth. Migration 027.
+- **ActionButton** — единый компонент кнопок во всём интерфейсе; индикатор загрузки, flash-успех, press-feedback.
 
 **Новое в `v0.10.4`** — стабильнее пайплайн и публикация:
 - **Надёжная обработка** — запись больше не «зависает» в активном пайплайне после сбоя воркера: новый флаг `on_air`, автоматический сброс застрявших записей, защита от двойного запуска.

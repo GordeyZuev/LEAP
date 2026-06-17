@@ -6,6 +6,7 @@ import { Image as ImageIcon, Upload, X, Check, Trash2, Loader2 } from "lucide-re
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { ActionButton } from "@/components/ui/action-button";
 
 interface ThumbnailInfo {
   name: string;
@@ -212,13 +213,9 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
             </>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="shrink-0 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
-        >
+        <ActionButton size="sm" variant="secondary" onClick={() => setOpen(true)}>
           Select…
-        </button>
+        </ActionButton>
       </div>
 
       {open && (
@@ -320,15 +317,16 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
                       className={cn(FILTER_CONTROL, "flex-1 text-xs")}
                       onClick={(e) => e.stopPropagation()}
                     />
-                    <button
-                      type="button"
+                    <ActionButton
+                      size="sm"
+                      disabled={!uploadName}
+                      isPending={upload.isPending}
                       onClick={() => upload.mutate()}
-                      disabled={upload.isPending || !uploadName}
-                      className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
+                      icon={<Upload size={12} />}
+                      pendingLabel="Uploading…"
                     >
-                      {upload.isPending ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                       Upload
-                    </button>
+                    </ActionButton>
                   </div>
                 )}
                 {uploadError && <p className="text-xs text-red-500">{uploadError}</p>}

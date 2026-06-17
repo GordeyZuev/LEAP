@@ -8,6 +8,7 @@ import { ArrowLeft, Save, Copy, Trash2, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
+import { ActionButton } from "@/components/ui/action-button";
 import { useToast } from "@/hooks/use-toast";
 import {
   YouTubeFields,
@@ -237,33 +238,25 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           {isNew ? "New preset" : (existing?.name ?? "…")}
         </h1>
         {!isNew && (
-          <button
-            onClick={() => setConfirmCopy(true)}
-            disabled={copyPreset.isPending}
-            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Copy size={15} />
-            {copyPreset.isPending ? "Copying…" : "Copy"}
-          </button>
+          <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyPreset.isPending} icon={<Copy size={15} />} pendingLabel="Copying…">
+            Copy
+          </ActionButton>
         )}
         {!isNew && (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            disabled={deletePreset.isPending}
-            className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
-          >
-            <Trash2 size={15} />
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deletePreset.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50">
             Delete
-          </button>
+          </ActionButton>
         )}
-        <button
+        <ActionButton
           onClick={() => save.mutate()}
-          disabled={save.isPending || !name}
-          className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e] disabled:opacity-50"
+          isPending={save.isPending}
+          isSuccess={save.isSuccess}
+          disabled={!name}
+          icon={<Save size={15} />}
+          pendingLabel="Saving…"
         >
-          <Save size={15} />
-          {save.isPending ? "Saving…" : "Save"}
-        </button>
+          Save
+        </ActionButton>
       </div>
 
 
@@ -377,15 +370,15 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           )}
 
           <div className="space-y-2 border-t border-[#EAEAEA] pt-4">
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary"
               onClick={handleRenderPreview}
-              disabled={renderPreviewLoading}
-              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+              isPending={renderPreviewLoading}
+              icon={<Eye size={15} />}
+              pendingLabel="Rendering…"
             >
-              <Eye size={15} />
-              {renderPreviewLoading ? "Rendering…" : "Preview render"}
-            </button>
+              Preview render
+            </ActionButton>
             {renderPreview ? <MetadataPreviewResultBox preview={renderPreview} /> : null}
           </div>
         </div>

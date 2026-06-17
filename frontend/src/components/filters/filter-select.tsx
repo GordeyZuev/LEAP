@@ -28,6 +28,7 @@ export function FilterSelect<V extends string | number = string>({
 }: FilterSelectProps<V>) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   // Dropdown is portalled to <body> with fixed positioning so it never gets
   // clipped by a scrollable parent (modals, overflow containers).
   const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -37,6 +38,12 @@ export function FilterSelect<V extends string | number = string>({
     const r = triggerRef.current.getBoundingClientRect();
     setCoords({ top: r.bottom + 6, left: r.left, width: r.width });
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = panelRef.current?.querySelector<HTMLElement>('[data-active="true"]');
+    el?.scrollIntoView({ block: "nearest" });
+  }, [open, coords]);
 
   useEffect(() => {
     if (!open) return;
@@ -85,7 +92,7 @@ export function FilterSelect<V extends string | number = string>({
 
       {open && coords && createPortal(
         <div
-          id="filter-select-panel"
+          ref={panelRef}
           style={{ position: "fixed", top: coords.top, left: coords.left, width: Math.max(coords.width, 176) }}
           className="z-[100] max-h-72 overflow-auto rounded-2xl border border-[#D9D9D9] bg-white p-2 shadow-xl"
         >
@@ -93,6 +100,7 @@ export function FilterSelect<V extends string | number = string>({
             <button
               key={String(opt.value)}
               type="button"
+              data-active={opt.value === value ? "true" : undefined}
               onClick={() => { onChange(opt.value); setOpen(false); }}
               className={cn(
                 "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm",

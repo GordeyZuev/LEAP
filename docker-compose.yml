@@ -158,7 +158,7 @@ services:
       dockerfile: Dockerfile
     container_name: leap_celery_worker
     restart: unless-stopped
-    command: python -m celery -A api.celery_app worker --loglevel=info --queues=downloads,uploads,async_operations,processing_cpu,maintenance --concurrency=8
+    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=downloads,uploads,async_operations,processing_cpu,maintenance --concurrency=8
     env_file: .env
     environment:
       DATABASE_HOST: postgres

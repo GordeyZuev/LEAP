@@ -208,7 +208,7 @@ async def save_oauth_credentials(
     existing_cred = await cred_repo.get_by_platform(user_id, platform, account_name=account_name)
 
     if existing_cred:
-        cred_update = UserCredentialUpdate(encrypted_data=encrypted_data, is_active=True)
+        cred_update = UserCredentialUpdate(encrypted_data=encrypted_data, is_active=True, needs_reauth=False)
         credential = await cred_repo.update(existing_cred.id, cred_update)
         action = "updated"
     else:

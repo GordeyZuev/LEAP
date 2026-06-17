@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
+import { ActionButton } from "@/components/ui/action-button";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 
 interface UploadInfo {
@@ -231,34 +232,40 @@ export function RecordingCard({
       <div className="flex items-center gap-2 border-t border-[#D9D9D9] px-4 pb-4 pt-2">
         {isSoftDeleted && onRestore ? (
           <>
-            <button
+            <ActionButton
+              size="sm"
+              variant="secondary"
               disabled={isLoading}
               onClick={() => onRestore(r.id)}
-              className="flex items-center gap-1.5 rounded-xl border border-green-200 bg-white px-3 py-1.5 text-xs font-medium text-green-600 transition-colors hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
+              icon={<ArchiveRestore size={12} />}
+              className="border-green-200 text-green-600 hover:bg-green-50 disabled:cursor-not-allowed"
             >
-              <ArchiveRestore size={12} />
               Restore
-            </button>
+            </ActionButton>
             <div className="flex-1" />
           </>
         ) : (
           <>
-            <button
+            <ActionButton
+              size="sm"
+              variant="secondary"
               disabled={!r.can_run || isLoading}
               onClick={() => onRun(r.id)}
-              className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:border-[#224C87] hover:bg-[#224C87] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              icon={<Play size={12} />}
+              className="hover:border-[#224C87] hover:bg-[#224C87] hover:text-white disabled:cursor-not-allowed"
             >
-              <Play size={12} />
               Run
-            </button>
-            <button
+            </ActionButton>
+            <ActionButton
+              size="sm"
+              variant="secondary"
               disabled={!r.can_pause || isLoading}
               onClick={() => onPause(r.id)}
-              className="flex items-center gap-1.5 rounded-xl border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+              icon={<Pause size={12} />}
+              className="hover:bg-gray-100 disabled:cursor-not-allowed"
             >
-              <Pause size={12} />
               Pause
-            </button>
+            </ActionButton>
 
             <div className="flex-1" />
 

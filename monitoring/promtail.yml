@@ -9,7 +9,7 @@
 #
 # The raw JSON envelope is preserved in the log line so LogQL can pivot on
 # any of the non-label fields as ``record_extra_*`` after ``| json``. Grafana
-# log panels render the human-readable text via ``| line_format "{{.text}}"``.
+# log panels should use ``| json | line_format "{{.text}}"`` for readability.
 
 server:
   http_listen_port: 9080

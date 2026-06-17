@@ -6,6 +6,7 @@ import { ChevronDown, Eye, Loader2, Play, Save, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
+import { ActionButton } from "@/components/ui/action-button";
 import {
   FILTER_CONTROL,
   FILTER_LABEL,
@@ -842,15 +843,15 @@ export function RunConfigModal({
                 </div>
 
                 <div className="space-y-2">
-                  <button
-                    type="button"
+                  <ActionButton
+                    variant="secondary"
                     onClick={handleMetadataPreview}
-                    disabled={metadataPreviewLoading}
-                    className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                    isPending={metadataPreviewLoading}
+                    icon={<Eye size={15} />}
+                    pendingLabel="Rendering…"
                   >
-                    <Eye size={15} />
-                    {metadataPreviewLoading ? "Rendering…" : "Preview render"}
-                  </button>
+                    Preview render
+                  </ActionButton>
                   {metadataPreview ? <MetadataPreviewResultBox preview={metadataPreview} /> : null}
                 </div>
 
@@ -899,28 +900,18 @@ export function RunConfigModal({
           {runError && (
             <p className="flex-1 truncate text-xs text-red-500" title={runError}>{runError}</p>
           )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-          >
+          <ActionButton variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </ActionButton>
+          <ActionButton
             onClick={() => runMutation.mutate()}
-            disabled={runMutation.isPending}
-            className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+            isPending={runMutation.isPending}
+            isSuccess={runMutation.isSuccess}
+            icon={isSave ? <Save size={14} /> : <Play size={14} />}
+            pendingLabel={isSave ? "Saving…" : "Running…"}
           >
-            {runMutation.isPending ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : isSave ? (
-              <Save size={14} />
-            ) : (
-              <Play size={14} />
-            )}
             {isSave ? "Save" : "Run"}
-          </button>
+          </ActionButton>
         </div>
       </>
     </Modal>

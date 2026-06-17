@@ -1,6 +1,6 @@
 {
   "annotations": {"list": []},
-  "description": "LEAP product overview — daily business + tenant health. The minimum every owner / on-call should glance at: today's volumes, week trends, who is suffering.",
+  "description": "LEAP product overview — daily volumes, transcribed minutes, tenant health, and red flags. Top row is fixed 24h; trends honour the dashboard time picker.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -9,97 +9,119 @@
     {"title": "Drill-down", "type": "dashboards", "tags": ["leap"], "asDropdown": true, "includeVars": false, "keepTime": true}
   ],
   "panels": [
-    {"type": "row", "title": "Today (last 24h)", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {"type": "row", "title": "Today (last 24 hours)", "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "stat",
-      "title": "Active users (24h)",
+      "title": "Active users",
+      "description": "Distinct users who created at least one recording in the last 24 hours.",
       "gridPos": {"x": 0, "y": 1, "w": 5, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(DISTINCT user_id) AS value FROM recordings WHERE created_at > NOW() - INTERVAL '24 hours' AND user_id IS NOT NULL;"}],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none"},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}}
     },
     {
       "type": "stat",
-      "title": "New recordings (24h)",
+      "title": "New recordings",
+      "description": "Recordings created in the last 24 hours.",
       "gridPos": {"x": 5, "y": 1, "w": 5, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM recordings WHERE created_at > NOW() - INTERVAL '24 hours';"}],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none"},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}}
     },
     {
       "type": "stat",
-      "title": "Successful uploads (24h)",
+      "title": "Transcribed minutes",
+      "description": "Total audio/video minutes transcribed in the last 24 hours (sum of final_duration after TRANSCRIBE completed).",
       "gridPos": {"x": 10, "y": 1, "w": 5, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT ROUND(COALESCE(SUM(q.minutes), 0), 1) AS value FROM (SELECT DISTINCT ON (st.recording_id) (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND st.completed_at > NOW() - INTERVAL '24 hours' AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, st.completed_at DESC) q;"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 1, "custom": {"suffix": " min"}, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]}}}
+    },
+    {
+      "type": "stat",
+      "title": "Successful uploads",
+      "description": "Output targets marked UPLOADED in the last 24 hours.",
+      "gridPos": {"x": 15, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM output_targets WHERE status = 'UPLOADED' AND uploaded_at > NOW() - INTERVAL '24 hours';"}],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none"},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}}
     },
     {
       "type": "stat",
-      "title": "Pipeline success rate (24h)",
-      "gridPos": {"x": 15, "y": 1, "w": 5, "h": 4},
+      "title": "Pipeline success rate",
+      "description": "Share of recordings created in the last 24h that reached READY or UPLOADED without failure.",
+      "gridPos": {"x": 19, "y": 1, "w": 5, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "table", "rawSql": "WITH w AS (SELECT * FROM recordings WHERE created_at > NOW() - INTERVAL '24 hours') SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 100.0 * COUNT(*) FILTER (WHERE status IN ('READY','UPLOADED') AND NOT failed) / COUNT(*) END AS value FROM w;"}],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "background", "graphMode": "none"},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]}}}
-    },
-    {
-      "type": "stat",
-      "title": "MRR (₽)",
-      "gridPos": {"x": 20, "y": 1, "w": 4, "h": 4},
-      "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(SUM(p.price_monthly), 0) AS value FROM user_subscriptions s JOIN subscription_plans p ON p.id = s.plan_id WHERE p.is_active AND p.price_monthly > 0 AND (s.expires_at IS NULL OR s.expires_at > NOW());"}],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none"},
-      "fieldConfig": {"defaults": {"unit": "currencyRUB", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}}
     },
 
     {"type": "row", "title": "Trends (dashboard time range)", "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "timeseries",
       "title": "Recordings per day",
-      "gridPos": {"x": 0, "y": 6, "w": 12, "h": 8},
+      "description": "New recordings grouped by calendar day.",
+      "gridPos": {"x": 0, "y": 6, "w": 8, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', created_at) AS time, COUNT(*) AS value FROM recordings WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1;"}],
-      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1}}}
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "barAlignment": 0}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
+    },
+    {
+      "type": "timeseries",
+      "title": "Transcribed minutes per day",
+      "description": "Minutes of content transcribed per day (final_duration after TRANSCRIBE completed).",
+      "gridPos": {"x": 8, "y": 6, "w": 8, "h": 8},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT sub.day AS time, ROUND(SUM(sub.minutes), 1) AS value FROM (SELECT DISTINCT ON (st.recording_id, date_trunc('day', st.completed_at)) date_trunc('day', st.completed_at) AS day, (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND $__timeFilter(st.completed_at) AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, date_trunc('day', st.completed_at), st.completed_at DESC) sub GROUP BY sub.day ORDER BY sub.day;"}],
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 1, "custom": {"suffix": " min", "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "barAlignment": 0}}},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
     },
     {
       "type": "timeseries",
       "title": "Uploads per day by platform",
-      "gridPos": {"x": 12, "y": 6, "w": 12, "h": 8},
+      "description": "Successful uploads stacked by target platform.",
+      "gridPos": {"x": 16, "y": 6, "w": 8, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', uploaded_at) AS time, target_type::text AS metric, COUNT(*) AS value FROM output_targets WHERE status = 'UPLOADED' AND $__timeFilter(uploaded_at) GROUP BY 1, 2 ORDER BY 1;"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 80, "stacking": {"mode": "normal"}}}},
-      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}
+      "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi"}}
     },
 
     {"type": "row", "title": "Health (dashboard time range)", "gridPos": {"x": 0, "y": 14, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "table",
       "title": "Top users by recordings",
+      "description": "Ten most active users in the selected time range.",
       "gridPos": {"x": 0, "y": 15, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT u.email, COUNT(r.*) AS recordings, ROUND(COALESCE(SUM(r.final_duration), 0)::numeric / 60, 1) AS total_minutes FROM recordings r JOIN users u ON u.id = r.user_id WHERE $__timeFilter(r.created_at) GROUP BY u.email ORDER BY recordings DESC LIMIT 10;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT u.email, COUNT(r.*) AS recordings, ROUND(COALESCE(SUM(r.final_duration), 0)::numeric / 60, 1) AS content_min FROM recordings r JOIN users u ON u.id = r.user_id WHERE $__timeFilter(r.created_at) GROUP BY u.email ORDER BY recordings DESC LIMIT 10;"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}, "overrides": [
-        {"matcher": {"id": "byName", "options": "recordings"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}]}
+        {"matcher": {"id": "byName", "options": "recordings"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}]},
+        {"matcher": {"id": "byName", "options": "content_min"}, "properties": [{"id": "unit", "value": "none"}, {"id": "decimals", "value": 1}, {"id": "custom", "value": {"suffix": " min"}}]}
       ]}
     },
     {
       "type": "barchart",
       "title": "Upload success rate by platform",
+      "description": "Percentage of output targets that reached UPLOADED status.",
       "gridPos": {"x": 12, "y": 15, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT target_type::text AS platform, ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'UPLOADED') / NULLIF(COUNT(*), 0), 1) AS success_pct FROM output_targets WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 2 DESC;"}],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 85}, {"color": "green", "value": 95}]}}},
-      "options": {"orientation": "horizontal", "xField": "platform", "showValue": "always"}
+      "options": {"orientation": "horizontal", "xField": "platform", "showValue": "always", "legend": {"displayMode": "hidden"}}
     },
 
     {"type": "row", "title": "Red flags", "gridPos": {"x": 0, "y": 23, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "table",
       "title": "Stuck recordings (>2h in same status)",
+      "description": "Active recordings that have not progressed for more than two hours (excludes paused).",
       "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT id, user_id, status, ROUND(EXTRACT(EPOCH FROM NOW() - updated_at) / 3600, 1) AS hours_stuck, display_name FROM recordings WHERE status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') AND NOT failed AND NOT deleted AND NOT on_pause AND updated_at < NOW() - INTERVAL '2 hours' ORDER BY hours_stuck DESC LIMIT 20;"}],
@@ -110,11 +132,12 @@
     {
       "type": "barchart",
       "title": "Failed recordings by stage (24h)",
+      "description": "Where the pipeline failed in the last 24 hours.",
       "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(failed_at_stage, 'unknown') AS stage, COUNT(*) AS failures FROM recordings WHERE failed AND failed_at > NOW() - INTERVAL '24 hours' GROUP BY 1 ORDER BY 2 DESC;"}],
       "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "fixed", "fixedColor": "red"}}},
-      "options": {"orientation": "horizontal", "xField": "stage", "showValue": "always"}
+      "options": {"orientation": "horizontal", "xField": "stage", "showValue": "always", "legend": {"displayMode": "hidden"}}
     }
   ],
   "refresh": "1m",
@@ -126,5 +149,5 @@
   "timezone": "",
   "title": "LEAP Overview",
   "uid": "leap-overview",
-  "version": 2
+  "version": 3
 }

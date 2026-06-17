@@ -25,6 +25,7 @@ class UserCredentialUpdate(BaseModel):
     encrypted_data: str | None = None
     is_active: bool | None = None
     account_name: str | None = Field(None, max_length=255)
+    needs_reauth: bool | None = None
 
 
 class UserCredentialInDB(UserCredentialBase):
@@ -34,6 +35,7 @@ class UserCredentialInDB(UserCredentialBase):
     user_id: str
     encrypted_data: str
     is_active: bool = True
+    needs_reauth: bool = False
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime | None = None

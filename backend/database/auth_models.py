@@ -101,6 +101,7 @@ class UserCredentialModel(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
     )
     last_used_at = Column(DateTime(timezone=True), nullable=True)
+    needs_reauth = Column(Boolean, default=False, nullable=False)
     user = relationship("UserModel", back_populates="credentials")
 
     def __repr__(self):

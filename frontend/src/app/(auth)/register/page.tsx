@@ -7,6 +7,7 @@ import { Check } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
+import { ActionButton } from "@/components/ui/action-button";
 import { cn, extractApiError } from "@/lib/utils";
 
 interface PasswordRule {
@@ -161,13 +162,15 @@ export default function RegisterPage() {
                 </p>
               )}
 
-              <button
+              <ActionButton
                 type="submit"
-                disabled={loading || !passwordValid}
-                className="w-full bg-[#224C87] text-white py-2.5 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-all duration-200 mt-2"
+                disabled={!passwordValid}
+                isPending={loading}
+                pendingLabel="Creating account…"
+                className="w-full justify-center py-2.5 mt-2"
               >
-                {loading ? "Creating account…" : "Create account"}
-              </button>
+                Create account
+              </ActionButton>
             </fieldset>
           </form>
         </div>

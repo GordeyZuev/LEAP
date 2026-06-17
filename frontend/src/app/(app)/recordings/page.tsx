@@ -23,6 +23,7 @@ import { cn, extractApiError } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useToast } from "@/hooks/use-toast";
 import { Toast } from "@/components/ui/toast";
+import { ActionButton } from "@/components/ui/action-button";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { RecordingCard, type RecordingCardData } from "@/components/recordings/recording-card";
 import { FilterBar } from "@/components/filters/filter-bar";
@@ -300,38 +301,10 @@ function RecordingsPagedResults({
             <span className="text-sm font-medium text-[#224C87]">{selected.size} selected</span>
           </label>
 
-          <button
-            type="button"
-            onClick={() => bulkRun.mutate(selectedIds)}
-            disabled={isBulkLoading}
-            className="flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Play size={13} /> Run
-          </button>
-          <button
-            type="button"
-            onClick={onBulkRunWithConfig}
-            disabled={isBulkLoading}
-            className="flex items-center gap-1.5 rounded-lg border border-[#224C87]/30 bg-white px-3 py-1.5 text-xs font-medium text-[#224C87] transition-colors hover:bg-[#224C87]/5 disabled:opacity-50"
-          >
-            <Play size={13} /> Run with config…
-          </button>
-          <button
-            type="button"
-            onClick={() => bulkPause.mutate(selectedIds)}
-            disabled={isBulkLoading}
-            className="flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Pause size={13} /> Pause
-          </button>
-          <button
-            type="button"
-            onClick={() => setResetConfirm(true)}
-            disabled={isBulkLoading}
-            className="flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            <RotateCcw size={13} /> Reset
-          </button>
+          <ActionButton size="sm" variant="secondary" onClick={() => bulkRun.mutate(selectedIds)} disabled={isBulkLoading} icon={<Play size={13} />}>Run</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={onBulkRunWithConfig} disabled={isBulkLoading} icon={<Play size={13} />} className="border-[#224C87]/30 text-[#224C87] hover:bg-[#224C87]/5">Run with config…</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => bulkPause.mutate(selectedIds)} disabled={isBulkLoading} icon={<Pause size={13} />}>Pause</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => setResetConfirm(true)} disabled={isBulkLoading} icon={<RotateCcw size={13} />}>Reset</ActionButton>
 
           {/* Pipeline dropdown */}
           <div className="relative" ref={pipelineMenuRef}>
@@ -367,14 +340,7 @@ function RecordingsPagedResults({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setDeleteConfirm(true)}
-            disabled={isBulkLoading}
-            className="ml-auto flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
-          >
-            <Trash2 size={13} /> Delete
-          </button>
+          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-red-200 text-red-500 hover:bg-red-50">Delete</ActionButton>
         </div>
       )}
 
@@ -399,22 +365,13 @@ function RecordingsPagedResults({
             {hasActiveFilters ? "No recordings match your filters" : "No recordings yet"}
           </p>
           {hasActiveFilters ? (
-            <button
-              type="button"
-              onClick={onResetFilters}
-              className="rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-            >
+            <ActionButton variant="secondary" onClick={onResetFilters}>
               Reset filters
-            </button>
+            </ActionButton>
           ) : (
-            <button
-              type="button"
-              onClick={onAddVideo}
-              className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e]"
-            >
-              <Plus size={16} />
+            <ActionButton onClick={onAddVideo} icon={<Plus size={16} />}>
               Add video
-            </button>
+            </ActionButton>
           )}
         </div>
       )}
@@ -956,22 +913,12 @@ function RecordingsContent() {
       <div className="mb-5 flex min-h-[2.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Recordings</h1>
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setExportOpen(true)}
-            className="flex items-center justify-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-          >
-            <Download size={16} />
+          <ActionButton variant="secondary" onClick={() => setExportOpen(true)} icon={<Download size={16} />}>
             Export
-          </button>
-          <button
-            type="button"
-            onClick={() => setAddModalOpen(true)}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e]"
-          >
-            <Plus size={16} />
+          </ActionButton>
+          <ActionButton onClick={() => setAddModalOpen(true)} icon={<Plus size={16} />}>
             Add video
-          </button>
+          </ActionButton>
         </div>
       </div>
 

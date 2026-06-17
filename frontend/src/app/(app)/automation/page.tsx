@@ -12,6 +12,7 @@ import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
 import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
 import { DEBOUNCE_SEARCH } from "@/lib/constants";
+import { ActionButton } from "@/components/ui/action-button";
 
 interface AutomationJob {
   id: number;
@@ -231,13 +232,17 @@ function AutomationContent() {
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex justify-end">
-                    <button
+                    <ActionButton
+                      size="sm"
+                      variant="secondary"
                       onClick={() => runNow.mutate(job.id)}
-                      disabled={runNow.isPending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-[#D9D9D9] bg-white hover:bg-[#224C87] hover:text-white hover:border-[#224C87] disabled:opacity-40 transition-colors"
+                      isPending={runNow.isPending && runNow.variables === job.id}
+                      icon={<Play size={12} />}
+                      pendingLabel="Running…"
+                      className="hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
                     >
-                      <Play size={12} /> Run
-                    </button>
+                      Run
+                    </ActionButton>
                   </div>
                 </td>
               </tr>

@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useId, useState } from "react";
-import { Download, Loader2, X } from "lucide-react";
+import { Download, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
+import { ActionButton } from "@/components/ui/action-button";
 import {
   FILTER_LABEL,
   FILTER_SEGMENT_ACTIVE,
@@ -246,26 +247,17 @@ export function ExportModal({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 border-t border-[#EAEAEA] px-6 py-4">
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-          >
+          <ActionButton variant="secondary" onClick={handleClose}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </ActionButton>
+          <ActionButton
             onClick={handleExport}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+            isPending={loading}
+            icon={<Download size={14} />}
+            pendingLabel="Exporting…"
           >
-            {loading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Download size={14} />
-            )}
             Export
-          </button>
+          </ActionButton>
         </div>
       </div>
     </Modal>

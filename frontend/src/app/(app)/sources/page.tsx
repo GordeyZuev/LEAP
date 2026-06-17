@@ -6,6 +6,7 @@ import { Plus, RefreshCw, Pencil, Trash2, X, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
+import { ActionButton } from "@/components/ui/action-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -284,21 +285,20 @@ export default function SourcesPage() {
         <h1 className="text-xl font-semibold text-gray-900">Input Sources</h1>
         <div className="flex items-center gap-2">
           {sources.length > 0 && (
-            <button
+            <ActionButton
+              variant="secondary"
+              isPending={bulkSync.isPending}
+              disabled={sources.filter((s) => s.is_active).length === 0}
               onClick={() => bulkSync.mutate()}
-              disabled={bulkSync.isPending || sources.filter((s) => s.is_active).length === 0}
-              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
+              icon={<RefreshCw size={14} />}
+              pendingLabel="Syncing…"
             >
-              <RefreshCw size={14} className={cn(bulkSync.isPending && "animate-spin")} />
-              {bulkSync.isPending ? "Syncing…" : "Sync all"}
-            </button>
+              Sync all
+            </ActionButton>
           )}
-          <button
-            onClick={openCreate}
-            className="flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] transition-colors"
-          >
-            <Plus size={16} /> Add source
-          </button>
+          <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
+            Add source
+          </ActionButton>
         </div>
       </div>
 
@@ -348,13 +348,9 @@ export default function SourcesPage() {
             <Database size={28} strokeWidth={1.5} />
           </div>
           <p className="text-sm font-medium text-gray-500">No sources yet</p>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="flex items-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e]"
-          >
-            <Plus size={16} /> Add source
-          </button>
+          <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
+            Add source
+          </ActionButton>
         </div>
       )}
       {!isLoading && !error && sources.length > 0 && visibleSources.length === 0 && (
@@ -376,25 +372,27 @@ export default function SourcesPage() {
                 {s.last_sync_at ? `Last sync: ${formatDate(s.last_sync_at)}` : "Never synced"}
               </p>
               <div className="flex items-center gap-2 mt-auto pt-2 border-t border-[#D9D9D9]">
-                <button
+                <ActionButton
+                  size="sm"
+                  variant="secondary"
                   onClick={() => syncSource.mutate(s.id)}
-                  disabled={syncSource.isPending}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-[#D9D9D9] bg-white hover:bg-[#224C87] hover:text-white hover:border-[#224C87] disabled:opacity-40 transition-colors"
+                  isPending={syncSource.isPending && syncSource.variables === s.id}
+                  icon={<RefreshCw size={12} />}
+                  pendingLabel="Syncing…"
+                  className="hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
                 >
-                  <RefreshCw size={12} /> Sync
-                </button>
-                <button
-                  onClick={() => openEdit(s)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-[#D9D9D9] bg-white hover:bg-gray-50 transition-colors"
-                >
-                  <Pencil size={12} /> Edit
-                </button>
-                <button
+                  Sync
+                </ActionButton>
+                <ActionButton size="sm" variant="secondary" onClick={() => openEdit(s)} icon={<Pencil size={12} />}>
+                  Edit
+                </ActionButton>
+                <ActionButton
+                  size="sm"
+                  variant="secondary"
                   onClick={() => setDeleteId(s.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 text-red-500 bg-white hover:bg-red-50 transition-colors ml-auto"
-                >
-                  <Trash2 size={12} />
-                </button>
+                  icon={<Trash2 size={12} />}
+                  className="ml-auto border-red-200 text-red-500 hover:bg-red-50"
+                />
               </div>
             </div>
           ))}
@@ -490,10 +488,10 @@ export default function SourcesPage() {
               {formError && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{formError}</p>}
             </div>
             <div className="px-6 pb-5 flex justify-end gap-3">
-              <button onClick={() => setModalOpen(false)} className="px-4 py-2.5 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSubmit} disabled={saveSource.isPending} className="px-5 py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors">
-                {saveSource.isPending ? "Saving…" : "Save"}
-              </button>
+              <ActionButton variant="secondary" onClick={() => setModalOpen(false)} className="py-2.5">Cancel</ActionButton>
+              <ActionButton onClick={handleSubmit} isPending={saveSource.isPending} isSuccess={saveSource.isSuccess} pendingLabel="Saving…" className="px-5 py-2.5">
+                Save
+              </ActionButton>
             </div>
           </div>
         </div>

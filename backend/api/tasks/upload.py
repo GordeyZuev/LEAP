@@ -457,6 +457,7 @@ async def _async_upload_recording(
 
         preset_metadata = {}
         preset = None
+        effective_credential_id: int | None = None
 
         if not preset_id and recording.template_id:
             template_repo = RecordingTemplateRepository(ctx.session)
@@ -504,12 +505,14 @@ async def _async_upload_recording(
             }
             mapped_platform = platform_map.get(preset.platform.upper(), preset.platform.lower())
 
+            effective_credential_id = preset.credential_id
             uploader = await create_uploader_from_db(
                 platform=mapped_platform,
                 credential_id=preset.credential_id,
                 session=ctx.session,
             )
         elif credential_id:
+            effective_credential_id = credential_id
             uploader = await create_uploader_from_db(
                 platform=platform,
                 credential_id=credential_id,
@@ -522,6 +525,7 @@ async def _async_upload_recording(
             if not credentials:
                 raise ValueError(f"No credentials found for platform {platform}")
 
+            effective_credential_id = credentials[0].id
             uploader = await create_uploader_from_db(
                 platform=platform,
                 credential_id=credentials[0].id,
@@ -550,6 +554,8 @@ async def _async_upload_recording(
             extracted_data=extracted_active,
         )
 
+        cred_repo = UserCredentialRepository(ctx.session)
+
         try:
             auth_success = await uploader.authenticate()
             if not auth_success:
@@ -557,6 +563,10 @@ async def _async_upload_recording(
                     platform=platform,
                     reason="Token validation failed or expired. Please re-authenticate via OAuth.",
                 )
+
+            if effective_credential_id:
+                await cred_repo.update_last_used(effective_credential_id)
+                await cred_repo.set_needs_reauth(effective_credential_id, False)
 
             title_template = preset_metadata.get("title_template", "{{ display_name }}")
             description_template = preset_metadata.get("description_template", "Uploaded on {{ record_date_iso }}")
@@ -785,6 +795,13 @@ async def _async_upload_recording(
                 "metadata": upload_result.metadata,
             }
 
+        except (TokenRefreshError, CredentialError):
+            if effective_credential_id:
+                try:
+                    await cred_repo.set_needs_reauth(effective_credential_id, True)
+                except Exception as _err:
+                    logger.debug(f"Failed to set needs_reauth on credential {effective_credential_id}: {_err}")
+            raise
         except Exception as e:
             if "timing" in locals() and timing.status == "IN_PROGRESS":
                 try:

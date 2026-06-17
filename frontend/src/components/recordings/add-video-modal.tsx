@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Modal } from "@/components/ui/modal";
+import { ActionButton } from "@/components/ui/action-button";
 import { ProgressBar } from "@/components/ui/progress-bar";
 
 type Tab = "url" | "playlist" | "file" | "sync";
@@ -160,6 +161,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
   });
 
   const uploadFile = useMutation({
+    onMutate: () => setUploadProgress(0),
     mutationFn: ({ f, displayName }: { f: File; displayName: string }) => {
       const fd = new FormData();
       fd.append("file", f);
@@ -424,25 +426,21 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
 
         {/* Footer */}
         <div className="px-6 pb-5 flex justify-end gap-3">
-          <button
-            onClick={handleClose}
-            className="px-4 py-2.5 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50 transition-colors"
-          >
+          <ActionButton variant="secondary" onClick={handleClose} className="py-2.5">
             Close
-          </button>
-          <button
+          </ActionButton>
+          <ActionButton
             onClick={handleSubmit}
-            disabled={isLoading}
-            className="px-5 py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+            isPending={isLoading}
+            pendingLabel={
+              uploadFile.isPending && uploadProgress !== null
+                ? uploadProgress < 100 ? `${uploadProgress}%` : "Processing…"
+                : "Loading…"
+            }
+            className="px-5 py-2.5"
           >
-            {uploadFile.isPending && uploadProgress !== null
-              ? uploadProgress < 100
-                ? `${uploadProgress}%`
-                : "Processing…"
-              : isLoading
-                ? "Loading…"
-                : submitLabel}
-          </button>
+            {submitLabel}
+          </ActionButton>
         </div>
       </div>
     </Modal>

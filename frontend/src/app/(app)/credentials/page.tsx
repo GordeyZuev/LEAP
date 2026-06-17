@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   XCircle,
+  AlertTriangle,
   Loader2,
   X,
   Plus,
@@ -15,6 +16,7 @@ import {
 import { cn, formatDateTime, formatRelative } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
+import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
@@ -33,6 +35,7 @@ interface CredentialItem {
   platform: string;
   account_name: string | null;
   is_active: boolean;
+  needs_reauth: boolean;
   last_used_at: string | null;
   created_at: string;
   updated_at: string;
@@ -303,13 +306,9 @@ export default function CredentialsPage() {
     <div className="w-full min-w-0 p-6 sm:p-8">
       <div className="mb-5 flex min-h-[2.5rem] items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">Credentials</h1>
-        <button
-          onClick={openAddModal}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] transition-colors"
-        >
-          <Plus size={15} />
+        <ActionButton onClick={openAddModal} icon={<Plus size={15} />}>
           Add
-        </button>
+        </ActionButton>
       </div>
 
       {/* Filters */}
@@ -396,15 +395,17 @@ export default function CredentialsPage() {
                       <span
                         className={cn(
                           "inline-flex items-center gap-1.5 text-sm",
-                          cred.is_active ? "text-green-600" : "text-gray-400"
+                          cred.needs_reauth ? "text-amber-600" : cred.is_active ? "text-green-600" : "text-gray-400"
                         )}
                       >
-                        {cred.is_active ? (
+                        {cred.needs_reauth ? (
+                          <AlertTriangle size={14} className="text-amber-500 shrink-0" />
+                        ) : cred.is_active ? (
                           <CheckCircle2 size={14} className="text-green-500 shrink-0" />
                         ) : (
                           <XCircle size={14} className="text-gray-300 shrink-0" />
                         )}
-                        {cred.is_active ? "Connected" : "Inactive"}
+                        {cred.needs_reauth ? "Re-auth needed" : cred.is_active ? "Connected" : "Inactive"}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -413,22 +414,25 @@ export default function CredentialsPage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
                         {platform?.hasOAuth && (
-                          <button
+                          <ActionButton
+                            size="sm"
+                            variant="secondary"
                             title="Re-authenticate (use the same account to refresh the token)"
                             onClick={() => platform && handleOAuthConnect(platform.oauthPath)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50 transition-colors"
+                            icon={<RefreshCw size={12} />}
                           >
-                            <RefreshCw size={12} />
                             Re-auth
-                          </button>
+                          </ActionButton>
                         )}
-                        <button
+                        <ActionButton
+                          size="sm"
+                          variant="secondary"
                           onClick={() => setDisconnectId(cred.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                          icon={<X size={12} />}
+                          className="border-red-200 text-red-500 hover:bg-red-50"
                         >
-                          <X size={12} />
                           Disconnect
-                        </button>
+                        </ActionButton>
                       </div>
                     </td>
                   </tr>
@@ -539,13 +543,12 @@ export default function CredentialsPage() {
                     <p className="text-sm text-gray-500">
                       You will be redirected to {platform.label} to authorize access.
                     </p>
-                    <button
-                      type="button"
+                    <ActionButton
                       onClick={() => handleOAuthConnect(platform.oauthPath)}
-                      className="w-full py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] transition-colors"
+                      className="w-full justify-center py-2.5"
                     >
                       Connect via OAuth
-                    </button>
+                    </ActionButton>
                   </>
                 ) : (
                   <>
@@ -581,21 +584,18 @@ export default function CredentialsPage() {
                       <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{formError}</p>
                     )}
                     <div className="flex justify-end gap-3 pt-1">
-                      <button
-                        type="button"
-                        onClick={closeAddModal}
-                        className="px-4 py-2.5 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50"
-                      >
+                      <ActionButton variant="secondary" onClick={closeAddModal} className="py-2.5">
                         Cancel
-                      </button>
-                      <button
-                        type="button"
+                      </ActionButton>
+                      <ActionButton
                         onClick={submitManual}
-                        disabled={connectManual.isPending}
-                        className="px-5 py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+                        isPending={connectManual.isPending}
+                        isSuccess={connectManual.isSuccess}
+                        pendingLabel="Saving…"
+                        className="px-5 py-2.5"
                       >
-                        {connectManual.isPending ? "Saving…" : "Save"}
-                      </button>
+                        Save
+                      </ActionButton>
                     </div>
                   </>
                 )}
@@ -636,11 +636,13 @@ export default function CredentialsPage() {
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Status</span>
-                  <span className={cn("inline-flex items-center gap-1.5 text-sm", cred.is_active ? "text-green-600" : "text-gray-400")}>
-                    {cred.is_active
-                      ? <CheckCircle2 size={13} className="text-green-500" />
-                      : <XCircle size={13} className="text-gray-300" />}
-                    {cred.is_active ? "Connected" : "Inactive"}
+                  <span className={cn("inline-flex items-center gap-1.5 text-sm", cred.needs_reauth ? "text-amber-600" : cred.is_active ? "text-green-600" : "text-gray-400")}>
+                    {cred.needs_reauth
+                      ? <AlertTriangle size={13} className="text-amber-500" />
+                      : cred.is_active
+                        ? <CheckCircle2 size={13} className="text-green-500" />
+                        : <XCircle size={13} className="text-gray-300" />}
+                    {cred.needs_reauth ? "Re-auth needed" : cred.is_active ? "Connected" : "Inactive"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -679,21 +681,18 @@ export default function CredentialsPage() {
                   <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{renameError}</p>
                 )}
                 <div className="flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={closeRenameModal}
-                    className="px-4 py-2.5 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50"
-                  >
+                  <ActionButton variant="secondary" onClick={closeRenameModal} className="py-2.5">
                     Cancel
-                  </button>
-                  <button
-                    type="button"
+                  </ActionButton>
+                  <ActionButton
                     onClick={() => rename.mutate({ id: cred.id, account_name: value || null })}
-                    disabled={rename.isPending}
-                    className="px-5 py-2.5 rounded-xl text-sm font-medium bg-[#224C87] text-white hover:bg-[#1a3d6e] disabled:opacity-50 transition-colors"
+                    isPending={rename.isPending}
+                    isSuccess={rename.isSuccess}
+                    pendingLabel="Saving…"
+                    className="px-5 py-2.5"
                   >
-                    {rename.isPending ? "Saving…" : "Save"}
-                  </button>
+                    Save
+                  </ActionButton>
                 </div>
               </div>
             </div>

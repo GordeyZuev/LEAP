@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, RefreshCw, ChevronDown, Eye, LogOut, Trash2, Monitor, X } from "lucide-react";
+import { ActionButton } from "@/components/ui/action-button";
 import { useRouter } from "next/navigation";
 import { cn, formatRelative, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -302,10 +303,6 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-const BTN_PRIMARY =
-  "flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-all duration-200";
-const BTN_SECONDARY =
-  "flex items-center gap-2 px-4 py-2 rounded-xl border border-[#D9D9D9] text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-all duration-200";
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -657,14 +654,15 @@ export default function SettingsPage() {
           </NativeSelect>
         </Field>
         <div className="flex justify-end">
-          <button
+          <ActionButton
             onClick={() => updateProfile.mutate()}
-            disabled={updateProfile.isPending}
-            className={BTN_PRIMARY}
+            isPending={updateProfile.isPending}
+            isSuccess={updateProfile.isSuccess}
+            icon={<Save size={15} />}
+            pendingLabel="Saving…"
           >
-            <Save size={15} />
-            {updateProfile.isPending ? "Saving…" : "Save profile"}
-          </button>
+            Save profile
+          </ActionButton>
         </div>
       </SectionCard>
 
@@ -706,14 +704,15 @@ export default function SettingsPage() {
           <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{pwError}</p>
         )}
         <div className="flex justify-end">
-          <button
+          <ActionButton
             onClick={handlePasswordSubmit}
-            disabled={changePassword.isPending}
-            className={BTN_PRIMARY}
+            isPending={changePassword.isPending}
+            isSuccess={changePassword.isSuccess}
+            icon={<Save size={15} />}
+            pendingLabel="Changing…"
           >
-            <Save size={15} />
-            {changePassword.isPending ? "Changing…" : "Change password"}
-          </button>
+            Change password
+          </ActionButton>
         </div>
       </SectionCard>
 
@@ -724,13 +723,16 @@ export default function SettingsPage() {
           resetConfirm ? (
             <div className="flex items-center gap-2">
               <span className="text-xs text-amber-600 hidden sm:inline">Reset all to defaults?</span>
-              <button
+              <ActionButton
+                size="sm"
+                variant="secondary"
                 onClick={() => resetConfig.mutate()}
-                disabled={resetConfig.isPending}
-                className="text-xs font-medium text-red-600 hover:text-red-700 px-2 py-1 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                isPending={resetConfig.isPending}
+                pendingLabel="Resetting…"
+                className="text-red-600 hover:text-red-700 border-0 hover:bg-red-50 px-2 py-1"
               >
-                {resetConfig.isPending ? "Resetting…" : "Yes, reset"}
-              </button>
+                Yes, reset
+              </ActionButton>
               <button
                 onClick={() => setResetConfirm(false)}
                 className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
@@ -739,13 +741,14 @@ export default function SettingsPage() {
               </button>
             </div>
           ) : (
-            <button
+            <ActionButton
+              variant="secondary"
               onClick={() => setResetConfirm(true)}
-              className={cn(BTN_SECONDARY, "text-xs gap-1.5 px-3 py-1.5")}
+              icon={<RefreshCw size={12} />}
+              className="text-xs gap-1.5 px-3 py-1.5"
             >
-              <RefreshCw size={12} />
               Reset
-            </button>
+            </ActionButton>
           )
         }
       >
@@ -1048,15 +1051,15 @@ export default function SettingsPage() {
             placeholder={"Recording from {{ date }}\n\n{{ topics }}"}
           />
           <div className="space-y-2">
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary"
               onClick={handleMetadataDefaultsPreview}
-              disabled={metadataRenderPreviewLoading}
-              className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              isPending={metadataRenderPreviewLoading}
+              icon={<Eye size={15} />}
+              pendingLabel="Rendering…"
             >
-              <Eye size={15} />
-              {metadataRenderPreviewLoading ? "Rendering…" : "Preview render"}
-            </button>
+              Preview render
+            </ActionButton>
             {metadataRenderPreview ? (
               <MetadataPreviewResultBox preview={metadataRenderPreview} />
             ) : null}
@@ -1125,14 +1128,15 @@ export default function SettingsPage() {
         </Collapsible>
 
         <div className="flex justify-end">
-          <button
+          <ActionButton
             onClick={() => updateConfig.mutate()}
-            disabled={updateConfig.isPending}
-            className={BTN_PRIMARY}
+            isPending={updateConfig.isPending}
+            isSuccess={updateConfig.isSuccess}
+            icon={<Save size={15} />}
+            pendingLabel="Saving…"
           >
-            <Save size={15} />
-            {updateConfig.isPending ? "Saving…" : "Save settings"}
-          </button>
+            Save settings
+          </ActionButton>
         </div>
       </SectionCard>
 
@@ -1170,14 +1174,15 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 {!s.is_current && (
-                  <button
-                    type="button"
+                  <ActionButton
+                    size="sm"
+                    variant="secondary"
                     onClick={() => setRevokeSessionTarget(s)}
-                    className="shrink-0 flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                    icon={<X size={12} />}
+                    className="shrink-0"
                   >
-                    <X size={12} />
                     Revoke
-                  </button>
+                  </ActionButton>
                 )}
               </li>
             ))}
@@ -1186,24 +1191,22 @@ export default function SettingsPage() {
 
         {/* Sign-out actions live with the sessions they affect. */}
         <div className="flex flex-wrap justify-end gap-2 border-t border-[#F0F0F0] pt-4">
-          <button
-            type="button"
+          <ActionButton
+            variant="secondary"
             onClick={() => setLogoutOthersOpen(true)}
             disabled={sessions.length <= 1 || logoutOthers.isPending}
-            className="flex items-center gap-2 rounded-xl border border-[#D9D9D9] bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-40"
+            icon={<LogOut size={14} />}
           >
-            <LogOut size={14} />
             Sign out other devices
-          </button>
-          <button
-            type="button"
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
             onClick={() => setLogoutAllOpen(true)}
-            disabled={logoutAll.isPending}
-            className="flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+            icon={<LogOut size={14} />}
+            className="border-red-200 text-red-500 hover:bg-red-50"
           >
-            <LogOut size={14} />
             Sign out everywhere
-          </button>
+          </ActionButton>
         </div>
       </SectionCard>
 
@@ -1218,14 +1221,14 @@ export default function SettingsPage() {
               <p className="text-sm font-medium text-gray-800">Delete account</p>
               <p className="text-xs text-gray-400 mt-0.5">Permanently delete your account and all data. This cannot be undone.</p>
             </div>
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary"
               onClick={() => { setDeleteAccountPassword(""); setDeleteAccountError(""); setDeleteAccountOpen(true); }}
-              className="shrink-0 flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-500 transition-colors hover:bg-red-50"
+              icon={<Trash2 size={14} />}
+              className="shrink-0 border-red-200 text-red-500 hover:bg-red-50"
             >
-              <Trash2 size={14} />
               Delete account
-            </button>
+            </ActionButton>
           </div>
         </div>
       </div>
@@ -1240,22 +1243,19 @@ export default function SettingsPage() {
             <h2 className="mb-1 text-sm font-semibold text-gray-900">Log out everywhere?</h2>
             <p className="mb-4 text-xs text-gray-500">You will be signed out on every device, including this one.</p>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setLogoutAllOpen(false)}
-                className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-              >
+              <ActionButton variant="secondary" onClick={() => setLogoutAllOpen(false)}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                disabled={logoutAll.isPending}
+              </ActionButton>
+              <ActionButton
+                variant="danger"
+                isPending={logoutAll.isPending}
+                icon={<LogOut size={13} />}
+                pendingLabel="Signing out…"
                 onClick={() => logoutAll.mutate()}
-                className="flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+                className="font-semibold"
               >
-                {logoutAll.isPending ? <RefreshCw size={13} className="animate-spin" /> : <LogOut size={13} />}
                 Log out all
-              </button>
+              </ActionButton>
             </div>
           </div>
         </div>
@@ -1271,22 +1271,19 @@ export default function SettingsPage() {
             <h2 className="mb-1 text-sm font-semibold text-gray-900">Sign out other devices?</h2>
             <p className="mb-4 text-xs text-gray-500">This device will stay signed in. All other sessions will be revoked.</p>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setLogoutOthersOpen(false)}
-                className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-              >
+              <ActionButton variant="secondary" onClick={() => setLogoutOthersOpen(false)}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                disabled={logoutOthers.isPending}
+              </ActionButton>
+              <ActionButton
+                variant="neutral"
+                isPending={logoutOthers.isPending}
+                icon={<LogOut size={13} />}
+                pendingLabel="Signing out…"
                 onClick={() => logoutOthers.mutate()}
-                className="flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:opacity-50"
+                className="font-semibold"
               >
-                {logoutOthers.isPending ? <RefreshCw size={13} className="animate-spin" /> : <LogOut size={13} />}
                 Sign out others
-              </button>
+              </ActionButton>
             </div>
           </div>
         </div>
@@ -1304,22 +1301,19 @@ export default function SettingsPage() {
               {revokeSessionTarget.device_label || "Unknown device"} will be signed out on its next request.
             </p>
             <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setRevokeSessionTarget(null)}
-                className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-              >
+              <ActionButton variant="secondary" onClick={() => setRevokeSessionTarget(null)}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                disabled={revokeOne.isPending}
+              </ActionButton>
+              <ActionButton
+                variant="neutral"
+                isPending={revokeOne.isPending}
+                icon={<X size={13} />}
+                pendingLabel="Revoking…"
                 onClick={() => revokeOne.mutate(revokeSessionTarget.id)}
-                className="flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:opacity-50"
+                className="font-semibold"
               >
-                {revokeOne.isPending ? <RefreshCw size={13} className="animate-spin" /> : <X size={13} />}
                 Revoke
-              </button>
+              </ActionButton>
             </div>
           </div>
         </div>
@@ -1350,22 +1344,20 @@ export default function SettingsPage() {
                 <p className="text-xs text-red-500">{deleteAccountError}</p>
               )}
               <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setDeleteAccountOpen(false)}
-                  className="rounded-xl border border-[#D9D9D9] px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                >
+                <ActionButton variant="secondary" onClick={() => setDeleteAccountOpen(false)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={!deleteAccountPassword || deleteAccount.isPending}
+                </ActionButton>
+                <ActionButton
+                  variant="danger"
+                  disabled={!deleteAccountPassword}
+                  isPending={deleteAccount.isPending}
+                  icon={<Trash2 size={13} />}
+                  pendingLabel="Deleting…"
                   onClick={() => deleteAccount.mutate()}
-                  className="flex items-center gap-1.5 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:opacity-50"
+                  className="font-semibold"
                 >
-                  {deleteAccount.isPending ? <RefreshCw size={13} className="animate-spin" /> : <Trash2 size={13} />}
                   Delete permanently
-                </button>
+                </ActionButton>
               </div>
             </div>
           </div>

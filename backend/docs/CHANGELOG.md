@@ -10,6 +10,92 @@
 
 ---
 
+## 2026-06-17: Grafana dashboards — transcribed minutes, Celery events, Loki fixes
+
+- **LEAP Overview** — MRR (₽) replaced with **transcribed minutes (24h)**; new
+  **transcribed minutes per day** trend; panel descriptions and clearer layout.
+- **LEAP Errors** — fixed LogQL filters (`record_extra_recording_id > 0` for
+  numeric ids); added error-rate chart, WARNING + HTTP 5xx stats, Postgres
+  **failed recordings (24h)** fallback when Loki is empty; log panels use
+  `| json | line_format "{{.text}}"` (JSON line must stay intact in Loki).
+- **LEAP Celery** — enabled Celery event emission (`worker_send_task_events`,
+  `task_send_sent_event`, worker `-E`) so celery-exporter metrics populate;
+  added task throughput charts, Postgres stage-failure chart, `or vector(0)` on
+  stats for idle periods.
+- **Promtail** — keeps full JSON log lines (required for `record_extra_*`
+  LogQL); labels still extracted at ingest.
+- **Celery task_failure logs** — now bind `recording_id` / `user_id` from task
+  args so Errors «by recording» panels populate.
+
+### Deploy
+
+1. Deploy backend image (celery conf change).
+2. `docker compose up -d --force-recreate celery_worker` (picks up `-E`).
+3. `docker compose restart promtail grafana` (promtail + dashboard JSON).
+
+### Файлы
+
+- `monitoring/dashboards/leap_overview.json`
+- `monitoring/dashboards/leap_errors.json`
+- `monitoring/dashboards/leap_celery.json`
+- `monitoring/promtail.yml`
+- `backend/api/celery_app.py` (Celery events + task_failure context)
+- `docker-compose.yml`
+- `backend/docs/guides/MONITORING.md`
+
+---
+
+## 2026-06-17: Credentials — last_used_at и статус "нужна переавторизация"
+
+- **`last_used_at`** — поле присутствовало в схеме, но никогда не заполнялось. Теперь обновляется после каждой успешной аутентификации учётных данных перед загрузкой. В UI страница Credentials показывает реальное время последнего использования.
+- **`needs_reauth`** — новый флаг (`BOOLEAN NOT NULL DEFAULT FALSE`) в таблице `user_credentials`. Устанавливается в `true` при `TokenRefreshError` или `CredentialError` во время задачи загрузки; сбрасывается при успешной аутентификации или повторном OAuth.
+- **UI — три состояния статуса credential:** "Connected" (зелёный) / "Re-auth needed" (янтарный `AlertTriangle`) / "Inactive" (серый). Кнопка «Re-auth» уже была — теперь она визуально выделяется за счёт бейджа.
+
+**Alembic migration 027** (`needs_reauth` column) — применить до или вместе с деплоем.
+
+### Файлы
+
+- `backend/database/auth_models.py`
+- `backend/alembic/versions/027_add_credential_needs_reauth.py`
+- `backend/api/schemas/auth/credential.py`
+- `backend/api/schemas/credentials/response.py`
+- `backend/api/repositories/auth_repos.py`
+- `backend/api/tasks/upload.py`
+- `backend/api/routers/oauth.py`
+- `frontend/src/app/(app)/credentials/page.tsx`
+
+---
+
+## 2026-06-17: UI — единый компонент ActionButton, исправление скролла дропдауна
+
+- **ActionButton** — новый компонент `frontend/src/components/ui/action-button.tsx`, заменяющий все разрозненные inline-классы кнопок.
+  Поддерживает: `variant` (primary / secondary / danger / neutral), `size` (md / sm),
+  `isPending` (spinner), `isSuccess` (1.5 сек зелёный flash + чекмарк), `active:scale-[0.97]` press-feedback.
+- **Полная миграция** — ActionButton применён во всех страницах и компонентах: settings, recordings, recordings/[id],
+  sources, credentials, presets/[id], templates/[id], automation/page и [id], login, register,
+  а также run-config-modal, add-video-modal, export-modal, thumbnail-picker, confirm-dialog, recording-card.
+  Больше нет разрозненных inline-строк `bg-[#224C87] px-4 py-2 …` вместо кнопок.
+- **FilterSelect scroll** — при открытии дропдауна (timezone и др.) активный элемент автоматически
+  прокручивается в область видимости (`scrollIntoView`).
+
+### Файлы
+
+- `frontend/src/components/ui/action-button.tsx` (новый)
+- `frontend/src/components/filters/filter-select.tsx`
+- `frontend/src/app/(app)/settings/page.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`, `recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/sources/page.tsx`
+- `frontend/src/app/(app)/credentials/page.tsx`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `frontend/src/app/(app)/automation/page.tsx`, `automation/[id]/page.tsx`
+- `frontend/src/app/(auth)/login/page.tsx`, `register/page.tsx`
+- `frontend/src/components/recordings/run-config-modal.tsx`, `add-video-modal.tsx`, `export-modal.tsx`, `recording-card.tsx`
+- `frontend/src/components/platforms/thumbnail-picker.tsx`
+- `frontend/src/components/ui/confirm-dialog.tsx`
+
+---
+
 ## 2026-06-17: UI — прогресс-бары и staleTime
 
 - **Upload** — реальный % загрузки файла через `onUploadProgress`; после 100 % — "Processing…" до ответа сервера.

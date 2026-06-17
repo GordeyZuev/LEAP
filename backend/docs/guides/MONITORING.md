@@ -102,7 +102,10 @@ cardinality stays bounded regardless of traffic.
 
 ### Celery (`danihodovic/celery-exporter`)
 
-Exposed at `http://celery_exporter:9808/metrics`:
+Exposed at `http://celery_exporter:9808/metrics`. **Workers must emit Celery
+events** — set `worker_send_task_events=True` and `task_send_sent_event=True`
+in `celery_app.conf` (and/or start workers with `-E`). Without events every
+`celery_*` panel stays empty.
 
 | Metric                              | Type      | Labels                |
 | ----------------------------------- | --------- | --------------------- |
@@ -231,11 +234,11 @@ question forces the need, not pre-emptively.
 
 | File                                    | UID              | Panels | What it answers                                                  |
 | --------------------------------------- | ---------------- | -----: | ---------------------------------------------------------------- |
-| `dashboards/leap_overview.json`         | `leap-overview`  | 11     | **Default home.** Business stats (fixed 24h) + trends/health tied to dashboard time range via `$__timeFilter`. |
+| `dashboards/leap_overview.json`         | `leap-overview`  | 12     | **Default home.** 24h stats incl. transcribed minutes + trends/health via `$__timeFilter`. |
 | `dashboards/leap_pipeline.json`         | `leap-pipeline`  |  6     | Pipeline: 24h Celery throughput, stage duration/failure from Postgres `stage_timings`, in-flight by status. |
 | `dashboards/leap_api.json`              | `leap-api`       | 10     | API: RPS, 5xx%, p95, 4xx%, latency percentiles, RPS by HTTP method, top routes by RPS / p95, 5xx by route + recent 5xx logs. |
-| `dashboards/leap_celery.json`           | `leap-celery`    |  7     | Celery: failure rate, active workers, pending tasks, per-queue depth + oldest task age, failures by task name + recent failures logs. |
-| `dashboards/leap_errors.json`           | `leap-errors`    |  6     | Errors: ERROR/CRITICAL count, distinct affected recordings, Celery exception types, recent ERRORs, errors by recording / user (`record_extra_*` after `\| json`). |
+| `dashboards/leap_celery.json`           | `leap-celery`    | 11     | Celery: failure rate, workers, queue depth + oldest task age, task throughput, Postgres stage failures + Loki failure logs. |
+| `dashboards/leap_errors.json`           | `leap-errors`    | 10     | Errors: Loki pulse + error rate chart + exception/recording/user tables; Postgres failed-recordings fallback. |
 
 Auto-provisioned from `monitoring/grafana_dashboards.yml` — drop a new JSON
 into `monitoring/dashboards/`, redeploy, Grafana picks it up within 30s.
@@ -321,7 +324,7 @@ If you add a new label, do the math first.
 | Grafana panels empty, "No data" (Loki)                 | App not writing `structured.json`                                 | Check `JSON_LOG_FILE` env in container; restart app      |
 | Loki has data but `level`/`module` labels are missing  | Promtail config out of sync with loguru's `serialize=True` schema | Restart promtail; verify with `promtail --check-config`  |
 | Prometheus targets DOWN for `leap-api`                 | `/metrics` not exposed                                            | Confirm `MONITORING_PROMETHEUS_ENABLED=true` on **api** container |
-| `celery_queue_length` always 0                         | celery-exporter can't read events                                 | Worker must run with default `worker_send_task_events`   |
+| `celery_queue_length` always 0                         | celery-exporter can't read events                                 | Set `worker_send_task_events=True` + `task_send_sent_event=True` in `celery_app.conf` and restart workers with `-E` |
 | `request_id` blank in logs                             | Middleware order — `LoggingMiddleware` registered after handlers  | Keep `app.add_middleware(LoggingMiddleware)` in `main.py` |
 
 ## See also

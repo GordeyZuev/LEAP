@@ -7,6 +7,7 @@ import { apiClient } from "@/api/client";
 import { extractApiError } from "@/lib/utils";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
+import { ActionButton } from "@/components/ui/action-button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -83,13 +84,14 @@ export default function LoginPage() {
                 </p>
               )}
 
-              <button
+              <ActionButton
                 type="submit"
-                disabled={loading}
-                className="w-full bg-[#224C87] text-white py-2.5 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] disabled:opacity-50 transition-all duration-200 mt-2"
+                isPending={loading}
+                pendingLabel="Signing in…"
+                className="w-full justify-center py-2.5 mt-2"
               >
-                {loading ? "Signing in…" : "Sign in"}
-              </button>
+                Sign in
+              </ActionButton>
             </fieldset>
           </form>
         </div>

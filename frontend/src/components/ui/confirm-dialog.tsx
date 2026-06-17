@@ -1,8 +1,8 @@
 "use client";
 
 import { useId, type ReactNode } from "react";
-import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
+import { ActionButton } from "@/components/ui/action-button";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -37,25 +37,12 @@ export function ConfirmDialog({
         <p className="text-sm text-gray-500 mb-4">{description}</p>
         {children && <div className="mb-4">{children}</div>}
         <div className="flex gap-3 justify-end">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 rounded-xl text-sm font-medium border border-[#D9D9D9] text-gray-600 hover:bg-gray-50 transition-colors"
-          >
+          <ActionButton variant="secondary" onClick={onCancel}>
             {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className={cn(
-              "px-4 py-2 rounded-xl text-sm font-medium transition-colors",
-              danger
-                ? "bg-red-500 text-white hover:bg-red-600"
-                : "bg-[#224C87] text-white hover:bg-[#1a3d6e]",
-            )}
-          >
+          </ActionButton>
+          <ActionButton variant={danger ? "danger" : "primary"} onClick={onConfirm}>
             {confirmLabel}
-          </button>
+          </ActionButton>
         </div>
       </div>
     </Modal>
