@@ -71,6 +71,14 @@ async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> No
                 "enabled": job.is_active,
             },
         )
+        # Notify beat to reload schedule. Raw SQL bypasses ORM events so
+        # celery_periodic_task_changed must be updated explicitly.
+        await session.execute(
+            text("""
+            INSERT INTO celery_periodic_task_changed (id, last_update) VALUES (1, NOW())
+            ON CONFLICT (id) DO UPDATE SET last_update = NOW()
+        """)
+        )
 
         await session.commit()
 
