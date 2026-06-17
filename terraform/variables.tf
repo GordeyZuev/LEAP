@@ -197,3 +197,21 @@ variable "grafana_admin_user" {
   type    = string
   default = "admin"
 }
+
+# ============================================================================
+# Email / SMTP
+# ============================================================================
+
+variable "email_smtp_user" {
+  description = "SMTP login for transactional email (e.g. leap.platform@yandex.ru)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "email_smtp_password" {
+  description = "SMTP app-password for the email account"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

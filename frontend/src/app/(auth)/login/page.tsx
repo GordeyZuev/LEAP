@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import axios from "axios";
 import { apiClient } from "@/api/client";
 import { extractApiError } from "@/lib/utils";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -27,6 +28,15 @@ export default function LoginPage() {
       await apiClient.post("/auth/login", { email, password });
       router.push("/recordings");
     } catch (err: unknown) {
+      // 403 "Email not verified" → send the user to the check-your-inbox screen
+      // so they can resend the verification link from there.
+      if (axios.isAxiosError(err) && err.response?.status === 403) {
+        const detail: string = err.response.data?.detail ?? "";
+        if (detail.toLowerCase().includes("not verified")) {
+          router.push(`/verify-email-sent?email=${encodeURIComponent(email)}`);
+          return;
+        }
+      }
       setError(extractApiError(err, "Invalid email or password"));
     } finally {
       setLoading(false);
@@ -76,6 +86,12 @@ export default function LoginPage() {
                   className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
                   placeholder="••••••••"
                 />
+              </div>
+
+              <div className="flex justify-end -mt-1">
+                <Link href="/forgot-password" className="text-xs text-gray-400 hover:text-[#224C87] transition-colors">
+                  Forgot password?
+                </Link>
               </div>
 
               {error && (

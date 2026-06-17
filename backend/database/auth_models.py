@@ -65,6 +65,13 @@ class UserModel(Base):
         nullable=False,
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # --- Email tokens (short-lived, nullable; one active token per user) ---
+    email_verification_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    email_verification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    password_reset_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    password_reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     credentials = relationship("UserCredentialModel", back_populates="user", cascade="all, delete-orphan")
     recordings = relationship("RecordingModel", back_populates="owner", cascade="all, delete-orphan")
     subscription = relationship(

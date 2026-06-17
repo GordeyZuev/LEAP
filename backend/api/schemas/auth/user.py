@@ -54,6 +54,13 @@ class UserUpdate(BaseModel):
     # --- Timestamps ---
     last_login_at: datetime | None = None
 
+    # --- Email tokens (pass None to clear, omit to leave unchanged) ---
+    hashed_password: str | None = None
+    email_verification_token: str | None = None
+    email_verification_sent_at: datetime | None = None
+    password_reset_token: str | None = None
+    password_reset_expires_at: datetime | None = None
+
 
 class UserInDB(UserBase):
     """Schema of user in DB."""
@@ -86,6 +93,12 @@ class UserInDB(UserBase):
     created_at: datetime
     updated_at: datetime
     last_login_at: datetime | None = None
+
+    # --- Email tokens ---
+    email_verification_token: str | None = None
+    email_verification_sent_at: datetime | None = None
+    password_reset_token: str | None = None
+    password_reset_expires_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

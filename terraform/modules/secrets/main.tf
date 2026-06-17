@@ -77,6 +77,18 @@ locals {
   vk_client_secret      = try(local.vk.client_secret, "")
 }
 
+# Email (SMTP) — only the password is a secret; the rest goes into .env.static
+variable "email_smtp_user" {
+  type        = string
+  sensitive   = true
+  description = "SMTP login (e.g. leap.platform@yandex.ru)"
+}
+variable "email_smtp_password" {
+  type        = string
+  sensitive   = true
+  description = "SMTP password (app password, not the mailbox password)"
+}
+
 # AI providers
 variable "assemblyai_api_key" {
   type      = string
@@ -267,6 +279,16 @@ resource "yandex_lockbox_secret_version" "v1" {
     text_value = jsonencode({
       api_key = var.deepseek_api_key
     })
+  }
+
+  # Email SMTP credentials — appended last to avoid shifting existing entries
+  entries {
+    key        = "EMAIL_SMTP_USER"
+    text_value = var.email_smtp_user
+  }
+  entries {
+    key        = "EMAIL_SMTP_PASSWORD"
+    text_value = var.email_smtp_password
   }
 }
 

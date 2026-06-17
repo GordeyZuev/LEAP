@@ -28,6 +28,23 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RegisterResponse(BaseModel):
+    """Response returned after successful registration.
+
+    Always signals that email verification is required before login.
+    """
+
+    user: UserResponse
+    message: str = Field(
+        default="Registration successful. Please check your email and click the verification link to activate your account.",
+        description="Human-readable instruction shown to the user",
+    )
+    email_verification_required: bool = Field(
+        default=True,
+        description="Always True — the frontend must show the 'check your email' screen",
+    )
+
+
 class UserMeResponse(BaseModel):
     """Response with basic information about current user."""
 

@@ -32,6 +32,7 @@ These are unavoidable because they involve external accounts.
 | **Yandex OAuth client** | oauth.yandex.com/client/new → client_id + secret | ~5 min |
 | **AssemblyAI** | assemblyai.com/app/account | ~3 min |
 | **DeepSeek** | platform.deepseek.com/api_keys | ~3 min |
+| **Yandex Mail app-password** | mail.yandex.ru → Settings → Security → App passwords → Create (используй отдельный ящик `leap.platform@yandex.ru`) | ~3 min |
 
 Save the OAuth credentials into `backend/config/oauth_*.json` and AI keys
 into `backend/config/{assemblyai,deepseek}_creds.json` — those files are
@@ -101,6 +102,10 @@ oauth_yadisk_json  = file("../backend/config/oauth_yandex_disk.json")
 
 assemblyai_api_key = jsondecode(file("../backend/config/assemblyai_creds.json")).api_key
 deepseek_api_key   = jsondecode(file("../backend/config/deepseek_creds.json")).api_key
+
+# Email — SMTP app-password (Yandex: mail.yandex.ru → Security → App passwords)
+email_smtp_user     = "leap.platform@yandex.ru"
+email_smtp_password = "<app-password>"
 ```
 
 Defaults for everything else (VM size, region, DNS zone) are sensible.
@@ -183,7 +188,7 @@ Three layers, merged into `/opt/leap/.env` on the VM:
 | Layer | Source | Examples | When to update |
 |---|---|---|---|
 | **Static** | `terraform/cloud-init.yaml.tftpl` `.env.static` block | `DATABASE_HOST=postgres`, `STORAGE_S3_REGION=ru-central1`, `OAUTH_BASE_URL=https://…/api`, `IMAGE_TAG=latest` | Edit the template + `terraform apply` |
-| **Lockbox secrets** | `yandex_lockbox_secret_version` in `terraform/modules/secrets/main.tf` | `DB_PASSWORD`, `SECURITY_JWT_SECRET_KEY`, `SECURITY_ENCRYPTION_KEY`, `STORAGE_S3_ACCESS_KEY_ID`, `OAUTH_*_CLIENT_ID/SECRET`, `GRAFANA_PASSWORD` | Edit Terraform vars + `terraform apply`, OR rotate via `yc lockbox secret add-version` |
+| **Lockbox secrets** | `yandex_lockbox_secret_version` in `terraform/modules/secrets/main.tf` | `DB_PASSWORD`, `SECURITY_JWT_SECRET_KEY`, `SECURITY_ENCRYPTION_KEY`, `STORAGE_S3_ACCESS_KEY_ID`, `OAUTH_*_CLIENT_ID/SECRET`, `GRAFANA_PASSWORD`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD` | Edit Terraform vars + `terraform apply`, OR rotate via `yc lockbox secret add-version` |
 | **Config files** | `FILE__<name>.json` entries in Lockbox → materialized to `backend/config/` on the VM by `refresh-env.sh` | `backend/config/oauth_zoom.json`, `assemblyai_creds.json`, `deepseek_creds.json`, etc. | Edit local file → `terraform apply` (re-uploads to Lockbox) |
 
 To inspect / change without re-running Terraform:

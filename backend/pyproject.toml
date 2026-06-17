@@ -67,6 +67,7 @@ dependencies = [
     # Observability: Prometheus instrumentation for FastAPI (RED metrics
     # exposed at /metrics, scraped by the prometheus container).
     "prometheus-fastapi-instrumentator>=7.0.0",
+    "aiosmtplib>=5.1.1",
 ]
 
 [tool.uv]

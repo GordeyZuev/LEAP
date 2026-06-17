@@ -36,7 +36,7 @@
       "description": "Total audio/video minutes transcribed in the last 24 hours (sum of final_duration after TRANSCRIBE completed).",
       "gridPos": {"x": 10, "y": 1, "w": 5, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT ROUND(COALESCE(SUM(q.minutes), 0), 1) AS value FROM (SELECT DISTINCT ON (st.recording_id) (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND st.completed_at > NOW() - INTERVAL '24 hours' AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, st.completed_at DESC) q;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT ROUND(COALESCE(SUM(q.minutes), 0)::numeric, 1) AS value FROM (SELECT DISTINCT ON (st.recording_id) (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND st.completed_at > NOW() - INTERVAL '24 hours' AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, st.completed_at DESC) q;"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "none", "decimals": 1, "custom": {"suffix": " min"}, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]}}}
     },
@@ -78,7 +78,7 @@
       "description": "Minutes of content transcribed per day (final_duration after TRANSCRIBE completed).",
       "gridPos": {"x": 8, "y": 6, "w": 8, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT sub.day AS time, ROUND(SUM(sub.minutes), 1) AS value FROM (SELECT DISTINCT ON (st.recording_id, date_trunc('day', st.completed_at)) date_trunc('day', st.completed_at) AS day, (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND $__timeFilter(st.completed_at) AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, date_trunc('day', st.completed_at), st.completed_at DESC) sub GROUP BY sub.day ORDER BY sub.day;"}],
+      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT sub.day AS time, ROUND(SUM(sub.minutes)::numeric, 1) AS value FROM (SELECT DISTINCT ON (st.recording_id, date_trunc('day', st.completed_at)) date_trunc('day', st.completed_at) AS day, (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND $__timeFilter(st.completed_at) AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, date_trunc('day', st.completed_at), st.completed_at DESC) sub GROUP BY sub.day ORDER BY sub.day;"}],
       "fieldConfig": {"defaults": {"unit": "none", "decimals": 1, "custom": {"suffix": " min", "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "barAlignment": 0}}},
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
     },
@@ -112,7 +112,7 @@
       "description": "Percentage of output targets that reached UPLOADED status.",
       "gridPos": {"x": 12, "y": 15, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT target_type::text AS platform, ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'UPLOADED') / NULLIF(COUNT(*), 0), 1) AS success_pct FROM output_targets WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 2 DESC;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT target_type::text AS platform, ROUND((100.0 * COUNT(*) FILTER (WHERE status = 'UPLOADED') / NULLIF(COUNT(*), 0))::numeric, 1) AS success_pct FROM output_targets WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 2 DESC;"}],
       "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 85}, {"color": "green", "value": 95}]}}},
       "options": {"orientation": "horizontal", "xField": "platform", "showValue": "always", "legend": {"displayMode": "hidden"}}
     },
@@ -124,7 +124,7 @@
       "description": "Active recordings that have not progressed for more than two hours (excludes paused).",
       "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT id, user_id, status, ROUND(EXTRACT(EPOCH FROM NOW() - updated_at) / 3600, 1) AS hours_stuck, display_name FROM recordings WHERE status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') AND NOT failed AND NOT deleted AND NOT on_pause AND updated_at < NOW() - INTERVAL '2 hours' ORDER BY hours_stuck DESC LIMIT 20;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT id, user_id, status, ROUND((EXTRACT(EPOCH FROM NOW() - updated_at) / 3600)::numeric, 1) AS hours_stuck, display_name FROM recordings WHERE status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') AND NOT failed AND NOT deleted AND NOT on_pause AND updated_at < NOW() - INTERVAL '2 hours' ORDER BY hours_stuck DESC LIMIT 20;"}],
       "fieldConfig": {"defaults": {}, "overrides": [
         {"matcher": {"id": "byName", "options": "hours_stuck"}, "properties": [{"id": "unit", "value": "h"}, {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 12}]}}]}
       ]}

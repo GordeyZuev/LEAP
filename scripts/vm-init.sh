@@ -143,6 +143,15 @@ SERVER_CORS_ORIGINS=["https://${DOMAIN}"]
 # split frontend and API across different sites.
 SECURITY_COOKIE_SECURE=true
 SECURITY_COOKIE_SAMESITE=lax
+# ---------------------------- Email (non-secret SMTP config)
+# Credentials (EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD) come from Lockbox.
+EMAIL_ENABLED=true
+EMAIL_SMTP_HOST=smtp.yandex.ru
+EMAIL_SMTP_PORT=587
+EMAIL_SMTP_USE_TLS=true
+EMAIL_FROM_NAME=LEAP Platform
+EMAIL_FROM_EMAIL=leap.platform@yandex.ru
+EMAIL_BASE_URL=https://${DOMAIN:?}
 # ---------------------------- Bootstrap (needed by refresh-env.sh on deploys)
 LOCKBOX_SECRET_ID=${LOCKBOX_SECRET_ID:?}
 # ---------------------------- Logging

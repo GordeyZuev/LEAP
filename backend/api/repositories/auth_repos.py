@@ -67,6 +67,22 @@ class UserRepository:
         await self.session.refresh(db_user)
         return UserInDB.model_validate(db_user)
 
+    async def get_by_reset_token(self, token: str) -> UserInDB | None:
+        """Get user by active password-reset token."""
+        result = await self.session.execute(select(UserModel).where(UserModel.password_reset_token == token))
+        db_user = result.scalars().first()
+        if not db_user:
+            return None
+        return UserInDB.model_validate(db_user)
+
+    async def get_by_verification_token(self, token: str) -> UserInDB | None:
+        """Get user by email-verification token."""
+        result = await self.session.execute(select(UserModel).where(UserModel.email_verification_token == token))
+        db_user = result.scalars().first()
+        if not db_user:
+            return None
+        return UserInDB.model_validate(db_user)
+
     async def bump_token_version(self, user_id: str) -> int | None:
         """Atomically increment ``token_version`` and return the new value.
 

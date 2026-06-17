@@ -5,8 +5,60 @@
 ## v0.10.4.1 (2026-06-14)
 
 Релиз: миграция ASR с Fireworks на AssemblyAI; UI — прогресс-бары и оптимизация polling.
+Email: верификация аккаунта при регистрации и восстановление пароля.
 
-**Alembic migration 026** (`download_started_at`) — apply before or with this deploy.
+**Alembic migrations 026, 028, 029** — apply before or with this deploy.
+
+---
+
+## 2026-06-17: Email — верификация аккаунта и восстановление пароля
+
+- **Верификация email при регистрации** — новый аккаунт блокируется до перехода по ссылке из письма.
+  Страница `/verify-email-sent` показывает инструкцию + кнопку повторной отправки (cooldown 60 сек, хранится в БД).
+  Переход по ссылке `/verify-email?token=…` подтверждает адрес и редиректит на логин.
+- **Восстановление пароля** — `/forgot-password` (всегда 200, anti-enumeration) → письмо с одноразовой ссылкой (TTL 1 ч) → `/reset-password?token=…` → инвалидация всех сессий пользователя.
+- **Блокировка незарегистрированного входа** — логин возвращает 403 «Email not verified», фронтенд перенаправляет на `/verify-email-sent`.
+- **EmailService** — aiosmtplib + Jinja2, STARTTLS, singleton в `dependencies.py`. При `EMAIL_ENABLED=false` письма только логируются — безопасно для dev.
+- **Письма** — inline-SVG логотип (идентичен UI), кнопки цвета `#224C87`, минималистичный текст без эмодзи.
+- **SMTP-креды в Lockbox** — `EMAIL_SMTP_USER` / `EMAIL_SMTP_PASSWORD` хранятся в Lockbox, задаются через `terraform.tfvars`, не требуют ручных действий при деплое.
+- **Backfill** — миграция 029 ставит `is_verified=true` всем существующим пользователям (field существовал с rev 001, но не проверялся).
+
+**Alembic migrations:**
+- `028` — добавляет `email_verification_token`, `email_verification_sent_at`, `password_reset_token`, `password_reset_expires_at` в таблицу `users`
+- `029` — backfill `is_verified=true` для всех существующих записей (один раз, downgrade — no-op)
+
+**Deploy:**
+1. `terraform apply` (добавляет `EMAIL_SMTP_USER` / `EMAIL_SMTP_PASSWORD` в Lockbox)
+2. `refresh-env.sh` на VM (подтягивает новые ключи в `.env`)
+3. `docker compose run --rm migrate` (028 + 029)
+4. Перезапуск `api`, `celery_worker` — или просто `git push` (CI делает всё автоматически)
+
+### Файлы
+
+- `backend/alembic/versions/028_add_email_token_fields.py`
+- `backend/alembic/versions/029_backfill_is_verified.py`
+- `backend/database/auth_models.py`
+- `backend/config/settings.py` — `EmailSettings`
+- `backend/api/services/email_service.py`
+- `backend/api/dependencies.py`
+- `backend/api/routers/auth.py` — register, login, forgot-password, reset-password, verify-email, resend-verification
+- `backend/api/schemas/auth/`
+- `backend/api/repositories/auth_repos.py`
+- `backend/templates/email/` — base.html, password_reset.html, email_verification.html
+- `backend/.env.example`
+- `terraform/modules/secrets/main.tf`
+- `terraform/variables.tf`
+- `terraform/main.tf`
+- `terraform/terraform.tfvars`
+- `scripts/vm-init.sh`
+- `frontend/src/app/(auth)/verify-email-sent/page.tsx`
+- `frontend/src/app/(auth)/verify-email/page.tsx`
+- `frontend/src/app/(auth)/forgot-password/page.tsx`
+- `frontend/src/app/(auth)/reset-password/page.tsx`
+- `frontend/src/app/(auth)/register/page.tsx`
+- `frontend/src/app/(auth)/login/page.tsx`
+
+---
 
 ---
 

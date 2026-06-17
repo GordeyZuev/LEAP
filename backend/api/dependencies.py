@@ -9,6 +9,7 @@ import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from api.services.email_service import EmailService
 from config.settings import get_settings
 
 settings = get_settings()
@@ -79,3 +80,14 @@ async def get_redis() -> redis.Redis:
             decode_responses=True,
         )
     return _redis_client
+
+
+_email_service: EmailService | None = None
+
+
+def get_email_service() -> EmailService:
+    """Get EmailService singleton (lazy-init, thread-safe at module load)."""
+    global _email_service
+    if _email_service is None:
+        _email_service = EmailService(settings.email)
+    return _email_service

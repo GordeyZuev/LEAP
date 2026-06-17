@@ -129,6 +129,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aiosmtplib"
+version = "5.1.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/ba/34f2fef90d13e21ae3f1b360da98d825c40832bb232613513be92457ff65/aiosmtplib-5.1.1.tar.gz", hash = "sha256:d9a35e9d170bc1a9f66e2fdfe7fd212f7eebb8c1581c621f79395d0bcaba7a68", size = 68123, upload-time = "2026-05-31T17:25:36.298Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/97/d1030d897e96c79cf0682ff93c11a2118085b3af4c27993675eda9e55da3/aiosmtplib-5.1.1-py3-none-any.whl", hash = "sha256:9d384f0c3d8906f745c1cf6819f073145bb2de8b10407905f5e2ee3389bfe6c7", size = 27937, upload-time = "2026-05-31T17:25:35.283Z" },
+]
+
+[[package]]
 name = "alembic"
 version = "1.18.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1242,6 +1251,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "aioboto3" },
     { name = "aiofiles" },
+    { name = "aiosmtplib" },
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "bcrypt" },
@@ -1299,6 +1309,7 @@ dev = [
 requires-dist = [
     { name = "aioboto3", specifier = ">=13.0.0" },
     { name = "aiofiles", specifier = ">=25.1.0" },
+    { name = "aiosmtplib", specifier = ">=5.1.1" },
     { name = "alembic", specifier = ">=1.13.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "bcrypt", specifier = ">=5.0.0" },

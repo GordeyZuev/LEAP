@@ -10,11 +10,14 @@ from .credential import (
 from .operations import LogoutAllResponse, LogoutResponse
 from .request import (
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     LoginRequest,
     RefreshTokenRequest,
     RegisterRequest,
+    ResetPasswordRequest,
+    VerifyEmailRequest,
 )
-from .response import TokenResponse, UserMeResponse
+from .response import RegisterResponse, TokenResponse, UserMeResponse
 from .subscription import (
     QuotaStatusResponse,
     QuotaUsageCreate,
@@ -43,38 +46,33 @@ from .user import UserBase, UserCreate, UserInDB, UserResponse, UserUpdate
 
 __all__ = [
     "ChangePasswordRequest",
+    "ForgotPasswordRequest",
     "LoginRequest",
     "LogoutAllResponse",
-    # Operations
     "LogoutResponse",
     "QuotaStatusResponse",
-    # Quota Usage
     "QuotaUsageCreate",
     "QuotaUsageInDB",
     "QuotaUsageResponse",
     "QuotaUsageUpdate",
-    # Token
     "RefreshTokenBase",
     "RefreshTokenCreate",
     "RefreshTokenInDB",
     "RefreshTokenRequest",
-    # Requests
     "RegisterRequest",
+    "RegisterResponse",
+    "ResetPasswordRequest",
     "SessionInfo",
     "SessionListResponse",
-    # Subscription Plans
     "SessionResponse",
     "SubscriptionPlanCreate",
     "SubscriptionPlanInDB",
     "SubscriptionPlanResponse",
     "SubscriptionPlanUpdate",
     "TokenPair",
-    # Responses
     "TokenResponse",
-    # User
     "UserBase",
     "UserCreate",
-    # Credential
     "UserCredentialBase",
     "UserCredentialCreate",
     "UserCredentialInDB",
@@ -83,10 +81,10 @@ __all__ = [
     "UserInDB",
     "UserMeResponse",
     "UserResponse",
-    # User Subscriptions
     "UserSubscriptionCreate",
     "UserSubscriptionInDB",
     "UserSubscriptionResponse",
     "UserSubscriptionUpdate",
     "UserUpdate",
+    "VerifyEmailRequest",
 ]

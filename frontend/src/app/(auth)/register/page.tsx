@@ -56,12 +56,9 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await apiClient.post("/auth/register", form);
-      // Server sets session cookies on the login response.
-      await apiClient.post("/auth/login", {
-        email: form.email,
-        password: form.password,
-      });
-      router.push("/recordings");
+      // Verification email is sent by the server — redirect to the
+      // "check your inbox" screen instead of logging in directly.
+      router.push(`/verify-email-sent?email=${encodeURIComponent(form.email)}`);
     } catch (err: unknown) {
       setError(extractApiError(err, "Registration failed"));
     } finally {

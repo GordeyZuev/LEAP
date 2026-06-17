@@ -756,6 +756,31 @@ class DeepSeekSettings(BaseSettings):
 
 
 # ============================================================================
+# EMAIL / SMTP
+# ============================================================================
+
+
+class EmailSettings(BaseSettings):
+    """SMTP email settings for transactional mail (verification, password reset)."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="EMAIL_",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    enabled: bool = Field(default=False, description="Set True to actually send emails via SMTP")
+    smtp_host: str = Field(default="smtp.gmail.com", description="SMTP server hostname")
+    smtp_port: int = Field(default=587, ge=1, le=65535, description="SMTP port (587=STARTTLS, 465=SSL)")
+    smtp_user: str = Field(default="", description="SMTP login username")
+    smtp_password: str = Field(default="", description="SMTP login password")
+    smtp_use_tls: bool = Field(default=True, description="Use STARTTLS (port 587). False = plain/SSL.")
+    from_name: str = Field(default="LEAP Platform", description="Sender display name")
+    from_email: str = Field(default="", description="Sender email address")
+    base_url: str = Field(default="http://localhost:3000", description="Frontend base URL for email links")
+
+
+# ============================================================================
 # MAIN SETTINGS
 # ============================================================================
 
@@ -788,6 +813,7 @@ class Settings(BaseSettings):
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     assemblyai: AssemblyAISettings = Field(default_factory=AssemblyAISettings)
     deepseek: DeepSeekSettings = Field(default_factory=DeepSeekSettings)
+    email: EmailSettings = Field(default_factory=EmailSettings)
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
