@@ -49,9 +49,11 @@ async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> No
         task_name = f"automation_job_{job.id}"
         args_json = json.dumps([job.id, job.user_id])
 
+        # last_run_at='1970-01-01': scheduler sees any cron occurrence as due on
+        # first beat cycle. NULL causes the first fire to be silently skipped.
         upsert_task = text("""
-            INSERT INTO celery_periodic_task (name, task, crontab_id, args, enabled)
-            VALUES (:name, :task, :crontab_id, :args, :enabled)
+            INSERT INTO celery_periodic_task (name, task, crontab_id, args, enabled, last_run_at)
+            VALUES (:name, :task, :crontab_id, :args, :enabled, '1970-01-01')
             ON CONFLICT (name) DO UPDATE
             SET crontab_id = EXCLUDED.crontab_id,
                 enabled = EXCLUDED.enabled,

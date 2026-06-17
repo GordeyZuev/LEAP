@@ -144,4 +144,3 @@ terraform/terraform.rc
 nginx/nginx.conf
 backend/docs/dev_notes/README.md
 backend/docs/dev_notes/ASR_PROVIDER_COMPARISON.md
-backend/docs/dev_notes/README.md

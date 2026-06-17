@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
     ffmpeg \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
