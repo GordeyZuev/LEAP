@@ -7,9 +7,7 @@ project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-# Shim: celery-sqlalchemy-scheduler 0.3.0 reads tz.zone (pytz-only attr);
-# Celery 5.x uses zoneinfo.ZoneInfo which has tz.key. Patch from_schedule
-# to be tz-agnostic — otherwise beat_schedule entries fail to register.
+# celery-sqlalchemy-scheduler 0.3.0 compatibility shims for Celery 5.x / SQLAlchemy 2.x.
 import time  # noqa: E402
 
 import celery_sqlalchemy_scheduler.models as _csm_models  # noqa: E402
@@ -32,9 +30,7 @@ def _tz_name(tz) -> str:
 
 @classmethod  # type: ignore[misc]
 def _patched_crontab_from_schedule(cls, session, schedule):
-    # str() cast: celery 5.6+ keeps _orig_* as int when crontab(hour=3, minute=0)
-    # is called with int literals; DB columns are VARCHAR so the implicit
-    # `WHERE minute = 0` raises "operator does not exist: varchar = integer".
+    # _orig_* are int in Celery 5.6+; DB columns are VARCHAR — cast to str.
     spec = {
         "minute": str(schedule._orig_minute),
         "hour": str(schedule._orig_hour),
@@ -55,17 +51,21 @@ def _patched_crontab_from_schedule(cls, session, schedule):
 _csm_models.CrontabSchedule.from_schedule = _patched_crontab_from_schedule
 
 
-# Shim 2: celery-sqlalchemy-scheduler 0.3.0 uses pre-SQLAlchemy-2.0 syntax in
-# PeriodicTaskChanged — `select([Model])` (list arg) and `Query.get()` — both
-# rejected by SQLAlchemy 2.x. We replace the two offending classmethods with
-# 2.x-style equivalents.
 import datetime as _dt  # noqa: E402
 
-from sqlalchemy import insert as _sa_insert, select as _sa_select, update as _sa_update  # noqa: E402
+from sqlalchemy import (  # noqa: E402
+    event as _sa_event,
+    insert as _sa_insert,
+    select as _sa_select,
+    update as _sa_update,
+)
+
+# Capture originals before patching — event.remove() needs the original references.
+_orig_update_changed = _csm_models.PeriodicTaskChanged.update_changed
+_orig_changed = _csm_models.PeriodicTaskChanged.changed
 
 
-@classmethod  # type: ignore[misc]
-def _patched_update_changed(_cls, _mapper, connection, _target):
+def _update_changed_impl(connection) -> None:
     stmt = _sa_select(_csm_models.PeriodicTaskChanged).where(_csm_models.PeriodicTaskChanged.id == 1).limit(1)
     row = connection.execute(stmt).first()
     now = _dt.datetime.now()
@@ -79,6 +79,20 @@ def _patched_update_changed(_cls, _mapper, connection, _target):
         )
 
 
+def _event_update_changed(_mapper, connection, _target) -> None:
+    _update_changed_impl(connection)
+
+
+def _event_changed(_mapper, connection, target) -> None:
+    if not target.no_changes:
+        _update_changed_impl(connection)
+
+
+@classmethod  # type: ignore[misc]
+def _patched_update_changed(_cls, _mapper, connection, _target) -> None:
+    _update_changed_impl(connection)
+
+
 @classmethod  # type: ignore[misc]
 def _patched_last_change(_cls, session):
     row = session.get(_csm_models.PeriodicTaskChanged, 1)
@@ -87,6 +101,31 @@ def _patched_last_change(_cls, session):
 
 _csm_models.PeriodicTaskChanged.update_changed = _patched_update_changed
 _csm_models.PeriodicTaskChanged.last_change = _patched_last_change
+
+# models.py registers listeners at import time with direct function references,
+# so class-attribute replacement alone doesn't affect them — re-register explicitly.
+# PeriodicTask.after_update uses `changed`; all others use `update_changed`.
+_scheduler_models = [
+    _csm_models.PeriodicTask,
+    _csm_models.IntervalSchedule,
+    _csm_models.CrontabSchedule,
+    _csm_models.SolarSchedule,
+]
+for _m in _scheduler_models:
+    for _ev in ("after_insert", "after_delete"):
+        try:
+            _sa_event.remove(_m, _ev, _orig_update_changed)
+        except Exception:  # noqa: S110
+            pass
+        _sa_event.listen(_m, _ev, _event_update_changed)
+
+    _orig_after_update = _orig_changed if _m is _csm_models.PeriodicTask else _orig_update_changed
+    _new_after_update = _event_changed if _m is _csm_models.PeriodicTask else _event_update_changed
+    try:
+        _sa_event.remove(_m, "after_update", _orig_after_update)
+    except Exception:  # noqa: S110
+        pass
+    _sa_event.listen(_m, "after_update", _new_after_update)
 
 
 from contextlib import ExitStack  # noqa: E402
@@ -128,24 +167,13 @@ celery_app.conf.update(
     task_acks_late=settings.celery.task_acks_late,
     task_reject_on_worker_lost=settings.celery.task_reject_on_worker_lost,
     result_expires=settings.celery.result_expires,
-    beat_dburi=database_url,  # Database URI for celery-sqlalchemy-scheduler
+    beat_dburi=database_url,
 )
 
-# Task routing: Separate by execution requirements
-# Queues:
-#   downloads      – network-bound download tasks (dedicated threads worker)
-#   uploads        – network-bound upload tasks   (dedicated threads worker)
-#   async_operations – fast I/O processing tasks  (threads worker)
-#   processing_cpu – CPU-intensive FFmpeg tasks    (prefork worker)
-#   maintenance    – periodic cleanup              (prefork worker)
 celery_app.conf.task_routes = {
-    # CPU-bound: Video trimming (prefork pool, low concurrency)
     "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
-    # Network-bound downloads: isolated to prevent bandwidth starvation
     "api.tasks.processing.download_recording": {"queue": "downloads"},
-    # Network-bound uploads: isolated so they don't block processing
     "api.tasks.upload.*": {"queue": "uploads"},
-    # I/O-bound processing: transcription, topics, subtitles, orchestration
     "api.tasks.processing.transcribe_recording": {"queue": "async_operations"},
     "api.tasks.processing.extract_topics": {"queue": "async_operations"},
     "api.tasks.processing.generate_subtitles": {"queue": "async_operations"},
@@ -157,64 +185,45 @@ celery_app.conf.task_routes = {
     "maintenance.*": {"queue": "maintenance"},
 }
 
-# Celery Beat schedule for periodic tasks
 from celery.schedules import crontab  # noqa: E402
 
 celery_app.conf.beat_schedule = {
     "cleanup-expired-tokens": {
         "task": "maintenance.cleanup_expired_tokens",
-        "schedule": crontab(hour=3, minute=0),  # Every day at 3:00 UTC
+        "schedule": crontab(hour=3, minute=0),
     },
     "auto-expire-recordings": {
         "task": "maintenance.auto_expire_recordings",
-        "schedule": crontab(hour=3, minute=30),  # Every day at 3:30 UTC (after tokens)
+        "schedule": crontab(hour=3, minute=30),
     },
     "cleanup-recording-files": {
         "task": "maintenance.cleanup_recording_files",
-        "schedule": crontab(hour=4, minute=0),  # Every day at 4:00 UTC (Level 1)
+        "schedule": crontab(hour=4, minute=0),
     },
     "hard-delete-recordings": {
         "task": "maintenance.hard_delete_recordings",
-        "schedule": crontab(hour=5, minute=0),  # Every day at 5:00 UTC (Level 2)
+        "schedule": crontab(hour=5, minute=0),
     },
     "cleanup-temp-files": {
-        # Safety net for FFmpeg/ASR temp files orphaned by hard kills (OOM/SIGKILL).
-        # Pipeline tasks already clean up in finally blocks; this is belt-and-braces.
         "task": "maintenance.cleanup_temp_files",
-        "schedule": crontab(minute=15),  # Hourly at :15
+        "schedule": crontab(minute=15),
     },
     "reset-stale-active-recordings": {
-        # Clears on_air=True recordings whose pipeline_started_at is older than 2h.
-        # Protects against worker crashes that leave on_air stuck forever.
         "task": "maintenance.reset_stale_active_recordings",
-        "schedule": crontab(minute="*/30"),  # Every 30 minutes
+        "schedule": crontab(minute="*/30"),
     },
 }
 
 
-# ---------------------------------------------------------------------------
-# Loguru re-initialization after Celery daemonization
-# ---------------------------------------------------------------------------
-# When celery runs with --detach, it forks and closes all file descriptors.
-# Loguru handlers created at import time (before fork) become invalid.
-# These signals fire AFTER daemonization, so new handlers get fresh FDs.
-
-
+# Loguru handlers created before Celery forks become invalid after daemonization.
 @after_setup_logger.connect
 def _reinit_loguru_after_celery(**_kwargs):
-    """Re-create loguru handlers after Celery daemonizes (main worker process)."""
     setup_logger()
 
 
 @worker_process_init.connect
 def _reinit_loguru_in_child(**_kwargs):
-    """Re-create loguru handlers in each prefork child process."""
     setup_logger()
-
-
-# ---------------------------------------------------------------------------
-# Task signals — structured lifecycle events for Loki / Grafana
-# ---------------------------------------------------------------------------
 
 
 def _task_queue(task) -> str:
@@ -226,20 +235,11 @@ def _short_name(name: str | None) -> str:
     return name.rsplit(".", 1)[-1] if name else "unknown"
 
 
-# Per-process map of task_id → (start time, contextualize stack); cleared on
-# postrun. The ExitStack holds the loguru contextualize CM so every log
-# emitted *inside* the task body inherits task_id/recording_id/user_id without
-# the task code having to bind them manually.
+# task_id → (start_time, loguru contextualize stack); cleared on postrun.
 _TASK_STATE: dict[str, tuple[float, ExitStack]] = {}
 
 
 def _extract_known_context(task) -> dict[str, object]:
-    """Pull recording_id / user_id from a task's args or kwargs.
-
-    Convention across LEAP tasks: ``recording_id`` and ``user_id`` are always
-    the first two positional arguments (after ``self`` for bound tasks).
-    Kwargs override positional matches.
-    """
     kwargs = getattr(task.request, "kwargs", None) or {}
     args = getattr(task.request, "args", None) or []
 
@@ -286,8 +286,6 @@ def task_postrun_handler(task_id, task, *, state, **_kwargs):
     entry = _TASK_STATE.pop(task_id, None)
     started, stack = entry if entry is not None else (None, None)
     duration_ms = round((time.perf_counter() - started) * 1000, 2) if started is not None else None
-    # FAILURE is logged at ERROR by task_failure; keep postrun at INFO so
-    # dashboards don't double-count failures.
     level = "INFO" if state == "SUCCESS" else "WARNING"
     logger.bind(task_state=state, duration_ms=duration_ms).log(
         level,
@@ -336,11 +334,6 @@ def task_retry_handler(request, reason, *, sender, **_kwargs):
     )
 
 
-# ---------------------------------------------------------------------------
-# Queue age tracking — sorted-set of enqueue timestamps per queue, exposed as
-# `leap_queue_oldest_task_age_seconds` by a lazy collector in
-# api.observability.metrics. ZADD on publish, ZREM on prerun.
-# ---------------------------------------------------------------------------
 import redis  # noqa: E402
 
 from api.observability.metrics import ENQUEUE_KEY_PREFIX  # noqa: E402
