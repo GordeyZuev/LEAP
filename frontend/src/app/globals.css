@@ -64,6 +64,25 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Plyr player brand overrides */
+.plyr {
+  --plyr-color-main: #224c87;
+  --plyr-video-background: #000;
+  --plyr-font-family: inherit;
+  --plyr-font-size-base: 13px;
+  --plyr-border-radius: 8px;
+  --plyr-control-spacing: 10px;
+  --plyr-range-thumb-height: 14px;
+  --plyr-range-track-height: 4px;
+}
+.plyr--video {
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.plyr--video .plyr__controls {
+  border-radius: 0 0 0.75rem 0.75rem;
+}
+
 select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");

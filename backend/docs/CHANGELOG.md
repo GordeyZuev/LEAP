@@ -2,6 +2,39 @@
 
 ---
 
+## v0.10.4.2 (2026-06-22)
+
+UI: улучшенный видеоплеер (Plyr), главы прямо в карточке видео, компактные артефакты-чипы, description.txt.
+
+---
+
+## 2026-06-22: Улучшения страницы recording/{id} — плеер, главы, артефакты
+
+- **Plyr видеоплеер** — нативный `<video controls>` заменён на Plyr 3.x: единый UI во всех браузерах, встроенный speed control в меню ⚙, субтитры (CC кнопка), keyboard shortcuts (Space, F, стрелки), brand-цвет `#224C87` через CSS-переменные.
+- **Маркеры глав на таймлайне** — из `topic_timestamps` генерируется WebVTT chapters blob на клиенте; Plyr показывает маркеры и названия глав при наведении.
+- **Панель глав в карточке видео** — кнопка «Главы (N) ▼» в заголовке открывает список прямо под плеером; активная глава подсвечивается и авто-скроллится при воспроизведении; вверху показываются `main_topics` (темы из DeepSeek) чипами.
+- **Удалена карточка «Темы и таймкоды»** — содержимое перенесено в панель глав рядом с плеером.
+- **Артефакты — компактные чипы** — раздел «Файлы и артефакты» теперь `flex flex-wrap` из мелких chip-кнопок вместо высоких строк.
+- **Description TXT** — новый тип `description_txt` в `GET /recordings/{id}/files/{type}`: рендерит title+description по шаблону через `compute_metadata_preview()` и отдаёт как `.txt` файл.
+- **Источник в сайдбаре «Инфо»** — добавлена строка `Источник` (source_type).
+- **Split Run-кнопка** — `[▶ Запустить | ⚙]` с разделителем; левая запускает пайплайн, правая открывает RunConfigModal.
+
+### Backend
+
+- `backend/api/routers/recordings.py` — добавлен `file_type = "description_txt"` (и `"transcript_words"`) в endpoint `GET /recordings/{id}/files/{type}`.
+
+### Frontend
+
+- `frontend/src/components/ui/video-player.tsx` — новый компонент (Plyr wrapper, forwardRef, chapters/subtitles tracks, onTimeUpdate callback, стабильный merge-ref паттерн).
+- `frontend/src/app/globals.css` — Plyr CSS-переменные.
+- `frontend/src/app/(app)/recordings/[id]/page.tsx` — все изменения UI выше.
+
+### Deploy
+
+Нет миграций. `pnpm add plyr` (уже в `package.json`). Пересборка фронтенда.
+
+---
+
 ## v0.10.4.1 (2026-06-14)
 
 Релиз: миграция ASR с Fireworks на AssemblyAI; UI — прогресс-бары и оптимизация polling.

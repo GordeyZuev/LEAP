@@ -359,7 +359,7 @@ async def get_recording_media(
 @router.get("/{recording_id}/files/{file_type}")
 async def download_recording_artifact(
     recording_id: int,
-    file_type: Literal["srt", "vtt", "transcript_json", "transcript_txt", "transcript_words"],
+    file_type: Literal["srt", "vtt", "transcript_json", "transcript_txt", "transcript_words", "description_txt"],
     ctx: ServiceContext = Depends(get_service_context),
 ) -> StreamingResponse:
     """Download subtitles or transcription artifacts (attachments).
@@ -402,10 +402,54 @@ async def download_recording_artifact(
         key = to_storage_key(cache_dir / "segments.txt")
         media_type = "text/plain; charset=utf-8"
         attachment_name = f"{stem}_transcript.txt"
-    else:
+    elif file_type == "transcript_words":
         key = to_storage_key(cache_dir / "words.txt")
         media_type = "text/plain; charset=utf-8"
         attachment_name = f"{stem}_words.txt"
+    else:
+        # description_txt: render title + description from metadata templates
+        from api.helpers.template_renderer import TemplateRenderer, compute_metadata_preview
+        from api.services.config_resolver import ConfigResolver
+        from transcription_module.manager import get_transcription_manager
+
+        config_resolver = ConfigResolver(ctx.session)
+        config_data = await config_resolver.get_base_config_for_edit(recording, ctx.user_id)
+        meta = config_data.get("metadata_config") or {}
+        title_t = meta.get("title_template")
+        desc_t = meta.get("description_template")
+
+        if not title_t and not desc_t:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No metadata template configured for this recording",
+            )
+
+        extracted = None
+        owner = getattr(recording, "owner", None)
+        if owner and getattr(owner, "user_slug", None):
+            try:
+                extracted = await get_transcription_manager().get_active_extracted(recording.id, owner.user_slug)
+            except Exception as exc:
+                logger.debug("Could not load extracted for description_txt: %s", exc)
+
+        render_ctx = TemplateRenderer.prepare_recording_context(recording, extracted_data=extracted)
+        _, _, _, rendered = compute_metadata_preview(
+            title_template=title_t,
+            description_template=desc_t,
+            folder_path_template=None,
+            filename_template=None,
+            context=render_ctx,
+        )
+
+        title = rendered.get("title") or ""
+        description = rendered.get("description") or ""
+        text = f"Заголовок:\n{title}\n\nОписание:\n{description}"
+
+        return StreamingResponse(
+            iter([text.encode("utf-8")]),
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{stem}_description.txt"'},
+        )
 
     storage = get_storage_backend()
     if not await storage.exists(key):
