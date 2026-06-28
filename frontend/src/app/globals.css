@@ -75,6 +75,7 @@ body {
   --plyr-range-thumb-height: 14px;
   --plyr-range-track-height: 4px;
 }
+/* overflow:hidden only here — outer wrapper must stay clip-free or controls get cut */
 .plyr--video {
   border-radius: 0.75rem;
   overflow: hidden;

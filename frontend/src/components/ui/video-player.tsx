@@ -109,7 +109,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
     return (
       <div className="aspect-video w-full">
-        <video ref={setRef} src={src} preload="metadata">
+        <video ref={setRef} src={src} preload="metadata" className="block w-full">
           {vttBlobUrl && <track kind="subtitles" src={vttBlobUrl} label="Субтитры" default />}
         </video>
       </div>

@@ -955,6 +955,12 @@ async def add_video_by_url(
     if data.template_id:
         recording.template_id = data.template_id
         recording.is_mapped = True
+        from api.repositories.template_repos import RecordingTemplateRepository
+
+        template_repo = RecordingTemplateRepository(ctx.session)
+        template = await template_repo.find_by_id(data.template_id, ctx.user_id)
+        if template:
+            await template_repo.increment_usage(template)
 
     await ctx.session.commit()
 
@@ -1180,6 +1186,7 @@ async def bulk_run_recordings(
                 recording.is_mapped = True
                 if recording.status == ProcessingStatus.SKIPPED:
                     recording.status = ProcessingStatus.INITIALIZED
+                await template_repo.increment_usage(template)
 
             # Smart run: determine action by current status
             result = await _execute_smart_run(

@@ -158,6 +158,7 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
                     old_status = recording.status
                     recording.is_mapped = True
                     recording.template_id = template.id
+                    await template_repo.increment_usage(template)
 
                     # Keep PENDING_SOURCE status if source is still processing
                     if old_status != ProcessingStatus.PENDING_SOURCE:

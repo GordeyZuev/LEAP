@@ -18,7 +18,7 @@ const BASE =
 
 const SIZES: Record<NonNullable<ActionButtonProps["size"]>, string> = {
   md: "px-4 py-2 rounded-xl text-sm",
-  sm: "px-3 py-1.5 rounded-lg text-xs",
+  sm: "px-3 py-1.5 rounded-xl text-xs",
 };
 
 const VARIANTS: Record<NonNullable<ActionButtonProps["variant"]>, string> = {

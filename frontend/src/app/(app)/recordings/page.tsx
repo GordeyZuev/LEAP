@@ -18,7 +18,7 @@ import {
   type SetStateAction,
 } from "react";
 import { apiClient } from "@/api/client";
-import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter, Video } from "lucide-react";
+import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter, Video, LayoutGrid, List } from "lucide-react";
 import { cn, extractApiError } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useToast } from "@/hooks/use-toast";
@@ -26,6 +26,7 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { RecordingCard, type RecordingCardData } from "@/components/recordings/recording-card";
+import { RecordingsTable } from "@/components/recordings/recordings-table";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
@@ -157,6 +158,7 @@ interface RecordingsPagedResultsProps {
   onReset: (id: number) => void;
   onDelete: (id: number) => void;
   onRestore: (id: number) => void;
+  onRename: (id: number, name: string) => void;
   bulkRun: UseMutationResult<unknown, unknown, number[], unknown>;
   bulkPause: UseMutationResult<unknown, unknown, number[], unknown>;
   bulkDelete: UseMutationResult<unknown, unknown, number[], unknown>;
@@ -171,6 +173,8 @@ interface RecordingsPagedResultsProps {
   notify: Notify;
   onAddVideo: () => void;
   onResetFilters: () => void;
+  viewMode: "grid" | "table";
+  onViewModeChange: (mode: "grid" | "table") => void;
 }
 
 function RecordingsPagedResults({
@@ -186,6 +190,7 @@ function RecordingsPagedResults({
   onReset,
   onDelete,
   onRestore,
+  onRename,
   bulkRun,
   bulkPause,
   bulkDelete,
@@ -200,8 +205,12 @@ function RecordingsPagedResults({
   notify,
   onAddVideo,
   onResetFilters,
+  viewMode,
+  onViewModeChange,
 }: RecordingsPagedResultsProps) {
   const [pipelineMenuOpen, setPipelineMenuOpen] = useState(false);
+  const selectMode = selected.size > 0;
+
   const pipelineMenuRef = useRef<HTMLDivElement>(null);
   const qcInner = useQueryClient();
 
@@ -289,6 +298,37 @@ function RecordingsPagedResults({
 
   return (
     <>
+      {/* Toolbar: view toggle */}
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => onViewModeChange("grid")}
+          title="Grid view"
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
+            viewMode === "grid"
+              ? "border-[#224C87] bg-[#224C87] text-white"
+              : "border-[#D9D9D9] bg-white text-gray-400 hover:bg-gray-50"
+          )}
+        >
+          <LayoutGrid size={14} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onViewModeChange("table")}
+          title="Table view"
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
+            viewMode === "table"
+              ? "border-[#224C87] bg-[#224C87] text-white"
+              : "border-[#D9D9D9] bg-white text-gray-400 hover:bg-gray-50"
+          )}
+        >
+          <List size={14} />
+        </button>
+      </div>
+
       {selected.size > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#224C87]/20 bg-[#224C87]/5 p-3">
           <label className="mr-2 flex items-center gap-2">
@@ -314,7 +354,7 @@ function RecordingsPagedResults({
               disabled={isBulkLoading}
               className="flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50 disabled:opacity-50"
             >
-              Pipeline
+              Run step…
               <ChevronDown size={12} className={cn("transition-transform", pipelineMenuOpen && "rotate-180")} />
             </button>
             {pipelineMenuOpen && (
@@ -376,7 +416,7 @@ function RecordingsPagedResults({
         </div>
       )}
 
-      {!isLoading && !error && recordings.length > 0 && (
+      {!isLoading && !error && recordings.length > 0 && viewMode === "grid" && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {recordings.map((rec) => (
             <RecordingCard
@@ -384,16 +424,35 @@ function RecordingsPagedResults({
               recording={rec}
               selected={selected.has(rec.id)}
               onToggleSelect={toggleSelect}
+              selectMode={selectMode}
               onRun={onRun}
               onPause={onPause}
               onRunWithConfig={onRunWithConfig}
               onReset={onReset}
               onDelete={onDelete}
               onRestore={onRestore}
+              onRename={onRename}
               loadingId={loadingRecordingId}
             />
           ))}
         </div>
+      )}
+
+      {!isLoading && !error && recordings.length > 0 && viewMode === "table" && (
+        <RecordingsTable
+          recordings={recordings}
+          selected={selected}
+          onToggleSelect={toggleSelect}
+          onToggleAll={toggleAll}
+          onRun={onRun}
+          onPause={onPause}
+          onRunWithConfig={onRunWithConfig}
+          onReset={onReset}
+          onDelete={onDelete}
+          onRestore={onRestore}
+          onRename={onRename}
+          loadingId={loadingRecordingId}
+        />
       )}
 
       {data && (
@@ -471,7 +530,7 @@ function AdvancedFiltersSection({ filters, onPatch }: AdvancedFiltersSectionProp
         aria-expanded={sectionOpen}
       >
         <Filter size={16} className="shrink-0 opacity-90" />
-        Scope &amp; visibility
+        More filters
         {count > 0 && (
           <span className="rounded-full bg-[#224C87]/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#224C87]">
             {count}
@@ -583,6 +642,18 @@ function RecordingsContent() {
 
   // --- Export modal ---
   const [exportOpen, setExportOpen] = useState(false);
+
+  // --- View mode (persisted in localStorage) ---
+  const [viewMode, setViewMode] = useState<"grid" | "table">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("recordings-view-mode") as "grid" | "table") ?? "grid";
+    }
+    return "grid";
+  });
+  const handleViewModeChange = useCallback((mode: "grid" | "table") => {
+    setViewMode(mode);
+    localStorage.setItem("recordings-view-mode", mode);
+  }, []);
 
   // Local search input with debounce → syncs to URL
   const [searchInput, setSearchInput] = useState(urlSearch);
@@ -800,6 +871,17 @@ function RecordingsContent() {
     onError: (e) => showToast("error", extractApiError(e, "Failed to restore")),
   });
 
+  const singleRename = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) =>
+      apiClient.patch(`/recordings/${id}`, { display_name: name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to rename")),
+  });
+
+  const handleRename = useCallback((id: number, name: string) => {
+    singleRename.mutate({ id, name });
+  }, [singleRename]);
+
   // --- Card action handlers ---
   function handleRunWithConfig(id: number) {
     // Find the recording name from any cached page data
@@ -929,7 +1011,7 @@ function RecordingsContent() {
             id="recordings-search"
             value={searchInput}
             onChange={setSearchInput}
-            placeholder="By display name…"
+            placeholder="Search recordings…"
           />
         }
         controls={[
@@ -987,6 +1069,7 @@ function RecordingsContent() {
         onReset={handleReset}
         onDelete={handleDelete}
         onRestore={(id) => singleRestore.mutate(id)}
+        onRename={handleRename}
         bulkRun={bulkRun}
         bulkPause={bulkPause}
         bulkDelete={bulkDelete}
@@ -1001,6 +1084,8 @@ function RecordingsContent() {
         notify={showToast}
         onAddVideo={() => setAddModalOpen(true)}
         onResetFilters={resetAllFilters}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
       />
 
       {/* Single reset confirm */}

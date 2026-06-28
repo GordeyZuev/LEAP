@@ -196,14 +196,14 @@ function formatStageDuration(startedAt: string | null, completedAt: string | nul
   const h = Math.floor(secTotal / 3600);
   const m = Math.floor((secTotal % 3600) / 60);
   const s = secTotal % 60;
-  if (h > 0) return `${h}ч ${m}м`;
-  if (m > 0) return `${m}м ${s}с`;
-  return `${s}с`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 function formatStageTime(completedAt: string | null): string {
   if (!completedAt) return "";
-  return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(completedAt));
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(completedAt));
 }
 
 /** Sidebar/detail template line with optional link to /templates/:id (preset row styling). */
@@ -213,7 +213,7 @@ function renderRecordingTemplateNavValue(opts: {
   templateName: string | null;
 }): ReactNode {
   const { isMapped, templateId, templateName } = opts;
-  if (!isMapped) return "Не привязан";
+  if (!isMapped) return "Not linked";
   const tid = templateId ?? null;
   const nameTrimmed = templateName?.trim();
   const name = nameTrimmed ? nameTrimmed : null;
@@ -230,7 +230,7 @@ function renderRecordingTemplateNavValue(opts: {
     );
   }
   if (name) return name;
-  return "Привязан";
+  return "Linked";
 }
 
 // ---------------------------------------------------------------------------
@@ -249,12 +249,12 @@ function normalizeStageType(stageType: string): string {
 }
 
 const STAGE_META: Record<string, { name: string }> = {
-  DOWNLOAD:           { name: "Загрузка" },
-  TRIM:               { name: "Обрезка" },
-  TRANSCRIBE:         { name: "Транскрипция" },
-  EXTRACT_TOPICS:     { name: "Темы" },
-  GENERATE_SUBTITLES: { name: "Субтитры" },
-  UPLOAD:             { name: "Публикация" },
+  DOWNLOAD:           { name: "Download" },
+  TRIM:               { name: "Trim" },
+  TRANSCRIBE:         { name: "Transcription" },
+  EXTRACT_TOPICS:     { name: "Topics" },
+  GENERATE_SUBTITLES: { name: "Subtitles" },
+  UPLOAD:             { name: "Upload" },
 };
 
 type LifecyclePhase = "pending" | "active" | "done" | "failed" | "skipped";
@@ -278,7 +278,7 @@ function deriveIngressLifecycle(recording: RecordingDetail): { phase: LifecycleP
   }
   if (st === "DOWNLOADING") return { phase: "active" };
   if (st === "PENDING_SOURCE" || st === "INITIALIZED") return { phase: "pending" };
-  if (st === "EXPIRED") return { phase: "skipped", hint: "Запись недоступна или истекла" };
+  if (st === "EXPIRED") return { phase: "skipped", hint: "Recording is unavailable or expired" };
   if (["DOWNLOADED", "PROCESSING", "PROCESSED", "UPLOADING", "UPLOADED", "READY", "SKIPPED"].includes(st)) {
     return { phase: "done" };
   }
@@ -308,10 +308,10 @@ const TARGET_LABELS: Record<string, string> = {
 };
 
 const PLATFORM_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; label: string; color: string }> = {
-  UPLOADED:     { icon: CheckCircle2, label: "Опубликовано", color: "text-green-600" },
-  UPLOADING:    { icon: Loader2,      label: "Публикуется…", color: "text-blue-600" },
-  FAILED:       { icon: XCircle,      label: "Ошибка",       color: "text-red-600" },
-  NOT_UPLOADED: { icon: Clock,        label: "Не загружено", color: "text-gray-400" },
+  UPLOADED:     { icon: CheckCircle2, label: "Published",    color: "text-green-600" },
+  UPLOADING:    { icon: Loader2,      label: "Publishing…",  color: "text-blue-600" },
+  FAILED:       { icon: XCircle,      label: "Failed",       color: "text-red-600" },
+  NOT_UPLOADED: { icon: Clock,        label: "Not uploaded", color: "text-gray-400" },
 };
 
 
@@ -411,7 +411,7 @@ function PlatformOutputRow({
             rel="noopener noreferrer"
             className="flex items-center gap-0.5 text-[11px] font-medium text-[#224C87] hover:underline"
           >
-            Открыть <ExternalLink size={10} />
+            Open <ExternalLink size={10} />
           </a>
         )}
         {(canUpload || output.status === "FAILED") && (
@@ -464,10 +464,10 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
     return (
       <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-[#F5F5F5]">
         <VideoOff size={22} className="text-gray-300" />
-        <p className="text-xs text-gray-400">{isError ? "Не удалось загрузить видео" : "Видео пока недоступно"}</p>
+        <p className="text-xs text-gray-400">{isError ? "Failed to load video" : "Video not available yet"}</p>
         {isError && (
           <button type="button" onClick={() => void refetch()} className="text-xs text-[#224C87] hover:underline">
-            Повторить
+            Retry
           </button>
         )}
       </div>
@@ -713,7 +713,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <div className="text-sm text-gray-400">Загрузка…</div>
+        <div className="text-sm text-gray-400">Loading…</div>
       </div>
     );
   }
@@ -780,7 +780,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       URL.revokeObjectURL(blobUrl);
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setMediaDownloadError(typeof detail === "string" ? detail : "Не удалось скачать файл");
+      setMediaDownloadError(typeof detail === "string" ? detail : "Failed to download file");
     }
   }
 
@@ -809,7 +809,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
         >
           <ArrowLeft size={16} />
-          Записи
+          Recordings
         </Link>
         <span className="text-gray-300">/</span>
         {nameEditing ? (
@@ -824,8 +824,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               onKeyDown={(e) => { if (e.key === "Escape") setNameEditing(false); }}
               className="flex-1 truncate rounded-lg border border-[#224C87] bg-white px-2 py-1 text-lg font-semibold text-gray-900 outline-none"
             />
-            <button type="submit" disabled={renameRec.isPending || !nameDraft.trim()} className="text-xs text-[#224C87] hover:underline disabled:opacity-40">Сохранить</button>
-            <button type="button" onClick={() => setNameEditing(false)} className="text-xs text-gray-400 hover:underline">Отмена</button>
+            <button type="submit" disabled={renameRec.isPending || !nameDraft.trim()} className="text-xs text-[#224C87] hover:underline disabled:opacity-40">Save</button>
+            <button type="button" onClick={() => setNameEditing(false)} className="text-xs text-gray-400 hover:underline">Cancel</button>
           </form>
         ) : (
           <div className="min-w-0 flex-1 flex items-center gap-2 group">
@@ -836,7 +836,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               type="button"
               onClick={() => { setNameDraft(recording.display_name); setNameEditing(true); }}
               className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-600"
-              title="Переименовать"
+              title="Rename"
             >
               <Pencil size={14} />
             </button>
@@ -851,7 +851,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       {/* ── Error banners ── */}
       {recording.failed && recording.failed_reason && (
         <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          <span className="font-medium">Ошибка:</span> {recording.failed_reason}
+          <span className="font-medium">Error:</span> {recording.failed_reason}
         </div>
       )}
       {uploadError && (
@@ -869,12 +869,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           {/* Video */}
           <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Видео</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Video</h2>
             </div>
             {!hasVideoFiles ? (
               <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-[#F5F5F5]">
                 <VideoOff size={22} className="text-gray-300" />
-                <p className="text-xs text-gray-400">Видео пока недоступно</p>
+                <p className="text-xs text-gray-400">Video not available yet</p>
               </div>
             ) : (
               <>
@@ -890,7 +890,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                           : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
                       )}
                     >
-                      Обработанное
+                      Processed
                     </button>
                     <button
                       type="button"
@@ -902,7 +902,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                           : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
                       )}
                     >
-                      Исходное
+                      Original
                     </button>
                   </div>
                 )}
@@ -955,7 +955,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                         )}
                       />
                       <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                        Главы ({topicTimestamps.length})
+                        Chapters ({topicTimestamps.length})
                       </span>
                     </button>
                     {chaptersOpen && (
@@ -1006,7 +1006,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           {showMediaSection && (
             <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                Файлы и артефакты
+                Files &amp; artifacts
               </h2>
               {mediaDownloadError && (
                 <div className="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
@@ -1044,7 +1044,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
                     >
                       <FileCode size={12} className="shrink-0" />
-                      Транскрипция JSON
+                      Transcript JSON
                       <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
                     </button>
                     <button
@@ -1053,7 +1053,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
                     >
                       <FileText size={12} className="shrink-0" />
-                      Транскрипция TXT
+                      Transcript TXT
                       <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
                     </button>
                     <button
@@ -1062,7 +1062,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
                     >
                       <AlignLeft size={12} className="shrink-0" />
-                      Слова TXT
+                      Words TXT
                       <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
                     </button>
                   </>
@@ -1074,7 +1074,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
                   >
                     <FileDown size={12} className="shrink-0" />
-                    Описание TXT
+                    Description TXT
                     <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
                   </button>
                 )}
@@ -1083,14 +1083,14 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           )}
 
           {/* Config (collapsible) */}
-          <CollapsibleCard title="Конфигурация">
+          <CollapsibleCard title="Configuration">
             {configLoading ? (
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Loader2 size={14} className="animate-spin" />
-                Загрузка…
+                Loading…
               </div>
             ) : !recordingConfig ? (
-              <p className="text-sm text-gray-400">Нет данных</p>
+              <p className="text-sm text-gray-400">No data</p>
             ) : (
               <>
               <div className="mb-3 flex flex-wrap gap-2">
@@ -1101,7 +1101,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   icon={<Pencil size={12} />}
                   className="hover:border-[#224C87] hover:bg-[#224C87]/5 hover:text-[#224C87]"
                 >
-                  Редактировать
+                  Edit
                 </ActionButton>
                 {recordingConfig.has_manual_override && (
                   <ActionButton
@@ -1110,15 +1110,15 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     isPending={resetConfig.isPending}
                     onClick={() => resetConfig.mutate()}
                     icon={<RotateCcw size={12} />}
-                    pendingLabel="Сброс…"
+                    pendingLabel="Resetting…"
                   >
-                    Сбросить override
+                    Reset override
                   </ActionButton>
                 )}
               </div>
               <dl className="space-y-3">
                 <ConfigRow
-                  label="Шаблон"
+                  label="Template"
                   value={renderRecordingTemplateNavValue({
                     isMapped: recordingConfig.is_mapped,
                     templateId: recordingConfig.template_id,
@@ -1126,17 +1126,17 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   })}
                 />
                 {recordingConfig.has_manual_override && (
-                  <ConfigRow label="Переопределение" value="Есть ручной override" highlight />
+                  <ConfigRow label="Override" value="Manual override active" highlight />
                 )}
                 {recordingConfig.processing_config?.transcription && (() => {
                   const t = recordingConfig.processing_config!.transcription!;
                   return (
                     <>
-                      {t.language     && <ConfigRow label="Язык"          value={t.language} />}
-                      {t.granularity  && <ConfigRow label="Гранулярность" value={t.granularity} />}
-                      {t.enable_transcription != null && <ConfigRow label="Транскрипция" value={t.enable_transcription ? "Вкл" : "Выкл"} />}
-                      {t.enable_topics    != null && <ConfigRow label="Темы"          value={t.enable_topics    ? "Вкл" : "Выкл"} />}
-                      {t.enable_subtitles != null && <ConfigRow label="Субтитры"      value={t.enable_subtitles ? "Вкл" : "Выкл"} />}
+                      {t.language     && <ConfigRow label="Language"      value={t.language} />}
+                      {t.granularity  && <ConfigRow label="Granularity"   value={t.granularity} />}
+                      {t.enable_transcription != null && <ConfigRow label="Transcription" value={t.enable_transcription ? "On" : "Off"} />}
+                      {t.enable_topics    != null && <ConfigRow label="Topics"         value={t.enable_topics    ? "On" : "Off"} />}
+                      {t.enable_subtitles != null && <ConfigRow label="Subtitles"      value={t.enable_subtitles ? "On" : "Off"} />}
                     </>
                   );
                 })()}
@@ -1144,9 +1144,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   const o = recordingConfig.output_config!;
                   return (
                     <>
-                      {o.auto_upload    != null && <ConfigRow label="Авто-загрузка"      value={o.auto_upload    ? "Вкл" : "Выкл"} />}
-                      {o.upload_captions != null && <ConfigRow label="Загрузка субтитров" value={o.upload_captions ? "Вкл" : "Выкл"} />}
-                      {o.preset_ids?.length      ? <ConfigRow label="Пресеты"            value={o.preset_ids.join(", ")} /> : null}
+                      {o.auto_upload    != null && <ConfigRow label="Auto-upload"      value={o.auto_upload    ? "On" : "Off"} />}
+                      {o.upload_captions != null && <ConfigRow label="Upload captions" value={o.upload_captions ? "On" : "Off"} />}
+                      {o.preset_ids?.length      ? <ConfigRow label="Presets"          value={o.preset_ids.join(", ")} /> : null}
                     </>
                   );
                 })()}
@@ -1171,17 +1171,17 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
           {/* Control Panel */}
           <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Управление</h2>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Controls</h2>
             {isSoftDeleted ? (
               <ActionButton
                 disabled={isActing}
                 isPending={restoreRec.isPending}
                 onClick={() => restoreRec.mutate()}
                 icon={<ArchiveRestore size={15} />}
-                pendingLabel="Восстановление…"
+                pendingLabel="Restoring…"
                 className="w-full justify-center py-2.5 font-semibold bg-green-600 hover:bg-green-700 disabled:cursor-not-allowed"
               >
-                Восстановить
+                Restore
               </ActionButton>
             ) : (
               <div className="space-y-3">
@@ -1208,13 +1208,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       ) : (
                         <Play size={14} />
                       )}
-                      {run.isPending ? "Запуск…" : "Запустить"}
+                      {run.isPending ? "Running…" : "Run"}
                     </button>
                     <button
                       type="button"
                       disabled={!recording.can_run || isActing}
                       onClick={() => setRunConfigOpen(true)}
-                      title="С конфигурацией"
+                      title="Run with config"
                       className={cn(
                         "flex w-10 shrink-0 items-center justify-center border-l transition-colors disabled:cursor-not-allowed",
                         !recording.can_run || isActing
@@ -1237,7 +1237,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       pendingLabel="…"
                       className="flex-1 justify-center py-2 disabled:cursor-not-allowed"
                     >
-                      Пауза
+                      Pause
                     </ActionButton>
                     <ActionButton
                       variant="secondary"
@@ -1248,7 +1248,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       pendingLabel="…"
                       className="flex-1 justify-center py-2 disabled:cursor-not-allowed"
                     >
-                      Сброс
+                      Reset
                     </ActionButton>
                   </div>
                   <div className="flex gap-2">
@@ -1258,14 +1258,14 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       icon={<FilePlus2 size={13} />}
                       className="flex-1 justify-center hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
                     >
-                      Создать шаблон
+                      Create template
                     </ActionButton>
                     {(recordingConfig?.is_mapped ?? recording.is_mapped) ? (
                       <ActionButton
                         variant="secondary"
                         isPending={unbindTemplate.isPending}
                         onClick={() => unbindTemplate.mutate()}
-                        title="Отвязать шаблон"
+                        title="Unlink template"
                         icon={<Unlink size={13} />}
                         className="justify-center py-2"
                       />
@@ -1273,7 +1273,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       <ActionButton
                         variant="secondary"
                         onClick={() => setBindTemplateOpen(true)}
-                        title="Привязать шаблон"
+                        title="Link template"
                         icon={<Link2 size={13} />}
                         className="justify-center py-2 hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
                       />
@@ -1288,48 +1288,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     icon={<Trash2 size={13} />}
                     className="w-full justify-center border-red-200 py-2 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed"
                   >
-                    Удалить
+                    Delete
                   </ActionButton>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Pipeline */}
-          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Пайплайн</h2>
-              <div className="flex items-center gap-2">
-                {allPipelineStages.length > 0 && (() => {
-                  const completed = allPipelineStages.filter((s) => s.status === "COMPLETED" || s.status === "SKIPPED").length;
-                  const hasFailed = allPipelineStages.some((s) => s.failed);
-                  const total = allPipelineStages.length;
-                  return (
-                    <span className={cn(
-                      "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                      hasFailed ? "bg-red-50 text-red-600" : completed === total ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
-                    )}>
-                      {completed}/{total}
-                    </span>
-                  );
-                })()}
-                {recording.pipeline_duration_seconds != null && recording.pipeline_duration_seconds > 0 && (
-                  <span className="text-[10px] text-gray-400">
-                    ~{Math.round(recording.pipeline_duration_seconds)} с
-                  </span>
-                )}
-              </div>
-            </div>
-            {allPipelineStages.length === 0 ? (
-              <p className="text-xs text-gray-400">Нет данных</p>
-            ) : (
-              <div className="divide-y divide-[#F5F5F5]">
-                {allPipelineStages.map((s) => {
-                  const canon = normalizeStageType(s.stage_type);
-                  return (
-                    <PipelineCompactRow key={canon} stage={s} />
-                  );
-                })}
               </div>
             )}
           </div>
@@ -1337,7 +1298,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           {/* Publications */}
           <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
             <div className="mb-1 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Публикации</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Publications</h2>
               {recording.upload_summary && recording.upload_summary.total > 0 && (
                 <span className={cn(
                   "rounded-full px-2 py-0.5 text-[10px] font-medium",
@@ -1353,7 +1314,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             </div>
             {recording.outputs.length === 0 ? (
               <p className="mt-2 text-xs text-gray-400">
-                Платформы не настроены. Добавьте пресеты и запустите запись.
+                No platforms configured. Add presets and run the recording.
               </p>
             ) : (
               <div className="divide-y divide-[#F5F5F5]">
@@ -1370,24 +1331,24 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             )}
           </div>
 
+          {/* Pipeline — collapsible, stages hidden by default */}
+          <PipelineCard stages={allPipelineStages} durationSeconds={recording.pipeline_duration_seconds} />
+
           {/* Info */}
           <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Инфо</h2>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Info</h2>
             <dl className="space-y-2">
-              <SidebarInfoRow label="ID"          value={`#${recording.id}`} />
+              <SidebarInfoRow label="ID"       value={`#${recording.id}`} />
               {recording.source?.source_type && (
-                <SidebarInfoRow label="Источник" value={recording.source.source_type} />
+                <SidebarInfoRow label="Source"   value={recording.source.source_type} />
               )}
-              <SidebarInfoRow label="Шаблон" value={templateDetailNavValue} />
-              <SidebarInfoRow label="Дата"        value={formatDate(recording.start_time)} />
+              <SidebarInfoRow label="Template" value={templateDetailNavValue} />
+              <SidebarInfoRow label="Date"     value={formatDate(recording.start_time)} />
               {recording.duration > 0 && (
-                <SidebarInfoRow label="Длительность" value={formatDuration(recording.duration)} />
+                <SidebarInfoRow label="Duration" value={formatDuration(recording.duration)} />
               )}
               {recording.video_file_size ? (
-                <SidebarInfoRow label="Размер" value={formatFileSize(recording.video_file_size)} />
-              ) : null}
-              {recording.pipeline_duration_seconds ? (
-                <SidebarInfoRow label="Пайплайн" value={`${Math.round(recording.pipeline_duration_seconds)} с`} />
+                <SidebarInfoRow label="File size" value={formatFileSize(recording.video_file_size)} />
               ) : null}
             </dl>
           </div>
@@ -1396,10 +1357,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
       <ConfirmDialog
         open={deleteConfirm}
-        title="Удалить запись?"
-        description={`"${recording.display_name}" будет удалена (soft-delete, восстановима в течение ограниченного времени).`}
-        confirmLabel="Удалить"
-        cancelLabel="Отмена"
+        title="Delete recording?"
+        description={`"${recording.display_name}" will be soft-deleted and can be restored for a limited time.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
         danger
         onConfirm={() => { setDeleteConfirm(false); deleteRec.mutate(); }}
         onCancel={() => setDeleteConfirm(false)}
@@ -1407,10 +1368,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
       <ConfirmDialog
         open={resetConfirm}
-        title="Сбросить запись?"
-        description="Запись вернётся в статус INITIALIZED."
-        confirmLabel="Сбросить"
-        cancelLabel="Отмена"
+        title="Reset recording?"
+        description="The recording will return to INITIALIZED status."
+        confirmLabel="Reset"
+        cancelLabel="Cancel"
         onConfirm={() => { setResetConfirm(false); resetRec.mutate(); }}
         onCancel={() => setResetConfirm(false)}
       >
@@ -1421,7 +1382,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
             className="rounded border-gray-300 text-[#224C87] focus:ring-[#224C87]/30"
           />
-          Удалить обработанные файлы (видео, аудио, транскрипция)
+          Delete processed files (video, audio, transcription)
         </label>
       </ConfirmDialog>
 
@@ -1447,21 +1408,21 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       <Modal
         open={bindTemplateOpen}
         onClose={() => { setBindTemplateOpen(false); setBindTemplateSearch(""); }}
-        label="Привязать шаблон"
+        label="Bind template"
         panelClassName="max-w-sm"
       >
         <div className="p-6">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">Привязать к шаблону</h2>
+          <h2 className="mb-4 text-sm font-semibold text-gray-900">Bind to template</h2>
           {bindTemplate.isError && (
             <p className="mb-3 text-xs text-red-500">
-              {(bindTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка"}
+              {(bindTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Error"}
             </p>
           )}
           <div className="relative mb-3">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Поиск шаблонов…"
+              placeholder="Search templates…"
               value={bindTemplateSearch}
               onChange={(e) => setBindTemplateSearch(e.target.value)}
               className="w-full rounded-xl border border-[#D9D9D9] py-2 pl-8 pr-3 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
@@ -1474,7 +1435,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 ? allItems.filter((t) => t.name.toLowerCase().includes(bindTemplateSearch.toLowerCase()))
                 : allItems;
               if (filtered.length === 0) {
-                return <p className="py-6 text-center text-sm text-gray-400">{allItems.length === 0 ? "Нет шаблонов" : "Ничего не найдено"}</p>;
+                return <p className="py-6 text-center text-sm text-gray-400">{allItems.length === 0 ? "No templates" : "Nothing found"}</p>;
               }
               return filtered.map((t) => (
                 <button
@@ -1492,7 +1453,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           </div>
           <div className="flex justify-end pt-4">
             <ActionButton variant="secondary" onClick={() => { setBindTemplateOpen(false); setBindTemplateSearch(""); }}>
-              Отмена
+              Cancel
             </ActionButton>
           </div>
         </div>
@@ -1502,15 +1463,15 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       <Modal
         open={createTemplateOpen}
         onClose={() => setCreateTemplateOpen(false)}
-        label="Создать шаблон из записи"
+        label="Create template from recording"
         panelClassName="max-w-sm"
       >
         <div className="p-6">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">Создать шаблон из записи</h2>
+          <h2 className="mb-4 text-sm font-semibold text-gray-900">Create template from recording</h2>
           <div className="space-y-3">
             <div className="space-y-1">
               <label htmlFor="new-template-name" className="text-xs font-medium text-gray-500">
-                Название шаблона
+                Template name
               </label>
               <input
                 id="new-template-name"
@@ -1523,18 +1484,18 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     createTemplate.mutate(createTemplateName.trim());
                   }
                 }}
-                placeholder="Название шаблона"
+                placeholder="Template name"
                 className="w-full rounded-xl border border-[#D9D9D9] px-3 py-2 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
               />
             </div>
             {createTemplate.isError && (
               <p className="text-xs text-red-500">
-                {(createTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Ошибка"}
+                {(createTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Error"}
               </p>
             )}
             <div className="flex justify-end gap-2 pt-1">
               <ActionButton variant="secondary" onClick={() => setCreateTemplateOpen(false)}>
-                Отмена
+                Cancel
               </ActionButton>
               <ActionButton
                 disabled={!createTemplateName.trim()}
@@ -1542,10 +1503,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 isSuccess={createTemplate.isSuccess}
                 onClick={() => createTemplate.mutate(createTemplateName.trim())}
                 icon={<FilePlus2 size={14} />}
-                pendingLabel="Создание…"
+                pendingLabel="Creating…"
                 className="font-semibold"
               >
-                Создать
+                Create
               </ActionButton>
             </div>
           </div>
@@ -1558,6 +1519,53 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 // ---------------------------------------------------------------------------
 // Helper row components
 // ---------------------------------------------------------------------------
+
+function PipelineCard({ stages, durationSeconds }: { stages: ProcessingStage[]; durationSeconds: number | null }) {
+  const [open, setOpen] = useState(false);
+  const completed = stages.filter((s) => s.status === "COMPLETED" || s.status === "SKIPPED").length;
+  const hasFailed = stages.some((s) => s.failed);
+  const total = stages.length;
+
+  return (
+    <div className="rounded-2xl border border-[#D9D9D9] bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Pipeline</h2>
+        <div className="flex items-center gap-2">
+          {total > 0 && (
+            <span className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+              hasFailed ? "bg-red-50 text-red-600" : completed === total ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
+            )}>
+              {completed}/{total}
+            </span>
+          )}
+          {durationSeconds != null && durationSeconds > 0 && (
+            <span className="text-[10px] text-gray-400">~{Math.round(durationSeconds)}s</span>
+          )}
+          <ChevronDown size={14} className={cn("text-gray-400 transition-transform duration-200", open && "rotate-180")} />
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-[#F0F0F0] px-4 pb-3 pt-1">
+          {stages.length === 0 ? (
+            <p className="py-2 text-xs text-gray-400">No data</p>
+          ) : (
+            <div className="divide-y divide-[#F5F5F5]">
+              {stages.map((s) => {
+                const canon = normalizeStageType(s.stage_type);
+                return <PipelineCompactRow key={canon} stage={s} />;
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SidebarInfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (

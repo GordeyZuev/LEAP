@@ -190,6 +190,7 @@ def run_automation_job_task(self, job_id: int, user_id: str):
                         # Apply template to recording
                         recording.template_id = matched_template.id
                         recording.is_mapped = True
+                        await template_repo.increment_usage(matched_template)
 
                         # Start run task with automation processing_config as manual_override
                         task = run_recording_task.delay(
