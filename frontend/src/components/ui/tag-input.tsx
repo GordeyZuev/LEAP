@@ -38,7 +38,7 @@ export function TagInput({ tags: tagsProp, onChange, placeholder = "Add tag…",
   return (
     <div
       className={cn(
-        "flex flex-wrap gap-1.5 px-3 py-2 min-h-[42px] rounded-xl border border-[#D9D9D9] bg-white focus-within:border-[#224C87] focus-within:ring-2 focus-within:ring-[#224C87]/10 transition-colors",
+        "flex flex-wrap gap-1.5 px-3 py-2 min-h-[42px] rounded-xl border border-border bg-card focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-colors",
         className
       )}
       onClick={(e) => (e.currentTarget.querySelector("input") as HTMLInputElement | null)?.focus()}
@@ -46,13 +46,13 @@ export function TagInput({ tags: tagsProp, onChange, placeholder = "Add tag…",
       {tags.map((tag) => (
         <span
           key={tag}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#224C87]/10 text-[#224C87] text-xs font-medium"
+          className="animate-toast-in inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"
         >
           {tag}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); removeTag(tag); }}
-            className="hover:text-[#1a3d6e]"
+            className="hover:text-primary-hover"
           >
             <X size={11} />
           </button>
@@ -65,7 +65,7 @@ export function TagInput({ tags: tagsProp, onChange, placeholder = "Add tag…",
         onKeyDown={handleKey}
         onBlur={() => addTag(input)}
         placeholder={tags.length === 0 ? placeholder : ""}
-        className="flex-1 min-w-20 text-sm outline-none bg-transparent placeholder:text-gray-400"
+        className="flex-1 min-w-20 text-sm outline-none bg-transparent placeholder:text-muted-foreground"
       />
     </div>
   );

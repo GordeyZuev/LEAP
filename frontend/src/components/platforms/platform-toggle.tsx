@@ -16,13 +16,13 @@ export function PlatformToggle({
 }) {
   return (
     <label className="flex cursor-pointer items-center justify-between py-1.5">
-      <span className="text-sm text-gray-700">{label}</span>
+      <span className="text-sm text-secondary-foreground">{label}</span>
       <button
         type="button"
         onClick={() => onChange(!checked)}
         className={cn(
           "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-          checked ? "bg-[#224C87]" : "bg-gray-200"
+          checked ? "bg-primary" : "bg-muted"
         )}
       >
         <span

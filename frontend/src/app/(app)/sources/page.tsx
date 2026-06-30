@@ -9,6 +9,10 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { CardGridSkeleton } from "@/components/ui/list-skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { FilterBar } from "@/components/filters/filter-bar";
@@ -84,9 +88,9 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 };
 
 const SOURCE_TYPE_COLORS: Record<string, string> = {
-  ZOOM:        "bg-blue-100 text-blue-700",
-  YANDEX_DISK: "bg-yellow-100 text-yellow-700",
-  VIDEO_URL:   "bg-purple-100 text-purple-700",
+  ZOOM:        "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  YANDEX_DISK: "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300",
+  VIDEO_URL:   "bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300",
 };
 
 const SORT_OPTIONS = [
@@ -158,7 +162,7 @@ export default function SourcesPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
 
-  const { data, isLoading, error } = useQuery<SourceListResponse>({
+  const { data, isLoading, error, refetch } = useQuery<SourceListResponse>({
     queryKey: ["sources"],
     queryFn: async () => {
       const res = await apiClient.get<SourceListResponse>("/sources?per_page=50");
@@ -281,26 +285,28 @@ export default function SourcesPage() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-5 flex min-h-[2.5rem] items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-gray-900">Input Sources</h1>
-        <div className="flex items-center gap-2">
-          {sources.length > 0 && (
-            <ActionButton
-              variant="secondary"
-              isPending={bulkSync.isPending}
-              disabled={sources.filter((s) => s.is_active).length === 0}
-              onClick={() => bulkSync.mutate()}
-              icon={<RefreshCw size={14} />}
-              pendingLabel="Syncing…"
-            >
-              Sync all
+      <PageHeader
+        title="Input Sources"
+        actions={
+          <>
+            {sources.length > 0 && (
+              <ActionButton
+                variant="secondary"
+                isPending={bulkSync.isPending}
+                disabled={sources.filter((s) => s.is_active).length === 0}
+                onClick={() => bulkSync.mutate()}
+                icon={<RefreshCw size={14} />}
+                pendingLabel="Syncing…"
+              >
+                Sync all
+              </ActionButton>
+            )}
+            <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
+              Add source
             </ActionButton>
-          )}
-          <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
-            Add source
-          </ActionButton>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Filters — only meaningful once there are sources */}
       {sources.length > 0 && (
@@ -336,42 +342,39 @@ export default function SourcesPage() {
         />
       )}
 
-      {isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => <div key={i} className="bg-white rounded-2xl border border-[#D9D9D9] h-32 animate-pulse" />)}
-        </div>
-      )}
-      {error && <p className="text-sm text-red-400">Failed to load sources</p>}
+      {isLoading && <CardGridSkeleton count={3} />}
+      {error && <ErrorState description="Failed to load sources" onRetry={() => refetch()} />}
       {!isLoading && !error && sources.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-          <div className="rounded-2xl bg-gray-50 p-3 text-gray-300">
-            <Database size={28} strokeWidth={1.5} />
-          </div>
-          <p className="text-sm font-medium text-gray-500">No sources yet</p>
-          <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
-            Add source
-          </ActionButton>
-        </div>
+        <EmptyState
+          icon={Database}
+          title="No sources yet"
+          description="Sources pull recordings in automatically (Zoom, Yandex Disk, and more). Add one to start ingesting."
+          action={
+            <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
+              Add source
+            </ActionButton>
+          }
+        />
       )}
       {!isLoading && !error && sources.length > 0 && visibleSources.length === 0 && (
-        <p className="py-16 text-center text-sm text-gray-400">No sources match your filters</p>
+        <EmptyState icon={Database} title="No sources match your filters" description="Try adjusting or clearing the filters above." />
       )}
 
       {!isLoading && !error && visibleSources.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {visibleSources.map((s) => (
-            <div key={s.id} className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 flex flex-col gap-3">
+            <div key={s.id} className="bg-card rounded-2xl border border-border shadow-sm p-5 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-2">
-                <span className="text-sm font-semibold text-gray-900 flex-1">{s.name}</span>
-                <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium shrink-0", SOURCE_TYPE_COLORS[s.source_type] ?? "bg-gray-100 text-gray-500")}>
+                <span className="text-sm font-semibold text-foreground flex-1">{s.name}</span>
+                <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium shrink-0", SOURCE_TYPE_COLORS[s.source_type] ?? "bg-muted text-muted-foreground")}>
                   {SOURCE_TYPE_LABELS[s.source_type] ?? s.source_type}
                 </span>
               </div>
-              {s.description && <p className="text-xs text-gray-400 line-clamp-2">{s.description}</p>}
-              <p className="text-xs text-gray-400">
+              {s.description && <p className="text-xs text-muted-foreground line-clamp-2">{s.description}</p>}
+              <p className="text-xs text-muted-foreground">
                 {s.last_sync_at ? `Last sync: ${formatDate(s.last_sync_at)}` : "Never synced"}
               </p>
-              <div className="flex items-center gap-2 mt-auto pt-2 border-t border-[#D9D9D9]">
+              <div className="flex items-center gap-2 mt-auto pt-2 border-t border-border">
                 <ActionButton
                   size="sm"
                   variant="secondary"
@@ -379,7 +382,7 @@ export default function SourcesPage() {
                   isPending={syncSource.isPending && syncSource.variables === s.id}
                   icon={<RefreshCw size={12} />}
                   pendingLabel="Syncing…"
-                  className="hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
+                  className="hover:border-primary hover:bg-primary hover:text-white"
                 >
                   Sync
                 </ActionButton>
@@ -391,7 +394,7 @@ export default function SourcesPage() {
                   variant="secondary"
                   onClick={() => setDeleteId(s.id)}
                   icon={<Trash2 size={12} />}
-                  className="ml-auto border-red-200 text-red-500 hover:bg-red-50"
+                  className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
                 />
               </div>
             </div>
@@ -402,10 +405,10 @@ export default function SourcesPage() {
       {/* Add/Edit modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9] sticky top-0 bg-white">
-              <h2 className="text-base font-semibold text-gray-900">{editingSource ? "Edit source" : "Add source"}</h2>
-              <button onClick={() => setModalOpen(false)} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+          <div className="bg-card rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
+              <h2 className="text-base font-semibold text-foreground">{editingSource ? "Edit source" : "Add source"}</h2>
+              <button onClick={() => setModalOpen(false)} className="p-1.5 rounded-lg hover:bg-muted"><X size={16} /></button>
             </div>
             <div className="px-6 py-5 space-y-4">
               <MF label="Name *">
@@ -423,7 +426,7 @@ export default function SourcesPage() {
                       <button key={t} type="button"
                         onClick={() => setForm((f) => ({ ...f, platform: t, credential_id: "" }))}
                         className={cn("flex-1 py-2 rounded-xl text-xs font-medium border transition-colors",
-                          form.platform === t ? "bg-[#224C87] text-white border-[#224C87]" : "bg-white text-gray-600 border-[#D9D9D9] hover:bg-gray-50"
+                          form.platform === t ? "bg-primary text-white border-primary" : "bg-card text-secondary-foreground border-border hover:bg-muted"
                         )}
                       >
                         {SOURCE_TYPE_LABELS[t]}
@@ -437,7 +440,7 @@ export default function SourcesPage() {
               {form.platform !== "VIDEO_URL" && (
                 <MF label="Credential">
                   {credsByPlatform.length === 0 ? (
-                    <p className="text-sm text-gray-400">No matching credentials. <a href="/credentials" className="text-[#224C87] hover:underline">Add credentials →</a></p>
+                    <p className="text-sm text-muted-foreground">No matching credentials. <a href="/credentials" className="text-primary hover:underline">Add credentials →</a></p>
                   ) : (
                     <NativeSelect value={form.credential_id} onChange={(e) => setForm((f) => ({ ...f, credential_id: Number(e.target.value) || "" }))}>
                       <option value="">— Select —</option>
@@ -485,7 +488,7 @@ export default function SourcesPage() {
                 </>
               )}
 
-              {formError && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{formError}</p>}
+              {formError && <p className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">{formError}</p>}
             </div>
             <div className="px-6 pb-5 flex justify-end gap-3">
               <ActionButton variant="secondary" onClick={() => setModalOpen(false)} className="py-2.5">Cancel</ActionButton>
@@ -513,13 +516,13 @@ export default function SourcesPage() {
   );
 }
 
-const inp = "w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors";
+const inp = "w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors";
 
 function MF({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
-      {hint && <p className="text-xs text-gray-400 mb-1.5">{hint}</p>}
+      <label className="block text-sm font-medium text-secondary-foreground mb-1.5">{label}</label>
+      {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
       {children}
     </div>
   );
@@ -528,8 +531,8 @@ function MF({ label, hint, children }: { label: string; hint?: string; children:
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center justify-between py-2 cursor-pointer">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-      <button type="button" onClick={() => onChange(!checked)} className={cn("relative inline-flex h-6 w-11 items-center rounded-full transition-colors", checked ? "bg-[#224C87]" : "bg-gray-200")}>
+      <span className="text-sm font-medium text-secondary-foreground">{label}</span>
+      <button type="button" onClick={() => onChange(!checked)} className={cn("relative inline-flex h-6 w-11 items-center rounded-full transition-colors", checked ? "bg-primary" : "bg-muted")}>
         <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform", checked ? "translate-x-6" : "translate-x-1")} />
       </button>
     </label>

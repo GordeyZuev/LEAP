@@ -27,6 +27,8 @@ import {
 import { TagInput } from "@/components/ui/tag-input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { NativeSelect } from "@/components/ui/native-select";
+import { PageHeader } from "@/components/ui/page-header";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { TemplateField } from "@/components/platforms/platform-fields";
 import {
   MetadataPreviewResultBox,
@@ -205,9 +207,9 @@ function formatMonthYear(iso: string | null | undefined): string {
 
 function SectionCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
-        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+    <div className="bg-card rounded-2xl border border-border shadow-sm">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         {action}
       </div>
       <div className="p-6 space-y-5">{children}</div>
@@ -219,7 +221,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   return (
     <div>
       <label className={cn(FILTER_LABEL, "mb-1.5")}>{label}</label>
-      {hint && <p className="text-xs text-gray-400 mb-1.5">{hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
       {children}
     </div>
   );
@@ -239,8 +241,8 @@ function Toggle({
   return (
     <div className="flex items-center justify-between py-1 gap-4">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-gray-700 leading-snug">{label}</p>
-        {hint && <p className="text-xs text-gray-400 leading-snug">{hint}</p>}
+        <p className="text-sm font-medium text-secondary-foreground leading-snug">{label}</p>
+        {hint && <p className="text-xs text-muted-foreground leading-snug">{hint}</p>}
       </div>
       <button
         type="button"
@@ -249,7 +251,7 @@ function Toggle({
         onClick={() => onChange(!checked)}
         className={cn(
           "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
-          checked ? "bg-[#224C87]" : "bg-gray-200"
+          checked ? "bg-primary" : "bg-muted"
         )}
       >
         <span
@@ -275,20 +277,20 @@ function Collapsible({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA]">
+    <div className="rounded-xl border border-border bg-background">
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground transition-colors"
       >
         {label}
         <ChevronDown
           size={14}
-          className={cn("shrink-0 text-gray-400 transition-transform", open && "rotate-180")}
+          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
         />
       </button>
       {open && (
-        <div className="space-y-4 border-t border-[#EAEAEA] px-4 pb-4 pt-4">{children}</div>
+        <div className="space-y-4 border-t border-border px-4 pb-4 pt-4">{children}</div>
       )}
     </div>
   );
@@ -296,9 +298,9 @@ function Collapsible({
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-[#F0F0F0] py-2.5 last:border-0">
-      <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm font-semibold tabular-nums text-gray-900">{value}</span>
+    <div className="flex items-baseline justify-between gap-3 border-b border-border py-2.5 last:border-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm font-semibold tabular-nums text-foreground">{value}</span>
     </div>
   );
 }
@@ -565,36 +567,33 @@ export default function SettingsPage() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      {/* Header — same height + margin as list pages so the first card lines up */}
-      <div className="mb-5 flex min-h-[2.5rem] items-center">
-        <h1 className="text-xl font-semibold text-gray-900">Settings</h1>
-      </div>
+      <PageHeader title="Settings" />
 
       <div className="space-y-6">
       {/* ── Profile hero + usage ─────────────────────────────────────────── */}
       {userData ? (
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-6 sm:p-7">
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-6 sm:p-7">
           {/* Identity */}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="truncate text-2xl font-semibold text-gray-900">
+              <h2 className="truncate text-2xl font-semibold text-foreground">
                 {userData.full_name?.trim() || userData.email}
               </h2>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {userData.email}
                 {memberSince !== "—" && (
-                  <span className="text-gray-400"> · Member since {memberSince}</span>
+                  <span className="text-muted-foreground"> · Member since {memberSince}</span>
                 )}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {planName && (
-                <span className="rounded-full bg-[#224C87]/8 px-3 py-1 text-xs font-semibold text-[#224C87]">
+                <span className="rounded-full bg-primary/8 px-3 py-1 text-xs font-semibold text-primary">
                   {planName}
                 </span>
               )}
               {roleLabel && (
-                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-secondary-foreground">
                   {roleLabel}
                 </span>
               )}
@@ -603,7 +602,7 @@ export default function SettingsPage() {
 
           {/* Usage — numbers only, two columns */}
           {statRows.length > 0 && (
-            <div className="mt-6 grid grid-cols-1 gap-x-12 border-t border-[#F0F0F0] pt-4 sm:grid-cols-2">
+            <div className="mt-6 grid grid-cols-1 gap-x-12 border-t border-border pt-4 sm:grid-cols-2">
               {statRows.map((r) => (
                 <StatRow key={r.label} label={r.label} value={r.value} />
               ))}
@@ -611,7 +610,7 @@ export default function SettingsPage() {
           )}
         </div>
       ) : (
-        <div className="h-40 animate-pulse rounded-2xl border border-[#D9D9D9] bg-white" />
+        <div className="h-40 animate-pulse rounded-2xl border border-border bg-card" />
       )}
 
       {/* ── Profile ──────────────────────────────────────────────────────── */}
@@ -631,7 +630,7 @@ export default function SettingsPage() {
               type="email"
               value={profile.email}
               disabled
-              className={cn(FILTER_CONTROL, "bg-gray-50 text-gray-400 cursor-not-allowed")}
+              className={cn(FILTER_CONTROL, "bg-muted text-muted-foreground cursor-not-allowed")}
             />
           </Field>
         </div>
@@ -664,6 +663,13 @@ export default function SettingsPage() {
             Save profile
           </ActionButton>
         </div>
+      </SectionCard>
+
+      {/* ── Appearance ────────────────────────────────────────────────────── */}
+      <SectionCard title="Appearance">
+        <Field label="Theme" hint="Choose a light or dark interface, or follow your system setting.">
+          <ThemeToggle />
+        </Field>
       </SectionCard>
 
       {/* ── Change password ───────────────────────────────────────────────── */}
@@ -701,7 +707,7 @@ export default function SettingsPage() {
           </Field>
         </div>
         {pwError && (
-          <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{pwError}</p>
+          <p className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">{pwError}</p>
         )}
         <div className="flex justify-end">
           <ActionButton
@@ -729,13 +735,13 @@ export default function SettingsPage() {
                 onClick={() => resetConfig.mutate()}
                 isPending={resetConfig.isPending}
                 pendingLabel="Resetting…"
-                className="text-red-600 hover:text-red-700 border-0 hover:bg-red-50 px-2 py-1"
+                className="text-red-600 hover:text-red-700 border-0 hover:bg-red-50 dark:bg-red-500/10 px-2 py-1"
               >
                 Yes, reset
               </ActionButton>
               <button
                 onClick={() => setResetConfirm(false)}
-                className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+                className="text-xs font-medium text-muted-foreground hover:text-secondary-foreground px-2 py-1 rounded-lg hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
@@ -1143,32 +1149,32 @@ export default function SettingsPage() {
       {/* ── Active sessions ─────────────────────────────────────────────────── */}
       <SectionCard title="Active sessions">
         {sessionsLoading ? (
-          <p className="text-sm text-gray-400">Loading…</p>
+          <p className="text-sm text-muted-foreground">Loading…</p>
         ) : sessions.length === 0 ? (
-          <p className="text-sm text-gray-400">No active sessions.</p>
+          <p className="text-sm text-muted-foreground">No active sessions.</p>
         ) : (
           <ul className="space-y-2">
             {sessions.map((s) => (
               <li
                 key={s.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-[#EDEDED] bg-white px-4 py-3"
+                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="shrink-0 rounded-lg bg-gray-50 p-2 text-gray-600">
+                  <div className="shrink-0 rounded-lg bg-muted p-2 text-secondary-foreground">
                     <Monitor size={16} />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-gray-800 truncate">
+                      <p className="text-sm font-medium text-foreground truncate">
                         {s.device_label || "Unknown device"}
                       </p>
                       {s.is_current && (
-                        <span className="rounded-md bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-600">
+                        <span className="rounded-md bg-green-50 dark:bg-green-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-600">
                           Current
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-400 mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Last active {formatRelative(s.last_used_at) || "—"}
                     </p>
                   </div>
@@ -1190,7 +1196,7 @@ export default function SettingsPage() {
         )}
 
         {/* Sign-out actions live with the sessions they affect. */}
-        <div className="flex flex-wrap justify-end gap-2 border-t border-[#F0F0F0] pt-4">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
           <ActionButton
             variant="secondary"
             onClick={() => setLogoutOthersOpen(true)}
@@ -1203,7 +1209,7 @@ export default function SettingsPage() {
             variant="secondary"
             onClick={() => setLogoutAllOpen(true)}
             icon={<LogOut size={14} />}
-            className="border-red-200 text-red-500 hover:bg-red-50"
+            className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
           >
             Sign out everywhere
           </ActionButton>
@@ -1211,21 +1217,21 @@ export default function SettingsPage() {
       </SectionCard>
 
       {/* ── Danger Zone ─────────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-red-200 bg-white shadow-sm">
+      <div className="rounded-2xl border border-red-200 bg-card shadow-sm">
         <div className="px-6 py-4 border-b border-red-100">
           <h2 className="text-sm font-semibold text-red-600">Danger Zone</h2>
         </div>
         <div className="p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-gray-800">Delete account</p>
-              <p className="text-xs text-gray-400 mt-0.5">Permanently delete your account and all data. This cannot be undone.</p>
+              <p className="text-sm font-medium text-foreground">Delete account</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Permanently delete your account and all data. This cannot be undone.</p>
             </div>
             <ActionButton
               variant="secondary"
               onClick={() => { setDeleteAccountPassword(""); setDeleteAccountError(""); setDeleteAccountOpen(true); }}
               icon={<Trash2 size={14} />}
-              className="shrink-0 border-red-200 text-red-500 hover:bg-red-50"
+              className="shrink-0 border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
             >
               Delete account
             </ActionButton>
@@ -1239,9 +1245,9 @@ export default function SettingsPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={(e) => { if (e.currentTarget === e.target) setLogoutAllOpen(false); }}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="mb-1 text-sm font-semibold text-gray-900">Log out everywhere?</h2>
-            <p className="mb-4 text-xs text-gray-500">You will be signed out on every device, including this one.</p>
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-xl">
+            <h2 className="mb-1 text-sm font-semibold text-foreground">Log out everywhere?</h2>
+            <p className="mb-4 text-xs text-muted-foreground">You will be signed out on every device, including this one.</p>
             <div className="flex justify-end gap-2">
               <ActionButton variant="secondary" onClick={() => setLogoutAllOpen(false)}>
                 Cancel
@@ -1267,9 +1273,9 @@ export default function SettingsPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={(e) => { if (e.currentTarget === e.target) setLogoutOthersOpen(false); }}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="mb-1 text-sm font-semibold text-gray-900">Sign out other devices?</h2>
-            <p className="mb-4 text-xs text-gray-500">This device will stay signed in. All other sessions will be revoked.</p>
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-xl">
+            <h2 className="mb-1 text-sm font-semibold text-foreground">Sign out other devices?</h2>
+            <p className="mb-4 text-xs text-muted-foreground">This device will stay signed in. All other sessions will be revoked.</p>
             <div className="flex justify-end gap-2">
               <ActionButton variant="secondary" onClick={() => setLogoutOthersOpen(false)}>
                 Cancel
@@ -1295,9 +1301,9 @@ export default function SettingsPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={(e) => { if (e.currentTarget === e.target) setRevokeSessionTarget(null); }}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="mb-1 text-sm font-semibold text-gray-900">Revoke this session?</h2>
-            <p className="mb-4 text-xs text-gray-500">
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-xl">
+            <h2 className="mb-1 text-sm font-semibold text-foreground">Revoke this session?</h2>
+            <p className="mb-4 text-xs text-muted-foreground">
               {revokeSessionTarget.device_label || "Unknown device"} will be signed out on its next request.
             </p>
             <div className="flex justify-end gap-2">
@@ -1325,9 +1331,9 @@ export default function SettingsPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={(e) => { if (e.currentTarget === e.target) setDeleteAccountOpen(false); }}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="mb-1 text-sm font-semibold text-gray-900">Delete your account?</h2>
-            <p className="mb-4 text-xs text-gray-500">This is permanent and irreversible. Enter your password to confirm.</p>
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-xl">
+            <h2 className="mb-1 text-sm font-semibold text-foreground">Delete your account?</h2>
+            <p className="mb-4 text-xs text-muted-foreground">This is permanent and irreversible. Enter your password to confirm.</p>
             <div className="space-y-3">
               <PasswordInput
                 autoFocus
@@ -1338,7 +1344,7 @@ export default function SettingsPage() {
                   if (e.key === "Escape") setDeleteAccountOpen(false);
                 }}
                 placeholder="Your password"
-                className="w-full rounded-xl border border-[#D9D9D9] px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-1 focus:ring-red-200"
+                className="w-full rounded-xl border border-border px-3 py-2 text-sm outline-none focus:border-red-400 focus:ring-1 focus:ring-red-200"
               />
               {deleteAccountError && (
                 <p className="text-xs text-red-500">{deleteAccountError}</p>

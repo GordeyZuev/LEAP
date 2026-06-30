@@ -29,7 +29,7 @@
 | Категория | Таблицы |
 |-----------|---------|
 | Аутентификация и пользователи | `users`, `refresh_tokens`, `user_credentials` |
-| Подписки и квоты | `subscription_plans`, `user_subscriptions`, `quota_usage` |
+| Подписки и квоты | `subscription_plans`, `user_subscriptions`, `quota_usage`, `usage_events` |
 | Конфигурация | `user_configs`, `base_configs` |
 | Шаблоны и источники/пресеты | `recording_templates`, `input_sources`, `output_presets` |
 | Обработка записей | `recordings`, `source_metadata`, `output_targets`, `processing_stages`, `stage_timings` |
@@ -97,11 +97,14 @@ erDiagram
 
 | Таблица | Модель | Назначение |
 |---------|--------|------------|
-| `subscription_plans` | `SubscriptionPlanModel` | Тарифы, лимиты, цены (`Numeric`) |
+| `subscription_plans` | `SubscriptionPlanModel` | Тарифы, лимиты, цены (`Numeric`); hard limits `max_transcriptions_per_month`, `max_processing_per_month` (NULL = безлимит) |
 | `user_subscriptions` | `UserSubscriptionModel` | Один ряд на пользователя: `plan_id`, кастомные лимиты, pay-as-you-go, период |
-| `quota_usage` | `QuotaUsageModel` | Учёт по месяцам: `period` **INTEGER** (`YYYYMM`, например `202603`), `recordings_count`, `storage_bytes`, `concurrent_tasks_count`, `overage_*`; уникальность `(user_id, period)` в БД **не задана** — логика выбора в `QuotaUsageRepository` |
+| `quota_usage` | `QuotaUsageModel` | Учёт по месяцам: `period` **INTEGER** (`YYYYMM`, например `202603`), `recordings_count`, `storage_bytes`, `concurrent_tasks_count`, `transcriptions_count`, `processing_count`, `uploads_count`, `overage_*`; уникальность `(user_id, period)` в БД **не задана** — логика выбора в `QuotaUsageRepository` |
+| `usage_events` | `UsageEventModel` | Неизменяемый лог действий для аналитики: `id` (ULID), `user_id` (FK CASCADE), `event_type`, `recording_id` (FK SET NULL), `duration_seconds`, `bytes_delta`, `event_metadata` (JSONB), `created_at`; индексы `(user_id, created_at)` и `event_type` |
 
 Дефолтные лимиты без подписки: `config.settings.DEFAULT_QUOTAS`.
+
+> **Concurrent tasks:** лимит `max_concurrent_tasks` проверяется по числу записей с `on_air=true` (drift-free), а не по `quota_usage.concurrent_tasks_count`.
 
 ### Конфигурация
 

@@ -13,6 +13,7 @@ from api.observability import track_pipeline_stage
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository
 from api.services.config_utils import resolve_full_config
+from api.services.quota_service import QuotaExceededError
 from api.services.timing_service import TimingService
 from api.tasks.base import ProcessingTask
 from config.settings import get_settings
@@ -29,6 +30,67 @@ from video_processing_module.video_processor import VideoProcessor, output_suffi
 
 logger = get_logger()
 settings = get_settings()
+
+
+async def _track_event(
+    user_id: str,
+    event_type: str,
+    *,
+    recording_id: int | None = None,
+    duration_seconds: float | None = None,
+    bytes_delta: int | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """Persist a usage event to the usage_events table.
+
+    Best-effort: analytics must never break the pipeline, so failures are logged
+    and swallowed rather than propagated to the running task.
+    """
+    from api.repositories.usage_event_repo import UsageEventRepository
+
+    try:
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
+            repo = UsageEventRepository(session)
+            await repo.create(
+                user_id,
+                event_type,
+                recording_id=recording_id,
+                duration_seconds=duration_seconds,
+                bytes_delta=bytes_delta,
+                metadata=metadata,
+            )
+            await session.commit()
+    except Exception as exc:
+        logger.warning(f"usage_event '{event_type}' tracking failed (ignored): {exc!r}")
+
+
+# Maps a logical counter name to its repository method. Explicit (not built by
+# string concatenation) because "processing" does not pluralize to "processings".
+_COUNTER_METHODS = {
+    "transcription": "increment_transcriptions",
+    "processing": "increment_processing",
+    "upload": "increment_uploads",
+}
+
+
+async def _increment_usage_counter(user_id: str, counter: str) -> None:
+    """Increment transcriptions_count, processing_count, or uploads_count for current period.
+
+    Best-effort: a counter write failure must not abort the pipeline; it is logged
+    and swallowed (worst case is a slight under-count, never a broken task).
+    """
+    from api.repositories.subscription_repos import QuotaUsageRepository as _QuotaUsageRepository
+
+    method_name = _COUNTER_METHODS[counter]
+    try:
+        current_period = int(datetime.now().strftime("%Y%m"))
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
+            repo = _QuotaUsageRepository(session)
+            await getattr(repo, method_name)(user_id, current_period)
+    except Exception as exc:
+        logger.warning(f"usage counter '{counter}' increment failed (ignored): {exc!r}")
 
 
 def _update_pipeline_completed(recording: RecordingModel) -> None:
@@ -940,6 +1002,10 @@ def transcribe_recording_task(
             logger.error("Soft time limit exceeded")
             raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
 
+        except QuotaExceededError as exc:
+            logger.warning(f"Transcription blocked by quota: {exc}")
+            raise
+
         except Exception as exc:
             logger.error(f"Error transcribing: {exc!r}", exc_info=True)
             raise self.retry(exc=exc)
@@ -994,6 +1060,15 @@ async def _async_transcribe_recording(
 
         if transcribe_stage and transcribe_stage.status == ProcessingStageStatus.FAILED:
             logger.info(f"Retrying transcription | {format_details(attempt=transcribe_stage.retry_count + 1)}")
+
+        # Hard limit: gate transcriptions for both standalone and in-pipeline runs.
+        # The standalone /transcribe endpoint also checks this for a fast 429, but the
+        # pipeline path reaches ASR only here, so the authoritative gate lives in the task.
+        from api.services.quota_service import QuotaService
+
+        allowed, quota_err = await QuotaService(session).check_transcriptions_quota(user_id)
+        if not allowed:
+            raise QuotaExceededError(quota_err)
 
         # Extract transcription parameters
         language = transcription_config.get("language") or None
@@ -1121,6 +1196,9 @@ async def _async_transcribe_recording(
             await recording_repo.update(recording)
             await session.commit()
 
+            await _increment_usage_counter(user_id, "transcription")
+            await _track_event(user_id, "transcription_completed", recording_id=recording_id, duration_seconds=duration)
+
             logger.success(
                 f"Transcription complete | "
                 f"{format_details(words=len(words), segments=len(segments), lang=language, elapsed=f'{timing.duration_seconds:.1f}s')}"
@@ -1176,10 +1254,13 @@ def _finalize_pipeline_task(self, recording_id: int, user_id: str) -> dict:
             rec.pipeline_task_id = None
             completed_at = datetime.now(UTC)
             rec.pipeline_completed_at = completed_at
+            duration = None
             if rec.pipeline_started_at:
-                rec.pipeline_duration_seconds = (completed_at - rec.pipeline_started_at).total_seconds()
+                duration = (completed_at - rec.pipeline_started_at).total_seconds()
+                rec.pipeline_duration_seconds = duration
             update_aggregate_status(rec)
             await session.commit()
+            await _track_event(user_id, "processing_completed", recording_id=recording_id, duration_seconds=duration)
 
     self.run_async(_finalize())
     return self.build_result(user_id=user_id, status="completed", recording_id=recording_id)
@@ -1362,6 +1443,29 @@ def run_recording_task(
                 result={"message": "Pipeline paused by user"},
             )
 
+        # Hard limit: gate the whole pipeline. The manual /run endpoint returns a fast
+        # 429, but auto-run and bulk paths reach orchestration only here, so the
+        # authoritative processing gate lives in the task. Clear on_air on block.
+        async def _check_processing_quota():
+            from api.services.quota_service import QuotaService
+
+            async with session_maker() as session:
+                return await QuotaService(session).check_processing_quota(user_id)
+
+        proc_allowed, proc_err = self.run_async(_check_processing_quota())
+        if not proc_allowed:
+            logger.warning(f"Processing blocked by quota | {format_details(rec=recording_id, reason=proc_err)}")
+            self.run_async(self._clear_on_air_async(recording_id, user_id))
+            return self.build_result(
+                user_id=user_id,
+                status="quota_exceeded",
+                recording_id=recording_id,
+                result={"message": proc_err},
+            )
+
+        self.run_async(_increment_usage_counter(user_id, "processing"))
+        self.run_async(_track_event(user_id, "processing_started", recording_id=recording_id))
+
         # Resolve config to determine which steps are enabled
         async def _resolve_pipeline_config():
             async with session_maker() as session:
@@ -1379,7 +1483,11 @@ def run_recording_task(
 
         full_config, output_config, recording, presets = self.run_async(_resolve_pipeline_config())
 
-        # Set pipeline_started_at
+        # Set pipeline_started_at and mark on_air. The manual /run endpoint already
+        # sets on_air before enqueue (for its 409 guard); auto-run and bulk-run reach
+        # the orchestrator without it, so set it here too — this keeps on_air the single
+        # source of truth for "pipeline active" across all entry paths (used by the
+        # concurrent-tasks quota gate). Every exit path clears it.
         async def _set_pipeline_started():
             async with session_maker() as session:
                 recording_repo = RecordingRepository(session)
@@ -1388,6 +1496,7 @@ def run_recording_task(
                     rec.pipeline_started_at = datetime.now(UTC)
                     rec.pipeline_completed_at = None
                     rec.pipeline_duration_seconds = None
+                    rec.on_air = True
                     await session.commit()
 
         self.run_async(_set_pipeline_started())

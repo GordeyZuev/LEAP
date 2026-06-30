@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 
-from api.auth.dependencies import check_user_quotas
+from api.auth.dependencies import check_user_quotas, require_feature
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.repositories.config_repos import UserConfigRepository
@@ -89,6 +89,41 @@ from utils.pipeline_video_formats import ingress_validate_saved_media, strict_su
 router = APIRouter(prefix="/api/v1/recordings", tags=["Recordings"])
 bulk_router = APIRouter()
 logger = get_logger()
+
+
+async def _track_recordings_created(ctx: ServiceContext, recording_ids: list[int]) -> None:
+    """Best-effort: bump the monthly recording counter and log ``recording_created`` events.
+
+    Called after the recordings are already committed, so tracking must never fail the
+    request — any error is rolled back and logged, leaving the recordings intact.
+    """
+    if not recording_ids:
+        return
+    from api.repositories.usage_event_repo import UsageEventRepository
+    from api.services.quota_service import QuotaService
+
+    try:
+        await QuotaService(ctx.session).track_recording_created(ctx.user_id, count=len(recording_ids))
+        repo = UsageEventRepository(ctx.session)
+        for rid in recording_ids:
+            await repo.create(ctx.user_id, "recording_created", recording_id=rid)
+        await ctx.session.commit()
+    except Exception as exc:
+        await ctx.session.rollback()
+        logger.warning(f"recording_created tracking failed (ignored): {exc!r}")
+
+
+async def _track_recording_deleted(ctx: ServiceContext, recording_id: int) -> None:
+    """Best-effort ``recording_deleted`` usage event (after the soft-delete commit)."""
+    from api.repositories.usage_event_repo import UsageEventRepository
+
+    try:
+        await UsageEventRepository(ctx.session).create(ctx.user_id, "recording_deleted", recording_id=recording_id)
+        await ctx.session.commit()
+    except Exception as exc:
+        await ctx.session.rollback()
+        logger.warning(f"recording_deleted tracking failed (ignored): {exc!r}")
+
 
 _VIDEO_MEDIA_TYPES: dict[str, str] = {
     ".mp4": "video/mp4",
@@ -248,6 +283,7 @@ async def list_recordings(
 async def export_recordings(
     data: ExportRecordingsRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_export_data")),
 ):
     """Export recordings in JSON, CSV, or XLSX format with filters."""
     recording_ids = await _resolve_recording_ids(
@@ -868,6 +904,8 @@ async def add_local_recording(
         created_recording.local_video_path = target_key
         await ctx.session.commit()
 
+        await _track_recordings_created(ctx, [created_recording.id])
+
         return {
             "success": True,
             "recording_id": created_recording.id,
@@ -963,6 +1001,8 @@ async def add_video_by_url(
             await template_repo.increment_usage(template)
 
     await ctx.session.commit()
+
+    await _track_recordings_created(ctx, [recording.id])
 
     task_id = None
     if data.auto_run:
@@ -1072,6 +1112,8 @@ async def add_playlist_by_url(
 
     await ctx.session.commit()
 
+    await _track_recordings_created(ctx, [rec["recording_id"] for rec in created_recordings if rec.get("is_new")])
+
     # Auto-run all newly created recordings
     if data.auto_run:
         for rec in created_recordings:
@@ -1118,6 +1160,7 @@ async def bulk_run_recordings(
     data: BulkRunRequest,
     dry_run: bool = Query(False, description="Dry-run: show which recordings will be run"),
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingBulkOperationResponse | BulkProcessDryRunResponse:
     """Bulk run full pipeline on multiple recordings (async tasks)."""
 
@@ -1248,6 +1291,7 @@ async def bulk_run_recordings(
 async def bulk_transcribe_recordings(
     data: BulkTranscribeRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_transcribe")),
 ) -> RecordingBulkOperationResponse:
     """Bulk transcription of multiple recordings (async tasks)."""
     from api.helpers.status_manager import should_allow_transcription
@@ -1455,6 +1499,7 @@ async def bulk_pause_recordings(
 async def bulk_download_recordings(
     data: BulkDownloadRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingBulkOperationResponse:
     """Bulk download recordings from source."""
     from api.tasks.processing import download_recording_task
@@ -1532,6 +1577,7 @@ async def bulk_download_recordings(
 async def bulk_trim_recordings(
     data: BulkTrimRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingBulkOperationResponse:
     """Bulk trim recordings to remove silence using FFmpeg."""
     from api.tasks.processing import trim_video_task
@@ -1591,6 +1637,7 @@ async def bulk_trim_recordings(
 async def bulk_extract_topics(
     data: BulkTopicsRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingBulkOperationResponse:
     """Bulk extract topics from transcriptions."""
     from api.tasks.processing import extract_topics_task
@@ -1641,6 +1688,7 @@ async def bulk_extract_topics(
 async def bulk_generate_subtitles(
     data: BulkSubtitlesRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingBulkOperationResponse:
     """Bulk generate subtitles from transcriptions."""
     from api.tasks.processing import generate_subtitles_task
@@ -1690,6 +1738,7 @@ async def bulk_generate_subtitles(
 async def bulk_upload_recordings(
     data: BulkUploadRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_upload")),
 ) -> RecordingBulkOperationResponse:
     """Bulk upload recordings to platforms."""
     from api.tasks.upload import upload_recording_to_platform
@@ -1746,6 +1795,7 @@ async def bulk_upload_recordings(
 async def bulk_delete_recordings(
     data: BulkDeleteRequest,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_delete_recordings")),
 ) -> RecordingBulkDeleteResponse:
     """Bulk soft delete recordings."""
     # Resolve recording IDs
@@ -1846,6 +1896,7 @@ async def download_recording(
     recording_id: int,
     force: bool = Query(False, description="Re-download if already downloaded"),
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingOperationResponse:
     """Download recording from source (Zoom, yt-dlp, Yandex Disk, etc.)."""
     from api.helpers.status_manager import should_allow_download
@@ -1921,6 +1972,7 @@ async def trim_recording(
     recording_id: int,
     config: TrimVideoRequest = TrimVideoRequest(),
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingOperationResponse:
     """Trim video using FFmpeg to remove silence (async task)."""
     from api.tasks.processing import trim_video_task
@@ -1993,6 +2045,7 @@ async def run_recording(
     config: ConfigOverrideRequest = ConfigOverrideRequest(),
     dry_run: bool = Query(False, description="Dry-run: show what will be done without actual execution"),
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingOperationResponse | DryRunResponse:
     """
     Smart run: always does the right thing based on current recording state.
@@ -2018,6 +2071,12 @@ async def run_recording(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Recording {recording_id} not found or you don't have access",
         )
+
+    from api.services.quota_service import QuotaService
+
+    _allowed, _err = await QuotaService(ctx.session).check_processing_quota(ctx.user_id)
+    if not _allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=_err)
 
     # Template binding (before smart run, so override is available)
     if config.template_id and config.bind_template:
@@ -2303,9 +2362,11 @@ async def _execute_smart_run(
 async def transcribe_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_transcribe")),
 ) -> RecordingOperationResponse:
     """Transcribe recording via AssemblyAI (async task). Use /topics endpoint for topic extraction."""
     from api.helpers.status_manager import should_allow_transcription
+    from api.services.quota_service import QuotaService
     from api.tasks.processing import transcribe_recording_task
 
     recording_repo = RecordingRepository(ctx.session)
@@ -2315,6 +2376,10 @@ async def transcribe_recording(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found or you don't have access"
         )
+
+    _allowed, _err = await QuotaService(ctx.session).check_transcriptions_quota(ctx.user_id)
+    if not _allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=_err)
 
     if not should_allow_transcription(recording):
         raise HTTPException(
@@ -2363,6 +2428,7 @@ async def upload_recording(
     platform: str,
     preset_id: int | None = None,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_upload")),
 ) -> RecordingOperationResponse:
     """Upload recording to specified platform (async task)."""
     from api.helpers.status_manager import should_allow_upload
@@ -2446,6 +2512,7 @@ async def extract_topics(
     granularity: Granularity = Query(Granularity.LONG, description="Topics granularity: short, medium, or long"),
     version_id: str | None = Query(None, description="Version ID (optional)"),
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingOperationResponse:
     """Extract topics from existing transcription (async task). Requires /transcribe first."""
     from api.tasks.processing import extract_topics_task
@@ -2501,6 +2568,7 @@ async def generate_subtitles(
         description="Subtitle formats to generate: srt, vtt",
     ),
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_process_video")),
 ) -> RecordingOperationResponse:
     """Generate subtitles from transcription (async task). Requires /transcribe first."""
     from api.tasks.processing import generate_subtitles_task
@@ -2962,6 +3030,7 @@ async def unbind_template_from_recording(
 async def delete_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
+    _feat: UserInDB = Depends(require_feature("can_delete_recordings")),
 ) -> DeleteRecordingResponse:
     """Soft delete recording (can be restored before hard deletion)."""
     recording_repo = RecordingRepository(ctx.session)
@@ -2979,6 +3048,8 @@ async def delete_recording(
 
     await recording_repo.soft_delete(recording, user_config)
     await ctx.session.commit()
+
+    await _track_recording_deleted(ctx, recording.id)
 
     logger.info(f"Soft deleted | {format_details(rec=recording_id, user=short_user_id(ctx.user_id))}")
 

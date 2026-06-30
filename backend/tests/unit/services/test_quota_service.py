@@ -133,10 +133,7 @@ class TestQuotaServiceChecks:
 
         service = QuotaService(mock_db_session)
         service.get_effective_quotas = AsyncMock(return_value={"max_concurrent_tasks": 3})
-
-        mock_usage = MagicMock()
-        mock_usage.concurrent_tasks_count = 2
-        service.usage_repo.get_by_user_and_period = AsyncMock(return_value=mock_usage)
+        service._count_active_pipelines = AsyncMock(return_value=2)
 
         allowed, error = await service.check_concurrent_tasks_quota("user_123")
 
@@ -150,10 +147,7 @@ class TestQuotaServiceChecks:
 
         service = QuotaService(mock_db_session)
         service.get_effective_quotas = AsyncMock(return_value={"max_concurrent_tasks": 3})
-
-        mock_usage = MagicMock()
-        mock_usage.concurrent_tasks_count = 3
-        service.usage_repo.get_by_user_and_period = AsyncMock(return_value=mock_usage)
+        service._count_active_pipelines = AsyncMock(return_value=3)
 
         allowed, error = await service.check_concurrent_tasks_quota("user_123")
 
@@ -219,3 +213,77 @@ class TestQuotaServiceTracking:
         service.usage_repo.set_concurrent_tasks.assert_called_once()
         call_args = service.usage_repo.set_concurrent_tasks.call_args
         assert call_args[0][2] == 5
+
+
+@pytest.mark.unit
+class TestQuotaServiceNewLimits:
+    """Tests for transcriptions/processing hard limits and on_air-derived concurrency."""
+
+    @pytest.mark.asyncio
+    async def test_check_transcriptions_quota_unlimited(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_transcriptions_per_month": None})
+
+        allowed, error = await service.check_transcriptions_quota("user_123")
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.asyncio
+    async def test_check_transcriptions_quota_under_limit(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_transcriptions_per_month": 50})
+        usage = MagicMock()
+        usage.transcriptions_count = 10
+        service.usage_repo.get_by_user_and_period = AsyncMock(return_value=usage)
+
+        allowed, error = await service.check_transcriptions_quota("user_123")
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.asyncio
+    async def test_check_transcriptions_quota_at_limit_blocks(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_transcriptions_per_month": 50})
+        usage = MagicMock()
+        usage.transcriptions_count = 50
+        service.usage_repo.get_by_user_and_period = AsyncMock(return_value=usage)
+
+        allowed, error = await service.check_transcriptions_quota("user_123")
+        assert allowed is False
+        assert "50" in error
+
+    @pytest.mark.asyncio
+    async def test_check_processing_quota_at_limit_blocks(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_processing_per_month": 20})
+        usage = MagicMock()
+        usage.processing_count = 20
+        service.usage_repo.get_by_user_and_period = AsyncMock(return_value=usage)
+
+        allowed, error = await service.check_processing_quota("user_123")
+        assert allowed is False
+        assert "20" in error
+
+    @pytest.mark.asyncio
+    async def test_concurrent_tasks_quota_uses_on_air_count(self, mock_db_session):
+        """Concurrency gate must derive from on_air count, not a stored counter."""
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_concurrent_tasks": 2})
+        # 2 active pipelines, limit is 2 -> blocked
+        scalar_result = MagicMock()
+        scalar_result.scalar.return_value = 2
+        mock_db_session.execute = AsyncMock(return_value=scalar_result)
+
+        allowed, error = await service.check_concurrent_tasks_quota("user_123")
+        assert allowed is False
+        assert "2" in error

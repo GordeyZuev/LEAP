@@ -37,11 +37,11 @@ function ResetPasswordForm() {
     return (
       <div className="text-center">
         <XCircle size={40} className="text-red-400 mx-auto mb-4" strokeWidth={1.5} />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Invalid link</h2>
-        <p className="text-sm text-gray-500 mb-4">
+        <h2 className="text-lg font-semibold text-foreground mb-2">Invalid link</h2>
+        <p className="text-sm text-muted-foreground mb-4">
           The password reset link is missing a token. Please request a new one.
         </p>
-        <Link href="/forgot-password" className="text-sm text-[#224C87] font-medium hover:underline">
+        <Link href="/forgot-password" className="text-sm text-primary font-medium hover:underline">
           Request new link
         </Link>
       </div>
@@ -52,8 +52,8 @@ function ResetPasswordForm() {
     return (
       <div className="text-center">
         <CheckCircle2 size={40} className="text-green-500 mx-auto mb-4" strokeWidth={1.5} />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Password updated!</h2>
-        <p className="text-sm text-gray-500">
+        <h2 className="text-lg font-semibold text-foreground mb-2">Password updated!</h2>
+        <p className="text-sm text-muted-foreground">
           Your password has been changed. Redirecting to login…
         </p>
       </div>
@@ -83,7 +83,7 @@ function ResetPasswordForm() {
     <form onSubmit={handleSubmit} className="space-y-4">
       <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
         <div>
-          <label htmlFor="rp-password" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="rp-password" className="block text-sm font-medium text-secondary-foreground mb-1.5">
             New password
           </label>
           <PasswordInput
@@ -93,14 +93,14 @@ function ResetPasswordForm() {
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+            className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
             placeholder="••••••••"
           />
-          <p className="text-xs text-gray-400 mt-1.5">At least 8 characters, 1 uppercase, 1 digit.</p>
+          <p className="text-xs text-muted-foreground mt-1.5">At least 8 characters, 1 uppercase, 1 digit.</p>
         </div>
 
         <div>
-          <label htmlFor="rp-confirm" className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label htmlFor="rp-confirm" className="block text-sm font-medium text-secondary-foreground mb-1.5">
             Confirm new password
           </label>
           <PasswordInput
@@ -109,13 +109,13 @@ function ResetPasswordForm() {
             autoComplete="new-password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+            className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
             placeholder="••••••••"
           />
         </div>
 
         {error && (
-          <p role="alert" className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">
+          <p role="alert" aria-live="polite" className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">
             {error}
           </p>
         )}
@@ -135,16 +135,16 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="min-h-full flex items-center justify-center bg-[#FAFAFA] px-4">
+    <div className="min-h-full flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
 
         <div className="flex flex-col items-center mb-10">
           <Logo size={48} />
-          <p className="text-sm font-semibold tracking-[0.2em] text-[#224C87] mt-5">LEAP</p>
-          <p className="text-xs text-gray-400 mt-1.5">Set a new password</p>
+          <p className="text-sm font-semibold tracking-[0.2em] text-primary mt-5">LEAP</p>
+          <p className="text-xs text-muted-foreground mt-1.5">Set a new password</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-[#D9D9D9] p-8">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8">
           <Suspense fallback={<div className="h-40" />}>
             <ResetPasswordForm />
           </Suspense>
@@ -153,7 +153,7 @@ export default function ResetPasswordPage() {
         <div className="flex justify-center mt-5">
           <Link
             href="/login"
-            className="text-sm text-gray-500 hover:text-[#224C87] transition-colors"
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
           >
             Back to login
           </Link>

@@ -15,7 +15,7 @@ interface PaginationProps {
 }
 
 const BTN_BASE =
-  "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[#D9D9D9] bg-white text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#224C87]/30";
+  "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-secondary-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card disabled:hover:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 
 export function Pagination({
   page,
@@ -66,16 +66,16 @@ export function Pagination({
   return (
     <div
       className={cn(
-        "mt-6 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600",
+        "mt-6 flex flex-wrap items-center justify-between gap-3 text-sm text-secondary-foreground",
         className,
       )}
     >
       <p className="tabular-nums">
         Showing{" "}
-        <span className="font-semibold text-gray-900">
+        <span className="font-semibold text-foreground">
           {from.toLocaleString()}–{to.toLocaleString()}
         </span>{" "}
-        of <span className="font-semibold text-gray-900">{total.toLocaleString()}</span> {pluralLabel}
+        of <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {pluralLabel}
       </p>
 
       <div className="flex items-center gap-1.5">
@@ -101,7 +101,7 @@ export function Pagination({
         </button>
 
         <div className="mx-1 flex items-center gap-2 tabular-nums">
-          <span className="text-gray-500">Page</span>
+          <span className="text-muted-foreground">Page</span>
           <input
             ref={inputRef}
             type="text"
@@ -122,10 +122,10 @@ export function Pagination({
                 inputRef.current?.blur();
               }
             }}
-            className="h-9 w-14 rounded-xl border border-[#D9D9D9] bg-white px-2 text-center font-semibold text-gray-900 outline-none transition-colors focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/20"
+            className="h-9 w-14 rounded-xl border border-border bg-card px-2 text-center font-semibold text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
           />
-          <span className="text-gray-500">of</span>
-          <span className="font-semibold text-gray-900">{totalPages.toLocaleString()}</span>
+          <span className="text-muted-foreground">of</span>
+          <span className="font-semibold text-foreground">{totalPages.toLocaleString()}</span>
         </div>
 
         <button

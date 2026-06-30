@@ -3,16 +3,22 @@
 import Link from "next/link";
 import { Suspense, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Play, CheckCircle2, XCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Plus, Play, CheckCircle2, XCircle, Zap } from "lucide-react";
+import { cn, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useDebounce } from "@/hooks/use-debounce";
+import { useToast } from "@/hooks/use-toast";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
 import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
 import { DEBOUNCE_SEARCH } from "@/lib/constants";
 import { ActionButton } from "@/components/ui/action-button";
+import { Toast } from "@/components/ui/toast";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 
 interface AutomationJob {
   id: number;
@@ -71,6 +77,7 @@ function sortJobs(items: AutomationJob[], sortBy: SortField, sortOrder: "asc" | 
 
 function AutomationContent() {
   const qc = useQueryClient();
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -78,7 +85,7 @@ function AutomationContent() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
 
-  const { data, isLoading, error } = useQuery<AutomationJobListResponse>({
+  const { data, isLoading, error, refetch } = useQuery<AutomationJobListResponse>({
     queryKey: ["automation-jobs"],
     queryFn: async () => {
       const res = await apiClient.get<AutomationJobListResponse>("/automation/jobs?per_page=50");
@@ -88,7 +95,11 @@ function AutomationContent() {
 
   const runNow = useMutation({
     mutationFn: (id: number) => apiClient.post(`/automation/jobs/${id}/run`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["automation-jobs"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["automation-jobs"] });
+      showToast("success", "Job run started");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to start job")),
   });
 
   const hasActiveFilters =
@@ -121,15 +132,17 @@ function AutomationContent() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-5 flex min-h-[2.5rem] items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Automations</h1>
-        <Link
-          href="/automation/new"
-          className="flex items-center gap-2 bg-[#224C87] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#1a3d6e] transition-colors"
-        >
-          <Plus size={16} /> New job
-        </Link>
-      </div>
+      <PageHeader
+        title="Automations"
+        actions={
+          <Link
+            href="/automation/new"
+            className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-primary-hover transition-colors"
+          >
+            <Plus size={16} /> New job
+          </Link>
+        }
+      />
 
       {/* Filters */}
       <FilterBar
@@ -163,67 +176,74 @@ function AutomationContent() {
       />
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm overflow-hidden">
-        <table className="w-full">
+      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-x-auto">
+        <table className="w-full min-w-[760px]">
           <thead>
-            <tr className="border-b border-[#D9D9D9]">
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Job</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Last run</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Next run</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Runs</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Actions</th>
+            <tr className="border-b border-border">
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Job</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Last run</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Next run</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Runs</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#D9D9D9]">
-            {isLoading && (
-              <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-400">Loading…</td>
-              </tr>
-            )}
+          <tbody className="divide-y divide-border">
+            {isLoading && <TableRowsSkeleton rows={5} cols={6} />}
             {error && (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-sm text-red-400">Failed to load jobs</td>
+                <td colSpan={6} className="p-0">
+                  <ErrorState description="Failed to load jobs" onRetry={() => refetch()} />
+                </td>
               </tr>
             )}
             {!isLoading && !error && allJobs.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-400">
-                  No automation jobs.{" "}
-                  <Link href="/automation/new" className="text-[#224C87] hover:underline">
-                    Create the first →
-                  </Link>
+                <td colSpan={6} className="p-0">
+                  <EmptyState
+                    icon={Zap}
+                    title="No automation jobs yet"
+                    description="Automation jobs run your pipeline on a schedule. Create the first to put ingestion on autopilot."
+                    action={
+                      <Link
+                        href="/automation/new"
+                        className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+                      >
+                        <Plus size={16} /> New job
+                      </Link>
+                    }
+                  />
                 </td>
               </tr>
             )}
             {!isLoading && !error && allJobs.length > 0 && visibleJobs.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-400">
-                  No jobs match your filters
+                <td colSpan={6} className="p-0">
+                  <EmptyState icon={Zap} title="No jobs match your filters" description="Try adjusting or clearing the filters above." />
                 </td>
               </tr>
             )}
             {visibleJobs.map((job) => (
-              <tr key={job.id} className="hover:bg-gray-50 transition-colors">
+              <tr key={job.id} className="hover:bg-muted transition-colors">
                 <td className="px-6 py-4">
                   <Link
                     href={`/automation/${job.id}`}
-                    className="text-sm font-medium text-gray-900 hover:text-[#224C87] transition-colors"
+                    className="text-sm font-medium text-foreground hover:text-primary transition-colors"
                   >
                     {job.name}
                   </Link>
                   {job.description && (
-                    <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{job.description}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{job.description}</p>
                   )}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-500">{formatDate(job.last_run_at)}</td>
-                <td className="px-6 py-4 text-sm text-gray-700 font-medium">{formatDate(job.next_run_at)}</td>
-                <td className="px-6 py-4 text-sm text-gray-500">{job.run_count}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{formatDate(job.last_run_at)}</td>
+                <td className="px-6 py-4 text-sm text-secondary-foreground font-medium">{formatDate(job.next_run_at)}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{job.run_count}</td>
                 <td className="px-6 py-4">
                   <span
                     className={cn(
                       "inline-flex items-center gap-1.5 text-sm",
-                      job.is_active ? "text-green-600" : "text-gray-400"
+                      job.is_active ? "text-green-600" : "text-muted-foreground"
                     )}
                   >
                     {job.is_active ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
@@ -239,7 +259,7 @@ function AutomationContent() {
                       isPending={runNow.isPending && runNow.variables === job.id}
                       icon={<Play size={12} />}
                       pendingLabel="Running…"
-                      className="hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
+                      className="hover:border-primary hover:bg-primary hover:text-white"
                     >
                       Run
                     </ActionButton>
@@ -250,13 +270,17 @@ function AutomationContent() {
           </tbody>
         </table>
       </div>
+
+      {toast && (
+        <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />
+      )}
     </div>
   );
 }
 
 export default function AutomationPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-sm text-gray-400">Loading…</div>}>
+    <Suspense fallback={<div className="p-8 text-sm text-muted-foreground">Loading…</div>}>
       <AutomationContent />
     </Suspense>
   );

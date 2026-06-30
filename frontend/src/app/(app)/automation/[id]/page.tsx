@@ -231,12 +231,12 @@ export default function AutomationJobPage({ params }: { params: Promise<{ id: st
 
   const templates = (templatesData?.items ?? []).filter((t) => !t.is_draft);
 
-  if (!isNew && isPending) return <div className="p-8 text-sm text-gray-400">Loading…</div>;
+  if (!isNew && isPending) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
   if (!isNew && isError) {
     return (
       <div className="p-8 space-y-2">
         <p className="text-sm text-red-500">Failed to load job</p>
-        <Link href="/automation" className="text-sm text-[#224C87] hover:underline">← Back</Link>
+        <Link href="/automation" className="text-sm text-primary hover:underline">← Back</Link>
       </div>
     );
   }
@@ -390,12 +390,12 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
             if (isDirty) { setPendingHref("/automation"); setConfirmLeave(true); }
             else router.push("/automation");
           }}
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-secondary-foreground transition-colors"
         >
           <ArrowLeft size={16} /> Automation
         </button>
         <span className="text-gray-300">/</span>
-        <h1 className="text-lg font-semibold text-gray-900 flex-1 min-w-0 truncate">{headerTitle}</h1>
+        <h1 className="text-lg font-semibold text-foreground flex-1 min-w-0 truncate">{headerTitle}</h1>
 
         {!isNew && (
           <ActionButton variant="secondary" onClick={() => dryRun.mutate()} isPending={dryRun.isPending} icon={<FlaskConical size={15} />} pendingLabel="Checking…" title="Run without real changes">
@@ -416,7 +416,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         )}
 
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteJob.isPending} icon={<Trash2 size={15} />} title="Delete job" className="border-red-200 text-red-500 hover:bg-red-50">
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteJob.isPending} icon={<Trash2 size={15} />} title="Delete job" className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10">
             Delete
           </ActionButton>
         )}
@@ -436,7 +436,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
 
       <div className="space-y-5">
         {/* Basic info */}
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
           <F label="Name *">
             <input
               type="text"
@@ -459,27 +459,27 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </div>
 
         {/* Templates */}
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-700">Templates *</h2>
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-3">
+          <h2 className="text-sm font-semibold text-secondary-foreground">Templates *</h2>
           {templates.length === 0 ? (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted-foreground">
               No templates.{" "}
-              <Link href="/templates/new" className="text-[#224C87] hover:underline">Create →</Link>
+              <Link href="/templates/new" className="text-primary hover:underline">Create →</Link>
             </p>
           ) : (
             <div className="space-y-2">
               {templates.map((t) => (
                 <label
                   key={t.id}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-[#D9D9D9] cursor-pointer hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-3 p-3 rounded-xl border border-border cursor-pointer hover:bg-muted transition-colors"
                 >
                   <input
                     type="checkbox"
                     checked={form.template_ids.includes(t.id)}
                     onChange={() => toggleTemplate(t.id)}
-                    className="rounded accent-[#224C87]"
+                    className="rounded accent-primary"
                   />
-                  <span className="text-sm font-medium text-gray-900">{t.name}</span>
+                  <span className="text-sm font-medium text-foreground">{t.name}</span>
                 </label>
               ))}
             </div>
@@ -490,8 +490,8 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </div>
 
         {/* Filters */}
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-700">Filters</h2>
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-secondary-foreground">Filters</h2>
           <Toggle
             label="Exclude blank recordings"
             checked={form.filters.exclude_blank}
@@ -510,9 +510,9 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                         : form.filters.status.filter((x) => x !== s);
                       setForm((f) => ({ ...f, filters: { ...f.filters, status: next } }));
                     }}
-                    className="rounded accent-[#224C87]"
+                    className="rounded accent-primary"
                   />
-                  <span className="text-sm text-gray-700">{s}</span>
+                  <span className="text-sm text-secondary-foreground">{s}</span>
                 </label>
               ))}
             </div>
@@ -520,9 +520,9 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </div>
 
         {/* Processing config */}
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Processing config</h2>
+            <h2 className="text-sm font-semibold text-secondary-foreground">Processing config</h2>
             <Toggle
               label=""
               checked={form.processing_config_enabled}
@@ -530,7 +530,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
             />
           </div>
           {!form.processing_config_enabled && (
-            <p className="text-xs text-gray-400">Template settings are used. Enable to override.</p>
+            <p className="text-xs text-muted-foreground">Template settings are used. Enable to override.</p>
           )}
           {form.processing_config_enabled && (
             <div className="space-y-4">
@@ -596,11 +596,11 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </div>
 
         {/* Schedule */}
-        <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-700">Schedule</h2>
+        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
+          <h2 className="text-sm font-semibold text-secondary-foreground">Schedule</h2>
 
           {/* Mode toggle */}
-          <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
+          <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit">
             {(["visual", "cron"] as ScheduleMode[]).map((mode) => (
               <button
                 key={mode}
@@ -609,8 +609,8 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                 className={cn(
                   "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
                   form.schedule_mode === mode
-                    ? "bg-white text-gray-900 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-secondary-foreground"
                 )}
               >
                 {mode === "visual" ? "Visual" : "Cron"}
@@ -622,7 +622,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
           {form.schedule_mode === "visual" && (
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Days</label>
+                <label className="block text-sm font-medium text-secondary-foreground mb-2">Days</label>
                 <div className="flex gap-1.5">
                   {WEEKDAY_LABELS.map((label, i) => (
                     <button
@@ -632,8 +632,8 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                       className={cn(
                         "w-10 h-10 rounded-full text-sm font-medium transition-colors select-none",
                         form.weekdays.includes(i)
-                          ? "bg-[#224C87] text-white"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                          ? "bg-primary text-white"
+                          : "bg-muted text-muted-foreground hover:bg-muted"
                       )}
                     >
                       {label}
@@ -698,10 +698,10 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                     key={ex.expr}
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, cron_expression: ex.expr }))}
-                    className="text-left px-3 py-2 rounded-xl border border-[#D9D9D9] hover:bg-gray-50 transition-colors"
+                    className="text-left px-3 py-2 rounded-xl border border-border hover:bg-muted transition-colors"
                   >
-                    <code className="text-xs font-mono text-[#224C87]">{ex.expr}</code>
-                    <p className="text-xs text-gray-400 mt-0.5">{ex.desc}</p>
+                    <code className="text-xs font-mono text-primary">{ex.expr}</code>
+                    <p className="text-xs text-muted-foreground mt-0.5">{ex.desc}</p>
                   </button>
                 ))}
               </div>
@@ -710,7 +710,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
 
           {/* Next run */}
           {nextRunAt && (
-            <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-xl">
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-blue-50 dark:bg-blue-500/10 border border-blue-100 rounded-xl">
               <Clock size={14} className="text-blue-500 shrink-0" />
               <p className="text-sm text-blue-700">
                 Next run: <span className="font-medium">{formatNextRun(nextRunAt)}</span>
@@ -719,10 +719,10 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
           )}
 
           {/* Sync window */}
-          <div className="border-t border-[#D9D9D9] pt-4 space-y-2">
-            <label className="block text-sm font-medium text-gray-700">Recording search window</label>
+          <div className="border-t border-border pt-4 space-y-2">
+            <label className="block text-sm font-medium text-secondary-foreground">Recording search window</label>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Last</span>
+              <span className="text-sm text-secondary-foreground">Last</span>
               <input
                 type="number"
                 min={1}
@@ -731,9 +731,9 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                 onChange={(e) => setForm((f) => ({ ...f, sync_days: parseInt(e.target.value, 10) || 2 }))}
                 className={cn(inp, "w-20")}
               />
-              <span className="text-sm text-gray-600">days</span>
+              <span className="text-sm text-secondary-foreground">days</span>
             </div>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-muted-foreground">
               ↳ recordings from <span className="font-medium">{syncStart}</span> to <span className="font-medium">{today}</span>
             </p>
             {syncWarning && (
@@ -782,13 +782,13 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
 }
 
 const inp =
-  "w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors bg-white";
+  "w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors bg-card";
 
 function F({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1.5">{label}</label>
-      {hint && <p className="text-xs text-gray-400 mb-1.5">{hint}</p>}
+      <label className="block text-sm font-medium text-secondary-foreground mb-1.5">{label}</label>
+      {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
       {children}
     </div>
   );
@@ -797,13 +797,13 @@ function F({ label, hint, children }: { label: string; hint?: string; children: 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center justify-between py-2 cursor-pointer">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <span className="text-sm font-medium text-secondary-foreground">{label}</span>
       <button
         type="button"
         onClick={() => onChange(!checked)}
         className={cn(
           "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-          checked ? "bg-[#224C87]" : "bg-gray-200"
+          checked ? "bg-primary" : "bg-muted"
         )}
       >
         <span

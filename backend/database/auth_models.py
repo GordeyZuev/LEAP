@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ulid import ULID
 
@@ -82,6 +84,7 @@ class UserModel(Base):
         foreign_keys="[UserSubscriptionModel.user_id]",
     )
     quota_usage = relationship("QuotaUsageModel", back_populates="user", cascade="all, delete-orphan")
+    usage_events = relationship("UsageEventModel", back_populates="user", cascade="all, delete-orphan")
     config = relationship("UserConfigModel", back_populates="user", uselist=False, cascade="all, delete-orphan")
     automation_jobs = relationship("AutomationJobModel", back_populates="user", cascade="all, delete-orphan")
 
@@ -135,6 +138,8 @@ class SubscriptionPlanModel(Base):
     max_concurrent_tasks = Column(Integer, nullable=True)
     max_automation_jobs = Column(Integer, nullable=True)
     min_automation_interval_hours = Column(Integer, nullable=True)
+    max_transcriptions_per_month = Column(Integer, nullable=True)
+    max_processing_per_month = Column(Integer, nullable=True)
 
     # --- Pricing ---
     price_monthly = Column(Numeric(10, 2), default=0, nullable=False)
@@ -208,6 +213,9 @@ class QuotaUsageModel(Base):
     recordings_count = Column(Integer, default=0, nullable=False)
     storage_bytes = Column(BigInteger, default=0, nullable=False)
     concurrent_tasks_count = Column(Integer, default=0, nullable=False)
+    transcriptions_count = Column(Integer, default=0, nullable=False)
+    processing_count = Column(Integer, default=0, nullable=False)
+    uploads_count = Column(Integer, default=0, nullable=False)
     overage_recordings_count = Column(Integer, default=0, nullable=False)
     overage_cost = Column(Numeric(10, 2), default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
@@ -244,3 +252,25 @@ class RefreshTokenModel(Base):
 
     def __repr__(self):
         return f"<RefreshToken(id={self.id}, user_id={self.user_id}, revoked={self.is_revoked})>"
+
+
+class UsageEventModel(Base):
+    """Immutable log of user actions for analytics and audit."""
+
+    __tablename__ = "usage_events"
+
+    id = Column(String(26), primary_key=True, default=lambda: str(ULID()))
+    # Composite index ix_usage_events_user_id_created (user_id, created_at) is
+    # defined in migration 030 and covers user_id-prefixed lookups.
+    user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(String(50), nullable=False, index=True)
+    recording_id = Column(Integer, ForeignKey("recordings.id", ondelete="SET NULL"), nullable=True)
+    duration_seconds = Column(Float, nullable=True)
+    bytes_delta = Column(BigInteger, nullable=True)
+    event_metadata = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    user = relationship("UserModel", back_populates="usage_events")
+
+    def __repr__(self):
+        return f"<UsageEvent(id={self.id}, user_id={self.user_id}, type={self.event_type})>"

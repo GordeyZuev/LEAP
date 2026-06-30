@@ -84,7 +84,7 @@ export function FilterSelect<V extends string | number = string>({
         onClick={() => setOpen((o) => !o)}
         className={cn(
           FILTER_CONTROL,
-          "flex w-full items-center justify-between gap-2 text-left font-medium text-gray-700",
+          "flex w-full items-center justify-between gap-2 text-left font-medium text-secondary-foreground",
           disabled && "cursor-not-allowed opacity-50"
         )}
       >
@@ -99,7 +99,7 @@ export function FilterSelect<V extends string | number = string>({
         <div
           ref={panelRef}
           style={{ position: "fixed", top: coords.top, left: coords.left, width: Math.max(coords.width, 176) }}
-          className="z-[100] max-h-72 overflow-auto rounded-2xl border border-[#D9D9D9] bg-white p-2 shadow-xl"
+          className="animate-dropdown-in z-[100] max-h-72 overflow-auto rounded-2xl border border-border bg-card p-2 shadow-xl"
         >
           {options.map((opt) => (
             <button
@@ -110,8 +110,8 @@ export function FilterSelect<V extends string | number = string>({
               className={cn(
                 "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm",
                 opt.value === value
-                  ? "bg-[#EBF0F8] text-[#224C87] font-medium"
-                  : "text-gray-700 hover:bg-gray-50"
+                  ? "bg-accent text-primary font-medium"
+                  : "text-secondary-foreground hover:bg-muted"
               )}
             >
               <span className="flex-1 truncate text-left">{opt.label}</span>

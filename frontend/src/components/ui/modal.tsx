@@ -180,7 +180,7 @@ export function Modal({
       role="presentation"
       onClick={handleBackdropClick}
       className={cn(
-        "fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4",
+        "animate-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4",
         className,
       )}
     >
@@ -192,7 +192,7 @@ export function Modal({
         tabIndex={-1}
         onKeyDown={handleKeyDownTrap}
         className={cn(
-          "outline-none w-full max-w-md rounded-2xl bg-white shadow-xl",
+          "animate-panel-in outline-none w-full max-w-md rounded-2xl bg-card shadow-xl",
           panelClassName,
         )}
       >

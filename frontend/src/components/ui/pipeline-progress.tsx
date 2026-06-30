@@ -41,24 +41,24 @@ function StageNode({ stageType, stage }: StageNodeProps) {
     status === "COMPLETED" && "border-green-500 bg-green-500 text-white",
     status === "IN_PROGRESS" && "border-blue-500 bg-blue-500 text-white animate-pulse",
     status === "FAILED" && "border-red-500 bg-red-500 text-white",
-    status === "SKIPPED" && "border-gray-300 bg-gray-100 text-gray-400",
-    status === "PENDING" && "border-gray-300 bg-white text-gray-300"
+    status === "SKIPPED" && "border-border bg-muted text-muted-foreground",
+    status === "PENDING" && "border-border bg-card text-gray-300"
   );
 
   const tooltip = (
-    <div className="absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 shadow-md text-xs">
-      <p className="font-semibold text-gray-800">{STAGE_FULL_LABEL[stageType] ?? stageType}</p>
+    <div className="absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-card px-2.5 py-1.5 shadow-md text-xs">
+      <p className="font-semibold text-foreground">{STAGE_FULL_LABEL[stageType] ?? stageType}</p>
       <p className={cn(
         "text-[10px]",
         status === "COMPLETED" && "text-green-600",
         status === "IN_PROGRESS" && "text-blue-600",
         status === "FAILED" && "text-red-500",
-        (status === "SKIPPED" || status === "PENDING") && "text-gray-400"
+        (status === "SKIPPED" || status === "PENDING") && "text-muted-foreground"
       )}>
         {status === "SKIPPED" ? "Skipped" : status.charAt(0) + status.slice(1).toLowerCase().replace("_", " ")}
       </p>
       {stage?.duration_seconds != null && (
-        <p className="text-[10px] text-gray-400">{formatDur(stage.duration_seconds)}</p>
+        <p className="text-[10px] text-muted-foreground">{formatDur(stage.duration_seconds)}</p>
       )}
       {failed && stage?.failed_reason && (
         <p className="mt-0.5 max-w-[180px] text-[10px] text-red-500 whitespace-normal">{stage.failed_reason}</p>
@@ -92,7 +92,7 @@ function CheckMark() {
 
 function Connector({ active }: { active: boolean }) {
   return (
-    <div className={cn("mb-3 h-px w-3 shrink-0", active ? "bg-green-400" : "bg-gray-200")} />
+    <div className={cn("mb-3 h-px w-3 shrink-0", active ? "bg-green-400" : "bg-muted")} />
   );
 }
 

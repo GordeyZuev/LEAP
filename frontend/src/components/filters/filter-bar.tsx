@@ -38,14 +38,14 @@ export function FilterBar({ search, controls = [], sort, onClearAll, advanced, c
             <button
               type="button"
               onClick={onClearAll}
-              className="ml-auto inline-flex min-h-[2.875rem] items-center text-xs font-medium text-gray-400 transition-colors hover:text-gray-600"
+              className="ml-auto inline-flex min-h-[2.875rem] items-center text-xs font-medium text-muted-foreground transition-colors hover:text-secondary-foreground"
             >
               Clear all
             </button>
           )}
         </div>
       )}
-      {advanced && <div className="border-t border-gray-100 pt-4">{advanced}</div>}
+      {advanced && <div className="border-t border-border pt-4">{advanced}</div>}
       {chips}
     </div>
   );

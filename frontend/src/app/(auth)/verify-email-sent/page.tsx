@@ -66,56 +66,56 @@ export default function VerifyEmailSentPage() {
   }
 
   return (
-    <div className="min-h-full flex items-center justify-center bg-[#FAFAFA] px-4">
+    <div className="min-h-full flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-10">
           <Logo size={48} />
-          <p className="text-sm font-semibold tracking-[0.2em] text-[#224C87] mt-5">LEAP</p>
+          <p className="text-sm font-semibold tracking-[0.2em] text-primary mt-5">LEAP</p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-[#D9D9D9] p-8 text-center">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8 text-center">
 
           {/* Icon */}
           <div className="flex justify-center mb-5">
-            <div className="w-16 h-16 rounded-full bg-[#224C87]/8 flex items-center justify-center">
-              <Mail size={32} className="text-[#224C87]" strokeWidth={1.5} />
+            <div className="w-16 h-16 rounded-full bg-primary/8 flex items-center justify-center">
+              <Mail size={32} className="text-primary" strokeWidth={1.5} />
             </div>
           </div>
 
           {/* Heading */}
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">
+          <h1 className="text-xl font-semibold text-foreground mb-2">
             Check your email
           </h1>
-          <p className="text-sm text-gray-500 mb-5 leading-relaxed">
+          <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
             We sent a verification link to
           </p>
 
           {/* Email highlight */}
           {email && (
-            <div className="bg-[#F0F4FA] rounded-xl px-4 py-2.5 mb-6 inline-block w-full">
-              <span className="text-sm font-medium text-[#224C87] break-all">{email}</span>
+            <div className="bg-accent rounded-xl px-4 py-2.5 mb-6 inline-block w-full">
+              <span className="text-sm font-medium text-primary break-all">{email}</span>
             </div>
           )}
 
-          <p className="text-sm text-gray-500 mb-7 leading-relaxed">
+          <p className="text-sm text-muted-foreground mb-7 leading-relaxed">
             Click the link in the email to activate your account.
             <br />
-            <span className="text-gray-400 text-xs mt-1 block">
+            <span className="text-muted-foreground text-xs mt-1 block">
               Don&apos;t see it? Check your spam folder.
             </span>
           </p>
 
           {/* Resend feedback */}
           {resendSuccess && (
-            <p className="text-sm text-green-600 bg-green-50 rounded-xl px-3 py-2 mb-4">
+            <p className="text-sm text-green-600 bg-green-50 dark:bg-green-500/10 rounded-xl px-3 py-2 mb-4">
               New link sent! Check your inbox.
             </p>
           )}
           {resendError && (
-            <p role="alert" className="text-sm text-red-500 bg-red-50 rounded-xl px-3 py-2 mb-4">
+            <p role="alert" aria-live="polite" className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 rounded-xl px-3 py-2 mb-4">
               {resendError}
             </p>
           )}
@@ -138,7 +138,7 @@ export default function VerifyEmailSentPage() {
         <div className="flex justify-center mt-5">
           <Link
             href="/login"
-            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-[#224C87] transition-colors"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
           >
             <ArrowLeft size={14} />
             Back to login

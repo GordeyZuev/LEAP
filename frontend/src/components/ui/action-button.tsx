@@ -22,8 +22,8 @@ const SIZES: Record<NonNullable<ActionButtonProps["size"]>, string> = {
 };
 
 const VARIANTS: Record<NonNullable<ActionButtonProps["variant"]>, string> = {
-  primary:   "bg-[#224C87] text-white hover:bg-[#1a3d6e]",
-  secondary: "border border-[#D9D9D9] text-gray-600 hover:bg-gray-50",
+  primary:   "bg-primary text-primary-foreground hover:bg-primary-hover",
+  secondary: "border border-border text-secondary-foreground hover:bg-muted",
   danger:    "bg-red-500 text-white hover:bg-red-600",
   neutral:   "bg-gray-900 text-white hover:bg-gray-800",
 };

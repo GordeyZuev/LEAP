@@ -2,6 +2,72 @@
 
 ---
 
+## v0.10.5.0 (2026-07-01)
+
+Большое обновление веб-интерфейса — единая дизайн-система на семантических токенах, полноценная тёмная тема (Light / Dark / System), мобильная адаптация (выезжающий сайдбар-drawer, адаптивные таблицы/конфиги/модалки), слой анимаций и сквозная обратная связь на действиях — плюс рабочая система квот и учёта использования: реальный подсчёт хранилища из S3, hard limits, enforcement всех feature-флагов, история действий (`usage_events`) и расширенный Admin API.
+
+---
+
+## 2026-07-01: Frontend UX overhaul — design system, dark theme, mobile
+
+- **Семантическая токенизация** — весь хардкод цветов в `frontend/` переведён на дизайн-токены (`bg-card`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-primary` и т.д.), завязанные на CSS-переменные в `globals.css`. Это убрало ~460 brand-литералов и ~570 сырых grey/white-утилит, разблокировав смену темы/брендинга из одного места.
+- **Тёмная тема** — палитра `.dark` в `globals.css` + class-based `@custom-variant dark`; провайдер темы (`use-theme`, `lib/theme.ts`) с режимами **Light / Dark / System**, сохранением в `localStorage` и анти-FOUC inline-скриптом (`ThemeScript`) в `<head>`. Переключатель — в *Settings → Appearance*. Цветные поверхности (бейджи статусов, баннеры) получили dark-варианты.
+- **Мобильная адаптация** — сайдбар на `<lg` стал off-canvas drawer'ом со слайдом и backdrop, открывается из новой верхней панели с гамбургером (`AppShell`, `MobileTopBar`); закрывается по тапу/фону/Escape/смене роута. Адаптированы плотные сетки конфига платформ (`grid-cols-1 sm:…`), горизонтальный скролл таблиц, лендинг (hero/cta/сетки) и ширины модалок.
+- **Дизайн-система и состояния** — переиспользуемые `PageHeader`, `EmptyState`, `ErrorState`, `Skeleton`/`CardGridSkeleton`/`TableRowsSkeleton` заменили ad-hoc реализации; единые loading/empty/error на всех list-страницах и детальной странице записи.
+- **Анимации** — утилиты появления для модалок/дропдаунов/тостов/чипов в `globals.css`, всё под `@media (prefers-reduced-motion: reduce)`.
+- **Обратная связь** — подтверждающие тосты на действиях (run/pause/reset/restore/rename/upload/bind) на детальной странице и в automation; кнопка «Try again» в `ErrorState`.
+- **Доступность** — `aria-live` на ошибках auth-форм и тостах (`assertive` для ошибок), `aria-expanded` на сворачиваемых секциях, `role="radio"` на переключателе темы, `color-scheme` для нативных контролов.
+
+### Файлы
+
+- `frontend/src/app/globals.css` — токены света/тьмы, `@custom-variant dark`, keyframes/утилиты анимаций, `prefers-reduced-motion`, `color-scheme`
+- `frontend/src/lib/theme.ts`, `frontend/src/hooks/use-theme.ts`, `frontend/src/components/theme-script.tsx`, `frontend/src/components/ui/theme-toggle.tsx` — система темы
+- `frontend/src/components/layout/{app-shell,sidebar}.tsx` — мобильный drawer + верхняя панель
+- `frontend/src/components/ui/{page-header,empty-state,error-state,skeleton,list-skeleton}.tsx` — UI-примитивы
+- `frontend/src/app/(app)/**`, `frontend/src/components/**` — раскатка токенов/примитивов, адаптив, тосты, a11y
+- `frontend/src/app/layout.tsx` — `ThemeScript` в `<head>`, `suppressHydrationWarning`
+
+### Deploy
+
+Изменения только во `frontend/`. Миграций БД и изменений API-контракта нет. Достаточно пересобрать и задеплоить фронтенд (`pnpm build`).
+
+---
+
+## 2026-07-01: Quota, usage tracking & admin — полная реализация
+
+- **S3-aware расчёт хранилища** — `quota_service`, `stats_service` и admin-эндпоинты теперь считают объём через `storage.get_prefix_size()` (Yandex Object Storage / MinIO), а не обходом локального диска. Новый метод `get_prefix_size` добавлен в `base`/`s3` (один paginated `list_objects_v2`)/`local` (rglob) бэкенды. Префикс с trailing slash во избежание коллизий.
+- **Трекинг записей** — `QuotaService.track_recording_created()` вызывается после commit в `add_local_recording`, `add_video_by_url`, `add_playlist_by_url` (батч-инкремент по числу новых записей).
+- **Лимит одновременных задач** — `check_concurrent_tasks_quota` считает активные пайплайны напрямую из авторитетного флага `on_air` (сбрасывается при завершении, ошибке через `on_failure`, паузе и maintenance-свипе), а не из дрейфующего счётчика — drift-free и самовосстанавливается. `on_air` выставляется в оркестраторе `run_recording_task`, поэтому гейт одинаково покрывает manual / auto-run / bulk.
+- **Best-effort трекинг** — хуки аналитики (`usage_events`) и счётчиков обёрнуты в защиту: сбой записи логируется и проглатывается, никогда не роняя пайплайн или HTTP-запрос (запись/удаление уже закоммичены к этому моменту).
+- **Проверка квоты хранилища** — `check_storage_quota` подключена в зависимость `check_user_quotas` (HTTP 429 при превышении).
+- **Enforce всех feature-флагов** — фабрика `require_feature(...)` (валидирует имя флага на старте); enforced на запуске пайплайна / download / trim / тем / субтитров (`can_process_video`), транскрибации (`can_transcribe`), загрузке (`can_upload`), удалении (`can_delete_recordings`), экспорте (`can_export_data`) и управлении credentials (`can_manage_credentials`) — HTTP 403, **одинаково для single и bulk-эндпоинтов**. Все 8 флагов управляются через Admin API.
+- **Hard limits для пайплайна** — `check_processing_quota` (на `run_recording`) и `check_transcriptions_quota` (на `/transcribe`) дают быстрый 429; авторитетный гейт продублирован в Celery-задачах (`run_recording_task`, `_async_transcribe_recording`), чтобы auto-run/bulk/пайплайн не обходили лимит.
+- **usage_events** — новая таблица (ULID PK, FK на user/recording, `event_metadata` JSONB) + `UsageEventModel` + `UsageEventRepository`. Хуки событий: `recording_created`, `recording_deleted`, `processing_started/completed`, `transcription_completed`, `upload_completed`. Migration **030**.
+- **Расширенные квоты** — счётчики `transcriptions_count`, `processing_count`, `uploads_count` в `quota_usage`; лимиты `max_transcriptions_per_month`, `max_processing_per_month` в `subscription_plans` (NULL = безлимит) и в `DEFAULT_QUOTAS`. Migration **031**.
+- **Отображение использования** — `GET /me/quota` теперь заполняет `current_usage` (включая transcriptions/processing/uploads) и блоки `transcriptions`/`processing`; `SubscriptionPlanResponse` отдаёт новые лимиты.
+- **Admin API** — новые эндпоинты: `GET/PATCH /admin/users`, `GET /admin/users/{id}`, `GET /admin/users/{id}/events`, `GET/POST/PATCH /admin/users/{id}/subscription` (с полным `quota_status`), `GET/POST/PATCH /admin/plans`. `AdminUserProfile`/`AdminUserUpdate` покрывают все 8 feature-флагов.
+- **Удалён мёртвый код** — `api/middleware/quota.py` (101 строка, нигде не использовался).
+
+### Файлы
+
+- `backend/file_storage/backends/{base,s3,local}.py` — метод `get_prefix_size`
+- `backend/api/services/{quota_service,stats_service}.py` — async-расчёт хранилища, новые проверки квот, `current_usage`, derived concurrent count
+- `backend/api/routers/{recordings,admin,credentials}.py` — трекинг, feature-флаги, hard limits, admin-эндпоинты
+- `backend/api/auth/dependencies.py` — `check_storage_quota`, `require_feature`
+- `backend/api/repositories/{subscription_repos,usage_event_repo}.py` — счётчики, репозиторий событий
+- `backend/api/tasks/{processing,upload}.py` — хуки событий, счётчиков и task-level гейты
+- `backend/database/auth_models.py` — `UsageEventModel`, новые поля плана/usage
+- `backend/api/schemas/{admin,auth}/` — admin- и quota-схемы
+- `backend/config/settings.py` — новые ключи `DEFAULT_QUOTAS`
+- `backend/alembic/versions/030_add_usage_events.py`, `031_quota_usage_counters.py`
+
+### Deploy
+
+- Применить миграции в порядке: `make migrate` (028 → 029 → 030 → 031). Код и миграции выкатываются вместе.
+- Feature-флаги по умолчанию `True` для всех пользователей — enforcement не ломает существующий доступ.
+
+---
+
 ## v0.10.4.2 (2026-06-22)
 
 UI: улучшенный видеоплеер (Plyr), главы прямо в карточке видео, компактные артефакты-чипы, description.txt.

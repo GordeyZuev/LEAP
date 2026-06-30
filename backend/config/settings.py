@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.10.4.1", description="Application version")
+    version: str = Field(default="0.10.5.0", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -870,6 +870,8 @@ DEFAULT_QUOTAS: dict[str, int | None] = {
     "max_concurrent_tasks": None,
     "max_automation_jobs": None,
     "min_automation_interval_hours": None,
+    "max_transcriptions_per_month": None,
+    "max_processing_per_month": None,
 }
 
 

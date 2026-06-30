@@ -784,6 +784,16 @@ async def _async_upload_recording(
 
             await session.commit()
 
+            from api.tasks.processing import _increment_usage_counter, _track_event
+
+            await _increment_usage_counter(user_id, "upload")
+            await _track_event(
+                user_id,
+                "upload_completed",
+                recording_id=recording_id,
+                metadata={"platform": platform, "video_url": upload_result.video_url},
+            )
+
             logger.success(
                 f"Upload complete | {format_details(url=upload_result.video_url, video_id=upload_result.video_id, elapsed=f'{timing.duration_seconds:.1f}s')}"
             )

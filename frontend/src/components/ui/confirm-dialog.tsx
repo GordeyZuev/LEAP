@@ -31,10 +31,10 @@ export function ConfirmDialog({
   return (
     <Modal open={open} onClose={onCancel} labelledBy={titleId} panelClassName="max-w-sm">
       <div className="p-6">
-        <h2 id={titleId} className="text-base font-semibold text-gray-900 mb-2">
+        <h2 id={titleId} className="text-base font-semibold text-foreground mb-2">
           {title}
         </h2>
-        <p className="text-sm text-gray-500 mb-4">{description}</p>
+        <p className="text-sm text-muted-foreground mb-4">{description}</p>
         {children && <div className="mb-4">{children}</div>}
         <div className="flex gap-3 justify-end">
           <ActionButton variant="secondary" onClick={onCancel}>

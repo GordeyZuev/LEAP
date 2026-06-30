@@ -1,8 +1,9 @@
 """Admin statistics schemas"""
 
+from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AdminOverviewStats(BaseModel):
@@ -59,3 +60,77 @@ class AdminQuotaStats(BaseModel):
     total_storage_gb: float
     total_overage_cost: Decimal
     plans: list[PlanUsageStats]
+
+
+# ============================================================
+# Admin user management schemas
+# ============================================================
+
+
+class AdminUserProfile(BaseModel):
+    """Full user profile for admin view."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    user_slug: int
+    role: str
+    is_active: bool
+    can_transcribe: bool
+    can_process_video: bool
+    can_upload: bool
+    can_create_templates: bool
+    can_delete_recordings: bool
+    can_update_uploaded_videos: bool
+    can_manage_credentials: bool
+    can_export_data: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+
+class AdminUserUpdate(BaseModel):
+    """Patch payload for user attributes (admin only)."""
+
+    role: str | None = None
+    is_active: bool | None = None
+    can_transcribe: bool | None = None
+    can_process_video: bool | None = None
+    can_upload: bool | None = None
+    can_create_templates: bool | None = None
+    can_delete_recordings: bool | None = None
+    can_update_uploaded_videos: bool | None = None
+    can_manage_credentials: bool | None = None
+    can_export_data: bool | None = None
+
+
+class AdminUserListResponse(BaseModel):
+    total_count: int
+    users: list[AdminUserProfile]
+    page: int
+    page_size: int
+
+
+class UsageEventResponse(BaseModel):
+    """Single usage event for history view."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    event_type: str
+    recording_id: int | None = None
+    duration_seconds: float | None = None
+    bytes_delta: int | None = None
+    event_metadata: dict | None = None
+    created_at: datetime
+
+
+class AdminSubscriptionSet(BaseModel):
+    """Set or update a user's subscription."""
+
+    plan_id: int
+    custom_max_recordings_per_month: int | None = None
+    custom_max_storage_gb: int | None = None
+    custom_max_concurrent_tasks: int | None = None
+    custom_max_automation_jobs: int | None = None
+    custom_min_automation_interval_hours: int | None = None

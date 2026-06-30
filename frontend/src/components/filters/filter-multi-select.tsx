@@ -87,21 +87,21 @@ export function FilterMultiSelect<V extends string | number = number>({
         className={cn(
           FILTER_CONTROL,
           "flex w-full items-center justify-between gap-2 text-left font-medium",
-          n > 0 ? "border-[#224C87] bg-[#224C87]/10 text-[#224C87]" : "text-gray-700"
+          n > 0 ? "border-primary bg-primary/10 text-primary" : "text-secondary-foreground"
         )}
       >
         <span className="truncate">{n === 0 ? emptySummary : `${n} selected`}</span>
         <ChevronDown size={16} className={cn("shrink-0 opacity-60 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-[50] mt-1.5 max-h-[min(22rem,70vh)] w-[min(100vw-2rem,17rem)] overflow-auto rounded-2xl border border-[#D9D9D9] bg-white p-2 shadow-xl">
+        <div className="animate-dropdown-in absolute left-0 top-full z-[50] mt-1.5 max-h-[min(22rem,70vh)] w-[min(100vw-2rem,17rem)] overflow-auto rounded-2xl border border-border bg-card p-2 shadow-xl">
           {options.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-gray-400">No options available</p>
+            <p className="px-3 py-4 text-center text-xs text-muted-foreground">No options available</p>
           ) : (
             options.map((opt) => (
               <label
                 key={String(opt.value)}
-                className="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm hover:bg-gray-50"
+                className="flex cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm hover:bg-muted"
               >
                 <input
                   type="checkbox"
@@ -111,7 +111,7 @@ export function FilterMultiSelect<V extends string | number = number>({
                       cur.includes(opt.value) ? cur.filter((x) => x !== opt.value) : [...cur, opt.value]
                     )
                   }
-                  className="rounded accent-[#224C87]"
+                  className="rounded accent-[var(--primary)]"
                 />
                 <span className="truncate">{opt.label}</span>
               </label>

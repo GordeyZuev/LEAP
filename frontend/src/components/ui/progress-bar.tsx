@@ -16,7 +16,7 @@ export function ProgressBar(props: ProgressBarProps) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={value}
-      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-gray-100", className)}
+      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-muted", className)}
     >
       {variant === "determinate" && (
         <div

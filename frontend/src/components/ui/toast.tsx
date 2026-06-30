@@ -15,8 +15,10 @@ interface ToastProps {
 export function Toast({ type, message, exiting, onDismiss }: ToastProps) {
   return (
     <div
+      role="status"
+      aria-live={type === "error" ? "assertive" : "polite"}
       className={cn(
-        "fixed bottom-6 right-6 z-50 flex max-w-sm items-center gap-2.5 rounded-2xl border bg-white px-4 py-3 shadow-lg",
+        "fixed bottom-6 right-6 left-6 z-50 flex max-w-sm items-center gap-2.5 rounded-2xl border bg-card px-4 py-3 shadow-lg sm:left-auto",
         type === "success" && "border-green-200",
         type === "error"   && "border-red-200",
         type === "info"    && "border-blue-200",
@@ -39,7 +41,8 @@ export function Toast({ type, message, exiting, onDismiss }: ToastProps) {
       <button
         type="button"
         onClick={onDismiss}
-        className="ml-1 shrink-0 text-gray-400 hover:text-gray-600"
+        aria-label="Dismiss notification"
+        className="ml-auto shrink-0 text-muted-foreground hover:text-secondary-foreground"
       >
         <X size={14} />
       </button>

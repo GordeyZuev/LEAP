@@ -69,7 +69,7 @@ const UPLOAD_DOT: Record<string, string> = {
   UPLOADED:     "bg-green-400",
   UPLOADING:    "bg-blue-400 animate-pulse",
   FAILED:       "bg-red-400",
-  NOT_UPLOADED: "bg-gray-300",
+  NOT_UPLOADED: "bg-muted",
 };
 
 // ---------------------------------------------------------------------------
@@ -99,15 +99,15 @@ export function StatusDot({ status, failed, stages }: {
 
       {open && !!stages?.length && (
         <div className="absolute right-0 top-full z-30 pt-2">
-          <div className="w-44 overflow-hidden rounded-lg border border-gray-100 bg-white shadow-md">
-            <div className="border-t border-gray-100 px-3 py-2 space-y-1.5">
+          <div className="w-44 overflow-hidden rounded-lg border border-border bg-card shadow-md">
+            <div className="border-t border-border px-3 py-2 space-y-1.5">
               {STAGE_ORDER.map((key) => {
                 const st = stages.find((s) => s.stage_type === key);
                 const state = st?.failed ? "FAILED" : (st?.status ?? "PENDING");
                 const dotCls = cn("mt-px h-1.5 w-1.5 shrink-0 rounded-full",
                   state === "COMPLETED"   ? "bg-green-500" :
                   state === "IN_PROGRESS" ? "bg-blue-500 animate-pulse" :
-                  state === "FAILED"      ? "bg-red-500" : "bg-gray-200"
+                  state === "FAILED"      ? "bg-red-500" : "bg-muted"
                 );
                 const dur = st?.duration_seconds;
                 return (
@@ -116,12 +116,12 @@ export function StatusDot({ status, failed, stages }: {
                       <span className={dotCls} />
                       <span className={cn("flex-1 leading-none",
                         state === "FAILED"    ? "font-medium text-red-600" :
-                        state === "COMPLETED" ? "text-gray-600" : "text-gray-400"
+                        state === "COMPLETED" ? "text-secondary-foreground" : "text-muted-foreground"
                       )}>
                         {STAGE_NAME[key]}
                       </span>
                       {dur != null && (
-                        <span className="tabular-nums text-gray-400">
+                        <span className="tabular-nums text-muted-foreground">
                           {dur < 60 ? `${Math.round(dur)}s` : `${Math.floor(dur / 60)}m`}
                         </span>
                       )}
@@ -158,8 +158,8 @@ function MenuItem({ icon: Icon, label, onClick, danger }: {
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-gray-50",
-        danger ? "text-red-500 hover:bg-red-50" : "text-gray-700"
+        "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-muted",
+        danger ? "text-red-500 hover:bg-red-50 dark:bg-red-500/10" : "text-secondary-foreground"
       )}
     >
       <Icon size={13} />
@@ -229,11 +229,11 @@ export function RecordingCard({
 
   return (
     <div className={cn(
-      "group relative flex flex-col rounded-xl border bg-white transition-[box-shadow,border-color] duration-150",
+      "group relative flex flex-col rounded-xl border bg-card transition-[box-shadow,border-color] duration-150",
       isSoftDeleted && "opacity-60",
       selected
-        ? "border-[#224C87] ring-2 ring-[#224C87]/20 shadow-sm"
-        : "border-gray-200 hover:shadow-md"
+        ? "border-primary ring-2 ring-primary/20 shadow-sm"
+        : "border-border hover:shadow-md"
     )}>
       {/* ── Body ── */}
       <div className="flex flex-1 gap-2 px-3 pt-3 pb-3">
@@ -245,10 +245,10 @@ export function RecordingCard({
           className={cn(
             "mt-0.5 shrink-0 h-5 w-5 flex items-center justify-center rounded border-2 transition-opacity duration-150",
             selected
-              ? "border-[#224C87] bg-[#224C87] opacity-100"
+              ? "border-primary bg-primary opacity-100"
               : selectMode
-              ? "border-gray-300 bg-white opacity-100"
-              : "border-gray-300 bg-white opacity-0 group-hover:opacity-100"
+              ? "border-border bg-card opacity-100"
+              : "border-border bg-card opacity-0 group-hover:opacity-100"
           )}
         >
           {selected && (
@@ -271,7 +271,7 @@ export function RecordingCard({
                 if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
                 if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
               }}
-              className="mb-1.5 w-full rounded border border-[#224C87]/40 px-1.5 py-0.5 text-sm font-semibold text-gray-900 outline-none ring-1 ring-[#224C87]/30"
+              className="mb-1.5 w-full rounded border border-primary/40 px-1.5 py-0.5 text-sm font-semibold text-foreground outline-none ring-1 ring-primary/30"
               autoFocus
             />
           ) : (
@@ -281,7 +281,7 @@ export function RecordingCard({
                 title={r.display_name}
                 className={cn(
                   "line-clamp-2 text-sm font-semibold leading-snug [overflow-wrap:anywhere]",
-                  isSoftDeleted ? "text-gray-400 line-through" : "text-gray-900 hover:text-[#224C87]"
+                  isSoftDeleted ? "text-muted-foreground line-through" : "text-foreground hover:text-primary"
                 )}
               >
                 {r.display_name}
@@ -291,7 +291,7 @@ export function RecordingCard({
                   type="button"
                   onClick={startEdit}
                   title="Rename"
-                  className="mt-px shrink-0 text-gray-300 opacity-0 transition-opacity hover:text-[#224C87] group-hover/title:opacity-100"
+                  className="mt-px shrink-0 text-gray-300 opacity-0 transition-opacity hover:text-primary group-hover/title:opacity-100"
                 >
                   <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
                     <path d="M7.5 1.5L9.5 3.5L3.5 9.5H1.5V7.5L7.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
@@ -302,7 +302,7 @@ export function RecordingCard({
           )}
 
           {/* Meta */}
-          <p className="truncate text-xs text-gray-400">
+          <p className="truncate text-xs text-muted-foreground">
             {r.source?.type ?? "—"}
             {dur && <> · {dur}</>}
             {" · "}{formatDate(r.start_time)}
@@ -313,7 +313,7 @@ export function RecordingCard({
             <Link
               href={`/templates/${r.template_id}`}
               onClick={(e) => e.stopPropagation()}
-              className="mt-0.5 block truncate text-xs text-[#224C87]/60 hover:text-[#224C87]"
+              className="mt-0.5 block truncate text-xs text-primary/60 hover:text-primary"
             >
               {r.template_name ?? `Template #${r.template_id}`}
             </Link>
@@ -335,14 +335,14 @@ export function RecordingCard({
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-xs text-[#224C87] hover:underline"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                     >
                       {dot}{label}<ExternalLink size={9} className="opacity-40" />
                     </a>
                   );
                 }
                 return (
-                  <span key={platform} className="inline-flex items-center gap-1 text-xs text-gray-400">
+                  <span key={platform} className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                     {dot}{label}
                   </span>
                 );
@@ -358,13 +358,13 @@ export function RecordingCard({
       </div>
 
       {/* ── Footer: always visible ── */}
-      <div className="flex items-center gap-1.5 border-t border-gray-100 px-3 py-2">
+      <div className="flex items-center gap-1.5 border-t border-border px-3 py-2">
         {isSoftDeleted && onRestore ? (
           <button
             type="button"
             disabled={isLoading}
             onClick={() => onRestore(r.id)}
-            className="flex h-7 items-center gap-1.5 rounded-xl border border-green-200 px-3 text-xs font-medium text-green-600 hover:bg-green-50 disabled:opacity-50"
+            className="flex h-7 items-center gap-1.5 rounded-xl border border-green-200 px-3 text-xs font-medium text-green-600 hover:bg-green-50 dark:bg-green-500/10 disabled:opacity-50"
           >
             <ArchiveRestore size={12} /> Restore
           </button>
@@ -377,11 +377,11 @@ export function RecordingCard({
                 disabled={!r.can_run || isLoading}
                 onClick={() => onRun(r.id)}
                 className={cn(
-                  "flex h-7 items-center gap-1.5 border border-gray-200 px-3 text-xs font-medium text-gray-600 transition-colors",
+                  "flex h-7 items-center gap-1.5 border border-border px-3 text-xs font-medium text-secondary-foreground transition-colors",
                   "disabled:cursor-not-allowed disabled:opacity-40",
                   onRunWithConfig
-                    ? "rounded-l-xl border-r-0 hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
-                    : "rounded-xl hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
+                    ? "rounded-l-xl border-r-0 hover:border-primary hover:bg-primary hover:text-white"
+                    : "rounded-xl hover:border-primary hover:bg-primary hover:text-white"
                 )}
               >
                 <Play size={11} /> Run
@@ -392,7 +392,7 @@ export function RecordingCard({
                   disabled={isLoading}
                   onClick={() => onRunWithConfig(r.id)}
                   title="Run with config"
-                  className="flex h-7 w-7 items-center justify-center rounded-r-xl border border-gray-200 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600 disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-r-xl border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-secondary-foreground disabled:opacity-40"
                 >
                   <Settings2 size={11} />
                 </button>
@@ -407,14 +407,14 @@ export function RecordingCard({
                   type="button"
                   onClick={() => setMenuOpen((v) => !v)}
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-xl border border-gray-200 text-gray-400 transition-colors hover:bg-gray-50",
-                    menuOpen && "border-[#224C87]/30 bg-[#224C87]/5 text-[#224C87]"
+                    "flex h-7 w-7 items-center justify-center rounded-xl border border-border text-muted-foreground transition-colors hover:bg-muted",
+                    menuOpen && "border-primary/30 bg-primary/5 text-primary"
                   )}
                 >
                   <MoreHorizontal size={12} />
                 </button>
                 {menuOpen && (
-                  <div className="absolute bottom-full right-0 z-30 mb-1.5 w-40 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
+                  <div className="absolute bottom-full right-0 z-30 mb-1.5 w-40 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
                     {r.can_pause && (
                       <MenuItem icon={Pause} label="Pause" onClick={() => { setMenuOpen(false); onPause(r.id); }} />
                     )}
@@ -422,7 +422,7 @@ export function RecordingCard({
                       <MenuItem icon={RotateCcw} label="Reset" onClick={() => { setMenuOpen(false); onReset(r.id); }} />
                     )}
                     {(r.can_pause || onReset) && onDelete && (
-                      <div className="my-1 border-t border-gray-100" />
+                      <div className="my-1 border-t border-border" />
                     )}
                     {onDelete && (
                       <MenuItem icon={Trash2} label="Delete" onClick={() => { setMenuOpen(false); onDelete(r.id); }} danger />

@@ -26,7 +26,7 @@ export function SearchInput({
     <div className={cn("min-w-0", className)}>
       <label htmlFor={id} className={FILTER_LABEL}>{label}</label>
       <div className="relative">
-        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
           id={id}
           type="search"

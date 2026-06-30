@@ -6,10 +6,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.schemas.user.stats import StatsPeriod, TemplateStats, UserStatsResponse
-from config.settings import get_settings
 from database.models import RecordingModel
 from database.template_models import RecordingTemplateModel
-from file_storage.path_builder import StoragePathBuilder
+from file_storage.factory import get_storage_backend
 from logger import get_logger
 from models.recording import ProcessingStatus
 
@@ -44,7 +43,7 @@ class StatsService:
         by_status = await self._count_by_status(base_filter)
         by_template = await self._count_ready_by_template(base_filter)
         transcription_seconds = await self._sum_transcription_seconds(base_filter)
-        storage_bytes = self._calc_storage_bytes(user_slug)
+        storage_bytes = await self._calc_storage_bytes(user_slug)
 
         period = None
         if from_date or to_date:
@@ -99,7 +98,5 @@ class StatsService:
         return float(result) if result else 0.0
 
     @staticmethod
-    def _calc_storage_bytes(user_slug: int) -> int:
-        settings = get_settings()
-        builder = StoragePathBuilder(settings.storage.local_path)
-        return builder.calc_user_storage_bytes(user_slug)
+    async def _calc_storage_bytes(user_slug: int) -> int:
+        return await get_storage_backend().get_prefix_size(f"users/user_{user_slug:06d}/")

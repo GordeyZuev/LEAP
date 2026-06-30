@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { FilterBar } from "@/components/filters/filter-bar";
@@ -12,6 +12,10 @@ import { SortControl } from "@/components/filters/sort-control";
 import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
 import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
 import { Pagination } from "@/components/ui/pagination";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { CardGridSkeleton } from "@/components/ui/list-skeleton";
 import { usePlatforms } from "@/hooks/use-references";
 import { PER_PAGE_PRESETS } from "@/lib/constants";
 
@@ -41,9 +45,9 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
-  youtube: "bg-red-100 text-red-600",
-  vk: "bg-blue-100 text-blue-600",
-  yandex_disk: "bg-yellow-100 text-yellow-700",
+  youtube: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-300",
+  vk: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
+  yandex_disk: "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300",
 };
 
 const SORT_OPTIONS = [
@@ -92,7 +96,7 @@ interface PresetsPagedGridProps {
 }
 
 function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, onPageChange }: PresetsPagedGridProps) {
-  const { data, isLoading, error } = useQuery<PresetListResponse>({
+  const { data, isLoading, error, refetch } = useQuery<PresetListResponse>({
     queryKey: ["presets", platforms, activeFilter, sortBy, sortOrder, page],
     queryFn: async () => {
       const p = new URLSearchParams();
@@ -122,20 +126,20 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, on
 
   return (
     <>
-      {isLoading && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-28 animate-pulse rounded-2xl border border-[#D9D9D9] bg-white" />
-          ))}
-        </div>
-      )}
+      {isLoading && <CardGridSkeleton />}
 
-      {error && <p className="text-sm text-red-400">Failed to load presets</p>}
+      {error && <ErrorState description="Failed to load presets" onRetry={() => refetch()} />}
 
       {!isLoading && !error && presets.length === 0 && (
-        <p className="py-16 text-center text-sm text-gray-400">
-          {platforms.length || activeFilter !== "all" ? "No presets match your filters" : "No presets yet"}
-        </p>
+        <EmptyState
+          icon={Package}
+          title={platforms.length || activeFilter !== "all" ? "No presets match your filters" : "No presets yet"}
+          description={
+            platforms.length || activeFilter !== "all"
+              ? "Try adjusting or clearing the filters above."
+              : "Presets capture per-platform upload settings. Create one to get started."
+          }
+        />
       )}
 
       {!isLoading && !error && presets.length > 0 && (
@@ -144,22 +148,22 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, on
             <Link
               key={p.id}
               href={`/presets/${p.id}`}
-              className="flex flex-col gap-3 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm transition-all hover:border-[#224C87]/30 hover:shadow-md"
+              className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="flex-1 text-sm font-semibold text-gray-900">{p.name}</span>
+                <span className="flex-1 text-sm font-semibold text-foreground">{p.name}</span>
                 <span
                   className={cn(
                     "inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                    PLATFORM_COLORS[p.platform] ?? "bg-gray-100 text-gray-500"
+                    PLATFORM_COLORS[p.platform] ?? "bg-muted text-muted-foreground"
                   )}
                 >
                   {PLATFORM_LABELS[p.platform] ?? p.platform}
                 </span>
               </div>
-              {p.description && <p className="line-clamp-2 text-xs text-gray-400">{p.description}</p>}
+              {p.description && <p className="line-clamp-2 text-xs text-muted-foreground">{p.description}</p>}
               <div className="mt-auto flex items-center justify-between">
-                <span className={cn("text-xs font-medium", p.is_active ? "text-green-600" : "text-gray-400")}>
+                <span className={cn("text-xs font-medium", p.is_active ? "text-green-600" : "text-muted-foreground")}>
                   {p.is_active ? "Active" : "Inactive"}
                 </span>
               </div>
@@ -233,15 +237,17 @@ function PresetsContent() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-5 flex min-h-[2.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Output Presets</h1>
-        <Link
-          href="/presets/new"
-          className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e]"
-        >
-          <Plus size={16} /> New preset
-        </Link>
-      </div>
+      <PageHeader
+        title="Output Presets"
+        actions={
+          <Link
+            href="/presets/new"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+          >
+            <Plus size={16} /> New preset
+          </Link>
+        }
+      />
 
       {/* Filters */}
       <FilterBar
@@ -309,7 +315,7 @@ function PresetsContent() {
 
 export default function PresetsPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-sm text-gray-400">Loading presets…</div>}>
+    <Suspense fallback={<div className="p-8 text-sm text-muted-foreground">Loading presets…</div>}>
       <PresetsContent />
     </Suspense>
   );

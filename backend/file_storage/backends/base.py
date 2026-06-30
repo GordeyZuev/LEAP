@@ -69,6 +69,20 @@ class StorageBackend(ABC):
         """
         raise NotImplementedError("This backend does not implement list_keys")
 
+    async def get_prefix_size(self, prefix: str) -> int:
+        """Total bytes for all objects under ``prefix``.
+
+        Default implementation iterates ``list_keys`` and calls ``get_size``
+        per key (N+1 requests). Override in backends for efficiency.
+        """
+        total = 0
+        for key in await self.list_keys(prefix):
+            try:
+                total += await self.get_size(key)
+            except FileNotFoundError:
+                pass
+        return total
+
     async def health_check(self) -> None:
         """Verify the backend is reachable. Raises on failure."""
         raise NotImplementedError("This backend does not implement health_check")

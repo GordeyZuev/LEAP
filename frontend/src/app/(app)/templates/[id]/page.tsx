@@ -155,7 +155,7 @@ const DEFAULT_FORM: TemplateFormData = {
   },
 };
 
-const INP = "w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors bg-white";
+const INP = "w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors bg-card";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -457,10 +457,10 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   // Derived status label
   const statusLabel = form.is_draft ? "Draft" : form.is_active ? "Active" : "Inactive";
   const statusColor = form.is_draft
-    ? "bg-yellow-100 text-yellow-700"
+    ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300"
     : form.is_active
-      ? "bg-green-100 text-green-700"
-      : "bg-gray-100 text-gray-500";
+      ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
+      : "bg-muted text-muted-foreground";
 
   const isDirty =
     JSON.stringify({ form, ytFields, vkFields, ydFields, globalThumbnail }) !== savedSnapshot;
@@ -479,12 +479,12 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             if (isDirty) { setPendingHref("/templates"); setConfirmLeave(true); }
             else router.push("/templates");
           }}
-          className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-secondary-foreground"
         >
           <ArrowLeft size={16} /> Templates
         </button>
         <span className="text-gray-300">/</span>
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900">
+        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-foreground">
           {isNew ? "New template" : (existing?.name ?? "…")}
         </h1>
 
@@ -495,7 +495,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         )}
 
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteTemplate.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50">
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteTemplate.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10">
             Delete
           </ActionButton>
         )}
@@ -597,7 +597,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   {sources.map((s) => (
                     <label
                       key={s.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#D9D9D9] p-3 transition-colors hover:bg-gray-50"
+                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted"
                     >
                       <input
                         type="checkbox"
@@ -608,22 +608,22 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                             : form.matching_rules.source_ids.filter((x) => x !== s.id);
                           setMR("source_ids", ids);
                         }}
-                        className="rounded accent-[#224C87]"
+                        className="rounded accent-primary"
                       />
-                      <span className="flex-1 text-sm font-medium text-gray-900">{s.name}</span>
-                      {s.source_type && <span className="text-xs text-gray-400">{s.source_type}</span>}
+                      <span className="flex-1 text-sm font-medium text-foreground">{s.name}</span>
+                      {s.source_type && <span className="text-xs text-muted-foreground">{s.source_type}</span>}
                     </label>
                   ))}
                 </div>
               </Field>
             )}
 
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-600">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-secondary-foreground">
               <input
                 type="checkbox"
                 checked={form.matching_rules.case_sensitive}
                 onChange={(e) => setMR("case_sensitive", e.target.checked)}
-                className="rounded accent-[#224C87]"
+                className="rounded accent-primary"
               />
               Case-sensitive matching
             </label>
@@ -682,7 +682,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 max={20}
                 value={form.processing_config.questions_count}
                 onChange={(e) => setPC("questions_count", parseInt(e.target.value, 10) || 0)}
-                className="w-32 rounded-xl border border-[#D9D9D9] px-3 py-2.5 text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10"
+                className="w-32 rounded-xl border border-border px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
               />
             </Field>
 
@@ -703,7 +703,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   {presets.map((p) => (
                     <label
                       key={p.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#D9D9D9] p-3 transition-colors hover:bg-gray-50"
+                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted"
                     >
                       <input
                         type="checkbox"
@@ -714,18 +714,18 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                             : form.output_config.preset_ids.filter((x) => x !== p.id);
                           setOC("preset_ids", ids);
                         }}
-                        className="rounded accent-[#224C87]"
+                        className="rounded accent-primary"
                       />
-                      <span className="flex-1 text-sm font-medium text-gray-900">{p.name}</span>
-                      <span className="text-xs capitalize text-gray-400">{p.platform}</span>
+                      <span className="flex-1 text-sm font-medium text-foreground">{p.name}</span>
+                      <span className="text-xs capitalize text-muted-foreground">{p.platform}</span>
                     </label>
                   ))}
                 </div>
               </Field>
             ) : (
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-muted-foreground">
                 No presets yet.{" "}
-                <Link href="/presets/new" className="text-[#224C87] hover:underline">
+                <Link href="/presets/new" className="text-primary hover:underline">
                   Create one →
                 </Link>
               </p>
@@ -744,7 +744,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
           {/* Metadata */}
           <Section title="Metadata templates">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Global</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
 
             <ThumbnailPicker
               label="Cover image (all platforms)"
@@ -798,7 +798,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               }
             />
 
-            <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+            <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Platform overrides
             </p>
             <PlatformSection label="YouTube">
@@ -818,7 +818,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   <button
                     type="button"
                     onClick={() => setYtFields((f) => ({ ...f, description_template: tpl }))}
-                    className="mt-1 text-xs text-[#224C87] hover:underline"
+                    className="mt-1 text-xs text-primary hover:underline"
                   >
                     ← Fill description from preset
                   </button>
@@ -843,7 +843,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   <button
                     type="button"
                     onClick={() => setVkFields((f) => ({ ...f, description_template: tpl }))}
-                    className="mt-1 text-xs text-[#224C87] hover:underline"
+                    className="mt-1 text-xs text-primary hover:underline"
                   >
                     ← Fill description from preset
                   </button>
@@ -863,8 +863,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         <div className="w-full space-y-4 lg:w-72 lg:shrink-0">
 
           {/* Status & activation */}
-          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Status</h2>
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</h2>
 
             <div className="mb-4 flex items-center gap-2">
               <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium", statusColor)}>
@@ -874,8 +874,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
             <div className="space-y-1">
               {/* Draft toggle */}
-              <label className="flex cursor-pointer items-center justify-between rounded-xl px-2 py-2 transition-colors hover:bg-gray-50">
-                <span className="text-sm text-gray-700">Draft</span>
+              <label className="flex cursor-pointer items-center justify-between rounded-xl px-2 py-2 transition-colors hover:bg-muted">
+                <span className="text-sm text-secondary-foreground">Draft</span>
                 <button
                   type="button"
                   onClick={() =>
@@ -888,7 +888,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   }
                   className={cn(
                     "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                    form.is_draft ? "bg-yellow-400" : "bg-gray-200",
+                    form.is_draft ? "bg-yellow-400" : "bg-muted",
                   )}
                 >
                   <span
@@ -904,17 +904,17 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               <label
                 className={cn(
                   "flex items-center justify-between rounded-xl px-2 py-2 transition-colors",
-                  form.is_draft ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-gray-50",
+                  form.is_draft ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-muted",
                 )}
               >
-                <span className="text-sm text-gray-700">Active</span>
+                <span className="text-sm text-secondary-foreground">Active</span>
                 <button
                   type="button"
                   disabled={form.is_draft}
                   onClick={() => setForm((f) => ({ ...f, is_active: !f.is_active }))}
                   className={cn(
                     "relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed",
-                    form.is_active ? "bg-[#224C87]" : "bg-gray-200",
+                    form.is_active ? "bg-primary" : "bg-muted",
                   )}
                 >
                   <span
@@ -928,7 +928,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </div>
 
             {form.is_draft && (
-              <p className="mt-2 text-[11px] text-gray-400">
+              <p className="mt-2 text-[11px] text-muted-foreground">
                 Disable Draft to be able to activate the template.
               </p>
             )}
@@ -936,8 +936,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
           {/* Info */}
           {!isNew && existing && (
-            <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Info</h2>
+            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Info</h2>
               <div className="space-y-2 text-sm">
                 <InfoRow label="Used" value={`${existing.used_count ?? 0}×`} />
                 {existing.last_used_at && (
@@ -1010,37 +1010,37 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={(e) => { if (e.currentTarget === e.target) setMatchPreviewOpen(false); }}
         >
-          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl" style={{ maxHeight: "85vh" }}>
-            <div className="flex items-center justify-between border-b border-[#D9D9D9] px-5 py-4">
-              <h2 className="text-sm font-semibold text-gray-900">Preview matching recordings</h2>
-              <button type="button" onClick={() => setMatchPreviewOpen(false)} className="text-gray-400 hover:text-gray-600">
+          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-card shadow-xl" style={{ maxHeight: "85vh" }}>
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h2 className="text-sm font-semibold text-foreground">Preview matching recordings</h2>
+              <button type="button" onClick={() => setMatchPreviewOpen(false)} className="text-muted-foreground hover:text-secondary-foreground">
                 <X size={16} />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-5">
               {matchPreviewLoading && (
                 <div className="flex items-center justify-center py-12">
-                  <RefreshCw size={20} className="animate-spin text-gray-400" />
+                  <RefreshCw size={20} className="animate-spin text-muted-foreground" />
                 </div>
               )}
               {!matchPreviewLoading && matchPreviewData && (
                 <>
-                  <p className="mb-4 text-xs text-gray-500">
-                    Checked <span className="font-medium text-gray-700">{matchPreviewData.total_checked}</span> recordings —{" "}
-                    <span className="font-medium text-[#224C87]">{matchPreviewData.will_match_count}</span> would match.
+                  <p className="mb-4 text-xs text-muted-foreground">
+                    Checked <span className="font-medium text-secondary-foreground">{matchPreviewData.total_checked}</span> recordings —{" "}
+                    <span className="font-medium text-primary">{matchPreviewData.will_match_count}</span> would match.
                   </p>
                   {matchPreviewData.will_match.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-gray-400">No recordings would match.</p>
+                    <p className="py-8 text-center text-sm text-muted-foreground">No recordings would match.</p>
                   ) : (
-                    <div className="divide-y divide-[#F5F5F5]">
+                    <div className="divide-y divide-muted">
                       {matchPreviewData.will_match.map((r) => (
                         <div key={r.id} className="flex items-center justify-between gap-3 py-2.5">
-                          <Link href={`/recordings/${r.id}`} className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 hover:text-[#224C87]">
+                          <Link href={`/recordings/${r.id}`} className="min-w-0 flex-1 truncate text-sm font-medium text-foreground hover:text-primary">
                             {r.display_name}
                           </Link>
                           <span className={cn(
                             "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                            r.current_is_mapped ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
+                            r.current_is_mapped ? "bg-green-50 dark:bg-green-500/10 text-green-700" : "bg-muted text-muted-foreground"
                           )}>
                             {r.current_is_mapped ? "already mapped" : "will map"}
                           </span>
@@ -1049,7 +1049,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                     </div>
                   )}
                   {matchPreviewData.note && (
-                    <p className="mt-4 text-xs italic text-gray-400">{matchPreviewData.note}</p>
+                    <p className="mt-4 text-xs italic text-muted-foreground">{matchPreviewData.note}</p>
                   )}
                 </>
               )}
@@ -1067,8 +1067,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-4 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-      <h2 className="text-sm font-semibold text-gray-700">{title}</h2>
+    <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <h2 className="text-sm font-semibold text-secondary-foreground">{title}</h2>
       {children}
     </div>
   );
@@ -1077,8 +1077,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="mb-1.5 block text-sm font-medium text-gray-700">{label}</label>
-      {hint && <p className="mb-2 text-xs text-gray-400">{hint}</p>}
+      <label className="mb-1.5 block text-sm font-medium text-secondary-foreground">{label}</label>
+      {hint && <p className="mb-2 text-xs text-muted-foreground">{hint}</p>}
       {children}
     </div>
   );
@@ -1095,13 +1095,13 @@ function Toggle({
 }) {
   return (
     <label className="flex cursor-pointer items-center justify-between py-2">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <span className="text-sm font-medium text-secondary-foreground">{label}</span>
       <button
         type="button"
         onClick={() => onChange(!checked)}
         className={cn(
           "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-          checked ? "bg-[#224C87]" : "bg-gray-200",
+          checked ? "bg-primary" : "bg-muted",
         )}
       >
         <span
@@ -1118,20 +1118,20 @@ function Toggle({
 function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA]">
+    <div className="rounded-xl border border-border bg-background">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900"
+        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
       >
         {label}
         <ChevronDown
           size={15}
-          className={cn("shrink-0 text-gray-400 transition-transform", open && "rotate-180")}
+          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
         />
       </button>
       {open && (
-        <div className="space-y-3 border-t border-[#EAEAEA] px-4 pb-4 pt-3">
+        <div className="space-y-3 border-t border-border px-4 pb-4 pt-3">
           {children}
         </div>
       )}
@@ -1142,8 +1142,8 @@ function PlatformSection({ label, children }: { label: string; children: React.R
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-gray-500">{label}</span>
-      <span className="font-medium text-gray-900">{value}</span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }

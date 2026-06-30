@@ -15,7 +15,7 @@ export default function RootPage() {
   }, [status, router]);
 
   if (status === "checking" || status === "authenticated") {
-    return <div className="min-h-screen bg-[#FAFAFA]" />;
+    return <div className="min-h-screen bg-background" />;
   }
 
   return <LandingPage />;

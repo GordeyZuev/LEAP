@@ -47,8 +47,8 @@ function ThumbnailImage({ name, size }: { name: string; size?: string }) {
 
   if (!blobUrl) {
     return (
-      <div className="flex h-full w-full items-center justify-center rounded-lg bg-gray-100">
-        <Loader2 size={14} className="animate-spin text-gray-400" />
+      <div className="flex h-full w-full items-center justify-center rounded-lg bg-muted">
+        <Loader2 size={14} className="animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -81,7 +81,7 @@ function SmallThumbPreview({ name }: { name: string }) {
   }, [name]);
 
   if (!blobUrl) {
-    return <div className="h-6 w-10 shrink-0 animate-pulse rounded bg-gray-100" />;
+    return <div className="h-6 w-10 shrink-0 animate-pulse rounded bg-muted" />;
   }
 
   return (
@@ -197,19 +197,19 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
           {value ? (
             <>
               <SmallThumbPreview name={value} />
-              <span className="flex-1 truncate text-sm text-gray-800">{value}</span>
+              <span className="flex-1 truncate text-sm text-foreground">{value}</span>
               <button
                 type="button"
                 onClick={() => onChange("")}
-                className="shrink-0 text-gray-400 hover:text-gray-600"
+                className="shrink-0 text-muted-foreground hover:text-secondary-foreground"
               >
                 <X size={14} />
               </button>
             </>
           ) : (
             <>
-              <ImageIcon size={14} className="shrink-0 text-gray-400" />
-              <span className="flex-1 truncate text-sm text-gray-400">{placeholder}</span>
+              <ImageIcon size={14} className="shrink-0 text-muted-foreground" />
+              <span className="flex-1 truncate text-sm text-muted-foreground">{placeholder}</span>
             </>
           )}
         </div>
@@ -224,10 +224,10 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
           onClick={(e) => { if (e.target === overlayRef.current) setOpen(false); }}
         >
-          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-white shadow-xl" style={{ maxHeight: "90vh" }}>
-            <div className="flex items-center justify-between border-b border-[#D9D9D9] px-5 py-4">
-              <h2 className="text-sm font-semibold text-gray-900">Select thumbnail</h2>
-              <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600">
+          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-card shadow-xl" style={{ maxHeight: "90vh" }}>
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h2 className="text-sm font-semibold text-foreground">Select thumbnail</h2>
+              <button type="button" onClick={() => setOpen(false)} className="text-muted-foreground hover:text-secondary-foreground">
                 <X size={16} />
               </button>
             </div>
@@ -235,33 +235,33 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
             <div className="flex-1 overflow-y-auto p-5">
               {isLoading && (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 size={20} className="animate-spin text-gray-400" />
+                  <Loader2 size={20} className="animate-spin text-muted-foreground" />
                 </div>
               )}
 
               {!isLoading && thumbnails.length === 0 && (
-                <p className="py-8 text-center text-sm text-gray-400">No thumbnails yet. Upload one below.</p>
+                <p className="py-8 text-center text-sm text-muted-foreground">No thumbnails yet. Upload one below.</p>
               )}
 
               {!isLoading && thumbnails.length > 0 && (
-                <div className="mb-5 grid grid-cols-3 gap-3">
+                <div className="mb-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {thumbnails.map((t) => (
                     <div
                       key={t.name}
                       className={cn(
                         "group relative cursor-pointer rounded-xl border-2 transition-all",
                         value === t.name
-                          ? "border-[#224C87] shadow-md"
-                          : "border-[#D9D9D9] hover:border-[#224C87]/50"
+                          ? "border-primary shadow-md"
+                          : "border-border hover:border-primary/50"
                       )}
                       onClick={() => { onChange(t.name); setOpen(false); }}
                     >
                       <div className="aspect-video overflow-hidden rounded-[10px]">
                         <ThumbnailImage name={t.name} size={`${t.size_kb.toFixed(1)} KB`} />
                       </div>
-                      <p className="truncate px-2 pb-2 pt-1 text-[10px] text-gray-500">{t.name}</p>
+                      <p className="truncate px-2 pb-2 pt-1 text-[10px] text-muted-foreground">{t.name}</p>
                       {value === t.name && (
-                        <div className="absolute right-1.5 top-1.5 rounded-full bg-[#224C87] p-0.5 text-white">
+                        <div className="absolute right-1.5 top-1.5 rounded-full bg-primary p-0.5 text-white">
                           <Check size={10} />
                         </div>
                       )}
@@ -270,7 +270,7 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
                         title="Delete"
                         onClick={(e) => { e.stopPropagation(); deleteThumbnail.mutate(t.name); }}
                         disabled={deleteThumbnail.isPending}
-                        className="absolute left-1.5 top-1.5 hidden rounded-full bg-white/90 p-1 text-red-500 shadow hover:bg-red-50 group-hover:flex"
+                        className="absolute left-1.5 top-1.5 hidden rounded-full bg-white/90 p-1 text-red-500 shadow hover:bg-red-50 dark:bg-red-500/10 group-hover:flex"
                       >
                         <Trash2 size={10} />
                       </button>
@@ -279,8 +279,8 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
                 </div>
               )}
 
-              <div className="space-y-3 rounded-xl border border-[#D9D9D9] bg-gray-50 p-4">
-                <p className="text-xs font-semibold text-gray-600">Upload new thumbnail</p>
+              <div className="space-y-3 rounded-xl border border-border bg-muted p-4">
+                <p className="text-xs font-semibold text-secondary-foreground">Upload new thumbnail</p>
                 <input
                   ref={fileRef}
                   type="file"
@@ -296,14 +296,14 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
                   className={cn(
                     "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-5 transition-colors",
                     isDragging
-                      ? "border-[#224C87] bg-[#224C87]/5"
+                      ? "border-primary bg-primary/5"
                       : uploadFile
-                        ? "border-[#224C87]/40 bg-[#224C87]/5"
-                        : "border-[#D9D9D9] hover:border-[#224C87]/40 hover:bg-white"
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-border hover:border-primary/40 hover:bg-card"
                   )}
                 >
-                  <Upload size={18} className={uploadFile ? "text-[#224C87]" : "text-gray-400"} />
-                  <p className="text-center text-xs text-gray-500">
+                  <Upload size={18} className={uploadFile ? "text-primary" : "text-muted-foreground"} />
+                  <p className="text-center text-xs text-muted-foreground">
                     {uploadFile ? uploadFile.name : "Drag image here or click to choose"}
                   </p>
                 </div>

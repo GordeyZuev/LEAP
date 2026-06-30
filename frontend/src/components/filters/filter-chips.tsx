@@ -10,13 +10,13 @@ export interface FilterChipItem {
 
 function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-[#224C87]/20 bg-[#224C87]/5 py-1 pl-3 pr-1.5 text-xs font-medium text-[#224C87]">
+    <span className="animate-toast-in inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 py-1 pl-3 pr-1.5 text-xs font-medium text-primary">
       <span className="max-w-[14rem] truncate">{label}</span>
       <button
         type="button"
         onClick={onRemove}
         aria-label={`Remove ${label}`}
-        className="rounded-full p-0.5 text-[#224C87]/70 transition-colors hover:bg-[#224C87]/15 hover:text-[#224C87]"
+        className="rounded-full p-0.5 text-primary/70 transition-colors hover:bg-primary/15 hover:text-primary"
       >
         <X size={12} />
       </button>

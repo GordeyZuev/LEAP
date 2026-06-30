@@ -41,26 +41,26 @@ export default function VerifyEmailPage() {
   }, [token, router]);
 
   return (
-    <div className="min-h-full flex items-center justify-center bg-[#FAFAFA] px-4">
+    <div className="min-h-full flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-10">
           <Logo size={48} />
-          <p className="text-sm font-semibold tracking-[0.2em] text-[#224C87] mt-5">LEAP</p>
+          <p className="text-sm font-semibold tracking-[0.2em] text-primary mt-5">LEAP</p>
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-[#D9D9D9] p-8 text-center">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8 text-center">
 
           {/* Verifying */}
           {state === "verifying" && (
             <>
               <div className="flex justify-center mb-5">
-                <Loader2 size={40} className="text-[#224C87] animate-spin" strokeWidth={1.5} />
+                <Loader2 size={40} className="text-primary animate-spin" strokeWidth={1.5} />
               </div>
-              <h1 className="text-xl font-semibold text-gray-900 mb-2">Verifying your email…</h1>
-              <p className="text-sm text-gray-500">Just a moment, please.</p>
+              <h1 className="text-xl font-semibold text-foreground mb-2">Verifying your email…</h1>
+              <p className="text-sm text-muted-foreground">Just a moment, please.</p>
             </>
           )}
 
@@ -68,12 +68,12 @@ export default function VerifyEmailPage() {
           {state === "success" && (
             <>
               <div className="flex justify-center mb-5">
-                <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-full bg-green-50 dark:bg-green-500/10 flex items-center justify-center">
                   <CheckCircle2 size={36} className="text-green-500" strokeWidth={1.5} />
                 </div>
               </div>
-              <h1 className="text-xl font-semibold text-gray-900 mb-2">Email verified!</h1>
-              <p className="text-sm text-gray-500 mb-7 leading-relaxed">
+              <h1 className="text-xl font-semibold text-foreground mb-2">Email verified!</h1>
+              <p className="text-sm text-muted-foreground mb-7 leading-relaxed">
                 Your account is now active. Redirecting you to the login page…
               </p>
               <ActionButton
@@ -89,12 +89,12 @@ export default function VerifyEmailPage() {
           {state === "error" && (
             <>
               <div className="flex justify-center mb-5">
-                <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-full bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
                   <XCircle size={36} className="text-red-400" strokeWidth={1.5} />
                 </div>
               </div>
-              <h1 className="text-xl font-semibold text-gray-900 mb-2">Link invalid</h1>
-              <p className="text-sm text-gray-500 mb-7 leading-relaxed">{errorMsg}</p>
+              <h1 className="text-xl font-semibold text-foreground mb-2">Link invalid</h1>
+              <p className="text-sm text-muted-foreground mb-7 leading-relaxed">{errorMsg}</p>
               <Link href="/login">
                 <ActionButton className="w-full justify-center py-2.5">
                   Back to login
@@ -107,9 +107,9 @@ export default function VerifyEmailPage() {
 
         {/* Resend link — only shown on error */}
         {state === "error" && (
-          <p className="text-center text-sm text-gray-500 mt-4">
+          <p className="text-center text-sm text-muted-foreground mt-4">
             Need a new link?{" "}
-            <Link href="/login" className="text-[#224C87] font-medium hover:underline">
+            <Link href="/login" className="text-primary font-medium hover:underline">
               Sign in to resend
             </Link>
           </p>

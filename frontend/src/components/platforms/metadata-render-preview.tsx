@@ -18,7 +18,7 @@ export function MetadataPreviewResultBox({ preview }: { preview: MetadataRenderP
     <div
       className={cn(
         "rounded-xl border p-4 text-sm",
-        preview.valid ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50",
+        preview.valid ? "border-green-200 bg-green-50 dark:bg-green-500/10" : "border-red-200 bg-red-50 dark:bg-red-500/10",
       )}
     >
       {preview.errors.length > 0 && (
@@ -41,30 +41,30 @@ export function MetadataPreviewResultBox({ preview }: { preview: MetadataRenderP
       )}
       {preview.rendered_title ? (
         <div className="mb-2">
-          <p className="mb-1 text-xs text-gray-500">Title:</p>
-          <p className="font-medium text-gray-900">{preview.rendered_title}</p>
+          <p className="mb-1 text-xs text-muted-foreground">Title:</p>
+          <p className="font-medium text-foreground">{preview.rendered_title}</p>
         </div>
       ) : null}
       {preview.rendered_description ? (
         <div
           className={cn(preview.rendered_folder_path ?? preview.rendered_filename ? "mb-2" : undefined)}
         >
-          <p className="mb-1 text-xs text-gray-500">Description:</p>
-          <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700">
+          <p className="mb-1 text-xs text-muted-foreground">Description:</p>
+          <pre className="whitespace-pre-wrap font-sans text-xs text-secondary-foreground">
             {preview.rendered_description}
           </pre>
         </div>
       ) : null}
       {preview.rendered_folder_path ? (
         <div className={cn(preview.rendered_filename ? "mb-2" : undefined)}>
-          <p className="mb-1 text-xs text-gray-500">Folder path:</p>
-          <p className="font-mono text-xs text-gray-800">{preview.rendered_folder_path}</p>
+          <p className="mb-1 text-xs text-muted-foreground">Folder path:</p>
+          <p className="font-mono text-xs text-foreground">{preview.rendered_folder_path}</p>
         </div>
       ) : null}
       {preview.rendered_filename ? (
         <div>
-          <p className="mb-1 text-xs text-gray-500">Filename:</p>
-          <p className="font-mono text-xs text-gray-800">{preview.rendered_filename}</p>
+          <p className="mb-1 text-xs text-muted-foreground">Filename:</p>
+          <p className="font-mono text-xs text-foreground">{preview.rendered_filename}</p>
         </div>
       ) : null}
     </div>

@@ -301,6 +301,44 @@ GET /api/v1/admin/stats/quotas?period=202601
 
 ---
 
+## Admin: управление пользователями, подписками и планами
+
+Добавлено в v0.10.5.0. Все эндпоинты требуют `role=admin` (`get_current_admin`).
+
+### Пользователи
+
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/users` | Список с пагинацией; фильтры `search` (по email), `role`, `page`, `page_size` |
+| `GET` | `/api/v1/admin/users/{user_id}` | Полный профиль (роль, `is_active`, все 8 feature-флагов) |
+| `PATCH` | `/api/v1/admin/users/{user_id}` | Обновить `role`, `is_active` и любой из feature-флагов (`can_transcribe`, `can_process_video`, `can_upload`, `can_create_templates`, `can_delete_recordings`, `can_update_uploaded_videos`, `can_manage_credentials`, `can_export_data`) |
+| `GET` | `/api/v1/admin/users/{user_id}/events` | История из `usage_events`; фильтры `event_type`, `limit`, `offset` |
+
+### Подписки и квоты
+
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/users/{user_id}/subscription` | Текущая подписка + `effective_quotas` + полный `quota_status` (использование) |
+| `POST` | `/api/v1/admin/users/{user_id}/subscription` | Назначить/заменить план (`plan_id` + опциональные `custom_*` оверайды) |
+| `PATCH` | `/api/v1/admin/users/{user_id}/subscription` | Обновить `custom_*` оверайды квот |
+
+### Планы
+
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| `GET` | `/api/v1/admin/plans` | Список планов (`active_only`) |
+| `POST` | `/api/v1/admin/plans` | Создать план |
+| `PATCH` | `/api/v1/admin/plans/{plan_id}` | Обновить план |
+
+### Новые лимиты и счётчики
+
+- `subscription_plans.max_transcriptions_per_month`, `max_processing_per_month` — hard limits (NULL = безлимит).
+- `quota_usage.transcriptions_count`, `processing_count`, `uploads_count` — месячные счётчики (ключ `period` = `YYYYMM`).
+- Лимит одновременных задач (`max_concurrent_tasks`) проверяется по числу записей с `on_air=true` (drift-free), а не по хранимому счётчику.
+- `GET /me/quota` отдаёт `current_usage` (включая новые счётчики) и блоки `transcriptions`/`processing`.
+
+---
+
 ## Архитектура
 
 ### Компоненты
@@ -464,7 +502,8 @@ const quota_status = await quotaResponse.json();
 | Компонент | Статус | Комментарий |
 |-----------|--------|-------------|
 | Quota + Stats endpoints | ✅ Готов | 2 endpoints (/me/quota, /me/stats) |
-| Admin endpoints | ✅ Готов | 3 endpoints |
+| Admin stats endpoints | ✅ Готов | 3 endpoints (`/overview`, `/users`, `/quotas`) |
+| Admin management endpoints | ✅ Готов | 10 endpoints (users, subscriptions, plans) — v0.10.5.0 |
 | Admin dependency | ✅ Готов | Role check |
 | Updated /users/me | ✅ Готов | Simplified response |
 | Linter errors | ✅ 0 | Clean code |
@@ -478,6 +517,7 @@ const quota_status = await quotaResponse.json();
 
 - ✅ 2 user endpoints (`/api/v1/users/me/quota`, `/api/v1/users/me/stats`)
 - ✅ 3 admin stats endpoints (`/overview`, `/users`, `/quotas`)
+- ✅ 10 admin management endpoints (users / subscriptions / plans) — v0.10.5.0
 - ✅ Admin dependency с проверкой роли
 - ✅ Упрощен `/api/v1/users/me` (убрана quota_status)
 - ✅ `DEFAULT_QUOTAS` в `config/settings.py` (дефолты в коде, не в БД)

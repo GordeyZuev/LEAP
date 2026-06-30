@@ -38,6 +38,10 @@ import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { ExportModal } from "@/components/recordings/export-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Pagination } from "@/components/ui/pagination";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import type { ProcessingStatus } from "@/components/ui/status-badge";
 import {
   DEBOUNCE_SEARCH,
@@ -243,7 +247,7 @@ function RecordingsPagedResults({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [pipelineMenuOpen]);
 
-  const { data, isLoading, error } = useQuery<RecordingListResponse>({
+  const { data, isLoading, error, refetch } = useQuery<RecordingListResponse>({
     queryKey: ["recordings", queryParamsString, page],
     queryFn: async () => {
       const p = new URLSearchParams(queryParamsString);
@@ -308,8 +312,8 @@ function RecordingsPagedResults({
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
             viewMode === "grid"
-              ? "border-[#224C87] bg-[#224C87] text-white"
-              : "border-[#D9D9D9] bg-white text-gray-400 hover:bg-gray-50"
+              ? "border-primary bg-primary text-white"
+              : "border-border bg-card text-muted-foreground hover:bg-muted"
           )}
         >
           <LayoutGrid size={14} />
@@ -321,8 +325,8 @@ function RecordingsPagedResults({
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
             viewMode === "table"
-              ? "border-[#224C87] bg-[#224C87] text-white"
-              : "border-[#D9D9D9] bg-white text-gray-400 hover:bg-gray-50"
+              ? "border-primary bg-primary text-white"
+              : "border-border bg-card text-muted-foreground hover:bg-muted"
           )}
         >
           <List size={14} />
@@ -330,19 +334,19 @@ function RecordingsPagedResults({
       </div>
 
       {selected.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-[#224C87]/20 bg-[#224C87]/5 p-3">
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
           <label className="mr-2 flex items-center gap-2">
             <input
               type="checkbox"
               checked={selected.size === recordings.length && recordings.length > 0}
               onChange={toggleAll}
-              className="rounded accent-[#224C87]"
+              className="rounded accent-primary"
             />
-            <span className="text-sm font-medium text-[#224C87]">{selected.size} selected</span>
+            <span className="text-sm font-medium text-primary">{selected.size} selected</span>
           </label>
 
           <ActionButton size="sm" variant="secondary" onClick={() => bulkRun.mutate(selectedIds)} disabled={isBulkLoading} icon={<Play size={13} />}>Run</ActionButton>
-          <ActionButton size="sm" variant="secondary" onClick={onBulkRunWithConfig} disabled={isBulkLoading} icon={<Play size={13} />} className="border-[#224C87]/30 text-[#224C87] hover:bg-[#224C87]/5">Run with config…</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={onBulkRunWithConfig} disabled={isBulkLoading} icon={<Play size={13} />} className="border-primary/30 text-primary hover:bg-primary/5">Run with config…</ActionButton>
           <ActionButton size="sm" variant="secondary" onClick={() => bulkPause.mutate(selectedIds)} disabled={isBulkLoading} icon={<Pause size={13} />}>Pause</ActionButton>
           <ActionButton size="sm" variant="secondary" onClick={() => setResetConfirm(true)} disabled={isBulkLoading} icon={<RotateCcw size={13} />}>Reset</ActionButton>
 
@@ -352,13 +356,13 @@ function RecordingsPagedResults({
               type="button"
               onClick={() => setPipelineMenuOpen((v) => !v)}
               disabled={isBulkLoading}
-              className="flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-white px-3 py-1.5 text-xs font-medium transition-colors hover:bg-gray-50 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
             >
               Run step…
               <ChevronDown size={12} className={cn("transition-transform", pipelineMenuOpen && "rotate-180")} />
             </button>
             {pipelineMenuOpen && (
-              <div className="absolute left-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
+              <div className="absolute left-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
                 {[
                   { label: "Download",   fn: () => { bulkDownload.mutate(selectedIds); setPipelineMenuOpen(false); } },
                   { label: "Trim",       fn: () => { bulkTrim.mutate(selectedIds); setPipelineMenuOpen(false); } },
@@ -371,7 +375,7 @@ function RecordingsPagedResults({
                     key={label}
                     type="button"
                     onClick={fn}
-                    className="flex w-full items-center px-3 py-2 text-left text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                    className="flex w-full items-center px-3 py-2 text-left text-xs font-medium text-secondary-foreground transition-colors hover:bg-muted"
                   >
                     {label}
                   </button>
@@ -380,40 +384,52 @@ function RecordingsPagedResults({
             )}
           </div>
 
-          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-red-200 text-red-500 hover:bg-red-50">Delete</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10">Delete</ActionButton>
         </div>
       )}
 
       {isLoading && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-48 animate-pulse rounded-2xl border border-[#D9D9D9] bg-white" />
+            <div key={i} className="flex h-48 flex-col gap-3 rounded-2xl border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-2">
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </div>
+              <Skeleton className="h-3 w-1/3" />
+              <Skeleton className="mt-auto h-2 w-full rounded-full" />
+              <div className="flex gap-2">
+                <Skeleton className="h-8 w-20 rounded-xl" />
+                <Skeleton className="h-8 w-20 rounded-xl" />
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      {error && (
-        <div className="py-16 text-center text-sm text-red-400">Failed to load recordings</div>
-      )}
+      {error && <ErrorState description="Failed to load recordings" onRetry={() => refetch()} />}
 
       {!isLoading && !error && recordings.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-          <div className="rounded-2xl bg-gray-50 p-3 text-gray-300">
-            <Video size={28} strokeWidth={1.5} />
-          </div>
-          <p className="text-sm font-medium text-gray-500">
-            {hasActiveFilters ? "No recordings match your filters" : "No recordings yet"}
-          </p>
-          {hasActiveFilters ? (
-            <ActionButton variant="secondary" onClick={onResetFilters}>
-              Reset filters
-            </ActionButton>
-          ) : (
-            <ActionButton onClick={onAddVideo} icon={<Plus size={16} />}>
-              Add video
-            </ActionButton>
-          )}
-        </div>
+        <EmptyState
+          icon={Video}
+          title={hasActiveFilters ? "No recordings match your filters" : "No recordings yet"}
+          description={
+            hasActiveFilters
+              ? "Try adjusting or clearing the filters above."
+              : "Add a video manually or connect a source to start ingesting recordings."
+          }
+          action={
+            hasActiveFilters ? (
+              <ActionButton variant="secondary" onClick={onResetFilters}>
+                Reset filters
+              </ActionButton>
+            ) : (
+              <ActionButton onClick={onAddVideo} icon={<Plus size={16} />}>
+                Add video
+              </ActionButton>
+            )
+          }
+        />
       )}
 
       {!isLoading && !error && recordings.length > 0 && viewMode === "grid" && (
@@ -494,12 +510,12 @@ function RecordingsPagedResults({
         }}
         onCancel={() => setResetConfirm(false)}
       >
-        <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-secondary-foreground select-none cursor-pointer">
           <input
             type="checkbox"
             checked={resetDeleteFiles}
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
-            className="rounded border-gray-300 text-[#224C87] focus:ring-[#224C87]/30"
+            className="rounded border-border text-primary focus:ring-primary/30"
           />
           Delete processed files (video, audio, transcription)
         </label>
@@ -526,19 +542,19 @@ function AdvancedFiltersSection({ filters, onPatch }: AdvancedFiltersSectionProp
       <button
         type="button"
         onClick={() => setSectionOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded-lg py-1 text-left text-sm font-semibold text-[#224C87] transition-colors hover:text-[#1a3d6e]"
+        className="flex w-full items-center gap-2 rounded-lg py-1 text-left text-sm font-semibold text-primary transition-colors hover:text-primary-hover"
         aria-expanded={sectionOpen}
       >
         <Filter size={16} className="shrink-0 opacity-90" />
         More filters
         {count > 0 && (
-          <span className="rounded-full bg-[#224C87]/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-[#224C87]">
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-primary">
             {count}
           </span>
         )}
         <ChevronDown
           size={16}
-          className={cn("ml-auto shrink-0 text-gray-400 transition-transform", sectionOpen && "rotate-180")}
+          className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", sectionOpen && "rotate-180")}
         />
       </button>
 
@@ -555,7 +571,7 @@ function AdvancedFiltersSection({ filters, onPatch }: AdvancedFiltersSectionProp
                 onChange={(e) => onPatch({ fromDate: e.target.value })}
                 className={cn(FILTER_CONTROL, "max-w-[11rem]")}
               />
-              <span className="text-gray-400 select-none">—</span>
+              <span className="text-muted-foreground select-none">—</span>
               <input
                 type="date"
                 aria-label="To date"
@@ -992,17 +1008,19 @@ function RecordingsContent() {
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
       {/* Page header */}
-      <div className="mb-5 flex min-h-[2.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Recordings</h1>
-        <div className="flex shrink-0 items-center gap-2">
-          <ActionButton variant="secondary" onClick={() => setExportOpen(true)} icon={<Download size={16} />}>
-            Export
-          </ActionButton>
-          <ActionButton onClick={() => setAddModalOpen(true)} icon={<Plus size={16} />}>
-            Add video
-          </ActionButton>
-        </div>
-      </div>
+      <PageHeader
+        title="Recordings"
+        actions={
+          <>
+            <ActionButton variant="secondary" onClick={() => setExportOpen(true)} icon={<Download size={16} />}>
+              Export
+            </ActionButton>
+            <ActionButton onClick={() => setAddModalOpen(true)} icon={<Plus size={16} />}>
+              Add video
+            </ActionButton>
+          </>
+        }
+      />
 
       {/* ── Filters ── */}
       <FilterBar
@@ -1101,12 +1119,12 @@ function RecordingsContent() {
         }}
         onCancel={() => setSingleResetId(null)}
       >
-        <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-secondary-foreground select-none cursor-pointer">
           <input
             type="checkbox"
             checked={resetDeleteFiles}
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
-            className="rounded border-gray-300 text-[#224C87] focus:ring-[#224C87]/30"
+            className="rounded border-border text-primary focus:ring-primary/30"
           />
           Delete processed files (video, audio, transcription)
         </label>

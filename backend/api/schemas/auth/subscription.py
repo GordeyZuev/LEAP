@@ -23,6 +23,10 @@ class SubscriptionPlanBase(BaseModel):
     max_concurrent_tasks: int | None = Field(None, ge=1, description="Concurrent tasks")
     max_automation_jobs: int | None = Field(None, ge=0, description="Automation jobs")
     min_automation_interval_hours: int | None = Field(None, ge=1, description="Min interval (hours)")
+    max_transcriptions_per_month: int | None = Field(
+        None, ge=0, description="Transcriptions per month (None = unlimited)"
+    )
+    max_processing_per_month: int | None = Field(None, ge=0, description="Processing runs per month (None = unlimited)")
 
     # Pricing
     price_monthly: Decimal = Field(Decimal("0.00"), ge=0, description="Price per month")
@@ -51,6 +55,8 @@ class SubscriptionPlanUpdate(BaseModel):
     max_concurrent_tasks: int | None = Field(None, ge=1)
     max_automation_jobs: int | None = Field(None, ge=0)
     min_automation_interval_hours: int | None = Field(None, ge=1)
+    max_transcriptions_per_month: int | None = Field(None, ge=0)
+    max_processing_per_month: int | None = Field(None, ge=0)
 
     price_monthly: Decimal | None = Field(None, ge=0)
     price_yearly: Decimal | None = Field(None, ge=0)
@@ -87,6 +93,8 @@ class SubscriptionPlanResponse(BaseModel):
     max_concurrent_tasks: int | None
     max_automation_jobs: int | None
     min_automation_interval_hours: int | None
+    max_transcriptions_per_month: int | None = None
+    max_processing_per_month: int | None = None
 
     price_monthly: Decimal
     price_yearly: Decimal
@@ -254,6 +262,9 @@ class QuotaUsageInDB(QuotaUsageBase):
     concurrent_tasks_count: int
     overage_recordings_count: int
     overage_cost: Decimal
+    transcriptions_count: int = 0
+    processing_count: int = 0
+    uploads_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -269,6 +280,9 @@ class QuotaUsageResponse(BaseModel):
     concurrent_tasks_count: int
     overage_recordings_count: int
     overage_cost: Decimal
+    transcriptions_count: int = 0
+    processing_count: int = 0
+    uploads_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -287,6 +301,8 @@ class QuotaStatusResponse(BaseModel):
     storage: dict[str, float | None]  # {"used_gb": 2.5, "limit_gb": 5, "available_gb": 2.5}
     concurrent_tasks: dict[str, int | None]
     automation_jobs: dict[str, int | None]
+    transcriptions: dict[str, int | None] = Field(default_factory=dict)
+    processing: dict[str, int | None] = Field(default_factory=dict)
 
     # Overage status
     is_overage_enabled: bool

@@ -1246,7 +1246,7 @@ wheels = [
 
 [[package]]
 name = "leap"
-version = "0.10.4.1"
+version = "0.10.5.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aioboto3" },

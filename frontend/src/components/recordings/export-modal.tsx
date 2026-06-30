@@ -144,16 +144,16 @@ export function ExportModal({
   }
 
   return (
-    <Modal open={open} onClose={handleClose} labelledBy={titleId} panelClassName="max-w-sm">
-      <div className="bg-white">
+    <Modal open={open} onClose={handleClose} labelledBy={titleId} panelClassName="w-full sm:max-w-sm">
+      <div className="bg-card">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#EAEAEA] px-6 py-4">
-          <h2 id={titleId} className="text-sm font-semibold text-gray-900">Export recordings</h2>
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <h2 id={titleId} className="text-sm font-semibold text-foreground">Export recordings</h2>
           <button
             type="button"
             onClick={handleClose}
             aria-label="Close dialog"
-            className="text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-muted-foreground hover:text-secondary-foreground transition-colors"
           >
             <X size={18} />
           </button>
@@ -193,7 +193,7 @@ export function ExportModal({
                 max={2000}
                 value={limit}
                 onChange={(e) => setLimit(e.target.value)}
-                className="w-full min-h-[2.5rem] rounded-xl border border-[#D9D9D9] bg-white px-3 py-2 text-sm text-gray-900 outline-none transition-colors focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10"
+                className="w-full min-h-[2.5rem] rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
               />
             </div>
           )}
@@ -239,14 +239,14 @@ export function ExportModal({
           </div>
 
           {error && (
-            <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+            <p className="rounded-lg border border-red-100 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-xs text-red-600">
               {error}
             </p>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-[#EAEAEA] px-6 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
           <ActionButton variant="secondary" onClick={handleClose}>
             Cancel
           </ActionButton>

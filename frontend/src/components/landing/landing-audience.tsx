@@ -26,27 +26,27 @@ const cards = [
 
 export function LandingAudience() {
   return (
-    <section className="py-16 px-6 bg-white">
+    <section className="py-16 px-6 bg-card">
       <div className="max-w-6xl mx-auto">
-        <h2 className="text-2xl font-bold text-gray-900 text-center mb-2">Для кого</h2>
-        <p className="text-sm text-gray-500 text-center mb-10">
+        <h2 className="text-2xl font-bold text-foreground text-center mb-2">Для кого</h2>
+        <p className="text-sm text-muted-foreground text-center mb-10">
           Для всех, кто регулярно записывает и публикует учебный контент
         </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {cards.map((card) => {
             const Icon = card.icon;
             return (
-              <div key={card.title} className="p-6 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] flex flex-col">
-                <div className="w-10 h-10 rounded-xl bg-[#224C87]/10 flex items-center justify-center mb-4 shrink-0">
-                  <Icon size={20} className="text-[#224C87]" strokeWidth={1.75} />
+              <div key={card.title} className="p-6 rounded-xl border border-border bg-background flex flex-col">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-4 shrink-0">
+                  <Icon size={20} className="text-primary" strokeWidth={1.75} />
                 </div>
-                <h3 className="text-base font-semibold text-gray-900 mb-2">{card.title}</h3>
-                <p className="text-sm text-gray-600 leading-relaxed mb-4 flex-1">{card.description}</p>
+                <h3 className="text-base font-semibold text-foreground mb-2">{card.title}</h3>
+                <p className="text-sm text-secondary-foreground leading-relaxed mb-4 flex-1">{card.description}</p>
                 <ul className="flex flex-wrap gap-2">
                   {card.highlights.map((tag) => (
                     <li
                       key={tag}
-                      className="text-xs font-medium px-2.5 py-1 rounded-full bg-[#224C87]/10 text-[#224C87]"
+                      className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary/10 text-primary"
                     >
                       {tag}
                     </li>

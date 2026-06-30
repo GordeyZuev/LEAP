@@ -229,12 +229,12 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
             if (isDirty) { setPendingHref("/presets"); setConfirmLeave(true); }
             else router.push("/presets");
           }}
-          className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-secondary-foreground"
         >
           <ArrowLeft size={16} /> Presets
         </button>
         <span className="text-gray-300">/</span>
-        <h1 className="flex-1 text-lg font-semibold text-gray-900">
+        <h1 className="flex-1 text-lg font-semibold text-foreground">
           {isNew ? "New preset" : (existing?.name ?? "…")}
         </h1>
         {!isNew && (
@@ -243,7 +243,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           </ActionButton>
         )}
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deletePreset.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50">
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deletePreset.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10">
             Delete
           </ActionButton>
         )}
@@ -262,8 +262,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
 
       <div className="space-y-5">
         {/* General */}
-        <div className="space-y-4 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-700">General</h2>
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-secondary-foreground">General</h2>
 
           <div>
             <label className={FILTER_LABEL}>Name *</label>
@@ -299,8 +299,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
                   className={cn(
                     "flex-1 rounded-xl border py-2 text-sm font-medium transition-colors",
                     platform === o.value
-                      ? "border-[#224C87] bg-[#224C87] text-white"
-                      : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                      ? "border-primary bg-primary text-white"
+                      : "border-border bg-card text-secondary-foreground hover:bg-muted disabled:opacity-40"
                   )}
                 >
                   {o.label}
@@ -312,9 +312,9 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           <div>
             <label className={FILTER_LABEL}>Credential</label>
             {creds.length === 0 ? (
-              <p className="mt-1 text-sm text-gray-400">
+              <p className="mt-1 text-sm text-muted-foreground">
                 No {platformOptions.find((o) => o.value === platform)?.label} credentials.{" "}
-                <Link href="/credentials" className="text-[#224C87] hover:underline">
+                <Link href="/credentials" className="text-primary hover:underline">
                   Add credentials →
                 </Link>
               </p>
@@ -335,8 +335,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
         </div>
 
         {/* Platform-specific settings */}
-        <div className="space-y-4 rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-700">Platform settings</h2>
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-secondary-foreground">Platform settings</h2>
 
           {platform === "youtube" && (
             <YouTubeFields
@@ -369,7 +369,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
             />
           )}
 
-          <div className="space-y-2 border-t border-[#EAEAEA] pt-4">
+          <div className="space-y-2 border-t border-border pt-4">
             <ActionButton
               variant="secondary"
               onClick={handleRenderPreview}

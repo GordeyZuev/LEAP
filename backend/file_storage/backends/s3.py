@@ -155,6 +155,27 @@ class S3StorageBackend(StorageBackend):
                 continuation_token = response.get("NextContinuationToken")
         return keys
 
+    async def get_prefix_size(self, prefix: str) -> int:
+        """Total bytes under ``prefix`` using a single paginated list_objects_v2 pass.
+
+        list_objects_v2 returns ``Size`` for each object, so no HEAD requests needed.
+        """
+        full_prefix = self._key(prefix)
+        total = 0
+        async with self._client() as s3:
+            continuation_token: str | None = None
+            while True:
+                params: dict = {"Bucket": self.bucket, "Prefix": full_prefix}
+                if continuation_token:
+                    params["ContinuationToken"] = continuation_token
+                resp = await s3.list_objects_v2(**params)
+                for obj in resp.get("Contents", []):
+                    total += obj.get("Size", 0)
+                if not resp.get("IsTruncated"):
+                    break
+                continuation_token = resp.get("NextContinuationToken")
+        return total
+
     async def health_check(self) -> None:
         """Verify the bucket is reachable. head_bucket = single HEAD request."""
         async with self._client() as s3:

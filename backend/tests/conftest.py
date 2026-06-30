@@ -55,7 +55,16 @@ def mock_admin_user():
 def mock_db_session():
     """Mock database session."""
     session = AsyncMock()
-    session.execute = AsyncMock()
+
+    # In Python 3.13+, AsyncMock.return_value defaults to AsyncMock rather than
+    # MagicMock, so .scalars().first() would fail with "coroutine has no attribute".
+    # Explicitly set execute to return a MagicMock with the expected chain.
+    execute_result = MagicMock()
+    execute_result.scalars.return_value.first.return_value = None
+    execute_result.scalars.return_value.all.return_value = []
+    execute_result.scalar.return_value = None
+    session.execute = AsyncMock(return_value=execute_result)
+
     session.commit = AsyncMock()
     session.rollback = AsyncMock()
     session.flush = AsyncMock()

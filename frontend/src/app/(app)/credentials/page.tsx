@@ -19,6 +19,8 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { FilterBar } from "@/components/filters/filter-bar";
@@ -304,12 +306,14 @@ export default function CredentialsPage() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-5 flex min-h-[2.5rem] items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Credentials</h1>
-        <ActionButton onClick={openAddModal} icon={<Plus size={15} />}>
-          Add
-        </ActionButton>
-      </div>
+      <PageHeader
+        title="Credentials"
+        actions={
+          <ActionButton onClick={openAddModal} icon={<Plus size={15} />}>
+            Add
+          </ActionButton>
+        }
+      />
 
       {/* Filters */}
       <FilterBar
@@ -351,51 +355,57 @@ export default function CredentialsPage() {
       />
 
       {/* Table */}
-      <div className="bg-white rounded-2xl border border-[#D9D9D9] shadow-sm overflow-hidden">
+      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
-            <Loader2 size={20} className="animate-spin text-gray-400" />
+            <Loader2 size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : allCredentials.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <AlertCircle size={32} className="text-gray-300 mb-3" />
-            <p className="text-sm font-medium text-gray-500">No connections yet</p>
-            <p className="text-xs text-gray-400 mt-1">Click &ldquo;Add&rdquo; to connect a platform</p>
-          </div>
+          <EmptyState
+            icon={AlertCircle}
+            title="No connections yet"
+            description="Connect a platform account (YouTube, VK, Yandex…) so the pipeline can upload on your behalf."
+            action={
+              <ActionButton onClick={openAddModal} icon={<Plus size={15} />}>
+                Add
+              </ActionButton>
+            }
+          />
         ) : visibleCredentials.length === 0 ? (
-          <div className="py-16 text-center text-sm text-gray-400">No credentials match your filters</div>
+          <EmptyState icon={AlertCircle} title="No credentials match your filters" description="Try adjusting or clearing the filters above." />
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[680px]">
             <thead>
-              <tr className="border-b border-[#D9D9D9]">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Platform</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Last used</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Actions</th>
+              <tr className="border-b border-border">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Platform</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Last used</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#D9D9D9]">
+            <tbody className="divide-y divide-border">
               {visibleCredentials.map((cred) => {
                 const platform = PLATFORM_MAP[cred.platform as PlatformKey];
                 return (
-                  <tr key={cred.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={cred.id} className="hover:bg-muted transition-colors">
                     <td className="px-6 py-4">
                       <button
                         onClick={() => openRenameModal(cred)}
-                        className="text-sm font-medium text-gray-900 hover:text-[#224C87] transition-colors text-left"
+                        className="text-sm font-medium text-foreground hover:text-primary transition-colors text-left"
                       >
                         {cred.account_name ?? "—"}
                       </button>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm text-gray-600">{platform?.label ?? cred.platform}</span>
+                      <span className="text-sm text-secondary-foreground">{platform?.label ?? cred.platform}</span>
                     </td>
                     <td className="px-6 py-4">
                       <span
                         className={cn(
                           "inline-flex items-center gap-1.5 text-sm",
-                          cred.needs_reauth ? "text-amber-600" : cred.is_active ? "text-green-600" : "text-gray-400"
+                          cred.needs_reauth ? "text-amber-600" : cred.is_active ? "text-green-600" : "text-muted-foreground"
                         )}
                       >
                         {cred.needs_reauth ? (
@@ -409,7 +419,7 @@ export default function CredentialsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm text-gray-400">{formatRelative(cred.last_used_at)}</span>
+                      <span className="text-sm text-muted-foreground">{formatRelative(cred.last_used_at)}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
@@ -429,7 +439,7 @@ export default function CredentialsPage() {
                           variant="secondary"
                           onClick={() => setDisconnectId(cred.id)}
                           icon={<X size={12} />}
-                          className="border-red-200 text-red-500 hover:bg-red-50"
+                          className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
                         >
                           Disconnect
                         </ActionButton>
@@ -440,6 +450,7 @@ export default function CredentialsPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -450,27 +461,27 @@ export default function CredentialsPage() {
         label="Add connection"
         panelClassName="max-w-md"
       >
-        <div className="bg-white">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
-            <h2 className="text-base font-semibold text-gray-900">Add connection</h2>
+        <div className="bg-card">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+            <h2 className="text-base font-semibold text-foreground">Add connection</h2>
             <button
               type="button"
               onClick={closeAddModal}
               aria-label="Close dialog"
-              className="p-1.5 rounded-lg hover:bg-gray-100"
+              className="p-1.5 rounded-lg hover:bg-muted"
             >
               <X size={16} />
             </button>
           </div>
           <div className="px-6 py-5">
-            <p className="text-sm text-gray-500 mb-4">Choose a platform to connect</p>
+            <p className="text-sm text-muted-foreground mb-4">Choose a platform to connect</p>
             <div className="grid grid-cols-2 gap-3">
               {PLATFORMS.map((p) => (
                 <button
                   key={p.key}
                   type="button"
                   onClick={() => selectPlatform(p.key)}
-                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-[#D9D9D9] hover:border-[#224C87] hover:bg-blue-50/40 transition-colors text-sm font-medium text-gray-700"
+                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-border hover:border-primary hover:bg-blue-50 dark:bg-blue-500/10/40 transition-colors text-sm font-medium text-secondary-foreground"
                 >
                   {p.label}
                 </button>
@@ -491,20 +502,20 @@ export default function CredentialsPage() {
             label={`Connect ${platform.label}`}
             panelClassName="max-w-md"
           >
-            <div className="bg-white">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
+            <div className="bg-card">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setAddStep("platform")}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-secondary-foreground"
                     aria-label="Back to platform selection"
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <path d="M10 3L5 8L10 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </button>
-                  <h2 className="text-base font-semibold text-gray-900">
+                  <h2 className="text-base font-semibold text-foreground">
                     Connect {platform.label}
                   </h2>
                 </div>
@@ -512,14 +523,14 @@ export default function CredentialsPage() {
                   type="button"
                   onClick={closeAddModal}
                   aria-label="Close dialog"
-                  className="p-1.5 rounded-lg hover:bg-gray-100"
+                  className="p-1.5 rounded-lg hover:bg-muted"
                 >
                   <X size={16} />
                 </button>
               </div>
 
               {platform.hasManual && (
-                <div className="flex border-b border-[#D9D9D9]">
+                <div className="flex border-b border-border">
                   {(["oauth", "manual"] as const).map((tab) => (
                     <button
                       key={tab}
@@ -527,8 +538,8 @@ export default function CredentialsPage() {
                       className={cn(
                         "flex-1 py-2.5 text-sm font-medium transition-colors",
                         connectTab === tab
-                          ? "border-b-2 border-[#224C87] text-[#224C87]"
-                          : "text-gray-500 hover:text-gray-700"
+                          ? "border-b-2 border-primary text-primary"
+                          : "text-muted-foreground hover:text-secondary-foreground"
                       )}
                     >
                       {tab === "oauth" ? "OAuth" : "Manual"}
@@ -540,7 +551,7 @@ export default function CredentialsPage() {
               <div className="px-6 py-5 space-y-4">
                 {connectTab === "oauth" ? (
                   <>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-muted-foreground">
                       You will be redirected to {platform.label} to authorize access.
                     </p>
                     <ActionButton
@@ -553,20 +564,20 @@ export default function CredentialsPage() {
                 ) : (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                        Connection name <span className="text-gray-400 font-normal">(optional)</span>
+                      <label className="block text-sm font-medium text-secondary-foreground mb-1.5">
+                        Connection name <span className="text-muted-foreground font-normal">(optional)</span>
                       </label>
                       <input
                         type="text"
                         value={accountName}
                         onChange={(e) => setAccountName(e.target.value)}
                         placeholder="e.g. Main account, Work"
-                        className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                        className="w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                       />
                     </div>
                     {manualFieldDefs.map((field) => (
                       <div key={field.name}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        <label className="block text-sm font-medium text-secondary-foreground mb-1.5">
                           {field.label}
                         </label>
                         <input
@@ -576,12 +587,12 @@ export default function CredentialsPage() {
                             setManualFields((prev) => ({ ...prev, [field.name]: e.target.value }))
                           }
                           placeholder={field.placeholder}
-                          className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                          className="w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                         />
                       </div>
                     ))}
                     {formError && (
-                      <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{formError}</p>
+                      <p className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">{formError}</p>
                     )}
                     <div className="flex justify-end gap-3 pt-1">
                       <ActionButton variant="secondary" onClick={closeAddModal} className="py-2.5">
@@ -616,14 +627,14 @@ export default function CredentialsPage() {
             label="Connection details"
             panelClassName="max-w-sm"
           >
-            <div className="bg-white">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-[#D9D9D9]">
-                <h2 className="text-base font-semibold text-gray-900">Connection details</h2>
+            <div className="bg-card">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <h2 className="text-base font-semibold text-foreground">Connection details</h2>
                 <button
                   type="button"
                   onClick={closeRenameModal}
                   aria-label="Close dialog"
-                  className="p-1.5 rounded-lg hover:bg-gray-100"
+                  className="p-1.5 rounded-lg hover:bg-muted"
                 >
                   <X size={16} />
                 </button>
@@ -631,12 +642,12 @@ export default function CredentialsPage() {
 
               <div className="px-6 pt-5 pb-4 space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Platform</span>
-                  <span className="text-sm text-gray-700">{platform?.label ?? cred.platform}</span>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Platform</span>
+                  <span className="text-sm text-secondary-foreground">{platform?.label ?? cred.platform}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Status</span>
-                  <span className={cn("inline-flex items-center gap-1.5 text-sm", cred.needs_reauth ? "text-amber-600" : cred.is_active ? "text-green-600" : "text-gray-400")}>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</span>
+                  <span className={cn("inline-flex items-center gap-1.5 text-sm", cred.needs_reauth ? "text-amber-600" : cred.is_active ? "text-green-600" : "text-muted-foreground")}>
                     {cred.needs_reauth
                       ? <AlertTriangle size={13} className="text-amber-500" />
                       : cred.is_active
@@ -646,24 +657,24 @@ export default function CredentialsPage() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Created</span>
-                  <span className="text-sm text-gray-700">{formatDateTime(cred.created_at)}</span>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Created</span>
+                  <span className="text-sm text-secondary-foreground">{formatDateTime(cred.created_at)}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Updated</span>
-                  <span className="text-sm text-gray-700">{formatDateTime(cred.updated_at)}</span>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Updated</span>
+                  <span className="text-sm text-secondary-foreground">{formatDateTime(cred.updated_at)}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Last used</span>
-                  <span className="text-sm text-gray-700">{cred.last_used_at ? formatDateTime(cred.last_used_at) : "Never"}</span>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Last used</span>
+                  <span className="text-sm text-secondary-foreground">{cred.last_used_at ? formatDateTime(cred.last_used_at) : "Never"}</span>
                 </div>
               </div>
 
-              <div className="mx-6 border-t border-[#D9D9D9]" />
+              <div className="mx-6 border-t border-border" />
 
               <div className="px-6 pt-4 pb-5 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
+                  <label className="block text-sm font-medium text-secondary-foreground mb-1.5">Name</label>
                   <input
                     autoFocus
                     type="text"
@@ -674,11 +685,11 @@ export default function CredentialsPage() {
                       if (e.key === "Escape") closeRenameModal();
                     }}
                     placeholder="e.g. Main account, Work"
-                    className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   />
                 </div>
                 {renameError && (
-                  <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{renameError}</p>
+                  <p className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">{renameError}</p>
                 )}
                 <div className="flex justify-end gap-3">
                   <ActionButton variant="secondary" onClick={closeRenameModal} className="py-2.5">

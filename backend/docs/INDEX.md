@@ -48,7 +48,8 @@
 
 **Quotas & admin**
 
-- [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md)
+- [guides/QUOTAS.md](guides/QUOTAS.md) — как работают квоты, лимиты и feature-флаги (концепция)
+- [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md) — API-справочник quota/admin эндпоинтов
 
 **Auth & sessions**
 

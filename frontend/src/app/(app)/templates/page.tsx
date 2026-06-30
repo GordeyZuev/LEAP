@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -13,6 +13,10 @@ import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
 import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
 import { Pagination } from "@/components/ui/pagination";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { DEBOUNCE_SEARCH, PER_PAGE_TEMPLATES } from "@/lib/constants";
 
 interface TemplateListItem {
@@ -112,7 +116,7 @@ function TemplatesContent() {
     sortBy !== "created_at" ||
     sortOrder !== "desc";
 
-  const { data, isLoading, error } = useQuery<TemplateListResponse>({
+  const { data, isLoading, error, refetch } = useQuery<TemplateListResponse>({
     queryKey: ["templates", urlSearch, isActiveFilter, sortBy, sortOrder, urlPage],
     queryFn: async () => {
       const p = new URLSearchParams();
@@ -144,16 +148,18 @@ function TemplatesContent() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <div className="mb-5 flex min-h-[2.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Templates</h1>
-        <Link
-          href="/templates/new"
-          className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#224C87] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a3d6e]"
-        >
-          <Plus size={16} />
-          New template
-        </Link>
-      </div>
+      <PageHeader
+        title="Templates"
+        actions={
+          <Link
+            href="/templates/new"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+          >
+            <Plus size={16} />
+            New template
+          </Link>
+        }
+      />
 
       {/* Filters */}
       <FilterBar
@@ -187,59 +193,61 @@ function TemplatesContent() {
       />
 
       {/* Table */}
-      <div className="overflow-hidden rounded-2xl border border-[#D9D9D9] bg-white shadow-sm">
-        <table className="w-full">
+      <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
+        <table className="w-full min-w-[640px]">
           <thead>
-            <tr className="border-b border-[#D9D9D9]">
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+            <tr className="border-b border-border">
+              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Name
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Status
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Used
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Updated
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#D9D9D9]">
-            {isLoading && (
-              <tr>
-                <td colSpan={4} className="px-6 py-12 text-center text-sm text-gray-400">
-                  Loading…
-                </td>
-              </tr>
-            )}
+          <tbody className="divide-y divide-border">
+            {isLoading && <TableRowsSkeleton rows={5} cols={4} />}
             {error && (
               <tr>
-                <td colSpan={4} className="px-6 py-12 text-center text-sm text-red-400">
-                  Failed to load templates
+                <td colSpan={4} className="p-0">
+                  <ErrorState description="Failed to load templates" onRetry={() => refetch()} />
                 </td>
               </tr>
             )}
             {!isLoading && !error && templates.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-6 py-12 text-center text-sm text-gray-400">
-                  {hasActiveFilters ? "No templates match your filters" : "No templates yet"}
+                <td colSpan={4} className="p-0">
+                  <EmptyState
+                    icon={FileText}
+                    title={hasActiveFilters ? "No templates match your filters" : "No templates yet"}
+                    description={
+                      hasActiveFilters
+                        ? "Try adjusting or clearing the filters above."
+                        : "Templates define how recordings are matched and named. Create your first one."
+                    }
+                  />
                 </td>
               </tr>
             )}
             {templates.map((t) => (
-              <tr key={t.id} className="transition-colors hover:bg-gray-50">
+              <tr key={t.id} className="transition-colors hover:bg-muted">
                 <td className="px-6 py-4">
                   <div>
                     <Link
                       href={`/templates/${t.id}`}
-                      className="text-sm font-medium text-gray-900 transition-colors hover:text-[#224C87]"
+                      className="text-sm font-medium text-foreground transition-colors hover:text-primary"
                     >
                       {t.name}
                     </Link>
                   </div>
                   {t.description && (
-                    <p className="mt-0.5 max-w-xs truncate text-xs text-gray-400">{t.description}</p>
+                    <p className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground">{t.description}</p>
                   )}
                 </td>
                 <td className="px-6 py-4">
@@ -247,17 +255,17 @@ function TemplatesContent() {
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
                       t.is_draft
-                        ? "bg-yellow-100 text-yellow-700"
+                        ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300"
                         : t.is_active
-                          ? "bg-green-100 text-green-700"
-                          : "bg-gray-100 text-gray-500"
+                          ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
+                          : "bg-muted text-muted-foreground"
                     )}
                   >
                     {t.is_draft ? "Draft" : t.is_active ? "Active" : "Inactive"}
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-500">{t.used_count}×</td>
-                <td className="px-6 py-4 text-sm text-gray-500">{formatDate(t.updated_at)}</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{t.used_count}×</td>
+                <td className="px-6 py-4 text-sm text-muted-foreground">{formatDate(t.updated_at)}</td>
               </tr>
             ))}
           </tbody>
@@ -281,7 +289,7 @@ function TemplatesContent() {
 
 export default function TemplatesPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-sm text-gray-400">Loading templates…</div>}>
+    <Suspense fallback={<div className="p-8 text-sm text-muted-foreground">Loading templates…</div>}>
       <TemplatesContent />
     </Suspense>
   );

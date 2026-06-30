@@ -123,4 +123,33 @@ async def check_user_quotas(
             detail=error,
         )
 
+    # Check storage quota
+    allowed, error = await quota_service.check_storage_quota(current_user.id, current_user.user_slug)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=error,
+        )
+
     return current_user
+
+
+def require_feature(feature: str):
+    """Dependency factory that enforces a boolean feature flag on the user model.
+
+    The flag name is validated against ``UserInDB`` at import time, so a typo fails
+    loudly on startup instead of silently allowing the action.
+    """
+    if feature not in UserInDB.model_fields:
+        raise ValueError(f"require_feature: unknown flag '{feature}'")
+
+    async def _check(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
+        if not getattr(current_user, feature):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Feature not permitted: {feature}",
+            )
+        return current_user
+
+    _check.__name__ = f"require_feature_{feature}"
+    return _check

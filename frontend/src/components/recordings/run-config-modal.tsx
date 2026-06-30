@@ -144,8 +144,8 @@ function SectionToggle({ enabled, onToggle }: { enabled: boolean; onToggle: () =
       aria-checked={enabled}
       onClick={(e) => { e.stopPropagation(); onToggle(); }}
       className={cn(
-        "relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#224C87]/30",
-        enabled ? "bg-[#224C87]" : "bg-gray-200"
+        "relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+        enabled ? "bg-primary" : "bg-muted"
       )}
     >
       <span
@@ -165,20 +165,20 @@ function SectionToggle({ enabled, onToggle }: { enabled: boolean; onToggle: () =
 function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA]">
+    <div className="rounded-xl border border-border bg-background">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900"
+        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
       >
         {label}
         <ChevronDown
           size={15}
-          className={cn("shrink-0 text-gray-400 transition-transform", open && "rotate-180")}
+          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
         />
       </button>
       {open && (
-        <div className="space-y-3 border-t border-[#EAEAEA] px-4 pb-4 pt-3">
+        <div className="space-y-3 border-t border-border px-4 pb-4 pt-3">
           {children}
         </div>
       )}
@@ -526,27 +526,27 @@ export function RunConfigModal({
       open={open}
       onClose={onClose}
       labelledBy={titleId}
-      panelClassName="flex max-h-[92vh] max-w-2xl flex-col bg-white"
+      panelClassName="flex max-h-[92vh] w-full sm:max-w-2xl flex-col bg-card"
     >
       <>
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-[#EAEAEA] px-6 py-4">
-          <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-gray-900">{title}</h2>
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
+          <h2 id={titleId} className="min-w-0 truncate text-sm font-semibold text-foreground">{title}</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="ml-4 shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+            className="ml-4 shrink-0 text-muted-foreground hover:text-secondary-foreground transition-colors"
           >
             <X size={18} />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto divide-y divide-[#F0F0F0]">
+        <div className="flex-1 overflow-y-auto divide-y divide-border">
           {configLoading ? (
-            <div className="flex items-center justify-center gap-2 py-14 text-sm text-gray-400">
-              <Loader2 size={16} className="animate-spin text-[#224C87]" />
+            <div className="flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground">
+              <Loader2 size={16} className="animate-spin text-primary" />
               Загрузка конфига…
             </div>
           ) : <>
@@ -559,11 +559,11 @@ export function RunConfigModal({
               onClick={() => setTemplateOpen((v) => !v)}
               className="flex w-full items-center gap-2 text-left"
             >
-              <span className="flex-1 text-sm font-semibold text-gray-800">Template</span>
-              {templateId && <span className="text-xs font-medium text-[#224C87]">selected</span>}
+              <span className="flex-1 text-sm font-semibold text-foreground">Template</span>
+              {templateId && <span className="text-xs font-medium text-primary">selected</span>}
               <ChevronDown
                 size={16}
-                className={cn("shrink-0 text-gray-400 transition-transform", templateOpen && "rotate-180")}
+                className={cn("shrink-0 text-muted-foreground transition-transform", templateOpen && "rotate-180")}
               />
             </button>
 
@@ -588,16 +588,16 @@ export function RunConfigModal({
                       type="checkbox"
                       checked={bindTemplate}
                       onChange={(e) => setBindTemplate(e.target.checked)}
-                      className="accent-[#224C87]"
+                      className="accent-primary"
                     />
-                    <span className="text-sm text-gray-700">
+                    <span className="text-sm text-secondary-foreground">
                       Permanently bind to recording{mode === "bulk" ? "s" : ""}
                     </span>
                   </label>
                 )}
 
                 {!templateId && (
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-muted-foreground">
                     Leave empty to use the recording&apos;s current template (or system defaults).
                   </p>
                 )}
@@ -615,13 +615,13 @@ export function RunConfigModal({
                 onClick={() => setProcessingOpen((v) => !v)}
                 className="flex flex-1 items-center gap-2 text-left"
               >
-                <span className="text-sm font-semibold text-gray-800">Processing</span>
+                <span className="text-sm font-semibold text-foreground">Processing</span>
                 {!processingEnabled && (
-                  <span className="text-xs text-gray-400">using template defaults</span>
+                  <span className="text-xs text-muted-foreground">using template defaults</span>
                 )}
                 <ChevronDown
                   size={16}
-                  className={cn("ml-auto shrink-0 text-gray-400 transition-transform", processingOpen && "rotate-180")}
+                  className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", processingOpen && "rotate-180")}
                 />
               </button>
             </div>
@@ -671,9 +671,9 @@ export function RunConfigModal({
                         type="checkbox"
                         checked={val}
                         onChange={(e) => set(e.target.checked)}
-                        className="accent-[#224C87]"
+                        className="accent-primary"
                       />
-                      <span className="text-sm text-gray-700">{label}</span>
+                      <span className="text-sm text-secondary-foreground">{label}</span>
                     </label>
                   ))}
                 </div>
@@ -683,9 +683,9 @@ export function RunConfigModal({
                     type="checkbox"
                     checked={allowErrors}
                     onChange={(e) => setAllowErrors(e.target.checked)}
-                    className="accent-[#224C87]"
+                    className="accent-primary"
                   />
-                  <span className="text-sm text-gray-700">Allow transcription errors</span>
+                  <span className="text-sm text-secondary-foreground">Allow transcription errors</span>
                 </label>
 
                 <div className="space-y-1.5">
@@ -721,13 +721,13 @@ export function RunConfigModal({
                 onClick={() => setOutputOpen((v) => !v)}
                 className="flex flex-1 items-center gap-2 text-left"
               >
-                <span className="text-sm font-semibold text-gray-800">Output &amp; Upload</span>
+                <span className="text-sm font-semibold text-foreground">Output &amp; Upload</span>
                 {!outputEnabled && (
-                  <span className="text-xs text-gray-400">using template defaults</span>
+                  <span className="text-xs text-muted-foreground">using template defaults</span>
                 )}
                 <ChevronDown
                   size={16}
-                  className={cn("ml-auto shrink-0 text-gray-400 transition-transform", outputOpen && "rotate-180")}
+                  className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", outputOpen && "rotate-180")}
                 />
               </button>
             </div>
@@ -735,12 +735,12 @@ export function RunConfigModal({
             {outputOpen && (
               <div className={cn("mt-4 space-y-4", !outputEnabled && "pointer-events-none opacity-50")}>
                 <label className="flex cursor-pointer items-center gap-2.5">
-                  <input type="checkbox" checked={autoUpload} onChange={(e) => setAutoUpload(e.target.checked)} className="accent-[#224C87]" />
-                  <span className="text-sm text-gray-700">Auto-upload after processing</span>
+                  <input type="checkbox" checked={autoUpload} onChange={(e) => setAutoUpload(e.target.checked)} className="accent-primary" />
+                  <span className="text-sm text-secondary-foreground">Auto-upload after processing</span>
                 </label>
                 <label className="flex cursor-pointer items-center gap-2.5">
-                  <input type="checkbox" checked={uploadCaptions} onChange={(e) => setUploadCaptions(e.target.checked)} className="accent-[#224C87]" />
-                  <span className="text-sm text-gray-700">Upload captions / subtitles</span>
+                  <input type="checkbox" checked={uploadCaptions} onChange={(e) => setUploadCaptions(e.target.checked)} className="accent-primary" />
+                  <span className="text-sm text-secondary-foreground">Upload captions / subtitles</span>
                 </label>
 
                 {Object.keys(presetsByPlatform).length > 0 && (
@@ -748,12 +748,12 @@ export function RunConfigModal({
                     <span className={FILTER_LABEL}>
                       Presets (platforms to publish to)
                       {selectedPresetIds.length > 0 && (
-                        <span className="ml-1 text-[#224C87]">· {selectedPresetIds.length} selected</span>
+                        <span className="ml-1 text-primary">· {selectedPresetIds.length} selected</span>
                       )}
                     </span>
                     {Object.entries(presetsByPlatform).map(([platform, presets]) => (
                       <div key={platform}>
-                        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">{platform}</p>
+                        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{platform}</p>
                         <div className="space-y-1.5">
                           {presets.map((p) => (
                             <label key={p.id} className="flex cursor-pointer items-center gap-2.5">
@@ -761,9 +761,9 @@ export function RunConfigModal({
                                 type="checkbox"
                                 checked={selectedPresetIds.includes(p.id)}
                                 onChange={() => togglePreset(p.id)}
-                                className="accent-[#224C87]"
+                                className="accent-primary"
                               />
-                              <span className="text-sm text-gray-700">{p.name}</span>
+                              <span className="text-sm text-secondary-foreground">{p.name}</span>
                             </label>
                           ))}
                         </div>
@@ -773,7 +773,7 @@ export function RunConfigModal({
                 )}
 
                 {Object.keys(presetsByPlatform).length === 0 && (
-                  <p className="text-xs text-gray-400">No presets configured. Add presets to enable platform selection.</p>
+                  <p className="text-xs text-muted-foreground">No presets configured. Add presets to enable platform selection.</p>
                 )}
               </div>
             )}
@@ -789,13 +789,13 @@ export function RunConfigModal({
                 onClick={() => setMetadataOpen((v) => !v)}
                 className="flex flex-1 items-center gap-2 text-left"
               >
-                <span className="text-sm font-semibold text-gray-800">Metadata &amp; Platform overrides</span>
+                <span className="text-sm font-semibold text-foreground">Metadata &amp; Platform overrides</span>
                 {!metadataEnabled && (
-                  <span className="text-xs text-gray-400">using template defaults</span>
+                  <span className="text-xs text-muted-foreground">using template defaults</span>
                 )}
                 <ChevronDown
                   size={16}
-                  className={cn("ml-auto shrink-0 text-gray-400 transition-transform", metadataOpen && "rotate-180")}
+                  className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", metadataOpen && "rotate-180")}
                 />
               </button>
             </div>
@@ -805,7 +805,7 @@ export function RunConfigModal({
                 <div className={cn(!metadataEnabled && "pointer-events-none opacity-50")}>
                   {/* Global templates */}
                   <div className="space-y-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Global</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
                     <TemplateField
                       label="Title template"
                       value={titleTemplate}
@@ -858,7 +858,7 @@ export function RunConfigModal({
                 <div className={cn(!metadataEnabled && "pointer-events-none opacity-50")}>
                   {/* Platform subsections */}
                   <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Platform overrides</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Platform overrides</p>
 
                     <PlatformSection label="YouTube">
                       <YouTubeFields
@@ -896,7 +896,7 @@ export function RunConfigModal({
         </div>
 
         {/* Footer */}
-        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[#EAEAEA] px-6 py-4">
+        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border px-6 py-4">
           {runError && (
             <p className="flex-1 truncate text-xs text-red-500" title={runError}>{runError}</p>
           )}

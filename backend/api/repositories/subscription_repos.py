@@ -285,3 +285,25 @@ class QuotaUsageRepository:
         await self.session.commit()
         await self.session.refresh(db_usage)
         return QuotaUsageInDB.model_validate(db_usage)
+
+    async def _increment_counter(self, user_id: str, period: int, field: str, count: int = 1) -> None:
+        result = await self.session.execute(
+            select(QuotaUsageModel).where(QuotaUsageModel.user_id == user_id, QuotaUsageModel.period == period)
+        )
+        db_usage = result.scalars().first()
+        if db_usage:
+            setattr(db_usage, field, getattr(db_usage, field) + count)
+            db_usage.updated_at = datetime.now(UTC)
+        else:
+            db_usage = QuotaUsageModel(user_id=user_id, period=period, **{field: count})
+            self.session.add(db_usage)
+        await self.session.commit()
+
+    async def increment_transcriptions(self, user_id: str, period: int, count: int = 1) -> None:
+        await self._increment_counter(user_id, period, "transcriptions_count", count)
+
+    async def increment_processing(self, user_id: str, period: int, count: int = 1) -> None:
+        await self._increment_counter(user_id, period, "processing_count", count)
+
+    async def increment_uploads(self, user_id: str, period: int, count: int = 1) -> None:
+        await self._increment_counter(user_id, period, "uploads_count", count)

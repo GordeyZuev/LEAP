@@ -40,7 +40,7 @@ const UPLOAD_STATUS_DOT: Record<string, string> = {
   UPLOADED: "bg-green-400",
   UPLOADING: "bg-blue-400 animate-pulse",
   FAILED: "bg-red-400",
-  NOT_UPLOADED: "bg-gray-300",
+  NOT_UPLOADED: "bg-muted",
 };
 
 function RowMenu({
@@ -76,14 +76,14 @@ function RowMenu({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-7 w-7 items-center justify-center rounded-lg border border-[#D9D9D9] bg-white text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700",
-          open && "border-[#224C87]/30 bg-[#224C87]/5 text-[#224C87]"
+          "flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-secondary-foreground",
+          open && "border-primary/30 bg-primary/5 text-primary"
         )}
       >
         <MoreHorizontal size={13} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-xl border border-[#D9D9D9] bg-white shadow-lg">
+        <div className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
           {!isSoftDeleted && onRunWithConfig && (
             <MenuBtn icon={<Settings2 size={12} />} label="Run with config" onClick={() => { setOpen(false); onRunWithConfig(id); }} />
           )}
@@ -95,7 +95,7 @@ function RowMenu({
           )}
           {!isSoftDeleted && onDelete && (
             <>
-              {(onRunWithConfig || onReset) && <div className="my-1 border-t border-[#F0F0F0]" />}
+              {(onRunWithConfig || onReset) && <div className="my-1 border-t border-border" />}
               <MenuBtn icon={<Trash2 size={12} />} label="Delete" onClick={() => { setOpen(false); onDelete(id); }} danger />
             </>
           )}
@@ -111,8 +111,8 @@ function MenuBtn({ icon, label, onClick, danger }: { icon: React.ReactNode; labe
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-gray-50",
-        danger ? "text-red-500 hover:bg-red-50" : "text-gray-700"
+        "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-muted",
+        danger ? "text-red-500 hover:bg-red-50 dark:bg-red-500/10" : "text-secondary-foreground"
       )}
     >
       {icon}
@@ -145,7 +145,7 @@ function InlineNameCell({ id, name, deleted, onRename }: { id: number; name: str
           if (e.key === "Enter") { e.preventDefault(); commit(); }
           if (e.key === "Escape") { e.preventDefault(); cancel(); }
         }}
-        className="w-full min-w-0 rounded border border-[#224C87]/40 px-1.5 py-0.5 text-xs font-medium text-gray-900 outline-none ring-1 ring-[#224C87]/30"
+        className="w-full min-w-0 rounded border border-primary/40 px-1.5 py-0.5 text-xs font-medium text-foreground outline-none ring-1 ring-primary/30"
         autoFocus
       />
     );
@@ -158,7 +158,7 @@ function InlineNameCell({ id, name, deleted, onRename }: { id: number; name: str
         title={name}
         className={cn(
           "min-w-0 truncate text-xs font-medium transition-colors",
-          deleted ? "text-gray-400 line-through" : "text-gray-900 hover:text-[#224C87]"
+          deleted ? "text-muted-foreground line-through" : "text-foreground hover:text-primary"
         )}
       >
         {name}
@@ -167,7 +167,7 @@ function InlineNameCell({ id, name, deleted, onRename }: { id: number; name: str
         <button
           type="button"
           onClick={() => { setValue(name); setEditing(true); setTimeout(() => inputRef.current?.select(), 0); }}
-          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-[#224C87]"
+          className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
           title="Rename"
         >
           <svg width="10" height="10" viewBox="0 0 11 11" fill="none">
@@ -196,25 +196,25 @@ export function RecordingsTable({
   const allSelected = selected.size === recordings.length && recordings.length > 0;
 
   return (
-    <div className="w-full overflow-x-auto rounded-2xl border border-[#D9D9D9] bg-white">
+    <div className="w-full overflow-x-auto rounded-2xl border border-border bg-card">
       <table className="w-full min-w-[800px] border-collapse text-xs">
         <thead>
-          <tr className="border-b border-[#F0F0F0] bg-gray-50/60">
+          <tr className="border-b border-border bg-muted/60">
             <th className="w-10 px-4 py-3 text-left">
               <input
                 type="checkbox"
                 checked={allSelected}
                 onChange={onToggleAll}
-                className="rounded accent-[#224C87]"
+                className="rounded accent-primary"
               />
             </th>
-            <th className="px-3 py-3 text-left font-semibold text-gray-600">Name</th>
-            <th className="w-8 px-3 py-3 text-left font-semibold text-gray-600"></th>
-            <th className="w-24 px-3 py-3 text-left font-semibold text-gray-600">Source</th>
-            <th className="w-16 px-3 py-3 text-left font-semibold text-gray-600">Duration</th>
-            <th className="w-24 px-3 py-3 text-left font-semibold text-gray-600">Date</th>
-            <th className="w-32 px-3 py-3 text-left font-semibold text-gray-600">Platforms</th>
-            <th className="w-20 px-3 py-3 text-left font-semibold text-gray-600">Actions</th>
+            <th className="px-3 py-3 text-left font-semibold text-secondary-foreground">Name</th>
+            <th className="w-8 px-3 py-3 text-left font-semibold text-secondary-foreground"></th>
+            <th className="w-24 px-3 py-3 text-left font-semibold text-secondary-foreground">Source</th>
+            <th className="w-16 px-3 py-3 text-left font-semibold text-secondary-foreground">Duration</th>
+            <th className="w-24 px-3 py-3 text-left font-semibold text-secondary-foreground">Date</th>
+            <th className="w-32 px-3 py-3 text-left font-semibold text-secondary-foreground">Platforms</th>
+            <th className="w-20 px-3 py-3 text-left font-semibold text-secondary-foreground">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -227,10 +227,10 @@ export function RecordingsTable({
               <tr
                 key={r.id}
                 className={cn(
-                  "border-b border-[#F0F0F0] transition-colors last:border-0",
+                  "border-b border-border transition-colors last:border-0",
                   isSoftDeleted && "opacity-60",
-                  selected.has(r.id) ? "bg-[#224C87]/5" : idx % 2 === 0 ? "bg-white" : "bg-gray-50/40",
-                  "hover:bg-[#224C87]/5"
+                  selected.has(r.id) ? "bg-primary/5" : idx % 2 === 0 ? "bg-card" : "bg-muted/40",
+                  "hover:bg-primary/5"
                 )}
               >
                 {/* Checkbox */}
@@ -239,7 +239,7 @@ export function RecordingsTable({
                     type="checkbox"
                     checked={selected.has(r.id)}
                     onChange={() => onToggleSelect(r.id)}
-                    className="rounded accent-[#224C87]"
+                    className="rounded accent-primary"
                   />
                 </td>
 
@@ -250,7 +250,7 @@ export function RecordingsTable({
                     <Link
                       href={`/templates/${r.template_id}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="mt-0.5 block truncate text-[10px] text-[#224C87]/60 hover:text-[#224C87]"
+                      className="mt-0.5 block truncate text-[10px] text-primary/60 hover:text-primary"
                     >
                       {r.template_name ?? `#${r.template_id}`}
                     </Link>
@@ -263,13 +263,13 @@ export function RecordingsTable({
                 </td>
 
                 {/* Source */}
-                <td className="px-3 py-2.5 text-gray-500">{r.source?.type ?? "—"}</td>
+                <td className="px-3 py-2.5 text-muted-foreground">{r.source?.type ?? "—"}</td>
 
                 {/* Duration */}
-                <td className="px-3 py-2.5 tabular-nums text-gray-500">{formatDuration(r.duration)}</td>
+                <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{formatDuration(r.duration)}</td>
 
                 {/* Date */}
-                <td className="px-3 py-2.5 text-gray-500">{formatDate(r.start_time)}</td>
+                <td className="px-3 py-2.5 text-muted-foreground">{formatDate(r.start_time)}</td>
 
                 {/* Platforms */}
                 <td className="px-3 py-2.5">
@@ -286,14 +286,14 @@ export function RecordingsTable({
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-[10px] font-medium text-[#224C87] hover:underline"
+                              className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
                             >
                               {dot}{label}<ExternalLink size={9} className="opacity-60" />
                             </a>
                           );
                         }
                         return (
-                          <span key={platform} className="inline-flex items-center gap-1 text-[10px] text-gray-600">
+                          <span key={platform} className="inline-flex items-center gap-1 text-[10px] text-secondary-foreground">
                             {dot}{label}
                           </span>
                         );
@@ -314,7 +314,7 @@ export function RecordingsTable({
                           onClick={() => onRestore(r.id)}
                           disabled={isLoading}
                           title="Restore"
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-green-200 text-green-600 hover:bg-green-50 disabled:opacity-50"
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-green-200 text-green-600 hover:bg-green-50 dark:bg-green-500/10 disabled:opacity-50"
                         >
                           <ArchiveRestore size={13} />
                         </button>
@@ -326,7 +326,7 @@ export function RecordingsTable({
                           onClick={() => onRun(r.id)}
                           disabled={!r.can_run || isLoading}
                           title="Run"
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#D9D9D9] text-gray-500 hover:border-[#224C87] hover:bg-[#224C87] hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:border-primary hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
                         >
                           <Play size={11} />
                         </button>
@@ -335,7 +335,7 @@ export function RecordingsTable({
                           onClick={() => onPause(r.id)}
                           disabled={!r.can_pause || isLoading}
                           title="Pause"
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#D9D9D9] text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
                         >
                           <Pause size={11} />
                         </button>

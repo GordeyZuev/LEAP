@@ -16,7 +16,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   }, [status, router]);
 
   if (status === "checking" || status === "authenticated") {
-    return <div className="min-h-full bg-[#FAFAFA]" aria-hidden="true" />;
+    return <div className="min-h-full bg-background" aria-hidden="true" />;
   }
   return <>{children}</>;
 }

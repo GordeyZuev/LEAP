@@ -66,7 +66,7 @@ function renderHighlightedTokens(text: string): ReactNode[] {
       out.push(<Fragment key={`t-${key++}`}>{text.slice(lastIndex, match.index)}</Fragment>);
     }
     out.push(
-      <span key={`v-${key++}`} className="text-[#224C87]">
+      <span key={`v-${key++}`} className="text-primary">
         {match[0]}
       </span>,
     );
@@ -199,7 +199,7 @@ export function TemplateField({
   const fieldSurface = cn(
     FILTER_CONTROL,
     typography,
-    multiline ? "min-h-[2.875rem]" : "h-[2.875rem] min-h-0",
+    multiline ? "min-h-[2.875rem] max-h-[40vh]" : "h-[2.875rem] min-h-0",
   );
 
   return (
@@ -213,7 +213,7 @@ export function TemplateField({
           aria-hidden="true"
           className={cn(
             fieldSurface,
-            "pointer-events-none absolute inset-0 select-none overflow-hidden text-gray-900",
+            "pointer-events-none absolute inset-0 select-none overflow-hidden text-foreground",
             multiline ? "whitespace-pre-wrap break-words" : "whitespace-pre",
           )}
         >
@@ -236,7 +236,7 @@ export function TemplateField({
           placeholder={placeholder}
           className={cn(
             fieldSurface,
-            "relative z-10 m-0 block w-full appearance-none bg-transparent text-transparent caret-gray-900 placeholder:text-gray-400",
+            "relative z-10 m-0 block w-full appearance-none bg-transparent text-transparent caret-gray-900 placeholder:text-muted-foreground",
             multiline
               ? "resize-y overflow-x-hidden whitespace-pre-wrap break-words"
               : "resize-none overflow-x-auto overflow-y-hidden whitespace-pre",
@@ -247,7 +247,7 @@ export function TemplateField({
           <ul
             id={listboxId}
             role="listbox"
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-[#D9D9D9] bg-white shadow-lg"
+            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-border bg-card shadow-lg"
           >
             {filtered.map((v) => (
               <li key={v.value} role="option" aria-selected={false}>
@@ -258,17 +258,17 @@ export function TemplateField({
                     if (blurTimer.current) clearTimeout(blurTimer.current);
                     insertVar(v.value);
                   }}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted"
                 >
-                  <code className="shrink-0 font-mono text-xs text-[#224C87]">{`{{ ${v.value} }}`}</code>
-                  <span className="text-xs text-gray-400">{v.description}</span>
+                  <code className="shrink-0 font-mono text-xs text-primary">{`{{ ${v.value} }}`}</code>
+                  <span className="text-xs text-muted-foreground">{v.description}</span>
                 </button>
               </li>
             ))}
           </ul>
         )}
       </div>
-      <p className="flex items-center gap-1 text-[11px] text-gray-400">
+      <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
         <Info size={11} className="shrink-0" />
         Jinja2 — type <code className="font-mono">{"{{ "}</code> to autocomplete variables
       </p>
@@ -284,16 +284,17 @@ export function TemplateField({
 function Disclosure({ title, children }: { title: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA]">
+    <div className="rounded-xl border border-border bg-background">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:text-gray-900"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
       >
         {title}
-        <ChevronDown size={15} className={cn("shrink-0 text-gray-400 transition-transform", open && "rotate-180")} />
+        <ChevronDown size={15} className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
-      {open && <div className="space-y-4 border-t border-[#EAEAEA] px-4 pb-4 pt-3">{children}</div>}
+      {open && <div className="space-y-4 border-t border-border px-4 pb-4 pt-3">{children}</div>}
     </div>
   );
 }
@@ -391,7 +392,7 @@ export function YouTubeFields({
         multiline
         placeholder={"Recording from {{ date }}\n\n{{ topics }}"}
       />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <span className={FILTER_LABEL}>Privacy</span>
           <NativeSelect
@@ -448,7 +449,7 @@ export function YouTubeFields({
 
       {showExtended && (
         <Disclosure title="Advanced">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <span className={FILTER_LABEL}>License</span>
               <NativeSelect value={value.license} onChange={(e) => onChange({ license: e.target.value })}>
@@ -476,7 +477,7 @@ export function YouTubeFields({
               onChange={(e) => onChange({ publish_at: e.target.value })}
               className={FILTER_CONTROL}
             />
-            <p className="text-[11px] text-gray-400">Leave empty to publish per the privacy setting.</p>
+            <p className="text-[11px] text-muted-foreground">Leave empty to publish per the privacy setting.</p>
           </div>
           <ToggleGrid>
             <PlatformToggle label="Embeddable" checked={value.embeddable} onChange={(v) => onChange({ embeddable: v })} />
@@ -585,7 +586,7 @@ export function VkFields({
         multiline
         placeholder={"Recording from {{ date }}\n\n{{ topics }}"}
       />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <span className={FILTER_LABEL}>Group ID</span>
           <input
@@ -613,7 +614,7 @@ export function VkFields({
           onChange={(name) => onChange({ thumbnail_name: name })}
         />
       )}
-      <div className={cn("grid gap-3", showPrivacyComment ? "grid-cols-2" : "grid-cols-1 max-w-[50%]")}>
+      <div className={cn("grid gap-3", showPrivacyComment ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:max-w-[50%]")}>
         <div className="space-y-1">
           <span className={FILTER_LABEL}>Privacy — view</span>
           <NativeSelect
@@ -742,10 +743,10 @@ function YandexExtraFileBlock({
   withContent?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA] px-4 py-3">
+    <div className="rounded-xl border border-border bg-background px-4 py-3">
       <PlatformToggle label={label} checked={value.enabled} onChange={(v) => onChange({ enabled: v })} />
       {value.enabled && (
-        <div className="space-y-3 border-t border-[#EAEAEA] pt-3">
+        <div className="space-y-3 border-t border-border pt-3">
           <TemplateField
             label="Filename template"
             value={value.filename_template}
@@ -815,7 +816,7 @@ export function YandexDiskFields({
           />
         </>
       )}
-      <div className="divide-y divide-[#F5F5F5]">
+      <div className="divide-y divide-muted">
         <PlatformToggle
           label="Overwrite existing"
           checked={value.overwrite}
@@ -830,7 +831,7 @@ export function YandexDiskFields({
 
       {showExtended && (
         <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Extra files</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Extra files</p>
           <YandexExtraFileBlock
             label="Upload subtitles (.srt)"
             value={value.subtitles_srt}

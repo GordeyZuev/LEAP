@@ -10,7 +10,7 @@ import {
   Link2, Unlink, Pencil, VideoOff, Search,
   ArrowDownToLine, FileCode, FileText, AlignLeft, FileDown,
 } from "lucide-react";
-import { cn, formatDate, formatDateTimeShort } from "@/lib/utils";
+import { cn, formatDate, formatDateTimeShort, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -20,6 +20,9 @@ import { ActionButton } from "@/components/ui/action-button";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { POLL_INTERVAL_DETAIL, needsActivePoll } from "@/lib/constants";
 import { VideoPlayer, type VideoPlayerMarker } from "@/components/ui/video-player";
+import { Toast } from "@/components/ui/toast";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -223,7 +226,7 @@ function renderRecordingTemplateNavValue(opts: {
       <Link
         href={`/templates/${tid}`}
         title={linkText}
-        className="inline-block truncate text-[11px] text-gray-900 transition-colors hover:text-[#224C87]"
+        className="inline-block truncate text-[11px] text-foreground transition-colors hover:text-primary"
       >
         {linkText}
       </Link>
@@ -289,16 +292,16 @@ const STAGE_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number;
   COMPLETED:   { icon: CheckCircle2, dot: "bg-green-500" },
   FAILED:      { icon: XCircle,      dot: "bg-red-500" },
   IN_PROGRESS: { icon: Loader2,      dot: "bg-blue-500" },
-  SKIPPED:     { icon: SkipForward,  dot: "bg-gray-300" },
-  PENDING:     { icon: Clock,        dot: "bg-gray-300" },
+  SKIPPED:     { icon: SkipForward,  dot: "bg-muted" },
+  PENDING:     { icon: Clock,        dot: "bg-muted" },
 };
 
 const ICON_COLOR: Record<string, string> = {
   COMPLETED:   "text-green-500",
   FAILED:      "text-red-500",
   IN_PROGRESS: "text-blue-500",
-  SKIPPED:     "text-gray-400",
-  PENDING:     "text-gray-400",
+  SKIPPED:     "text-muted-foreground",
+  PENDING:     "text-muted-foreground",
 };
 
 const TARGET_LABELS: Record<string, string> = {
@@ -311,7 +314,7 @@ const PLATFORM_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: numb
   UPLOADED:     { icon: CheckCircle2, label: "Published",    color: "text-green-600" },
   UPLOADING:    { icon: Loader2,      label: "Publishing…",  color: "text-blue-600" },
   FAILED:       { icon: XCircle,      label: "Failed",       color: "text-red-600" },
-  NOT_UPLOADED: { icon: Clock,        label: "Not uploaded", color: "text-gray-400" },
+  NOT_UPLOADED: { icon: Clock,        label: "Not uploaded", color: "text-muted-foreground" },
 };
 
 
@@ -334,15 +337,15 @@ function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
         <Icon
           size={13}
           className={cn(
-            ICON_COLOR[status] ?? "text-gray-400",
+            ICON_COLOR[status] ?? "text-muted-foreground",
             status === "IN_PROGRESS" && "animate-spin"
           )}
         />
-        <span className="flex-1 text-xs font-medium text-gray-700">{name}</span>
+        <span className="flex-1 text-xs font-medium text-secondary-foreground">{name}</span>
         {stage.retry_count > 0 && (
           <span className="text-[10px] text-amber-500">×{stage.retry_count}</span>
         )}
-        {dur && <span className="shrink-0 text-[10px] tabular-nums text-gray-400">{dur}</span>}
+        {dur && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{dur}</span>}
       </div>
       {time && (
         <p className="ml-[21px] text-[10px] text-gray-300">{time}</p>
@@ -382,11 +385,11 @@ function PlatformOutputRow({
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="text-xs font-semibold text-gray-900">{label}</span>
+          <span className="text-xs font-semibold text-foreground">{label}</span>
           {output.preset && (
             <Link
               href={`/presets/${output.preset.id}`}
-              className="text-[11px] text-gray-400 transition-colors hover:text-[#224C87]"
+              className="text-[11px] text-muted-foreground transition-colors hover:text-primary"
             >
               {output.preset.name}
             </Link>
@@ -397,7 +400,7 @@ function PlatformOutputRow({
           <p className="break-words text-[11px] text-red-500">{output.failed_reason}</p>
         )}
         {output.uploaded_at && (
-          <p className="text-[10px] text-gray-400">
+          <p className="text-[10px] text-muted-foreground">
             {formatDateTimeShort(output.uploaded_at)}
             {uploadDur && <span className="ml-1 tabular-nums">· {uploadDur}</span>}
           </p>
@@ -409,7 +412,7 @@ function PlatformOutputRow({
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-0.5 text-[11px] font-medium text-[#224C87] hover:underline"
+            className="flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
           >
             Open <ExternalLink size={10} />
           </a>
@@ -421,7 +424,7 @@ function PlatformOutputRow({
             onClick={() => onUpload(output.target_type)}
             isPending={uploadPending}
             icon={<Upload size={10} />}
-            className="px-2 py-0.5 text-[11px] hover:border-[#224C87] hover:bg-[#224C87] hover:text-white"
+            className="px-2 py-0.5 text-[11px] hover:border-primary hover:bg-primary hover:text-white"
           >
             {output.status === "FAILED" ? "Retry" : "Upload"}
           </ActionButton>
@@ -454,7 +457,7 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
 
   if (loading) {
     return (
-      <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-[#F5F5F5]">
+      <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-muted">
         <Loader2 size={20} className="animate-spin text-gray-300" />
       </div>
     );
@@ -462,11 +465,11 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
 
   if (isError || !src) {
     return (
-      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-[#F5F5F5]">
+      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-muted">
         <VideoOff size={22} className="text-gray-300" />
-        <p className="text-xs text-gray-400">{isError ? "Failed to load video" : "Video not available yet"}</p>
+        <p className="text-xs text-muted-foreground">{isError ? "Failed to load video" : "Video not available yet"}</p>
         {isError && (
-          <button type="button" onClick={() => void refetch()} className="text-xs text-[#224C87] hover:underline">
+          <button type="button" onClick={() => void refetch()} className="text-xs text-primary hover:underline">
             Retry
           </button>
         )}
@@ -500,19 +503,20 @@ function CollapsibleCard({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-2xl border border-[#D9D9D9] bg-white shadow-sm">
+    <div className="rounded-2xl border border-border bg-card shadow-sm">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between px-5 py-4 text-left"
       >
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">{title}</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h2>
         <ChevronDown
           size={15}
-          className={cn("text-gray-400 transition-transform duration-200", open && "rotate-180")}
+          className={cn("text-muted-foreground transition-transform duration-200", open && "rotate-180")}
         />
       </button>
-      {open && <div className="border-t border-[#F0F0F0] px-5 pb-5 pt-4">{children}</div>}
+      {open && <div className="border-t border-border px-5 pb-5 pt-4">{children}</div>}
     </div>
   );
 }
@@ -525,6 +529,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const { id } = use(params);
   const router = useRouter();
   const qc = useQueryClient();
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const [videoTabChoice, setVideoTabChoice] = useState<"processed" | "original" | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -566,27 +571,44 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   const run = useMutation({
     mutationFn: () => apiClient.post(`/recordings/${id}/run`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recording", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+      showToast("success", "Pipeline started");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to start pipeline")),
   });
 
   const pause = useMutation({
     mutationFn: () => apiClient.post(`/recordings/${id}/pause`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recording", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+      showToast("success", "Pipeline paused");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to pause")),
   });
 
   const deleteRec = useMutation({
     mutationFn: () => apiClient.delete(`/recordings/${id}`),
     onSuccess: () => router.push("/recordings"),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to delete")),
   });
 
   const resetRec = useMutation({
     mutationFn: () => apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: resetDeleteFiles } }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recording", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+      showToast("success", "Recording reset");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to reset")),
   });
 
   const restoreRec = useMutation({
     mutationFn: () => apiClient.post(`/recordings/${id}/restore`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recording", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+      showToast("success", "Recording restored");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to restore")),
   });
 
   const createTemplate = useMutation({
@@ -604,7 +626,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     onSuccess: () => {
       setNameEditing(false);
       qc.invalidateQueries({ queryKey: ["recording", id] });
+      showToast("success", "Name updated");
     },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to rename")),
   });
 
   function invalidateConfigQueries() {
@@ -614,7 +638,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   const resetConfig = useMutation({
     mutationFn: () => apiClient.delete(`/recordings/${id}/config`),
-    onSuccess: invalidateConfigQueries,
+    onSuccess: () => {
+      invalidateConfigQueries();
+      showToast("success", "Override removed");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to reset config")),
   });
 
   const bindTemplate = useMutation({
@@ -622,12 +650,17 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     onSuccess: () => {
       setBindTemplateOpen(false);
       invalidateConfigQueries();
+      showToast("success", "Template bound");
     },
   });
 
   const unbindTemplate = useMutation({
     mutationFn: () => apiClient.delete(`/recordings/${id}/template`),
-    onSuccess: invalidateConfigQueries,
+    onSuccess: () => {
+      invalidateConfigQueries();
+      showToast("success", "Template unbound");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Failed to unbind")),
   });
 
   const { data: bindTemplatesData } = useQuery<{ items: { id: number; name: string }[] }>({
@@ -642,6 +675,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     onSuccess: () => {
       setUploadError(null);
       qc.invalidateQueries({ queryKey: ["recording", id] });
+      showToast("success", "Upload started");
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -712,8 +746,39 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-sm text-gray-400">Loading…</div>
+      <div className="w-full min-w-0 p-6 sm:p-8">
+        {/* Header */}
+        <div className="mb-5 flex items-center gap-3">
+          <Skeleton className="h-8 w-8 rounded-lg" />
+          <Skeleton className="h-7 w-64" />
+          <Skeleton className="h-6 w-24 rounded-full" />
+        </div>
+        <div className="flex flex-col gap-6 lg:flex-row">
+          {/* Main column */}
+          <div className="flex-1 space-y-6">
+            <div className="rounded-2xl border border-border bg-card p-5">
+              <Skeleton className="aspect-video w-full rounded-xl" />
+            </div>
+            <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
+              <Skeleton className="h-4 w-40" />
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-9 w-28 rounded-xl" />
+                ))}
+              </div>
+            </div>
+          </div>
+          {/* Sidebar */}
+          <div className="space-y-6 lg:w-80">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="space-y-3 rounded-2xl border border-border bg-card p-5">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-9 w-full rounded-xl" />
+                <Skeleton className="h-9 w-full rounded-xl" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -722,7 +787,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     return (
       <div className="p-8">
         <p className="text-sm text-red-400">Recording not found</p>
-        <Link href="/recordings" className="mt-2 inline-block text-sm text-[#224C87] hover:underline">
+        <Link href="/recordings" className="mt-2 inline-block text-sm text-primary hover:underline">
           ← Back to recordings
         </Link>
       </div>
@@ -806,7 +871,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       <div className="mb-5 flex flex-wrap items-center gap-4">
         <Link
           href="/recordings"
-          className="flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-secondary-foreground"
         >
           <ArrowLeft size={16} />
           Recordings
@@ -822,20 +887,20 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Escape") setNameEditing(false); }}
-              className="flex-1 truncate rounded-lg border border-[#224C87] bg-white px-2 py-1 text-lg font-semibold text-gray-900 outline-none"
+              className="flex-1 truncate rounded-lg border border-primary bg-card px-2 py-1 text-lg font-semibold text-foreground outline-none"
             />
-            <button type="submit" disabled={renameRec.isPending || !nameDraft.trim()} className="text-xs text-[#224C87] hover:underline disabled:opacity-40">Save</button>
-            <button type="button" onClick={() => setNameEditing(false)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+            <button type="submit" disabled={renameRec.isPending || !nameDraft.trim()} className="text-xs text-primary hover:underline disabled:opacity-40">Save</button>
+            <button type="button" onClick={() => setNameEditing(false)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
           </form>
         ) : (
           <div className="min-w-0 flex-1 flex items-center gap-2 group">
-            <h1 className="min-w-0 truncate text-lg font-semibold text-gray-900">
+            <h1 className="min-w-0 truncate text-lg font-semibold text-foreground">
               {recording.display_name}
             </h1>
             <button
               type="button"
               onClick={() => { setNameDraft(recording.display_name); setNameEditing(true); }}
-              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-600"
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-secondary-foreground"
               title="Rename"
             >
               <Pencil size={14} />
@@ -850,12 +915,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
       {/* ── Error banners ── */}
       {recording.failed && recording.failed_reason && (
-        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-600">
           <span className="font-medium">Error:</span> {recording.failed_reason}
         </div>
       )}
       {uploadError && (
-        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-600">
           {uploadError}
         </div>
       )}
@@ -867,14 +932,14 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         <div className="min-w-0 flex-1 space-y-6">
 
           {/* Video */}
-          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Video</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Video</h2>
             </div>
             {!hasVideoFiles ? (
-              <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-[#F5F5F5]">
+              <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-muted">
                 <VideoOff size={22} className="text-gray-300" />
-                <p className="text-xs text-gray-400">Video not available yet</p>
+                <p className="text-xs text-muted-foreground">Video not available yet</p>
               </div>
             ) : (
               <>
@@ -886,8 +951,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       className={cn(
                         "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
                         videoTab === "processed"
-                          ? "border-[#224C87] bg-[#224C87]/10 text-[#224C87]"
-                          : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-card text-secondary-foreground hover:bg-muted"
                       )}
                     >
                       Processed
@@ -898,8 +963,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       className={cn(
                         "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
                         videoTab === "original"
-                          ? "border-[#224C87] bg-[#224C87]/10 text-[#224C87]"
-                          : "border-[#D9D9D9] bg-white text-gray-600 hover:bg-gray-50"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-card text-secondary-foreground hover:bg-muted"
                       )}
                     >
                       Original
@@ -907,36 +972,40 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   </div>
                 )}
                 {videoTab === "processed" && hasProcessedVid && (
-                  <RecordingVideoPlayer
-                    ref={videoRef}
-                    key={`${id}-processed`}
-                    recordingId={id}
-                    variant="processed"
-                    vttBlobUrl={vttBlobUrl}
-                    markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
-                    onTimeUpdate={handleTimeUpdate}
-                  />
+                  <div key={`${id}-processed-wrap`} className="animate-overlay-in">
+                    <RecordingVideoPlayer
+                      ref={videoRef}
+                      key={`${id}-processed`}
+                      recordingId={id}
+                      variant="processed"
+                      vttBlobUrl={vttBlobUrl}
+                      markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
+                      onTimeUpdate={handleTimeUpdate}
+                    />
+                  </div>
                 )}
                 {videoTab === "original" && hasOriginalVid && (
-                  <RecordingVideoPlayer
-                    ref={videoRef}
-                    key={`${id}-original`}
-                    recordingId={id}
-                    variant="original"
-                    vttBlobUrl={vttBlobUrl}
-                    markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
-                    onTimeUpdate={handleTimeUpdate}
-                  />
+                  <div key={`${id}-original-wrap`} className="animate-overlay-in">
+                    <RecordingVideoPlayer
+                      ref={videoRef}
+                      key={`${id}-original`}
+                      recordingId={id}
+                      variant="original"
+                      vttBlobUrl={vttBlobUrl}
+                      markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
+                      onTimeUpdate={handleTimeUpdate}
+                    />
+                  </div>
                 )}
                 {topicTimestamps.length > 0 && (
-                  <div className="mt-4 border-t border-[#F0F0F0] pt-3">
+                  <div className="mt-4 border-t border-border pt-3">
                     {mainTopics.length > 0 && (
                       <div className="mb-3">
-                        <p className="text-base font-semibold leading-snug text-gray-900">
+                        <p className="text-base font-semibold leading-snug text-foreground">
                           {mainTopics[0]}
                         </p>
                         {mainTopics.length > 1 && (
-                          <p className="mt-0.5 text-sm text-gray-500">
+                          <p className="mt-0.5 text-sm text-muted-foreground">
                             {mainTopics.slice(1).join("  ·  ")}
                           </p>
                         )}
@@ -945,16 +1014,17 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     <button
                       type="button"
                       onClick={() => setChaptersOpen((v) => !v)}
+                      aria-expanded={chaptersOpen}
                       className="mb-1 flex w-full items-center gap-1.5 py-0.5 text-left"
                     >
                       <ChevronDown
                         size={13}
                         className={cn(
-                          "shrink-0 text-gray-400 transition-transform duration-200",
+                          "shrink-0 text-muted-foreground transition-transform duration-200",
                           !chaptersOpen && "-rotate-90"
                         )}
                       />
-                      <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Chapters ({topicTimestamps.length})
                       </span>
                     </button>
@@ -973,22 +1043,22 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                             }}
                             className={cn(
                               "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors",
-                              i === activeChapterIdx ? "bg-[#224C87]/6" : "hover:bg-gray-50"
+                              i === activeChapterIdx ? "bg-primary/6" : "hover:bg-muted"
                             )}
                           >
                             <span className={cn(
                               "h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
-                              i === activeChapterIdx ? "bg-[#224C87]" : "bg-[#D9D9D9]"
+                              i === activeChapterIdx ? "bg-primary" : "bg-border"
                             )} />
                             <span className={cn(
                               "w-11 shrink-0 font-mono text-xs",
-                              i === activeChapterIdx ? "font-semibold text-[#224C87]" : "text-gray-400"
+                              i === activeChapterIdx ? "font-semibold text-primary" : "text-muted-foreground"
                             )}>
                               {formatTimecode(t.start)}
                             </span>
                             <span className={cn(
                               "flex-1 truncate text-sm",
-                              i === activeChapterIdx ? "font-medium text-gray-900" : "text-gray-700"
+                              i === activeChapterIdx ? "font-medium text-foreground" : "text-secondary-foreground"
                             )}>
                               {t.topic}
                             </span>
@@ -1004,12 +1074,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
           {/* Media & Downloads */}
           {showMediaSection && (
-            <div className="rounded-2xl border border-[#D9D9D9] bg-white p-5 shadow-sm">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Files &amp; artifacts
               </h2>
               {mediaDownloadError && (
-                <div className="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+                <div className="mb-3 rounded-lg border border-red-100 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-xs text-red-600">
                   {mediaDownloadError}
                 </div>
               )}
@@ -1018,22 +1088,22 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   <button
                     type="button"
                     onClick={() => downloadArtifact("srt", `${dlStem}.srt`)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
                   >
                     <FileText size={12} className="shrink-0" />
                     SRT
-                    <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
+                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
                   </button>
                 )}
                 {recording.subtitles?.vtt?.exists && (
                   <button
                     type="button"
                     onClick={() => downloadArtifact("vtt", `${dlStem}.vtt`)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
                   >
                     <FileText size={12} className="shrink-0" />
                     VTT
-                    <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
+                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
                   </button>
                 )}
                 {recording.transcription?.exists && (
@@ -1041,29 +1111,29 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     <button
                       type="button"
                       onClick={() => downloadArtifact("transcript_json", `${dlStem}_transcript.json`)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
                     >
                       <FileCode size={12} className="shrink-0" />
                       Transcript JSON
-                      <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
+                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
                     </button>
                     <button
                       type="button"
                       onClick={() => downloadArtifact("transcript_txt", `${dlStem}_transcript.txt`)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
                     >
                       <FileText size={12} className="shrink-0" />
                       Transcript TXT
-                      <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
+                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
                     </button>
                     <button
                       type="button"
                       onClick={() => downloadArtifact("transcript_words", `${dlStem}_words.txt`)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
                     >
                       <AlignLeft size={12} className="shrink-0" />
                       Words TXT
-                      <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
+                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
                     </button>
                   </>
                 )}
@@ -1071,11 +1141,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   <button
                     type="button"
                     onClick={() => downloadArtifact("description_txt", `${dlStem}_description.txt`)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#D9D9D9] bg-[#F5F5F5] px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:border-[#224C87]/30 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
                   >
                     <FileDown size={12} className="shrink-0" />
                     Description TXT
-                    <ArrowDownToLine size={11} className="shrink-0 text-gray-400" />
+                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
                   </button>
                 )}
               </div>
@@ -1085,12 +1155,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           {/* Config (collapsible) */}
           <CollapsibleCard title="Configuration">
             {configLoading ? (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 size={14} className="animate-spin" />
                 Loading…
               </div>
             ) : !recordingConfig ? (
-              <p className="text-sm text-gray-400">No data</p>
+              <p className="text-sm text-muted-foreground">No data</p>
             ) : (
               <>
               <div className="mb-3 flex flex-wrap gap-2">
@@ -1099,7 +1169,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   variant="secondary"
                   onClick={() => setConfigEditOpen(true)}
                   icon={<Pencil size={12} />}
-                  className="hover:border-[#224C87] hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                  className="hover:border-primary hover:bg-primary/5 hover:text-primary"
                 >
                   Edit
                 </ActionButton>
@@ -1170,8 +1240,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         <div className="w-full space-y-5 lg:w-80 lg:shrink-0">
 
           {/* Control Panel */}
-          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Controls</h2>
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Controls</h2>
             {isSoftDeleted ? (
               <ActionButton
                 disabled={isActing}
@@ -1189,8 +1259,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   <div className={cn(
                     "flex overflow-hidden rounded-xl border",
                     !recording.can_run || isActing
-                      ? "border-[#D9D9D9] opacity-60"
-                      : "border-[#224C87]"
+                      ? "border-border opacity-60"
+                      : "border-primary"
                   )}>
                     <button
                       type="button"
@@ -1199,8 +1269,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       className={cn(
                         "flex flex-1 items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed",
                         !recording.can_run || isActing
-                          ? "bg-gray-100 text-gray-400"
-                          : "bg-[#224C87] text-white hover:bg-[#1a3a6b]"
+                          ? "bg-muted text-muted-foreground"
+                          : "bg-primary text-white hover:bg-primary-hover"
                       )}
                     >
                       {run.isPending ? (
@@ -1218,15 +1288,15 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       className={cn(
                         "flex w-10 shrink-0 items-center justify-center border-l transition-colors disabled:cursor-not-allowed",
                         !recording.can_run || isActing
-                          ? "border-[#D9D9D9] bg-gray-100 text-gray-400"
-                          : "border-[#1a3a6b] bg-[#224C87] text-white hover:bg-[#1a3a6b]"
+                          ? "border-border bg-muted text-muted-foreground"
+                          : "border-primary-hover bg-primary text-white hover:bg-primary-hover"
                       )}
                     >
                       <Settings2 size={14} />
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2 border-t border-[#F5F5F5] pt-2">
+                <div className="space-y-2 border-t border-muted pt-2">
                   <div className="flex gap-2">
                     <ActionButton
                       variant="secondary"
@@ -1256,7 +1326,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       variant="secondary"
                       onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
                       icon={<FilePlus2 size={13} />}
-                      className="flex-1 justify-center hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                      className="flex-1 justify-center hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
                     >
                       Create template
                     </ActionButton>
@@ -1275,18 +1345,18 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                         onClick={() => setBindTemplateOpen(true)}
                         title="Link template"
                         icon={<Link2 size={13} />}
-                        className="justify-center py-2 hover:border-[#224C87]/40 hover:bg-[#224C87]/5 hover:text-[#224C87]"
+                        className="justify-center py-2 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
                       />
                     )}
                   </div>
                 </div>
-                <div className="border-t border-[#F5F5F5] pt-2">
+                <div className="border-t border-muted pt-2">
                   <ActionButton
                     variant="secondary"
                     disabled={isActing}
                     onClick={() => setDeleteConfirm(true)}
                     icon={<Trash2 size={13} />}
-                    className="w-full justify-center border-red-200 py-2 text-red-500 hover:bg-red-50 disabled:cursor-not-allowed"
+                    className="w-full justify-center border-red-200 py-2 text-red-500 hover:bg-red-50 dark:bg-red-500/10 disabled:cursor-not-allowed"
                   >
                     Delete
                   </ActionButton>
@@ -1296,28 +1366,28 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           </div>
 
           {/* Publications */}
-          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="mb-1 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Publications</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Publications</h2>
               {recording.upload_summary && recording.upload_summary.total > 0 && (
                 <span className={cn(
                   "rounded-full px-2 py-0.5 text-[10px] font-medium",
                   recording.upload_summary.uploaded === recording.upload_summary.total
-                    ? "bg-green-50 text-green-700"
+                    ? "bg-green-50 dark:bg-green-500/10 text-green-700"
                     : recording.upload_summary.failed > 0
-                      ? "bg-red-50 text-red-600"
-                      : "bg-gray-100 text-gray-500"
+                      ? "bg-red-50 dark:bg-red-500/10 text-red-600"
+                      : "bg-muted text-muted-foreground"
                 )}>
                   {recording.upload_summary.uploaded}/{recording.upload_summary.total}
                 </span>
               )}
             </div>
             {recording.outputs.length === 0 ? (
-              <p className="mt-2 text-xs text-gray-400">
+              <p className="mt-2 text-xs text-muted-foreground">
                 No platforms configured. Add presets and run the recording.
               </p>
             ) : (
-              <div className="divide-y divide-[#F5F5F5]">
+              <div className="divide-y divide-muted">
                 {recording.outputs.map((output) => (
                   <PlatformOutputRow
                     key={output.id}
@@ -1335,8 +1405,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           <PipelineCard stages={allPipelineStages} durationSeconds={recording.pipeline_duration_seconds} />
 
           {/* Info */}
-          <div className="rounded-2xl border border-[#D9D9D9] bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Info</h2>
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Info</h2>
             <dl className="space-y-2">
               <SidebarInfoRow label="ID"       value={`#${recording.id}`} />
               {recording.source?.source_type && (
@@ -1375,12 +1445,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         onConfirm={() => { setResetConfirm(false); resetRec.mutate(); }}
         onCancel={() => setResetConfirm(false)}
       >
-        <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-secondary-foreground select-none cursor-pointer">
           <input
             type="checkbox"
             checked={resetDeleteFiles}
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
-            className="rounded border-gray-300 text-[#224C87] focus:ring-[#224C87]/30"
+            className="rounded border-border text-primary focus:ring-primary/30"
           />
           Delete processed files (video, audio, transcription)
         </label>
@@ -1412,20 +1482,20 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         panelClassName="max-w-sm"
       >
         <div className="p-6">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">Bind to template</h2>
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Bind to template</h2>
           {bindTemplate.isError && (
             <p className="mb-3 text-xs text-red-500">
               {(bindTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Error"}
             </p>
           )}
           <div className="relative mb-3">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               placeholder="Search templates…"
               value={bindTemplateSearch}
               onChange={(e) => setBindTemplateSearch(e.target.value)}
-              className="w-full rounded-xl border border-[#D9D9D9] py-2 pl-8 pr-3 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
+              className="w-full rounded-xl border border-border py-2 pl-8 pr-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
             />
           </div>
           <div className="max-h-64 space-y-1.5 overflow-y-auto">
@@ -1435,7 +1505,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 ? allItems.filter((t) => t.name.toLowerCase().includes(bindTemplateSearch.toLowerCase()))
                 : allItems;
               if (filtered.length === 0) {
-                return <p className="py-6 text-center text-sm text-gray-400">{allItems.length === 0 ? "No templates" : "Nothing found"}</p>;
+                return <p className="py-6 text-center text-sm text-muted-foreground">{allItems.length === 0 ? "No templates" : "Nothing found"}</p>;
               }
               return filtered.map((t) => (
                 <button
@@ -1443,10 +1513,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   type="button"
                   disabled={bindTemplate.isPending}
                   onClick={() => { bindTemplate.mutate(t.id); setBindTemplateSearch(""); }}
-                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-[#D9D9D9] bg-white px-3 py-2.5 text-left text-sm font-medium text-gray-800 transition-colors hover:border-[#224C87] hover:bg-[#224C87]/5 disabled:opacity-50"
+                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50"
                 >
                   <span className="min-w-0 truncate">{t.name}</span>
-                  <Link2 size={13} className="shrink-0 text-gray-400" />
+                  <Link2 size={13} className="shrink-0 text-muted-foreground" />
                 </button>
               ));
             })()}
@@ -1467,10 +1537,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         panelClassName="max-w-sm"
       >
         <div className="p-6">
-          <h2 className="mb-4 text-sm font-semibold text-gray-900">Create template from recording</h2>
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Create template from recording</h2>
           <div className="space-y-3">
             <div className="space-y-1">
-              <label htmlFor="new-template-name" className="text-xs font-medium text-gray-500">
+              <label htmlFor="new-template-name" className="text-xs font-medium text-muted-foreground">
                 Template name
               </label>
               <input
@@ -1485,7 +1555,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   }
                 }}
                 placeholder="Template name"
-                className="w-full rounded-xl border border-[#D9D9D9] px-3 py-2 text-sm outline-none focus:border-[#224C87] focus:ring-1 focus:ring-[#224C87]/20"
+                className="w-full rounded-xl border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
               />
             </div>
             {createTemplate.isError && (
@@ -1512,6 +1582,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
       </Modal>
+
+      {toast && (
+        <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />
+      )}
     </div>
   );
 }
@@ -1527,34 +1601,35 @@ function PipelineCard({ stages, durationSeconds }: { stages: ProcessingStage[]; 
   const total = stages.length;
 
   return (
-    <div className="rounded-2xl border border-[#D9D9D9] bg-white shadow-sm">
+    <div className="rounded-2xl border border-border bg-card shadow-sm">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between px-4 py-3 text-left"
       >
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Pipeline</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pipeline</h2>
         <div className="flex items-center gap-2">
           {total > 0 && (
             <span className={cn(
               "rounded-full px-2 py-0.5 text-[10px] font-medium",
-              hasFailed ? "bg-red-50 text-red-600" : completed === total ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
+              hasFailed ? "bg-red-50 dark:bg-red-500/10 text-red-600" : completed === total ? "bg-green-50 dark:bg-green-500/10 text-green-700" : "bg-muted text-muted-foreground"
             )}>
               {completed}/{total}
             </span>
           )}
           {durationSeconds != null && durationSeconds > 0 && (
-            <span className="text-[10px] text-gray-400">~{Math.round(durationSeconds)}s</span>
+            <span className="text-[10px] text-muted-foreground">~{Math.round(durationSeconds)}s</span>
           )}
-          <ChevronDown size={14} className={cn("text-gray-400 transition-transform duration-200", open && "rotate-180")} />
+          <ChevronDown size={14} className={cn("text-muted-foreground transition-transform duration-200", open && "rotate-180")} />
         </div>
       </button>
       {open && (
-        <div className="border-t border-[#F0F0F0] px-4 pb-3 pt-1">
+        <div className="border-t border-border px-4 pb-3 pt-1">
           {stages.length === 0 ? (
-            <p className="py-2 text-xs text-gray-400">No data</p>
+            <p className="py-2 text-xs text-muted-foreground">No data</p>
           ) : (
-            <div className="divide-y divide-[#F5F5F5]">
+            <div className="divide-y divide-muted">
               {stages.map((s) => {
                 const canon = normalizeStageType(s.stage_type);
                 return <PipelineCompactRow key={canon} stage={s} />;
@@ -1570,9 +1645,9 @@ function PipelineCard({ stages, durationSeconds }: { stages: ProcessingStage[]; 
 function SidebarInfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between gap-2">
-      <dt className="shrink-0 text-[11px] text-gray-500">{label}</dt>
+      <dt className="shrink-0 text-[11px] text-muted-foreground">{label}</dt>
       <dd
-        className="min-w-0 truncate text-right text-[11px] font-medium text-gray-800"
+        className="min-w-0 truncate text-right text-[11px] font-medium text-foreground"
         title={typeof value === "string" ? value : undefined}
       >
         {value}
@@ -1594,11 +1669,11 @@ function ConfigRow({
 }) {
   return (
     <div className="flex justify-between gap-4">
-      <dt className="shrink-0 text-sm text-gray-500">{label}</dt>
+      <dt className="shrink-0 text-sm text-muted-foreground">{label}</dt>
       <dd
         className={cn(
           "min-w-0 max-w-[70%] text-right text-sm",
-          highlight ? "font-medium text-amber-600" : "text-gray-900",
+          highlight ? "font-medium text-amber-600" : "text-foreground",
           mono && "font-mono text-xs"
         )}
       >

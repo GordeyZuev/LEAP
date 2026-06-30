@@ -67,19 +67,19 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-full flex items-center justify-center bg-[#FAFAFA] px-4">
+    <div className="min-h-full flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-10">
           <Logo size={48} />
-          <p className="text-sm font-semibold tracking-[0.2em] text-[#224C87] mt-5">LEAP</p>
-          <p className="text-xs text-gray-400 mt-1.5">Create your account</p>
+          <p className="text-sm font-semibold tracking-[0.2em] text-primary mt-5">LEAP</p>
+          <p className="text-xs text-muted-foreground mt-1.5">Create your account</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-[#D9D9D9] p-8">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8">
           <form onSubmit={handleSubmit} className="space-y-4">
             <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
               <div>
-                <label htmlFor="register-name" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="register-name" className="block text-sm font-medium text-secondary-foreground mb-1.5">
                   Full name
                 </label>
                 <input
@@ -90,13 +90,13 @@ export default function RegisterPage() {
                   autoFocus
                   value={form.full_name}
                   onChange={(e) => set("full_name", e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   placeholder="Your name"
                 />
               </div>
 
               <div>
-                <label htmlFor="register-email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="register-email" className="block text-sm font-medium text-secondary-foreground mb-1.5">
                   Email
                 </label>
                 <input
@@ -107,13 +107,13 @@ export default function RegisterPage() {
                   inputMode="email"
                   value={form.email}
                   onChange={(e) => set("email", e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   placeholder="you@example.com"
                 />
               </div>
 
               <div>
-                <label htmlFor="register-password" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="register-password" className="block text-sm font-medium text-secondary-foreground mb-1.5">
                   Password
                 </label>
                 <PasswordInput
@@ -125,7 +125,7 @@ export default function RegisterPage() {
                   value={form.password}
                   onChange={(e) => set("password", e.target.value)}
                   onBlur={() => setPasswordTouched(true)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   placeholder="••••••••"
                 />
                 <ul id="password-rules" className="mt-2 space-y-1">
@@ -136,7 +136,7 @@ export default function RegisterPage() {
                         key={r.id}
                         className={cn(
                           "flex items-center gap-1.5 text-[11px] transition-colors",
-                          r.ok ? "text-green-600" : showFail ? "text-red-500" : "text-gray-400",
+                          r.ok ? "text-green-600" : showFail ? "text-red-500" : "text-muted-foreground",
                         )}
                       >
                         <Check
@@ -154,7 +154,7 @@ export default function RegisterPage() {
               </div>
 
               {error && (
-                <p role="alert" aria-live="polite" className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">
+                <p role="alert" aria-live="polite" className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">
                   {error}
                 </p>
               )}
@@ -172,9 +172,9 @@ export default function RegisterPage() {
           </form>
         </div>
 
-        <p className="text-center text-sm text-gray-500 mt-4">
+        <p className="text-center text-sm text-muted-foreground mt-4">
           Already have an account?{" "}
-          <Link href="/login" className="text-[#224C87] font-medium hover:underline">
+          <Link href="/login" className="text-primary font-medium hover:underline">
             Sign in
           </Link>
         </p>

@@ -165,13 +165,13 @@ export function DisplayConfigFields({
   }
 
   return (
-    <div className="rounded-xl border border-[#EAEAEA] bg-[#FAFAFA] px-4 py-3">
+    <div className="rounded-xl border border-border bg-background px-4 py-3">
       <PlatformToggle label={label} checked={value.enabled} onChange={(v) => onChange({ enabled: v })} />
-      {hint && <p className="-mt-1 mb-1 text-[11px] text-gray-400">{hint}</p>}
+      {hint && <p className="-mt-1 mb-1 text-[11px] text-muted-foreground">{hint}</p>}
 
       {value.enabled && (
-        <div className="space-y-3 border-t border-[#EAEAEA] pt-3">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3 border-t border-border pt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <span className={FILTER_LABEL}>Format</span>
               <NativeSelect value={value.format} onChange={(e) => onChange({ format: e.target.value })}>
@@ -194,7 +194,7 @@ export function DisplayConfigFields({
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {numberField("max_count", "Max count")}
             {numberField("min_length", "Min length")}
             {numberField("max_length", "Max length")}

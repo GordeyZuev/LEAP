@@ -44,19 +44,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-full flex items-center justify-center bg-[#FAFAFA] px-4">
+    <div className="min-h-full flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-10">
           <Logo size={48} />
-          <p className="text-sm font-semibold tracking-[0.2em] text-[#224C87] mt-5">LEAP</p>
-          <p className="text-xs text-gray-400 mt-1.5">Sign in to your account</p>
+          <p className="text-sm font-semibold tracking-[0.2em] text-primary mt-5">LEAP</p>
+          <p className="text-xs text-muted-foreground mt-1.5">Sign in to your account</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-[#D9D9D9] p-8">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8">
           <form onSubmit={handleSubmit} className="space-y-4">
             <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
               <div>
-                <label htmlFor="login-email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="login-email" className="block text-sm font-medium text-secondary-foreground mb-1.5">
                   Email
                 </label>
                 <input
@@ -68,13 +68,13 @@ export default function LoginPage() {
                   autoFocus
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   placeholder="you@example.com"
                 />
               </div>
 
               <div>
-                <label htmlFor="login-password" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="login-password" className="block text-sm font-medium text-secondary-foreground mb-1.5">
                   Password
                 </label>
                 <PasswordInput
@@ -83,19 +83,19 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#D9D9D9] bg-[#FAFAFA] text-sm outline-none focus:border-[#224C87] focus:ring-2 focus:ring-[#224C87]/10 transition-colors"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   placeholder="••••••••"
                 />
               </div>
 
               <div className="flex justify-end -mt-1">
-                <Link href="/forgot-password" className="text-xs text-gray-400 hover:text-[#224C87] transition-colors">
+                <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-primary transition-colors">
                   Forgot password?
                 </Link>
               </div>
 
               {error && (
-                <p role="alert" aria-live="polite" className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">
+                <p role="alert" aria-live="polite" className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">
                   {error}
                 </p>
               )}
@@ -112,9 +112,9 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="text-center text-sm text-gray-500 mt-4">
+        <p className="text-center text-sm text-muted-foreground mt-4">
           No account?{" "}
-          <Link href="/register" className="text-[#224C87] font-medium hover:underline">
+          <Link href="/register" className="text-primary font-medium hover:underline">
             Create one
           </Link>
         </p>

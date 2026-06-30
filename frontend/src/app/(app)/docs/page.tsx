@@ -21,7 +21,7 @@ import {
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex gap-2.5 rounded-xl bg-blue-50 border border-blue-100 px-4 py-3">
+    <div className="flex gap-2.5 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 px-4 py-3">
       <Info size={14} className="text-blue-400 mt-0.5 shrink-0" strokeWidth={1.75} />
       <p className="text-xs text-blue-800 leading-relaxed">{children}</p>
     </div>
@@ -30,7 +30,7 @@ function Note({ children }: { children: React.ReactNode }) {
 
 function Tip({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex gap-2.5 rounded-xl bg-amber-50 border border-amber-100 px-4 py-3">
+    <div className="flex gap-2.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-100 px-4 py-3">
       <Info size={14} className="text-amber-400 mt-0.5 shrink-0" strokeWidth={1.75} />
       <p className="text-xs text-amber-800 leading-relaxed">{children}</p>
     </div>
@@ -38,19 +38,19 @@ function Tip({ children }: { children: React.ReactNode }) {
 }
 
 function P({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm text-gray-600 leading-relaxed">{children}</p>;
+  return <p className="text-sm text-secondary-foreground leading-relaxed">{children}</p>;
 }
 
 function H({ children }: { children: React.ReactNode }) {
-  return <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{children}</h3>;
+  return <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{children}</h3>;
 }
 
 function List({ items }: { items: React.ReactNode[] }) {
   return (
     <ul className="space-y-1.5">
       {items.map((item, i) => (
-        <li key={i} className="flex gap-2 text-sm text-gray-600">
-          <span className="mt-1.5 w-1 h-1 rounded-full bg-gray-300 shrink-0" />
+        <li key={i} className="flex gap-2 text-sm text-secondary-foreground">
+          <span className="mt-1.5 w-1 h-1 rounded-full bg-muted shrink-0" />
           <span className="leading-relaxed">{item}</span>
         </li>
       ))}
@@ -63,12 +63,12 @@ function Steps({ steps }: { steps: { title: string; body: React.ReactNode }[] })
     <ol className="space-y-4">
       {steps.map((step, i) => (
         <li key={i} className="flex gap-3">
-          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#224C87] text-white text-[10px] font-bold">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-white text-[10px] font-bold">
             {i + 1}
           </span>
           <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-800">{step.title}</p>
-            <div className="text-sm text-gray-500 leading-relaxed">{step.body}</div>
+            <p className="text-sm font-medium text-foreground">{step.title}</p>
+            <div className="text-sm text-muted-foreground leading-relaxed">{step.body}</div>
           </div>
         </li>
       ))}
@@ -95,23 +95,23 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section id={id} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+    <section id={id} className="bg-card border border-border rounded-2xl overflow-hidden">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-muted transition-colors"
       >
         <div className="flex items-center gap-3">
           <Icon size={16} strokeWidth={1.75} style={{ color }} />
-          <span className="text-sm font-semibold text-gray-800">{title}</span>
+          <span className="text-sm font-semibold text-foreground">{title}</span>
         </div>
         {open ? (
-          <ChevronDown size={16} className="text-gray-400" strokeWidth={1.75} />
+          <ChevronDown size={16} className="text-muted-foreground" strokeWidth={1.75} />
         ) : (
-          <ChevronRight size={16} className="text-gray-400" strokeWidth={1.75} />
+          <ChevronRight size={16} className="text-muted-foreground" strokeWidth={1.75} />
         )}
       </button>
       {open && (
-        <div className="px-6 pb-6 border-t border-gray-100 pt-5 space-y-6">{children}</div>
+        <div className="px-6 pb-6 border-t border-border pt-5 space-y-6">{children}</div>
       )}
     </section>
   );
@@ -148,8 +148,8 @@ export default function DocsPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <BookOpen size={24} className="text-[#224C87]" strokeWidth={1.75} />
-          <h1 className="text-2xl font-semibold text-gray-900">Documentation</h1>
+          <BookOpen size={24} className="text-primary" strokeWidth={1.75} />
+          <h1 className="text-2xl font-semibold text-foreground">Documentation</h1>
         </div>
         <P>
           LEAP processes educational videos from ingestion to publication — automatically.
@@ -167,7 +167,7 @@ export default function DocsPage() {
               e.preventDefault();
               document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:border-[#224C87]/40 hover:text-[#224C87] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-secondary-foreground hover:border-primary/40 hover:text-primary transition-colors"
           >
             <Icon size={12} strokeWidth={1.75} />
             {label}
@@ -350,11 +350,11 @@ export default function DocsPage() {
             </Tip>
           </Sub>
           <Sub title="Example">
-            <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 space-y-2">
-              <p className="text-xs font-medium text-gray-500">Title</p>
-              <p className="text-sm text-gray-800 font-mono">{"{{ display_name }} — {{ record_date }}"}</p>
-              <p className="text-xs font-medium text-gray-500 pt-1">Description</p>
-              <p className="text-sm text-gray-800 font-mono whitespace-pre-line">{"{{ title }}\n\n📚 Topics: {{ themes }}\n⏱ Duration: {{ duration_hm }}\n\n{{ topics }}\n\n❓ Questions:\n{{ questions }}"}</p>
+            <div className="rounded-xl bg-muted border border-border p-4 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Title</p>
+              <p className="text-sm text-foreground font-mono">{"{{ display_name }} — {{ record_date }}"}</p>
+              <p className="text-xs font-medium text-muted-foreground pt-1">Description</p>
+              <p className="text-sm text-foreground font-mono whitespace-pre-line">{"{{ title }}\n\n📚 Topics: {{ themes }}\n⏱ Duration: {{ duration_hm }}\n\n{{ topics }}\n\n❓ Questions:\n{{ questions }}"}</p>
             </div>
           </Sub>
           <Sub title="Preview">
@@ -530,12 +530,12 @@ export default function DocsPage() {
                   desc: "When you click «Run» on a recording you can override any processing parameter for that run only. Nothing is saved — it's a one-time adjustment.",
                 },
               ].map(({ level, scope, desc }) => (
-                <div key={level} className="flex gap-4 p-4 rounded-xl bg-gray-50 border border-gray-100">
+                <div key={level} className="flex gap-4 p-4 rounded-xl bg-muted border border-border">
                   <div className="min-w-[11rem] shrink-0">
-                    <p className="text-xs font-semibold text-gray-800">{level}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{scope}</p>
+                    <p className="text-xs font-semibold text-foreground">{level}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{scope}</p>
                   </div>
-                  <p className="text-xs text-gray-500 leading-relaxed">{desc}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{desc}</p>
                 </div>
               ))}
             </div>
@@ -623,9 +623,9 @@ export default function DocsPage() {
       </div>
 
       {/* Footer help */}
-      <p className="mt-10 text-center text-xs text-gray-400">
+      <p className="mt-10 text-center text-xs text-muted-foreground">
         Still have questions?{" "}
-        <a href="mailto:gordey.zuev@gmail.com" className="text-[#224C87] hover:underline">
+        <a href="mailto:gordey.zuev@gmail.com" className="text-primary hover:underline">
           Send us a message
         </a>
         .

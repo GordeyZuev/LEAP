@@ -134,6 +134,13 @@ class LocalStorageBackend(StorageBackend):
                 keys.append(str(rel))
         return sorted(keys)
 
+    async def get_prefix_size(self, prefix: str) -> int:
+        """Total bytes for all files under ``prefix`` via rglob (no network calls)."""
+        path = self._resolve(prefix)
+        if not path.exists():
+            return 0
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
     async def health_check(self) -> None:
         """Verify the base directory exists and is writable."""
         if not self.base.exists():
