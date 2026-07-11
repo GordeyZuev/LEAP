@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 import redis
 from fastapi import FastAPI
-from prometheus_client import REGISTRY, Counter, Histogram
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, CollectorRegistry, Histogram, generate_latest
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
@@ -26,11 +28,10 @@ _EXCLUDED_PATHS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # Custom LEAP metrics
 # ---------------------------------------------------------------------------
-# Each uvicorn worker has its own prometheus_client registry, so /metrics
-# returns the snapshot of whichever worker handled the scrape. Counters
-# diverge by worker; that is acceptable for an "is the pipeline alive"
-# observability story (Prometheus rate() smooths it). Switch to multiproc
-# mode if exact per-instance accuracy becomes a requirement.
+# Multiprocess mode: when PROMETHEUS_MULTIPROC_DIR is set, all processes
+# (uvicorn workers + Celery workers) write metric observations to files in that
+# shared directory. The /metrics endpoint reads and aggregates all files via
+# MultiProcessCollector. Without the env var, single-process mode is used.
 
 # Pipeline stage duration: download / trim / transcribe / extract_topics /
 # generate_subtitles / upload. `status` is "success" or "failure".
@@ -39,13 +40,6 @@ pipeline_stage_duration_seconds = Histogram(
     "Duration of a single pipeline stage execution.",
     labelnames=("stage", "platform", "status"),
     buckets=(1, 5, 15, 30, 60, 120, 300, 600, 1200, 3600, 7200),
-)
-
-# Counter of recording outcomes (success / failure / cancelled), per platform.
-pipeline_recording_total = Counter(
-    "leap_pipeline_recording_total",
-    "Pipeline outcomes per recording attempt.",
-    labelnames=("outcome", "platform"),
 )
 
 # External API call duration — Fireworks ASR, DeepSeek, Yandex Disk, YouTube,
@@ -66,7 +60,7 @@ class _QueueAgeCollector:
 
     Lives in the API process; Celery workers/beat push enqueue timestamps to
     Redis via signal handlers. Keeping collection here avoids cross-process
-    metric aggregation (Pushgateway / multiproc dir) for a single number.
+    metric aggregation for a single number that only makes sense from the API.
     """
 
     def __init__(self) -> None:
@@ -134,11 +128,35 @@ def track_external_api(provider: str, endpoint: str) -> Iterator[None]:
         external_api_duration_seconds.labels(provider=provider, endpoint=endpoint, status=status).observe(elapsed)
 
 
+def _build_metrics_response() -> Response:
+    """Aggregate metrics from all processes and return a Prometheus text response.
+
+    In multiprocess mode (PROMETHEUS_MULTIPROC_DIR is set), reads metric files
+    written by all uvicorn workers and Celery workers from the shared directory.
+    The _QueueAgeCollector is always added — it generates live Redis data and
+    is only meaningful from the API process.
+    """
+    multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+    if multiproc_dir:
+        from prometheus_client.multiprocess import MultiProcessCollector
+
+        registry = CollectorRegistry()
+        MultiProcessCollector(registry)
+        registry.register(_queue_age_collector)
+    else:
+        registry = REGISTRY
+    return Response(content=generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
+
+
 def setup_prometheus(app: FastAPI, *, enabled: bool) -> None:
     """Mount /metrics under the ``leap_http_*`` namespace.
 
     The ``handler`` label is always the FastAPI route template
     (``/api/v1/recordings/{id}``) so Prometheus cardinality stays bounded.
+
+    When PROMETHEUS_MULTIPROC_DIR is set, the /metrics endpoint aggregates
+    metric files from all processes (API workers + Celery workers) via
+    MultiProcessCollector, making pipeline stage durations visible.
     """
     if not enabled:
         logger.info("Prometheus instrumentation disabled")
@@ -167,19 +185,21 @@ def setup_prometheus(app: FastAPI, *, enabled: bool) -> None:
     instrumentator.add(metrics.request_size(metric_namespace="leap"))
     instrumentator.add(metrics.response_size(metric_namespace="leap"))
 
-    instrumentator.instrument(app).expose(
-        app,
-        endpoint="/metrics",
-        include_in_schema=False,
-        tags=["observability"],
-    )
+    # Instrument request handlers but do NOT call .expose() — we add our own
+    # /metrics route below to support multiprocess aggregation.
+    instrumentator.instrument(app)
 
-    # Register lazy collector for the per-queue oldest-task-age gauge.
-    # Wrap in try/except so a double registration (test reload) doesn't crash.
-    try:
-        REGISTRY.register(_queue_age_collector)
-    except ValueError:
-        # Already registered — happens in dev autoreload.
-        pass
+    # In single-process mode, the queue age collector lives in the global
+    # registry and is called automatically on every scrape.
+    if not os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        try:
+            REGISTRY.register(_queue_age_collector)
+        except ValueError:
+            # Already registered — happens in dev autoreload.
+            pass
+
+    @app.get("/metrics", include_in_schema=False, tags=["observability"])
+    def _metrics_endpoint() -> Response:
+        return _build_metrics_response()
 
     logger.info("Prometheus instrumentation enabled at /metrics")

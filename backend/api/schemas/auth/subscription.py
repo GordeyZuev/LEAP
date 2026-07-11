@@ -27,6 +27,8 @@ class SubscriptionPlanBase(BaseModel):
         None, ge=0, description="Transcriptions per month (None = unlimited)"
     )
     max_processing_per_month: int | None = Field(None, ge=0, description="Processing runs per month (None = unlimited)")
+    max_templates: int | None = Field(None, ge=0, description="Templates (None = unlimited, 0 = forbidden)")
+    max_credentials: int | None = Field(None, ge=0, description="Credentials (None = unlimited, 0 = forbidden)")
 
     # Pricing
     price_monthly: Decimal = Field(Decimal("0.00"), ge=0, description="Price per month")
@@ -57,6 +59,8 @@ class SubscriptionPlanUpdate(BaseModel):
     min_automation_interval_hours: int | None = Field(None, ge=1)
     max_transcriptions_per_month: int | None = Field(None, ge=0)
     max_processing_per_month: int | None = Field(None, ge=0)
+    max_templates: int | None = Field(None, ge=0)
+    max_credentials: int | None = Field(None, ge=0)
 
     price_monthly: Decimal | None = Field(None, ge=0)
     price_yearly: Decimal | None = Field(None, ge=0)
@@ -95,6 +99,8 @@ class SubscriptionPlanResponse(BaseModel):
     min_automation_interval_hours: int | None
     max_transcriptions_per_month: int | None = None
     max_processing_per_month: int | None = None
+    max_templates: int | None = None
+    max_credentials: int | None = None
 
     price_monthly: Decimal
     price_yearly: Decimal
@@ -127,6 +133,8 @@ class UserSubscriptionCreate(UserSubscriptionBase):
     custom_max_concurrent_tasks: int | None = Field(None, ge=1)
     custom_max_automation_jobs: int | None = Field(None, ge=0)
     custom_min_automation_interval_hours: int | None = Field(None, ge=1)
+    custom_max_templates: int | None = Field(None, ge=0)
+    custom_max_credentials: int | None = Field(None, ge=0)
 
     # Pay-as-you-go
     pay_as_you_go_enabled: bool = Field(False, description="Is Pay-as-you-go enabled")
@@ -152,6 +160,8 @@ class UserSubscriptionUpdate(BaseModel):
     custom_max_concurrent_tasks: int | None = Field(None, ge=1)
     custom_max_automation_jobs: int | None = Field(None, ge=0)
     custom_min_automation_interval_hours: int | None = Field(None, ge=1)
+    custom_max_templates: int | None = Field(None, ge=0)
+    custom_max_credentials: int | None = Field(None, ge=0)
 
     # Pay-as-you-go
     pay_as_you_go_enabled: bool | None = None
@@ -176,6 +186,8 @@ class UserSubscriptionInDB(UserSubscriptionBase):
     custom_max_concurrent_tasks: int | None
     custom_max_automation_jobs: int | None
     custom_min_automation_interval_hours: int | None
+    custom_max_templates: int | None
+    custom_max_credentials: int | None
 
     pay_as_you_go_enabled: bool
     pay_as_you_go_monthly_limit: Decimal | None
@@ -206,6 +218,8 @@ class UserSubscriptionResponse(BaseModel):
     custom_max_concurrent_tasks: int | None
     custom_max_automation_jobs: int | None
     custom_min_automation_interval_hours: int | None
+    custom_max_templates: int | None
+    custom_max_credentials: int | None
 
     # Effective quotas (with custom overrides applied)
     effective_max_recordings_per_month: int | None
@@ -213,6 +227,8 @@ class UserSubscriptionResponse(BaseModel):
     effective_max_concurrent_tasks: int | None
     effective_max_automation_jobs: int | None
     effective_min_automation_interval_hours: int | None
+    effective_max_templates: int | None
+    effective_max_credentials: int | None
 
     pay_as_you_go_enabled: bool
     pay_as_you_go_monthly_limit: Decimal | None
@@ -303,6 +319,8 @@ class QuotaStatusResponse(BaseModel):
     automation_jobs: dict[str, int | None]
     transcriptions: dict[str, int | None] = Field(default_factory=dict)
     processing: dict[str, int | None] = Field(default_factory=dict)
+    templates: dict[str, int | None] = Field(default_factory=dict)
+    credentials: dict[str, int | None] = Field(default_factory=dict)
 
     # Overage status
     is_overage_enabled: bool

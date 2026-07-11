@@ -310,8 +310,8 @@ GET /api/v1/admin/stats/quotas?period=202601
 | Метод | Путь | Назначение |
 | --- | --- | --- |
 | `GET` | `/api/v1/admin/users` | Список с пагинацией; фильтры `search` (по email), `role`, `page`, `page_size` |
-| `GET` | `/api/v1/admin/users/{user_id}` | Полный профиль (роль, `is_active`, все 8 feature-флагов) |
-| `PATCH` | `/api/v1/admin/users/{user_id}` | Обновить `role`, `is_active` и любой из feature-флагов (`can_transcribe`, `can_process_video`, `can_upload`, `can_create_templates`, `can_delete_recordings`, `can_update_uploaded_videos`, `can_manage_credentials`, `can_export_data`) |
+| `GET` | `/api/v1/admin/users/{user_id}` | Полный профиль (роль, `is_active`, 5 feature-флагов) |
+| `PATCH` | `/api/v1/admin/users/{user_id}` | Обновить `role`, `is_active` и любой из feature-флагов (`can_transcribe`, `can_process_video`, `can_upload`, `can_update_uploaded_videos`, `can_export_data`). Лимиты на темплейты/credentials — через подписку (`custom_max_templates`, `custom_max_credentials`) |
 | `GET` | `/api/v1/admin/users/{user_id}/events` | История из `usage_events`; фильтры `event_type`, `limit`, `offset` |
 
 ### Подписки и квоты
@@ -321,6 +321,7 @@ GET /api/v1/admin/stats/quotas?period=202601
 | `GET` | `/api/v1/admin/users/{user_id}/subscription` | Текущая подписка + `effective_quotas` + полный `quota_status` (использование) |
 | `POST` | `/api/v1/admin/users/{user_id}/subscription` | Назначить/заменить план (`plan_id` + опциональные `custom_*` оверайды) |
 | `PATCH` | `/api/v1/admin/users/{user_id}/subscription` | Обновить `custom_*` оверайды квот |
+| `DELETE` | `/api/v1/admin/users/{user_id}/subscription` | Снять подписку (204; 404 если её нет) — откат на `DEFAULT_QUOTAS` |
 
 ### Планы
 

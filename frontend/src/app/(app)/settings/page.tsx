@@ -735,7 +735,7 @@ export default function SettingsPage() {
                 onClick={() => resetConfig.mutate()}
                 isPending={resetConfig.isPending}
                 pendingLabel="Resetting…"
-                className="text-red-600 hover:text-red-700 border-0 hover:bg-red-50 dark:bg-red-500/10 px-2 py-1"
+                className="text-red-600 hover:text-red-700 border-0 hover:bg-red-50 dark:hover:bg-red-500/10 px-2 py-1"
               >
                 Yes, reset
               </ActionButton>
@@ -1209,7 +1209,7 @@ export default function SettingsPage() {
             variant="secondary"
             onClick={() => setLogoutAllOpen(true)}
             icon={<LogOut size={14} />}
-            className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
+            className="border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
           >
             Sign out everywhere
           </ActionButton>
@@ -1231,7 +1231,7 @@ export default function SettingsPage() {
               variant="secondary"
               onClick={() => { setDeleteAccountPassword(""); setDeleteAccountError(""); setDeleteAccountOpen(true); }}
               icon={<Trash2 size={14} />}
-              className="shrink-0 border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
+              className="shrink-0 border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
             >
               Delete account
             </ActionButton>

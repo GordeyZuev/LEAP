@@ -77,13 +77,11 @@ class AdminUserProfile(BaseModel):
     user_slug: int
     role: str
     is_active: bool
+    is_verified: bool
     can_transcribe: bool
     can_process_video: bool
     can_upload: bool
-    can_create_templates: bool
-    can_delete_recordings: bool
     can_update_uploaded_videos: bool
-    can_manage_credentials: bool
     can_export_data: bool
     created_at: datetime
     last_login_at: datetime | None = None
@@ -94,13 +92,11 @@ class AdminUserUpdate(BaseModel):
 
     role: str | None = None
     is_active: bool | None = None
+    is_verified: bool | None = None
     can_transcribe: bool | None = None
     can_process_video: bool | None = None
     can_upload: bool | None = None
-    can_create_templates: bool | None = None
-    can_delete_recordings: bool | None = None
     can_update_uploaded_videos: bool | None = None
-    can_manage_credentials: bool | None = None
     can_export_data: bool | None = None
 
 
@@ -134,3 +130,5 @@ class AdminSubscriptionSet(BaseModel):
     custom_max_concurrent_tasks: int | None = None
     custom_max_automation_jobs: int | None = None
     custom_min_automation_interval_hours: int | None = None
+    custom_max_templates: int | None = None
+    custom_max_credentials: int | None = None

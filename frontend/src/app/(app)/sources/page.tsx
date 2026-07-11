@@ -394,7 +394,7 @@ export default function SourcesPage() {
                   variant="secondary"
                   onClick={() => setDeleteId(s.id)}
                   icon={<Trash2 size={12} />}
-                  className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
+                  className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                 />
               </div>
             </div>

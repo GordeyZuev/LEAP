@@ -22,6 +22,7 @@ from api.schemas.template import (
 )
 from api.schemas.template.from_recording import TemplateFromRecordingRequest
 from api.schemas.template.operations import RematchTaskResponse, TemplatePreviewResponse, TemplateStatsResponse
+from api.services.quota_service import QuotaService
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models.recording import ProcessingStatus
 
@@ -166,10 +167,9 @@ async def create_template(
 
     When auto_rematch=True and template is active, starts background task to match unmapped recordings.
     """
-    if not current_user.can_create_templates:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to create templates"
-        )
+    allowed, error = await QuotaService(session).check_templates_quota(current_user.id)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
 
     repo = RecordingTemplateRepository(session)
 
@@ -246,10 +246,9 @@ async def create_template_from_recording(
     Returns:
         Created template
     """
-    if not current_user.can_create_templates:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to create templates"
-        )
+    allowed, error = await QuotaService(session).check_templates_quota(current_user.id)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
 
     from api.repositories.recording_repos import RecordingRepository
     from database.template_models import RecordingTemplateModel
@@ -319,10 +318,9 @@ async def copy_template(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """Copy a template. The copy starts as a draft with used_count=0."""
-    if not current_user.can_create_templates:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to create templates"
-        )
+    allowed, error = await QuotaService(session).check_templates_quota(current_user.id)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
 
     repo = RecordingTemplateRepository(session)
     original = await repo.find_by_id(template_id, current_user.id)
@@ -382,11 +380,6 @@ async def update_template(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """Update template."""
-    if not current_user.can_create_templates:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to update templates"
-        )
-
     repo = RecordingTemplateRepository(session)
     template = await repo.find_by_id(template_id, current_user.id)
 
@@ -419,11 +412,6 @@ async def delete_template(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """Delete template and automatically unmap all associated recordings."""
-    if not current_user.can_create_templates:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete templates"
-        )
-
     repo = RecordingTemplateRepository(session)
     template = await repo.find_by_id(template_id, current_user.id)
 
@@ -475,11 +463,6 @@ async def bulk_delete_templates(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """Bulk delete templates by IDs."""
-    if not current_user.can_create_templates:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="You don't have permission to delete templates"
-        )
-
     from sqlalchemy import text, update
 
     from database.models import RecordingModel

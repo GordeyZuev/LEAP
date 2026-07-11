@@ -1356,7 +1356,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     disabled={isActing}
                     onClick={() => setDeleteConfirm(true)}
                     icon={<Trash2 size={13} />}
-                    className="w-full justify-center border-red-200 py-2 text-red-500 hover:bg-red-50 dark:bg-red-500/10 disabled:cursor-not-allowed"
+                    className="w-full justify-center border-red-200 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:cursor-not-allowed"
                   >
                     Delete
                   </ActionButton>

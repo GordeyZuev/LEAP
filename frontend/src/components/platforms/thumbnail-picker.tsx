@@ -270,7 +270,7 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
                         title="Delete"
                         onClick={(e) => { e.stopPropagation(); deleteThumbnail.mutate(t.name); }}
                         disabled={deleteThumbnail.isPending}
-                        className="absolute left-1.5 top-1.5 hidden rounded-full bg-white/90 p-1 text-red-500 shadow hover:bg-red-50 dark:bg-red-500/10 group-hover:flex"
+                        className="absolute left-1.5 top-1.5 hidden rounded-full bg-white/90 p-1 text-red-500 shadow hover:bg-red-50 dark:hover:bg-red-500/10 group-hover:flex"
                       >
                         <Trash2 size={10} />
                       </button>

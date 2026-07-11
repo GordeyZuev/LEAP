@@ -872,6 +872,8 @@ DEFAULT_QUOTAS: dict[str, int | None] = {
     "min_automation_interval_hours": None,
     "max_transcriptions_per_month": None,
     "max_processing_per_month": None,
+    "max_templates": None,
+    "max_credentials": None,
 }
 
 

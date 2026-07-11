@@ -5,7 +5,11 @@
    key off the class, not the media query directly. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
+/* `.theme-light` re-declares the light palette on a subtree, overriding an
+   ancestor `.dark` (custom properties resolve to the nearest declaration).
+   Used to keep the marketing landing always light regardless of app theme. */
+:root,
+.theme-light {
   --background: #fafafa;
   --foreground: #111827;
   --card: #ffffff;
@@ -102,6 +106,7 @@
 /* Native form controls, scrollbars, and the system color picker follow the theme. */
 html { color-scheme: light; }
 html.dark { color-scheme: dark; }
+.theme-light { color-scheme: light; }
 
 body {
   background: var(--background);

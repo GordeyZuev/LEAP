@@ -384,7 +384,7 @@ function RecordingsPagedResults({
             )}
           </div>
 
-          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10">Delete</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">Delete</ActionButton>
         </div>
       )}
 

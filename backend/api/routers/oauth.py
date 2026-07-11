@@ -22,6 +22,7 @@ from api.schemas.oauth import (
 from api.services.oauth_platforms import OAuthPlatformConfig, get_platform_config
 from api.services.oauth_service import OAuthService
 from api.services.oauth_state import OAuthStateManager
+from api.services.quota_service import QuotaService
 from config.settings import get_settings
 from logger import get_logger
 
@@ -212,6 +213,12 @@ async def save_oauth_credentials(
         credential = await cred_repo.update(existing_cred.id, cred_update)
         action = "updated"
     else:
+        # New connection consumes a credential slot — enforce the per-user cap
+        # here too, since OAuth is the primary way to add a connection.
+        allowed, error = await QuotaService(session).check_credentials_quota(user_id)
+        if not allowed:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
+
         cred_create = UserCredentialCreate(
             user_id=user_id,
             platform=platform,
@@ -466,6 +473,10 @@ async def vk_implicit_callback(
             account_name = existing_cred.account_name or "unknown"
             logger.info(f"VK implicit token updated: credential_id={credential_id}")
         else:
+            allowed, error = await QuotaService(session).check_credentials_quota(current_user.id)
+            if not allowed:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
+
             config = get_platform_config("vk_video")
             new_creds.update({"client_id": config.client_id, "client_secret": config.client_secret})
             encrypted = encryption.encrypt_credentials(new_creds)

@@ -2,6 +2,44 @@
 
 ---
 
+## 2026-07-11: Admin UI — Plans CRUD, stat cards, is_verified
+
+- **Plans management** — новая секция «Subscription plans» на `/admin`: таблица всех планов (в т.ч. неактивных) с ключевыми квотами (recordings/month, storage, tasks, templates, credentials, число подписчиков); кнопка «New plan»; клик по строке → модалка создания/редактирования плана (все quota-поля, `is_active`, `display_name`, `description`). Пустое поле = `null` = безлимит; 0 = запрещено. Без планов невозможно назначить подписку — теперь это делается прямо из UI.
+- **∞-кнопка на override-полях** — рядом с каждым per-user limit-полем появляется кнопка `∞` (при заполненном значении): очищает поле и возвращает наследование от плана. Placeholder изменён на `∞`. Уточнено: чтобы дать пользователю безлимит сверх ограничения плана — обнулить поле в самом плане.
+- **Stat cards** — единообразие: убраны ситуативные sub-тексты, иконка и значение выровнены по центру. Теперь 4 карточки: Total users / Active users / Recordings / Storage.
+- **is_verified** — toggle «Email verified» в модалке пользователя (ручное подтверждение email, например для внутренних аккаунтов). Поле добавлено в `AdminUserProfile` и `AdminUserUpdate` на бэкенде и фронте.
+
+### Файлы
+
+- `backend/api/schemas/admin/stats.py` — `is_verified` в `AdminUserProfile` и `AdminUserUpdate`
+- `frontend/src/api/admin.ts` — `is_verified`; интерфейсы `AdminPlan`, `AdminPlanCreate`, `AdminPlanUpdate`; `createAdminPlan`, `updateAdminPlan`
+- `frontend/src/app/(app)/admin/page.tsx` — Plans section, EditPlanModal, StatCard fix, is_verified toggle, ∞ button
+
+---
+
+## 2026-07-04: Permissions → limits + Admin UI
+
+- **Удалены 3 permission-флага** — из таблицы `users` убраны `can_delete_recordings`, `can_manage_credentials`, `can_create_templates`. Удаление собственных записей больше ничем не гейтится; управление credentials и создание темплейтов теперь выражаются числовыми лимитами. Осталось 5 capability-флагов (`can_transcribe`, `can_process_video`, `can_upload`, `can_update_uploaded_videos`, `can_export_data`).
+- **Новые count-based лимиты** — `max_templates` и `max_credentials` заведены в quota-систему по паттерну `max_automation_jobs`: на `subscription_plans`, с per-user override `custom_max_*` на `user_subscriptions` и дефолтом в `DEFAULT_QUOTAS`. Семантика: `NULL` = безлимит, `0` = запрещено. Лимит проверяется live-подсчётом существующих строк (`QuotaService.check_templates_quota` / `check_credentials_quota`) и возвращает `403` на создании при превышении.
+- **Enforcement** — проверка лимита добавлена на create-эндпоинтах `POST /templates`, `POST /templates/from-recording/{id}`, `POST /templates/{id}/copy`, `POST /credentials`; с update/delete темплейтов и credentials гейт снят (менять/удалять своё можно всегда).
+- **Admin UI** — новая страница `/admin` (пункт в сайдбаре виден только `role="admin"`, авторитетная проверка — `get_current_admin` на бэке): список пользователей с поиском по email, фильтром по роли и пагинацией; модалка редактирования роли, `is_active`, 5 прав и подписки (план + все `custom_max_*` включая новые templates/credentials и `custom_min_automation_interval_hours`). Подписку можно **снять** (план → «No subscription»), тогда юзер откатывается на `DEFAULT_QUOTAS`.
+- **Новый эндпоинт** — `DELETE /api/v1/admin/users/{user_id}/subscription` (204; 404 если подписки нет).
+- **API** — `AdminUserProfile` / `AdminUserUpdate` больше не содержат удалённых флагов; `AdminSubscriptionSet`, `UserSubscription*` и `SubscriptionPlan*` схемы расширены полями templates/credentials; `GET /users/me/quota` отдаёт блоки `templates` и `credentials`.
+
+### Файлы
+
+- `backend/database/auth_models.py`, `backend/alembic/versions/032_permissions_to_limits.py`
+- `backend/api/schemas/auth/user.py`, `backend/api/schemas/auth/subscription.py`, `backend/api/schemas/admin/stats.py`
+- `backend/api/services/quota_service.py`, `backend/config/settings.py`
+- `backend/api/routers/templates.py`, `backend/api/routers/credentials.py`, `backend/api/routers/recordings.py`
+- `frontend/src/api/admin.ts`, `frontend/src/app/(app)/admin/page.tsx`, `frontend/src/components/layout/sidebar.tsx`
+
+### Deploy
+
+- Миграция `032` выкатывается **вместе** с кодом (down_revision `031`). Роняет 3 колонки `users.can_*` и добавляет `max_templates`/`max_credentials` на планы и `custom_max_*` на подписки. Обратима через `downgrade -1` (флаги восстанавливаются с `server_default TRUE`).
+
+---
+
 ## v0.10.5.0 (2026-07-01)
 
 Большое обновление веб-интерфейса — единая дизайн-система на семантических токенах, полноценная тёмная тема (Light / Dark / System), мобильная адаптация (выезжающий сайдбар-drawer, адаптивные таблицы/конфиги/модалки), слой анимаций и сквозная обратная связь на действиях — плюс рабочая система квот и учёта использования: реальный подсчёт хранилища из S3, hard limits, enforcement всех feature-флагов, история действий (`usage_events`) и расширенный Admin API.
@@ -11,7 +49,7 @@
 ## 2026-07-01: Frontend UX overhaul — design system, dark theme, mobile
 
 - **Семантическая токенизация** — весь хардкод цветов в `frontend/` переведён на дизайн-токены (`bg-card`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-primary` и т.д.), завязанные на CSS-переменные в `globals.css`. Это убрало ~460 brand-литералов и ~570 сырых grey/white-утилит, разблокировав смену темы/брендинга из одного места.
-- **Тёмная тема** — палитра `.dark` в `globals.css` + class-based `@custom-variant dark`; провайдер темы (`use-theme`, `lib/theme.ts`) с режимами **Light / Dark / System**, сохранением в `localStorage` и анти-FOUC inline-скриптом (`ThemeScript`) в `<head>`. Переключатель — в *Settings → Appearance*. Цветные поверхности (бейджи статусов, баннеры) получили dark-варианты.
+- **Тёмная тема** — палитра `.dark` в `globals.css` + class-based `@custom-variant dark`; провайдер темы (`use-theme`, `lib/theme.ts`) с режимами **Light / Dark / System**, сохранением в `localStorage` и анти-FOUC inline-скриптом (`ThemeScript`) в `<head>`. Переключатель — в *Settings → Appearance*. Цветные поверхности (бейджи статусов, баннеры) получили dark-варианты; сайдбар — отдельный тёмный токен. Маркетинговый лендинг всегда светлый (обёртка `.theme-light`) — тема применяется только к приложению за авторизацией.
 - **Мобильная адаптация** — сайдбар на `<lg` стал off-canvas drawer'ом со слайдом и backdrop, открывается из новой верхней панели с гамбургером (`AppShell`, `MobileTopBar`); закрывается по тапу/фону/Escape/смене роута. Адаптированы плотные сетки конфига платформ (`grid-cols-1 sm:…`), горизонтальный скролл таблиц, лендинг (hero/cta/сетки) и ширины модалок.
 - **Дизайн-система и состояния** — переиспользуемые `PageHeader`, `EmptyState`, `ErrorState`, `Skeleton`/`CardGridSkeleton`/`TableRowsSkeleton` заменили ad-hoc реализации; единые loading/empty/error на всех list-страницах и детальной странице записи.
 - **Анимации** — утилиты появления для модалок/дропдаунов/тостов/чипов в `globals.css`, всё под `@media (prefers-reduced-motion: reduce)`.

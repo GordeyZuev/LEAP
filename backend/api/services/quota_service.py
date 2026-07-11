@@ -19,7 +19,9 @@ from api.schemas.auth import (
     UserSubscriptionResponse,
 )
 from config.settings import DEFAULT_QUOTAS
+from database.auth_models import UserCredentialModel
 from database.models import RecordingModel
+from database.template_models import RecordingTemplateModel
 from file_storage.factory import get_storage_backend
 from logger import get_logger
 
@@ -73,6 +75,12 @@ class QuotaService:
             or plan.min_automation_interval_hours,
             "max_transcriptions_per_month": plan.max_transcriptions_per_month,
             "max_processing_per_month": plan.max_processing_per_month,
+            "max_templates": subscription.custom_max_templates
+            if subscription.custom_max_templates is not None
+            else plan.max_templates,
+            "max_credentials": subscription.custom_max_credentials
+            if subscription.custom_max_credentials is not None
+            else plan.max_credentials,
         }
 
     # ========================================
@@ -183,6 +191,10 @@ class QuotaService:
         max_jobs = quotas["max_automation_jobs"]
         max_transcriptions = quotas.get("max_transcriptions_per_month")
         max_processing = quotas.get("max_processing_per_month")
+        max_templates = quotas.get("max_templates")
+        max_credentials = quotas.get("max_credentials")
+        templates_used = await self._count_rows(RecordingTemplateModel, user_id)
+        credentials_used = await self._count_rows(UserCredentialModel, user_id)
 
         # Subscription info (optional)
         subscription = await self.subscription_repo.get_by_user_id(user_id)
@@ -199,11 +211,15 @@ class QuotaService:
                     custom_max_concurrent_tasks=subscription.custom_max_concurrent_tasks,
                     custom_max_automation_jobs=subscription.custom_max_automation_jobs,
                     custom_min_automation_interval_hours=subscription.custom_min_automation_interval_hours,
+                    custom_max_templates=subscription.custom_max_templates,
+                    custom_max_credentials=subscription.custom_max_credentials,
                     effective_max_recordings_per_month=quotas["max_recordings_per_month"],
                     effective_max_storage_gb=quotas["max_storage_gb"],
                     effective_max_concurrent_tasks=quotas["max_concurrent_tasks"],
                     effective_max_automation_jobs=quotas["max_automation_jobs"],
                     effective_min_automation_interval_hours=quotas["min_automation_interval_hours"],
+                    effective_max_templates=quotas["max_templates"],
+                    effective_max_credentials=quotas["max_credentials"],
                     pay_as_you_go_enabled=subscription.pay_as_you_go_enabled,
                     pay_as_you_go_monthly_limit=subscription.pay_as_you_go_monthly_limit,
                     starts_at=subscription.starts_at,
@@ -257,6 +273,16 @@ class QuotaService:
                 "limit": max_processing,
                 "available": (max_processing - current_usage.processing_count if max_processing is not None else None),
             },
+            templates={
+                "used": templates_used,
+                "limit": max_templates,
+                "available": max_templates - templates_used if max_templates is not None else None,
+            },
+            credentials={
+                "used": credentials_used,
+                "limit": max_credentials,
+                "available": max_credentials - credentials_used if max_credentials is not None else None,
+            },
             is_overage_enabled=False,
             overage_cost_this_month=Decimal("0"),
             overage_limit=None,
@@ -295,4 +321,29 @@ class QuotaService:
         current = usage.processing_count if usage else 0
         if current >= max_proc:
             return False, f"Monthly processing quota exceeded: {max_proc}/month"
+        return True, None
+
+    async def _count_rows(self, model, user_id: str) -> int:
+        """Count existing rows of ``model`` owned by the user."""
+        result = await self.session.execute(select(func.count(model.id)).where(model.user_id == user_id))
+        return result.scalar() or 0
+
+    async def check_templates_quota(self, user_id: str) -> tuple[bool, str | None]:
+        """Check if user can create another template (total count limit)."""
+        max_templates = (await self.get_effective_quotas(user_id)).get("max_templates")
+        if max_templates is None:
+            return True, None
+        current = await self._count_rows(RecordingTemplateModel, user_id)
+        if current >= max_templates:
+            return False, f"Templates limit reached: {max_templates}"
+        return True, None
+
+    async def check_credentials_quota(self, user_id: str) -> tuple[bool, str | None]:
+        """Check if user can add another credential (total count limit)."""
+        max_credentials = (await self.get_effective_quotas(user_id)).get("max_credentials")
+        if max_credentials is None:
+            return True, None
+        current = await self._count_rows(UserCredentialModel, user_id)
+        if current >= max_credentials:
+            return False, f"Credentials limit reached: {max_credentials}"
         return True, None

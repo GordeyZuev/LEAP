@@ -439,7 +439,7 @@ export default function CredentialsPage() {
                           variant="secondary"
                           onClick={() => setDisconnectId(cred.id)}
                           icon={<X size={12} />}
-                          className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10"
+                          className="border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                         >
                           Disconnect
                         </ActionButton>
@@ -481,7 +481,7 @@ export default function CredentialsPage() {
                   key={p.key}
                   type="button"
                   onClick={() => selectPlatform(p.key)}
-                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-border hover:border-primary hover:bg-blue-50 dark:bg-blue-500/10/40 transition-colors text-sm font-medium text-secondary-foreground"
+                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-border hover:border-primary hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors text-sm font-medium text-secondary-foreground"
                 >
                   {p.label}
                 </button>

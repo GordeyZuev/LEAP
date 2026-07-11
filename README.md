@@ -429,6 +429,7 @@ PROCESSING → PROCESSED → UPLOADING → READY
 - **История действий** — новая таблица `usage_events` фиксирует ключевые события (создание/удаление записи, старт/финиш пайплайна, транскрибация, загрузка) для аналитики. Migration 030.
 - **Расширенные квоты** — лимиты `max_transcriptions_per_month`, `max_processing_per_month`; счётчики `transcriptions_count`, `processing_count`, `uploads_count`. Migration 031.
 - **Admin API** — управление пользователями (список, профиль, роли, все права, история событий), подписками (назначение плана, custom-оверайды квот, `quota_status`) и планами (CRUD).
+- **Admin UI** — страница `/admin` (только для `role=admin`): список пользователей с поиском и фильтром; модалка редактирования роли, статуса (`is_active`, `is_verified`), 5 прав и подписки (план + per-user quota override со снятием через `∞`). CRUD планов с полным набором quota-полей прямо из браузера — без планов подписку назначить невозможно. Переработаны stat-карточки (4 однотипных плашки: users / active / recordings / storage), bar-chart распределения подписчиков по планам.
 
 **Новое в `v0.10.4.1`** — AssemblyAI, email-верификация, UI credentials и компонент ActionButton:
 - **Транскрипция** — AssemblyAI Universal-2/3-Pro; сегменты через `/sentences` (точнее, чем эвристика по словам).

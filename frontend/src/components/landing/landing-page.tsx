@@ -7,7 +7,7 @@ import { LandingCta } from "./landing-cta";
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="theme-light min-h-screen bg-background text-foreground">
       <LandingNavbar />
       <main>
         <LandingHero />

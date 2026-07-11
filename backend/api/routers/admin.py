@@ -404,6 +404,20 @@ async def admin_patch_user_subscription(
     return {"user_id": user_id, "subscription": sub}
 
 
+@router.delete("/users/{user_id}/subscription", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_user_subscription(
+    user_id: str,
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserInDB = Depends(get_current_admin),
+) -> None:
+    """Remove a user's subscription (admin only). User falls back to DEFAULT_QUOTAS."""
+    from api.repositories.subscription_repos import UserSubscriptionRepository
+
+    deleted = await UserSubscriptionRepository(session).delete(user_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subscription not found")
+
+
 # =============================================================================
 # Plans management
 # =============================================================================

@@ -416,7 +416,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         )}
 
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteJob.isPending} icon={<Trash2 size={15} />} title="Delete job" className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10">
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteJob.isPending} icon={<Trash2 size={15} />} title="Delete job" className="border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">
             Delete
           </ActionButton>
         )}

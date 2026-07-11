@@ -243,7 +243,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           </ActionButton>
         )}
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deletePreset.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50 dark:bg-red-500/10">
+          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deletePreset.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">
             Delete
           </ActionButton>
         )}

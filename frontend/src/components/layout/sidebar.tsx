@@ -11,10 +11,12 @@ import {
   Zap,
   BookOpen,
   Settings,
+  Shield,
   LogOut,
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/layout/logo";
@@ -53,6 +55,13 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
+  // Role gates the Admin entry. Cached under ["me"] and shared with the admin page.
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => (await apiClient.get("/users/me")).data as { role: string },
+    staleTime: 5 * 60 * 1000,
+  });
+  const isAdmin = me?.role === "admin";
   // Hydrate after mount to avoid SSR/client mismatch: the server can't read
   // localStorage and would always render the expanded state.
   const [collapsed, setCollapsed] = useState(false);
@@ -187,6 +196,17 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
 
       {/* Bottom */}
       <div className="px-2 pb-4 space-y-1">
+        {isAdmin && (
+          <Link
+            href="/admin"
+            title={effectiveCollapsed ? "Admin" : undefined}
+            onClick={onMobileClose}
+            className={linkClass(pathname === "/admin" || pathname.startsWith("/admin/"))}
+          >
+            <Shield size={18} strokeWidth={1.75} className="shrink-0" />
+            <span className={labelClass}>Admin</span>
+          </Link>
+        )}
         <Link
           href="/docs"
           title={effectiveCollapsed ? "Documentation" : undefined}

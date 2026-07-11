@@ -1795,7 +1795,6 @@ async def bulk_upload_recordings(
 async def bulk_delete_recordings(
     data: BulkDeleteRequest,
     ctx: ServiceContext = Depends(get_service_context),
-    _feat: UserInDB = Depends(require_feature("can_delete_recordings")),
 ) -> RecordingBulkDeleteResponse:
     """Bulk soft delete recordings."""
     # Resolve recording IDs
@@ -3030,7 +3029,6 @@ async def unbind_template_from_recording(
 async def delete_recording(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
-    _feat: UserInDB = Depends(require_feature("can_delete_recordings")),
 ) -> DeleteRecordingResponse:
     """Soft delete recording (can be restored before hard deletion)."""
     recording_repo = RecordingRepository(ctx.session)

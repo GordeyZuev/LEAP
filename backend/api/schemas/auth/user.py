@@ -45,10 +45,7 @@ class UserUpdate(BaseModel):
     can_transcribe: bool | None = None
     can_process_video: bool | None = None
     can_upload: bool | None = None
-    can_create_templates: bool | None = None
-    can_delete_recordings: bool | None = None
     can_update_uploaded_videos: bool | None = None
-    can_manage_credentials: bool | None = None
     can_export_data: bool | None = None
 
     # --- Timestamps ---
@@ -80,10 +77,7 @@ class UserInDB(UserBase):
     can_transcribe: bool = True
     can_process_video: bool = True
     can_upload: bool = True
-    can_create_templates: bool = True
-    can_delete_recordings: bool = True
     can_update_uploaded_videos: bool = True
-    can_manage_credentials: bool = True
     can_export_data: bool = True
 
     # --- Session kill-switch ---
@@ -121,10 +115,7 @@ class UserResponse(BaseModel):
     can_transcribe: bool
     can_process_video: bool
     can_upload: bool
-    can_create_templates: bool
-    can_delete_recordings: bool
     can_update_uploaded_videos: bool
-    can_manage_credentials: bool
     can_export_data: bool
 
     # --- Timestamps ---

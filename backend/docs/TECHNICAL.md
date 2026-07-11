@@ -973,14 +973,11 @@ class UserModel:
     user_slug: int  # Sequential integer for storage paths (user_000001)
     role: str  # "user", "admin"
 
-    # Permissions
+    # Permissions (capability gates; count-based caps live in the quota system)
     can_transcribe: bool
     can_process_video: bool
     can_upload: bool
-    can_create_templates: bool
-    can_delete_recordings: bool
     can_update_uploaded_videos: bool
-    can_manage_credentials: bool
     can_export_data: bool
 ```
 

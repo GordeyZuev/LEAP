@@ -46,14 +46,11 @@ class UserModel(Base):
     # password change to invalidate every live token for this user in one shot.
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
-    # --- Permissions ---
+    # --- Permissions (capability gates; count-based limits live in the quota system) ---
     can_transcribe: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     can_process_video: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     can_upload: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    can_create_templates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    can_delete_recordings: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     can_update_uploaded_videos: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    can_manage_credentials: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     can_export_data: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # --- Timestamps ---
@@ -140,6 +137,8 @@ class SubscriptionPlanModel(Base):
     min_automation_interval_hours = Column(Integer, nullable=True)
     max_transcriptions_per_month = Column(Integer, nullable=True)
     max_processing_per_month = Column(Integer, nullable=True)
+    max_templates = Column(Integer, nullable=True)
+    max_credentials = Column(Integer, nullable=True)
 
     # --- Pricing ---
     price_monthly = Column(Numeric(10, 2), default=0, nullable=False)
@@ -175,6 +174,8 @@ class UserSubscriptionModel(Base):
     custom_max_concurrent_tasks = Column(Integer, nullable=True)
     custom_max_automation_jobs = Column(Integer, nullable=True)
     custom_min_automation_interval_hours = Column(Integer, nullable=True)
+    custom_max_templates = Column(Integer, nullable=True)
+    custom_max_credentials = Column(Integer, nullable=True)
 
     # --- Pay-as-you-go ---
     pay_as_you_go_enabled = Column(Boolean, default=False, nullable=False)

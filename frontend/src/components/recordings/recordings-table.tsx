@@ -112,7 +112,7 @@ function MenuBtn({ icon, label, onClick, danger }: { icon: React.ReactNode; labe
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-muted",
-        danger ? "text-red-500 hover:bg-red-50 dark:bg-red-500/10" : "text-secondary-foreground"
+        danger ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10" : "text-secondary-foreground"
       )}
     >
       {icon}
@@ -314,7 +314,7 @@ export function RecordingsTable({
                           onClick={() => onRestore(r.id)}
                           disabled={isLoading}
                           title="Restore"
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-green-200 text-green-600 hover:bg-green-50 dark:bg-green-500/10 disabled:opacity-50"
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-green-200 text-green-600 hover:bg-green-50 dark:hover:bg-green-500/10 disabled:opacity-50"
                         >
                           <ArchiveRestore size={13} />
                         </button>

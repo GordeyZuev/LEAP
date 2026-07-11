@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Celery worker + queue health. Prometheus panels need celery-exporter events (worker -E). Postgres panels show pipeline stage failures when metrics are still warming up.",
+  "description": "Celery workers, queues, pipeline throughput and stage duration, external API latency. Top stat shows worker health at a glance.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -11,9 +11,7 @@
     {
       "title": "Drill-down",
       "type": "dashboards",
-      "tags": [
-        "leap"
-      ],
+      "tags": ["leap"],
       "asDropdown": true,
       "includeVars": false,
       "keepTime": true
@@ -22,88 +20,17 @@
   "panels": [
     {
       "type": "row",
-      "title": "Pulse (Prometheus)",
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 24,
-        "h": 1
-      },
+      "title": "Workers",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1},
       "collapsed": false,
       "panels": []
     },
     {
       "type": "stat",
-      "title": "Task failure rate (5m)",
-      "description": "Failed / received Celery tasks. Shows 0 when idle.",
-      "gridPos": {
-        "x": 0,
-        "y": 1,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "100 * sum(rate(celery_task_failed_total[5m])) / clamp_min(sum(rate(celery_task_received_total[5m])), 1e-9) or vector(0)",
-          "legendFormat": " "
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 2,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "textMode": "value_and_name"
-      }
-    },
-    {
-      "type": "stat",
       "title": "Active workers",
-      "description": "Celery workers reporting celery_worker_up=1.",
-      "gridPos": {
-        "x": 6,
-        "y": 1,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "description": "Celery workers reporting alive. RED = no workers — pipeline is down.",
+      "gridPos": {"x": 0, "y": 1, "w": 6, "h": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
@@ -115,32 +42,56 @@
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
+          "color": {"mode": "thresholds"},
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
+              {"color": "red", "value": null},
+              {"color": "green", "value": 1}
             ]
           }
         }
       },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
+        "reduceOptions": {"calcs": ["lastNotNull"]},
         "colorMode": "background",
         "graphMode": "none",
+        "textMode": "value_and_name",
+        "text": {"titleSize": 14, "valueSize": 40}
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Task failure rate (5m)",
+      "description": "Failed / received Celery tasks. Shows 0 when idle.",
+      "gridPos": {"x": 6, "y": 1, "w": 6, "h": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(rate(celery_task_failed_total[5m])) / clamp_min(sum(rate(celery_task_received_total[5m])), 1e-9) or vector(0)",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "area",
         "textMode": "value_and_name"
       }
     },
@@ -148,16 +99,8 @@
       "type": "stat",
       "title": "Pending tasks",
       "description": "Total messages waiting in all Celery queues.",
-      "gridPos": {
-        "x": 12,
-        "y": 1,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "gridPos": {"x": 12, "y": 1, "w": 6, "h": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
@@ -169,34 +112,19 @@
         "defaults": {
           "unit": "short",
           "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
+          "color": {"mode": "thresholds"},
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "red",
-                "value": 200
-              }
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 200}
             ]
           }
         }
       },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
+        "reduceOptions": {"calcs": ["lastNotNull"]},
         "colorMode": "background",
         "graphMode": "area",
         "textMode": "value_and_name"
@@ -206,16 +134,8 @@
       "type": "stat",
       "title": "Tasks received / min",
       "description": "Inbound task rate across all queues.",
-      "gridPos": {
-        "x": 18,
-        "y": 1,
-        "w": 6,
-        "h": 4
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "gridPos": {"x": 18, "y": 1, "w": 6, "h": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
@@ -227,40 +147,25 @@
         "defaults": {
           "unit": "short",
           "decimals": 1,
-          "color": {
-            "mode": "thresholds"
-          },
+          "color": {"mode": "thresholds"},
           "thresholds": {
             "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
+            "steps": [{"color": "blue", "value": null}]
           }
         }
       },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
+        "reduceOptions": {"calcs": ["lastNotNull"]},
         "colorMode": "value",
         "graphMode": "area",
         "textMode": "value_and_name"
       }
     },
+
     {
       "type": "row",
-      "title": "Queues (Prometheus)",
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 24,
-        "h": 1
-      },
+      "title": "Queues",
+      "gridPos": {"x": 0, "y": 6, "w": 24, "h": 1},
       "collapsed": false,
       "panels": []
     },
@@ -268,16 +173,8 @@
       "type": "timeseries",
       "title": "Queue depth per queue",
       "description": "Pending messages per Celery queue (celery-exporter).",
-      "gridPos": {
-        "x": 0,
-        "y": 6,
-        "w": 12,
-        "h": 9
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "gridPos": {"x": 0, "y": 7, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
@@ -298,34 +195,16 @@
         }
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "mean",
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max", "lastNotNull"]},
+        "tooltip": {"mode": "multi"}
       }
     },
     {
       "type": "timeseries",
       "title": "Oldest task age per queue",
-      "description": "Seconds since the oldest pending task was enqueued (Redis tracker in API /metrics).",
-      "gridPos": {
-        "x": 12,
-        "y": 6,
-        "w": 12,
-        "h": 9
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "description": "Seconds since the oldest pending task was enqueued (Redis tracker in API /metrics). Yellow >5min, red >15min.",
+      "gridPos": {"x": 12, "y": 7, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
@@ -337,59 +216,33 @@
         "defaults": {
           "unit": "s",
           "decimals": 0,
-          "color": {
-            "mode": "thresholds"
-          },
+          "color": {"mode": "thresholds"},
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 300
-              },
-              {
-                "color": "red",
-                "value": 900
-              }
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 300},
+              {"color": "red", "value": 900}
             ]
           },
           "custom": {
             "drawStyle": "line",
             "fillOpacity": 30,
-            "thresholdsStyle": {
-              "mode": "area"
-            },
+            "thresholdsStyle": {"mode": "area"},
             "spanNulls": true
           }
         }
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "max",
-            "lastNotNull"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["max", "lastNotNull"]},
+        "tooltip": {"mode": "multi"}
       }
     },
+
     {
       "type": "row",
-      "title": "Task throughput (Prometheus)",
-      "gridPos": {
-        "x": 0,
-        "y": 15,
-        "w": 24,
-        "h": 1
-      },
+      "title": "Task throughput",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 1},
       "collapsed": false,
       "panels": []
     },
@@ -397,16 +250,8 @@
       "type": "timeseries",
       "title": "Succeeded tasks / min by name",
       "description": "Top pipeline tasks by success rate.",
-      "gridPos": {
-        "x": 0,
-        "y": 16,
-        "w": 12,
-        "h": 9
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "gridPos": {"x": 0, "y": 17, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
@@ -418,41 +263,20 @@
         "defaults": {
           "unit": "short",
           "decimals": 2,
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "spanNulls": true
-          }
+          "custom": {"drawStyle": "line", "fillOpacity": 20, "spanNulls": true}
         }
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "mean",
-            "max"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]},
+        "tooltip": {"mode": "multi"}
       }
     },
     {
       "type": "timeseries",
       "title": "Failed tasks / min by name",
       "description": "Non-zero failure rates only.",
-      "gridPos": {
-        "x": 12,
-        "y": 16,
-        "w": 12,
-        "h": 9
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
+      "gridPos": {"x": 12, "y": 17, "w": 12, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
@@ -467,52 +291,251 @@
           "custom": {
             "drawStyle": "bars",
             "fillOpacity": 70,
-            "stacking": {
-              "mode": "normal"
-            },
+            "stacking": {"mode": "normal"},
             "spanNulls": true
           }
         }
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "calcs": [
-            "sum"
-          ]
-        },
-        "tooltip": {
-          "mode": "multi"
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "Pipeline stage duration (Prometheus)",
+      "gridPos": {"x": 0, "y": 26, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Recordings completed (24h)",
+      "gridPos": {"x": 0, "y": 27, "w": 8, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(celery_task_succeeded_total{name=\"api.tasks.processing.run_recording\"}[24h]))",
+          "legendFormat": " "
         }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        }
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "value",
+        "graphMode": "area"
       }
     },
     {
+      "type": "stat",
+      "title": "Uploads (24h)",
+      "gridPos": {"x": 8, "y": 27, "w": 8, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(celery_task_succeeded_total{name=~\"api.tasks.upload.*\"}[24h]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}
+        }
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Pipeline failures (24h)",
+      "gridPos": {"x": 16, "y": 27, "w": 8, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(celery_task_failed_total{name=~\"api.tasks.processing.*|api.tasks.upload.*\"}[24h]))",
+          "legendFormat": " "
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 10}
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "area"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Stage duration p50 / p95 by stage",
+      "description": "Pipeline stage execution time from worker metrics (multiprocess mode). Requires PROMETHEUS_MULTIPROC_DIR.",
+      "gridPos": {"x": 0, "y": 31, "w": 16, "h": 10},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (stage, le) (rate(leap_pipeline_stage_duration_seconds_bucket{status=\"success\"}[10m])))",
+          "legendFormat": "{{stage}} p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (stage, le) (rate(leap_pipeline_stage_duration_seconds_bucket{status=\"success\"}[10m])))",
+          "legendFormat": "{{stage}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "spanNulls": true
+          }
+        }
+      },
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Recordings in flight (by status)",
+      "description": "Active recordings not yet finished — authoritative source from DB.",
+      "gridPos": {"x": 16, "y": 31, "w": 8, "h": 10},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT status::text AS stage, COUNT(*) AS recordings FROM recordings WHERE NOT failed AND NOT deleted AND NOT on_pause AND status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') GROUP BY 1 ORDER BY 2 DESC;"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {
+        "orientation": "horizontal",
+        "xField": "stage",
+        "showValue": "always"
+      }
+    },
+
+    {
+      "type": "row",
+      "title": "External API latency (Prometheus)",
+      "gridPos": {"x": 0, "y": 41, "w": 24, "h": 1},
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "External API p95 latency by provider",
+      "description": "Outbound call latency: Fireworks ASR, DeepSeek, YouTube, VK, Zoom, Yandex Disk. Requires track_external_api() wrappers in task code.",
+      "gridPos": {"x": 0, "y": 42, "w": 16, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (provider, le) (rate(leap_external_api_duration_seconds_bucket{status=\"ok\"}[10m])))",
+          "legendFormat": "{{provider}} p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 10,
+            "spanNulls": true
+          }
+        }
+      },
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]},
+        "tooltip": {"mode": "multi"}
+      }
+    },
+    {
+      "type": "table",
+      "title": "External API error rate by provider (1h)",
+      "description": "Percentage of external calls returning error status in last hour.",
+      "gridPos": {"x": 16, "y": 42, "w": 8, "h": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum by (provider) (increase(leap_external_api_duration_seconds_count{status=\"error\"}[1h])) / clamp_min(sum by (provider) (increase(leap_external_api_duration_seconds_count[1h])), 1)",
+          "legendFormat": "{{provider}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {"mode": "thresholds"},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 20}
+            ]
+          }
+        }
+      },
+      "options": {
+        "sortBy": [{"displayName": "Value", "desc": true}]
+      },
+      "transformations": [
+        {"id": "labelsToFields", "options": {"mode": "rows"}},
+        {"id": "organize", "options": {"renameByName": {"label": "provider", "Value": "error %"}}}
+      ]
+    },
+
+    {
       "type": "row",
       "title": "Failures (Loki + Postgres)",
-      "gridPos": {
-        "x": 0,
-        "y": 25,
-        "w": 24,
-        "h": 1
-      },
+      "gridPos": {"x": 0, "y": 51, "w": 24, "h": 1},
       "collapsed": false,
       "panels": []
     },
     {
       "type": "barchart",
       "title": "Stage failures (24h, Postgres)",
-      "description": "Failed rows in stage_timings — authoritative when celery-exporter has no history yet.",
-      "gridPos": {
-        "x": 0,
-        "y": 26,
-        "w": 12,
-        "h": 9
-      },
-      "datasource": {
-        "type": "postgres",
-        "uid": "leap_db"
-      },
+      "description": "Failed rows in stage_timings — authoritative source for failure counts.",
+      "gridPos": {"x": 0, "y": 52, "w": 12, "h": 9},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [
         {
           "refId": "A",
@@ -523,35 +546,22 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "color": {
-            "mode": "fixed",
-            "fixedColor": "red"
-          }
+          "color": {"mode": "fixed", "fixedColor": "red"}
         }
       },
       "options": {
         "orientation": "horizontal",
         "xField": "stage",
         "showValue": "always",
-        "legend": {
-          "displayMode": "hidden"
-        }
+        "legend": {"displayMode": "hidden"}
       }
     },
     {
       "type": "logs",
       "title": "Recent Celery task failures",
       "description": "task_state=FAILURE lines from structured logs.",
-      "gridPos": {
-        "x": 12,
-        "y": 26,
-        "w": 12,
-        "h": 9
-      },
-      "datasource": {
-        "type": "loki",
-        "uid": "loki"
-      },
+      "gridPos": {"x": 12, "y": 52, "w": 12, "h": 9},
+      "datasource": {"type": "loki", "uid": "loki"},
       "targets": [
         {
           "refId": "A",
@@ -570,20 +580,12 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": [
-    "leap",
-    "celery"
-  ],
-  "templating": {
-    "list": []
-  },
-  "time": {
-    "from": "now-6h",
-    "to": "now"
-  },
+  "tags": ["leap", "celery", "pipeline"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
   "timepicker": {},
   "timezone": "",
-  "title": "LEAP Celery",
+  "title": "LEAP Workers & Pipeline",
   "uid": "leap-celery",
-  "version": 2
+  "version": 3
 }

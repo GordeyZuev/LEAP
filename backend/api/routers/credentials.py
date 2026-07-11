@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth.dependencies import get_current_user, require_feature
+from api.auth.dependencies import get_current_user
 from api.auth.encryption import get_encryption
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import UserCredentialRepository
@@ -24,6 +24,7 @@ from api.schemas.credentials import (
     YouTubeCredentialsManual,
     ZoomCredentialsManual,
 )
+from api.services.quota_service import QuotaService
 from logger import get_logger
 
 logger = get_logger()
@@ -200,10 +201,14 @@ def _check_duplicate_credentials(
 @router.post("", response_model=CredentialResponse, status_code=status.HTTP_201_CREATED)
 async def create_credentials(
     request: CredentialCreateRequest,
-    current_user: UserInDB = Depends(require_feature("can_manage_credentials")),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
     """Create new platform credentials with validation and duplicate checking."""
+    allowed, error = await QuotaService(session).check_credentials_quota(current_user.id)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
+
     _validate_credentials(request.platform, request.credentials)
 
     cred_repo = UserCredentialRepository(session)
@@ -271,7 +276,7 @@ async def create_credentials(
 async def update_credentials(
     credential_id: int,
     request: CredentialUpdateRequest,
-    current_user: UserInDB = Depends(require_feature("can_manage_credentials")),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
     """Update existing credential data (PATCH - partial update). Supports updating credentials and/or account_name."""
@@ -336,7 +341,7 @@ async def update_credentials(
 @router.delete("/{credential_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_credentials(
     credential_id: int,
-    current_user: UserInDB = Depends(require_feature("can_manage_credentials")),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> None:
     """Delete platform credentials by ID."""

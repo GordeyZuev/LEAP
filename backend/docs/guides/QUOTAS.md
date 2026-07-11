@@ -88,7 +88,7 @@ Storage / MinIO), а не с локального диска и не из хра
 
 ## 4. Feature-флаги (права)
 
-8 булевых флагов на `UserModel`, по умолчанию `True`. Проверяются фабрикой
+5 булевых флагов на `UserModel`, по умолчанию `True`. Проверяются фабрикой
 `require_feature(...)` → **HTTP 403** при отключении.
 
 | Флаг | Где enforced |
@@ -96,13 +96,14 @@ Storage / MinIO), а не с локального диска и не из хра
 | `can_transcribe` | `POST /{id}/transcribe` |
 | `can_process_video` | `POST /{id}/run`, `/{id}/topics`, `/{id}/subtitles` |
 | `can_upload` | `POST /{id}/upload/{platform}`, `/bulk/upload` |
-| `can_delete_recordings` | `DELETE /{id}`, `/bulk/delete` |
 | `can_export_data` | `POST /export` |
-| `can_manage_credentials` | create / update / delete `/credentials` |
-| `can_create_templates` | эндпоинты `/templates` (инлайн-проверка) |
 | `can_update_uploaded_videos` | зарезервирован (эндпоинтов пока нет) |
 
 Управляются админом через `PATCH /admin/users/{id}`.
+
+Управление credentials и создание темплейтов больше не флаги, а **count-based
+лимиты** (`max_credentials`, `max_templates`) — см. раздел лимитов ниже
+(`NULL` = безлимит, `0` = запрещено). Удаление собственных записей не гейтится.
 
 ---
 
