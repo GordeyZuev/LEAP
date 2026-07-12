@@ -204,6 +204,34 @@ class TranscriptionManager:
                 return version
         return None
 
+    async def update_active_version(
+        self,
+        recording_id: int,
+        user_slug: int,
+        fields: dict,
+    ) -> dict:
+        """Partially update fields of the active extracted.json version in-place.
+
+        Sets ``manually_edited = True`` on the version. Returns the updated version dict.
+        """
+        extracted_file = await self.load_extracted(recording_id, user_slug)
+        active_id = extracted_file.get("active_version")
+        versions = extracted_file.get("versions", [])
+
+        active_version = next((v for v in versions if v.get("id") == active_id), None)
+        if active_version is None:
+            raise ValueError(f"Active version '{active_id}' not found in extracted.json for recording {recording_id}")
+
+        active_version.update(fields)
+        active_version["manually_edited"] = True
+
+        key = self._extracted_key(recording_id, user_slug)
+        payload = json.dumps(extracted_file, ensure_ascii=False, indent=2).encode("utf-8")
+        await get_storage_backend().save(key, payload)
+
+        logger.info(f"Updated active extracted version {active_id} for recording {recording_id}: fields={list(fields)}")
+        return active_version
+
     async def generate_version_id(self, recording_id: int, user_slug: int) -> str:
         """Generate next version ID (v1, v2, ...) for extracted.json."""
         try:

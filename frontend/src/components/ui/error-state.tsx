@@ -17,7 +17,7 @@ export function ErrorState({
   className?: string;
 }) {
   return (
-    <div className={cn("flex flex-col items-center justify-center gap-3 py-16 text-center", className)}>
+    <div className={cn("flex flex-col items-center justify-center gap-3 py-16 text-center animate-card-in", className)}>
       <div className="rounded-2xl bg-red-50 dark:bg-red-500/10 p-3 text-red-300">
         <AlertTriangle size={28} strokeWidth={1.5} />
       </div>

@@ -75,7 +75,7 @@ export default function RegisterPage() {
           <p className="text-xs text-muted-foreground mt-1.5">Create your account</p>
         </div>
 
-        <div className="bg-card rounded-2xl shadow-sm border border-border p-8">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8 animate-panel-in">
           <form onSubmit={handleSubmit} className="space-y-4">
             <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
               <div>

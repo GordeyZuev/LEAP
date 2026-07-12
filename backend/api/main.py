@@ -35,6 +35,7 @@ from api.routers import (
     output_presets,
     recordings,
     references,
+    share,
     storage,
     tasks,
     templates,
@@ -94,6 +95,7 @@ app.include_router(input_sources.router)
 app.include_router(output_presets.router)
 app.include_router(automation.router)
 
+app.include_router(share.router)
 app.include_router(references.router)
 app.include_router(thumbnails.router)
 app.include_router(storage.router)

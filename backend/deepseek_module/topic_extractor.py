@@ -8,6 +8,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from api.shared.enums import Granularity
+from config.settings import settings
 from logger import get_logger
 
 from .config import DeepSeekConfig
@@ -21,22 +22,13 @@ from .prompts import (
 
 logger = get_logger(__name__)
 
-# Constants
-MIN_PAUSE_MINUTES = 8.0
-MIN_TOPIC_DURATION_SECONDS = 60
-NOISE_WINDOW_MINUTES = 15
+# Regex patterns for timestamp parsing — not business config
 TIMESTAMP_PATTERN = r"\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?\s*[-–—]\s*(.+)"
 TIMESTAMP_PATTERN_MS = r"\[(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})\]\s*(.+)"
 NOISE_PATTERNS = [r"редактор субтитров", r"корректор", r"продолжение следует"]
 QUESTION_PATTERN = re.compile(r"^\d+\.\s*(.+)$")
-MAIN_TOPIC_MIN_WORDS = 2
-MAIN_TOPIC_MAX_WORDS = 4
-MAIN_TOPIC_MIN_LENGTH = 3
-MAIN_TOPIC_MAX_CHARS = 150
 
-TOPIC_COUNT_FLOOR = 3
-TOPIC_COUNT_MIN_CAP = 25
-TOPIC_COUNT_MAX_CAP = 30
+_te = settings.topic_extraction
 
 
 def _get_granularity_config(granularity: Granularity) -> dict:
@@ -52,10 +44,10 @@ def _line_for_timestamp_match(line: str) -> str:
 def _truncate_topic(topic: str) -> str:
     """Truncate topic: by word count or char length. Keeps first part + ellipsis."""
     words = topic.split()
-    if len(words) > MAIN_TOPIC_MAX_WORDS:
-        return " ".join(words[:MAIN_TOPIC_MAX_WORDS]) + "..."
-    if len(topic) > MAIN_TOPIC_MAX_CHARS:
-        return topic[:MAIN_TOPIC_MAX_CHARS].rsplit(" ", 1)[0] + "..."
+    if len(words) > _te.main_topic_max_words:
+        return " ".join(words[: _te.main_topic_max_words]) + "..."
+    if len(topic) > _te.main_topic_max_chars:
+        return topic[: _te.main_topic_max_chars].rsplit(" ", 1)[0] + "..."
     return topic
 
 
@@ -241,7 +233,7 @@ class TopicExtractor:
 
         if noise_times:
             first_noise, last_noise = min(noise_times), max(noise_times)
-            if (last_noise - first_noise) >= NOISE_WINDOW_MINUTES * 60:
+            if (last_noise - first_noise) >= _te.noise_window_minutes * 60:
                 return first_noise, last_noise
 
         return None, None
@@ -306,8 +298,8 @@ class TopicExtractor:
         """
         cfg = _get_granularity_config(granularity)
         d_min, d_max = cfg["duration_min"], cfg["duration_max"]
-        min_topics = max(TOPIC_COUNT_FLOOR, min(TOPIC_COUNT_MIN_CAP, math.ceil(duration_minutes / d_max)))
-        max_topics = max(min_topics, min(TOPIC_COUNT_MAX_CAP, math.floor(duration_minutes / d_min)))
+        min_topics = max(_te.topic_count_floor, min(_te.topic_count_min_cap, math.ceil(duration_minutes / d_max)))
+        max_topics = max(min_topics, min(_te.topic_count_max_cap, math.floor(duration_minutes / d_min)))
         return min_topics, max_topics
 
     async def _analyze_full_transcript(
@@ -354,7 +346,7 @@ class TopicExtractor:
             min(cfg["spacing_max"], dur_min * cfg["spacing_factor"]),
         )
 
-        long_pauses = self._detect_long_pauses(segments or [], min_gap_minutes=MIN_PAUSE_MINUTES)
+        long_pauses = self._detect_long_pauses(segments or [], min_gap_minutes=_te.min_pause_minutes)
         pauses_instruction = ""
         if long_pauses:
             if is_en:
@@ -679,7 +671,7 @@ class TopicExtractor:
         processed = []
         for topic in main_topics[:1]:
             topic = " ".join(topic.split())
-            if topic and len(topic) > MAIN_TOPIC_MIN_LENGTH:
+            if topic and len(topic) > _te.main_topic_min_length:
                 processed.append(_truncate_topic(topic))
         return processed
 
@@ -702,7 +694,10 @@ class TopicExtractor:
 
                     topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", candidate).strip()
                     topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
-                    if topic_candidate and MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS:
+                    if (
+                        topic_candidate
+                        and _te.main_topic_min_words <= len(topic_candidate.split()) <= _te.main_topic_max_words
+                    ):
                         return topic_candidate
                 break
 
@@ -717,7 +712,7 @@ class TopicExtractor:
 
             topic_candidate = re.sub(r"^[-*•\d.)]+\s*", "", line_stripped).strip()
             topic_candidate = re.sub(r"^\[.*?\]\s*", "", topic_candidate).strip()
-            if topic_candidate and MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS:
+            if topic_candidate and _te.main_topic_min_words <= len(topic_candidate.split()) <= _te.main_topic_max_words:
                 return topic_candidate
 
         return None
@@ -736,9 +731,9 @@ class TopicExtractor:
 
                     if (
                         topic_candidate
-                        and len(topic_candidate) > MAIN_TOPIC_MIN_LENGTH
+                        and len(topic_candidate) > _te.main_topic_min_length
                         and not any(word in topic_candidate.lower() for word in ["выведи", "тема", "пример"])
-                        and MAIN_TOPIC_MIN_WORDS <= len(topic_candidate.split()) <= MAIN_TOPIC_MAX_WORDS
+                        and _te.main_topic_min_words <= len(topic_candidate.split()) <= _te.main_topic_max_words
                     ):
                         return topic_candidate
                 break
@@ -800,8 +795,8 @@ class TopicExtractor:
 
             if i < len(sorted_timestamps) - 1:
                 end = sorted_timestamps[i + 1].get("start", 0)
-                if end - start < MIN_TOPIC_DURATION_SECONDS:
-                    end = min(start + MIN_TOPIC_DURATION_SECONDS, sorted_timestamps[i + 1].get("start", 0))
+                if end - start < _te.min_topic_duration_seconds:
+                    end = min(start + _te.min_topic_duration_seconds, sorted_timestamps[i + 1].get("start", 0))
             else:
                 end = total_duration
 

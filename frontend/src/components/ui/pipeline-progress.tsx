@@ -46,7 +46,7 @@ function StageNode({ stageType, stage }: StageNodeProps) {
   );
 
   const tooltip = (
-    <div className="absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-card px-2.5 py-1.5 shadow-md text-xs">
+    <div className="absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-border bg-card px-2.5 py-1.5 shadow-md text-xs animate-panel-in" style={{ transformOrigin: "bottom center" }}>
       <p className="font-semibold text-foreground">{STAGE_FULL_LABEL[stageType] ?? stageType}</p>
       <p className={cn(
         "text-[10px]",
@@ -92,7 +92,7 @@ function CheckMark() {
 
 function Connector({ active }: { active: boolean }) {
   return (
-    <div className={cn("mb-3 h-px w-3 shrink-0", active ? "bg-green-400" : "bg-muted")} />
+    <div className={cn("mb-3 h-px w-3 shrink-0 transition-colors duration-500", active ? "bg-green-400" : "bg-muted")} />
   );
 }
 

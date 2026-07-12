@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.10.5.0", description="Application version")
+    version: str = Field(default="0.10.6.0", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -640,7 +640,7 @@ class YtdlpSettings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Cookies for bypassing bot detection (YouTube "Sign in to confirm you're not a bot")
+    # Cookies: raises YouTube rate limit from ~300 to ~2000 videos/hour for logged-in account.
     # Use ONE of the options below. cookies_file takes precedence if both are set.
     cookies_file: str | None = Field(
         default=None,
@@ -649,6 +649,16 @@ class YtdlpSettings(BaseSettings):
     cookies_from_browser: str | None = Field(
         default=None,
         description="Browser name to extract cookies from (chrome, firefox, etc.). Requires browser installed on server.",
+    )
+
+    # Sleep between requests — useful for batch/playlist downloads to avoid rate-limiting.
+    sleep_interval: float = Field(
+        default=0.0,
+        description="Seconds to sleep between yt-dlp requests.",
+    )
+    max_sleep_interval: float = Field(
+        default=0.0,
+        description="Max seconds for randomised sleep (uniform random in [sleep_interval, max]).",
     )
 
 
@@ -756,6 +766,41 @@ class DeepSeekSettings(BaseSettings):
 
 
 # ============================================================================
+# TOPIC EXTRACTION SETTINGS
+# ============================================================================
+
+
+class TopicExtractionSettings(BaseSettings):
+    """Topic extraction behaviour. All values tunable via TOPIC_* env vars."""
+
+    model_config = SettingsConfigDict(env_prefix="TOPIC_", case_sensitive=False)
+
+    # Long-pause detection: gap between segments → separate "Break" topic entry
+    min_pause_minutes: float = Field(default=8.0, ge=0.0, description="Min gap (minutes) to treat as a long pause")
+
+    # Minimum topic span used when assigning end timestamps
+    min_topic_duration_seconds: int = Field(
+        default=60, ge=1, description="Minimum topic duration in seconds (end-timestamp assignment)"
+    )
+
+    # Noise-window suppression: window of subtitle noise to ignore
+    noise_window_minutes: float = Field(
+        default=15.0, ge=0.0, description="Min span of noise timestamps to suppress the whole window"
+    )
+
+    # Main-topic title formatting
+    main_topic_min_words: int = Field(default=2, ge=1, description="Min words in a main-topic title")
+    main_topic_max_words: int = Field(default=4, ge=1, description="Max words in a main-topic title")
+    main_topic_min_length: int = Field(default=3, ge=1, description="Min character length of a main-topic title")
+    main_topic_max_chars: int = Field(default=150, ge=10, description="Max character length of a main-topic title")
+
+    # Topic count bounds passed to the LLM
+    topic_count_floor: int = Field(default=3, ge=1, description="Never request fewer topics than this from the LLM")
+    topic_count_min_cap: int = Field(default=25, ge=1, description="Upper cap on the min-topics value sent to the LLM")
+    topic_count_max_cap: int = Field(default=30, ge=1, description="Hard cap on the max-topics value sent to the LLM")
+
+
+# ============================================================================
 # EMAIL / SMTP
 # ============================================================================
 
@@ -813,6 +858,7 @@ class Settings(BaseSettings):
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     assemblyai: AssemblyAISettings = Field(default_factory=AssemblyAISettings)
     deepseek: DeepSeekSettings = Field(default_factory=DeepSeekSettings)
+    topic_extraction: TopicExtractionSettings = Field(default_factory=TopicExtractionSettings)
     email: EmailSettings = Field(default_factory=EmailSettings)
 
     @model_validator(mode="after")
@@ -898,7 +944,6 @@ DEFAULT_USER_CONFIG = {
         "vocabulary": [],
         "granularity": "long",
         "enable_topics": True,
-        "topic_mode": "long",
         "enable_subtitles": True,
         "subtitle_formats": ["srt", "vtt"],
         "enable_translation": False,
@@ -934,12 +979,14 @@ DEFAULT_USER_CONFIG = {
             "format": "numbered_list",
             "separator": "\n",
             "prefix": "Темы:",
-            "include_timestamps": False,
+            "show_timestamps": False,
         },
         "questions_display": {
             "enabled": False,
             "format": "numbered_list",
             "max_count": 3,
+            "min_length": 0,
+            "max_length": 1000,
             "prefix": "Вопросы для самопроверки:",
             "separator": "\n",
         },

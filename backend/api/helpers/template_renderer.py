@@ -349,7 +349,7 @@ class TemplateRenderer:
         if not cfg.get("enabled", True) or not topics:
             return ""
 
-        # Preset metadata uses `show_timestamps`; user config TopicsDisplay uses `include_timestamps`.
+        # `include_timestamps` is the legacy field name; kept for backward compat with stored DB configs.
         if "show_timestamps" in raw:
             show_timestamps = bool(raw["show_timestamps"])
         elif "include_timestamps" in raw:

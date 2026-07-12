@@ -76,7 +76,7 @@ export default function VerifyEmailSentPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-card rounded-2xl shadow-sm border border-border p-8 text-center">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8 text-center animate-panel-in">
 
           {/* Icon */}
           <div className="flex justify-center mb-5">

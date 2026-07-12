@@ -7,8 +7,8 @@ import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
   CheckCircle2, XCircle, Clock, Loader2, SkipForward, RotateCcw, Settings2, ChevronDown, ArchiveRestore, FilePlus2,
-  Link2, Unlink, Pencil, VideoOff, Search,
-  ArrowDownToLine, FileCode, FileText, AlignLeft, FileDown,
+  Link2, Unlink, Pencil, VideoOff, Search, Share2,
+  ArrowDownToLine, FileCode, FileText, AlignLeft, FileDown, Check, X, Code2,
 } from "lucide-react";
 import { cn, formatDate, formatDateTimeShort, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -18,6 +18,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
+import { AIContentEditor } from "@/components/recordings/ai-content-editor";
+import { ShareModal } from "@/components/recordings/share-modal";
+import { TemplateField } from "@/components/platforms/platform-fields";
 import { POLL_INTERVAL_DETAIL, needsActivePoll } from "@/lib/constants";
 import { VideoPlayer, type VideoPlayerMarker } from "@/components/ui/video-player";
 import { Toast } from "@/components/ui/toast";
@@ -68,7 +71,10 @@ interface TopicVersion {
   id?: string;
   main_topics?: string[];
   summary?: string;
+  description?: string;
+  questions?: string[];
   topic_timestamps?: TopicTimestamp[];
+  manually_edited?: boolean;
 }
 
 interface TopicsData {
@@ -132,6 +138,7 @@ interface RecordingDetail {
   subtitles?: Record<string, SubtitleVariantInfo> | null;
   transcription?: TranscriptionDetail | null;
   upload_summary?: { total: number; uploaded: number; failed: number; partial: boolean } | null;
+  share_token?: string | null;
 }
 
 interface RecordingConfigResponse {
@@ -169,14 +176,6 @@ interface RecordingConfigResponse {
 
 function formatDuration(seconds: number) {
   if (!seconds) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-function formatTimecode(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -330,6 +329,7 @@ function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
   const name = STAGE_META[canon]?.name ?? stage.stage_type;
   const dur = formatStageDuration(stage.started_at, stage.completed_at);
   const time = formatStageTime(stage.completed_at);
+  const isActive = status === "IN_PROGRESS";
 
   return (
     <div className="py-1.5">
@@ -338,7 +338,7 @@ function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
           size={13}
           className={cn(
             ICON_COLOR[status] ?? "text-muted-foreground",
-            status === "IN_PROGRESS" && "animate-spin"
+            isActive && "animate-spin"
           )}
         />
         <span className="flex-1 text-xs font-medium text-secondary-foreground">{name}</span>
@@ -347,8 +347,9 @@ function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
         )}
         {dur && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{dur}</span>}
       </div>
+      {isActive && <ProgressBar variant="indeterminate" className="ml-[21px] mt-1 h-0.5" />}
       {time && (
-        <p className="ml-[21px] text-[10px] text-gray-300">{time}</p>
+        <p className="ml-[21px] text-[10px] text-muted-foreground">{time}</p>
       )}
     </div>
   );
@@ -543,12 +544,19 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [createTemplateName, setCreateTemplateName] = useState("");
   const [bindTemplateOpen, setBindTemplateOpen] = useState(false);
   const [bindTemplateSearch, setBindTemplateSearch] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+  // Optimistic override: undefined = use server value, string/null = local override after user action
+  const [shareTokenOverride, setShareTokenOverride] = useState<string | null | undefined>(undefined);
   const [nameEditing, setNameEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
   const [activeChapterIdx, setActiveChapterIdx] = useState(-1);
-  const [chaptersOpen, setChaptersOpen] = useState(true);
   const chapterItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [descCollapsed, setDescCollapsed] = useState(true);
+  const [descEditing, setDescEditing] = useState(false);
+  const [descDraft, setDescDraft] = useState("");
+  const [descIsTemplate, setDescIsTemplate] = useState(false);
+  const [descSaving, setDescSaving] = useState(false);
 
   const { data: recordingConfig, isLoading: configLoading } = useQuery<RecordingConfigResponse>({
     queryKey: ["recording-config", Number(id)],
@@ -568,6 +576,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     },
     refetchIntervalInBackground: false,
   });
+
+  const shareToken = shareTokenOverride !== undefined ? shareTokenOverride : (recording?.share_token ?? null);
 
   const run = useMutation({
     mutationFn: () => apiClient.post(`/recordings/${id}/run`),
@@ -716,7 +726,53 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     [activeTopicVersion]
   );
 
-  const mainTopics: string[] = activeTopicVersion?.main_topics ?? [];
+  const savedDescription = activeTopicVersion?.description;
+  const directDescription =
+    savedDescription && !savedDescription.includes("{{") ? savedDescription : null;
+
+  const metadataConfig = recordingConfig?.metadata_config;
+  const hasMetadataTemplates = Boolean(
+    metadataConfig?.description_template || metadataConfig?.title_template
+  );
+
+  const descriptionTemplateSource = useMemo(() => {
+    if (!hasMetadataTemplates) return null;
+    if (savedDescription) return savedDescription.includes("{{") ? savedDescription : null;
+    return metadataConfig?.description_template ?? null;
+  }, [hasMetadataTemplates, savedDescription, metadataConfig?.description_template]);
+
+  const titleTemplateSource = useMemo(() => {
+    if (!hasMetadataTemplates) return null;
+    if (savedDescription) return null;
+    return metadataConfig?.title_template ?? null;
+  }, [hasMetadataTemplates, savedDescription, metadataConfig?.title_template]);
+
+  const { data: queriedDescription, isLoading: descriptionQueryLoading } = useQuery({
+    queryKey: ["recording", id, "rendered-description", descriptionTemplateSource],
+    queryFn: async () => {
+      const res = await apiClient.post(`/recordings/${id}/topics/render`, {
+        template: descriptionTemplateSource!,
+      });
+      return (res.data as { rendered: string }).rendered;
+    },
+    enabled: Boolean(descriptionTemplateSource),
+    staleTime: 60_000,
+  });
+
+  const { data: queriedTitle, isLoading: titleQueryLoading } = useQuery({
+    queryKey: ["recording", id, "rendered-title", titleTemplateSource],
+    queryFn: async () => {
+      const res = await apiClient.post(`/recordings/${id}/topics/render`, {
+        template: titleTemplateSource!,
+      });
+      return (res.data as { rendered: string }).rendered;
+    },
+    enabled: Boolean(titleTemplateSource),
+    staleTime: 60_000,
+  });
+
+  const displayDescription = directDescription ?? queriedDescription ?? null;
+  const descriptionLoading = descriptionQueryLoading || titleQueryLoading;
 
   const handleTimeUpdate = useCallback((ct: number) => {
     const idx = topicTimestamps.findLastIndex((t) => t.start <= ct);
@@ -724,9 +780,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   }, [topicTimestamps]);
 
   useEffect(() => {
-    if (activeChapterIdx < 0 || !chaptersOpen) return;
+    if (activeChapterIdx < 0) return;
     chapterItemRefs.current[activeChapterIdx]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [activeChapterIdx, chaptersOpen]);
+  }, [activeChapterIdx]);
 
   const hasProcessedVid = !!recording?.videos?.processed?.exists;
   const hasOriginalVid = !!recording?.videos?.original?.exists;
@@ -740,6 +796,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       (videoTabChoice === "original" && hasOriginalVid))
       ? videoTabChoice
       : defaultVideoTab;
+
+  // AI content (topics, summary, questions) is tied to the processed video timeline.
+  const showTopics = !!activeTopicVersion && videoTab === "processed";
 
   const isActing = run.isPending || pause.isPending || deleteRec.isPending || resetRec.isPending || restoreRec.isPending;
   const isSoftDeleted = !!recording?.soft_deleted_at;
@@ -909,7 +968,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         )}
         <StatusBadge status={recording.status} failed={recording.failed} />
       </div>
-      {recording.status === "DOWNLOADING" && recording.source?.source_type !== "LOCAL_FILE" && (
+      {recording.on_air && (
         <ProgressBar variant="indeterminate" className="mt-2 mb-1" />
       )}
 
@@ -943,8 +1002,34 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               </div>
             ) : (
               <>
+                {videoTab === "processed" && hasProcessedVid && (
+                  <div key={`${id}-processed-wrap`} className="animate-overlay-in">
+                    <RecordingVideoPlayer
+                      ref={videoRef}
+                      key={`${id}-processed`}
+                      recordingId={id}
+                      variant="processed"
+                      vttBlobUrl={vttBlobUrl}
+                      markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
+                      onTimeUpdate={handleTimeUpdate}
+                    />
+                  </div>
+                )}
+                {videoTab === "original" && hasOriginalVid && (
+                  <div key={`${id}-original-wrap`} className="animate-overlay-in">
+                    <RecordingVideoPlayer
+                      ref={videoRef}
+                      key={`${id}-original`}
+                      recordingId={id}
+                      variant="original"
+                      vttBlobUrl={vttBlobUrl}
+                      markers={[]}
+                      onTimeUpdate={handleTimeUpdate}
+                    />
+                  </div>
+                )}
                 {hasProcessedVid && hasOriginalVid && (
-                  <div className="mb-3 flex gap-2">
+                  <div className="mt-3 flex gap-2">
                     <button
                       type="button"
                       onClick={() => setVideoTabChoice("processed")}
@@ -971,185 +1056,169 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     </button>
                   </div>
                 )}
-                {videoTab === "processed" && hasProcessedVid && (
-                  <div key={`${id}-processed-wrap`} className="animate-overlay-in">
-                    <RecordingVideoPlayer
-                      ref={videoRef}
-                      key={`${id}-processed`}
-                      recordingId={id}
-                      variant="processed"
-                      vttBlobUrl={vttBlobUrl}
-                      markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
-                      onTimeUpdate={handleTimeUpdate}
-                    />
-                  </div>
-                )}
-                {videoTab === "original" && hasOriginalVid && (
-                  <div key={`${id}-original-wrap`} className="animate-overlay-in">
-                    <RecordingVideoPlayer
-                      ref={videoRef}
-                      key={`${id}-original`}
-                      recordingId={id}
-                      variant="original"
-                      vttBlobUrl={vttBlobUrl}
-                      markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
-                      onTimeUpdate={handleTimeUpdate}
-                    />
-                  </div>
-                )}
-                {topicTimestamps.length > 0 && (
-                  <div className="mt-4 border-t border-border pt-3">
-                    {mainTopics.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-base font-semibold leading-snug text-foreground">
-                          {mainTopics[0]}
-                        </p>
-                        {mainTopics.length > 1 && (
-                          <p className="mt-0.5 text-sm text-muted-foreground">
-                            {mainTopics.slice(1).join("  ·  ")}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setChaptersOpen((v) => !v)}
-                      aria-expanded={chaptersOpen}
-                      className="mb-1 flex w-full items-center gap-1.5 py-0.5 text-left"
-                    >
-                      <ChevronDown
-                        size={13}
-                        className={cn(
-                          "shrink-0 text-muted-foreground transition-transform duration-200",
-                          !chaptersOpen && "-rotate-90"
-                        )}
-                      />
-                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Chapters ({topicTimestamps.length})
-                      </span>
-                    </button>
-                    {chaptersOpen && (
-                      <div className="max-h-48 overflow-y-auto">
-                        {topicTimestamps.map((t, i) => (
-                          <button
-                            key={i}
-                            ref={(el) => { chapterItemRefs.current[i] = el; }}
-                            type="button"
-                            onClick={() => {
-                              if (videoRef.current) {
-                                videoRef.current.currentTime = t.start;
-                                videoRef.current.play().catch(() => {});
-                              }
-                            }}
-                            className={cn(
-                              "flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors",
-                              i === activeChapterIdx ? "bg-primary/6" : "hover:bg-muted"
-                            )}
-                          >
-                            <span className={cn(
-                              "h-1.5 w-1.5 shrink-0 rounded-full transition-colors",
-                              i === activeChapterIdx ? "bg-primary" : "bg-border"
-                            )} />
-                            <span className={cn(
-                              "w-11 shrink-0 font-mono text-xs",
-                              i === activeChapterIdx ? "font-semibold text-primary" : "text-muted-foreground"
-                            )}>
-                              {formatTimecode(t.start)}
-                            </span>
-                            <span className={cn(
-                              "flex-1 truncate text-sm",
-                              i === activeChapterIdx ? "font-medium text-foreground" : "text-secondary-foreground"
-                            )}>
-                              {t.topic}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
               </>
             )}
           </div>
 
-          {/* Media & Downloads */}
-          {showMediaSection && (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Files &amp; artifacts
-              </h2>
-              {mediaDownloadError && (
-                <div className="mb-3 rounded-lg border border-red-100 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-xs text-red-600">
-                  {mediaDownloadError}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {recording.subtitles?.srt?.exists && (
+          {/* Description */}
+          {(displayDescription || queriedTitle || descriptionLoading) && (
+            <div className="rounded-2xl border border-border bg-card shadow-sm">
+              {/* Header — always visible */}
+              <div className="flex items-center justify-between px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => setDescCollapsed((v) => !v)}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <h2 className="shrink-0 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Description
+                  </h2>
+                  {(queriedTitle || recording.display_name) && (
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {queriedTitle || recording.display_name}
+                    </p>
+                  )}
+                  <ChevronDown
+                    size={14}
+                    className={cn("ml-auto shrink-0 text-muted-foreground transition-transform duration-200", !descCollapsed && "rotate-180")}
+                  />
+                </button>
+                {!descCollapsed && !descEditing && !descriptionLoading && (
                   <button
                     type="button"
-                    onClick={() => downloadArtifact("srt", `${dlStem}.srt`)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+                    onClick={() => {
+                      const raw = activeTopicVersion?.description
+                        ?? recordingConfig?.metadata_config?.description_template
+                        ?? displayDescription
+                        ?? "";
+                      setDescDraft(raw);
+                      setDescIsTemplate(raw.includes("{{"));
+                      setDescEditing(true);
+                    }}
+                    className="ml-3 flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                   >
-                    <FileText size={12} className="shrink-0" />
-                    SRT
-                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                  </button>
-                )}
-                {recording.subtitles?.vtt?.exists && (
-                  <button
-                    type="button"
-                    onClick={() => downloadArtifact("vtt", `${dlStem}.vtt`)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-                  >
-                    <FileText size={12} className="shrink-0" />
-                    VTT
-                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                  </button>
-                )}
-                {recording.transcription?.exists && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => downloadArtifact("transcript_json", `${dlStem}_transcript.json`)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-                    >
-                      <FileCode size={12} className="shrink-0" />
-                      Transcript JSON
-                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => downloadArtifact("transcript_txt", `${dlStem}_transcript.txt`)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-                    >
-                      <FileText size={12} className="shrink-0" />
-                      Transcript TXT
-                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => downloadArtifact("transcript_words", `${dlStem}_words.txt`)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-                    >
-                      <AlignLeft size={12} className="shrink-0" />
-                      Words TXT
-                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                    </button>
-                  </>
-                )}
-                {(recordingConfig?.metadata_config?.title_template || recordingConfig?.metadata_config?.description_template) && (
-                  <button
-                    type="button"
-                    onClick={() => downloadArtifact("description_txt", `${dlStem}_description.txt`)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-secondary-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-                  >
-                    <FileDown size={12} className="shrink-0" />
-                    Description TXT
-                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
+                    <Pencil size={11} /> Edit
                   </button>
                 )}
               </div>
+              {/* Collapsible content */}
+              {!descCollapsed && (
+              <div className="border-t border-border px-5 pb-5 pt-4">
+
+              {descriptionLoading ? (
+                <div className="space-y-2">
+                  <div className="h-3 w-3/5 animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-full animate-pulse rounded bg-muted mt-3" />
+                  <div className="h-3 w-4/5 animate-pulse rounded bg-muted" />
+                  <div className="h-3 w-3/5 animate-pulse rounded bg-muted" />
+                </div>
+              ) : descEditing ? (
+                <div>
+                  {descIsTemplate ? (
+                    <TemplateField
+                      label=""
+                      value={descDraft}
+                      onChange={(v) => { setDescDraft(v); setDescIsTemplate(v.includes("{{")); }}
+                      multiline
+                      rows={8}
+                      placeholder="Description template…"
+                    />
+                  ) : (
+                    <textarea
+                      autoFocus
+                      value={descDraft}
+                      onChange={(e) => { setDescDraft(e.target.value); setDescIsTemplate(e.target.value.includes("{{")); }}
+                      rows={8}
+                      className="w-full resize-none rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm outline-none focus:border-primary"
+                      placeholder="Description…"
+                    />
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={descSaving}
+                      onClick={async () => {
+                        setDescSaving(true);
+                        try {
+                          await apiClient.patch(`/recordings/${id}/topics`, { description: descDraft });
+                          await qc.invalidateQueries({ queryKey: ["recording", id] });
+                          if (descDraft.includes("{{")) {
+                            await qc.invalidateQueries({ queryKey: ["recording", id, "rendered-description"] });
+                          }
+                          setDescEditing(false);
+                        } finally {
+                          setDescSaving(false);
+                        }
+                      }}
+                      className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {descSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                      Save
+                    </button>
+                    {descIsTemplate && (
+                      <button
+                        type="button"
+                        disabled={descSaving}
+                        onClick={async () => {
+                          setDescSaving(true);
+                          try {
+                            const res = await apiClient.post(`/recordings/${id}/topics/render`, { template: descDraft });
+                            const rendered = (res.data as { rendered: string }).rendered;
+                            setDescDraft(rendered);
+                            setDescIsTemplate(false);
+                            await apiClient.patch(`/recordings/${id}/topics`, { description: rendered });
+                            await qc.invalidateQueries({ queryKey: ["recording", id] });
+                            setDescEditing(false);
+                          } finally {
+                            setDescSaving(false);
+                          }
+                        }}
+                        className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      >
+                        {descSaving ? <Loader2 size={11} className="animate-spin" /> : <Code2 size={11} />}
+                        Convert to text
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setDescEditing(false)}
+                      className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <X size={11} /> Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">
+                    {displayDescription}
+                  </p>
+                </div>
+              )}
+              </div>
+              )}
             </div>
+          )}
+
+          {/* Video AI-Data */}
+          {showTopics && activeTopicVersion && (
+            <CollapsibleCard title="Video AI-Data" defaultOpen={false}>
+              <AIContentEditor
+                recordingId={Number(id)}
+                version={activeTopicVersion}
+                onUpdated={() => {
+                  qc.invalidateQueries({ queryKey: ["recording", id] });
+                }}
+                onSeek={(t) => {
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = t;
+                    videoRef.current.play().catch(() => {});
+                  }
+                }}
+                activeChapterIdx={activeChapterIdx}
+                chapterItemRef={(i, el) => { chapterItemRefs.current[i] = el; }}
+              />
+            </CollapsibleCard>
           )}
 
           {/* Config (collapsible) */}
@@ -1232,6 +1301,19 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               </dl>
               </>
             )}
+            <dl className="mt-3 space-y-2 border-t border-border pt-3">
+              <SidebarInfoRow label="ID"       value={`#${recording.id}`} />
+              {recording.source?.source_type && (
+                <SidebarInfoRow label="Source"   value={recording.source.source_type} />
+              )}
+              <SidebarInfoRow label="Date"     value={formatDate(recording.start_time)} />
+              {recording.duration > 0 && (
+                <SidebarInfoRow label="Duration" value={formatDuration(recording.duration)} />
+              )}
+              {recording.video_file_size ? (
+                <SidebarInfoRow label="File size" value={formatFileSize(recording.video_file_size)} />
+              ) : null}
+            </dl>
           </CollapsibleCard>
 
         </div>
@@ -1241,7 +1323,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
           {/* Control Panel */}
           <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Controls</h2>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Control panel</h2>
             {isSoftDeleted ? (
               <ActionButton
                 disabled={isActing}
@@ -1255,110 +1337,125 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               </ActionButton>
             ) : (
               <div className="space-y-3">
-                <div>
-                  <div className={cn(
-                    "flex overflow-hidden rounded-xl border",
-                    !recording.can_run || isActing
-                      ? "border-border opacity-60"
-                      : "border-primary"
-                  )}>
-                    <button
-                      type="button"
-                      disabled={!recording.can_run || isActing}
-                      onClick={() => run.mutate()}
-                      className={cn(
-                        "flex flex-1 items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed",
-                        !recording.can_run || isActing
-                          ? "bg-muted text-muted-foreground"
-                          : "bg-primary text-white hover:bg-primary-hover"
-                      )}
-                    >
-                      {run.isPending ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Play size={14} />
-                      )}
-                      {run.isPending ? "Running…" : "Run"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!recording.can_run || isActing}
-                      onClick={() => setRunConfigOpen(true)}
-                      title="Run with config"
-                      className={cn(
-                        "flex w-10 shrink-0 items-center justify-center border-l transition-colors disabled:cursor-not-allowed",
-                        !recording.can_run || isActing
-                          ? "border-border bg-muted text-muted-foreground"
-                          : "border-primary-hover bg-primary text-white hover:bg-primary-hover"
-                      )}
-                    >
-                      <Settings2 size={14} />
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-2 border-t border-muted pt-2">
-                  <div className="flex gap-2">
-                    <ActionButton
-                      variant="secondary"
-                      disabled={!recording.can_pause || isActing}
-                      isPending={pause.isPending}
-                      onClick={() => pause.mutate()}
-                      icon={<Pause size={13} />}
-                      pendingLabel="…"
-                      className="flex-1 justify-center py-2 disabled:cursor-not-allowed"
-                    >
-                      Pause
-                    </ActionButton>
-                    <ActionButton
-                      variant="secondary"
-                      disabled={isActing}
-                      isPending={resetRec.isPending}
-                      onClick={() => setResetConfirm(true)}
-                      icon={<RotateCcw size={13} />}
-                      pendingLabel="…"
-                      className="flex-1 justify-center py-2 disabled:cursor-not-allowed"
-                    >
-                      Reset
-                    </ActionButton>
-                  </div>
-                  <div className="flex gap-2">
-                    <ActionButton
-                      variant="secondary"
-                      onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
-                      icon={<FilePlus2 size={13} />}
-                      className="flex-1 justify-center hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-                    >
-                      Create template
-                    </ActionButton>
-                    {(recordingConfig?.is_mapped ?? recording.is_mapped) ? (
-                      <ActionButton
-                        variant="secondary"
-                        isPending={unbindTemplate.isPending}
-                        onClick={() => unbindTemplate.mutate()}
-                        title="Unlink template"
-                        icon={<Unlink size={13} />}
-                        className="justify-center py-2"
-                      />
-                    ) : (
-                      <ActionButton
-                        variant="secondary"
-                        onClick={() => setBindTemplateOpen(true)}
-                        title="Link template"
-                        icon={<Link2 size={13} />}
-                        className="justify-center py-2 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-                      />
+                {/* Run / Run with config */}
+                <div className={cn(
+                  "flex overflow-hidden rounded-xl border",
+                  !recording.can_run || isActing
+                    ? "border-border opacity-60"
+                    : "border-primary"
+                )}>
+                  <button
+                    type="button"
+                    disabled={!recording.can_run || isActing}
+                    onClick={() => run.mutate()}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed",
+                      !recording.can_run || isActing
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-primary text-white hover:bg-primary-hover"
                     )}
-                  </div>
+                  >
+                    {run.isPending ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Play size={14} />
+                    )}
+                    {run.isPending ? "Running…" : "Run"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!recording.can_run || isActing}
+                    onClick={() => setRunConfigOpen(true)}
+                    title="Run with config"
+                    className={cn(
+                      "flex w-10 shrink-0 items-center justify-center border-l transition-colors disabled:cursor-not-allowed",
+                      !recording.can_run || isActing
+                        ? "border-border bg-muted text-muted-foreground"
+                        : "border-primary-hover bg-primary text-white hover:bg-primary-hover"
+                    )}
+                  >
+                    <Settings2 size={14} />
+                  </button>
                 </div>
-                <div className="border-t border-muted pt-2">
+
+                {/* Pause — only when running */}
+                {recording.can_pause && (
                   <ActionButton
                     variant="secondary"
+                    isPending={pause.isPending}
+                    onClick={() => pause.mutate()}
+                    icon={<Pause size={13} />}
+                    pendingLabel="Pausing…"
+                    className="w-full justify-center py-2"
+                  >
+                    Pause
+                  </ActionButton>
+                )}
+
+                {/* Secondary actions */}
+                <div className="grid grid-cols-2 gap-1.5 border-t border-muted pt-3">
+                  <button
+                    type="button"
+                    onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
+                    className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                  >
+                    <FilePlus2 size={12} />
+                    New template
+                  </button>
+                  {(recordingConfig?.is_mapped ?? recording.is_mapped) ? (
+                    <button
+                      type="button"
+                      onClick={() => unbindTemplate.mutate()}
+                      disabled={unbindTemplate.isPending}
+                      className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:opacity-50"
+                    >
+                      {unbindTemplate.isPending ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+                      Unlink
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setBindTemplateOpen(true)}
+                      className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                    >
+                      <Link2 size={12} />
+                      Link template
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={isActing}
+                    onClick={() => setResetConfirm(true)}
+                    className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {resetRec.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                    Reset
+                  </button>
+                  <button
+                    type="button"
                     disabled={isActing}
                     onClick={() => setDeleteConfirm(true)}
-                    icon={<Trash2 size={13} />}
-                    className="w-full justify-center border-red-200 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-card px-3 py-2 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
                   >
+                    <Trash2 size={12} />
                     Delete
+                  </button>
+                </div>
+
+                {/* Share */}
+                <div className="border-t border-muted pt-3">
+                  <ActionButton
+                    variant="secondary"
+                    onClick={() => setShareOpen(true)}
+                    icon={<Share2 size={13} />}
+                    className={cn(
+                      "w-full justify-center py-2",
+                      shareToken
+                        ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                        : "hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                    )}
+                  >
+                    {shareToken ? "Manage share" : "Share"}
                   </ActionButton>
                 </div>
               </div>
@@ -1401,29 +1498,79 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             )}
           </div>
 
-          {/* Pipeline — collapsible, stages hidden by default */}
-          <PipelineCard stages={allPipelineStages} durationSeconds={recording.pipeline_duration_seconds} />
+          {/* Pipeline — collapsible, auto-expands when processing is active */}
+          <PipelineCard stages={allPipelineStages} durationSeconds={recording.pipeline_duration_seconds} defaultOpen={recording.on_air} />
 
-          {/* Info */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Info</h2>
-            <dl className="space-y-2">
-              <SidebarInfoRow label="ID"       value={`#${recording.id}`} />
-              {recording.source?.source_type && (
-                <SidebarInfoRow label="Source"   value={recording.source.source_type} />
+          {/* Downloads */}
+          {(showMediaSection || !!(recordingConfig?.metadata_config?.title_template || recordingConfig?.metadata_config?.description_template)) && (
+            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Artefacts</h2>
+              {mediaDownloadError && (
+                <div className="mb-2 rounded-lg border border-red-100 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-xs text-red-600">
+                  {mediaDownloadError}
+                </div>
               )}
-              <SidebarInfoRow label="Template" value={templateDetailNavValue} />
-              <SidebarInfoRow label="Date"     value={formatDate(recording.start_time)} />
-              {recording.duration > 0 && (
-                <SidebarInfoRow label="Duration" value={formatDuration(recording.duration)} />
-              )}
-              {recording.video_file_size ? (
-                <SidebarInfoRow label="File size" value={formatFileSize(recording.video_file_size)} />
-              ) : null}
-            </dl>
-          </div>
+              <div className="flex flex-col gap-2">
+                {recording.subtitles?.srt?.exists && (
+                  <button type="button" onClick={() => downloadArtifact("srt", `${dlStem}.srt`)}
+                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                    <FileText size={13} className="shrink-0" />
+                    <span className="flex-1 text-left">SRT subtitles</span>
+                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
+                  </button>
+                )}
+                {recording.subtitles?.vtt?.exists && (
+                  <button type="button" onClick={() => downloadArtifact("vtt", `${dlStem}.vtt`)}
+                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                    <FileText size={13} className="shrink-0" />
+                    <span className="flex-1 text-left">VTT subtitles</span>
+                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
+                  </button>
+                )}
+                {recording.transcription?.exists && (
+                  <>
+                    <button type="button" onClick={() => downloadArtifact("transcript_json", `${dlStem}_transcript.json`)}
+                      className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                      <FileCode size={13} className="shrink-0" />
+                      <span className="flex-1 text-left">Transcript JSON</span>
+                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
+                    </button>
+                    <button type="button" onClick={() => downloadArtifact("transcript_txt", `${dlStem}_transcript.txt`)}
+                      className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                      <FileText size={13} className="shrink-0" />
+                      <span className="flex-1 text-left">Transcript TXT</span>
+                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
+                    </button>
+                    <button type="button" onClick={() => downloadArtifact("transcript_words", `${dlStem}_words.txt`)}
+                      className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                      <AlignLeft size={13} className="shrink-0" />
+                      <span className="flex-1 text-left">Words TXT</span>
+                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
+                    </button>
+                  </>
+                )}
+                {(recordingConfig?.metadata_config?.title_template || recordingConfig?.metadata_config?.description_template) && (
+                  <button type="button" onClick={() => downloadArtifact("description_txt", `${dlStem}_description.txt`)}
+                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
+                    <FileDown size={13} className="shrink-0" />
+                    <span className="flex-1 text-left">Description TXT</span>
+                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      <ShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        recordingId={recording.id}
+        initialToken={shareToken}
+        onTokenChange={setShareTokenOverride}
+        onToast={(msg, variant) => showToast(variant === "error" ? "error" : "success", msg)}
+      />
 
       <ConfirmDialog
         open={deleteConfirm}
@@ -1594,8 +1741,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 // Helper row components
 // ---------------------------------------------------------------------------
 
-function PipelineCard({ stages, durationSeconds }: { stages: ProcessingStage[]; durationSeconds: number | null }) {
-  const [open, setOpen] = useState(false);
+function PipelineCard({ stages, durationSeconds, defaultOpen }: { stages: ProcessingStage[]; durationSeconds: number | null; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen ?? false);
   const completed = stages.filter((s) => s.status === "COMPLETED" || s.status === "SKIPPED").length;
   const hasFailed = stages.some((s) => s.failed);
   const total = stages.length;

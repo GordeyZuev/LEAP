@@ -121,13 +121,16 @@ class S3StorageBackend(StorageBackend):
                     raise FileNotFoundError(f"S3 key not found: {key}") from e
                 raise
 
-    async def presigned_url(self, path: str, expires_in: int = 3600) -> str:
+    async def presigned_url(self, path: str, expires_in: int = 3600, *, download_filename: str | None = None) -> str:
         """Generate a time-limited GET URL for direct browser access."""
         key = self._key(path)
+        params: dict = {"Bucket": self.bucket, "Key": key}
+        if download_filename:
+            params["ResponseContentDisposition"] = f'attachment; filename="{download_filename}"'
         async with self._client() as s3:
             return await s3.generate_presigned_url(
                 "get_object",
-                Params={"Bucket": self.bucket, "Key": key},
+                Params=params,
                 ExpiresIn=expires_in,
             )
 

@@ -136,10 +136,10 @@ const DEFAULT_FORM: TemplateFormData = {
     enable_transcription: true,
     enable_topics: true,
     enable_subtitles: true,
-    granularity: "medium",
+    granularity: "long",
     transcription_language: "ru",
     allow_errors: false,
-    questions_count: 5,
+    questions_count: 3,
     vocabulary: [],
   },
   metadata_config: {
@@ -237,10 +237,10 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           enable_transcription: pc?.enable_transcription ?? true,
           enable_topics: pc?.enable_topics ?? true,
           enable_subtitles: pc?.enable_subtitles ?? true,
-          granularity: pc?.granularity ?? "medium",
+          granularity: pc?.granularity ?? "long",
           transcription_language: pc?.language ?? "ru",
           allow_errors: pc?.allow_errors ?? false,
-          questions_count: pc?.questions_count ?? 5,
+          questions_count: pc?.questions_count ?? 3,
           vocabulary: pc?.vocabulary ?? [],
         };
       })(),
@@ -675,13 +675,13 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               </Field>
             </div>
 
-            <Field label="Questions count" hint="Number of comprehension questions to generate (0 = disabled)">
+            <Field label="Questions count" hint="Number of comprehension questions to generate">
               <input
                 type="number"
-                min={0}
-                max={20}
+                min={1}
+                max={10}
                 value={form.processing_config.questions_count}
-                onChange={(e) => setPC("questions_count", parseInt(e.target.value, 10) || 0)}
+                onChange={(e) => setPC("questions_count", parseInt(e.target.value, 10) || 1)}
                 className="w-32 rounded-xl border border-border px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
               />
             </Field>

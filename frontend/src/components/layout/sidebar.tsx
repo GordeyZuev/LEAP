@@ -259,7 +259,9 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           <span className={labelClass}>Collapse sidebar</span>
         </button>
       </div>
+      </aside>
 
+      {/* Rendered outside <aside> so it's not clipped by overflow-hidden. */}
       <ConfirmDialog
         open={logoutConfirmOpen}
         title="Log out?"
@@ -273,7 +275,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
         }}
         onCancel={() => setLogoutConfirmOpen(false)}
       />
-      </aside>
     </>
   );
 }

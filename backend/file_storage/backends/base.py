@@ -52,11 +52,13 @@ class StorageBackend(ABC):
         async with aiofiles.open(local_path, "wb") as f:
             await f.write(content)
 
-    async def presigned_url(self, path: str, expires_in: int = 3600) -> str:
+    async def presigned_url(self, path: str, expires_in: int = 3600, *, download_filename: str | None = None) -> str:
         """Generate a time-limited URL for direct client access.
 
         S3 backends return a real presigned URL. LOCAL backend returns an internal
         backend-served URL (frontend code stays identical).
+        ``download_filename``: if set, the URL forces a file download with that name
+        (sets ResponseContentDisposition=attachment on S3; ignored for local).
         """
         raise NotImplementedError("This backend does not support presigned URLs")
 

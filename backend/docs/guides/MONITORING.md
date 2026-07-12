@@ -126,7 +126,6 @@ Exposed on the same `http://api:8000/metrics` endpoint:
 | Metric                                          | Type      | Labels                                  |
 | ----------------------------------------------- | --------- | --------------------------------------- |
 | `leap_pipeline_stage_duration_seconds_bucket`   | histogram | `stage, platform, status` (+ `le`)      |
-| `leap_pipeline_recording_total`                 | counter   | `outcome, platform`                     |
 | `leap_external_api_duration_seconds_bucket`     | histogram | `provider, endpoint, status` (+ `le`)   |
 | `leap_queue_oldest_task_age_seconds`            | gauge     | `queue`                                 |
 

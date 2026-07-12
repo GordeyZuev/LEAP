@@ -1,4 +1,7 @@
+"use client";
+
 import { Building2, GraduationCap, Radio } from "lucide-react";
+import { useInView } from "@/hooks/use-in-view";
 
 const cards = [
   {
@@ -25,18 +28,24 @@ const cards = [
 ];
 
 export function LandingAudience() {
+  const [ref, inView] = useInView<HTMLElement>();
+
   return (
-    <section className="py-16 px-6 bg-card">
+    <section ref={ref} className="py-16 px-6 bg-card">
       <div className="max-w-6xl mx-auto">
         <h2 className="text-2xl font-bold text-foreground text-center mb-2">Для кого</h2>
         <p className="text-sm text-muted-foreground text-center mb-10">
           Для всех, кто регулярно записывает и публикует учебный контент
         </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {cards.map((card) => {
+          {cards.map((card, index) => {
             const Icon = card.icon;
             return (
-              <div key={card.title} className="p-6 rounded-xl border border-border bg-background flex flex-col">
+              <div
+                key={card.title}
+                className={`p-6 rounded-xl border border-border bg-background flex flex-col ${inView ? "animate-card-in" : "opacity-0"}`}
+                style={inView ? { animationDelay: `${index * 80}ms` } : undefined}
+              >
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-4 shrink-0">
                   <Icon size={20} className="text-primary" strokeWidth={1.75} />
                 </div>

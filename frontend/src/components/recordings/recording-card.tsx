@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import type { PipelineStage } from "@/components/ui/pipeline-progress";
 
 interface UploadInfo { status: string; url: string | null }
@@ -99,7 +100,7 @@ export function StatusDot({ status, failed, stages }: {
 
       {open && !!stages?.length && (
         <div className="absolute right-0 top-full z-30 pt-2">
-          <div className="w-44 overflow-hidden rounded-lg border border-border bg-card shadow-md">
+          <div className="w-44 overflow-hidden rounded-lg border border-border bg-card shadow-md animate-panel-in" style={{ transformOrigin: "top right" }}>
             <div className="border-t border-border px-3 py-2 space-y-1.5">
               {STAGE_ORDER.map((key) => {
                 const st = stages.find((s) => s.stage_type === key);
@@ -214,7 +215,7 @@ export function RecordingCard({
     setEditName(r.display_name);
     setEditing(true);
     setTimeout(() => inputRef.current?.select(), 0);
-  }, [onRename, r.display_name, selectMode]);
+  }, [onRename, r.display_name]);
 
   const commitEdit = useCallback(() => {
     const t = editName.trim();
@@ -229,7 +230,7 @@ export function RecordingCard({
 
   return (
     <div className={cn(
-      "group relative flex flex-col rounded-xl border bg-card transition-[box-shadow,border-color] duration-150",
+      "group relative flex h-full flex-col rounded-xl border bg-card transition-[box-shadow,border-color] duration-150",
       isSoftDeleted && "opacity-60",
       selected
         ? "border-primary ring-2 ring-primary/20 shadow-sm"
@@ -357,6 +358,11 @@ export function RecordingCard({
         </div>
       </div>
 
+      {/* ── Active processing strip ── */}
+      {(r.status === "DOWNLOADING" || r.status === "PROCESSING" || r.status === "UPLOADING") && (
+        <ProgressBar variant="indeterminate" className="h-0.5 rounded-none" />
+      )}
+
       {/* ── Footer: always visible ── */}
       <div className="flex items-center gap-1.5 border-t border-border px-3 py-2">
         {isSoftDeleted && onRestore ? (
@@ -414,7 +420,7 @@ export function RecordingCard({
                   <MoreHorizontal size={12} />
                 </button>
                 {menuOpen && (
-                  <div className="absolute bottom-full right-0 z-30 mb-1.5 w-40 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+                  <div className="absolute bottom-full right-0 z-30 mb-1.5 w-40 overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-dropdown-in" style={{ transformOrigin: "bottom right" }}>
                     {r.can_pause && (
                       <MenuItem icon={Pause} label="Pause" onClick={() => { setMenuOpen(false); onPause(r.id); }} />
                     )}

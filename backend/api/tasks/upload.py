@@ -329,7 +329,7 @@ def upload_recording_to_platform(
 
         except SoftTimeLimitExceeded:
             logger.error("Soft time limit exceeded")
-            raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
+            raise self.retry(countdown=settings.celery.upload_retry_delay, exc=SoftTimeLimitExceeded())
 
         except TokenRefreshError as exc:
             logger.error("Token refresh failed - re-authentication needed")

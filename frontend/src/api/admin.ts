@@ -108,14 +108,44 @@ export interface AdminUserUpdate {
   can_export_data?: boolean;
 }
 
+export interface UserQuotaDetails {
+  user_id: string;
+  email: string;
+  plan_name: string;
+  recordings_used: number;
+  recordings_limit: number | null;
+  storage_used_gb: number;
+  storage_limit_gb: number | null;
+  is_exceeding: boolean;
+  overage_enabled: boolean;
+  overage_cost: string;
+}
+
+export interface AdminUserStatsResponse {
+  total_count: number;
+  users: UserQuotaDetails[];
+  page: number;
+  page_size: number;
+}
+
 // Users
 export async function fetchAdminUsers(params: {
   page: number;
   page_size: number;
   search?: string;
   role?: string;
+  exceeded_only?: boolean;
 }): Promise<AdminUserListResponse> {
   const { data } = await apiClient.get("/admin/users", { params });
+  return data;
+}
+
+export async function fetchAdminUserStats(params: {
+  page: number;
+  page_size: number;
+  exceeded_only?: boolean;
+}): Promise<AdminUserStatsResponse> {
+  const { data } = await apiClient.get("/admin/stats/users", { params });
   return data;
 }
 

@@ -221,7 +221,7 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
       {open && (
         <div
           ref={overlayRef}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-overlay-in"
           onClick={(e) => { if (e.target === overlayRef.current) setOpen(false); }}
         >
           <div className="flex w-full max-w-lg flex-col rounded-2xl bg-card shadow-xl" style={{ maxHeight: "90vh" }}>

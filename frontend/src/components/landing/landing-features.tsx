@@ -1,4 +1,7 @@
+"use client";
+
 import { Link2, Mic, Captions, Share2, LayoutTemplate, Zap } from "lucide-react";
+import { useInView } from "@/hooks/use-in-view";
 
 const features = [
   {
@@ -34,16 +37,22 @@ const features = [
 ];
 
 export function LandingFeatures() {
+  const [ref, inView] = useInView<HTMLElement>();
+
   return (
-    <section className="py-16 px-6 bg-card">
+    <section ref={ref} className="py-16 px-6 bg-card">
       <div className="max-w-6xl mx-auto">
         <h2 className="text-2xl font-bold text-foreground text-center mb-2">Возможности</h2>
         <p className="text-sm text-muted-foreground text-center mb-10">Всё, что нужно для работы с учебным видеоконтентом</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {features.map((f) => {
+          {features.map((f, index) => {
             const Icon = f.icon;
             return (
-              <div key={f.title} className="p-5 rounded-xl border border-border bg-background flex gap-4">
+              <div
+                key={f.title}
+                className={`p-5 rounded-xl border border-border bg-background flex gap-4 ${inView ? "animate-card-in" : "opacity-0"}`}
+                style={inView ? { animationDelay: `${index * 60}ms` } : undefined}
+              >
                 <div className="shrink-0 w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center mt-0.5">
                   <Icon size={18} className="text-primary" strokeWidth={1.75} />
                 </div>

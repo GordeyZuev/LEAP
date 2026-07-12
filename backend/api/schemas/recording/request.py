@@ -99,6 +99,33 @@ class AddPlaylistResponse(BaseModel):
     message: str | None = None
 
 
+class FormatsPreviewRequest(BaseModel):
+    """Request available video formats for a URL without downloading."""
+
+    url: str = Field(..., description="Video URL to inspect")
+
+
+class FormatInfo(BaseModel):
+    """A single available video stream."""
+
+    height: int | None = None
+    ext: str = ""
+    vcodec: str = ""
+    fps: float | None = None
+    filesize_approx: int | None = None
+    format_id: str = ""
+
+
+class FormatsPreviewResponse(BaseModel):
+    """Available video formats for a URL."""
+
+    title: str
+    duration: int | None = None
+    thumbnail: str | None = None
+    platform: str
+    formats: list[FormatInfo] = Field(default_factory=list)
+
+
 class TrimVideoRequest(BaseModel):
     """Request for video trimming (FFmpeg - removing silence)."""
 
@@ -592,3 +619,32 @@ class RecordingUpdateRequest(BaseModel):
     """Partial update of recording metadata."""
 
     display_name: str | None = Field(None, min_length=1, max_length=500)
+
+
+# ============================================================================
+# Topics / AI content update
+# ============================================================================
+
+
+class TopicTimestampUpdate(BaseModel):
+    """Single chapter (topic timestamp) update."""
+
+    topic: str
+    start: float
+    end: float | None = None
+
+
+class TopicsUpdateRequest(BaseModel):
+    """Partial update of the active extracted.json version (AI-generated content)."""
+
+    summary: str | None = None
+    description: str | None = None
+    questions: list[str] | None = None
+    main_topics: list[str] | None = None
+    topic_timestamps: list[TopicTimestampUpdate] | None = None
+
+
+class TopicsRenderRequest(BaseModel):
+    """Render a Jinja template with the recording context (for Convert-to-text)."""
+
+    template: str

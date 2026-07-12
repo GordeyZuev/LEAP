@@ -52,7 +52,7 @@ export default function LoginPage() {
           <p className="text-xs text-muted-foreground mt-1.5">Sign in to your account</p>
         </div>
 
-        <div className="bg-card rounded-2xl shadow-sm border border-border p-8">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8 animate-panel-in">
           <form onSubmit={handleSubmit} className="space-y-4">
             <fieldset disabled={loading} className="space-y-4 disabled:opacity-90">
               <div>

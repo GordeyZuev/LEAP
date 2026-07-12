@@ -8,6 +8,8 @@ ehthumbs.db
 Thumbs.db
 
 .env
+cookies.txt
+**/cookies.txt
 .env.local
 .env.*.local
 !.env.example

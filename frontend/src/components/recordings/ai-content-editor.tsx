@@ -1,0 +1,613 @@
+"use client";
+
+import { useState, useRef, useCallback } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { Check, X, Plus, Code2, Loader2, Settings2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { apiClient } from "@/api/client";
+import { TemplateField } from "@/components/platforms/platform-fields";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface TopicTimestamp {
+  topic: string;
+  start: number;
+  end?: number;
+}
+
+export interface TopicVersion {
+  id?: string;
+  main_topics?: string[];
+  summary?: string;
+  description?: string;
+  questions?: string[];
+  topic_timestamps?: TopicTimestamp[];
+  manually_edited?: boolean;
+}
+
+interface AIContentEditorProps {
+  recordingId: number;
+  version: TopicVersion;
+  onUpdated: () => void;
+  onSeek?: (time: number) => void;
+  activeChapterIdx?: number;
+  chapterItemRef?: (index: number, el: HTMLButtonElement | null) => void;
+  readOnly?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function hasJinja(text: string) {
+  return text.includes("{{");
+}
+
+function formatTimecode(s: number) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Section label
+// ---------------------------------------------------------------------------
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChapterItem — timecode always seekable; name editable only when isManaging
+// ---------------------------------------------------------------------------
+
+function ChapterItem({
+  item,
+  isActive,
+  isManaging,
+  onSeek,
+  onSave,
+  disabled,
+  itemRef,
+}: {
+  item: TopicTimestamp;
+  isActive: boolean;
+  isManaging: boolean;
+  onSeek: (t: number) => void;
+  onSave: (topic: string) => void;
+  disabled?: boolean;
+  itemRef?: (el: HTMLButtonElement | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.topic);
+
+  function commit() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== item.topic) onSave(trimmed);
+    setEditing(false);
+  }
+
+  const showEditing = editing && isManaging;
+
+  return (
+    <div
+      onClick={() => onSeek(item.start)}
+      className={cn(
+        "group flex w-full items-center gap-3 rounded-lg px-2 py-1.5 transition-colors cursor-pointer",
+        isActive ? "bg-primary/6" : isManaging ? "hover:bg-muted/30" : "hover:bg-muted/20"
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
+
+      {/* Timecode — always seekable */}
+      <button
+        ref={itemRef}
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onSeek(item.start); }}
+        className={cn(
+          "w-11 shrink-0 font-mono text-xs text-left hover:text-primary transition-colors",
+          isActive ? "font-semibold text-primary" : "text-muted-foreground"
+        )}
+      >
+        {formatTimecode(item.start)}
+      </button>
+
+      {/* Topic name — editable only in manage mode */}
+      {showEditing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commit(); }
+            if (e.key === "Escape") { setDraft(item.topic); setEditing(false); }
+          }}
+          onBlur={commit}
+          disabled={disabled}
+          className="min-w-0 flex-1 rounded border border-primary bg-card px-1.5 py-0 text-sm outline-none"
+        />
+      ) : (
+        <span
+          className={cn(
+            "flex-1 truncate text-sm py-0.5",
+            isActive ? "font-medium text-foreground" : "text-secondary-foreground",
+            isManaging && "rounded px-1 cursor-text transition-colors hover:bg-muted/60"
+          )}
+          onClick={isManaging ? (e) => { e.stopPropagation(); setDraft(item.topic); setEditing(true); } : undefined}
+        >
+          {item.topic}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function AIContentEditor({
+  recordingId,
+  version,
+  onUpdated,
+  onSeek,
+  activeChapterIdx = -1,
+  chapterItemRef,
+  readOnly = false,
+}: AIContentEditorProps) {
+  // isManaging enables all editing (text + structural controls)
+  const [isManaging, setIsManaging] = useState(false);
+
+  // -- local state (optimistic)
+  const [mainTopics, setMainTopics] = useState<string[]>(version.main_topics ?? []);
+  const [topicTimestamps, setTopicTimestamps] = useState<TopicTimestamp[]>(version.topic_timestamps ?? []);
+  const [questions, setQuestions] = useState<string[]>(version.questions ?? []);
+
+  // -- inline edit state (topic title)
+  const [editingTopicIdx, setEditingTopicIdx] = useState<number | null>(null);
+  const [topicDraft, setTopicDraft] = useState("");
+  const [newTopic, setNewTopic] = useState("");
+
+  // -- inline edit state (questions)
+  const [editingQuestionIdx, setEditingQuestionIdx] = useState<number | null>(null);
+  const [questionDraft, setQuestionDraft] = useState("");
+  const [newQuestion, setNewQuestion] = useState("");
+
+  // -- summary edit state
+  const [summaryEditing, setSummaryEditing] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState(version.summary ?? "");
+  const [summaryIsTemplate, setSummaryIsTemplate] = useState(() => hasJinja(version.summary ?? ""));
+  const [renderLoading, setRenderLoading] = useState(false);
+
+  const newTopicRef = useRef<HTMLInputElement>(null);
+  const newQuestionRef = useRef<HTMLInputElement>(null);
+
+  const updateTopics = useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiClient.patch(`/recordings/${recordingId}/topics`, data),
+    onSuccess: onUpdated,
+  });
+
+  const renderTemplate = useCallback(async (template: string): Promise<string> => {
+    const res = await apiClient.post(`/recordings/${recordingId}/topics/render`, { template });
+    return (res.data as { rendered: string }).rendered;
+  }, [recordingId]);
+
+  const isMutating = updateTopics.isPending;
+
+  // Close all edits when leaving manage mode
+  function exitManageMode() {
+    setEditingTopicIdx(null);
+    setEditingQuestionIdx(null);
+    setSummaryEditing(false);
+    setIsManaging(false);
+  }
+
+  // -- topic handlers
+  function saveMainTopics(updated: string[]) {
+    setMainTopics(updated);
+    updateTopics.mutate({ main_topics: updated });
+  }
+
+  function commitTopic(i: number) {
+    const trimmed = topicDraft.trim();
+    if (trimmed && trimmed !== mainTopics[i]) {
+      saveMainTopics(mainTopics.map((t, j) => (j === i ? trimmed : t)));
+    }
+    setEditingTopicIdx(null);
+  }
+
+  function addTopic() {
+    const trimmed = newTopic.trim();
+    if (!trimmed) return;
+    saveMainTopics([...mainTopics, trimmed]);
+    setNewTopic("");
+    newTopicRef.current?.focus();
+  }
+
+  // -- chapter handlers
+  function saveChapterTopic(index: number, topic: string) {
+    const updated = topicTimestamps.map((t, i) => (i === index ? { ...t, topic } : t));
+    setTopicTimestamps(updated);
+    updateTopics.mutate({ topic_timestamps: updated });
+  }
+
+  // -- summary handlers
+  function openSummaryEdit() {
+    if (!isManaging) return;
+    setSummaryDraft(version.summary ?? "");
+    setSummaryIsTemplate(hasJinja(version.summary ?? ""));
+    setSummaryEditing(true);
+  }
+
+  async function saveSummary() {
+    try {
+      await updateTopics.mutateAsync({ summary: summaryDraft });
+      setSummaryEditing(false);
+    } catch {
+      // error visible via updateTopics.isError; keep edit open
+    }
+  }
+
+  async function convertSummaryToText() {
+    setRenderLoading(true);
+    try {
+      const rendered = await renderTemplate(summaryDraft);
+      setSummaryDraft(rendered);
+      setSummaryIsTemplate(false);
+      await updateTopics.mutateAsync({ summary: rendered });
+      setSummaryEditing(false);
+    } catch {
+      // keep edit open on failure
+    } finally {
+      setRenderLoading(false);
+    }
+  }
+
+  // -- question handlers
+  function saveQuestions(updated: string[]) {
+    setQuestions(updated);
+    updateTopics.mutate({ questions: updated });
+  }
+
+  function commitQuestion(i: number) {
+    const trimmed = questionDraft.trim();
+    if (trimmed && trimmed !== questions[i]) {
+      saveQuestions(questions.map((q, j) => (j === i ? trimmed : q)));
+    }
+    setEditingQuestionIdx(null);
+  }
+
+  function addQuestion() {
+    const trimmed = newQuestion.trim();
+    if (!trimmed) return;
+    saveQuestions([...questions, trimmed]);
+    setNewQuestion("");
+    newQuestionRef.current?.focus();
+  }
+
+  // -- guard
+  const hasTopics = mainTopics.length > 0;
+  const hasChapters = topicTimestamps.length > 0;
+  const hasSummary = !!version.summary;
+  const hasQuestions = questions.length > 0;
+
+  if (!hasTopics && !hasChapters && !hasSummary && !hasQuestions) return null;
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Header: Manage toggle ── */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {/* Topics label + main topic title */}
+          {hasTopics && (
+            <>
+              <SectionLabel>Topics</SectionLabel>
+
+              {/* Primary topic title */}
+              {isManaging && editingTopicIdx === 0 ? (
+                <input
+                  autoFocus
+                  value={topicDraft}
+                  onChange={(e) => setTopicDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); commitTopic(0); }
+                    if (e.key === "Escape") setEditingTopicIdx(null);
+                  }}
+                  onBlur={() => commitTopic(0)}
+                  className="w-full rounded border border-primary bg-card px-2 py-0.5 text-base font-semibold outline-none"
+                />
+              ) : (
+                <p
+                  className={cn(
+                    "text-base font-semibold leading-snug text-foreground rounded px-1 py-0.5 -mx-1 transition-colors",
+                    isManaging && "cursor-text hover:bg-muted/50"
+                  )}
+                  onClick={isManaging ? () => { setTopicDraft(mainTopics[0]); setEditingTopicIdx(0); } : undefined}
+                >
+                  {mainTopics[0]}
+                </p>
+              )}
+
+              {/* Subtitle topics */}
+              {(mainTopics.length > 1 || isManaging) && (
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 min-h-[1.25rem]">
+                  {mainTopics.slice(1).map((topic, rawIdx) => {
+                    const i = rawIdx + 1;
+                    return (
+                      <span key={i} className="flex items-center gap-0.5">
+                        {rawIdx > 0 && <span className="text-muted-foreground/40 select-none">·</span>}
+                        {isManaging && editingTopicIdx === i ? (
+                          <input
+                            autoFocus
+                            value={topicDraft}
+                            onChange={(e) => setTopicDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { e.preventDefault(); commitTopic(i); }
+                              if (e.key === "Escape") setEditingTopicIdx(null);
+                            }}
+                            onBlur={() => commitTopic(i)}
+                            className="rounded border border-primary bg-card px-1.5 py-0 text-sm outline-none"
+                          />
+                        ) : (
+                          <span
+                            className={cn(
+                              "text-sm text-muted-foreground rounded px-1 transition-colors",
+                              isManaging && "cursor-text hover:bg-muted/50 hover:text-foreground"
+                            )}
+                            onClick={isManaging ? () => { setTopicDraft(topic); setEditingTopicIdx(i); } : undefined}
+                          >
+                            {topic}
+                          </span>
+                        )}
+                        {isManaging && editingTopicIdx !== i && (
+                          <button
+                            type="button"
+                            onClick={() => saveMainTopics(mainTopics.filter((_, j) => j !== i))}
+                            disabled={isMutating}
+                            className="text-muted-foreground/50 hover:text-red-400 transition-colors"
+                          >
+                            <X size={10} />
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                  {isManaging && (
+                    <span className="flex items-center gap-0.5">
+                      {mainTopics.length > 1 && <span className="text-muted-foreground/40 select-none">·</span>}
+                      <input
+                        ref={newTopicRef}
+                        value={newTopic}
+                        onChange={(e) => setNewTopic(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTopic(); } }}
+                        placeholder="Add…"
+                        className="w-16 rounded border border-transparent bg-transparent px-1 py-0 text-sm text-muted-foreground placeholder:text-muted-foreground/30 outline-none focus:border-border focus:text-foreground transition-colors"
+                      />
+                      {newTopic.trim() && (
+                        <button type="button" onClick={addTopic} disabled={isMutating} className="text-primary">
+                          <Plus size={11} />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Manage / Done toggle */}
+        <div className="flex shrink-0 items-center gap-2">
+          {version.manually_edited && (
+            <span className="rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">
+              Edited
+            </span>
+          )}
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => isManaging ? exitManageMode() : setIsManaging(true)}
+              className={cn(
+                "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                isManaging
+                  ? "border-primary bg-primary/10 text-primary hover:bg-primary/15"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/20"
+              )}
+            >
+              {isManaging ? (
+                <><Check size={11} /> Done</>
+              ) : (
+                <><Settings2 size={11} /> Manage</>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Summary ── */}
+      {(hasSummary || summaryEditing) && (
+        <div>
+          <SectionLabel>Summary</SectionLabel>
+          {summaryEditing ? (
+            <div className="rounded-lg border border-border bg-card p-2">
+              {summaryIsTemplate ? (
+                <TemplateField
+                  label=""
+                  value={summaryDraft}
+                  onChange={(v) => { setSummaryDraft(v); setSummaryIsTemplate(hasJinja(v)); }}
+                  multiline
+                  rows={5}
+                  placeholder="Summary template…"
+                />
+              ) : (
+                <textarea
+                  autoFocus
+                  value={summaryDraft}
+                  onChange={(e) => {
+                    setSummaryDraft(e.target.value);
+                    setSummaryIsTemplate(hasJinja(e.target.value));
+                  }}
+                  rows={5}
+                  className="w-full resize-none bg-transparent text-sm outline-none"
+                  placeholder="Summary…"
+                />
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={saveSummary}
+                  disabled={isMutating}
+                  className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {isMutating ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                  Save
+                </button>
+                {summaryIsTemplate && (
+                  <button
+                    type="button"
+                    onClick={convertSummaryToText}
+                    disabled={renderLoading || isMutating}
+                    className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  >
+                    {renderLoading ? <Loader2 size={11} className="animate-spin" /> : <Code2 size={11} />}
+                    Convert to text
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSummaryEditing(false)}
+                  className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <X size={11} /> Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "rounded-lg px-2 py-1.5 -mx-2 transition-colors",
+                isManaging && "cursor-text hover:bg-muted/40"
+              )}
+              onClick={isManaging ? openSummaryEdit : undefined}
+              role={isManaging ? "button" : undefined}
+              tabIndex={isManaging ? 0 : undefined}
+              onKeyDown={isManaging ? (e) => { if (e.key === "Enter" || e.key === " ") openSummaryEdit(); } : undefined}
+            >
+              <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">
+                {version.summary}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Chapters ── */}
+      {hasChapters && (
+        <div>
+          <SectionLabel>Chapters</SectionLabel>
+          <div className="max-h-52 overflow-y-auto">
+            {topicTimestamps.map((t, i) => (
+              <ChapterItem
+                key={`${i}-${isManaging}`}
+                item={t}
+                isActive={i === activeChapterIdx}
+                isManaging={isManaging}
+                onSeek={onSeek ?? (() => {})}
+                onSave={(topic) => saveChapterTopic(i, topic)}
+                disabled={isMutating}
+                itemRef={chapterItemRef ? (el) => chapterItemRef(i, el) : undefined}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Questions ── */}
+      {(hasQuestions || isManaging) && (
+        <div>
+          <SectionLabel>Questions</SectionLabel>
+          <div className="space-y-0.5">
+            {questions.map((q, i) => (
+              <div key={i} className="flex items-start gap-3 rounded-lg px-2 py-1.5">
+                <span className="w-5 shrink-0 text-left text-sm text-muted-foreground tabular-nums select-none py-0.5">
+                  {i + 1}.
+                </span>
+                {isManaging && editingQuestionIdx === i ? (
+                  <input
+                    autoFocus
+                    value={questionDraft}
+                    onChange={(e) => setQuestionDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); commitQuestion(i); }
+                      if (e.key === "Escape") setEditingQuestionIdx(null);
+                    }}
+                    onBlur={() => commitQuestion(i)}
+                    className="flex-1 rounded border border-primary bg-card px-2 py-0 text-sm outline-none"
+                  />
+                ) : (
+                  <>
+                    <span
+                      className={cn(
+                        "flex-1 text-sm text-foreground rounded px-1 py-0.5 transition-colors",
+                        isManaging && "cursor-text hover:bg-muted/50"
+                      )}
+                      onClick={isManaging ? () => { setQuestionDraft(q); setEditingQuestionIdx(i); } : undefined}
+                    >
+                      {q}
+                    </span>
+                    {isManaging && (
+                      <button
+                        type="button"
+                        onClick={() => saveQuestions(questions.filter((_, j) => j !== i))}
+                        disabled={isMutating}
+                        className="mt-0.5 shrink-0 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            ))}
+
+            {/* Add question — only in manage mode */}
+            {isManaging && (
+              <div className="flex items-center gap-1.5 px-1 pt-0.5">
+                <span className="w-5 shrink-0" />
+                <input
+                  ref={newQuestionRef}
+                  value={newQuestion}
+                  onChange={(e) => setNewQuestion(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addQuestion(); } }}
+                  placeholder="Add question…"
+                  className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-0.5 text-sm text-muted-foreground placeholder:text-muted-foreground/40 outline-none focus:border-border focus:text-foreground transition-colors"
+                />
+                {newQuestion.trim() && (
+                  <button type="button" onClick={addQuestion} disabled={isMutating} className="text-primary hover:text-primary/80">
+                    <Plus size={13} />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

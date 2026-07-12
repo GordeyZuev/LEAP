@@ -151,7 +151,7 @@ def download_recording_task(
 
         except SoftTimeLimitExceeded:
             logger.error("Soft time limit exceeded")
-            raise self.retry(countdown=900, exc=SoftTimeLimitExceeded())
+            raise self.retry(countdown=settings.celery.download_retry_delay, exc=SoftTimeLimitExceeded())
 
         except Exception as exc:
             logger.error(f"Error downloading: {exc!r}", exc_info=True)
@@ -629,7 +629,7 @@ def trim_video_task(
 
         except SoftTimeLimitExceeded:
             logger.error("Soft time limit exceeded")
-            raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
+            raise self.retry(countdown=settings.celery.processing_retry_delay, exc=SoftTimeLimitExceeded())
 
         except Exception as exc:
             logger.error(f"Error trimming: {exc!r}", exc_info=True)
@@ -1000,7 +1000,7 @@ def transcribe_recording_task(
 
         except SoftTimeLimitExceeded:
             logger.error("Soft time limit exceeded")
-            raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
+            raise self.retry(countdown=settings.celery.processing_retry_delay, exc=SoftTimeLimitExceeded())
 
         except QuotaExceededError as exc:
             logger.warning(f"Transcription blocked by quota: {exc}")
@@ -1713,7 +1713,7 @@ def extract_topics_task(
 
         except SoftTimeLimitExceeded:
             logger.error("Soft time limit exceeded")
-            raise self.retry(countdown=600, exc=SoftTimeLimitExceeded())
+            raise self.retry(countdown=settings.celery.processing_retry_delay, exc=SoftTimeLimitExceeded())
 
         except Exception as exc:
             logger.error(f"Error extracting topics: {exc!r}", exc_info=True)

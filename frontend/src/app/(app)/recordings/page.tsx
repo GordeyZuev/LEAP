@@ -388,7 +388,7 @@ function RecordingsPagedResults({
         </div>
       )}
 
-      {isLoading && (
+      {isLoading && viewMode === "grid" && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex h-48 flex-col gap-3 rounded-2xl border border-border bg-card p-4">
@@ -402,6 +402,27 @@ function RecordingsPagedResults({
                 <Skeleton className="h-8 w-20 rounded-xl" />
                 <Skeleton className="h-8 w-20 rounded-xl" />
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isLoading && viewMode === "table" && (
+        <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="border-b border-border px-4 py-3 flex items-center gap-4">
+            <Skeleton className="h-4 w-4" />
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="ml-auto h-3 w-16" />
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4 border-b border-border px-4 py-3 last:border-0">
+              <Skeleton className="h-4 w-4 shrink-0" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-1/2" />
+                <Skeleton className="h-3 w-1/4" />
+              </div>
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-7 w-16 rounded-lg" />
             </div>
           ))}
         </div>
@@ -434,9 +455,9 @@ function RecordingsPagedResults({
 
       {!isLoading && !error && recordings.length > 0 && viewMode === "grid" && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {recordings.map((rec) => (
+          {recordings.map((rec, index) => (
+            <div key={rec.id} className="animate-card-in h-full" style={{ animationDelay: `${index * 30}ms` }}>
             <RecordingCard
-              key={rec.id}
               recording={rec}
               selected={selected.has(rec.id)}
               onToggleSelect={toggleSelect}
@@ -450,6 +471,7 @@ function RecordingsPagedResults({
               onRename={onRename}
               loadingId={loadingRecordingId}
             />
+            </div>
           ))}
         </div>
       )}

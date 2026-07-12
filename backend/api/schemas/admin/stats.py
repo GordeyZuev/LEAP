@@ -15,6 +15,7 @@ class AdminOverviewStats(BaseModel):
     total_storage_gb: float = Field(..., description="Total storage used (GB)")
     total_plans: int = Field(..., description="Total plans")
     users_by_plan: dict[str, int] = Field(..., description="Distribution of users by plans")
+    exceeding_users_count: int = Field(0, description="Users currently exceeding recordings quota")
 
 
 class UserQuotaDetails(BaseModel):

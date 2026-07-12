@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldCheck,
@@ -12,6 +12,7 @@ import {
   Film,
   Plus,
   Pencil,
+  AlertTriangle,
 } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { cn, extractApiError, formatRelative, formatDateTime } from "@/lib/utils";
@@ -36,7 +37,9 @@ import {
   type AdminPlan,
   type AdminPlanCreate,
   type AdminPlanUpdate,
+  type UserQuotaDetails,
   fetchAdminUsers,
+  fetchAdminUserStats,
   updateAdminUser,
   fetchAdminPlans,
   fetchUserSubscription,
@@ -58,6 +61,7 @@ interface OverviewStats {
   total_storage_gb: number;
   total_plans: number;
   users_by_plan: Record<string, number>;
+  exceeding_users_count: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +74,11 @@ const ROLE_OPTIONS = [
   { value: "all", label: "All roles" },
   { value: "user", label: "Users" },
   { value: "admin", label: "Admins" },
+];
+
+const EXCEEDED_OPTIONS = [
+  { value: "all", label: "All users" },
+  { value: "exceeded", label: "Over quota" },
 ];
 
 // Fields editable per-user as subscription overrides
@@ -208,9 +217,28 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+function QuotaBadge({ exceeding }: { exceeding: boolean }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2.5 py-0.5 text-xs font-medium",
+        exceeding
+          ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10"
+          : "bg-green-50 text-green-600 dark:bg-green-500/10",
+      )}
+    >
+      {exceeding ? "Over" : "OK"}
+    </span>
+  );
+}
+
 function fmtQuota(v: number | null | undefined): string {
   if (v === null || v === undefined) return "∞";
   return String(v);
+}
+
+function fmtUsage(used: number, limit: number | null): string {
+  return `${used} / ${limit === null ? "∞" : limit}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +346,7 @@ function AdminDashboard() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
+  const [exceededFilter, setExceededFilter] = useState("all");
   const [editingUser, setEditingUser] = useState<AdminUserProfile | null>(null);
   const [editingPlan, setEditingPlan] = useState<AdminPlan | null | "new">(null);
 
@@ -334,15 +363,24 @@ function AdminDashboard() {
     queryFn: fetchAdminPlans,
   });
 
+  const exceededOnly = exceededFilter === "exceeded";
+
   const usersQuery = useQuery({
-    queryKey: ["admin-users", page, debouncedSearch, roleFilter],
+    queryKey: ["admin-users", page, debouncedSearch, roleFilter, exceededOnly],
     queryFn: () =>
       fetchAdminUsers({
         page,
         page_size: PAGE_SIZE,
         search: debouncedSearch || undefined,
         role: roleFilter === "all" ? undefined : roleFilter,
+        exceeded_only: exceededOnly || undefined,
       }),
+  });
+
+  const userStatsQuery = useQuery({
+    queryKey: ["admin-user-stats", page, exceededOnly],
+    queryFn: () => fetchAdminUserStats({ page, page_size: PAGE_SIZE, exceeded_only: exceededOnly || undefined }),
+    staleTime: 60_000,
   });
 
   const ov = overviewQuery.data;
@@ -350,6 +388,13 @@ function AdminDashboard() {
   const users = usersQuery.data?.users ?? [];
   const total = usersQuery.data?.total_count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Merge usage stats by user_id
+  const statsById = useMemo(() => {
+    const map = new Map<string, UserQuotaDetails>();
+    for (const s of userStatsQuery.data?.users ?? []) map.set(s.user_id, s);
+    return map;
+  }, [userStatsQuery.data]);
 
   function handlePlanSaved() {
     void qc.invalidateQueries({ queryKey: ["admin-plans"] });
@@ -360,6 +405,7 @@ function AdminDashboard() {
 
   function handleUserSaved() {
     void qc.invalidateQueries({ queryKey: ["admin-users"] });
+    void qc.invalidateQueries({ queryKey: ["admin-user-stats"] });
     void qc.invalidateQueries({ queryKey: ["admin-subscription"] });
     void qc.invalidateQueries({ queryKey: ["admin-overview"] });
     setEditingUser(null);
@@ -372,7 +418,7 @@ function AdminDashboard() {
 
       <div className="space-y-6">
         {/* ── Overview ──────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
           <StatCard icon={Users} label="Total users" value={ov?.total_users ?? "—"} />
           <StatCard icon={UserCheck} label="Active users" value={ov?.active_users ?? "—"} />
           <StatCard icon={Film} label="Recordings" value={ov?.total_recordings ?? "—"} />
@@ -380,6 +426,11 @@ function AdminDashboard() {
             icon={HardDrive}
             label="Storage"
             value={ov ? `${ov.total_storage_gb.toFixed(1)} GB` : "—"}
+          />
+          <StatCard
+            icon={AlertTriangle}
+            label="Over quota"
+            value={ov?.exceeding_users_count ?? "—"}
           />
         </div>
 
@@ -495,6 +546,13 @@ function AdminDashboard() {
                 options={ROLE_OPTIONS}
                 onChange={(v) => { setRoleFilter(v); setPage(1); }}
               />,
+              <SegmentedFilter
+                key="exceeded"
+                label="Quota"
+                value={exceededFilter}
+                options={EXCEEDED_OPTIONS}
+                onChange={(v) => { setExceededFilter(v); setPage(1); }}
+              />,
             ]}
           />
 
@@ -507,37 +565,48 @@ function AdminDashboard() {
               <div className="px-6 py-10 text-center text-sm text-muted-foreground">No users found.</div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[600px]">
+                <table className="w-full min-w-[800px]">
                   <thead>
                     <tr className="border-b border-border">
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Role</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Recordings</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Storage</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Quota</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Last seen</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Member since</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {users.map((u) => (
-                      <tr
-                        key={u.id}
-                        onClick={() => setEditingUser(u)}
-                        className="cursor-pointer hover:bg-muted/40 transition-colors"
-                      >
-                        <td className="px-6 py-3.5">
-                          <p className="text-sm font-medium text-foreground truncate max-w-[260px]">{u.email}</p>
-                          <p className="text-xs text-muted-foreground">#{u.user_slug}</p>
-                        </td>
-                        <td className="px-6 py-3.5"><RoleBadge role={u.role} /></td>
-                        <td className="px-6 py-3.5"><StatusBadge active={u.is_active} /></td>
-                        <td className="px-6 py-3.5">
-                          <span className="text-sm text-muted-foreground">{formatRelative(u.last_login_at)}</span>
-                        </td>
-                        <td className="px-6 py-3.5">
-                          <span className="text-sm text-muted-foreground">{formatRelative(u.created_at)}</span>
-                        </td>
-                      </tr>
-                    ))}
+                    {users.map((u) => {
+                      const s = statsById.get(u.id);
+                      return (
+                        <tr
+                          key={u.id}
+                          onClick={() => setEditingUser(u)}
+                          className="cursor-pointer hover:bg-muted/40 transition-colors"
+                        >
+                          <td className="px-6 py-3.5">
+                            <p className="text-sm font-medium text-foreground truncate max-w-[220px]">{u.email}</p>
+                            <p className="text-xs text-muted-foreground">#{u.user_slug}</p>
+                          </td>
+                          <td className="px-6 py-3.5"><RoleBadge role={u.role} /></td>
+                          <td className="px-6 py-3.5"><StatusBadge active={u.is_active} /></td>
+                          <td className="px-6 py-3.5 text-sm tabular-nums text-secondary-foreground">
+                            {s ? fmtUsage(s.recordings_used, s.recordings_limit) : "—"}
+                          </td>
+                          <td className="px-6 py-3.5 text-sm tabular-nums text-secondary-foreground">
+                            {s ? `${s.storage_used_gb.toFixed(2)} / ${s.storage_limit_gb === null ? "∞" : s.storage_limit_gb} GB` : "—"}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            {s ? <QuotaBadge exceeding={s.is_exceeding} /> : <span className="text-xs text-muted-foreground">—</span>}
+                          </td>
+                          <td className="px-6 py-3.5">
+                            <span className="text-sm text-muted-foreground">{formatRelative(u.last_login_at)}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -564,6 +633,7 @@ function AdminDashboard() {
         <EditUserModal
           user={editingUser}
           plans={plans}
+          stats={statsById.get(editingUser.id) ?? null}
           onClose={() => setEditingUser(null)}
           onSaved={handleUserSaved}
           onError={(e) => show("error", e)}
@@ -755,12 +825,14 @@ function EditPlanModal({
 function EditUserModal({
   user,
   plans,
+  stats,
   onClose,
   onSaved,
   onError,
 }: {
   user: AdminUserProfile;
   plans: AdminPlan[];
+  stats: UserQuotaDetails | null;
   onClose: () => void;
   onSaved: () => void;
   onError: (msg: string) => void;
@@ -887,6 +959,50 @@ function EditUserModal({
                 ))}
               </div>
             </SectionCard>
+
+            {/* Usage this month */}
+            {stats && (
+              <SectionCard title="Usage this month">
+                <StatRow
+                  label="Recordings"
+                  value={fmtUsage(stats.recordings_used, stats.recordings_limit)}
+                />
+                {stats.recordings_limit !== null && (
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        stats.recordings_used > stats.recordings_limit ? "bg-amber-500" : "bg-primary",
+                      )}
+                      style={{
+                        width: `${Math.min(100, (stats.recordings_used / stats.recordings_limit) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                )}
+                <StatRow
+                  label="Storage"
+                  value={`${stats.storage_used_gb.toFixed(2)} / ${stats.storage_limit_gb === null ? "∞" : stats.storage_limit_gb} GB`}
+                />
+                {stats.storage_limit_gb !== null && (
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        stats.storage_used_gb > stats.storage_limit_gb ? "bg-amber-500" : "bg-primary",
+                      )}
+                      style={{
+                        width: `${Math.min(100, (stats.storage_used_gb / stats.storage_limit_gb) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-sm text-muted-foreground">Status</span>
+                  <QuotaBadge exceeding={stats.is_exceeding} />
+                </div>
+              </SectionCard>
+            )}
 
             {/* Subscription */}
             <SectionCard title="Plan & limits">

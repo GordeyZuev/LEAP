@@ -486,17 +486,16 @@
       }
     },
     {
-      "type": "table",
-      "title": "External API error rate by provider (1h)",
-      "description": "Percentage of external calls returning error status in last hour.",
+      "type": "timeseries",
+      "title": "External API error rate by provider",
+      "description": "Percentage of external calls returning error status. Yellow >5%, red >20%.",
       "gridPos": {"x": 16, "y": 42, "w": 8, "h": 9},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * sum by (provider) (increase(leap_external_api_duration_seconds_count{status=\"error\"}[1h])) / clamp_min(sum by (provider) (increase(leap_external_api_duration_seconds_count[1h])), 1)",
-          "legendFormat": "{{provider}}",
-          "instant": true
+          "expr": "100 * sum by (provider) (rate(leap_external_api_duration_seconds_count{status=\"error\"}[10m])) / clamp_min(sum by (provider) (rate(leap_external_api_duration_seconds_count[10m])), 1e-9)",
+          "legendFormat": "{{provider}}"
         }
       ],
       "fieldConfig": {
@@ -511,16 +510,19 @@
               {"color": "yellow", "value": 5},
               {"color": "red", "value": 20}
             ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "thresholdsStyle": {"mode": "area"},
+            "spanNulls": true
           }
         }
       },
       "options": {
-        "sortBy": [{"displayName": "Value", "desc": true}]
-      },
-      "transformations": [
-        {"id": "labelsToFields", "options": {"mode": "rows"}},
-        {"id": "organize", "options": {"renameByName": {"label": "provider", "Value": "error %"}}}
-      ]
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]},
+        "tooltip": {"mode": "multi"}
+      }
     },
 
     {

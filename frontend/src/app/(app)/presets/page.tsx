@@ -144,9 +144,9 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, on
 
       {!isLoading && !error && presets.length > 0 && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {presets.map((p) => (
+          {presets.map((p, index) => (
+            <div key={p.id} className="animate-card-in" style={{ animationDelay: `${index * 30}ms` }}>
             <Link
-              key={p.id}
               href={`/presets/${p.id}`}
               className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
             >
@@ -168,6 +168,7 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, on
                 </span>
               </div>
             </Link>
+            </div>
           ))}
         </div>
       )}

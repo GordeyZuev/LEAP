@@ -3,7 +3,7 @@ import { ArrowRight, Sparkles } from "lucide-react";
 
 export function LandingHero() {
   return (
-    <section className="pt-20 pb-12 sm:pt-32 sm:pb-20 px-6 text-center">
+    <section className="pt-20 pb-12 sm:pt-32 sm:pb-20 px-6 text-center animate-page-in">
       <div className="max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-sm font-medium px-3 py-1.5 rounded-full mb-6">
           <Sparkles size={13} strokeWidth={2} />

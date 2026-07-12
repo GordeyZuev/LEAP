@@ -81,6 +81,26 @@ async def get_overview_stats(
     sizes = await asyncio.gather(*(_user_storage_bytes(s) for s in slugs))
     total_storage = sum(sizes)
 
+    # Users exceeding recordings quota this month (DB-only, no S3 check)
+    current_period = int(datetime.now().strftime("%Y%m"))
+    recordings_limit_col = func.coalesce(
+        UserSubscriptionModel.custom_max_recordings_per_month,
+        SubscriptionPlanModel.included_recordings_per_month,
+    )
+    exceeding_count = (
+        await session.scalar(
+            select(func.count(QuotaUsageModel.user_id))
+            .join(UserSubscriptionModel, QuotaUsageModel.user_id == UserSubscriptionModel.user_id)
+            .join(SubscriptionPlanModel, UserSubscriptionModel.plan_id == SubscriptionPlanModel.id)
+            .where(
+                QuotaUsageModel.period == current_period,
+                recordings_limit_col.is_not(None),
+                QuotaUsageModel.recordings_count > recordings_limit_col,
+            )
+        )
+        or 0
+    )
+
     return AdminOverviewStats(
         total_users=total_users,
         active_users=active_users,
@@ -88,6 +108,7 @@ async def get_overview_stats(
         total_storage_gb=round(total_storage / (1024**3), 2),
         total_plans=total_plans,
         users_by_plan=users_by_plan,
+        exceeding_users_count=exceeding_count,
     )
 
 
@@ -251,6 +272,7 @@ async def admin_list_users(
     page_size: int = Query(50, ge=1, le=200),
     search: str | None = Query(None, description="Filter by email (substring)"),
     role: str | None = Query(None, description="Filter by role"),
+    exceeded_only: bool = Query(False, description="Only users exceeding recordings quota"),
 ):
     """List all users with pagination (admin only)."""
     query = select(UserModel).order_by(UserModel.created_at.desc())
@@ -258,6 +280,23 @@ async def admin_list_users(
         query = query.where(UserModel.email.ilike(f"%{search}%"))
     if role:
         query = query.where(UserModel.role == role)
+    if exceeded_only:
+        current_period = int(datetime.now().strftime("%Y%m"))
+        recordings_limit_col = func.coalesce(
+            UserSubscriptionModel.custom_max_recordings_per_month,
+            SubscriptionPlanModel.included_recordings_per_month,
+        )
+        exceeded_ids_subq = (
+            select(QuotaUsageModel.user_id)
+            .join(UserSubscriptionModel, QuotaUsageModel.user_id == UserSubscriptionModel.user_id)
+            .join(SubscriptionPlanModel, UserSubscriptionModel.plan_id == SubscriptionPlanModel.id)
+            .where(
+                QuotaUsageModel.period == current_period,
+                recordings_limit_col.is_not(None),
+                QuotaUsageModel.recordings_count > recordings_limit_col,
+            )
+        )
+        query = query.where(UserModel.id.in_(exceeded_ids_subq))
 
     total_count = await session.scalar(select(func.count()).select_from(query.subquery())) or 0
     query = query.offset((page - 1) * page_size).limit(page_size)

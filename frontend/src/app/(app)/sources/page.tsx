@@ -362,8 +362,8 @@ export default function SourcesPage() {
 
       {!isLoading && !error && visibleSources.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {visibleSources.map((s) => (
-            <div key={s.id} className="bg-card rounded-2xl border border-border shadow-sm p-5 flex flex-col gap-3">
+          {visibleSources.map((s, index) => (
+            <div key={s.id} className="bg-card rounded-2xl border border-border shadow-sm p-5 flex flex-col gap-3 animate-card-in" style={{ animationDelay: `${index * 30}ms` }}>
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-semibold text-foreground flex-1">{s.name}</span>
                 <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium shrink-0", SOURCE_TYPE_COLORS[s.source_type] ?? "bg-muted text-muted-foreground")}>

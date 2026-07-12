@@ -220,13 +220,13 @@ export function RunConfigModal({
   const [enableTopics, setEnableTopics] = useState(true);
   const [enableSubtitles, setEnableSubtitles] = useState(true);
   const [allowErrors, setAllowErrors] = useState(false);
-  const [questionsCount, setQuestionsCount] = useState(5);
+  const [questionsCount, setQuestionsCount] = useState(3);
   const [vocabulary, setVocabulary] = useState<string[]>([]);
 
   // ── Output ────────────────────────────────────────────────────────────────
   const [outputEnabled, setOutputEnabled] = useState(false);
   const [outputOpen, setOutputOpen] = useState(false);
-  const [autoUpload, setAutoUpload] = useState(true);
+  const [autoUpload, setAutoUpload] = useState(false);
   const [uploadCaptions, setUploadCaptions] = useState(true);
   const [selectedPresetIds, setSelectedPresetIds] = useState<number[]>([]);
 
@@ -376,11 +376,11 @@ export function RunConfigModal({
     setEnableTopics(true);
     setEnableSubtitles(true);
     setAllowErrors(false);
-    setQuestionsCount(5);
+    setQuestionsCount(3);
     setVocabulary([]);
     setOutputEnabled(false);
     setOutputOpen(false);
-    setAutoUpload(true);
+    setAutoUpload(false);
     setUploadCaptions(true);
     setSelectedPresetIds([]);
     setMetadataEnabled(false);
@@ -692,10 +692,10 @@ export function RunConfigModal({
                   <span className={FILTER_LABEL}>Questions count</span>
                   <input
                     type="number"
-                    min={0}
-                    max={20}
+                    min={1}
+                    max={10}
                     value={questionsCount}
-                    onChange={(e) => setQuestionsCount(parseInt(e.target.value, 10) || 0)}
+                    onChange={(e) => setQuestionsCount(parseInt(e.target.value, 10) || 1)}
                     className={cn(FILTER_CONTROL, "w-32")}
                   />
                 </div>

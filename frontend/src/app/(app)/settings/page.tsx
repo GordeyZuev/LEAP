@@ -34,6 +34,15 @@ import {
   MetadataPreviewResultBox,
   type MetadataRenderPreviewData,
 } from "@/components/platforms/metadata-render-preview";
+import {
+  DisplayConfigFields,
+  defaultTopicsDisplay,
+  defaultQuestionsDisplay,
+  toDisplayPayload,
+  fromDisplayPayload,
+  appendDisplayConfigPreviewBody,
+  type DisplayConfig,
+} from "@/components/platforms/display-config-fields";
 import { useGranularities, useLanguages, useQualities, useTimezones } from "@/hooks/use-references";
 import { TOAST_LONG, TOAST_SHORT } from "@/lib/constants";
 
@@ -90,6 +99,8 @@ interface MetadataConfig {
   description_template: string;
   date_format: string;
   tags: string[];
+  topics_display: DisplayConfig;
+  questions_display: DisplayConfig;
 }
 
 interface RetentionConfig {
@@ -177,6 +188,8 @@ const DEFAULT_METADATA: MetadataConfig = {
   description_template: "Recording from {{ date }}",
   date_format: "DD.MM.YYYY",
   tags: [],
+  topics_display: defaultTopicsDisplay(),
+  questions_display: defaultQuestionsDisplay(),
 };
 
 const DEFAULT_RETENTION: RetentionConfig = {
@@ -406,7 +419,12 @@ export default function SettingsPage() {
     if (tr) setTranscription({ ...DEFAULT_TRANSCRIPTION, ...tr });
     if (d) setDownload({ ...DEFAULT_DOWNLOAD, ...d });
     if (u) setUpload({ ...DEFAULT_UPLOAD, ...u });
-    if (m) setMetadata({ ...DEFAULT_METADATA, ...m });
+    if (m) setMetadata({
+      ...DEFAULT_METADATA,
+      ...m,
+      topics_display: fromDisplayPayload(m.topics_display, "topics"),
+      questions_display: fromDisplayPayload(m.questions_display, "questions"),
+    });
     if (r) setRetention({ ...DEFAULT_RETENTION, ...r });
   }, [configData]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -446,7 +464,11 @@ export default function SettingsPage() {
         transcription,
         download,
         upload,
-        metadata,
+        metadata: {
+          ...metadata,
+          topics_display: toDisplayPayload(metadata.topics_display, "topics"),
+          questions_display: toDisplayPayload(metadata.questions_display, "questions"),
+        },
         retention,
       }),
     onSuccess: () => {
@@ -553,10 +575,12 @@ export default function SettingsPage() {
     setMetadataRenderPreviewLoading(true);
     setMetadataRenderPreview(null);
     try {
-      const res = await apiClient.post<MetadataRenderPreviewData>("/templates/render-preview", {
+      const body: Record<string, unknown> = {
         title_template: metadata.title_template,
         description_template: metadata.description_template,
-      });
+      };
+      appendDisplayConfigPreviewBody(body, metadata.topics_display, metadata.questions_display);
+      const res = await apiClient.post<MetadataRenderPreviewData>("/templates/render-preview", body);
       setMetadataRenderPreview(res.data);
     } catch {
       setMetadataRenderPreview(null);
@@ -1088,6 +1112,25 @@ export default function SettingsPage() {
               />
             </Field>
           </div>
+
+          <DisplayConfigFields
+            label="Show topics"
+            hint="How topics appear in the description template ({{ topics }})"
+            kind="topics"
+            value={metadata.topics_display}
+            onChange={(patch) =>
+              setMetadata((c) => ({ ...c, topics_display: { ...c.topics_display, ...patch } }))
+            }
+          />
+          <DisplayConfigFields
+            label="Show questions"
+            hint="How self-check questions appear in the description template ({{ questions }})"
+            kind="questions"
+            value={metadata.questions_display}
+            onChange={(patch) =>
+              setMetadata((c) => ({ ...c, questions_display: { ...c.questions_display, ...patch } }))
+            }
+          />
         </Collapsible>
 
         {/* Retention */}

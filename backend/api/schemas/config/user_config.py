@@ -57,10 +57,10 @@ class TopicsDisplayConfig(BaseModel):
     min_length: int = Field(default=0, ge=0)
     max_length: int = Field(default=999, ge=1)
     display_location: Literal["description", "comment", "both"] = "description"
-    format: Literal["numbered_list", "bullet_list", "plain"] = "numbered_list"
+    format: Literal["numbered_list", "bullet_list", "dash_list", "comma_separated", "inline", "plain"] = "numbered_list"
     separator: str = "\n"
-    prefix: str = "Topics:"
-    include_timestamps: bool = False
+    prefix: str = "Темы:"
+    show_timestamps: bool = False
 
     @model_validator(mode="after")
     def validate_length_range(self):
@@ -73,8 +73,10 @@ class QuestionsDisplayConfig(BaseModel):
     """Display settings for self-check questions in description templates."""
 
     enabled: bool = False
-    format: Literal["numbered_list", "bullet_list", "plain"] = "numbered_list"
+    format: Literal["numbered_list", "bullet_list", "dash_list", "comma_separated", "inline", "plain"] = "numbered_list"
     max_count: int | None = Field(None, ge=1, le=20, description="Max questions to show (None = all)")
+    min_length: int = Field(default=0, ge=0, description="Min question length in chars (0 = no filtering)")
+    max_length: int = Field(default=1000, ge=1, description="Max question length in chars")
     prefix: str | None = Field(None, description="Prefix before questions list")
     separator: str = "\n"
 

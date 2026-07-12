@@ -1,5 +1,6 @@
 """Recording response schemas"""
 
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -265,6 +266,9 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     soft_deleted_at: datetime | None = None
     hard_delete_at: datetime | None = None
     expire_at: datetime | None = None
+
+    # --- Share ---
+    share_token: uuid.UUID | None = None
 
     # --- Timestamps ---
     created_at: datetime

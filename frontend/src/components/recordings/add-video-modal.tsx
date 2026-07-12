@@ -2,7 +2,7 @@
 
 import { useCallback, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Link2, List, Upload, RefreshCw } from "lucide-react";
+import { X, Link2, List, Upload, RefreshCw, ScanLine, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -64,12 +64,68 @@ interface AddVideoModalProps {
   onClose: () => void;
 }
 
-const QUALITY_OPTIONS = [
+interface FormatInfo {
+  height: number | null;
+  ext: string;
+  vcodec: string;
+  fps: number | null; // float from yt-dlp, round before display
+  filesize_approx: number | null;
+  format_id: string;
+}
+
+interface FormatsPreviewResponse {
+  title: string;
+  duration: number | null;
+  thumbnail: string | null;
+  platform: string;
+  formats: FormatInfo[];
+}
+
+type PreviewState = "idle" | "loading" | "success" | "error";
+
+const STATIC_QUALITY_OPTIONS = [
   { value: "best", label: "Best" },
   { value: "1080p", label: "1080p" },
   { value: "720p", label: "720p" },
   { value: "480p", label: "480p" },
 ];
+
+function heightToQuality(height: number | null): string {
+  if (!height) return "best";
+  if (height >= 1080) return "1080p";
+  if (height >= 720) return "720p";
+  if (height >= 480) return "480p";
+  return "best";
+}
+
+function formatFilesize(bytes: number | null): string {
+  if (!bytes) return "";
+  if (bytes >= 1024 ** 3) return `~${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `~${(bytes / 1024 ** 2).toFixed(0)} MB`;
+  return `~${(bytes / 1024).toFixed(0)} KB`;
+}
+
+function buildFormatOptions(formats: FormatInfo[]): { value: string; label: string }[] {
+  // For "best" bucket (height < 480 or unknown) — pick the highest available height to label it
+  const bestHeight = formats
+    .filter((f) => f.height && heightToQuality(f.height) === "best")
+    .reduce((max, f) => Math.max(max, f.height ?? 0), 0);
+
+  const bestLabel = bestHeight > 0 ? `Best available (up to ${bestHeight}p)` : "Best available";
+  const options: { value: string; label: string }[] = [{ value: "best", label: bestLabel }];
+
+  for (const f of formats) {
+    const quality = heightToQuality(f.height);
+    if (quality === "best") continue; // already covered by "Best available"
+    const fpsLabel = f.fps && f.fps >= 1 ? `${Math.round(f.fps)}fps` : null;
+    const parts = [`${f.height}p`, f.ext, fpsLabel, formatFilesize(f.filesize_approx)].filter(Boolean);
+    options.push({ value: quality, label: parts.join(" · ") });
+  }
+
+  // deduplicate by value (keep first)
+  const seen = new Set<string>();
+  return options.filter((o) => { if (seen.has(o.value)) return false; seen.add(o.value); return true; });
+}
 
 const TABS = [
   { id: "url" as Tab, label: "URL", icon: Link2 },
@@ -87,6 +143,11 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
   const [url, setUrl] = useState("");
   const [quality, setQuality] = useState("best");
   const [autoRun, setAutoRun] = useState(false);
+
+  // Format preview state (URL tab only)
+  const [previewState, setPreviewState] = useState<PreviewState>("idle");
+  const [previewFormats, setPreviewFormats] = useState<FormatInfo[]>([]);
+  const [previewTitle, setPreviewTitle] = useState("");
 
   // File state
   const fileRef = useRef<HTMLInputElement>(null);
@@ -119,6 +180,9 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     setSuccessMsg("");
     setErrorMsg("");
     setUploadProgress(null);
+    setPreviewState("idle");
+    setPreviewFormats([]);
+    setPreviewTitle("");
     onClose();
   }, [onClose]);
 
@@ -129,6 +193,19 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
       return res.data;
     },
     enabled: open && tab === "sync",
+  });
+
+  const checkFormats = useMutation({
+    mutationFn: (videoUrl: string) =>
+      apiClient.post<FormatsPreviewResponse>("/recordings/formats-preview", { url: videoUrl }),
+    onMutate: () => { setPreviewState("loading"); setPreviewFormats([]); setPreviewTitle(""); },
+    onSuccess: (res) => {
+      setPreviewState("success");
+      setPreviewFormats(res.data.formats);
+      setPreviewTitle(res.data.title);
+      setQuality("best");
+    },
+    onError: () => { setPreviewState("error"); },
   });
 
   const addUrl = useMutation({
@@ -199,7 +276,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     },
   });
 
-  const isLoading = addUrl.isPending || addPlaylist.isPending || uploadFile.isPending || syncSource.isPending;
+  const isLoading = addUrl.isPending || addPlaylist.isPending || uploadFile.isPending || syncSource.isPending || checkFormats.isPending;
 
   function handleSubmit() {
     if (isLoading) return;
@@ -277,38 +354,68 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                 <label className="block text-sm font-medium text-secondary-foreground mb-1.5">
                   {tab === "url" ? "Video URL" : "Playlist / channel URL"}
                 </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={url}
+                    onChange={(e) => {
+                      setUrl(e.target.value);
+                      if (previewState !== "idle") {
+                        setPreviewState("idle");
+                        setPreviewFormats([]);
+                        setPreviewTitle("");
+                      }
+                    }}
+                    placeholder={tab === "url" ? "https://youtube.com/watch?v=..." : "https://youtube.com/playlist?list=..."}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
+                  />
+                  {tab === "url" && isLikelySupportedUrl(url.trim()) && (
+                    <button
+                      type="button"
+                      onClick={() => checkFormats.mutate(url.trim())}
+                      disabled={previewState === "loading"}
+                      title="Check available formats"
+                      className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-border text-xs font-medium text-secondary-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      {previewState === "loading"
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <ScanLine size={14} />}
+                    </button>
+                  )}
+                </div>
+                {tab === "url" && previewState === "success" && previewTitle && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    <span className="font-medium text-secondary-foreground">Title: </span>
+                    {previewTitle.length > 60 ? previewTitle.slice(0, 60) + "…" : previewTitle}
+                  </p>
+                )}
+                {tab === "url" && previewState === "error" && (
+                  <p className="mt-1.5 text-xs text-red-500">Could not fetch formats — using default options</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-secondary-foreground mb-1.5">Quality</label>
+                <NativeSelect
+                  value={quality}
+                  onChange={(e) => setQuality(e.target.value)}
+                >
+                  {(tab === "url" && previewState === "success" && previewFormats.length > 0
+                    ? buildFormatOptions(previewFormats)
+                    : STATIC_QUALITY_OPTIONS
+                  ).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </NativeSelect>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-secondary-foreground cursor-pointer">
                 <input
-                  type="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder={tab === "url" ? "https://youtube.com/watch?v=..." : "https://youtube.com/playlist?list=..."}
-                  className="w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
+                  type="checkbox"
+                  checked={autoRun}
+                  onChange={(e) => setAutoRun(e.target.checked)}
+                  className="rounded accent-primary"
                 />
-              </div>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-secondary-foreground mb-1.5">Quality</label>
-                  <NativeSelect
-                    value={quality}
-                    onChange={(e) => setQuality(e.target.value)}
-                  >
-                    {QUALITY_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </NativeSelect>
-                </div>
-                <div className="flex items-end pb-0.5">
-                  <label className="flex items-center gap-2 text-sm text-secondary-foreground cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={autoRun}
-                      onChange={(e) => setAutoRun(e.target.checked)}
-                      className="rounded accent-primary"
-                    />
-                    Auto-run
-                  </label>
-                </div>
-              </div>
+                Auto-run pipeline after download
+              </label>
             </>
           )}
 

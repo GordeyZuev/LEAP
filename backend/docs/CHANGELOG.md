@@ -2,6 +2,134 @@
 
 ---
 
+## v0.10.6.0 (2026-07-12)
+
+Редактор AI-контента записи, Description-карточка с Jinja-рендером, выбор качества видео при добавлении ссылки, фильтр превышения квот в Admin UI, устойчивость yt-dlp к rate-limit YouTube. Конфигурация параметров извлечения топиков вынесена в env-переменные; исправлена консистентность дефолтов и допустимых форматов display-config на всех трёх UI-поверхностях; в Settings page добавлены настройки отображения топиков и вопросов. Публичная страница шаринга записи с Jinja-рендером description; переработан UI страницы записи: файлы и артефакты перемещены в сайдбар, Info слито в Configuration, кнопки управления стали компактнее.
+
+---
+
+## 2026-07-13: UI-полировка — share page, список записей, страница записи
+
+### Frontend
+
+- **Share page — стабилизация высоты плеера** — wrapper `ShareVideoPlayer` получил класс `aspect-video`, устраняя схлопывание div в 0px между переходами состояний загрузки. Исчезла "прыжок"-анимация при монтировании динамического `VideoPlayer`.
+- **Share page — skeleton loading** — вместо голого спиннера показывается структурный skeleton: header + заглушка видео-карточки + панель downloads.
+- **Share page — ошибка загрузки видео** — `VideoDownloadButton` теперь показывает inline red-state «Download failed — retry» при ошибке `getShareMedia` вместо silent fail.
+- **Share page — кнопка «Copy link»** — в header добавлена кнопка копирования URL текущей страницы с 2-секундным feedback-состоянием (иконка Check + «Copied!», зелёная расцветка). Доступна без авторизации.
+- **Share page — адаптив header** — `flex-wrap gap-x-4 gap-y-2` на контейнере header; заголовок записи `text-xl sm:text-2xl`. На узких экранах дата/кнопка переносятся на вторую строку без обрезки.
+- **Share page — Description открыта по умолчанию** — `defaultOpen={true}` (было `false`): пользователь сразу видит описание записи.
+- **Share page — логотип без навигации** — `<Link href="/">` заменён на `<span>`: публичная страница не должна вести на auth-маршрут.
+- **Список записей — skeleton для table view** — при `viewMode === "table"` skeleton рендерится как таблица-заглушка (header + 8 строк), а не grid-карточки.
+- **Список записей — одинаковая высота карточек** — обёртка каждой карточки в grid получила `h-full`; `RecordingCard` получил `h-full flex-col` на корневом div. Все карточки в одной строке выравниваются по высоте самой высокой. Анимация `panel-in` (только `opacity`/`transform`) не затронута.
+- **Страница записи — панель «Control panel»** — переименована из «Controls». Pause теперь рендерится только при `recording.can_pause` (не просто `disabled`). Вторичные действия (New template, Link/Unlink template, Reset, Delete) переработаны в компактную сетку 2×2 из labeled-кнопок с иконками. Share вынесен в отдельную секцию с `border-t` снизу панели, полноширинный.
+- **Страница записи — цвет timestamp в pipeline** — `text-gray-300` (hardcode, невидимый в light mode) заменён на `text-muted-foreground`.
+
+### Файлы
+
+- `frontend/src/app/share/[token]/page.tsx` — aspect-video, skeleton, error state, copy link, header adapt, defaultOpen, span logo
+- `frontend/src/app/(app)/recordings/page.tsx` — table skeleton, h-full wrapper
+- `frontend/src/components/recordings/recording-card.tsx` — h-full на корневом div
+- `frontend/src/app/(app)/recordings/[id]/page.tsx` — Control panel redesign, text-muted-foreground
+
+---
+
+## 2026-07-12: Share page, redesign страницы записи, AI-editor UX
+
+### Backend
+
+- **`GET /api/v1/share/{token}`** — description теперь рендерится через `ConfigResolver.resolve_metadata_config`, что применяет полную иерархию (user defaults → template → processing_preferences). Ранее использовался прямой доступ к `recording.template.metadata_config`, который не учитывал user-level дефолты.
+- **`_get_recording_by_share_token`** — убрана ненужная eager загрузка `selectinload(RecordingModel.template)`; `ConfigResolver` внутри сам загружает шаблон.
+
+### Frontend
+
+- **Share page (`/share/[token]`)** — отображает сгенерированный `description` (Jinja-шаблон, рендеренный на бэке). Секция Description скрыта, если поле пустое (нет fallback-заглушки). Поле Description в `PublicRecordingResponse` уже существовало, но не заполнялось из-за неполной резолюции конфига на бэке.
+- **Страница записи (`/recordings/[id]`) — Info → Configuration** — поля ID, Source, Date, Duration, File size перенесены из отдельной карточки «Info» в нижнюю часть `CollapsibleCard` конфигурации (отделены `border-t`). Info-карточка удалена. Поля всегда видны даже если конфиг ещё не загружен.
+- **Страница записи — Downloads в сайдбаре** — раздел «Files & artifacts» перемещён из основной колонки в сайдбар. Стиль соответствует share-странице: вертикальный список кнопок с иконкой + label + стрелка загрузки. Существующие `downloadArtifact`, `dlStem`, `showMediaSection` переиспользованы без изменений.
+- **Страница записи — компактные Controls** — Reset, Create template, Link/Unlink стали маленькими круглыми кнопками `h-8 w-8 rounded-full` в одном ряду (с `title`-тултипами). Share остался labelled (несёт состояние shared/not shared). Delete стал маленькой красной круглой кнопкой рядом с Share. Pause остался полноширинным — первичное действие во время обработки.
+- **AI-editor (`ai-content-editor.tsx`) — порядок секций** — Summary выведен первым, затем Chapters, затем Questions (ранее порядок был непоследовательным).
+- **AI-editor — seek по клику на строку главы** — весь ряд главы (не только кнопка таймкода) кликабелен для перемотки видео. Таймкод и редактирование имени главы в режиме Manage останавливают всплытие события (`stopPropagation`), чтобы не вызывать двойной seek.
+- **AI-editor — выравнивание нумерации вопросов** — номер вопроса и текст теперь оба `text-sm` с одинаковым `py-0.5`, что устраняет вертикальное рассогласование из-за разных размеров шрифта и line-height.
+
+### Файлы
+
+- `backend/api/routers/share.py` — `_get_recording_by_share_token`, `get_public_recording` (ConfigResolver, убран лишний selectinload)
+- `frontend/src/app/share/[token]/page.tsx` — условный рендер description
+- `frontend/src/app/(app)/recordings/[id]/page.tsx` — Info→Configuration, Downloads в сайдбар, компактные Controls
+- `frontend/src/components/recordings/ai-content-editor.tsx` — порядок секций, chapter row seek, выравнивание вопросов
+
+---
+
+## 2026-07-12: Config аудит — TopicExtractionSettings, display-config форматы, консистентность UI-дефолтов
+
+### Backend
+
+- **`TopicExtractionSettings`** — новый Pydantic-класс в `config/settings.py` (env_prefix `TOPIC_`). Выносит 10 ранее захардкоженных констант в `topic_extractor.py` в конфиг: `min_pause_minutes`, `min_topic_duration_seconds`, `noise_window_minutes`, `main_topic_min/max_words`, `main_topic_min_length`, `main_topic_max_chars`, `topic_count_floor`, `topic_count_min/max_cap`. Все константы удалены из модуля; вместо них `_te = settings.topic_extraction`.
+- **Celery retry countdown** — исправлены 5 хардкодов в `processing.py` и `upload.py`: `countdown=900/600` заменены на `settings.celery.download_retry_delay` / `processing_retry_delay` / `upload_retry_delay`.
+- **`DEFAULT_USER_CONFIG`** — удалено мёртвое поле `topic_mode` (не существовало ни в одной Pydantic-схеме, нигде не читалось); исправлено `include_timestamps` → `show_timestamps` в `topics_display`; добавлены `min_length`/`max_length` в `questions_display`.
+- **`user_config.py` `TopicsDisplayConfig`** — поле `format`: расширено с `Literal["numbered_list", "bullet_list", "plain"]` до всех 6 форматов (`dash_list`, `comma_separated`, `inline`); `prefix` исправлен с `"Topics:"` на `"Темы:"` (соответствие `DEFAULT_USER_CONFIG`).
+- **`user_config.py` `QuestionsDisplayConfig`** — `format`: расширен аналогично; добавлены поля `min_length`, `max_length` (соответствие `preset_metadata.py`); исправлено `include_timestamps` → `show_timestamps`.
+- **`.env.example`** — добавлена секция `TOPIC EXTRACTION SETTINGS` с документацией всех `TOPIC_*` переменных.
+
+### Frontend
+
+- **Settings page** — добавлены `topics_display` и `questions_display` в `MetadataConfig`; UI-компонент `DisplayConfigFields` теперь отображается в секции «Metadata defaults» (format, separator, max_count, min_length, max_length, prefix, show_timestamps); hydration через `fromDisplayPayload`; сохранение через `toDisplayPayload`; Preview-рендер включает display-config через `appendDisplayConfigPreviewBody`.
+- **Консистентность дефолтов** — выровнены значения по умолчанию и ограничения ввода на трёх поверхностях (Settings, Template editor, Run-with-config modal) с бэкенд-схемой:
+
+| Поле | Было (расхождение) | Стало |
+|---|---|---|
+| `questions_count` default | 5 в modal и template editor | **3** везде |
+| `questions_count` range | 0–20 в modal и template | **1–10** везде |
+| `granularity` default | "medium" в template editor | **"long"** везде |
+| `auto_upload` default | `true` в modal useState + reset | **false** везде |
+
+- **`run-config-modal.tsx` useEffect reset** — исправлены `setQuestionsCount(5)` → `3` и `setAutoUpload(true)` → `false` в блоке сброса при открытии модала (ранее перекрывали правильные `useState`-дефолты).
+
+### Файлы
+
+- `backend/config/settings.py` — `TopicExtractionSettings`, поле в `Settings`, `DEFAULT_USER_CONFIG` (cleanups)
+- `backend/deepseek_module/topic_extractor.py` — удалены 9 констант, добавлен `_te = settings.topic_extraction`
+- `backend/api/tasks/processing.py` — countdown → settings (download, 2× processing, topics)
+- `backend/api/tasks/upload.py` — countdown → settings (upload)
+- `backend/api/schemas/config/user_config.py` — `TopicsDisplayConfig`, `QuestionsDisplayConfig` (format, prefix, fields)
+- `backend/api/helpers/template_renderer.py` — комментарий backward-compat `include_timestamps`
+- `backend/.env.example` — `TOPIC_*` секция
+- `frontend/src/app/(app)/settings/page.tsx` — `MetadataConfig`, `DEFAULT_METADATA`, display-config UI + hydration + save + preview
+- `frontend/src/app/(app)/templates/[id]/page.tsx` — granularity, questions_count дефолты и диапазон
+- `frontend/src/components/recordings/run-config-modal.tsx` — questions_count, auto_upload дефолты и диапазон; reset useEffect
+
+---
+
+## 2026-07-12: AI-контент редактируется, Description под плеером, форматы видео при добавлении
+
+- **`PATCH /recordings/{id}/topics`** — новый эндпоинт для частичного обновления активной версии `extracted.json`: поля `summary`, `description`, `questions`, `main_topics`, `topic_timestamps`. Выставляет `manually_edited=True`; синхронизирует `recording.main_topics` в БД если изменились.
+- **`POST /recordings/{id}/topics/render`** — рендерит Jinja-шаблон в контексте записи (summary, topics, questions, даты, название). Используется фронтом для «Convert to text» и Description-карточки.
+- **`POST /recordings/formats-preview`** — возвращает список доступных видеопотоков для URL (высота, кодек, fps, размер) без создания записи. Используется в Add-video modal для выбора качества перед скачиванием.
+- **`TopicsUpdateRequest`** — новая Pydantic-схема с полями `summary`, `description`, `questions`, `main_topics`, `topic_timestamps`.
+- **`FormatsPreviewRequest / FormatsPreviewResponse / FormatInfo`** — схемы для форматов видео.
+- **AI-редактор на фронте** (`ai-content-editor.tsx`) — новый компонент: раздел «Video AI-Data» под плеером в режиме CollapsibleCard. Режим Manage открывает click-to-edit для тем (primary + subtitle), глав (timecode всегда кликабелен для seek), саммари (с поддержкой Jinja → textarea / TemplateField + «Convert to text»), вопросов (добавление/удаление/редактирование). Все мутации через `PATCH /topics`.
+- **Description-карточка** — рендер Jinja title + description_template под плеером; инлайн-редактирование (TemplateField или textarea), кнопка «Convert to text», сохранение в `version.description`. После сохранения Jinja-шаблона — автоматический перерендер через `/topics/render`.
+- **Выбор качества в Add-video modal** — кнопка «Check formats» на вкладке URL: запрос форматов, выпадающий список (Best / 1080p / 720p / …), сохранение выбора в запрос на создание записи.
+- **Admin: квота превышена** — stat-карточка «Exceeded quota» (число пользователей, превысивших месячный лимит записей); фильтр «Exceeded quota only» в списке пользователей.
+- **yt-dlp: retry + friendly errors** — повтор при `DownloadError` через 3 сек; читаемые сообщения при rate-limit и требовании авторизации YouTube; общие `get_ydl_opts()` применяются при `extract_available_formats`.
+
+### Файлы
+
+- `backend/api/routers/recordings.py` — `update_topics`, `render_topics_template`, `preview_video_formats`
+- `backend/api/schemas/recording/request.py` — `TopicsUpdateRequest`, `FormatsPreviewRequest`, `FormatsPreviewResponse`, `FormatInfo`
+- `backend/api/routers/admin.py` — `exceeding_users_count`, фильтр `exceeded_only`
+- `backend/api/schemas/admin/stats.py` — `exceeding_users_count` в stats
+- `backend/transcription_module/manager.py` — `update_active_version`, `get_active_extracted`
+- `backend/video_download_module/platforms/ytdlp/metadata.py` — `extract_available_formats`, `_parse_formats`, `_raise_friendly`
+- `backend/video_download_module/platforms/ytdlp/opts.py` — `get_ydl_opts` применяется в metadata
+- `backend/video_download_module/platforms/ytdlp/downloader.py` — retry логика
+- `frontend/src/components/recordings/ai-content-editor.tsx` — новый компонент
+- `frontend/src/app/(app)/recordings/[id]/page.tsx` — Description-карточка, Video AI-Data секция
+- `frontend/src/components/recordings/add-video-modal.tsx` — форматы, выбор качества
+- `frontend/src/app/(app)/admin/page.tsx` — exceeded quota stat + фильтр
+- `frontend/src/api/admin.ts` — типы и вызовы для форматов / квот
+
+---
+
 ## 2026-07-11: Admin UI — Plans CRUD, stat cards, is_verified
 
 - **Plans management** — новая секция «Subscription plans» на `/admin`: таблица всех планов (в т.ч. неактивных) с ключевыми квотами (recordings/month, storage, tasks, templates, credentials, число подписчиков); кнопка «New plan»; клик по строке → модалка создания/редактирования плана (все quota-поля, `is_active`, `display_name`, `description`). Пустое поле = `null` = безлимит; 0 = запрещено. Без планов невозможно назначить подписку — теперь это делается прямо из UI.

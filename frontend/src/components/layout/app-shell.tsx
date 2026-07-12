@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Footer } from "@/components/layout/footer";
@@ -14,6 +15,7 @@ import { Logo } from "@/components/layout/logo";
  */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const pathname = usePathname();
 
   return (
     <div className="flex h-full">
@@ -36,7 +38,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
         <main className="flex-1 overflow-auto bg-background">
           <div className="flex min-h-full flex-col">
-            <div className="flex-1">{children}</div>
+            <div key={pathname} className="flex-1 animate-page-in">{children}</div>
             <Footer />
           </div>
         </main>

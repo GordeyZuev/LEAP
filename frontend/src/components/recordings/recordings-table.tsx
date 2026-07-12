@@ -83,7 +83,7 @@ function RowMenu({
         <MoreHorizontal size={13} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+        <div className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-dropdown-in">
           {!isSoftDeleted && onRunWithConfig && (
             <MenuBtn icon={<Settings2 size={12} />} label="Run with config" onClick={() => { setOpen(false); onRunWithConfig(id); }} />
           )}

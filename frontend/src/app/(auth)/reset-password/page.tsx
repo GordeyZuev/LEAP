@@ -144,7 +144,7 @@ export default function ResetPasswordPage() {
           <p className="text-xs text-muted-foreground mt-1.5">Set a new password</p>
         </div>
 
-        <div className="bg-card rounded-2xl shadow-sm border border-border p-8">
+        <div className="bg-card rounded-2xl shadow-sm border border-border p-8 animate-panel-in">
           <Suspense fallback={<div className="h-40" />}>
             <ResetPasswordForm />
           </Suspense>

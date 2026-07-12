@@ -63,7 +63,11 @@ from api.schemas.recording.request import (
     BulkTrimRequest,
     BulkUploadRequest,
     ConfigOverrideRequest,
+    FormatsPreviewRequest,
+    FormatsPreviewResponse,
     RecordingUpdateRequest,
+    TopicsRenderRequest,
+    TopicsUpdateRequest,
     TrimVideoRequest,
 )
 from api.schemas.recording.response import (
@@ -616,6 +620,7 @@ async def get_recording(
         "soft_deleted_at": recording.soft_deleted_at,
         "hard_delete_at": recording.hard_delete_at,
         "expire_at": recording.expire_at,
+        "share_token": recording.share_token,
         "created_at": recording.created_at,
         "updated_at": recording.updated_at,
     }
@@ -926,6 +931,27 @@ async def add_local_recording(
 # ============================================================================
 # Add by URL Endpoints
 # ============================================================================
+
+
+@router.post("/formats-preview", response_model=FormatsPreviewResponse)
+async def preview_video_formats(
+    data: FormatsPreviewRequest,
+    _ctx: ServiceContext = Depends(get_service_context),
+) -> FormatsPreviewResponse:
+    """Return available video formats for a URL without creating a recording.
+
+    Calls yt-dlp with download=False and returns the list of video streams
+    sorted by resolution descending. Use this before /add-url to let the user
+    pick from actually available qualities.
+    """
+    from video_download_module.platforms.ytdlp.metadata import extract_available_formats
+
+    try:
+        result = await extract_available_formats(data.url)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+
+    return FormatsPreviewResponse(**result)
 
 
 @router.post("/add-url", response_model=AddVideoByUrlResponse, status_code=status.HTTP_201_CREATED)
@@ -2557,6 +2583,79 @@ async def extract_topics(
         "message": "Topic extraction task has been queued",
         "check_status_url": f"/api/v1/tasks/{task.id}",
     }
+
+
+@router.patch("/{recording_id}/topics", response_model=dict)
+async def update_topics(
+    recording_id: int,
+    data: TopicsUpdateRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> dict:
+    """Partially update AI-generated content (summary, questions, main_topics, topic_timestamps)
+    of the active extracted.json version. Sets manually_edited=True on the version."""
+    from transcription_module.manager import get_transcription_manager
+
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
+
+    transcription_manager = get_transcription_manager()
+    user_slug = recording.owner.user_slug
+
+    if not await transcription_manager.has_extracted(recording_id, user_slug):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No topics found for this recording")
+
+    payload = data.model_dump(exclude_unset=True)
+
+    # Convert topic_timestamps pydantic models to plain dicts
+    if "topic_timestamps" in payload:
+        payload["topic_timestamps"] = [t.model_dump(exclude_none=True) for t in (data.topic_timestamps or [])]
+
+    updated_version = await transcription_manager.update_active_version(recording_id, user_slug, payload)
+
+    # Keep DB cache in sync if main_topics changed
+    if data.main_topics is not None:
+        recording.main_topics = data.main_topics
+        await recording_repo.update(recording)
+        await ctx.session.commit()
+
+    logger.info(f"Topics manually updated | {format_details(rec=recording_id, fields=list(payload))}")
+    return {k: v for k, v in updated_version.items() if k != "_metadata"}
+
+
+@router.post("/{recording_id}/topics/render", response_model=dict)
+async def render_topics_template(
+    recording_id: int,
+    data: TopicsRenderRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> dict:
+    """Render a Jinja template string using the recording's context variables.
+    Used by the frontend 'Convert to text' action."""
+    from api.helpers.template_renderer import TemplateRenderer, render_jinja
+
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
+
+    from transcription_module.manager import get_transcription_manager
+
+    extracted = None
+    owner = getattr(recording, "owner", None)
+    if owner and getattr(owner, "user_slug", None):
+        try:
+            extracted = await get_transcription_manager().get_active_extracted(recording_id, owner.user_slug)
+        except Exception as exc:
+            logger.debug("Could not load extracted for topics render: %s", exc)
+
+    render_ctx = TemplateRenderer.prepare_recording_context(recording, extracted_data=extracted)
+    try:
+        rendered = render_jinja(data.template, render_ctx)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Template render error: {e}")
+
+    return {"rendered": rendered}
 
 
 @router.post("/{recording_id}/subtitles", response_model=RecordingOperationResponse)

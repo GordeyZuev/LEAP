@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -14,7 +15,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from models.recording import (
@@ -104,6 +105,9 @@ class RecordingModel(Base):
     # --- Pause state ---
     on_pause: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     pause_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # --- Share ---
+    share_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True, nullable=True, index=True)
 
     # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

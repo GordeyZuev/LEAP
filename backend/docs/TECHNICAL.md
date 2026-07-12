@@ -816,8 +816,13 @@ POST /api/v1/sources + sync            # Yandex Disk public link (InputSource)
 POST /api/v1/recordings/{id}/run
 
 # Media & artifacts (authenticated; tenant-scoped)
-GET /api/v1/recordings/{id}/media?type=processed   # or type=original — video stream (Range supported)
-GET /api/v1/recordings/{id}/files/srt               # subtitles / transcription downloads (see OpenAPI)
+GET  /api/v1/recordings/{id}/media?type=processed   # or type=original — video stream (Range supported)
+GET  /api/v1/recordings/{id}/files/srt              # subtitles / transcription downloads (see OpenAPI)
+
+# AI content — edit without re-running the pipeline
+PATCH /api/v1/recordings/{id}/topics                # partial update: summary, description, questions, main_topics, topic_timestamps
+POST  /api/v1/recordings/{id}/topics/render         # render Jinja template in recording context → { title, description }
+POST  /api/v1/recordings/formats-preview            # list available video streams for a URL (height, codec, fps, size)
 
 # Individual stages
 POST /api/v1/recordings/{id}/download
@@ -856,6 +861,31 @@ loads. Bumping the counter invalidates every live access / refresh token for
 that user. Per-device revoke does NOT bump the version — the revoked
 device's access token expires naturally on the next refresh attempt
 (`SECURITY_JWT_ACCESS_TOKEN_EXPIRE_MINUTES`, default 30 min).
+
+#### Public Share Links
+
+Share links allow unauthenticated access to a single recording's public page.
+
+```bash
+# Owner: generate / revoke
+POST   /api/v1/recordings/{id}/share          # → { share_token: UUID }
+DELETE /api/v1/recordings/{id}/share          # revoke (204)
+
+# Public: no auth required
+GET    /api/v1/share/{token}                  # recording metadata + AI data + rendered description
+GET    /api/v1/share/{token}/media?type=processed|original  # presigned video URL
+GET    /api/v1/share/{token}/media?type=processed&download=true  # download URL
+GET    /api/v1/share/{token}/files/{file_type} # artifact download (srt|vtt|transcript_json|transcript_txt|transcript_words)
+```
+
+`GET /api/v1/share/{token}` returns `PublicRecordingResponse`:
+- `id`, `display_name`, `duration`, `start_time`, `status`
+- `topic_timestamps`, `main_topics`, `summary`, `questions`
+- `description` — Jinja-шаблон рендерится через `ConfigResolver.resolve_metadata_config` (user defaults → template → processing_preferences)
+- `available_files` — список доступных артефактов в storage
+- `has_processed_video`, `has_original_video`
+
+The `description` field is populated by rendering the `description_template` from the resolved metadata config. If no template is configured, the field is `null`.
 
 #### Template Management
 
