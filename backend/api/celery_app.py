@@ -172,6 +172,7 @@ celery_app.conf.update(
 
 celery_app.conf.task_routes = {
     "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
+    "api.tasks.processing.generate_poster": {"queue": "processing_cpu"},
     "api.tasks.processing.download_recording": {"queue": "downloads"},
     "api.tasks.upload.*": {"queue": "uploads"},
     "api.tasks.processing.transcribe_recording": {"queue": "async_operations"},

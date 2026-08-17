@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -10,6 +10,8 @@ import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Modal } from "@/components/ui/modal";
+import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
@@ -193,6 +195,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [pendingHref, setPendingHref] = useState("");
+  const matchPreviewTitleId = useId();
   const [matchPreviewOpen, setMatchPreviewOpen] = useState(false);
   const [matchPreviewData, setMatchPreviewData] = useState<MatchPreviewResponse | null>(null);
   const [matchPreviewLoading, setMatchPreviewLoading] = useState(false);
@@ -873,58 +876,27 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </div>
 
             <div className="space-y-1">
-              {/* Draft toggle */}
-              <label className="flex cursor-pointer items-center justify-between rounded-xl px-2 py-2 transition-colors hover:bg-muted">
-                <span className="text-sm text-secondary-foreground">Draft</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setForm((f) => ({
-                      ...f,
-                      is_draft: !f.is_draft,
-                      // activating requires leaving draft first
-                      is_active: !f.is_draft ? false : f.is_active,
-                    }))
-                  }
-                  className={cn(
-                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                    form.is_draft ? "bg-yellow-400" : "bg-muted",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-                      form.is_draft ? "translate-x-6" : "translate-x-1",
-                    )}
-                  />
-                </button>
-              </label>
-
-              {/* Active toggle — disabled while draft */}
-              <label
-                className={cn(
-                  "flex items-center justify-between rounded-xl px-2 py-2 transition-colors",
-                  form.is_draft ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-muted",
-                )}
-              >
-                <span className="text-sm text-secondary-foreground">Active</span>
-                <button
-                  type="button"
-                  disabled={form.is_draft}
-                  onClick={() => setForm((f) => ({ ...f, is_active: !f.is_active }))}
-                  className={cn(
-                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed",
-                    form.is_active ? "bg-primary" : "bg-muted",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-                      form.is_active ? "translate-x-6" : "translate-x-1",
-                    )}
-                  />
-                </button>
-              </label>
+              <Toggle
+                label="Draft"
+                tone="warning"
+                checked={form.is_draft}
+                onChange={(next) =>
+                  setForm((f) => ({
+                    ...f,
+                    is_draft: next,
+                    // Activating requires leaving draft first.
+                    is_active: next ? false : f.is_active,
+                  }))
+                }
+                className="rounded-xl px-2 py-2 transition-colors hover:bg-muted"
+              />
+              <Toggle
+                label="Active"
+                checked={form.is_active}
+                disabled={form.is_draft}
+                onChange={(next) => setForm((f) => ({ ...f, is_active: next }))}
+                className="rounded-xl px-2 py-2 transition-colors hover:bg-muted"
+              />
             </div>
 
             {form.is_draft && (
@@ -1005,15 +977,16 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />}
 
       {/* Match preview modal */}
-      {matchPreviewOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={(e) => { if (e.currentTarget === e.target) setMatchPreviewOpen(false); }}
-        >
-          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-card shadow-xl" style={{ maxHeight: "85vh" }}>
+      <Modal
+        open={matchPreviewOpen}
+        onClose={() => setMatchPreviewOpen(false)}
+        labelledBy={matchPreviewTitleId}
+        panelClassName="max-w-lg"
+      >
+          <div className="flex max-h-[85vh] flex-col">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h2 className="text-sm font-semibold text-foreground">Preview matching recordings</h2>
-              <button type="button" onClick={() => setMatchPreviewOpen(false)} className="text-muted-foreground hover:text-secondary-foreground">
+              <h2 id={matchPreviewTitleId} className="text-sm font-semibold text-foreground">Preview matching recordings</h2>
+              <button type="button" onClick={() => setMatchPreviewOpen(false)} aria-label="Close dialog" className="text-muted-foreground hover:text-secondary-foreground">
                 <X size={16} />
               </button>
             </div>
@@ -1055,8 +1028,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               )}
             </div>
           </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }
@@ -1084,36 +1056,6 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function Toggle({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-center justify-between py-2">
-      <span className="text-sm font-medium text-secondary-foreground">{label}</span>
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        className={cn(
-          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-          checked ? "bg-primary" : "bg-muted",
-        )}
-      >
-        <span
-          className={cn(
-            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-            checked ? "translate-x-6" : "translate-x-1",
-          )}
-        />
-      </button>
-    </label>
-  );
-}
 
 function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.cookies import (
+    PERSISTENT_COOKIE_NAME,
     REFRESH_COOKIE_NAME,
     clear_auth_cookies,
     generate_csrf_token,
@@ -65,12 +66,22 @@ def _resolve_refresh_token(request: Request, body: RefreshTokenRequest) -> str:
     return token
 
 
+def _session_is_persistent(request: Request) -> bool:
+    """Re-read the "remember me" choice made at login.
+
+    Refresh and logout-others re-issue cookies; without this they would silently
+    turn a browser-session login into one that outlives the browser.
+    """
+    return request.cookies.get(PERSISTENT_COOKIE_NAME, "1") != "0"
+
+
 async def _issue_session(
     *,
     user: UserInDB,
     request: Request,
     response: Response,
     token_repo: RefreshTokenRepository,
+    persistent: bool = True,
 ) -> SessionResponse:
     """Mint a fresh token pair, persist the refresh token, and write session cookies.
 
@@ -102,6 +113,7 @@ async def _issue_session(
         access_token=access_token,
         refresh_token=refresh_token,
         csrf_token=csrf_token,
+        persistent=persistent,
     )
 
     return SessionResponse(
@@ -198,7 +210,13 @@ async def login(
 
     await user_repo.update(user.id, UserUpdate(last_login_at=datetime.now(UTC)))
 
-    session_response = await _issue_session(user=user, request=request, response=response, token_repo=token_repo)
+    session_response = await _issue_session(
+        user=user,
+        request=request,
+        response=response,
+        token_repo=token_repo,
+        persistent=body.remember_me,
+    )
     logger.info(f"User logged in: {user.email} (ID: {user.id})")
     return session_response
 
@@ -239,7 +257,13 @@ async def refresh_token(
     await token_repo.touch_last_used(raw_refresh)
     await token_repo.revoke(raw_refresh)
 
-    session_response = await _issue_session(user=user, request=request, response=response, token_repo=token_repo)
+    session_response = await _issue_session(
+        user=user,
+        request=request,
+        response=response,
+        token_repo=token_repo,
+        persistent=_session_is_persistent(request),
+    )
     logger.info(f"Token refreshed for user: {user.email} (ID: {user.id})")
     return session_response
 
@@ -319,7 +343,13 @@ async def logout_others(
         # Shouldn't happen — `get_current_user` just resolved the row.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    session_response = await _issue_session(user=fresh_user, request=request, response=response, token_repo=token_repo)
+    session_response = await _issue_session(
+        user=fresh_user,
+        request=request,
+        response=response,
+        token_repo=token_repo,
+        persistent=_session_is_persistent(request),
+    )
     logger.info(f"User {current_user.id} logged out from other devices ({max(revoked - 1, 0)} other sessions revoked)")
     return session_response
 

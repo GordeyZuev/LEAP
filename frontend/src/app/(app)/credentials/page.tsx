@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  Check,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  Loader2,
   X,
   Plus,
   RefreshCw,
@@ -21,15 +21,21 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
+import { Pagination } from "@/components/ui/pagination";
+import { ResultCount } from "@/components/ui/result-count";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useDebounce } from "@/hooks/use-debounce";
+import { useUrlListState } from "@/hooks/use-url-list-state";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
 import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
 import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
 import { usePlatforms } from "@/hooks/use-references";
-import { DEBOUNCE_SEARCH, PER_PAGE_LARGE } from "@/lib/constants";
+import { PER_PAGE_CREDENTIALS } from "@/lib/constants";
 import { isAllowedOAuthUrl } from "@/lib/auth";
 
 interface CredentialItem {
@@ -46,6 +52,9 @@ interface CredentialItem {
 interface CredentialListResponse {
   items: CredentialItem[];
   total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
 }
 
 const PLATFORMS = [
@@ -69,8 +78,7 @@ const SORT_OPTIONS = [
   { value: "created_at",   label: "Created" },
 ];
 
-type StatusFilter = "all" | "active" | "inactive";
-type SortField = "account_name" | "platform" | "last_used_at" | "created_at";
+const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 
 interface ManualFieldDef {
   name: string;
@@ -93,38 +101,29 @@ const MANUAL_FIELDS: Partial<Record<PlatformKey, ManualFieldDef[]>> = {
   ],
 };
 
-function sortCredentials(items: CredentialItem[], sortBy: SortField, sortOrder: "asc" | "desc"): CredentialItem[] {
-  const sorted = [...items].sort((a, b) => {
-    let cmp = 0;
-    if (sortBy === "account_name") {
-      cmp = (a.account_name ?? "").localeCompare(b.account_name ?? "");
-    } else if (sortBy === "platform") {
-      cmp = a.platform.localeCompare(b.platform);
-    } else if (sortBy === "last_used_at") {
-      cmp = (a.last_used_at ?? "").localeCompare(b.last_used_at ?? "");
-    } else {
-      cmp = a.created_at.localeCompare(b.created_at);
-    }
-    return sortOrder === "asc" ? cmp : -cmp;
-  });
-  return sorted;
-}
-
 type AddStep = null | "platform" | "connect";
 
 export default function CredentialsPage() {
   const qc = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // The page list and the unfiltered lookup other pages use are separate cache
+  // entries; both have to be refreshed after any credential mutation.
+  const invalidateCredentials = useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ["credentials-page"] });
+    void qc.invalidateQueries({ queryKey: ["credentials-list"] });
+  }, [qc]);
   const { data: platformFilterOptions = [] } = usePlatforms();
 
-  // Filter state
-  const [searchInput, setSearchInput] = useState("");
-  const [platformFilter, setPlatformFilter] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortBy, setSortBy] = useState<SortField>("created_at");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
+  // Filters live in the URL so a filtered view is shareable and survives reload.
+  const list = useUrlListState({
+    defaultSortBy: "created_at",
+    defaultSortOrder: "desc",
+    allowedSortFields: SORT_ALLOWED,
+  });
+  const platformFilter = list.getAllParams("platform");
+  const statusFilter = list.getParam("status") ?? "all";
 
   // Add modal state
   const [addStep, setAddStep] = useState<AddStep>(null);
@@ -148,34 +147,43 @@ export default function CredentialsPage() {
     const platformLabel = platform ? PLATFORM_MAP[platform as PlatformKey]?.label ?? platform : "platform";
     if (success === "true") {
       showToast("success", `${platformLabel} connected`);
-      qc.invalidateQueries({ queryKey: ["credentials-list"] });
+      invalidateCredentials();
     } else if (error) {
       showToast("error", `${platformLabel} connection failed: ${error.replace(/_/g, " ")}`);
     }
     router.replace("/credentials");
-  }, [searchParams, router, showToast, qc]);
+  }, [searchParams, router, showToast, invalidateCredentials]);
 
   // Disconnect state
   const [disconnectId, setDisconnectId] = useState<number | null>(null);
 
   const { data: listData, isLoading } = useQuery<CredentialListResponse>({
-    queryKey: ["credentials-list"],
+    // Distinct from the unfiltered ["credentials-list"] lookup other pages use.
+    queryKey: ["credentials-page", list.urlKey],
     queryFn: async () => {
-      const res = await apiClient.get<CredentialListResponse>(`/credentials?per_page=${PER_PAGE_LARGE}`);
+      const p = new URLSearchParams();
+      if (list.search) p.set("search", list.search);
+      platformFilter.forEach((pl) => p.append("platform", pl));
+      if (statusFilter !== "all") p.set("is_active", statusFilter === "active" ? "true" : "false");
+      p.set("sort_by", list.sortBy);
+      p.set("sort_order", list.sortOrder);
+      p.set("page", String(list.page));
+      p.set("per_page", String(PER_PAGE_CREDENTIALS));
+      const res = await apiClient.get<CredentialListResponse>(`/credentials?${p.toString()}`);
       return res.data;
     },
   });
 
   const disconnect = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/credentials/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["credentials-list"] }),
+    onSuccess: () => invalidateCredentials(),
   });
 
   const connectManual = useMutation({
     mutationFn: (payload: { platform: string; account_name?: string; credentials: Record<string, string> }) =>
       apiClient.post("/credentials", payload),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["credentials-list"] });
+      invalidateCredentials();
       closeAddModal();
       showToast("success", "Credential connected");
     },
@@ -189,7 +197,7 @@ export default function CredentialsPage() {
     mutationFn: ({ id, account_name }: { id: number; account_name: string | null }) =>
       apiClient.patch(`/credentials/${id}`, { account_name }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["credentials-list"] });
+      invalidateCredentials();
       setRenameModal(null);
       setRenameError("");
       showToast("success", "Credential renamed");
@@ -270,39 +278,31 @@ export default function CredentialsPage() {
     setRenameError("");
   }
 
-  function resetFilters() {
-    setSearchInput("");
-    setPlatformFilter([]);
-    setStatusFilter("all");
-    setSortBy("created_at");
-    setSortOrder("desc");
-  }
+  // Filtering, sorting and paging are done by the API — the page just renders.
+  const credentials = listData?.items ?? [];
+  const sortProps = { sortBy: list.sortBy, sortOrder: list.sortOrder, onSort: list.setSort };
 
-  const hasActiveFilters =
-    !!debouncedSearch ||
-    platformFilter.length > 0 ||
-    statusFilter !== "all" ||
-    sortBy !== "created_at" ||
-    sortOrder !== "desc";
-
-  const allCredentials = listData?.items ?? [];
-
-  const visibleCredentials = sortCredentials(
-    allCredentials.filter((c) => {
-      if (debouncedSearch) {
-        const q = debouncedSearch.toLowerCase();
-        const name = (c.account_name ?? "").toLowerCase();
-        const plat = c.platform.toLowerCase();
-        if (!name.includes(q) && !plat.includes(q)) return false;
-      }
-      if (platformFilter.length > 0 && !platformFilter.includes(c.platform)) return false;
-      if (statusFilter === "active" && !c.is_active) return false;
-      if (statusFilter === "inactive" && c.is_active) return false;
-      return true;
-    }),
-    sortBy,
-    sortOrder
-  );
+  const chips: FilterChipItem[] = [
+    ...(list.search
+      ? [{
+          key: "search",
+          label: `Search: "${list.search}"`,
+          onRemove: () => { list.setSearchInput(""); list.setParam("search", null); },
+        }]
+      : []),
+    ...platformFilter.map((pl) => ({
+      key: `platform:${pl}`,
+      label: PLATFORM_MAP[pl as PlatformKey]?.label ?? pl,
+      onRemove: () => list.setMultiParam("platform", platformFilter.filter((x) => x !== pl)),
+    })),
+    ...(statusFilter !== "all"
+      ? [{
+          key: "status",
+          label: statusFilter === "active" ? "Active" : "Inactive",
+          onRemove: () => list.setParam("status", null),
+        }]
+      : []),
+  ];
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -320,8 +320,8 @@ export default function CredentialsPage() {
         search={
           <SearchInput
             id="creds-search"
-            value={searchInput}
-            onChange={setSearchInput}
+            value={list.searchInput}
+            onChange={list.setSearchInput}
             placeholder="By name or platform…"
           />
         }
@@ -332,35 +332,51 @@ export default function CredentialsPage() {
             emptySummary="All platforms"
             value={platformFilter}
             options={platformFilterOptions}
-            onChange={setPlatformFilter}
+            onChange={(next) => list.setMultiParam("platform", next)}
           />,
           <SegmentedFilter
             key="status"
             label="Status"
             value={statusFilter}
             options={ACTIVE_STATUS_OPTIONS}
-            onChange={(v) => setStatusFilter(v)}
+            onChange={(v) => list.setParam("status", v === "all" ? null : v)}
           />,
         ]}
         sort={
           <SortControl
-            value={sortBy}
-            order={sortOrder}
+            value={list.sortBy}
+            order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={(f) => setSortBy(f as SortField)}
-            onToggleOrder={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+            onChange={list.setSort}
+            onToggleOrder={list.toggleSortOrder}
           />
         }
-        onClearAll={hasActiveFilters ? resetFilters : undefined}
+        onClearAll={list.hasActiveFilters || list.hasNonDefaultSort ? list.resetAll : undefined}
+        chips={<FilterChips chips={chips} />}
       />
 
+      <ResultCount total={listData?.total} itemLabel="credential" filtered={list.hasActiveFilters} />
+
       {/* Table */}
-      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+      <div className={TABLE_CARD}>
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 size={20} className="animate-spin text-muted-foreground" />
-          </div>
-        ) : allCredentials.length === 0 ? (
+          <table className="w-full min-w-[680px]">
+            <tbody className={TABLE_BODY}>
+              <TableRowsSkeleton rows={5} cols={5} />
+            </tbody>
+          </table>
+        ) : credentials.length === 0 && list.hasActiveFilters ? (
+          <EmptyState
+            icon={AlertCircle}
+            title="No credentials match your filters"
+            description="Try adjusting or clearing the filters above."
+            action={
+              <ActionButton variant="secondary" onClick={list.resetAll}>
+                Reset filters
+              </ActionButton>
+            }
+          />
+        ) : credentials.length === 0 ? (
           <EmptyState
             icon={AlertCircle}
             title="No connections yet"
@@ -371,25 +387,23 @@ export default function CredentialsPage() {
               </ActionButton>
             }
           />
-        ) : visibleCredentials.length === 0 ? (
-          <EmptyState icon={AlertCircle} title="No credentials match your filters" description="Try adjusting or clearing the filters above." />
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[680px]">
             <thead>
               <tr className="border-b border-border">
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Platform</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Last used</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wide">Actions</th>
+                <SortableTh className="px-6 py-3" label="Name" field="account_name" {...sortProps} />
+                <SortableTh className="px-6 py-3" label="Platform" field="platform" {...sortProps} />
+                <SortableTh className="px-6 py-3" label="Status" />
+                <SortableTh className="px-6 py-3" label="Last used" field="last_used_at" {...sortProps} />
+                <SortableTh className="px-6 py-3 text-right" label="Actions" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
-              {visibleCredentials.map((cred) => {
+            <tbody className={TABLE_BODY}>
+              {credentials.map((cred) => {
                 const platform = PLATFORM_MAP[cred.platform as PlatformKey];
                 return (
-                  <tr key={cred.id} className="hover:bg-muted transition-colors">
+                  <tr key={cred.id} className={TABLE_ROW}>
                     <td className="px-6 py-4">
                       <button
                         onClick={() => openRenameModal(cred)}
@@ -453,6 +467,17 @@ export default function CredentialsPage() {
           </div>
         )}
       </div>
+
+      {listData && (
+        <Pagination
+          page={list.page}
+          totalPages={listData.total_pages}
+          total={listData.total}
+          perPage={PER_PAGE_CREDENTIALS}
+          onPageChange={list.setPage}
+          itemLabel="credential"
+        />
+      )}
 
       {/* Add modal — Step 1: choose platform */}
       <Modal
@@ -620,6 +645,8 @@ export default function CredentialsPage() {
       {renameModal && (() => {
         const { cred, value } = renameModal;
         const platform = PLATFORM_MAP[cred.platform as PlatformKey];
+        const platformScopes =
+          platformFilterOptions.find((o) => o.value === cred.platform)?.scopes ?? [];
         return (
           <Modal
             open
@@ -668,6 +695,25 @@ export default function CredentialsPage() {
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Last used</span>
                   <span className="text-sm text-secondary-foreground">{cred.last_used_at ? formatDateTime(cred.last_used_at) : "Never"}</span>
                 </div>
+
+                {/* What the connection is actually permitted to do. LEAP
+                    publishes on the user's behalf, so this should not be a
+                    mystery. Scopes come from the live provider config. */}
+                {platformScopes.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Access granted
+                    </span>
+                    <ul className="space-y-1">
+                      {platformScopes.map((scope) => (
+                        <li key={scope} className="flex items-start gap-1.5 text-xs text-secondary-foreground">
+                          <Check size={11} className="mt-0.5 shrink-0 text-green-600" />
+                          <span className="break-all font-mono">{scope}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
 
               <div className="mx-6 border-t border-border" />

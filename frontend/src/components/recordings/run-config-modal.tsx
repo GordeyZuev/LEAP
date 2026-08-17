@@ -7,15 +7,12 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
-import {
-  FILTER_CONTROL,
-  FILTER_LABEL,
-  FILTER_SEGMENT_ACTIVE,
-  FILTER_SEGMENT_BTN,
-  FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
-} from "@/lib/filter-field-classes";
+import { FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Field } from "@/components/ui/field";
+import { NumberInput } from "@/components/ui/number-input";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { Toggle } from "@/components/ui/toggle";
 import {
   TemplateField,
   YouTubeFields,
@@ -122,6 +119,8 @@ export interface RunConfigModalProps {
   recordingId?: number;
   recordingName?: string;
   recordingIds?: number[];
+  /** Bulk mode only — shown so the user can see what they are about to run. */
+  recordingNames?: string[];
   onSuccess?: () => void;
   /** "run" launches the pipeline; "save" persists per-recording config via
    *  PUT /config without running (single mode only). */
@@ -136,25 +135,78 @@ export interface RunConfigModalProps {
 // SectionToggle
 // ---------------------------------------------------------------------------
 
-function SectionToggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
+/**
+ * One override section: a switch that decides whether this run overrides the
+ * template at all, plus a disclosure for the fields themselves.
+ *
+ * The switch is the primary control and drives the whole section — turning it on
+ * expands the body, and turning it off collapses the fields back out of the way,
+ * so "inherit from template" is the visible resting state.
+ *
+ * The body is a real `<fieldset disabled>`. It used to be styled with
+ * `pointer-events-none opacity-50`, which blocks the mouse but not the keyboard:
+ * Tab still reached every control in a section the user had switched off, they
+ * still operated, and screen readers still announced them as enabled.
+ */
+function OverrideSection({
+  title,
+  switchLabel,
+  enabled,
+  onEnabledChange,
+  open,
+  onOpenChange,
+  children,
+}: {
+  title: string;
+  /** Accessible name for the switch — the title reads badly with "Override" glued on. */
+  switchLabel: string;
+  enabled: boolean;
+  onEnabledChange: (v: boolean) => void;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  children: React.ReactNode;
+}) {
+  const titleId = useId();
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      onClick={(e) => { e.stopPropagation(); onToggle(); }}
-      className={cn(
-        "relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-        enabled ? "bg-primary" : "bg-muted"
+    <div className="rounded-xl border border-border bg-background">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <Toggle
+          label={switchLabel}
+          labelHidden
+          checked={enabled}
+          onChange={(v) => {
+            onEnabledChange(v);
+            if (v) onOpenChange(true);
+            else onOpenChange(false);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => onOpenChange(!open)}
+          aria-expanded={open}
+          className="flex flex-1 items-center gap-2 text-left"
+        >
+          <span id={titleId} className="text-sm font-semibold text-foreground">{title}</span>
+          <span className="text-xs text-muted-foreground">
+            {enabled ? "overridden for this run" : "using template defaults"}
+          </span>
+          <ChevronDown
+            size={16}
+            className={cn("ms-auto shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+          />
+        </button>
+      </div>
+
+      {open && (
+        <fieldset
+          disabled={!enabled}
+          className="space-y-4 border-t border-border px-4 pb-4 pt-4 disabled:opacity-50"
+        >
+          <legend className="sr-only">{title}</legend>
+          {children}
+        </fieldset>
       )}
-    >
-      <span
-        className={cn(
-          "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all duration-150",
-          enabled ? "left-[1.125rem]" : "left-0.5"
-        )}
-      />
-    </button>
+    </div>
   );
 }
 
@@ -165,15 +217,16 @@ function SectionToggle({ enabled, onToggle }: { enabled: boolean; onToggle: () =
 function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-border bg-background">
+    <div className="rounded-xl border border-border bg-card">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
       >
         {label}
         <ChevronDown
-          size={15}
+          size={16}
           className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
         />
       </button>
@@ -197,6 +250,7 @@ export function RunConfigModal({
   recordingId,
   recordingName,
   recordingIds,
+  recordingNames,
   onSuccess,
   submitMode = "run",
 }: RunConfigModalProps) {
@@ -469,24 +523,6 @@ export function RunConfigModal({
     {}
   );
 
-  function handleProcessingToggle() {
-    const next = !processingEnabled;
-    setProcessingEnabled(next);
-    if (next && !processingOpen) setProcessingOpen(true);
-  }
-
-  function handleOutputToggle() {
-    const next = !outputEnabled;
-    setOutputEnabled(next);
-    if (next && !outputOpen) setOutputOpen(true);
-  }
-
-  function handleMetadataToggle() {
-    const next = !metadataEnabled;
-    setMetadataEnabled(next);
-    if (next && !metadataOpen) setMetadataOpen(true);
-  }
-
   async function handleMetadataPreview() {
     setMetadataPreviewLoading(true);
     setMetadataPreview(null);
@@ -542,35 +578,62 @@ export function RunConfigModal({
           </button>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto divide-y divide-border">
+        {/* Body. Sections are already background-separated cards, so spacing
+            carries the grouping and the divider lines are just noise. */}
+        <div className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
           {configLoading ? (
             <div className="flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground">
               <Loader2 size={16} className="animate-spin text-primary" />
-              Загрузка конфига…
+              Loading configuration…
             </div>
           ) : <>
 
+          {/* Bulk runs used to say only "12 recordings" — name them, so the
+              user can see what they are about to launch. */}
+          {mode === "bulk" && !!recordingNames?.length && (
+            <details className="rounded-xl border border-border bg-background px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium text-secondary-foreground marker:text-muted-foreground">
+                {count} recording{count !== 1 ? "s" : ""} selected
+              </summary>
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {recordingNames.map((name, i) => (
+                  <li key={`${name}-${i}`} className="truncate" title={name}>{name}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+
           {/* ── Template ────────────────────────────────────────────────── */}
           {!isSave && (
-          <div className="px-6 py-4">
+          <div className="rounded-xl border border-border bg-background">
             <button
               type="button"
               onClick={() => setTemplateOpen((v) => !v)}
-              className="flex w-full items-center gap-2 text-left"
+              aria-expanded={templateOpen}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left"
             >
-              <span className="flex-1 text-sm font-semibold text-foreground">Template</span>
-              {templateId && <span className="text-xs font-medium text-primary">selected</span>}
+              <span className="text-sm font-semibold text-foreground">Template</span>
+              <span className="text-xs text-muted-foreground">
+                {templateId
+                  ? templatesData?.items.find((t) => t.id === templateId)?.name ?? "selected"
+                  : "using the recording's own template"}
+              </span>
               <ChevronDown
                 size={16}
-                className={cn("shrink-0 text-muted-foreground transition-transform", templateOpen && "rotate-180")}
+                className={cn("ms-auto shrink-0 text-muted-foreground transition-transform", templateOpen && "rotate-180")}
               />
             </button>
 
             {templateOpen && (
-              <div className="mt-4 space-y-4">
-                <div className="space-y-1.5">
-                  <span className={FILTER_LABEL}>Template to use for this run</span>
+              <div className="space-y-4 border-t border-border px-4 pb-4 pt-4">
+                <Field
+                  label="Template to use for this run"
+                  hint={
+                    templateId
+                      ? undefined
+                      : "Leave empty to use the recording's current template (or system defaults)."
+                  }
+                >
                   <NativeSelect
                     value={templateId ?? ""}
                     onChange={(e) => setTemplateId(e.target.value ? Number(e.target.value) : null)}
@@ -580,26 +643,15 @@ export function RunConfigModal({
                       <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
                   </NativeSelect>
-                </div>
+                </Field>
 
                 {templateId && (
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={bindTemplate}
-                      onChange={(e) => setBindTemplate(e.target.checked)}
-                      className="accent-primary"
-                    />
-                    <span className="text-sm text-secondary-foreground">
-                      Permanently bind to recording{mode === "bulk" ? "s" : ""}
-                    </span>
-                  </label>
-                )}
-
-                {!templateId && (
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to use the recording&apos;s current template (or system defaults).
-                  </p>
+                  <Toggle
+                    label={`Permanently bind to recording${mode === "bulk" ? "s" : ""}`}
+                    hint="Otherwise the template applies to this run only."
+                    checked={bindTemplate}
+                    onChange={setBindTemplate}
+                  />
                 )}
               </div>
             )}
@@ -607,311 +659,238 @@ export function RunConfigModal({
           )}
 
           {/* ── Processing ──────────────────────────────────────────────── */}
-          <div className="px-6 py-4">
-            <div className="flex items-center gap-3">
-              <SectionToggle enabled={processingEnabled} onToggle={handleProcessingToggle} />
-              <button
-                type="button"
-                onClick={() => setProcessingOpen((v) => !v)}
-                className="flex flex-1 items-center gap-2 text-left"
-              >
-                <span className="text-sm font-semibold text-foreground">Processing</span>
-                {!processingEnabled && (
-                  <span className="text-xs text-muted-foreground">using template defaults</span>
-                )}
-                <ChevronDown
-                  size={16}
-                  className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", processingOpen && "rotate-180")}
-                />
-              </button>
+          <OverrideSection
+            title="Processing"
+            switchLabel="Override processing settings"
+            enabled={processingEnabled}
+            onEnabledChange={setProcessingEnabled}
+            open={processingOpen}
+            onOpenChange={setProcessingOpen}
+          >
+            <SegmentedField
+              label="Transcription language"
+              options={languages}
+              value={language}
+              onChange={setLanguage}
+            />
+            <SegmentedField
+              label="Topic granularity"
+              options={granularities}
+              value={granularity}
+              onChange={setGranularity}
+            />
+
+            <div className="space-y-0.5">
+              <Toggle
+                label="Transcription (ASR)"
+                checked={enableTranscription}
+                onChange={setEnableTranscription}
+              />
+              <Toggle
+                label="Topic extraction (DeepSeek)"
+                checked={enableTopics}
+                onChange={setEnableTopics}
+              />
+              <Toggle
+                label="Generate subtitles (SRT/VTT)"
+                checked={enableSubtitles}
+                onChange={setEnableSubtitles}
+              />
+              <Toggle
+                label="Allow transcription errors"
+                hint="Continue if ASR returns partial errors"
+                checked={allowErrors}
+                onChange={setAllowErrors}
+              />
             </div>
 
-            {processingOpen && (
-              <div className={cn("mt-4 space-y-4", !processingEnabled && "pointer-events-none opacity-50")}>
-                <div className="space-y-1.5">
-                  <span className={FILTER_LABEL}>Transcription language</span>
-                  <div className={FILTER_SEGMENT_WRAP}>
-                    {languages.map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={cn(FILTER_SEGMENT_BTN, language === value ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                        onClick={() => setLanguage(value)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+            <Field label="Questions count" hint="Self-check questions (1–10)">
+              <NumberInput
+                integer
+                min={1}
+                max={10}
+                value={questionsCount}
+                onCommit={setQuestionsCount}
+                className="w-32"
+              />
+            </Field>
 
-                <div className="space-y-1.5">
-                  <span className={FILTER_LABEL}>Topic granularity</span>
-                  <div className={FILTER_SEGMENT_WRAP}>
-                    {granularities.map(({ value, label }) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={cn(FILTER_SEGMENT_BTN, granularity === value ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                        onClick={() => setGranularity(value)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2.5">
-                  {[
-                    { key: "transcription", label: "Transcription (ASR)",            val: enableTranscription, set: setEnableTranscription },
-                    { key: "topics",        label: "Topic extraction (DeepSeek)",     val: enableTopics,        set: setEnableTopics },
-                    { key: "subtitles",     label: "Generate subtitles (SRT/VTT)",    val: enableSubtitles,     set: setEnableSubtitles },
-                  ].map(({ key, label, val, set }) => (
-                    <label key={key} className="flex cursor-pointer items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={val}
-                        onChange={(e) => set(e.target.checked)}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm text-secondary-foreground">{label}</span>
-                    </label>
-                  ))}
-                </div>
-
-                <label className="flex cursor-pointer items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={allowErrors}
-                    onChange={(e) => setAllowErrors(e.target.checked)}
-                    className="accent-primary"
-                  />
-                  <span className="text-sm text-secondary-foreground">Allow transcription errors</span>
-                </label>
-
-                <div className="space-y-1.5">
-                  <span className={FILTER_LABEL}>Questions count</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={questionsCount}
-                    onChange={(e) => setQuestionsCount(parseInt(e.target.value, 10) || 1)}
-                    className={cn(FILTER_CONTROL, "w-32")}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className={FILTER_LABEL}>Vocabulary</span>
-                  <TagInput
-                    tags={vocabulary}
-                    onChange={setVocabulary}
-                    placeholder="Add term…"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+            <Field label="Vocabulary" hint="Key terms that improve recognition accuracy">
+              <TagInput tags={vocabulary} onChange={setVocabulary} placeholder="Add term…" />
+            </Field>
+          </OverrideSection>
 
           {/* ── Output ──────────────────────────────────────────────────── */}
-          <div className="px-6 py-4">
-            <div className="flex items-center gap-3">
-              <SectionToggle enabled={outputEnabled} onToggle={handleOutputToggle} />
-              <button
-                type="button"
-                onClick={() => setOutputOpen((v) => !v)}
-                className="flex flex-1 items-center gap-2 text-left"
-              >
-                <span className="text-sm font-semibold text-foreground">Output &amp; Upload</span>
-                {!outputEnabled && (
-                  <span className="text-xs text-muted-foreground">using template defaults</span>
-                )}
-                <ChevronDown
-                  size={16}
-                  className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", outputOpen && "rotate-180")}
-                />
-              </button>
+          <OverrideSection
+            title="Output & upload"
+            switchLabel="Override output and upload settings"
+            enabled={outputEnabled}
+            onEnabledChange={setOutputEnabled}
+            open={outputOpen}
+            onOpenChange={setOutputOpen}
+          >
+            <div className="space-y-0.5">
+              <Toggle
+                label="Auto-upload after processing"
+                checked={autoUpload}
+                onChange={setAutoUpload}
+              />
+              <Toggle
+                label="Upload captions / subtitles"
+                checked={uploadCaptions}
+                onChange={setUploadCaptions}
+              />
             </div>
 
-            {outputOpen && (
-              <div className={cn("mt-4 space-y-4", !outputEnabled && "pointer-events-none opacity-50")}>
-                <label className="flex cursor-pointer items-center gap-2.5">
-                  <input type="checkbox" checked={autoUpload} onChange={(e) => setAutoUpload(e.target.checked)} className="accent-primary" />
-                  <span className="text-sm text-secondary-foreground">Auto-upload after processing</span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-2.5">
-                  <input type="checkbox" checked={uploadCaptions} onChange={(e) => setUploadCaptions(e.target.checked)} className="accent-primary" />
-                  <span className="text-sm text-secondary-foreground">Upload captions / subtitles</span>
-                </label>
-
-                {Object.keys(presetsByPlatform).length > 0 && (
-                  <div className="space-y-3">
-                    <span className={FILTER_LABEL}>
-                      Presets (platforms to publish to)
-                      {selectedPresetIds.length > 0 && (
-                        <span className="ml-1 text-primary">· {selectedPresetIds.length} selected</span>
-                      )}
-                    </span>
-                    {Object.entries(presetsByPlatform).map(([platform, presets]) => (
-                      <div key={platform}>
-                        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{platform}</p>
-                        <div className="space-y-1.5">
-                          {presets.map((p) => (
-                            <label key={p.id} className="flex cursor-pointer items-center gap-2.5">
-                              <input
-                                type="checkbox"
-                                checked={selectedPresetIds.includes(p.id)}
-                                onChange={() => togglePreset(p.id)}
-                                className="accent-primary"
-                              />
-                              <span className="text-sm text-secondary-foreground">{p.name}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+            {Object.keys(presetsByPlatform).length > 0 ? (
+              <fieldset className="space-y-3">
+                <legend className={cn(FILTER_LABEL, "mb-1.5")}>
+                  Presets (platforms to publish to)
+                  {selectedPresetIds.length > 0 && (
+                    <span className="ms-1 text-primary">· {selectedPresetIds.length} selected</span>
+                  )}
+                </legend>
+                {Object.entries(presetsByPlatform).map(([platform, presets]) => (
+                  <div key={platform}>
+                    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {platform}
+                    </p>
+                    <div className="space-y-0.5">
+                      {presets.map((p) => (
+                        <Toggle
+                          key={p.id}
+                          label={p.name}
+                          checked={selectedPresetIds.includes(p.id)}
+                          onChange={() => togglePreset(p.id)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                )}
-
-                {Object.keys(presetsByPlatform).length === 0 && (
-                  <p className="text-xs text-muted-foreground">No presets configured. Add presets to enable platform selection.</p>
-                )}
-              </div>
+                ))}
+              </fieldset>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No presets configured. Add presets to enable platform selection.
+              </p>
             )}
-          </div>
+          </OverrideSection>
 
           {/* ── Metadata & Platform overrides ───────────────────────────── */}
           {!isSave && (
-          <div className="px-6 py-4">
-            <div className="flex items-center gap-3">
-              <SectionToggle enabled={metadataEnabled} onToggle={handleMetadataToggle} />
-              <button
-                type="button"
-                onClick={() => setMetadataOpen((v) => !v)}
-                className="flex flex-1 items-center gap-2 text-left"
+          <OverrideSection
+            title="Metadata & platform overrides"
+            switchLabel="Override metadata and platform settings"
+            enabled={metadataEnabled}
+            onEnabledChange={setMetadataEnabled}
+            open={metadataOpen}
+            onOpenChange={setMetadataOpen}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
+            <TemplateField
+              label="Title template"
+              value={titleTemplate}
+              onChange={setTitleTemplate}
+              placeholder="{{ display_name }}"
+            />
+            <TemplateField
+              label="Description template"
+              value={descriptionTemplate}
+              onChange={setDescriptionTemplate}
+              multiline
+              placeholder={"{{ summary }}\n\n{{ topics }}"}
+            />
+            <ThumbnailPicker
+              label="Thumbnail (all platforms)"
+              value={globalThumbnail}
+              onChange={setGlobalThumbnail}
+              placeholder="Platform-specific thumbnails override this"
+            />
+            <DisplayConfigFields
+              label="Topics in description"
+              hint="How {{ topics }} renders in title/description templates"
+              kind="topics"
+              value={topicsDisplay}
+              onChange={(patch) => setTopicsDisplay((f) => ({ ...f, ...patch }))}
+            />
+            <DisplayConfigFields
+              label="Questions in description"
+              hint="How {{ questions }} renders in title/description templates"
+              kind="questions"
+              value={questionsDisplay}
+              onChange={(patch) => setQuestionsDisplay((f) => ({ ...f, ...patch }))}
+            />
+
+            <div className="space-y-2">
+              <ActionButton
+                variant="secondary"
+                onClick={handleMetadataPreview}
+                isPending={metadataPreviewLoading}
+                icon={<Eye />}
+                pendingLabel="Rendering…"
               >
-                <span className="text-sm font-semibold text-foreground">Metadata &amp; Platform overrides</span>
-                {!metadataEnabled && (
-                  <span className="text-xs text-muted-foreground">using template defaults</span>
-                )}
-                <ChevronDown
-                  size={16}
-                  className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", metadataOpen && "rotate-180")}
-                />
-              </button>
+                Preview render
+              </ActionButton>
+              {metadataPreview ? <MetadataPreviewResultBox preview={metadataPreview} /> : null}
             </div>
 
-            {metadataOpen && (
-              <div className="mt-4 space-y-5">
-                <div className={cn(!metadataEnabled && "pointer-events-none opacity-50")}>
-                  {/* Global templates */}
-                  <div className="space-y-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
-                    <TemplateField
-                      label="Title template"
-                      value={titleTemplate}
-                      onChange={setTitleTemplate}
-                      placeholder="{{ display_name }}"
-                    />
-                    <TemplateField
-                      label="Description template"
-                      value={descriptionTemplate}
-                      onChange={setDescriptionTemplate}
-                      multiline
-                      placeholder={"{{ summary }}\n\n{{ topics }}"}
-                    />
-                    <ThumbnailPicker
-                      label="Thumbnail (all platforms)"
-                      value={globalThumbnail}
-                      onChange={setGlobalThumbnail}
-                      placeholder="Platform-specific thumbnails override this"
-                    />
-                    <DisplayConfigFields
-                      label="Topics in description"
-                      hint="How {{ topics }} renders in title/description templates"
-                      kind="topics"
-                      value={topicsDisplay}
-                      onChange={(patch) => setTopicsDisplay((f) => ({ ...f, ...patch }))}
-                    />
-                    <DisplayConfigFields
-                      label="Questions in description"
-                      hint="How {{ questions }} renders in title/description templates"
-                      kind="questions"
-                      value={questionsDisplay}
-                      onChange={(patch) => setQuestionsDisplay((f) => ({ ...f, ...patch }))}
-                    />
-                  </div>
-                </div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Platform overrides
+            </p>
+            <div className="space-y-2">
+              <PlatformSection label="YouTube">
+                <YouTubeFields
+                  value={ytFields}
+                  onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
+                  showThumbnail
+                  showMadeForKids
+                />
+              </PlatformSection>
 
-                <div className="space-y-2">
-                  <ActionButton
-                    variant="secondary"
-                    onClick={handleMetadataPreview}
-                    isPending={metadataPreviewLoading}
-                    icon={<Eye size={15} />}
-                    pendingLabel="Rendering…"
-                  >
-                    Preview render
-                  </ActionButton>
-                  {metadataPreview ? <MetadataPreviewResultBox preview={metadataPreview} /> : null}
-                </div>
+              <PlatformSection label="VK">
+                <VkFields
+                  value={vkFields}
+                  onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
+                  showThumbnail
+                  showPrivacyComment
+                  showWallpost
+                />
+              </PlatformSection>
 
-                <div className={cn(!metadataEnabled && "pointer-events-none opacity-50")}>
-                  {/* Platform subsections */}
-                  <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Platform overrides</p>
-
-                    <PlatformSection label="YouTube">
-                      <YouTubeFields
-                        value={ytFields}
-                        onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
-                        showThumbnail
-                        showMadeForKids
-                      />
-                    </PlatformSection>
-
-                    <PlatformSection label="VK">
-                      <VkFields
-                        value={vkFields}
-                        onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
-                        showThumbnail
-                        showPrivacyComment
-                        showWallpost
-                      />
-                    </PlatformSection>
-
-                    <PlatformSection label="Yandex Disk">
-                      <YandexDiskFields
-                        value={ydFields}
-                        onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
-                      />
-                    </PlatformSection>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+              <PlatformSection label="Yandex Disk">
+                <YandexDiskFields
+                  value={ydFields}
+                  onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
+                />
+              </PlatformSection>
+            </div>
+          </OverrideSection>
           )}
 
           </>}
         </div>
 
-        {/* Footer */}
-        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border px-6 py-4">
+        {/* Footer. The error sits above the actions and wraps — truncating it to
+            one line put the only copy of a real API message in a title attr. */}
+        <div className="shrink-0 border-t border-border px-6 py-4">
           {runError && (
-            <p className="flex-1 truncate text-xs text-red-500" title={runError}>{runError}</p>
+            <p role="alert" className="mb-3 rounded-xl bg-danger-fg/10 px-3 py-2 text-xs text-danger-fg">
+              {runError}
+            </p>
           )}
-          <ActionButton variant="secondary" onClick={onClose}>
-            Cancel
-          </ActionButton>
-          <ActionButton
-            onClick={() => runMutation.mutate()}
-            isPending={runMutation.isPending}
-            isSuccess={runMutation.isSuccess}
-            icon={isSave ? <Save size={14} /> : <Play size={14} />}
-            pendingLabel={isSave ? "Saving…" : "Running…"}
-          >
-            {isSave ? "Save" : "Run"}
-          </ActionButton>
+          <div className="flex items-center justify-end gap-3">
+            <ActionButton variant="secondary" onClick={onClose}>
+              Cancel
+            </ActionButton>
+            <ActionButton
+              onClick={() => runMutation.mutate()}
+              isPending={runMutation.isPending}
+              isSuccess={runMutation.isSuccess}
+              icon={isSave ? <Save /> : <Play />}
+              pendingLabel={isSave ? "Saving…" : "Running…"}
+            >
+              {isSave ? "Save" : "Run"}
+            </ActionButton>
+          </div>
         </div>
       </>
     </Modal>

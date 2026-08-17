@@ -3,28 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
 import { ActionButton } from "@/components/ui/action-button";
-import { cn, extractApiError } from "@/lib/utils";
-
-interface PasswordRule {
-  id: string;
-  label: string;
-  test: (pw: string) => boolean;
-}
-
-const PASSWORD_RULES: PasswordRule[] = [
-  { id: "len",   label: "At least 8 characters", test: (pw) => pw.length >= 8 },
-  { id: "digit", label: "Contains a digit",      test: (pw) => /\d/.test(pw) },
-  { id: "upper", label: "Contains an uppercase letter", test: (pw) => /[A-Z]/.test(pw) },
-];
-
-function firstFailedRule(pw: string): PasswordRule | null {
-  return PASSWORD_RULES.find((r) => !r.test(pw)) ?? null;
-}
+import { extractApiError } from "@/lib/utils";
+import { firstFailedRule, isPasswordValid } from "@/lib/password-rules";
+import { PasswordRulesList } from "@/components/ui/password-rules-list";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -37,11 +22,7 @@ export default function RegisterPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  const ruleStates = useMemo(
-    () => PASSWORD_RULES.map((r) => ({ ...r, ok: r.test(form.password) })),
-    [form.password],
-  );
-  const passwordValid = ruleStates.every((r) => r.ok);
+  const passwordValid = useMemo(() => isPasswordValid(form.password), [form.password]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,7 +53,10 @@ export default function RegisterPage() {
         <div className="flex flex-col items-center mb-10">
           <Logo size={48} />
           <p className="text-sm font-semibold tracking-[0.2em] text-primary mt-5">LEAP</p>
-          <p className="text-xs text-muted-foreground mt-1.5">Create your account</p>
+          <p className="mt-1.5 max-w-xs text-center text-xs text-muted-foreground">
+            Set up recordings once and LEAP handles the rest — trimming, subtitles and publishing.
+            We&apos;ll email you a link to confirm your address.
+          </p>
         </div>
 
         <div className="bg-card rounded-2xl shadow-sm border border-border p-8 animate-panel-in">
@@ -128,29 +112,7 @@ export default function RegisterPage() {
                   className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   placeholder="••••••••"
                 />
-                <ul id="password-rules" className="mt-2 space-y-1">
-                  {ruleStates.map((r) => {
-                    const showFail = (passwordTouched || form.password.length > 0) && !r.ok;
-                    return (
-                      <li
-                        key={r.id}
-                        className={cn(
-                          "flex items-center gap-1.5 text-[11px] transition-colors",
-                          r.ok ? "text-green-600" : showFail ? "text-red-500" : "text-muted-foreground",
-                        )}
-                      >
-                        <Check
-                          size={11}
-                          className={cn(
-                            "shrink-0 transition-opacity",
-                            r.ok ? "opacity-100" : "opacity-30",
-                          )}
-                        />
-                        {r.label}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <PasswordRulesList id="password-rules" password={form.password} showErrors={passwordTouched} />
               </div>
 
               {error && (

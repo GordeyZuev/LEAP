@@ -15,7 +15,7 @@ from api.repositories.template_repos import OutputPresetRepository
 from api.services.config_utils import resolve_full_config
 from api.services.quota_service import QuotaExceededError
 from api.services.timing_service import TimingService
-from api.tasks.base import ProcessingTask
+from api.tasks.base import BaseTask, ProcessingTask
 from config.settings import get_settings
 from database.models import RecordingModel
 from deepseek_module import DeepSeekConfig, TopicExtractor
@@ -2029,3 +2029,115 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
             await timing_service.fail_stage(timing, str(e))
             await session.commit()
             raise
+
+
+# ============================================================================
+# Poster frame
+# ============================================================================
+
+# Take the frame a little way in, so a deck of lectures doesn't come back as a
+# wall of identical title slides — but cap it, because a 3-hour recording does
+# not need a frame 18 minutes deep.
+_POSTER_SEEK_FRACTION = 0.1
+_POSTER_SEEK_MAX_SECONDS = 120.0
+_POSTER_WIDTH = 640
+
+
+@celery_app.task(
+    bind=True,
+    base=BaseTask,
+    name="api.tasks.processing.generate_poster",
+    max_retries=2,
+    default_retry_delay=60,
+)
+def generate_poster(self, recording_id: int, user_id: str) -> dict:
+    """Extract a single frame and store it as the recording's poster.
+
+    Cosmetic and best-effort: it deliberately does not use ``ProcessingTask``,
+    whose failure handler rolls back recording status. A missing poster must
+    never mark a recording failed — the UI just keeps its placeholder.
+    """
+    with logger.contextualize(recording_id=recording_id):
+        try:
+            return self.run_async(_async_generate_poster(recording_id, user_id))
+        except Exception as exc:
+            logger.warning(f"Poster generation failed: {exc!r}")
+            return {"success": False, "error": str(exc)}
+
+
+async def _async_generate_poster(recording_id: int, user_id: str) -> dict:
+    import asyncio
+
+    from file_storage.factory import get_storage_backend
+    from file_storage.path_builder import get_path_builder, to_storage_key
+
+    session_maker = get_async_session_maker()
+    async with session_maker() as session:
+        recording_repo = RecordingRepository(session)
+        # Ownership-scoped like every other recording lookup — the task must not
+        # become a way to read another tenant's video.
+        recording = await recording_repo.get_by_id(recording_id, user_id)
+        if not recording:
+            return {"success": False, "error": "recording not found"}
+
+        user_slug = recording.owner.user_slug
+        duration = float(recording.duration or 0)
+        video_key = recording.processed_video_path or recording.local_video_path
+
+    if not video_key:
+        return {"success": False, "error": "no video"}
+
+    builder = get_path_builder()
+    poster_key = to_storage_key(builder.recording_root(user_slug, recording_id) / "poster.jpg")
+    storage = get_storage_backend()
+
+    if await storage.exists(poster_key):
+        return {"success": True, "skipped": "already exists"}
+
+    seek = min(duration * _POSTER_SEEK_FRACTION, _POSTER_SEEK_MAX_SECONDS) if duration > 0 else 0.0
+
+    # Pipeline pattern: pull the key to temp, run FFmpeg, push the result back,
+    # and clean the temps up in `finally` regardless of outcome.
+    temp_video = builder.create_temp_file(prefix=f"poster_src_{recording_id}_", suffix=Path(video_key).suffix)
+    temp_poster = builder.create_temp_file(prefix=f"poster_{recording_id}_", suffix=".jpg")
+    try:
+        await storage.download_to_file(video_key, temp_video)
+
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostats",
+            "-loglevel",
+            "error",
+            # -ss before -i seeks by keyframe, which is what makes this cheap.
+            "-ss",
+            f"{seek:.3f}",
+            "-i",
+            str(temp_video),
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={_POSTER_WIDTH}:-2",
+            "-q:v",
+            "4",
+            "-y",
+            str(temp_poster),
+        ]
+        process = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        _stdout, stderr = await process.communicate()
+
+        if process.returncode != 0 or not temp_poster.exists() or temp_poster.stat().st_size == 0:
+            detail = (stderr or b"").decode("utf-8", "replace")[:2000]
+            raise RuntimeError(f"ffmpeg poster extraction failed: {detail}")
+
+        await storage.save_file(poster_key, temp_poster)
+        logger.info(f"Poster stored at {poster_key}")
+        return {"success": True, "key": poster_key}
+    finally:
+        for tmp in (temp_video, temp_poster):
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.debug(f"Could not remove temp {tmp}: {exc}")

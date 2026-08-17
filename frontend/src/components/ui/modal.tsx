@@ -28,8 +28,8 @@ interface ModalProps {
   children: ReactNode;
 }
 
-// Selector for focusable elements inside the dialog. Excludes elements with
-// `tabIndex={-1}` (e.g. the password-input eye toggle).
+// Selector for focusable elements inside the dialog. Excludes elements the
+// author deliberately took out of the tab order with `tabIndex={-1}`.
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "area[href]",

@@ -134,6 +134,25 @@ class S3StorageBackend(StorageBackend):
                 ExpiresIn=expires_in,
             )
 
+    async def presigned_urls(self, paths: list[str], expires_in: int = 3600) -> list[str]:
+        """Sign many keys under one client.
+
+        ``generate_presigned_url`` is local computation, so the only real cost is
+        constructing the client — batching keeps that at one per call instead of
+        one per key.
+        """
+        if not paths:
+            return []
+        async with self._client() as s3:
+            return [
+                await s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": self.bucket, "Key": self._key(p)},
+                    ExpiresIn=expires_in,
+                )
+                for p in paths
+            ]
+
     async def list_keys(self, prefix: str) -> list[str]:
         """List logical keys under ``prefix`` (without the bucket prefix part)."""
         full_prefix = self._key(prefix)

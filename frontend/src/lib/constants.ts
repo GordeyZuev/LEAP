@@ -7,8 +7,14 @@ export const DEBOUNCE_SEARCH = 400;
 
 // Pagination page sizes
 export const PER_PAGE_RECORDINGS = 20;
+/** Page sizes offered on /recordings. Capped at 100 by the API (per_page le=100). */
+export const PER_PAGE_RECORDINGS_OPTIONS = [20, 50, 100];
 export const PER_PAGE_PRESETS = 24;
 export const PER_PAGE_TEMPLATES = 20;
+export const PER_PAGE_TEMPLATES_OPTIONS = [20, 50, 100];
+export const PER_PAGE_SOURCES = 24;
+export const PER_PAGE_CREDENTIALS = 20;
+export const PER_PAGE_AUTOMATION = 20;
 export const PER_PAGE_LARGE = 100;
 
 // Toast / feedback message durations (ms)

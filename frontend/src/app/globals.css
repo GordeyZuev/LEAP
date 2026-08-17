@@ -15,7 +15,11 @@
   --card: #ffffff;
   --card-foreground: #111827;
   --border: #d9d9d9;
-  --input: #d9d9d9;
+  /* Form-control boundary. Distinct from --border on purpose: a divider may be
+     a hairline, but a control outline is the only thing marking a field as
+     editable, so it must clear WCAG 1.4.11's 3:1 against every surface it sits
+     on (card #ffffff 3.35, page #fafafa 3.21, muted #f3f4f6 3.04). */
+  --input: #878d94;
   --primary: #224c87;
   --primary-hover: #1a3d6e;
   --primary-foreground: #ffffff;
@@ -27,6 +31,19 @@
   --accent-foreground: #224c87;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
+  /* Status *text*. --destructive is tuned as a solid fill behind white text and
+     only reaches 3.8:1 as ink, so it can't double as a text colour. These clear
+     4.5:1 on the card, the page, and their own tinted backgrounds. */
+  --danger-fg: #c81e1e;
+  --success-fg: #137334;
+  /* Filled track of a switch whose ON state means "blocks something else"
+     (e.g. Draft). Must read against the card and against the white knob, or the
+     on-state is invisible — the previous raw yellow-400 managed 1.53:1 on both. */
+  --warning: #b45309;
+  /* Warning as *ink*. --warning is a fill and only reaches 3.99:1 as text on the
+     dark card, so it can no more double as a text colour than --destructive can.
+     Tuned to clear 4.5:1 on its own 10% tint too, which is how the chips use it. */
+  --warning-fg: #a1560a;
   --ring: #224c87;
   --radius: 0.75rem;
 
@@ -47,7 +64,8 @@
   --card: #181f27;
   --card-foreground: #e6e8eb;
   --border: #2b333d;
-  --input: #2b333d;
+  /* card #181f27 3.51, page #0f141a 3.91, muted #1f262f 3.22 — see light mode. */
+  --input: #697485;
   --primary: #4f86cc;
   --primary-hover: #6499d8;
   --primary-foreground: #ffffff;
@@ -59,6 +77,10 @@
   --accent-foreground: #9cc2f0;
   --destructive: #f05252;
   --destructive-foreground: #ffffff;
+  --danger-fg: #f87171;
+  --success-fg: #4ade80;
+  --warning: #c2620a;
+  --warning-fg: #d98324;
   --ring: #4f86cc;
 
   --status-processing: #4f86cc;
@@ -89,6 +111,10 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-danger-fg: var(--danger-fg);
+  --color-success-fg: var(--success-fg);
+  --color-warning: var(--warning);
+  --color-warning-fg: var(--warning-fg);
   --color-ring: var(--ring);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
@@ -117,7 +143,7 @@ body {
 
 /* Plyr player brand overrides */
 .plyr {
-  --plyr-color-main: #224c87;
+  --plyr-color-main: var(--primary);
   --plyr-video-background: #000;
   --plyr-font-family: inherit;
   --plyr-font-size-base: 13px;
@@ -133,6 +159,28 @@ body {
 }
 .plyr--video .plyr__controls {
   border-radius: 0 0 0.75rem 0.75rem;
+}
+.plyr__chapter-label {
+  overflow: hidden;
+  margin-left: var(--plyr-control-spacing, 10px);
+  max-width: 14rem;
+  color: var(--muted-foreground);
+  font-size: var(--plyr-font-size-base, 13px);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.plyr__chapter-label::before {
+  content: "•";
+  margin-right: 6px;
+  opacity: 0.5;
+}
+.plyr__chapter-label--hidden {
+  display: none;
+}
+@media (max-width: 480px) {
+  .plyr__chapter-label {
+    display: none !important;
+  }
 }
 
 select {

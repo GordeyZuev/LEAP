@@ -193,6 +193,13 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     source: SourceInfo | None = None
     uploads: dict[str, UploadInfo] = Field(default_factory=dict)
     processing_stages: list[ProcessingStageResponse] = Field(default_factory=list)
+    poster_url: str | None = Field(
+        None,
+        description=(
+            "Time-limited URL for the poster frame, or null when the recording has no video. "
+            "The object may not exist yet — POST /recordings/{id}/poster generates it."
+        ),
+    )
 
     # --- Failure & pause ---
     failed: bool = False

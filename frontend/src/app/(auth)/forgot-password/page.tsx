@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Mail } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { Logo } from "@/components/layout/logo";
 import { ActionButton } from "@/components/ui/action-button";
 
-export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
+function ForgotPasswordForm() {
+  const searchParams = useSearchParams();
+  // Carried over from the login screen so the address is not typed twice.
+  const [email, setEmail] = useState(searchParams.get("email") ?? "");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -113,5 +116,13 @@ export default function ForgotPasswordPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={<div className="min-h-full bg-background" />}>
+      <ForgotPasswordForm />
+    </Suspense>
   );
 }

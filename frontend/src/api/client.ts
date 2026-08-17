@@ -4,6 +4,18 @@ import { CSRF_HEADER_NAME, getCsrfToken } from "@/lib/auth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+/**
+ * Make a storage URL usable as an element `src`.
+ *
+ * The S3 backend hands back an absolute presigned URL, but the LOCAL backend
+ * returns `/api/v1/storage/stream?key=…` — relative, which an `<img>` or
+ * `<video>` would resolve against the *frontend* origin and 404 on. Anchor
+ * those to the API instead; absolute URLs pass straight through.
+ */
+export function resolveStorageUrl(url: string): string {
+  return url.startsWith("/") ? `${API_URL}${url}` : url;
+}
+
 export const apiClient = axios.create({
   baseURL: `${API_URL}/api/v1`,
   headers: { "Content-Type": "application/json" },

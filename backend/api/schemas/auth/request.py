@@ -28,6 +28,10 @@ class LoginRequest(BaseModel):
 
     email: EmailStr = Field(..., description="User email")
     password: str = Field(..., description="Password")
+    remember_me: bool = Field(
+        True,
+        description="Keep the session after the browser closes. False issues session cookies only.",
+    )
 
 
 class RefreshTokenRequest(BaseModel):

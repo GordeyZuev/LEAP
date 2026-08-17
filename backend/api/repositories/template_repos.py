@@ -212,6 +212,7 @@ class OutputPresetRepository:
         credential_id: int | None,
         preset_metadata: dict[str, Any] | None = None,
         description: str | None = None,
+        is_active: bool = True,
     ) -> OutputPresetModel:
         """Create a new preset."""
         preset = OutputPresetModel(
@@ -221,6 +222,7 @@ class OutputPresetRepository:
             credential_id=credential_id,
             preset_metadata=preset_metadata,
             description=description,
+            is_active=is_active,
         )
         self.session.add(preset)
         await self.session.flush()

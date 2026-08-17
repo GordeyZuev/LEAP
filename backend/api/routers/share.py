@@ -104,11 +104,11 @@ async def get_public_recording(
 
     # Check which artifacts exist in storage
     candidate_keys = {
-        "srt": to_storage_key(cache_dir / "subtitles.srt"),
-        "vtt": to_storage_key(cache_dir / "subtitles.vtt"),
         "transcript_json": to_storage_key(tx_dir / "master.json"),
         "transcript_txt": to_storage_key(cache_dir / "segments.txt"),
         "transcript_words": to_storage_key(cache_dir / "words.txt"),
+        "srt": to_storage_key(cache_dir / "subtitles.srt"),
+        "vtt": to_storage_key(cache_dir / "subtitles.vtt"),
     }
     available_files = [key for key, path in candidate_keys.items() if await storage.exists(path)]
 

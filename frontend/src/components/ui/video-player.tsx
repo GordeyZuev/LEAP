@@ -1,8 +1,10 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useRef } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
+import { cn } from "@/lib/utils";
 
 export interface VideoPlayerMarker {
   time: number;
@@ -18,6 +20,7 @@ interface VideoPlayerProps {
 
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   function VideoPlayer({ src, vttBlobUrl, markers, onTimeUpdate }, forwardedRef) {
+    const [ready, setReady] = useState(false);
     const localRef = useRef<HTMLVideoElement>(null);
     const onTimeUpdateRef = useRef(onTimeUpdate);
     useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
@@ -33,6 +36,9 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       const el = localRef.current;
       if (!el) return;
 
+      setReady(false);
+      let cancelled = false;
+
       const player = new Plyr(el, {
         seekTime: 5,
         invertTime: false,
@@ -43,43 +49,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         // markers.enabled stays false at init — duration is 0 until loadedmetadata,
         // which would pin all dots at left:0%. Injected via DOM below instead.
         markers: { enabled: false, points: [] as { time: number; label: string }[] },
-        i18n: {
-          restart: "Сначала",
-          rewind: "Назад {seektime}с",
-          play: "Воспроизвести",
-          pause: "Пауза",
-          fastForward: "Вперёд {seektime}с",
-          seek: "Перемотка",
-          seekLabel: "{currentTime} из {duration}",
-          played: "Воспроизведено",
-          buffered: "Буферизовано",
-          currentTime: "Текущее время",
-          duration: "Длительность",
-          volume: "Громкость",
-          mute: "Выключить звук",
-          unmute: "Включить звук",
-          enableCaptions: "Включить субтитры",
-          disableCaptions: "Выключить субтитры",
-          download: "Скачать",
-          enterFullscreen: "Полный экран",
-          exitFullscreen: "Выйти из полного экрана",
-          frameTitle: "Плеер",
-          captions: "Субтитры",
-          settings: "Настройки",
-          pip: "Картинка в картинке",
-          speed: "Скорость",
-          normal: "Обычная",
-          quality: "Качество",
-          loop: "Повтор",
-          start: "Начало",
-          end: "Конец",
-          all: "Все",
-          reset: "Сброс",
-          disabled: "Выкл",
-          enabled: "Вкл",
-          advertisement: "",
-          qualityBadge: { 2160: "4K", 1440: "HD", 1080: "HD", 720: "HD", 576: "SD", 480: "SD" },
-        },
+        // i18n omitted — Plyr's built-in labels are already English.
       });
 
       if (markers?.length) {
@@ -93,6 +63,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
             const dot = document.createElement("span");
             dot.className = "plyr__progress__marker";
             dot.title = m.label;
+            dot.setAttribute("aria-hidden", "true");
             dot.style.left = `${(m.time / duration) * 100}%`;
             bar.appendChild(dot);
           });
@@ -101,17 +72,59 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         else el.addEventListener("loadedmetadata", injectMarkers, { once: true });
       }
 
-      player.on("timeupdate", () => onTimeUpdateRef.current?.(player.currentTime));
+      // Live "now playing" chapter label, injected next to Plyr's own time
+      // display — Plyr has no built-in slot for this, same DOM-injection
+      // approach as the progress markers above.
+      let chapterLabelEl: HTMLSpanElement | null = null;
+      let lastLabel: string | null = null;
+      if (markers?.length) {
+        const injectChapterLabel = () => {
+          const timeEl = player.elements.controls?.querySelector(".plyr__time--duration")
+            ?? player.elements.controls?.querySelector(".plyr__time--current");
+          if (!timeEl) return;
+          chapterLabelEl = document.createElement("span");
+          chapterLabelEl.className = "plyr__chapter-label plyr__chapter-label--hidden";
+          timeEl.insertAdjacentElement("afterend", chapterLabelEl);
+        };
+        if (el.readyState >= 1) injectChapterLabel();
+        else el.addEventListener("loadedmetadata", injectChapterLabel, { once: true });
+      }
 
-      return () => { player.destroy(); };
+      player.on("timeupdate", () => {
+        const ct = player.currentTime;
+        onTimeUpdateRef.current?.(ct);
+        if (chapterLabelEl && markers?.length) {
+          const active = markers.findLast((m) => m.time <= ct);
+          const label = active?.label ?? null;
+          if (label !== lastLabel) {
+            chapterLabelEl.textContent = label ?? "";
+            chapterLabelEl.classList.toggle("plyr__chapter-label--hidden", !label);
+            lastLabel = label;
+          }
+        }
+      });
+      player.on("canplay", () => { if (!cancelled) setReady(true); });
+
+      return () => {
+        cancelled = true;
+        player.destroy();
+      };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [src]);
 
     return (
-      <div className="aspect-video w-full">
+      <div className="relative aspect-video w-full overflow-hidden rounded-xl">
         <video ref={setRef} src={src} preload="metadata" className="block w-full">
-          {vttBlobUrl && <track kind="subtitles" src={vttBlobUrl} label="Субтитры" default />}
+          {vttBlobUrl && <track kind="subtitles" src={vttBlobUrl} label="Subtitles" default />}
         </video>
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-0 flex items-center justify-center bg-black transition-opacity duration-300",
+            ready ? "opacity-0" : "opacity-100",
+          )}
+        >
+          <Loader2 size={24} className="animate-spin text-white/40" />
+        </div>
       </div>
     );
   }

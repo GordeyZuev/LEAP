@@ -1,13 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
-import { useDebounce } from "@/hooks/use-debounce";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
@@ -17,7 +15,13 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
-import { DEBOUNCE_SEARCH, PER_PAGE_TEMPLATES } from "@/lib/constants";
+import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
+import { ResultCount } from "@/components/ui/result-count";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useUrlListState } from "@/hooks/use-url-list-state";
+import { usePageSize } from "@/hooks/use-page-size";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { PER_PAGE_TEMPLATES, PER_PAGE_TEMPLATES_OPTIONS } from "@/lib/constants";
 
 interface TemplateListItem {
   id: number;
@@ -45,7 +49,7 @@ const SORT_OPTIONS = [
   { value: "used_count", label: "Used count" },
 ];
 
-const SORT_ALLOWED = new Set(SORT_OPTIONS.map((o) => o.value));
+const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 
 type IsActiveFilter = "all" | "active" | "inactive";
 
@@ -54,79 +58,32 @@ function formatDate(iso: string) {
 }
 
 function TemplatesContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const urlKey = searchParams.toString();
-
-  const urlSearch = searchParams.get("search") ?? "";
-  const isActiveRaw = searchParams.get("is_active");
+  // Filters live in the URL so a filtered view is shareable and survives reload.
+  const list = useUrlListState({
+    defaultSortBy: "created_at",
+    defaultSortOrder: "desc",
+    allowedSortFields: SORT_ALLOWED,
+  });
+  const { perPage, setPerPage } = usePageSize(
+    "templates-per-page",
+    PER_PAGE_TEMPLATES_OPTIONS,
+    PER_PAGE_TEMPLATES,
+  );
   const isActiveFilter: IsActiveFilter =
-    isActiveRaw === "true" ? "active" : isActiveRaw === "false" ? "inactive" : "all";
-  const sortByRaw = searchParams.get("sort_by") ?? "created_at";
-  const sortBy = SORT_ALLOWED.has(sortByRaw) ? sortByRaw : "created_at";
-  const sortOrder: "asc" | "desc" = searchParams.get("sort_order") === "asc" ? "asc" : "desc";
-  const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
-
-  const [searchInput, setSearchInput] = useState(urlSearch);
-  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
-
-  const [prevUrlKey, setPrevUrlKey] = useState(urlKey);
-  if (urlKey !== prevUrlKey) {
-    setPrevUrlKey(urlKey);
-    setSearchInput(searchParams.get("search") ?? "");
-  }
-
-  const lastAppliedSearchRef = useRef(urlSearch);
-  useEffect(() => {
-    const trimmed = debouncedSearch.trim();
-    if (trimmed === lastAppliedSearchRef.current) return;
-    lastAppliedSearchRef.current = trimmed;
-    const p = new URLSearchParams(searchParams.toString());
-    if (trimmed) p.set("search", trimmed);
-    else p.delete("search");
-    p.delete("page");
-    router.replace(`?${p.toString()}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
-
-  function setParam(key: string, value: string | null) {
-    const p = new URLSearchParams(searchParams.toString());
-    if (value === null || value === "") p.delete(key);
-    else p.set(key, value);
-    p.delete("page");
-    router.replace(`?${p.toString()}`);
-  }
-
-  function setPage(page: number) {
-    const p = new URLSearchParams(searchParams.toString());
-    if (page === 1) p.delete("page");
-    else p.set("page", String(page));
-    router.replace(`?${p.toString()}`);
-  }
-
-  function resetFilters() {
-    setSearchInput("");
-    lastAppliedSearchRef.current = "";
-    router.replace("?");
-  }
-
-  const hasActiveFilters =
-    !!urlSearch ||
-    isActiveFilter !== "all" ||
-    sortBy !== "created_at" ||
-    sortOrder !== "desc";
+    list.getParam("is_active") === "true" ? "active"
+    : list.getParam("is_active") === "false" ? "inactive"
+    : "all";
 
   const { data, isLoading, error, refetch } = useQuery<TemplateListResponse>({
-    queryKey: ["templates", urlSearch, isActiveFilter, sortBy, sortOrder, urlPage],
+    queryKey: ["templates", list.urlKey, perPage],
     queryFn: async () => {
       const p = new URLSearchParams();
-      if (urlSearch) p.set("search", urlSearch);
-      if (isActiveFilter === "active") p.set("is_active", "true");
-      if (isActiveFilter === "inactive") p.set("is_active", "false");
-      p.set("sort_by", sortBy);
-      p.set("sort_order", sortOrder);
-      p.set("page", String(urlPage));
-      p.set("per_page", String(PER_PAGE_TEMPLATES));
+      if (list.search) p.set("search", list.search);
+      if (isActiveFilter !== "all") p.set("is_active", isActiveFilter === "active" ? "true" : "false");
+      p.set("sort_by", list.sortBy);
+      p.set("sort_order", list.sortOrder);
+      p.set("page", String(list.page));
+      p.set("per_page", String(perPage));
       const res = await apiClient.get<TemplateListResponse>(`/templates?${p.toString()}`);
       return res.data;
     },
@@ -136,15 +93,32 @@ function TemplatesContent() {
   useEffect(() => {
     if (!data) return;
     if (data.total === 0) {
-      if (urlPage !== 1) setPage(1);
-    } else if (urlPage > data.total_pages) {
-      setPage(data.total_pages);
+      if (list.page !== 1) list.setPage(1);
+    } else if (list.page > data.total_pages) {
+      list.setPage(data.total_pages);
     }
-    // setPage closes over searchParams via router; safe to omit from deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, urlPage]);
+  }, [data, list.page]);
 
   const templates = data?.items ?? [];
+  const sortProps = { sortBy: list.sortBy, sortOrder: list.sortOrder, onSort: list.setSort };
+
+  const chips: FilterChipItem[] = [
+    ...(list.search
+      ? [{
+          key: "search",
+          label: `Search: "${list.search}"`,
+          onRemove: () => { list.setSearchInput(""); list.setParam("search", null); },
+        }]
+      : []),
+    ...(isActiveFilter !== "all"
+      ? [{
+          key: "is_active",
+          label: isActiveFilter === "active" ? "Active" : "Inactive",
+          onRemove: () => list.setParam("is_active", null),
+        }]
+      : []),
+  ];
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -166,8 +140,8 @@ function TemplatesContent() {
         search={
           <SearchInput
             id="templates-search"
-            value={searchInput}
-            onChange={setSearchInput}
+            value={list.searchInput}
+            onChange={list.setSearchInput}
             placeholder="By template name…"
           />
         }
@@ -177,41 +151,36 @@ function TemplatesContent() {
             label="Status"
             value={isActiveFilter}
             options={ACTIVE_STATUS_OPTIONS}
-            onChange={(v) => setParam("is_active", v === "all" ? null : v === "active" ? "true" : "false")}
+            onChange={(v) => list.setParam("is_active", v === "all" ? null : v === "active" ? "true" : "false")}
           />,
         ]}
         sort={
           <SortControl
-            value={sortBy}
-            order={sortOrder}
+            value={list.sortBy}
+            order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={(f) => setParam("sort_by", f)}
-            onToggleOrder={() => setParam("sort_order", sortOrder === "desc" ? "asc" : "desc")}
+            onChange={list.setSort}
+            onToggleOrder={list.toggleSortOrder}
           />
         }
-        onClearAll={hasActiveFilters ? resetFilters : undefined}
+        onClearAll={list.hasActiveFilters || list.hasNonDefaultSort ? list.resetAll : undefined}
+        chips={<FilterChips chips={chips} />}
       />
 
+      <ResultCount total={data?.total} itemLabel="template" filtered={list.hasActiveFilters} />
+
       {/* Table */}
-      <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
+      <div className={TABLE_CARD}>
         <table className="w-full min-w-[640px]">
           <thead>
             <tr className="border-b border-border">
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Name
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Used
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Updated
-              </th>
+              <SortableTh label="Name" field="name" {...sortProps} />
+              <SortableTh label="Status" />
+              <SortableTh label="Used" field="used_count" {...sortProps} />
+              <SortableTh label="Updated" field="updated_at" {...sortProps} />
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className={TABLE_BODY}>
             {isLoading && <TableRowsSkeleton rows={5} cols={4} />}
             {error && (
               <tr>
@@ -225,9 +194,9 @@ function TemplatesContent() {
                 <td colSpan={4} className="p-0">
                   <EmptyState
                     icon={FileText}
-                    title={hasActiveFilters ? "No templates match your filters" : "No templates yet"}
+                    title={list.hasActiveFilters ? "No templates match your filters" : "No templates yet"}
                     description={
-                      hasActiveFilters
+                      list.hasActiveFilters
                         ? "Try adjusting or clearing the filters above."
                         : "Templates define how recordings are matched and named. Create your first one."
                     }
@@ -236,7 +205,7 @@ function TemplatesContent() {
               </tr>
             )}
             {templates.map((t) => (
-              <tr key={t.id} className="transition-colors hover:bg-muted">
+              <tr key={t.id} className={TABLE_ROW}>
                 <td className="px-6 py-4">
                   <div>
                     <Link
@@ -274,12 +243,14 @@ function TemplatesContent() {
 
       {data && (
         <Pagination
-          page={urlPage}
+          page={list.page}
           totalPages={data.total_pages}
           total={data.total}
-          perPage={PER_PAGE_TEMPLATES}
-          onPageChange={setPage}
+          perPage={perPage}
+          onPageChange={list.setPage}
           itemLabel="template"
+          perPageOptions={PER_PAGE_TEMPLATES_OPTIONS}
+          onPerPageChange={(n) => { setPerPage(n); list.setPage(1); }}
           className="mt-5"
         />
       )}

@@ -64,8 +64,13 @@ class EmailService:
 
     async def _send(self, to: str, subject: str, html: str) -> None:
         if not self._s.enabled:
-            logger.debug(f"[email] disabled — skipping send to={to} subject={subject!r}")
+            logger.warning(f"[email] disabled — skipping send to={to} subject={subject!r}")
             return
+        if not self._s.smtp_host or not self._s.smtp_user or not self._s.from_email:
+            logger.error(
+                "[email] enabled but SMTP config incomplete (need EMAIL_SMTP_HOST, EMAIL_SMTP_USER, EMAIL_FROM_EMAIL)"
+            )
+            raise RuntimeError("Email is enabled but SMTP host/user/from is incomplete")
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject

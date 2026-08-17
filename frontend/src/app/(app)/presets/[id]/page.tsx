@@ -31,6 +31,7 @@ import { appendDisplayConfigPreviewBody } from "@/components/platforms/display-c
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Toggle } from "@/components/ui/toggle";
 import {
   MetadataPreviewResultBox,
   type MetadataRenderPreviewData,
@@ -90,11 +91,12 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   const [description, setDescription] = useState("");
   const [platform,    setPlatform]    = useState<Platform>("youtube");
   const [credId,      setCredId]      = useState<number | "">("");
+  const [isActive,    setIsActive]    = useState(true);
   const [meta,        setMeta]        = useState<PlatformMeta>({ ...DEFAULT_YOUTUBE_FIELDS });
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
   const [savedSnapshot, setSavedSnapshot] = useState(
-    () => JSON.stringify({ name: "", description: "", credId: "", meta: { ...DEFAULT_YOUTUBE_FIELDS } }),
+    () => JSON.stringify({ name: "", description: "", credId: "", isActive: true, meta: { ...DEFAULT_YOUTUBE_FIELDS } }),
   );
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -122,13 +124,15 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
     const newName = existing.name ?? "";
     const newDesc = existing.description ?? "";
     const newCredId = existing.credential_id ?? "";
+    const newActive = existing.is_active ?? true;
     const newMeta = coerceMeta(p, existing.preset_metadata);
     setPlatform(p);
     setName(newName);
     setDescription(newDesc);
     setCredId(newCredId);
+    setIsActive(newActive);
     setMeta(newMeta);
-    setSavedSnapshot(JSON.stringify({ name: newName, description: newDesc, credId: newCredId, meta: newMeta }));
+    setSavedSnapshot(JSON.stringify({ name: newName, description: newDesc, credId: newCredId, isActive: newActive, meta: newMeta }));
   }, [existing]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -139,6 +143,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
         description: description || undefined,
         platform,
         credential_id: credId || undefined,
+        is_active: isActive,
         preset_metadata: serialiseMeta(platform, meta),
       };
       if (isNew) {
@@ -148,7 +153,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
       }
     },
     onSuccess: (result) => {
-      setSavedSnapshot(JSON.stringify({ name, description, credId, meta }));
+      setSavedSnapshot(JSON.stringify({ name, description, credId, isActive, meta }));
       qc.invalidateQueries({ queryKey: ["presets"] });
       showToast("success", "Preset saved");
       if (isNew) router.push(`/presets/${result.id}`);
@@ -217,7 +222,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   });
 
   const isDirty =
-    JSON.stringify({ name, description, credId, meta }) !== savedSnapshot;
+    JSON.stringify({ name, description, credId, isActive, meta }) !== savedSnapshot;
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -286,6 +291,13 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               className={FILTER_CONTROL}
             />
           </div>
+
+          <Toggle
+            label="Active"
+            hint="Inactive presets stay configured but are skipped when publishing."
+            checked={isActive}
+            onChange={setIsActive}
+          />
 
           <div>
             <label className={FILTER_LABEL}>Platform</label>

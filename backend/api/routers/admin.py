@@ -3,12 +3,14 @@
 import asyncio
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.admin import get_current_admin
+from api.auth.device import extract_client_ip
 from api.dependencies import get_db_session
+from api.repositories.audit_repo import AdminAuditLogRepository, diff_fields
 from api.schemas.admin import (
     AdminOverviewStats,
     AdminQuotaStats,
@@ -17,11 +19,14 @@ from api.schemas.admin import (
     AdminUserProfile,
     AdminUserStats,
     AdminUserUpdate,
+    AuditLogListResponse,
     PlanUsageStats,
     UsageEventResponse,
     UserQuotaDetails,
 )
 from api.schemas.auth import SubscriptionPlanCreate, SubscriptionPlanUpdate, UserInDB
+from api.schemas.common.pagination import paginate_list
+from database.audit_models import AuditAction
 from database.auth_models import (
     QuotaUsageModel,
     SubscriptionPlanModel,
@@ -322,10 +327,11 @@ async def admin_get_user(
 
 @router.patch("/users/{user_id}", response_model=AdminUserProfile)
 async def admin_update_user(
+    request: Request,
     user_id: str,
     data: AdminUserUpdate,
     session: AsyncSession = Depends(get_db_session),
-    _admin: UserInDB = Depends(get_current_admin),
+    admin: UserInDB = Depends(get_current_admin),
 ):
     """Update user role, active state, or feature permissions (admin only)."""
     result = await session.execute(select(UserModel).where(UserModel.id == user_id))
@@ -333,8 +339,22 @@ async def admin_update_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    before = {field: getattr(user, field, None) for field in updates}
+    for field, value in updates.items():
         setattr(user, field, value)
+
+    changes = diff_fields(before, updates)
+    if changes:
+        await _audit(
+            request,
+            session,
+            admin,
+            AuditAction.USER_UPDATED,
+            target_user_id=user_id,
+            target_label=user.email,
+            details=changes,
+        )
 
     await session.commit()
     await session.refresh(user)
@@ -392,10 +412,11 @@ async def admin_get_user_subscription(
 
 @router.post("/users/{user_id}/subscription", status_code=status.HTTP_201_CREATED)
 async def admin_set_user_subscription(
+    request: Request,
     user_id: str,
     data: AdminSubscriptionSet,
     session: AsyncSession = Depends(get_db_session),
-    _admin: UserInDB = Depends(get_current_admin),
+    admin: UserInDB = Depends(get_current_admin),
 ):
     """Assign or replace a user's subscription plan (admin only)."""
     from api.repositories.subscription_repos import (
@@ -419,15 +440,26 @@ async def admin_set_user_subscription(
         create = UserSubscriptionCreate(user_id=user_id, plan_id=data.plan_id, **payload)
         sub = await sub_repo.create(create)
 
+    await _audit(
+        request,
+        session,
+        admin,
+        AuditAction.SUBSCRIPTION_ASSIGNED,
+        target_user_id=user_id,
+        target_label=plan.display_name,
+        details={"plan_id": data.plan_id},
+    )
+    await session.commit()
     return {"user_id": user_id, "subscription": sub}
 
 
 @router.patch("/users/{user_id}/subscription")
 async def admin_patch_user_subscription(
+    request: Request,
     user_id: str,
     data: AdminSubscriptionSet,
     session: AsyncSession = Depends(get_db_session),
-    _admin: UserInDB = Depends(get_current_admin),
+    admin: UserInDB = Depends(get_current_admin),
 ):
     """Update custom quota overrides on an existing subscription (admin only)."""
     from api.repositories.subscription_repos import UserSubscriptionRepository
@@ -440,14 +472,24 @@ async def admin_patch_user_subscription(
 
     update_data = data.model_dump(exclude_unset=True)
     sub = await sub_repo.update(user_id, UserSubscriptionUpdate(**update_data))
+    await _audit(
+        request,
+        session,
+        admin,
+        AuditAction.SUBSCRIPTION_UPDATED,
+        target_user_id=user_id,
+        details=update_data,
+    )
+    await session.commit()
     return {"user_id": user_id, "subscription": sub}
 
 
 @router.delete("/users/{user_id}/subscription", status_code=status.HTTP_204_NO_CONTENT)
 async def admin_delete_user_subscription(
+    request: Request,
     user_id: str,
     session: AsyncSession = Depends(get_db_session),
-    _admin: UserInDB = Depends(get_current_admin),
+    admin: UserInDB = Depends(get_current_admin),
 ) -> None:
     """Remove a user's subscription (admin only). User falls back to DEFAULT_QUOTAS."""
     from api.repositories.subscription_repos import UserSubscriptionRepository
@@ -455,6 +497,50 @@ async def admin_delete_user_subscription(
     deleted = await UserSubscriptionRepository(session).delete(user_id)
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subscription not found")
+
+    await _audit(request, session, admin, AuditAction.SUBSCRIPTION_REMOVED, target_user_id=user_id)
+    await session.commit()
+
+
+async def _audit(
+    request: Request,
+    session: AsyncSession,
+    admin: UserInDB,
+    action: str,
+    *,
+    target_user_id: str | None = None,
+    target_label: str | None = None,
+    details: dict | None = None,
+) -> None:
+    """Append one audit entry for the current admin. Caller owns the commit."""
+    await AdminAuditLogRepository(session).record(
+        actor_id=admin.id,
+        actor_email=admin.email,
+        action=action,
+        target_user_id=target_user_id,
+        target_label=target_label,
+        details=details,
+        ip_address=extract_client_ip(request),
+    )
+
+
+@router.get("/audit-log", response_model=AuditLogListResponse)
+async def admin_list_audit_log(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserInDB = Depends(get_current_admin),
+):
+    """Administrative actions, newest first (admin only)."""
+    entries = await AdminAuditLogRepository(session).list_recent()
+    items, total, total_pages = paginate_list(entries, page, per_page, "created_at", "desc")
+    return AuditLogListResponse(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+    )
 
 
 # =============================================================================
@@ -477,23 +563,27 @@ async def admin_list_plans(
 
 @router.post("/plans", status_code=status.HTTP_201_CREATED)
 async def admin_create_plan(
+    request: Request,
     data: SubscriptionPlanCreate,
     session: AsyncSession = Depends(get_db_session),
-    _admin: UserInDB = Depends(get_current_admin),
+    admin: UserInDB = Depends(get_current_admin),
 ):
     """Create a subscription plan (admin only)."""
     from api.repositories.subscription_repos import SubscriptionPlanRepository
 
     plan = await SubscriptionPlanRepository(session).create(data)
+    await _audit(request, session, admin, AuditAction.PLAN_CREATED, target_label=plan.display_name)
+    await session.commit()
     return {"plan": plan}
 
 
 @router.patch("/plans/{plan_id}")
 async def admin_update_plan(
+    request: Request,
     plan_id: int,
     data: SubscriptionPlanUpdate,
     session: AsyncSession = Depends(get_db_session),
-    _admin: UserInDB = Depends(get_current_admin),
+    admin: UserInDB = Depends(get_current_admin),
 ):
     """Update a subscription plan (admin only)."""
     from api.repositories.subscription_repos import SubscriptionPlanRepository
@@ -501,4 +591,14 @@ async def admin_update_plan(
     plan = await SubscriptionPlanRepository(session).update(plan_id, data)
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Plan {plan_id} not found")
+
+    await _audit(
+        request,
+        session,
+        admin,
+        AuditAction.PLAN_UPDATED,
+        target_label=plan.display_name,
+        details=data.model_dump(exclude_unset=True),
+    )
+    await session.commit()
     return {"plan": plan}

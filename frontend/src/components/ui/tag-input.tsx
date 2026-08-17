@@ -9,9 +9,19 @@ interface TagInputProps {
   onChange: (tags: string[]) => void;
   placeholder?: string;
   className?: string;
+  /** Applied to the inner text input so an external <label htmlFor> resolves. */
+  id?: string;
+  "aria-describedby"?: string;
 }
 
-export function TagInput({ tags: tagsProp, onChange, placeholder = "Add tag…", className }: TagInputProps) {
+export function TagInput({
+  tags: tagsProp,
+  onChange,
+  placeholder = "Add tag…",
+  className,
+  id,
+  "aria-describedby": describedBy,
+}: TagInputProps) {
   const tags = tagsProp ?? [];
   const [input, setInput] = useState("");
 
@@ -38,7 +48,7 @@ export function TagInput({ tags: tagsProp, onChange, placeholder = "Add tag…",
   return (
     <div
       className={cn(
-        "flex flex-wrap gap-1.5 px-3 py-2 min-h-[42px] rounded-xl border border-border bg-card focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-colors",
+        "flex flex-wrap gap-1.5 px-3 py-2 min-h-[42px] rounded-xl border border-input bg-card focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-colors",
         className
       )}
       onClick={(e) => (e.currentTarget.querySelector("input") as HTMLInputElement | null)?.focus()}
@@ -46,19 +56,22 @@ export function TagInput({ tags: tagsProp, onChange, placeholder = "Add tag…",
       {tags.map((tag) => (
         <span
           key={tag}
-          className="animate-toast-in inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"
+          className="inline-flex items-center gap-0.5 ps-2.5 pe-0.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"
         >
           {tag}
           <button
             type="button"
+            aria-label={`Remove ${tag}`}
             onClick={(e) => { e.stopPropagation(); removeTag(tag); }}
-            className="hover:text-primary-hover"
+            className="grid size-6 place-items-center rounded-full hover:bg-primary/10 hover:text-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           >
-            <X size={11} />
+            <X size={12} />
           </button>
         </span>
       ))}
       <input
+        id={id}
+        aria-describedby={describedBy}
         type="text"
         value={input}
         onChange={(e) => setInput(e.target.value)}

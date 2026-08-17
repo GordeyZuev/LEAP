@@ -31,6 +31,7 @@ class OutputPresetBase(BaseModel):
 
 class OutputPresetCreate(OutputPresetBase):
     credential_id: int = Field(..., gt=0, description="Credential ID for this platform")
+    is_active: bool = Field(True, description="Inactive presets are skipped when publishing")
 
 
 class OutputPresetUpdate(BaseModel):

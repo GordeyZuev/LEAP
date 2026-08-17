@@ -14,6 +14,7 @@ export default function VerifyEmailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
+  const email = searchParams.get("email") ?? "";
 
   const [state, setState] = useState<State>(() => (token ? "verifying" : "error"));
   const [errorMsg, setErrorMsg] = useState(() =>
@@ -105,12 +106,17 @@ export default function VerifyEmailPage() {
 
         </div>
 
-        {/* Resend link — only shown on error */}
+        {/* Resend link — only shown on error.
+            Pointing at /login would be a dead end: an unverified account cannot
+            sign in, which is the very reason the user is on this screen. */}
         {state === "error" && (
-          <p className="text-center text-sm text-muted-foreground mt-4">
+          <p className="mt-4 text-center text-sm text-muted-foreground">
             Need a new link?{" "}
-            <Link href="/login" className="text-primary font-medium hover:underline">
-              Sign in to resend
+            <Link
+              href={email ? `/verify-email-sent?email=${encodeURIComponent(email)}` : "/verify-email-sent"}
+              className="font-medium text-primary hover:underline"
+            >
+              Send another one
             </Link>
           </p>
         )}

@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { extractApiError } from "@/lib/utils";
+import { firstFailedRule } from "@/lib/password-rules";
+import { PasswordRulesList } from "@/components/ui/password-rules-list";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
 import { ActionButton } from "@/components/ui/action-button";
@@ -17,6 +19,7 @@ function ResetPasswordForm() {
 
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [passwordTouched, setPasswordTouched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
@@ -63,6 +66,12 @@ function ResetPasswordForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
+    const failed = firstFailedRule(password);
+    if (failed) {
+      setError(failed.label);
+      setPasswordTouched(true);
+      return;
+    }
     if (password !== confirm) {
       setError("Passwords do not match");
       return;
@@ -93,10 +102,11 @@ function ResetPasswordForm() {
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onBlur={() => setPasswordTouched(true)}
             className="w-full px-4 py-2.5 rounded-xl border border-border bg-background text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
             placeholder="••••••••"
           />
-          <p className="text-xs text-muted-foreground mt-1.5">At least 8 characters, 1 uppercase, 1 digit.</p>
+          <PasswordRulesList password={password} showErrors={passwordTouched} />
         </div>
 
         <div>

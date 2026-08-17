@@ -1,3 +1,4 @@
+from .audit_models import AdminAuditLogModel, AuditAction
 from .auth_models import (
     QuotaUsageModel,
     RefreshTokenModel,
@@ -25,6 +26,8 @@ from .template_models import (
 )
 
 __all__ = [
+    "AdminAuditLogModel",
+    "AuditAction",
     "Base",
     "BaseConfigModel",
     "DatabaseConfig",

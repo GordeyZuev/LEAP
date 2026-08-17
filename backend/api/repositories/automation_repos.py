@@ -2,10 +2,10 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.automation_models import AutomationJobModel
+from database.automation_models import AutomationJobModel, AutomationJobRunModel
 
 
 class AutomationJobRepository:
@@ -81,3 +81,49 @@ class AutomationJobRepository:
         job.next_run_at = next_run_at
         job.run_count += 1
         await self.session.commit()
+
+
+class AutomationJobRunRepository:
+    """Repository for automation job run history."""
+
+    # Runs accumulate on every schedule tick, so history is capped per job and
+    # older rows are pruned when a new one is written.
+    MAX_RUNS_PER_JOB = 100
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def create(self, **run_data) -> AutomationJobRunModel:
+        """Record one execution and prune history beyond MAX_RUNS_PER_JOB."""
+        run = AutomationJobRunModel(**run_data)
+        self.session.add(run)
+        await self.session.flush()
+        await self._prune(run.job_id)
+        await self.session.commit()
+        return run
+
+    async def _prune(self, job_id: int) -> None:
+        stmt = (
+            select(AutomationJobRunModel.id)
+            .where(AutomationJobRunModel.job_id == job_id)
+            .order_by(AutomationJobRunModel.started_at.desc())
+            .offset(self.MAX_RUNS_PER_JOB)
+        )
+        stale = (await self.session.execute(stmt)).scalars().all()
+        if stale:
+            await self.session.execute(delete(AutomationJobRunModel).where(AutomationJobRunModel.id.in_(stale)))
+
+    async def list_for_job(self, job_id: int, user_id: str) -> list[AutomationJobRunModel]:
+        """Newest-first history for one job, scoped to its owner."""
+        stmt = (
+            select(AutomationJobRunModel)
+            .where(
+                and_(
+                    AutomationJobRunModel.job_id == job_id,
+                    AutomationJobRunModel.user_id == user_id,
+                )
+            )
+            .order_by(AutomationJobRunModel.started_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

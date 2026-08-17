@@ -20,7 +20,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.10.6.0` (July 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.10.6.1` (August 2026) · **Статус:** In Active Development • Beta
 **Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (AssemblyAI, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
@@ -411,6 +411,8 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — что изменилось для пользователей и операторов. Полная история — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в `v0.10.6.1`** — выровненная сетка списка записей без «лесенки», единый бейдж `Failed · Stage`, нормализация значения `failed_at_stage` в БД и коде, реорганизация страницы записи (Files выше Pipeline, порядок артефактов) и компактная control panel.
 
 **Новое в `v0.10.6.0`** — редактор AI-контента на странице записи, публичная share-страница с рендером description, переработанный UI страницы записи, выбор качества видео при добавлении ссылки, фильтр превышения квот в Admin UI.
 

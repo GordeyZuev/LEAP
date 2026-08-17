@@ -14,6 +14,8 @@ const COOLDOWN_SEC = 60;
 export default function VerifyEmailSentPage() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
+  const [manualEmail, setManualEmail] = useState("");
+  const targetEmail = email || manualEmail.trim();
 
   const [cooldown, setCooldown] = useState(0);
   const [resending, setResending] = useState(false);
@@ -23,7 +25,8 @@ export default function VerifyEmailSentPage() {
 
   // Start cooldown right away — we just sent an email on registration.
   useEffect(() => {
-    startCooldown();
+    // A cooldown only makes sense when an email was just sent on our behalf.
+    if (email) startCooldown();
     return () => clearTimer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -50,12 +53,12 @@ export default function VerifyEmailSentPage() {
   }
 
   async function handleResend() {
-    if (resending || cooldown > 0 || !email) return;
+    if (resending || cooldown > 0 || !targetEmail) return;
     setResendError("");
     setResendSuccess(false);
     setResending(true);
     try {
-      await apiClient.post("/auth/resend-verification", { email });
+      await apiClient.post("/auth/resend-verification", { email: targetEmail });
       setResendSuccess(true);
       startCooldown();
     } catch (err: unknown) {
@@ -89,11 +92,22 @@ export default function VerifyEmailSentPage() {
           <h1 className="text-xl font-semibold text-foreground mb-2">
             Check your email
           </h1>
-          <p className="text-sm text-muted-foreground mb-5 leading-relaxed">
-            We sent a verification link to
+          <p className="mb-5 text-sm leading-relaxed text-muted-foreground">
+            {email ? "We sent a verification link to" : "Enter the address you registered with and we'll send a new link."}
           </p>
 
-          {/* Email highlight */}
+          {/* Email highlight — editable when we arrived without an address. */}
+          {!email && (
+            <input
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={manualEmail}
+              onChange={(e) => setManualEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="mb-6 w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
+            />
+          )}
           {email && (
             <div className="bg-accent rounded-xl px-4 py-2.5 mb-6 inline-block w-full">
               <span className="text-sm font-medium text-primary break-all">{email}</span>
@@ -125,7 +139,7 @@ export default function VerifyEmailSentPage() {
             variant="secondary"
             onClick={handleResend}
             isPending={resending}
-            disabled={cooldown > 0}
+            disabled={cooldown > 0 || !targetEmail}
             pendingLabel="Sending…"
             className="w-full justify-center py-2.5"
           >

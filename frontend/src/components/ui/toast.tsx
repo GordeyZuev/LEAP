@@ -15,8 +15,9 @@ interface ToastProps {
 export function Toast({ type, message, exiting, onDismiss }: ToastProps) {
   return (
     <div
-      role="status"
-      aria-live={type === "error" ? "assertive" : "polite"}
+      // `alert` already implies assertive; `status` already implies polite.
+      // Setting both role and aria-live contradicts itself, so pick the role.
+      role={type === "error" ? "alert" : "status"}
       className={cn(
         "fixed bottom-6 right-6 left-6 z-50 flex max-w-sm items-center gap-2.5 rounded-2xl border bg-card px-4 py-3 shadow-lg sm:left-auto",
         type === "success" && "border-green-200",

@@ -510,11 +510,13 @@ class MeetingRecording:
         if rollback_to_status:
             self.status = rollback_to_status
 
-        # Set FSM fields
+        # Set FSM fields. failed_at_stage is stored lowercase everywhere: the
+        # column was written in three casings by different paths, and the
+        # retry checks below compare it as a plain string.
         self.failed = True
         self.failed_at = datetime.now(UTC)
         self.failed_reason = reason
-        self.failed_at_stage = stage_type.value
+        self.failed_at_stage = stage_type.value.lower()
         return old_status
 
     def mark_stage_skipped(self, stage_type: ProcessingStageType) -> ProcessingStageStatus:
@@ -536,8 +538,9 @@ class MeetingRecording:
         if not stage:
             raise ValueError(f"Stage {stage_type.value} not found")
         stage.prepare_retry()
-        # Reset overall failed flag when retrying
-        if self.failed_at_stage == stage_type.value:
+        # Reset overall failed flag when retrying. Compared lowercase to match
+        # how the column is written; against stage_type.value it never matched.
+        if self.failed_at_stage == stage_type.value.lower():
             self.failed = False
         # Note: Aggregate status should be updated via status_manager.update_aggregate_status()
 

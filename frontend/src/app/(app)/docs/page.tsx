@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BookOpen,
+  Search,
   Zap,
   FileText,
   Settings2,
@@ -84,6 +85,7 @@ function Section({
   title,
   color,
   defaultOpen = false,
+  search = "",
   children,
 }: {
   id: string;
@@ -91,13 +93,20 @@ function Section({
   title: string;
   color: string;
   defaultOpen?: boolean;
+  /** Active query; forces the section open so its text can be matched. */
+  search?: string;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [userOpen, setUserOpen] = useState(defaultOpen);
+
+  // While searching every section is expanded, both so the reader sees the hit
+  // in context and so its text is in the DOM for the page to match against.
+  const open = search ? true : userOpen;
+
   return (
     <section id={id} className="bg-card border border-border rounded-2xl overflow-hidden">
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setUserOpen((o) => !o)}
         className="w-full flex items-center justify-between px-6 py-4 hover:bg-muted transition-colors"
       >
         <div className="flex items-center gap-3">
@@ -143,6 +152,26 @@ const NAV = [
 // ─── page ─────────────────────────────────────────────────────────────────────
 
 export default function DocsPage() {
+  const [search, setSearch] = useState("");
+  const query = search.trim();
+  const emptyRef = useRef<HTMLParagraphElement>(null);
+
+  // Matching reads the rendered text and toggles visibility on the DOM directly:
+  // the section bodies are the source of truth, and there is no second copy of
+  // the docs to keep in sync.
+  useEffect(() => {
+    const needle = query.toLowerCase();
+    let found = 0;
+    for (const { id } of NAV) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const hit = !needle || (el.textContent ?? "").toLowerCase().includes(needle);
+      el.classList.toggle("hidden", !hit);
+      if (hit) found += 1;
+    }
+    emptyRef.current?.classList.toggle("hidden", found > 0 || !needle);
+  }, [query]);
+
   return (
     <div className="min-h-full p-8 max-w-3xl mx-auto">
       {/* Header */}
@@ -156,6 +185,27 @@ export default function DocsPage() {
           Here you&apos;ll find how each section of the platform works.
         </P>
       </div>
+
+      {/* Search — the accordion hides text from the browser's own find, so the
+          page needs its own way in. */}
+      <div className="relative mb-5">
+        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search the documentation…"
+          aria-label="Search the documentation"
+          className="w-full rounded-xl border border-input bg-card py-2.5 pl-10 pr-3 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
+        />
+      </div>
+
+      <p
+        ref={emptyRef}
+        className="mb-6 hidden rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
+      >
+        Nothing matches “{query}”. Try a different word, or clear the search to browse by section.
+      </p>
 
       {/* Nav */}
       <div className="flex flex-wrap gap-2 mb-8">
@@ -178,7 +228,7 @@ export default function DocsPage() {
       <div className="space-y-3">
 
         {/* ── Recordings ── */}
-        <Section id="recordings" icon={Video} title="Recordings" color="#2563eb" defaultOpen>
+        <Section id="recordings" search={query} icon={Video} title="Recordings" color="#2563eb" defaultOpen>
           <Sub title="Overview">
             <P>
               Recordings is the core section of the platform. Each recording goes through a processing pipeline:
@@ -234,7 +284,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Credentials ── */}
-        <Section id="credentials" icon={Key} title="Credentials" color="#059669">
+        <Section id="credentials" search={query} icon={Key} title="Credentials" color="#059669">
           <Sub title="Overview">
             <P>
               Credentials stores OAuth tokens and keys for connected platforms — YouTube, Zoom, Yandex Disk.
@@ -274,7 +324,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Sources ── */}
-        <Section id="sources" icon={Database} title="Sources" color="#0891b2">
+        <Section id="sources" search={query} icon={Database} title="Sources" color="#0891b2">
           <Sub title="Overview">
             <P>
               Sources are connected video recording origins. The platform periodically syncs with them
@@ -319,7 +369,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Templates ── */}
-        <Section id="templates" icon={FileText} title="Templates" color="#7c3aed">
+        <Section id="templates" search={query} icon={FileText} title="Templates" color="#7c3aed">
           <Sub title="Overview">
             <P>
               Templates are metadata blueprints for publication. They define the title, description, tags,
@@ -366,7 +416,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Presets ── */}
-        <Section id="presets" icon={Settings2} title="Presets" color="#d97706">
+        <Section id="presets" search={query} icon={Settings2} title="Presets" color="#d97706">
           <Sub title="Overview">
             <P>
               Presets are upload configurations for a specific platform. A preset combines a credential,
@@ -397,7 +447,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Automation ── */}
-        <Section id="automation" icon={Zap} title="Automation" color="#059669">
+        <Section id="automation" search={query} icon={Zap} title="Automation" color="#059669">
           <Sub title="Overview">
             <P>
               Automation lets you trigger recording processing on a schedule or when new videos appear
@@ -438,7 +488,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Settings ── */}
-        <Section id="settings" icon={SlidersHorizontal} title="Settings" color="#6b7280">
+        <Section id="settings" search={query} icon={SlidersHorizontal} title="Settings" color="#6b7280">
           <Sub title="Overview">
             <P>
               Settings stores your personal defaults — processing preferences, metadata templates,
@@ -499,7 +549,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Config hierarchy ── */}
-        <Section id="config-hierarchy" icon={Layers} title="Configuration hierarchy" color="#0891b2">
+        <Section id="config-hierarchy" search={query} icon={Layers} title="Configuration hierarchy" color="#0891b2">
           <Sub title="How it works">
             <P>
               LEAP has four levels of configuration that override each other from broadest to most specific.
@@ -564,7 +614,7 @@ export default function DocsPage() {
         </Section>
 
         {/* ── Troubleshooting ── */}
-        <Section id="troubleshooting" icon={AlertTriangle} title="Troubleshooting" color="#dc2626">
+        <Section id="troubleshooting" search={query} icon={AlertTriangle} title="Troubleshooting" color="#dc2626">
           <Sub title="Recording is stuck">
             <List
               items={[

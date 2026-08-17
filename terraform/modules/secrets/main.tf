@@ -77,7 +77,13 @@ locals {
   vk_client_secret      = try(local.vk.client_secret, "")
 }
 
-# Email (SMTP) — only the password is a secret; the rest goes into .env.static
+# Email (SMTP). User/password are secrets. The enable-flag, host, and From
+# also live here so `refresh-env.sh` updates *existing* VMs — `.env.static`
+# is written once by cloud-init and is never rewritten by Terraform.
+variable "domain" {
+  type        = string
+  description = "Public site host, used for EMAIL_BASE_URL (https://<domain>)"
+}
 variable "email_smtp_user" {
   type        = string
   sensitive   = true
@@ -281,7 +287,36 @@ resource "yandex_lockbox_secret_version" "v1" {
     })
   }
 
-  # Email SMTP credentials — appended last to avoid shifting existing entries
+  # Email — creds + the non-secret flags. Existing VMs only see new keys
+  # after `terraform apply` (new Lockbox version) + refresh-env.sh.
+  entries {
+    key        = "EMAIL_ENABLED"
+    text_value = var.email_smtp_user != "" ? "true" : "false"
+  }
+  entries {
+    key        = "EMAIL_SMTP_HOST"
+    text_value = "smtp.yandex.ru"
+  }
+  entries {
+    key        = "EMAIL_SMTP_PORT"
+    text_value = "587"
+  }
+  entries {
+    key        = "EMAIL_SMTP_USE_TLS"
+    text_value = "true"
+  }
+  entries {
+    key        = "EMAIL_FROM_NAME"
+    text_value = "LEAP Platform"
+  }
+  entries {
+    key        = "EMAIL_FROM_EMAIL"
+    text_value = var.email_smtp_user
+  }
+  entries {
+    key        = "EMAIL_BASE_URL"
+    text_value = "https://${var.domain}"
+  }
   entries {
     key        = "EMAIL_SMTP_USER"
     text_value = var.email_smtp_user

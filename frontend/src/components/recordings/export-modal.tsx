@@ -239,7 +239,7 @@ export function ExportModal({
           </div>
 
           {error && (
-            <p className="rounded-lg border border-red-100 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-xs text-red-600">
+            <p className="rounded-lg border border-danger-fg/20 bg-danger-fg/10 px-3 py-2 text-xs text-danger-fg">
               {error}
             </p>
           )}

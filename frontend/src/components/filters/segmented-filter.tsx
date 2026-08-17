@@ -1,18 +1,8 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import {
-  FILTER_LABEL,
-  FILTER_SEGMENT_ACTIVE,
-  FILTER_SEGMENT_BTN,
-  FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
-} from "@/lib/filter-field-classes";
+import { SegmentedField, type SegmentedOption } from "@/components/ui/segmented-field";
 
-export interface SegmentedOption<V extends string | number> {
-  value: V;
-  label: string;
-}
+export type { SegmentedOption };
 
 /** The common active/inactive tri-state used by most list pages. */
 export type ActiveStatus = "all" | "active" | "inactive";
@@ -29,28 +19,13 @@ interface SegmentedFilterProps<V extends string | number> {
   onChange: (value: V) => void;
 }
 
-/** Inline segmented toggle group (e.g. All / Active / Inactive). Applies instantly. */
-export function SegmentedFilter<V extends string | number>({
-  label,
-  value,
-  options,
-  onChange,
-}: SegmentedFilterProps<V>) {
-  return (
-    <div>
-      <span className={FILTER_LABEL}>{label}</span>
-      <div className={FILTER_SEGMENT_WRAP}>
-        {options.map((o) => (
-          <button
-            key={String(o.value)}
-            type="button"
-            className={cn(FILTER_SEGMENT_BTN, value === o.value ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-            onClick={() => onChange(o.value)}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+/**
+ * Inline segmented toggle group for filter toolbars (e.g. All / Active /
+ * Inactive). Applies instantly.
+ *
+ * Kept as its own name because the filter toolbars read better with it, but the
+ * markup and the radio-group semantics live in one place — see SegmentedField.
+ */
+export function SegmentedFilter<V extends string | number>(props: SegmentedFilterProps<V>) {
+  return <SegmentedField {...props} />;
 }

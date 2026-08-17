@@ -8,6 +8,11 @@ interface ReferenceItem {
   label: string;
 }
 
+/** Platforms carry the OAuth scopes LEAP requests, so the UI can show them. */
+export interface PlatformReferenceItem extends ReferenceItem {
+  scopes?: string[];
+}
+
 const QUERY_OPTIONS = {
   staleTime: Infinity,
   gcTime: 24 * 60 * 60 * 1000,
@@ -45,7 +50,10 @@ export function useQualities() {
 export function usePlatforms() {
   return useQuery({
     queryKey: ["references", "platforms"],
-    queryFn: () => fetchReference("platforms"),
+    queryFn: async () => {
+      const { data } = await apiClient.get<PlatformReferenceItem[]>("/references/platforms");
+      return data;
+    },
     ...QUERY_OPTIONS,
   });
 }

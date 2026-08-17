@@ -82,8 +82,22 @@ async def get_qualities(_: UserInDB = Depends(get_current_user)) -> list[dict]:
 
 @router.get("/platforms")
 async def get_platforms(_: UserInDB = Depends(get_current_user)) -> list[dict]:
-    """Supported upload platforms."""
-    return _PLATFORMS
+    """Supported upload platforms, with the OAuth scopes LEAP asks each for.
+
+    Scopes come from the live provider configs rather than a second hardcoded
+    list, so what the connection screen shows is what is actually requested.
+    """
+    from api.services.oauth_platforms import get_platform_config
+
+    platforms = []
+    for entry in _PLATFORMS:
+        scopes: list[str] = []
+        try:
+            scopes = list(get_platform_config(entry["value"]).scopes)
+        except Exception:
+            scopes = []
+        platforms.append({**entry, "scopes": scopes})
+    return platforms
 
 
 @router.get("/timezones")

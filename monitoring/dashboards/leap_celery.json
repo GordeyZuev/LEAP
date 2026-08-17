@@ -2,7 +2,7 @@
   "annotations": {
     "list": []
   },
-  "description": "Celery workers, queues, pipeline throughput and stage duration, external API latency. Top stat shows worker health at a glance.",
+  "description": "Celery workers, queues, pipeline throughput and stage duration. Top stat shows worker health at a glance.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -451,82 +451,6 @@
 
     {
       "type": "row",
-      "title": "External API latency (Prometheus)",
-      "gridPos": {"x": 0, "y": 41, "w": 24, "h": 1},
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "External API p95 latency by provider",
-      "description": "Outbound call latency: Fireworks ASR, DeepSeek, YouTube, VK, Zoom, Yandex Disk. Requires track_external_api() wrappers in task code.",
-      "gridPos": {"x": 0, "y": 42, "w": 16, "h": 9},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (provider, le) (rate(leap_external_api_duration_seconds_bucket{status=\"ok\"}[10m])))",
-          "legendFormat": "{{provider}} p95"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 10,
-            "spanNulls": true
-          }
-        }
-      },
-      "options": {
-        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]},
-        "tooltip": {"mode": "multi"}
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "External API error rate by provider",
-      "description": "Percentage of external calls returning error status. Yellow >5%, red >20%.",
-      "gridPos": {"x": 16, "y": 42, "w": 8, "h": 9},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "100 * sum by (provider) (rate(leap_external_api_duration_seconds_count{status=\"error\"}[10m])) / clamp_min(sum by (provider) (rate(leap_external_api_duration_seconds_count[10m])), 1e-9)",
-          "legendFormat": "{{provider}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 1,
-          "color": {"mode": "thresholds"},
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {"color": "green", "value": null},
-              {"color": "yellow", "value": 5},
-              {"color": "red", "value": 20}
-            ]
-          },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 25,
-            "thresholdsStyle": {"mode": "area"},
-            "spanNulls": true
-          }
-        }
-      },
-      "options": {
-        "legend": {"displayMode": "table", "placement": "right", "calcs": ["mean", "max"]},
-        "tooltip": {"mode": "multi"}
-      }
-    },
-
-    {
-      "type": "row",
       "title": "Failures (Loki + Postgres)",
       "gridPos": {"x": 0, "y": 51, "w": 24, "h": 1},
       "collapsed": false,
@@ -589,5 +513,5 @@
   "timezone": "",
   "title": "LEAP Workers & Pipeline",
   "uid": "leap-celery",
-  "version": 3
+  "version": 4
 }

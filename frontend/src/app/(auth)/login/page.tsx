@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,7 +26,7 @@ export default function LoginPage() {
     try {
       // Server sets httpOnly session cookies + CSRF cookie on the response.
       // We don't read or store any tokens client-side.
-      await apiClient.post("/auth/login", { email, password });
+      await apiClient.post("/auth/login", { email, password, remember_me: rememberMe });
       router.push("/recordings");
     } catch (err: unknown) {
       // 403 "Email not verified" → send the user to the check-your-inbox screen
@@ -88,8 +89,20 @@ export default function LoginPage() {
                 />
               </div>
 
-              <div className="flex justify-end -mt-1">
-                <Link href="/forgot-password" className="text-xs text-muted-foreground hover:text-primary transition-colors">
+              <div className="-mt-1 flex items-center justify-between gap-3">
+                <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-secondary-foreground">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="rounded border-border accent-primary"
+                  />
+                  Stay signed in
+                </label>
+                <Link
+                  href={email ? `/forgot-password?email=${encodeURIComponent(email)}` : "/forgot-password"}
+                  className="text-xs text-muted-foreground transition-colors hover:text-primary"
+                >
                   Forgot password?
                 </Link>
               </div>

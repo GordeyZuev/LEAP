@@ -27,13 +27,16 @@ export function useToast(defaultMs = 4000) {
   }, []);
 
   const show = useCallback(
-    (type: ToastType, msg: string, ms?: number) => {
+    // `ms: null` keeps the toast up until dismissed — used for errors, which
+    // carry information the user may need to act on and must not time out.
+    (type: ToastType, msg: string, ms?: number | null) => {
       if (timerRef.current) clearTimeout(timerRef.current);
       if (exitRef.current) clearTimeout(exitRef.current);
       serialRef.current += 1;
       const serial = serialRef.current;
-      const duration = ms ?? defaultMs;
+      const duration = ms === undefined ? defaultMs : ms;
       setToast({ type, msg, serial, exiting: false });
+      if (duration === null) return;
       timerRef.current = setTimeout(() => {
         setToast((s) => (s?.serial === serial ? { ...s, exiting: true } : s));
         exitRef.current = setTimeout(

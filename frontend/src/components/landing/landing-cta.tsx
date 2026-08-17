@@ -16,7 +16,7 @@ export function LandingCta() {
           Зарегистрироваться
           <ArrowRight size={15} />
         </Link>
-        <p className="mt-10 text-blue-200/50 text-xs">© 2026 LEAP – Lecture Enhancement & Automation Platform</p>
+        <p className="mt-10 text-blue-200 text-xs">© 2026 LEAP – Lecture Enhancement & Automation Platform</p>
       </div>
     </footer>
   );

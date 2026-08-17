@@ -73,10 +73,10 @@
     {
       "type": "stat",
       "title": "Pipeline success rate",
-      "description": "Share of recordings created in the last 24h that reached READY or UPLOADED without failure.",
+      "description": "Share of recordings that finished in the last 24h (terminal status or failed). In-flight recordings are excluded so a running pipeline does not look like a failure.",
       "gridPos": {"x": 21, "y": 1, "w": 3, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "WITH w AS (SELECT * FROM recordings WHERE created_at > NOW() - INTERVAL '24 hours') SELECT CASE WHEN COUNT(*) = 0 THEN 0 ELSE 100.0 * COUNT(*) FILTER (WHERE status IN ('READY','UPLOADED') AND NOT failed) / COUNT(*) END AS value FROM w;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "WITH w AS (SELECT * FROM recordings WHERE created_at > NOW() - INTERVAL '24 hours' AND (failed OR status IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED'))) SELECT CASE WHEN COUNT(*) = 0 THEN NULL ELSE 100.0 * COUNT(*) FILTER (WHERE status IN ('READY','UPLOADED') AND NOT failed) / COUNT(*) END AS value FROM w;"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "percent", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]}}}
     },
@@ -169,5 +169,5 @@
   "timezone": "",
   "title": "LEAP Overview",
   "uid": "leap-overview",
-  "version": 3
+  "version": 4
 }

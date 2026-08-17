@@ -10,7 +10,7 @@ from api.dependencies import get_db_session
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
 from api.schemas.auth import UserInDB
-from api.schemas.common.pagination import paginate_list
+from api.schemas.common.pagination import filter_by_search, paginate_list
 from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
 from api.schemas.template import (
     MetadataRenderPreviewResponse,
@@ -27,12 +27,17 @@ logger = get_logger()
 router = APIRouter(prefix="/api/v1/presets", tags=["Output Presets"])
 
 PRESET_SORT_FIELDS = {"created_at", "updated_at", "name"}
+PRESET_SEARCH_FIELDS = ("name", "description")
 
 
 @router.get("", response_model=PresetListResponse)
 async def list_presets(
-    platform: str | None = None,
-    active_only: bool = False,
+    platform: list[str] = Query(
+        default=[],
+        description="Filter by platform; repeat the param to pass several (?platform=youtube&platform=vk)",
+    ),
+    search: str | None = Query(None, description="Search substring in name or description (case-insensitive)"),
+    is_active: bool | None = Query(None, description="Filter by active flag (true/false/omitted=all)"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     sort_by: str = Query("created_at", description="Sort field"),
@@ -42,13 +47,14 @@ async def list_presets(
 ):
     """Get paginated list of user's output presets."""
     repo = OutputPresetRepository(session)
+    presets = await repo.find_by_user(current_user.id)
 
     if platform:
-        presets = await repo.find_by_platform(current_user.id, platform)
-    elif active_only:
-        presets = await repo.find_active_by_user(current_user.id)
-    else:
-        presets = await repo.find_by_user(current_user.id)
+        wanted = {p.lower() for p in platform}
+        presets = [p for p in presets if str(p.platform).lower() in wanted]
+    if is_active is not None:
+        presets = [p for p in presets if bool(p.is_active) is is_active]
+    presets = filter_by_search(presets, search, PRESET_SEARCH_FIELDS)
 
     items, total, total_pages = paginate_list(presets, page, per_page, sort_by, sort_order, PRESET_SORT_FIELDS)
 
@@ -171,6 +177,7 @@ async def create_preset(
         credential_id=data.credential_id,
         preset_metadata=data.preset_metadata.model_dump(exclude_none=True),
         description=data.description,
+        is_active=data.is_active,
     )
 
     await session.commit()

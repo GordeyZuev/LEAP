@@ -67,3 +67,24 @@ export async function getShareMedia(
 export function getShareFileUrl(token: string, fileType: string): string {
   return `${API_URL}/api/v1/share/${token}/files/${fileType}`;
 }
+
+/**
+ * Server-side fetch for `generateMetadata`.
+ *
+ * Uses `fetch` rather than the axios client so Next can cache it alongside the
+ * render, and swallows every failure: a share link whose backend is briefly
+ * down should still render the page, just without a rich preview.
+ */
+export async function fetchPublicRecordingForMetadata(
+  token: string,
+): Promise<PublicRecordingResponse | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/v1/share/${token}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as PublicRecordingResponse;
+  } catch {
+    return null;
+  }
+}

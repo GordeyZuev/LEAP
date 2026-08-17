@@ -2,11 +2,16 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
-import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
-import { cn, formatDate } from "@/lib/utils";
-import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
+import { ArchiveRestore, ExternalLink, MoreHorizontal, Pause, Pencil, Play, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { cn, formatDate, stripLeadingTimestamp } from "@/lib/utils";
+import { type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import type { PipelineStage } from "@/components/ui/pipeline-progress";
+import { RecordingPoster } from "@/components/recordings/recording-poster";
+import { PipelineStatusButton } from "@/components/recordings/pipeline-popover";
+import {
+  formatFailedStage,
+  type PipelineStage,
+} from "@/components/recordings/pipeline-stages";
 
 interface UploadInfo { status: string; url: string | null }
 interface SourceInfo { type: string; name: string | null; input_source_id: number | null }
@@ -14,6 +19,8 @@ interface SourceInfo { type: string; name: string | null; input_source_id: numbe
 export interface RecordingCardData {
   id: number;
   display_name: string;
+  /** Presigned poster frame; null when the recording has no video yet. */
+  poster_url?: string | null;
   status: ProcessingStatus;
   start_time: string;
   duration: number;
@@ -36,6 +43,7 @@ interface RecordingCardProps {
   recording: RecordingCardData;
   selected: boolean;
   onToggleSelect: (id: number) => void;
+  /** Any card selected — keeps every selector visible while selecting. */
   selectMode?: boolean;
   onRun: (id: number) => void;
   onPause: (id: number) => void;
@@ -51,15 +59,6 @@ interface RecordingCardProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDuration(s: number) {
-  if (s === 0) return null;
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
-  return `${m}:${String(sec).padStart(2, "0")}`;
-}
-
 const PLATFORM_LABELS: Record<string, string> = {
   youtube: "YouTube",
   vk: "VK",
@@ -67,81 +66,21 @@ const PLATFORM_LABELS: Record<string, string> = {
 };
 
 const UPLOAD_DOT: Record<string, string> = {
-  UPLOADED:     "bg-green-400",
-  UPLOADING:    "bg-blue-400 animate-pulse",
-  FAILED:       "bg-red-400",
-  NOT_UPLOADED: "bg-muted",
+  UPLOADED:     "bg-success-fg",
+  UPLOADING:    "bg-primary animate-pulse",
+  FAILED:       "bg-danger-fg",
+  NOT_UPLOADED: "bg-transparent ring-1 ring-inset ring-input",
 };
 
-// ---------------------------------------------------------------------------
-// StatusDot — small coloured circle in top-right; hover shows status + pipeline
-// ---------------------------------------------------------------------------
+const RUN_UNAVAILABLE = "Run is unavailable: this recording has no source file ready, or the pipeline is already running.";
 
-
-const STAGE_ORDER = ["DOWNLOAD", "TRIM", "TRANSCRIBE", "EXTRACT_TOPICS", "GENERATE_SUBTITLES"] as const;
-const STAGE_NAME: Record<string, string> = {
-  DOWNLOAD: "Download",
-  TRIM: "Trim",
-  TRANSCRIBE: "Transcribe",
-  EXTRACT_TOPICS: "Topics",
-  GENERATE_SUBTITLES: "Subtitles",
+/** Upload state in words — the dot alone carries it by colour otherwise. */
+const UPLOAD_STATE_LABEL: Record<string, string> = {
+  UPLOADED: "published",
+  UPLOADING: "uploading",
+  FAILED: "upload failed",
+  NOT_UPLOADED: "not uploaded",
 };
-
-export function StatusDot({ status, failed, stages }: {
-  status: ProcessingStatus;
-  failed: boolean;
-  stages?: PipelineStage[];
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <StatusBadge status={status} failed={failed} className="cursor-default" />
-
-      {open && !!stages?.length && (
-        <div className="absolute right-0 top-full z-30 pt-2">
-          <div className="w-44 overflow-hidden rounded-lg border border-border bg-card shadow-md animate-panel-in" style={{ transformOrigin: "top right" }}>
-            <div className="border-t border-border px-3 py-2 space-y-1.5">
-              {STAGE_ORDER.map((key) => {
-                const st = stages.find((s) => s.stage_type === key);
-                const state = st?.failed ? "FAILED" : (st?.status ?? "PENDING");
-                const dotCls = cn("mt-px h-1.5 w-1.5 shrink-0 rounded-full",
-                  state === "COMPLETED"   ? "bg-green-500" :
-                  state === "IN_PROGRESS" ? "bg-blue-500 animate-pulse" :
-                  state === "FAILED"      ? "bg-red-500" : "bg-muted"
-                );
-                const dur = st?.duration_seconds;
-                return (
-                  <div key={key}>
-                    <div className="flex items-start gap-1.5 text-xs">
-                      <span className={dotCls} />
-                      <span className={cn("flex-1 leading-none",
-                        state === "FAILED"    ? "font-medium text-red-600" :
-                        state === "COMPLETED" ? "text-secondary-foreground" : "text-muted-foreground"
-                      )}>
-                        {STAGE_NAME[key]}
-                      </span>
-                      {dur != null && (
-                        <span className="tabular-nums text-muted-foreground">
-                          {dur < 60 ? `${Math.round(dur)}s` : `${Math.floor(dur / 60)}m`}
-                        </span>
-                      )}
-                    </div>
-                    {st?.failed && st.failed_reason && (
-                      <p className="mt-0.5 ml-3 text-[10px] leading-relaxed text-red-500 line-clamp-2">
-                        {st.failed_reason}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 
 // ---------------------------------------------------------------------------
@@ -160,7 +99,7 @@ function MenuItem({ icon: Icon, label, onClick, danger }: {
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-muted",
-        danger ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10" : "text-secondary-foreground"
+        danger ? "text-danger-fg hover:bg-danger-fg/10" : "text-secondary-foreground"
       )}
     >
       <Icon size={13} />
@@ -190,7 +129,6 @@ export function RecordingCard({
   const isLoading = loadingId === r.id;
   const uploads = Object.entries(r.uploads);
   const isSoftDeleted = !!r.soft_deleted_at;
-  const dur = formatDuration(r.duration);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -198,7 +136,7 @@ export function RecordingCard({
   const [editName, setEditName] = useState(r.display_name);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hasKebab = !!(onReset || onDelete || r.can_pause);
+  const hasKebab = !!(onReset || onDelete || onRename || r.can_pause);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -229,6 +167,10 @@ export function RecordingCard({
   }, [r.display_name]);
 
   return (
+    // h-full + a footer pinned with mt-auto. Sizing cards to their content
+    // instead left every row with a staircase of Run buttons; the earlier
+    // problem it was meant to avoid — a white gap above the footer — came from
+    // the missing mt-auto, not from stretching.
     <div className={cn(
       "group relative flex h-full flex-col rounded-xl border bg-card transition-[box-shadow,border-color] duration-150",
       isSoftDeleted && "opacity-60",
@@ -236,30 +178,46 @@ export function RecordingCard({
         ? "border-primary ring-2 ring-primary/20 shadow-sm"
         : "border-border hover:shadow-md"
     )}>
-      {/* ── Body ── */}
-      <div className="flex flex-1 gap-2 px-3 pt-3 pb-3">
-        {/* Checkbox — always in layout, opacity-only animation to avoid reflow */}
-        <button
-          type="button"
-          onClick={() => onToggleSelect(r.id)}
-          aria-label="Toggle selection"
-          className={cn(
-            "mt-0.5 shrink-0 h-5 w-5 flex items-center justify-center rounded border-2 transition-opacity duration-150",
-            selected
-              ? "border-primary bg-primary opacity-100"
-              : selectMode
-              ? "border-border bg-card opacity-100"
-              : "border-border bg-card opacity-0 group-hover:opacity-100"
-          )}
-        >
-          {selected && (
-            <svg width="10" height="8" viewBox="0 0 10 8" fill="none" className="text-white">
-              <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          )}
-        </button>
+      {/* ── Body: thumbnail leads, everything else to its trailing side ── */}
+      <div className="flex gap-3 p-3">
+        {/* The thumbnail carries the duration and nothing else, the way a video
+            host does it — status moved into the text column so it never covers
+            a frame. */}
+        <div className="relative w-32 shrink-0">
+          <Link href={`/recordings/${r.id}`} tabIndex={-1} aria-hidden="true" className="block">
+            <RecordingPoster
+              recordingId={r.id}
+              posterUrl={r.poster_url}
+              duration={r.duration}
+            />
+          </Link>
 
-        {/* Left: title · meta · template · platforms */}
+          <button
+            type="button"
+            onClick={() => onToggleSelect(r.id)}
+            role="checkbox"
+            aria-checked={selected}
+            aria-label={`Select ${r.display_name}`}
+            className={cn(
+              "absolute start-1.5 top-1.5 grid size-6 place-items-center rounded-md border-2 transition-opacity",
+              "focus-visible:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-primary/40",
+              selected ? "border-primary bg-primary" : "border-white bg-black/50",
+              // Quiet at rest, so the thumbnail is the first thing seen. Revealed
+              // on hover — but only where hover exists: `hover: none` keeps it
+              // permanently visible, or selection would be unreachable on touch.
+              "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
+              (selected || selectMode) && "opacity-100",
+            )}
+          >
+            {selected && (
+              <svg width="12" height="10" viewBox="0 0 10 8" fill="none" className="text-white" aria-hidden="true" focusable="false">
+                <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {/* Title · meta · template · platforms */}
         <div className="min-w-0 flex-1 flex flex-col">
           {/* Title row */}
           {editing ? (
@@ -276,38 +234,56 @@ export function RecordingCard({
               autoFocus
             />
           ) : (
-            <div className="group/title mb-1.5 flex items-start gap-1">
-              <Link
-                href={`/recordings/${r.id}`}
-                title={r.display_name}
-                className={cn(
-                  "line-clamp-2 text-sm font-semibold leading-snug [overflow-wrap:anywhere]",
-                  isSoftDeleted ? "text-muted-foreground line-through" : "text-foreground hover:text-primary"
-                )}
-              >
-                {r.display_name}
-              </Link>
-              {!selectMode && onRename && (
-                <button
-                  type="button"
-                  onClick={startEdit}
-                  title="Rename"
-                  className="mt-px shrink-0 text-gray-300 opacity-0 transition-opacity hover:text-primary group-hover/title:opacity-100"
-                >
-                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                    <path d="M7.5 1.5L9.5 3.5L3.5 9.5H1.5V7.5L7.5 1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
+            // Rename lives in the kebab menu — as a pencil it sat permanently in
+            // the top-right of every card, competing with the title for width.
+            // Two lines are reserved whether or not the title needs both, so
+            // the status badge below starts at the same height on every card.
+            <Link
+              href={`/recordings/${r.id}`}
+              title={r.display_name}
+              className={cn(
+                // 2.5rem clears two lines at text-sm/leading-snug (2 × 19.25px),
+                // so one- and two-line titles occupy exactly the same box.
+                "mb-1.5 line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-snug [overflow-wrap:anywhere]",
+                isSoftDeleted ? "text-muted-foreground line-through" : "text-foreground hover:text-primary"
               )}
-            </div>
+            >
+              {stripLeadingTimestamp(r.display_name)}
+            </Link>
           )}
 
-          {/* Meta */}
-          <p className="truncate text-xs text-muted-foreground">
-            {r.source?.type ?? "—"}
-            {dur && <> · {dur}</>}
-            {" · "}{formatDate(r.start_time)}
-          </p>
+          {/* Status leads the meta line: aligned across cards, and off the frame.
+              Duration lives on the thumbnail badge, so it is not repeated here.
+              The failed stage rides inside the badge rather than on its own red
+              line — that line repeated the word "Failed" in a second, different
+              red and added a row that only some cards had. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <PipelineStatusButton
+              status={r.status}
+              failed={r.failed}
+              failedStage={formatFailedStage(r.failed_at_stage)}
+              stages={r.processing_stages}
+              className="shrink-0"
+            />
+            {r.on_pause && (
+              <span className="shrink-0 rounded-full bg-warning-fg/10 px-2 py-0.5 text-xs font-medium text-warning-fg">
+                Paused
+              </span>
+            )}
+            {/* min-w-0 is what makes `truncate` work at all here: nowrap gives
+                a flex item an automatic minimum size of its full text width, so
+                without it this line never ellipsised — it wrapped instead, and
+                the card grew by a row whenever the badge ran long.
+                Only the source name gives way; the date is the more useful half
+                and truncating the tail would eat the year first. */}
+            <p className="flex min-w-0 flex-1 items-baseline gap-1 text-xs text-muted-foreground">
+              <span className="truncate" title={r.source?.type ?? undefined}>
+                {r.source?.type ?? "—"}
+              </span>
+              <span className="shrink-0">·</span>
+              <span className="shrink-0">{formatDate(r.start_time)}</span>
+            </p>
+          </div>
 
           {/* Template */}
           {r.template_id != null && (
@@ -327,7 +303,12 @@ export function RecordingCard({
                 const dotCls = UPLOAD_DOT[info.status] ?? UPLOAD_DOT["NOT_UPLOADED"];
                 const label = PLATFORM_LABELS[platform] ?? platform;
                 const isLinked = info.url && info.status === "UPLOADED";
-                const dot = <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotCls)} />;
+                const stateLabel = UPLOAD_STATE_LABEL[info.status] ?? "unknown state";
+                const dot = (
+                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dotCls)}>
+                    <span className="sr-only">{stateLabel}</span>
+                  </span>
+                );
                 if (isLinked) {
                   return (
                     <a
@@ -351,11 +332,6 @@ export function RecordingCard({
             </div>
           )}
         </div>
-
-        {/* Right: status dot */}
-        <div className="shrink-0 pt-0.5">
-          <StatusDot status={r.status} failed={r.failed} stages={r.processing_stages} />
-        </div>
       </div>
 
       {/* ── Active processing strip ── */}
@@ -364,13 +340,13 @@ export function RecordingCard({
       )}
 
       {/* ── Footer: always visible ── */}
-      <div className="flex items-center gap-1.5 border-t border-border px-3 py-2">
+      <div className="mt-auto flex items-center gap-1.5 border-t border-border px-3 py-2">
         {isSoftDeleted && onRestore ? (
           <button
             type="button"
             disabled={isLoading}
             onClick={() => onRestore(r.id)}
-            className="flex h-7 items-center gap-1.5 rounded-xl border border-green-200 px-3 text-xs font-medium text-green-600 hover:bg-green-50 dark:hover:bg-green-500/10 disabled:opacity-50"
+            className="flex h-7 items-center gap-1.5 rounded-xl border border-success-fg/50 px-3 text-xs font-medium text-success-fg hover:bg-success-fg/10 disabled:opacity-50"
           >
             <ArchiveRestore size={12} /> Restore
           </button>
@@ -382,6 +358,8 @@ export function RecordingCard({
                 type="button"
                 disabled={!r.can_run || isLoading}
                 onClick={() => onRun(r.id)}
+                title={r.can_run ? "Run the pipeline" : RUN_UNAVAILABLE}
+                aria-describedby={r.can_run ? undefined : `run-why-${r.id}`}
                 className={cn(
                   "flex h-7 items-center gap-1.5 border border-border px-3 text-xs font-medium text-secondary-foreground transition-colors",
                   "disabled:cursor-not-allowed disabled:opacity-40",
@@ -392,6 +370,9 @@ export function RecordingCard({
               >
                 <Play size={11} /> Run
               </button>
+              {!r.can_run && (
+                <span id={`run-why-${r.id}`} className="sr-only">{RUN_UNAVAILABLE}</span>
+              )}
               {onRunWithConfig && (
                 <button
                   type="button"
@@ -421,6 +402,9 @@ export function RecordingCard({
                 </button>
                 {menuOpen && (
                   <div className="absolute bottom-full right-0 z-30 mb-1.5 w-40 overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-dropdown-in" style={{ transformOrigin: "bottom right" }}>
+                    {onRename && (
+                      <MenuItem icon={Pencil} label="Rename" onClick={() => { setMenuOpen(false); startEdit(); }} />
+                    )}
                     {r.can_pause && (
                       <MenuItem icon={Pause} label="Pause" onClick={() => { setMenuOpen(false); onPause(r.id); }} />
                     )}

@@ -32,20 +32,27 @@ const STATUS_CONFIG: Record<ProcessingStatus, { label: string; className: string
 interface StatusBadgeProps {
   status: ProcessingStatus;
   failed: boolean;
+  /**
+   * Human label of the stage that broke, e.g. "Download". Rendered inside the
+   * badge so the failure stays one element: it used to sit on its own red line
+   * underneath, repeating the word "Failed" in a second, mismatched red.
+   * Resolve it with `formatFailedStage` — this primitive stays presentational.
+   */
+  failedStage?: string | null;
   className?: string;
 }
 
-export function StatusBadge({ status, failed, className }: StatusBadgeProps) {
+export function StatusBadge({ status, failed, failedStage, className }: StatusBadgeProps) {
   if (failed) {
     return (
-      <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-300", className)}>
-        Failed
+      <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-danger-fg/10 px-2.5 py-1 text-xs font-medium text-danger-fg", className)}>
+        {failedStage ? `Failed · ${failedStage}` : "Failed"}
       </span>
     );
   }
   const cfg = STATUS_CONFIG[status] ?? { label: status, className: "bg-muted text-muted-foreground" };
   return (
-    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium", cfg.className, className)}>
+    <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium", cfg.className, className)}>
       {cfg.pulse && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
       {cfg.label}
     </span>

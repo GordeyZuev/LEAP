@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Image as ImageIcon, Upload, X, Check, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { ActionButton } from "@/components/ui/action-button";
+import { Modal } from "@/components/ui/modal";
 
 interface ThumbnailInfo {
   name: string;
@@ -112,7 +113,7 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
   const [uploadError, setUploadError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery<ThumbnailListResponse>({
@@ -149,15 +150,6 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
       void qc.invalidateQueries({ queryKey: ["thumbnails"] });
     },
   });
-
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
 
   function acceptFile(f: File) {
     setUploadFile(f);
@@ -218,16 +210,16 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
         </ActionButton>
       </div>
 
-      {open && (
-        <div
-          ref={overlayRef}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-overlay-in"
-          onClick={(e) => { if (e.target === overlayRef.current) setOpen(false); }}
-        >
-          <div className="flex w-full max-w-lg flex-col rounded-2xl bg-card shadow-xl" style={{ maxHeight: "90vh" }}>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        labelledBy={titleId}
+        panelClassName="max-w-lg"
+      >
+          <div className="flex max-h-[90vh] flex-col">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h2 className="text-sm font-semibold text-foreground">Select thumbnail</h2>
-              <button type="button" onClick={() => setOpen(false)} className="text-muted-foreground hover:text-secondary-foreground">
+              <h2 id={titleId} className="text-sm font-semibold text-foreground">Select thumbnail</h2>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Close dialog" className="text-muted-foreground hover:text-secondary-foreground">
                 <X size={16} />
               </button>
             </div>
@@ -333,8 +325,7 @@ export function ThumbnailPicker({ value, onChange, label = "Thumbnail", placehol
               </div>
             </div>
           </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

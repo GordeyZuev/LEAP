@@ -390,7 +390,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                   </p>
                 )}
                 {tab === "url" && previewState === "error" && (
-                  <p className="mt-1.5 text-xs text-red-500">Could not fetch formats — using default options</p>
+                  <p className="mt-1.5 text-xs text-danger-fg">Could not fetch formats — using default options</p>
                 )}
               </div>
               <div>
@@ -524,10 +524,10 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
           )}
 
           {errorMsg && (
-            <p className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">{errorMsg}</p>
+            <p className="text-sm text-danger-fg bg-danger-fg/10 px-3 py-2 rounded-xl">{errorMsg}</p>
           )}
           {successMsg && (
-            <p className="text-sm text-green-600 bg-green-50 dark:bg-green-500/10 px-3 py-2 rounded-xl">{successMsg}</p>
+            <p className="text-sm text-success-fg bg-success-fg/10 px-3 py-2 rounded-xl">{successMsg}</p>
           )}
         </div>
 

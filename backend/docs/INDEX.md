@@ -72,7 +72,7 @@
 
 **Observability**
 
-- [guides/MONITORING.md](guides/MONITORING.md) — Loki/Promtail/Grafana + Prometheus, dashboards, label policy, prod rollout
+- [guides/MONITORING.md](guides/MONITORING.md) — Loki / Prometheus / Grafana, four dashboards, label policy
 - [hidden/ASR_MODELS_DEEP_DIVE.md](hidden/ASR_MODELS_DEEP_DIVE.md) — подробный разбор моделей ASR (черновик / внутренняя заметка)
 
 **Storage & ingestion**

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, X, Plus, Code2, Loader2, Settings2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Check, X, Plus, Code2, Loader2, Pencil, Settings2 } from "lucide-react";
+import { cn, scrollIntoViewWithin } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { TemplateField } from "@/components/platforms/platform-fields";
 
@@ -33,7 +33,6 @@ interface AIContentEditorProps {
   onUpdated: () => void;
   onSeek?: (time: number) => void;
   activeChapterIdx?: number;
-  chapterItemRef?: (index: number, el: HTMLButtonElement | null) => void;
   readOnly?: boolean;
 }
 
@@ -97,55 +96,82 @@ function ChapterItem({
 
   const showEditing = editing && isManaging;
 
-  return (
-    <div
-      onClick={() => onSeek(item.start)}
-      className={cn(
-        "group flex w-full items-center gap-3 rounded-lg px-2 py-1.5 transition-colors cursor-pointer",
-        isActive ? "bg-primary/6" : isManaging ? "hover:bg-muted/30" : "hover:bg-muted/20"
-      )}
-    >
-      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
-
-      {/* Timecode — always seekable */}
-      <button
-        ref={itemRef}
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onSeek(item.start); }}
-        className={cn(
-          "w-11 shrink-0 font-mono text-xs text-left hover:text-primary transition-colors",
-          isActive ? "font-semibold text-primary" : "text-muted-foreground"
-        )}
-      >
-        {formatTimecode(item.start)}
-      </button>
-
-      {/* Topic name — editable only in manage mode */}
-      {showEditing ? (
+  // While editing, the row can't be a button — it holds a text input. Outside
+  // manage mode the whole row is one seek control, so keyboard users get the
+  // same target the pointer affordance advertises.
+  if (showEditing) {
+    return (
+      <div className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5">
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
+        <span
+          className={cn(
+            "w-11 shrink-0 text-left font-mono text-xs",
+            isActive ? "font-semibold text-primary" : "text-muted-foreground"
+          )}
+        >
+          {formatTimecode(item.start)}
+        </span>
         <input
           autoFocus
+          aria-label="Chapter title"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); commit(); }
             if (e.key === "Escape") { setDraft(item.topic); setEditing(false); }
           }}
           onBlur={commit}
           disabled={disabled}
-          className="min-w-0 flex-1 rounded border border-primary bg-card px-1.5 py-0 text-sm outline-none"
+          className="min-w-0 flex-1 rounded border border-input bg-card px-1.5 py-0 text-sm outline-none focus:border-primary"
         />
-      ) : (
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "group flex w-full items-center gap-3 rounded-lg transition-colors",
+        isActive ? "bg-primary/6" : isManaging ? "hover:bg-muted/30" : "hover:bg-muted/20"
+      )}
+    >
+      <button
+        ref={itemRef}
+        type="button"
+        onClick={() => onSeek(item.start)}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      >
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
         <span
           className={cn(
-            "flex-1 truncate text-sm py-0.5",
-            isActive ? "font-medium text-foreground" : "text-secondary-foreground",
-            isManaging && "rounded px-1 cursor-text transition-colors hover:bg-muted/60"
+            "w-11 shrink-0 font-mono text-xs transition-colors group-hover:text-primary",
+            isActive ? "font-semibold text-primary" : "text-muted-foreground"
           )}
-          onClick={isManaging ? (e) => { e.stopPropagation(); setDraft(item.topic); setEditing(true); } : undefined}
+        >
+          {formatTimecode(item.start)}
+        </span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate py-0.5 text-sm",
+            isActive ? "font-medium text-foreground" : "text-secondary-foreground"
+          )}
         >
           {item.topic}
         </span>
+      </button>
+
+      {/* Renaming is a second action on the row, so it needs its own control
+          rather than a click handler nested inside the seek button. */}
+      {isManaging && (
+        <button
+          type="button"
+          onClick={() => { setDraft(item.topic); setEditing(true); }}
+          disabled={disabled}
+          aria-label={`Rename chapter “${item.topic}”`}
+          className="mr-2 shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+        >
+          <Pencil size={12} />
+        </button>
       )}
     </div>
   );
@@ -161,7 +187,6 @@ export function AIContentEditor({
   onUpdated,
   onSeek,
   activeChapterIdx = -1,
-  chapterItemRef,
   readOnly = false,
 }: AIContentEditorProps) {
   // isManaging enables all editing (text + structural controls)
@@ -190,6 +215,16 @@ export function AIContentEditor({
 
   const newTopicRef = useRef<HTMLInputElement>(null);
   const newQuestionRef = useRef<HTMLInputElement>(null);
+  const chaptersRef = useRef<HTMLDivElement>(null);
+  const chapterItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+
+  // Following playback belongs here, not in the pages: this component owns the
+  // chapter scroller, and `scrollIntoView` from outside would scroll the page
+  // itself, dragging the reader back to the list every time a chapter changes.
+  useEffect(() => {
+    if (activeChapterIdx < 0) return;
+    scrollIntoViewWithin(chaptersRef.current, chapterItemRefs.current.get(activeChapterIdx) ?? null);
+  }, [activeChapterIdx]);
 
   const updateTopics = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -204,6 +239,20 @@ export function AIContentEditor({
 
   const isMutating = updateTopics.isPending;
 
+  // `readOnly` is the public share page, which has no session. apiClient's 401
+  // interceptor redirects to /login, so a save that slipped through would throw
+  // an anonymous visitor out of the page they were sent a link to. Every write
+  // goes through here so no future edit can reintroduce that path.
+  const persist = (data: Record<string, unknown>) => {
+    if (readOnly) return;
+    updateTopics.mutate(data);
+  };
+
+  const persistAsync = async (data: Record<string, unknown>) => {
+    if (readOnly) return;
+    await updateTopics.mutateAsync(data);
+  };
+
   // Close all edits when leaving manage mode
   function exitManageMode() {
     setEditingTopicIdx(null);
@@ -215,7 +264,7 @@ export function AIContentEditor({
   // -- topic handlers
   function saveMainTopics(updated: string[]) {
     setMainTopics(updated);
-    updateTopics.mutate({ main_topics: updated });
+    persist({ main_topics: updated });
   }
 
   function commitTopic(i: number) {
@@ -238,7 +287,7 @@ export function AIContentEditor({
   function saveChapterTopic(index: number, topic: string) {
     const updated = topicTimestamps.map((t, i) => (i === index ? { ...t, topic } : t));
     setTopicTimestamps(updated);
-    updateTopics.mutate({ topic_timestamps: updated });
+    persist({ topic_timestamps: updated });
   }
 
   // -- summary handlers
@@ -251,7 +300,7 @@ export function AIContentEditor({
 
   async function saveSummary() {
     try {
-      await updateTopics.mutateAsync({ summary: summaryDraft });
+      await persistAsync({ summary: summaryDraft });
       setSummaryEditing(false);
     } catch {
       // error visible via updateTopics.isError; keep edit open
@@ -264,7 +313,7 @@ export function AIContentEditor({
       const rendered = await renderTemplate(summaryDraft);
       setSummaryDraft(rendered);
       setSummaryIsTemplate(false);
-      await updateTopics.mutateAsync({ summary: rendered });
+      await persistAsync({ summary: rendered });
       setSummaryEditing(false);
     } catch {
       // keep edit open on failure
@@ -276,7 +325,7 @@ export function AIContentEditor({
   // -- question handlers
   function saveQuestions(updated: string[]) {
     setQuestions(updated);
-    updateTopics.mutate({ questions: updated });
+    persist({ questions: updated });
   }
 
   function commitQuestion(i: number) {
@@ -379,7 +428,7 @@ export function AIContentEditor({
                             type="button"
                             onClick={() => saveMainTopics(mainTopics.filter((_, j) => j !== i))}
                             disabled={isMutating}
-                            className="text-muted-foreground/50 hover:text-red-400 transition-colors"
+                            className="text-muted-foreground/50 transition-colors hover:text-danger-fg"
                           >
                             <X size={10} />
                           </button>
@@ -520,7 +569,7 @@ export function AIContentEditor({
       {hasChapters && (
         <div>
           <SectionLabel>Chapters</SectionLabel>
-          <div className="max-h-52 overflow-y-auto">
+          <div ref={chaptersRef} className="max-h-52 overflow-y-auto">
             {topicTimestamps.map((t, i) => (
               <ChapterItem
                 key={`${i}-${isManaging}`}
@@ -530,7 +579,10 @@ export function AIContentEditor({
                 onSeek={onSeek ?? (() => {})}
                 onSave={(topic) => saveChapterTopic(i, topic)}
                 disabled={isMutating}
-                itemRef={chapterItemRef ? (el) => chapterItemRef(i, el) : undefined}
+                itemRef={(el) => {
+                  if (el) chapterItemRefs.current.set(i, el);
+                  else chapterItemRefs.current.delete(i);
+                }}
               />
             ))}
           </div>
@@ -575,7 +627,7 @@ export function AIContentEditor({
                         type="button"
                         onClick={() => saveQuestions(questions.filter((_, j) => j !== i))}
                         disabled={isMutating}
-                        className="mt-0.5 shrink-0 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                        className="mt-0.5 shrink-0 text-muted-foreground/50 transition-colors hover:text-danger-fg"
                       >
                         <X size={12} />
                       </button>

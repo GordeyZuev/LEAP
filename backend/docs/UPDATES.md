@@ -9,6 +9,7 @@
 **Статус:** In Active Development • Beta.
 
 **Ключевые вехи (v0.9.6 → текущий релиз):**
+- 🧹 **v0.10.6.1:** Сетка списка записей выровнена (одна высота карточек, адаптивные колонки), единый бейдж `Failed · Stage`, нормализация `failed_at_stage` (миграция **036**), реорганизация страницы записи (Files выше Pipeline). Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-08-18**).
 - ✏️ **v0.10.6.0:** AI-редактор записи — темы/главы/саммари/вопросы редактируются прямо в браузере; Description-карточка с Jinja-рендером; выбор качества видео при добавлении ссылки; фильтр превышения квот в Admin. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-07-12**).
 - 🎙️ **v0.10.4.1:** AssemblyAI ASR — Fireworks/Whisper заменён на AssemblyAI Universal-2/3-Pro, `/sentences` для сегментов, `keyterms_prompt` вместо `prompt`, `CredentialPlatform.ASSEMBLYAI`, миграция **026**. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-06-14**).
 - 🔧 **v0.10.4:** Stable upload & Fixes — `on_air` / hard pause / idempotent pipeline stages, upload-only и post-pause resume, единые defaults тем/вопросов (UI = preview = upload), Grafana dashboard fixes (миграции **024**, **025**). Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-06-12**).

@@ -20,6 +20,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { Toast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
+import { AdminAuditLog } from "@/components/admin/audit-log";
+import { Toggle } from "@/components/ui/toggle";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
 import { ActionButton } from "@/components/ui/action-button";
 import { Modal } from "@/components/ui/modal";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -143,44 +147,6 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-function Toggle({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string;
-  hint?: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between py-1 gap-4">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-secondary-foreground leading-snug">{label}</p>
-        {hint && <p className="text-xs text-muted-foreground leading-snug">{hint}</p>}
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
-          checked ? "bg-primary" : "bg-muted",
-        )}
-      >
-        <span
-          className={cn(
-            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-            checked ? "translate-x-6" : "translate-x-1",
-          )}
-        />
-      </button>
-    </div>
-  );
-}
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
@@ -443,7 +409,7 @@ function AdminDashboard() {
         )}
 
         {/* ── Plans ─────────────────────────────────────────────────────── */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+        <div className={TABLE_CARD}>
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-foreground">Subscription plans</h2>
             <ActionButton
@@ -467,26 +433,25 @@ function AdminDashboard() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
               <table className="w-full min-w-[700px]">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Plan</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Recordings/mo</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Storage</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Tasks</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Templates</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Credentials</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Users</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wide">Edit</th>
+                    <SortableTh label="Plan" />
+                    <SortableTh label="Recordings/mo" />
+                    <SortableTh label="Storage" />
+                    <SortableTh label="Tasks" />
+                    <SortableTh label="Templates" />
+                    <SortableTh label="Credentials" />
+                    <SortableTh label="Users" />
+                    <SortableTh label="Edit" className="text-right" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border">
+                <tbody className={TABLE_BODY}>
                   {plans.map((plan) => (
                     <tr
                       key={plan.id}
                       onClick={() => setEditingPlan(plan)}
-                      className="cursor-pointer hover:bg-muted/40 transition-colors"
+                      className={cn(TABLE_ROW, "cursor-pointer")}
                     >
                       <td className="px-6 py-3.5">
                         <p className="text-sm font-medium text-foreground">{plan.display_name}</p>
@@ -524,7 +489,6 @@ function AdminDashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
           )}
         </div>
 
@@ -556,7 +520,7 @@ function AdminDashboard() {
             ]}
           />
 
-          <div className="mt-4 bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+          <div className={cn(TABLE_CARD, "mt-4")}>
             {usersQuery.isLoading ? (
               <div className="flex h-40 items-center justify-center">
                 <Loader2 size={20} className="animate-spin text-muted-foreground" />
@@ -564,27 +528,26 @@ function AdminDashboard() {
             ) : users.length === 0 ? (
               <div className="px-6 py-10 text-center text-sm text-muted-foreground">No users found.</div>
             ) : (
-              <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px]">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Email</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Role</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Recordings</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Storage</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Quota</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Last seen</th>
+                      <SortableTh label="Email" />
+                      <SortableTh label="Role" />
+                      <SortableTh label="Status" />
+                      <SortableTh label="Recordings" />
+                      <SortableTh label="Storage" />
+                      <SortableTh label="Quota" />
+                      <SortableTh label="Last seen" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
+                  <tbody className={TABLE_BODY}>
                     {users.map((u) => {
                       const s = statsById.get(u.id);
                       return (
                         <tr
                           key={u.id}
                           onClick={() => setEditingUser(u)}
-                          className="cursor-pointer hover:bg-muted/40 transition-colors"
+                          className={cn(TABLE_ROW, "cursor-pointer")}
                         >
                           <td className="px-6 py-3.5">
                             <p className="text-sm font-medium text-foreground truncate max-w-[220px]">{u.email}</p>
@@ -609,7 +572,6 @@ function AdminDashboard() {
                     })}
                   </tbody>
                 </table>
-              </div>
             )}
           </div>
 
@@ -629,6 +591,8 @@ function AdminDashboard() {
       </div>
 
       {/* Modals */}
+      <AdminAuditLog />
+
       {editingUser && (
         <EditUserModal
           user={editingUser}
@@ -926,18 +890,6 @@ function EditUserModal({
 
             {/* Account */}
             <SectionCard title="Account">
-              <Field label="Role">
-                <NativeSelect value={role} onChange={(e) => setRole(e.target.value)}>
-                  <option value="user">user</option>
-                  <option value="admin">admin</option>
-                </NativeSelect>
-              </Field>
-              <Toggle
-                label="Active"
-                hint="Inactive accounts cannot log in."
-                checked={isActive}
-                onChange={setIsActive}
-              />
               <Toggle
                 label="Email verified"
                 hint="Mark email as verified manually (e.g. for internal accounts)."
@@ -945,6 +897,29 @@ function EditUserModal({
                 onChange={setIsVerified}
               />
             </SectionCard>
+
+            {/* Actions that change who can get in, or with what powers, are kept
+                apart from routine account settings. Both are recorded in the
+                audit log. */}
+            <div className="rounded-2xl border border-red-200 bg-card shadow-sm">
+              <div className="border-b border-red-100 px-6 py-4">
+                <h2 className="text-sm font-semibold text-red-600">Danger zone</h2>
+              </div>
+              <div className="space-y-4 p-6">
+                <Field label="Role" hint="Admins can manage every account and plan on the platform.">
+                  <NativeSelect value={role} onChange={(e) => setRole(e.target.value)}>
+                    <option value="user">user</option>
+                    <option value="admin">admin</option>
+                  </NativeSelect>
+                </Field>
+                <Toggle
+                  label="Active"
+                  hint="Turning this off signs the user out and blocks any further login."
+                  checked={isActive}
+                  onChange={setIsActive}
+                />
+              </div>
+            </div>
 
             {/* Permissions */}
             <SectionCard title="Permissions">

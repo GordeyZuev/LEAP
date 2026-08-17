@@ -45,6 +45,21 @@ def _sort_key(item: object, field: str):
     return (1, value)
 
 
+def filter_by_search(items: list, query: str | None, fields: tuple[str, ...]) -> list:
+    """Case-insensitive substring filter over the given attributes.
+
+    Used by list endpoints that already paginate in memory (`paginate_list`), so
+    the search runs over the full result set rather than a single page.
+    Attributes that are missing or None are skipped.
+    """
+    if not query:
+        return items
+    needle = query.strip().lower()
+    if not needle:
+        return items
+    return [item for item in items if any(needle in str(getattr(item, field, None) or "").lower() for field in fields)]
+
+
 def paginate_list(
     items: list,
     page: int,

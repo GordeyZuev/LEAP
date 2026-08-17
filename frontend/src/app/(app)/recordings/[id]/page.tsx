@@ -6,17 +6,21 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
-  CheckCircle2, XCircle, Clock, Loader2, SkipForward, RotateCcw, Settings2, ChevronDown, ArchiveRestore, FilePlus2,
-  Link2, Unlink, Pencil, VideoOff, Search, Share2,
-  ArrowDownToLine, FileCode, FileText, AlignLeft, FileDown, Check, X, Code2,
+  CheckCircle2, XCircle, Clock, Loader2, RotateCcw, Settings2, ArchiveRestore, FilePlus2,
+  Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2,
 } from "lucide-react";
-import { cn, formatDate, formatDateTimeShort, extractApiError } from "@/lib/utils";
+import { cn, formatDate, formatDateTimeShort, formatDuration, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { CANONICAL_STAGE_ORDER, PipelineStageList, formatFailedStage, normalizeStageType } from "@/components/recordings/pipeline-stages";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
+import { ErrorState } from "@/components/ui/error-state";
+import { CollapsibleCard, SectionCard } from "@/components/ui/section-card";
+import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { ArtefactList, type ArtefactItem } from "@/components/recordings/artefact-list";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { AIContentEditor } from "@/components/recordings/ai-content-editor";
 import { ShareModal } from "@/components/recordings/share-modal";
@@ -174,15 +178,6 @@ interface RecordingConfigResponse {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDuration(seconds: number) {
-  if (!seconds) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
 function formatFileSize(bytes: number) {
   if (bytes > 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
   if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
@@ -203,11 +198,6 @@ function formatStageDuration(startedAt: string | null, completedAt: string | nul
   return `${s}s`;
 }
 
-function formatStageTime(completedAt: string | null): string {
-  if (!completedAt) return "";
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(completedAt));
-}
-
 /** Sidebar/detail template line with optional link to /templates/:id (preset row styling). */
 function renderRecordingTemplateNavValue(opts: {
   isMapped: boolean;
@@ -225,7 +215,7 @@ function renderRecordingTemplateNavValue(opts: {
       <Link
         href={`/templates/${tid}`}
         title={linkText}
-        className="inline-block truncate text-[11px] text-foreground transition-colors hover:text-primary"
+        className="inline-block truncate text-xs text-foreground transition-colors hover:text-primary"
       >
         {linkText}
       </Link>
@@ -239,25 +229,18 @@ function renderRecordingTemplateNavValue(opts: {
 // Pipeline stage helpers
 // ---------------------------------------------------------------------------
 
-const CANONICAL_STAGE_ORDER = ["DOWNLOAD", "TRIM", "TRANSCRIBE", "EXTRACT_TOPICS", "GENERATE_SUBTITLES"] as const;
+/**
+ * Page padding matches every other app page. The width cap is local to this
+ * page: it is the only one carrying long prose (description, summary), and
+ * without it those run the full width of a wide monitor, far past a readable
+ * measure.
+ */
+const PAGE_ROOT = "w-full min-w-0 max-w-[110rem] p-6 sm:p-8";
 
-const STAGE_TYPE_ALIASES: Record<string, string> = {
-  TRANSCRIPTION: "TRANSCRIBE",
-  SUBTITLES: "GENERATE_SUBTITLES",
-};
-
-function normalizeStageType(stageType: string): string {
-  return STAGE_TYPE_ALIASES[stageType] ?? stageType;
-}
-
-const STAGE_META: Record<string, { name: string }> = {
-  DOWNLOAD:           { name: "Download" },
-  TRIM:               { name: "Trim" },
-  TRANSCRIBE:         { name: "Transcription" },
-  EXTRACT_TOPICS:     { name: "Topics" },
-  GENERATE_SUBTITLES: { name: "Subtitles" },
-  UPLOAD:             { name: "Upload" },
-};
+const VIDEO_VARIANT_TABS: TabItem<"processed" | "original">[] = [
+  { value: "processed", label: "Processed" },
+  { value: "original", label: "Original" },
+];
 
 type LifecyclePhase = "pending" | "active" | "done" | "failed" | "skipped";
 
@@ -287,22 +270,6 @@ function deriveIngressLifecycle(recording: RecordingDetail): { phase: LifecycleP
   return { phase: "pending" };
 }
 
-const STAGE_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; dot: string }> = {
-  COMPLETED:   { icon: CheckCircle2, dot: "bg-green-500" },
-  FAILED:      { icon: XCircle,      dot: "bg-red-500" },
-  IN_PROGRESS: { icon: Loader2,      dot: "bg-blue-500" },
-  SKIPPED:     { icon: SkipForward,  dot: "bg-muted" },
-  PENDING:     { icon: Clock,        dot: "bg-muted" },
-};
-
-const ICON_COLOR: Record<string, string> = {
-  COMPLETED:   "text-green-500",
-  FAILED:      "text-red-500",
-  IN_PROGRESS: "text-blue-500",
-  SKIPPED:     "text-muted-foreground",
-  PENDING:     "text-muted-foreground",
-};
-
 const TARGET_LABELS: Record<string, string> = {
   YOUTUBE:     "YouTube",
   VK:          "VK",
@@ -310,50 +277,12 @@ const TARGET_LABELS: Record<string, string> = {
 };
 
 const PLATFORM_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; label: string; color: string }> = {
-  UPLOADED:     { icon: CheckCircle2, label: "Published",    color: "text-green-600" },
-  UPLOADING:    { icon: Loader2,      label: "Publishing…",  color: "text-blue-600" },
-  FAILED:       { icon: XCircle,      label: "Failed",       color: "text-red-600" },
+  UPLOADED:     { icon: CheckCircle2, label: "Published",    color: "text-success-fg" },
+  UPLOADING:    { icon: Loader2,      label: "Publishing…",  color: "text-primary" },
+  FAILED:       { icon: XCircle,      label: "Failed",       color: "text-danger-fg" },
   NOT_UPLOADED: { icon: Clock,        label: "Not uploaded", color: "text-muted-foreground" },
 };
 
-
-// ---------------------------------------------------------------------------
-// PipelineCompactRow — compact, no description line
-// ---------------------------------------------------------------------------
-
-function PipelineCompactRow({ stage }: { stage: ProcessingStage }) {
-  const canon = normalizeStageType(stage.stage_type);
-  const status = stage.failed ? "FAILED" : stage.status.toUpperCase();
-  const cfg = STAGE_STATUS_CONFIG[status] ?? STAGE_STATUS_CONFIG["PENDING"];
-  const Icon = cfg.icon;
-  const name = STAGE_META[canon]?.name ?? stage.stage_type;
-  const dur = formatStageDuration(stage.started_at, stage.completed_at);
-  const time = formatStageTime(stage.completed_at);
-  const isActive = status === "IN_PROGRESS";
-
-  return (
-    <div className="py-1.5">
-      <div className="flex items-center gap-2">
-        <Icon
-          size={13}
-          className={cn(
-            ICON_COLOR[status] ?? "text-muted-foreground",
-            isActive && "animate-spin"
-          )}
-        />
-        <span className="flex-1 text-xs font-medium text-secondary-foreground">{name}</span>
-        {stage.retry_count > 0 && (
-          <span className="text-[10px] text-amber-500">×{stage.retry_count}</span>
-        )}
-        {dur && <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">{dur}</span>}
-      </div>
-      {isActive && <ProgressBar variant="indeterminate" className="ml-[21px] mt-1 h-0.5" />}
-      {time && (
-        <p className="ml-[21px] text-[10px] text-muted-foreground">{time}</p>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // PlatformOutputRow — used inside the Publications sidebar card
@@ -390,18 +319,18 @@ function PlatformOutputRow({
           {output.preset && (
             <Link
               href={`/presets/${output.preset.id}`}
-              className="text-[11px] text-muted-foreground transition-colors hover:text-primary"
+              className="text-xs text-muted-foreground transition-colors hover:text-primary"
             >
               {output.preset.name}
             </Link>
           )}
         </div>
-        <p className={cn("text-[11px]", cfg.color)}>{cfg.label}</p>
+        <p className={cn("text-xs", cfg.color)}>{cfg.label}</p>
         {output.failed_reason && (
-          <p className="break-words text-[11px] text-red-500">{output.failed_reason}</p>
+          <p className="break-words text-xs text-danger-fg">{output.failed_reason}</p>
         )}
         {output.uploaded_at && (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {formatDateTimeShort(output.uploaded_at)}
             {uploadDur && <span className="ml-1 tabular-nums">· {uploadDur}</span>}
           </p>
@@ -413,7 +342,7 @@ function PlatformOutputRow({
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
+            className="flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
           >
             Open <ExternalLink size={10} />
           </a>
@@ -425,7 +354,7 @@ function PlatformOutputRow({
             onClick={() => onUpload(output.target_type)}
             isPending={uploadPending}
             icon={<Upload size={10} />}
-            className="px-2 py-0.5 text-[11px] hover:border-primary hover:bg-primary hover:text-white"
+            className="px-2 py-0.5 text-xs hover:border-primary hover:bg-primary hover:text-white"
           >
             {output.status === "FAILED" ? "Retry" : "Upload"}
           </ActionButton>
@@ -459,7 +388,7 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
   if (loading) {
     return (
       <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-muted">
-        <Loader2 size={20} className="animate-spin text-gray-300" />
+        <Loader2 size={24} className="animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -467,7 +396,7 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
   if (isError || !src) {
     return (
       <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-muted">
-        <VideoOff size={22} className="text-gray-300" />
+        <VideoOff size={22} className="text-muted-foreground" />
         <p className="text-xs text-muted-foreground">{isError ? "Failed to load video" : "Video not available yet"}</p>
         {isError && (
           <button type="button" onClick={() => void refetch()} className="text-xs text-primary hover:underline">
@@ -488,39 +417,6 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
     />
   );
 });
-
-// ---------------------------------------------------------------------------
-// Collapsible card helper
-// ---------------------------------------------------------------------------
-
-function CollapsibleCard({
-  title,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-2xl border border-border bg-card shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between px-5 py-4 text-left"
-      >
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h2>
-        <ChevronDown
-          size={15}
-          className={cn("text-muted-foreground transition-transform duration-200", open && "rotate-180")}
-        />
-      </button>
-      {open && <div className="border-t border-border px-5 pb-5 pt-4">{children}</div>}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -551,7 +447,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [nameDraft, setNameDraft] = useState("");
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
   const [activeChapterIdx, setActiveChapterIdx] = useState(-1);
-  const chapterItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [descCollapsed, setDescCollapsed] = useState(true);
   const [descEditing, setDescEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
@@ -563,7 +458,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     queryFn: async () => (await apiClient.get<RecordingConfigResponse>(`/recordings/${id}/config`)).data,
   });
 
-  const { data: recording, isLoading, error } = useQuery<RecordingDetail>({
+  const { data: recording, isLoading, error, refetch } = useQuery<RecordingDetail>({
     queryKey: ["recording", id],
     queryFn: async () => {
       const res = await apiClient.get<RecordingDetail>(`/recordings/${id}?detailed=true`);
@@ -779,11 +674,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     setActiveChapterIdx(idx);
   }, [topicTimestamps]);
 
-  useEffect(() => {
-    if (activeChapterIdx < 0) return;
-    chapterItemRefs.current[activeChapterIdx]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [activeChapterIdx]);
-
   const hasProcessedVid = !!recording?.videos?.processed?.exists;
   const hasOriginalVid = !!recording?.videos?.original?.exists;
 
@@ -805,16 +695,25 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   if (isLoading) {
     return (
-      <div className="w-full min-w-0 p-6 sm:p-8">
+      <div className={PAGE_ROOT}>
         {/* Header */}
-        <div className="mb-5 flex items-center gap-3">
-          <Skeleton className="h-8 w-8 rounded-lg" />
-          <Skeleton className="h-7 w-64" />
-          <Skeleton className="h-6 w-24 rounded-full" />
+        <div className="mb-5 flex min-h-[2.5rem] items-center gap-3">
+          <Skeleton className="h-8 w-72 max-w-full" />
+          <Skeleton className="h-6 w-24 shrink-0 rounded-full" />
         </div>
-        <div className="flex flex-col gap-6 lg:flex-row">
-          {/* Main column */}
-          <div className="flex-1 space-y-6">
+        {/* Mirrors the real split below, column order included, so nothing
+            jumps when the data lands. */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          <div className="order-first w-full space-y-6 lg:order-none lg:w-80 lg:shrink-0">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="space-y-3 rounded-2xl border border-border bg-card p-5">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-9 w-full rounded-xl" />
+                <Skeleton className="h-9 w-full rounded-xl" />
+              </div>
+            ))}
+          </div>
+          <div className="min-w-0 flex-1 space-y-6">
             <div className="rounded-2xl border border-border bg-card p-5">
               <Skeleton className="aspect-video w-full rounded-xl" />
             </div>
@@ -827,28 +726,32 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               </div>
             </div>
           </div>
-          {/* Sidebar */}
-          <div className="space-y-6 lg:w-80">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="space-y-3 rounded-2xl border border-border bg-card p-5">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-9 w-full rounded-xl" />
-                <Skeleton className="h-9 w-full rounded-xl" />
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     );
   }
 
   if (error || !recording) {
+    // 404/403 means it's gone or belongs to someone else. Anything else is a
+    // transport failure the reader can retry — don't claim it doesn't exist.
+    const status = (error as { response?: { status?: number } } | null)?.response?.status;
+    const missing = status === 404 || status === 403;
     return (
-      <div className="p-8">
-        <p className="text-sm text-red-400">Recording not found</p>
-        <Link href="/recordings" className="mt-2 inline-block text-sm text-primary hover:underline">
-          ← Back to recordings
-        </Link>
+      <div className={PAGE_ROOT}>
+        <ErrorState
+          title={missing ? "Recording not found" : "Unable to load this recording"}
+          description={
+            missing
+              ? "It may have been deleted, or it belongs to another account."
+              : "Check your connection and try again."
+          }
+          onRetry={missing ? undefined : () => void refetch()}
+        />
+        <p className="text-center">
+          <Link href="/recordings" className="text-sm text-primary hover:underline">
+            Back to recordings
+          </Link>
+        </p>
       </div>
     );
   }
@@ -884,11 +787,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   ];
 
   const hasVideoFiles = hasProcessedVid || hasOriginalVid;
-  const showMediaSection =
-    hasVideoFiles ||
-    !!recording.subtitles?.srt?.exists ||
-    !!recording.subtitles?.vtt?.exists ||
-    !!recording.transcription?.exists;
 
   async function downloadArtifact(fileType: string, filename: string) {
     setMediaDownloadError(null);
@@ -910,6 +808,46 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
   const dlStem = `recording-${recording.id}`;
 
+  const artefacts: ArtefactItem[] = [
+    ...(recording.transcription?.exists
+      ? [
+          { type: "transcript_json" as const, onDownload: () => downloadArtifact("transcript_json", `${dlStem}_transcript.json`) },
+          { type: "transcript_txt" as const, onDownload: () => downloadArtifact("transcript_txt", `${dlStem}_transcript.txt`) },
+          { type: "transcript_words" as const, onDownload: () => downloadArtifact("transcript_words", `${dlStem}_words.txt`) },
+        ]
+      : []),
+    ...(recordingConfig?.metadata_config?.title_template || recordingConfig?.metadata_config?.description_template
+      ? [{ type: "description_txt" as const, onDownload: () => downloadArtifact("description_txt", `${dlStem}_description.txt`) }]
+      : []),
+    ...(recording.subtitles?.srt?.exists
+      ? [{ type: "srt" as const, onDownload: () => downloadArtifact("srt", `${dlStem}.srt`) }]
+      : []),
+    ...(recording.subtitles?.vtt?.exists
+      ? [{ type: "vtt" as const, onDownload: () => downloadArtifact("vtt", `${dlStem}.vtt`) }]
+      : []),
+  ];
+
+  // One player node, reused whether or not the variant tabs are shown, so the
+  // two branches can never drift apart. `videoTab` is already resolved to a
+  // variant that exists, and this only renders when a video file is present.
+  const videoPlayerNode = (
+    <div key={`${id}-${videoTab}-wrap`} className="animate-overlay-in">
+      <RecordingVideoPlayer
+        ref={videoRef}
+        key={`${id}-${videoTab}`}
+        recordingId={id}
+        variant={videoTab}
+        vttBlobUrl={vttBlobUrl}
+        markers={
+          videoTab === "processed"
+            ? topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))
+            : []
+        }
+        onTimeUpdate={handleTimeUpdate}
+      />
+    </div>
+  );
+
   const templateDetailNavValue = renderRecordingTemplateNavValue(
     recordingConfig
       ? {
@@ -925,48 +863,51 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   );
 
   return (
-    <div className="w-full min-w-0 p-6 sm:p-8">
+    <div className={PAGE_ROOT}>
       {/* ── Header ── */}
-      <div className="mb-5 flex flex-wrap items-center gap-4">
-        <Link
-          href="/recordings"
-          className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-secondary-foreground"
-        >
-          <ArrowLeft size={16} />
-          Recordings
-        </Link>
-        <span className="text-gray-300">/</span>
+      <Link
+        href="/recordings"
+        className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-secondary-foreground"
+      >
+        <ArrowLeft size={16} />
+        Recordings
+      </Link>
+      <div className="mb-5 flex min-h-[2.5rem] flex-wrap items-center gap-x-3 gap-y-2">
         {nameEditing ? (
           <form
-            className="min-w-0 flex-1 flex items-center gap-2"
+            className="flex min-w-0 flex-1 items-center gap-2"
             onSubmit={(e) => { e.preventDefault(); if (nameDraft.trim()) renameRec.mutate(nameDraft.trim()); }}
           >
             <input
               autoFocus
+              aria-label="Recording name"
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Escape") setNameEditing(false); }}
-              className="flex-1 truncate rounded-lg border border-primary bg-card px-2 py-1 text-lg font-semibold text-foreground outline-none"
+              className="min-w-0 flex-1 rounded-lg border border-input bg-card px-2 py-1 text-2xl font-semibold tracking-tight text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
             />
             <button type="submit" disabled={renameRec.isPending || !nameDraft.trim()} className="text-xs text-primary hover:underline disabled:opacity-40">Save</button>
             <button type="button" onClick={() => setNameEditing(false)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
           </form>
         ) : (
-          <div className="min-w-0 flex-1 flex items-center gap-2 group">
-            <h1 className="min-w-0 truncate text-lg font-semibold text-foreground">
+          <div className="group flex min-w-0 flex-1 items-center gap-2">
+            <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight text-foreground">
               {recording.display_name}
             </h1>
+            {/* Revealed on hover for pointers, but always present where there
+                is no hover — otherwise renaming does not exist on touch. */}
             <button
               type="button"
               onClick={() => { setNameDraft(recording.display_name); setNameEditing(true); }}
-              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-secondary-foreground"
+              className="shrink-0 rounded p-1 text-muted-foreground transition-opacity hover:text-secondary-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100"
               title="Rename"
+              aria-label="Rename recording"
             >
               <Pencil size={14} />
             </button>
           </div>
         )}
-        <StatusBadge status={recording.status} failed={recording.failed} />
+        <StatusBadge status={recording.status} failed={recording.failed} failedStage={formatFailedStage(recording.failed_at_stage)} />
       </div>
       {recording.on_air && (
         <ProgressBar variant="indeterminate" className="mt-2 mb-1" />
@@ -974,116 +915,56 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
       {/* ── Error banners ── */}
       {recording.failed && recording.failed_reason && (
-        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-600">
+        <div role="alert" className="mb-5 rounded-xl border border-danger-fg/40 bg-danger-fg/10 px-4 py-3 text-sm text-danger-fg">
           <span className="font-medium">Error:</span> {recording.failed_reason}
         </div>
       )}
       {uploadError && (
-        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-600">
+        <div role="alert" className="mb-5 rounded-xl border border-danger-fg/40 bg-danger-fg/10 px-4 py-3 text-sm text-danger-fg">
           {uploadError}
         </div>
       )}
 
-      {/* ── 2-column layout ── */}
+      {/* ── 2-column layout ──
+          The sidebar is the control surface, so below `lg` it comes first.
+          Otherwise Run, Pause and Share sit under the video, description,
+          AI-Data and Configuration cards. */}
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
 
         {/* ════ MAIN COLUMN ════ */}
         <div className="min-w-0 flex-1 space-y-6">
 
           {/* Video */}
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Video</h2>
-            </div>
+          <SectionCard title="Video" density="compact">
             {!hasVideoFiles ? (
               <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-muted">
-                <VideoOff size={22} className="text-gray-300" />
+                <VideoOff size={22} className="text-muted-foreground" />
                 <p className="text-xs text-muted-foreground">Video not available yet</p>
               </div>
+            ) : hasProcessedVid && hasOriginalVid ? (
+              <Tabs
+                items={VIDEO_VARIANT_TABS}
+                value={videoTab}
+                onChange={setVideoTabChoice}
+                label="Video source"
+              >
+                {videoPlayerNode}
+              </Tabs>
             ) : (
-              <>
-                {videoTab === "processed" && hasProcessedVid && (
-                  <div key={`${id}-processed-wrap`} className="animate-overlay-in">
-                    <RecordingVideoPlayer
-                      ref={videoRef}
-                      key={`${id}-processed`}
-                      recordingId={id}
-                      variant="processed"
-                      vttBlobUrl={vttBlobUrl}
-                      markers={topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))}
-                      onTimeUpdate={handleTimeUpdate}
-                    />
-                  </div>
-                )}
-                {videoTab === "original" && hasOriginalVid && (
-                  <div key={`${id}-original-wrap`} className="animate-overlay-in">
-                    <RecordingVideoPlayer
-                      ref={videoRef}
-                      key={`${id}-original`}
-                      recordingId={id}
-                      variant="original"
-                      vttBlobUrl={vttBlobUrl}
-                      markers={[]}
-                      onTimeUpdate={handleTimeUpdate}
-                    />
-                  </div>
-                )}
-                {hasProcessedVid && hasOriginalVid && (
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setVideoTabChoice("processed")}
-                      className={cn(
-                        "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
-                        videoTab === "processed"
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-card text-secondary-foreground hover:bg-muted"
-                      )}
-                    >
-                      Processed
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVideoTabChoice("original")}
-                      className={cn(
-                        "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
-                        videoTab === "original"
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-card text-secondary-foreground hover:bg-muted"
-                      )}
-                    >
-                      Original
-                    </button>
-                  </div>
-                )}
-              </>
+              videoPlayerNode
             )}
-          </div>
+          </SectionCard>
 
-          {/* Description */}
+          {/* Description. The subtitle carries only the rendered upload title:
+              falling back to display_name would just repeat the <h1> above. */}
           {(displayDescription || queriedTitle || descriptionLoading) && (
-            <div className="rounded-2xl border border-border bg-card shadow-sm">
-              {/* Header — always visible */}
-              <div className="flex items-center justify-between px-5 py-4">
-                <button
-                  type="button"
-                  onClick={() => setDescCollapsed((v) => !v)}
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                >
-                  <h2 className="shrink-0 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Description
-                  </h2>
-                  {(queriedTitle || recording.display_name) && (
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {queriedTitle || recording.display_name}
-                    </p>
-                  )}
-                  <ChevronDown
-                    size={14}
-                    className={cn("ml-auto shrink-0 text-muted-foreground transition-transform duration-200", !descCollapsed && "rotate-180")}
-                  />
-                </button>
-                {!descCollapsed && !descEditing && !descriptionLoading && (
+            <CollapsibleCard
+              title="Description"
+              subtitle={queriedTitle && queriedTitle !== recording.display_name ? queriedTitle : undefined}
+              open={!descCollapsed}
+              onOpenChange={(open) => setDescCollapsed(!open)}
+              action={
+                !descCollapsed && !descEditing && !descriptionLoading ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -1095,16 +976,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       setDescIsTemplate(raw.includes("{{"));
                       setDescEditing(true);
                     }}
-                    className="ml-3 flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                   >
                     <Pencil size={11} /> Edit
                   </button>
-                )}
-              </div>
-              {/* Collapsible content */}
-              {!descCollapsed && (
-              <div className="border-t border-border px-5 pb-5 pt-4">
-
+                ) : undefined
+              }
+            >
               {descriptionLoading ? (
                 <div className="space-y-2">
                   <div className="h-3 w-3/5 animate-pulse rounded bg-muted" />
@@ -1189,20 +1067,18 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   </div>
                 </div>
               ) : (
-                <div>
-                  <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">
-                    {displayDescription}
-                  </p>
-                </div>
+                <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                  {displayDescription}
+                </p>
               )}
-              </div>
-              )}
-            </div>
+            </CollapsibleCard>
           )}
 
-          {/* Video AI-Data */}
+          {/* Chapters & summary — open by default: the chapter list is the page's
+              most useful control, and the player's chapter-following writes
+              into refs that only exist while this card is expanded. */}
           {showTopics && activeTopicVersion && (
-            <CollapsibleCard title="Video AI-Data" defaultOpen={false}>
+            <CollapsibleCard title="Chapters & summary" defaultOpen>
               <AIContentEditor
                 recordingId={Number(id)}
                 version={activeTopicVersion}
@@ -1216,13 +1092,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   }
                 }}
                 activeChapterIdx={activeChapterIdx}
-                chapterItemRef={(i, el) => { chapterItemRefs.current[i] = el; }}
               />
             </CollapsibleCard>
           )}
 
           {/* Config (collapsible) */}
-          <CollapsibleCard title="Configuration">
+          <CollapsibleCard title="Configuration" defaultOpen={false}>
             {configLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 size={14} className="animate-spin" />
@@ -1255,15 +1130,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   </ActionButton>
                 )}
               </div>
+              {/* Template is not repeated here — it is always visible in the
+                  Details card, which never collapses. */}
               <dl className="space-y-3">
-                <ConfigRow
-                  label="Template"
-                  value={renderRecordingTemplateNavValue({
-                    isMapped: recordingConfig.is_mapped,
-                    templateId: recordingConfig.template_id,
-                    templateName: recordingConfig.template_name,
-                  })}
-                />
                 {recordingConfig.has_manual_override && (
                   <ConfigRow label="Override" value="Manual override active" highlight />
                 )}
@@ -1301,37 +1170,25 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               </dl>
               </>
             )}
-            <dl className="mt-3 space-y-2 border-t border-border pt-3">
-              <SidebarInfoRow label="ID"       value={`#${recording.id}`} />
-              {recording.source?.source_type && (
-                <SidebarInfoRow label="Source"   value={recording.source.source_type} />
-              )}
-              <SidebarInfoRow label="Date"     value={formatDate(recording.start_time)} />
-              {recording.duration > 0 && (
-                <SidebarInfoRow label="Duration" value={formatDuration(recording.duration)} />
-              )}
-              {recording.video_file_size ? (
-                <SidebarInfoRow label="File size" value={formatFileSize(recording.video_file_size)} />
-              ) : null}
-            </dl>
           </CollapsibleCard>
 
         </div>
 
         {/* ════ SIDEBAR ════ */}
-        <div className="w-full space-y-5 lg:w-80 lg:shrink-0">
+        <div className="order-first w-full space-y-6 lg:order-none lg:w-80 lg:shrink-0">
 
           {/* Control Panel */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Control panel</h2>
+          <SectionCard title="Control panel" density="compact">
             {isSoftDeleted ? (
+              // Restoring is this state's primary action, not a "success" —
+              // ActionButton's own primary treatment, no colour override.
               <ActionButton
                 disabled={isActing}
                 isPending={restoreRec.isPending}
                 onClick={() => restoreRec.mutate()}
                 icon={<ArchiveRestore size={15} />}
                 pendingLabel="Restoring…"
-                className="w-full justify-center py-2.5 font-semibold bg-green-600 hover:bg-green-700 disabled:cursor-not-allowed"
+                className="w-full justify-center py-2.5 font-semibold disabled:cursor-not-allowed"
               >
                 Restore
               </ActionButton>
@@ -1392,8 +1249,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   </ActionButton>
                 )}
 
-                {/* Secondary actions */}
-                <div className="grid grid-cols-2 gap-1.5 border-t border-muted pt-3">
+                {/* Secondary actions. One column until the labels fit side by
+                    side — at 320px two columns leave ~75px for the text. */}
+                <div className="grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
@@ -1422,28 +1280,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       Link template
                     </button>
                   )}
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => setResetConfirm(true)}
-                    className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {resetRec.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-                    Reset
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isActing}
-                    onClick={() => setDeleteConfirm(true)}
-                    className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-card px-3 py-2 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Trash2 size={12} />
-                    Delete
-                  </button>
                 </div>
 
                 {/* Share */}
-                <div className="border-t border-muted pt-3">
+                <div>
                   <ActionButton
                     variant="secondary"
                     onClick={() => setShareOpen(true)}
@@ -1458,29 +1298,76 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     {shareToken ? "Manage share" : "Share"}
                   </ActionButton>
                 </div>
+
+                {/* Destructive actions — kept out of the routine grid above so
+                    Delete is not one mis-click away from "Link template". */}
+                <div className="space-y-1.5 border-t border-border pt-3">
+                  <div className="grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-2">
+                    <button
+                      type="button"
+                      disabled={isActing}
+                      onClick={() => setResetConfirm(true)}
+                      className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {resetRec.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                      Reset
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isActing}
+                      onClick={() => setDeleteConfirm(true)}
+                      className="flex items-center gap-1.5 rounded-xl border border-danger-fg/40 bg-card px-3 py-2 text-xs font-medium text-danger-fg transition-colors hover:bg-danger-fg/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
-          </div>
+          </SectionCard>
+
+          {/* Details — the recording's own attributes. Not collapsible: these
+              used to sit at the bottom of the collapsed Configuration card, so
+              nothing about the recording was readable without a click. */}
+          <SectionCard title="Details" density="compact">
+            <dl className="space-y-2">
+              <SidebarInfoRow label="ID"       value={`#${recording.id}`} />
+              <SidebarInfoRow label="Template" value={templateDetailNavValue} />
+              {recording.source?.source_type && (
+                <SidebarInfoRow label="Source"   value={recording.source.source_type} />
+              )}
+              <SidebarInfoRow label="Date"     value={formatDate(recording.start_time)} />
+              {recording.duration > 0 && (
+                <SidebarInfoRow label="Duration" value={formatDuration(recording.duration) ?? "—"} />
+              )}
+              {recording.video_file_size ? (
+                <SidebarInfoRow label="File size" value={formatFileSize(recording.video_file_size)} />
+              ) : null}
+            </dl>
+          </SectionCard>
 
           {/* Publications */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-            <div className="mb-1 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Publications</h2>
-              {recording.upload_summary && recording.upload_summary.total > 0 && (
+          <SectionCard
+            title="Publications"
+            density="compact"
+            action={
+              recording.upload_summary && recording.upload_summary.total > 0 ? (
                 <span className={cn(
-                  "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                  "rounded-full px-2 py-0.5 text-xs font-medium tabular-nums",
                   recording.upload_summary.uploaded === recording.upload_summary.total
-                    ? "bg-green-50 dark:bg-green-500/10 text-green-700"
+                    ? "bg-success-fg/10 text-success-fg"
                     : recording.upload_summary.failed > 0
-                      ? "bg-red-50 dark:bg-red-500/10 text-red-600"
+                      ? "bg-danger-fg/10 text-danger-fg"
                       : "bg-muted text-muted-foreground"
                 )}>
                   {recording.upload_summary.uploaded}/{recording.upload_summary.total}
                 </span>
-              )}
-            </div>
+              ) : undefined
+            }
+          >
             {recording.outputs.length === 0 ? (
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 No platforms configured. Add presets and run the recording.
               </p>
             ) : (
@@ -1496,70 +1383,22 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 ))}
               </div>
             )}
-          </div>
-
-          {/* Pipeline — collapsible, auto-expands when processing is active */}
-          <PipelineCard stages={allPipelineStages} durationSeconds={recording.pipeline_duration_seconds} defaultOpen={recording.on_air} />
+          </SectionCard>
 
           {/* Downloads */}
-          {(showMediaSection || !!(recordingConfig?.metadata_config?.title_template || recordingConfig?.metadata_config?.description_template)) && (
-            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Artefacts</h2>
+          {artefacts.length > 0 && (
+            <SectionCard title="Files" density="compact">
               {mediaDownloadError && (
-                <div className="mb-2 rounded-lg border border-red-100 bg-red-50 dark:bg-red-500/10 px-3 py-2 text-xs text-red-600">
+                <div role="alert" className="mb-2 rounded-lg border border-danger-fg/20 bg-danger-fg/10 px-3 py-2 text-xs text-danger-fg">
                   {mediaDownloadError}
                 </div>
               )}
-              <div className="flex flex-col gap-2">
-                {recording.subtitles?.srt?.exists && (
-                  <button type="button" onClick={() => downloadArtifact("srt", `${dlStem}.srt`)}
-                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-                    <FileText size={13} className="shrink-0" />
-                    <span className="flex-1 text-left">SRT subtitles</span>
-                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                  </button>
-                )}
-                {recording.subtitles?.vtt?.exists && (
-                  <button type="button" onClick={() => downloadArtifact("vtt", `${dlStem}.vtt`)}
-                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-                    <FileText size={13} className="shrink-0" />
-                    <span className="flex-1 text-left">VTT subtitles</span>
-                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                  </button>
-                )}
-                {recording.transcription?.exists && (
-                  <>
-                    <button type="button" onClick={() => downloadArtifact("transcript_json", `${dlStem}_transcript.json`)}
-                      className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-                      <FileCode size={13} className="shrink-0" />
-                      <span className="flex-1 text-left">Transcript JSON</span>
-                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                    </button>
-                    <button type="button" onClick={() => downloadArtifact("transcript_txt", `${dlStem}_transcript.txt`)}
-                      className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-                      <FileText size={13} className="shrink-0" />
-                      <span className="flex-1 text-left">Transcript TXT</span>
-                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                    </button>
-                    <button type="button" onClick={() => downloadArtifact("transcript_words", `${dlStem}_words.txt`)}
-                      className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-                      <AlignLeft size={13} className="shrink-0" />
-                      <span className="flex-1 text-left">Words TXT</span>
-                      <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                    </button>
-                  </>
-                )}
-                {(recordingConfig?.metadata_config?.title_template || recordingConfig?.metadata_config?.description_template) && (
-                  <button type="button" onClick={() => downloadArtifact("description_txt", `${dlStem}_description.txt`)}
-                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary">
-                    <FileDown size={13} className="shrink-0" />
-                    <span className="flex-1 text-left">Description TXT</span>
-                    <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-                  </button>
-                )}
-              </div>
-            </div>
+              <ArtefactList items={artefacts} />
+            </SectionCard>
           )}
+
+          {/* Pipeline — collapsible, auto-expands when processing is active */}
+          <PipelineCard stages={allPipelineStages} durationSeconds={recording.pipeline_duration_seconds} defaultOpen={recording.on_air} />
         </div>
       </div>
 
@@ -1631,7 +1470,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         <div className="p-6">
           <h2 className="mb-4 text-sm font-semibold text-foreground">Bind to template</h2>
           {bindTemplate.isError && (
-            <p className="mb-3 text-xs text-red-500">
+            <p className="mb-3 text-xs text-danger-fg">
               {(bindTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Error"}
             </p>
           )}
@@ -1639,10 +1478,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
+              aria-label="Search templates"
               placeholder="Search templates…"
               value={bindTemplateSearch}
               onChange={(e) => setBindTemplateSearch(e.target.value)}
-              className="w-full rounded-xl border border-border py-2 pl-8 pr-3 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+              className="w-full rounded-xl border border-input bg-card py-2 pl-8 pr-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
             />
           </div>
           <div className="max-h-64 space-y-1.5 overflow-y-auto">
@@ -1702,11 +1542,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   }
                 }}
                 placeholder="Template name"
-                className="w-full rounded-xl border border-border px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+                className="w-full rounded-xl border border-input bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
               />
             </div>
             {createTemplate.isError && (
-              <p className="text-xs text-red-500">
+              <p className="text-xs text-danger-fg">
                 {(createTemplate.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Error"}
               </p>
             )}
@@ -1742,59 +1582,50 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 // ---------------------------------------------------------------------------
 
 function PipelineCard({ stages, durationSeconds, defaultOpen }: { stages: ProcessingStage[]; durationSeconds: number | null; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen ?? false);
   const completed = stages.filter((s) => s.status === "COMPLETED" || s.status === "SKIPPED").length;
   const hasFailed = stages.some((s) => s.failed);
   const total = stages.length;
 
+  // A failed pipeline is the main reason anyone opens this card, and the page
+  // polls every few seconds, so the failure usually lands *after* the first
+  // render. Deriving `open` instead of seeding state means a stage that fails
+  // mid-poll still reveals itself; once the reader toggles the card, their
+  // choice wins.
+  const [userToggled, setUserToggled] = useState<boolean | null>(null);
+  const open = userToggled ?? (defaultOpen || hasFailed);
+
   return (
-    <div className="rounded-2xl border border-border bg-card shadow-sm">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-      >
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pipeline</h2>
-        <div className="flex items-center gap-2">
+    <CollapsibleCard
+      title="Pipeline"
+      open={open}
+      onOpenChange={setUserToggled}
+      badge={
+        <>
           {total > 0 && (
             <span className={cn(
-              "rounded-full px-2 py-0.5 text-[10px] font-medium",
-              hasFailed ? "bg-red-50 dark:bg-red-500/10 text-red-600" : completed === total ? "bg-green-50 dark:bg-green-500/10 text-green-700" : "bg-muted text-muted-foreground"
+              "rounded-full px-2 py-0.5 text-xs font-medium tabular-nums",
+              hasFailed ? "bg-danger-fg/10 text-danger-fg" : completed === total ? "bg-success-fg/10 text-success-fg" : "bg-muted text-muted-foreground"
             )}>
               {completed}/{total}
             </span>
           )}
           {durationSeconds != null && durationSeconds > 0 && (
-            <span className="text-[10px] text-muted-foreground">~{Math.round(durationSeconds)}s</span>
+            <span className="text-xs tabular-nums text-muted-foreground">~{Math.round(durationSeconds)}s</span>
           )}
-          <ChevronDown size={14} className={cn("text-muted-foreground transition-transform duration-200", open && "rotate-180")} />
-        </div>
-      </button>
-      {open && (
-        <div className="border-t border-border px-4 pb-3 pt-1">
-          {stages.length === 0 ? (
-            <p className="py-2 text-xs text-muted-foreground">No data</p>
-          ) : (
-            <div className="divide-y divide-muted">
-              {stages.map((s) => {
-                const canon = normalizeStageType(s.stage_type);
-                return <PipelineCompactRow key={canon} stage={s} />;
-              })}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+        </>
+      }
+    >
+      <PipelineStageList stages={stages} />
+    </CollapsibleCard>
   );
 }
 
 function SidebarInfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex justify-between gap-2">
-      <dt className="shrink-0 text-[11px] text-muted-foreground">{label}</dt>
+      <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
       <dd
-        className="min-w-0 truncate text-right text-[11px] font-medium text-foreground"
+        className="min-w-0 truncate text-right text-xs font-medium text-foreground"
         title={typeof value === "string" ? value : undefined}
       >
         {value}
@@ -1820,7 +1651,7 @@ function ConfigRow({
       <dd
         className={cn(
           "min-w-0 max-w-[70%] text-right text-sm",
-          highlight ? "font-medium text-amber-600" : "text-foreground",
+          highlight ? "font-medium text-warning-fg" : "text-foreground",
           mono && "font-mono text-xs"
         )}
       >

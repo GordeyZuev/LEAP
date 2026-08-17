@@ -1,25 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Pencil, Trash2, X, Database } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Modal } from "@/components/ui/modal";
+import { Toggle } from "@/components/ui/toggle";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { CardGridSkeleton } from "@/components/ui/list-skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { useDebounce } from "@/hooks/use-debounce";
+import { useUrlListState } from "@/hooks/use-url-list-state";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
 import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
-import { DEBOUNCE_SEARCH, TOAST_SHORT } from "@/lib/constants";
+import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
+import { Pagination } from "@/components/ui/pagination";
+import { ResultCount } from "@/components/ui/result-count";
+import { PER_PAGE_SOURCES, TOAST_SHORT } from "@/lib/constants";
 
 type SourceType = "ZOOM" | "YANDEX_DISK" | "VIDEO_URL";
 
@@ -37,6 +42,9 @@ interface SourceItem {
 interface SourceListResponse {
   items: SourceItem[];
   total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
 }
 
 interface CredentialItem {
@@ -96,22 +104,20 @@ const SOURCE_TYPE_COLORS: Record<string, string> = {
 const SORT_OPTIONS = [
   { value: "name",         label: "Name" },
   { value: "last_sync_at", label: "Last sync" },
+  { value: "created_at",   label: "Created" },
 ];
 
-type SortField = "name" | "last_sync_at";
+const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
+
+/** Filter options come from the known types, not from the loaded page — with
+ *  server-side paging the page no longer contains every type in use. */
+const TYPE_OPTIONS = (["ZOOM", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] as const).map((t) => ({
+  value: t as string,
+  label: SOURCE_TYPE_LABELS[t],
+}));
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
-
-function sortSources(items: SourceItem[], sortBy: SortField, sortOrder: "asc" | "desc"): SourceItem[] {
-  return [...items].sort((a, b) => {
-    const cmp =
-      sortBy === "name"
-        ? a.name.localeCompare(b.name)
-        : (a.last_sync_at ?? "").localeCompare(b.last_sync_at ?? "");
-    return sortOrder === "asc" ? cmp : -cmp;
-  });
 }
 
 function buildSourceBody(form: SourceForm) {
@@ -148,6 +154,7 @@ function buildSourceBody(form: SourceForm) {
 
 export default function SourcesPage() {
   const qc = useQueryClient();
+  const sourceModalTitleId = useId();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<SourceItem | null>(null);
   const [form, setForm] = useState<SourceForm>({ ...DEFAULT_FORM });
@@ -155,20 +162,36 @@ export default function SourcesPage() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const { toast, show: showToast, dismiss: dismissToast } = useToast(TOAST_SHORT);
 
-  // Filters (client-side — this list isn't paginated)
-  const [searchInput, setSearchInput] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<SortField>("name");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
+  // Filters live in the URL so a filtered view is shareable and survives reload.
+  const list = useUrlListState({
+    defaultSortBy: "name",
+    defaultSortOrder: "asc",
+    allowedSortFields: SORT_ALLOWED,
+  });
+  const typeFilter = list.getAllParams("platform");
 
   const { data, isLoading, error, refetch } = useQuery<SourceListResponse>({
-    queryKey: ["sources"],
+    queryKey: ["sources", list.urlKey],
     queryFn: async () => {
-      const res = await apiClient.get<SourceListResponse>("/sources?per_page=50");
+      const p = new URLSearchParams();
+      if (list.search) p.set("search", list.search);
+      typeFilter.forEach((t) => p.append("platform", t));
+      p.set("sort_by", list.sortBy);
+      p.set("sort_order", list.sortOrder);
+      p.set("page", String(list.page));
+      p.set("per_page", String(PER_PAGE_SOURCES));
+      const res = await apiClient.get<SourceListResponse>(`/sources?${p.toString()}`);
       return res.data;
     },
   });
+
+  // "Sync all" must mean every active source, not just the visible page.
+  const { data: activeSources } = useQuery<SourceListResponse>({
+    queryKey: ["sources-active"],
+    queryFn: async () =>
+      (await apiClient.get<SourceListResponse>("/sources?active_only=true&per_page=100")).data,
+  });
+  const activeSourceIds = (activeSources?.items ?? []).map((s) => s.id);
 
   const { data: credsData } = useQuery<{ items: CredentialItem[] }>({
     queryKey: ["credentials-list"],
@@ -185,6 +208,7 @@ export default function SourcesPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sources"] });
+      qc.invalidateQueries({ queryKey: ["sources-active"] });
       qc.invalidateQueries({ queryKey: ["sources-list"] });
       setModalOpen(false);
       setEditingSource(null);
@@ -203,15 +227,16 @@ export default function SourcesPage() {
   });
 
   const bulkSync = useMutation({
-    mutationFn: () =>
-      apiClient.post("/sources/bulk/sync", { source_ids: sources.filter((s) => s.is_active).map((s) => s.id) }),
+    mutationFn: () => apiClient.post("/sources/bulk/sync", { source_ids: activeSourceIds }),
     onSuccess: () => showToast("success", "Sync started for all active sources"),
+    onError: (e) => showToast("error", extractApiError(e, "Failed to start sync")),
   });
 
   const deleteSource = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/sources/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["sources"] });
+      qc.invalidateQueries({ queryKey: ["sources-active"] });
       qc.invalidateQueries({ queryKey: ["sources-list"] });
     },
   });
@@ -257,31 +282,24 @@ export default function SourcesPage() {
     return false;
   });
 
-  // React Compiler memoizes these plain derivations automatically.
+  // Filtering, sorting and paging are done by the API — the page just renders.
   const sources = data?.items ?? [];
-  const typeOptions = [...new Set(sources.map((s) => s.source_type))].map((t) => ({
-    value: t,
-    label: SOURCE_TYPE_LABELS[t] ?? t,
-  }));
-  const hasActiveFilters = !!debouncedSearch || typeFilter.length > 0 || sortBy !== "name" || sortOrder !== "asc";
-  function resetFilters() {
-    setSearchInput("");
-    setTypeFilter([]);
-    setSortBy("name");
-    setSortOrder("asc");
-  }
-  const visibleSources = sortSources(
-    sources.filter((s) => {
-      if (debouncedSearch) {
-        const q = debouncedSearch.toLowerCase();
-        if (!s.name.toLowerCase().includes(q) && !(s.description ?? "").toLowerCase().includes(q)) return false;
-      }
-      if (typeFilter.length > 0 && !typeFilter.includes(s.source_type)) return false;
-      return true;
-    }),
-    sortBy,
-    sortOrder,
-  );
+  const hasAnySource = (activeSources?.total ?? 0) > 0 || sources.length > 0 || list.hasActiveFilters;
+
+  const chips: FilterChipItem[] = [
+    ...(list.search
+      ? [{
+          key: "search",
+          label: `Search: "${list.search}"`,
+          onRemove: () => { list.setSearchInput(""); list.setParam("search", null); },
+        }]
+      : []),
+    ...typeFilter.map((t) => ({
+      key: `platform:${t}`,
+      label: SOURCE_TYPE_LABELS[t] ?? t,
+      onRemove: () => list.setMultiParam("platform", typeFilter.filter((x) => x !== t)),
+    })),
+  ];
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -289,11 +307,10 @@ export default function SourcesPage() {
         title="Input Sources"
         actions={
           <>
-            {sources.length > 0 && (
+            {activeSourceIds.length > 0 && (
               <ActionButton
                 variant="secondary"
                 isPending={bulkSync.isPending}
-                disabled={sources.filter((s) => s.is_active).length === 0}
                 onClick={() => bulkSync.mutate()}
                 icon={<RefreshCw size={14} />}
                 pendingLabel="Syncing…"
@@ -309,13 +326,13 @@ export default function SourcesPage() {
       />
 
       {/* Filters — only meaningful once there are sources */}
-      {sources.length > 0 && (
+      {hasAnySource && (
         <FilterBar
           search={
             <SearchInput
               id="sources-search"
-              value={searchInput}
-              onChange={setSearchInput}
+              value={list.searchInput}
+              onChange={list.setSearchInput}
               placeholder="By name or description…"
             />
           }
@@ -325,44 +342,57 @@ export default function SourcesPage() {
               label="Type"
               emptySummary="All types"
               value={typeFilter}
-              options={typeOptions}
-              onChange={setTypeFilter}
+              options={TYPE_OPTIONS}
+              onChange={(next) => list.setMultiParam("platform", next)}
             />,
           ]}
           sort={
             <SortControl
-              value={sortBy}
-              order={sortOrder}
+              value={list.sortBy}
+              order={list.sortOrder}
               options={SORT_OPTIONS}
-              onChange={(f) => setSortBy(f as SortField)}
-              onToggleOrder={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+              onChange={list.setSort}
+              onToggleOrder={list.toggleSortOrder}
             />
           }
-          onClearAll={hasActiveFilters ? resetFilters : undefined}
+          onClearAll={list.hasActiveFilters || list.hasNonDefaultSort ? list.resetAll : undefined}
+          chips={<FilterChips chips={chips} />}
         />
       )}
+
+      <ResultCount total={data?.total} itemLabel="source" filtered={list.hasActiveFilters} />
 
       {isLoading && <CardGridSkeleton count={3} />}
       {error && <ErrorState description="Failed to load sources" onRetry={() => refetch()} />}
       {!isLoading && !error && sources.length === 0 && (
-        <EmptyState
-          icon={Database}
-          title="No sources yet"
-          description="Sources pull recordings in automatically (Zoom, Yandex Disk, and more). Add one to start ingesting."
-          action={
-            <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
-              Add source
-            </ActionButton>
-          }
-        />
-      )}
-      {!isLoading && !error && sources.length > 0 && visibleSources.length === 0 && (
-        <EmptyState icon={Database} title="No sources match your filters" description="Try adjusting or clearing the filters above." />
+        list.hasActiveFilters ? (
+          <EmptyState
+            icon={Database}
+            title="No sources match your filters"
+            description="Try adjusting or clearing the filters above."
+            action={
+              <ActionButton variant="secondary" onClick={list.resetAll}>
+                Reset filters
+              </ActionButton>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={Database}
+            title="No sources yet"
+            description="Sources pull recordings in automatically (Zoom, Yandex Disk, and more). Add one to start ingesting."
+            action={
+              <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
+                Add source
+              </ActionButton>
+            }
+          />
+        )
       )}
 
-      {!isLoading && !error && visibleSources.length > 0 && (
+      {!isLoading && !error && sources.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {visibleSources.map((s, index) => (
+          {sources.map((s, index) => (
             <div key={s.id} className="bg-card rounded-2xl border border-border shadow-sm p-5 flex flex-col gap-3 animate-card-in" style={{ animationDelay: `${index * 30}ms` }}>
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-semibold text-foreground flex-1">{s.name}</span>
@@ -402,13 +432,28 @@ export default function SourcesPage() {
         </div>
       )}
 
+      {data && (
+        <Pagination
+          page={list.page}
+          totalPages={data.total_pages}
+          total={data.total}
+          perPage={PER_PAGE_SOURCES}
+          onPageChange={list.setPage}
+          itemLabel="source"
+        />
+      )}
+
       {/* Add/Edit modal */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-card rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        labelledBy={sourceModalTitleId}
+        panelClassName="max-w-md max-h-[90vh] overflow-y-auto"
+      >
+          <div>
             <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
-              <h2 className="text-base font-semibold text-foreground">{editingSource ? "Edit source" : "Add source"}</h2>
-              <button onClick={() => setModalOpen(false)} className="p-1.5 rounded-lg hover:bg-muted"><X size={16} /></button>
+              <h2 id={sourceModalTitleId} className="text-base font-semibold text-foreground">{editingSource ? "Edit source" : "Add source"}</h2>
+              <button type="button" onClick={() => setModalOpen(false)} aria-label="Close dialog" className="p-1.5 rounded-lg hover:bg-muted"><X size={16} /></button>
             </div>
             <div className="px-6 py-5 space-y-4">
               <MF label="Name *">
@@ -497,8 +542,7 @@ export default function SourcesPage() {
               </ActionButton>
             </div>
           </div>
-        </div>
-      )}
+      </Modal>
 
       <ConfirmDialog
         open={deleteId !== null}
@@ -525,16 +569,5 @@ function MF({ label, hint, children }: { label: string; hint?: string; children:
       {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
       {children}
     </div>
-  );
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex items-center justify-between py-2 cursor-pointer">
-      <span className="text-sm font-medium text-secondary-foreground">{label}</span>
-      <button type="button" onClick={() => onChange(!checked)} className={cn("relative inline-flex h-6 w-11 items-center rounded-full transition-colors", checked ? "bg-primary" : "bg-muted")}>
-        <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform", checked ? "translate-x-6" : "translate-x-1")} />
-      </button>
-    </label>
   );
 }

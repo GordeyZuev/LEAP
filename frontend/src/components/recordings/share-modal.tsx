@@ -133,7 +133,7 @@ export function ShareModal({
                   pendingLabel="Revoking…"
                   icon={<Trash2 size={13} />}
                   onClick={() => setRevokeConfirm(true)}
-                  className="w-full justify-center border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                  className="w-full justify-center border-danger-fg/65 text-danger-fg hover:bg-danger-fg/10"
                 >
                   Revoke link
                 </ActionButton>

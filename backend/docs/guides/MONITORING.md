@@ -1,334 +1,184 @@
 # Monitoring & Observability
 
-This is the canonical runbook for the LEAP observability stack:
+Canonical runbook for the LEAP observability stack on the production VM.
 
-- **Logs** — Loguru (structured JSON) → Promtail → Loki → Grafana
-- **Metrics** — FastAPI + Celery → Prometheus → Grafana
-- **Dashboards** — `monitoring/dashboards/leap_*.json` (auto-provisioned)
-- **Public surface** — `https://${DOMAIN}/grafana` (basic auth) and
-  `https://${DOMAIN}/prometheus` (basic auth)
+- **Logs** — Loguru JSON → Promtail → Loki → Grafana
+- **Metrics** — FastAPI `/metrics` + celery-exporter → Prometheus → Grafana
+- **Business numbers** — Postgres role `grafana_ro` (Overview, stuck recordings)
+- **Public surface** — `https://${DOMAIN}/grafana` and `/prometheus` (nginx basic auth)
+
+Wiring lives in `docker-compose.yml` and `monitoring/`. Grafana reloads
+dashboards from `monitoring/dashboards/` every 30s. CI recreates
+`prometheus`, `promtail`, and `grafana` on each deploy so JSON/config
+changes land without a manual step.
 
 ## Architecture
 
 ```
-┌──────────────┐    JSON file       ┌──────────┐    push        ┌──────┐
-│  api / celery│ ──structured.json──│ promtail │ ─────────────► │ loki │
-└──────────────┘                    └──────────┘                └──────┘
-       │                                                            ▲
-       │ /metrics                                                   │ query
-       ▼                                                            │
-┌──────────────┐    scrape          ┌────────────┐    query   ┌─────────┐
-│  api:8000    │ ─────────────────► │ prometheus │ ─────────► │ grafana │
-└──────────────┘                    └────────────┘            └─────────┘
-                                          ▲
-                  Redis events            │ scrape
+┌──────────────┐    structured.json  ┌──────────┐    push     ┌──────┐
+│  api / celery│ ───────────────────►│ promtail │ ──────────► │ loki │
+└──────────────┘                     └──────────┘             └──────┘
+       │ /metrics                                              ▲
+       ▼                                                       │
+┌──────────────┐    scrape           ┌────────────┐   query  ┌─────────┐
+│  api:8000    │ ──────────────────► │ prometheus │ ───────► │ grafana │
+└──────────────┘                     └────────────┘          └─────────┘
+                                           ▲
+                  Redis events             │
 ┌──────────────┐  ──────────────► ┌──────────────────┐
-│   celery     │                   │ celery_exporter  │
-└──────────────┘                   └──────────────────┘
+│   celery     │                  │ celery_exporter  │
+└──────────────┘                  └──────────────────┘
+                                           ▲
+Postgres (grafana_ro) ─────────────────────┘
 ```
 
-All wiring lives in `docker-compose.yml` and `monitoring/`. Both datasources
-are auto-provisioned by Grafana on startup; dashboards are picked up from
-`monitoring/dashboards/` and reload every 30s.
+`PROMETHEUS_MULTIPROC_DIR` is a shared tmpfs. API and Celery workers write
+histogram files there; `/metrics` on the API process aggregates them. Pipeline
+stage duration is visible in Prometheus.
 
-## What gets logged
+Loki chunks live in Object Storage (90 days). Prometheus TSDB is local (30 days).
+A dashboard window wider than 30 days is empty by design.
 
-### HTTP access log (`api.middleware.logging.LoggingMiddleware`)
+## Logs
 
-One INFO event per request with structured fields:
+HTTP (`api.middleware.logging.LoggingMiddleware`): one event per request.
+Skipped: `/api/v1/health/*`, `/metrics`. `user_id` is the first 8 characters.
+`X-Request-ID` is echoed so a client can correlate edge → API.
 
-| Field         | Source                          | Example                             |
-| ------------- | ------------------------------- | ----------------------------------- |
-| `request_id`  | `X-Request-ID` header or uuid4  | `a8f1...`                           |
-| `method`      | HTTP verb                       | `GET`                               |
-| `path`        | Raw URL path                    | `/api/v1/recordings/42`             |
-| `route`       | FastAPI route template          | `/api/v1/recordings/{id}`           |
-| `status_code` | Response status                 | `200`                               |
-| `duration_ms` | Wall-clock                      | `12.3`                              |
-| `user_id`     | First 8 chars of authed user id | `01KFHA26`                          |
-| `client_ip`   | Trusted `X-Forwarded-For`       | `203.0.113.5`                       |
-| `bytes_sent`  | `Content-Length` header         | `1842`                              |
+Celery (`api.celery_app` signals):
 
-`/api/v1/health` and `/metrics` are excluded to keep the signal clean.
-The middleware also echoes `X-Request-ID` back so a client trace spans
-edge → backend.
+| Signal         | Level     | Notes                                      |
+| -------------- | --------- | ------------------------------------------ |
+| `task_prerun`  | DEBUG     | Not shipped (JSON sink is INFO)            |
+| `task_postrun` | INFO/WARN | `duration_ms`, final `task_state`          |
+| `task_retry`   | WARNING   |                                            |
+| `task_failure` | ERROR     | `exception_class` + traceback              |
 
-### Celery task lifecycle (`api.celery_app` signals)
+Human-readable files (`app.log`, `celery-*.log`) stay on the VM for SSH.
+Only `structured.json` is shipped to Loki.
 
-| Signal         | Level     | Fields added                                          |
-| -------------- | --------- | ----------------------------------------------------- |
-| `task_prerun`  | DEBUG     | `task_id`, `task_name`, `queue`, `task_state=STARTED` |
-| `task_postrun` | INFO/WARN | + `duration_ms`, final `task_state`                   |
-| `task_retry`   | WARNING   | + `task_state=RETRY`                                  |
-| `task_failure` | ERROR     | + `exception_class`, exception traceback              |
+## Loki labels
 
-## Label policy (Loki)
+Promtail promotes only low-cardinality fields
+(`monitoring/promtail.yml`):
 
-Streams are cheap; **labels are not**. Promtail promotes only **low-cardinality**
-fields to labels (`monitoring/promtail.yml`):
+`level, module, queue, method, route, status_code, task_name, task_state, platform, exception_class`
 
-> `level, module, queue, method, route, status_code, task_name, task_state, platform, exception_class`
-
-High-cardinality fields (`request_id`, `task_id`, `recording_id`, `user_id`,
-`duration_ms`) stay in the log body and are queried with `| json` in LogQL.
-After `| json`, Loki flattens loguru's nested structure with underscore
-separators, so the original `record.extra.request_id` becomes the extracted
-key `record_extra_request_id`:
+High-cardinality fields stay in the body. After `| json` they appear as
+`record_extra_*` (loguru nests them under `record.extra`):
 
 ```logql
 {app="leap"} | json | record_extra_request_id = "a8f1c3..."
 {app="leap", task_state="FAILURE"} | json | record_extra_recording_id = "42"
-```
-
-Putting these in labels would create one stream per unique value — at our
-RPS that explodes the Loki index within hours.
-
-## Metrics namespace
-
-### FastAPI (`prometheus-fastapi-instrumentator`)
-
-Exposed at `http://api:8000/metrics`, prefix `leap_http_*`:
-
-| Metric                                       | Type      | Labels                       |
-| -------------------------------------------- | --------- | ---------------------------- |
-| `leap_http_requests_total`                   | counter   | `method, handler, status`    |
-| `leap_http_request_duration_seconds_bucket`  | histogram | `method, handler` (+ `le`)   |
-| `leap_http_request_size_bytes_*`             | summary   | `method, handler`            |
-| `leap_http_response_size_bytes_*`            | summary   | `method, handler`            |
-| `leap_http_requests_inprogress`              | gauge     | `method, handler`            |
-
-`handler` is always the **route template** (`/api/v1/recordings/{id}`) —
-cardinality stays bounded regardless of traffic.
-
-### Celery (`danihodovic/celery-exporter`)
-
-Exposed at `http://celery_exporter:9808/metrics`. **Workers must emit Celery
-events** — set `worker_send_task_events=True` and `task_send_sent_event=True`
-in `celery_app.conf` (and/or start workers with `-E`). Without events every
-`celery_*` panel stays empty.
-
-| Metric                              | Type      | Labels                |
-| ----------------------------------- | --------- | --------------------- |
-| `celery_queue_length`               | gauge     | `queue_name`          |
-| `celery_task_sent_total`            | counter   | `name, queue_name`    |
-| `celery_task_received_total`        | counter   | `name`                |
-| `celery_task_started_total`         | counter   | `name`                |
-| `celery_task_succeeded_total`       | counter   | `name`                |
-| `celery_task_failed_total`          | counter   | `name, exception`     |
-| `celery_task_retried_total`         | counter   | `name`                |
-| `celery_task_runtime_bucket`        | histogram | `name` (+ `le`)       |
-| `celery_worker_up`                  | gauge     | `hostname`            |
-
-### Custom LEAP metrics (`backend/api/observability/metrics.py`)
-
-Exposed on the same `http://api:8000/metrics` endpoint:
-
-| Metric                                          | Type      | Labels                                  |
-| ----------------------------------------------- | --------- | --------------------------------------- |
-| `leap_pipeline_stage_duration_seconds_bucket`   | histogram | `stage, platform, status` (+ `le`)      |
-| `leap_external_api_duration_seconds_bucket`     | histogram | `provider, endpoint, status` (+ `le`)   |
-| `leap_queue_oldest_task_age_seconds`            | gauge     | `queue`                                 |
-
-- `stage` ∈ {`download`, `trim`, `transcribe`, `extract_topics`,
-  `generate_subtitles`, `upload`}.
-- `status` ∈ {`success`, `failure`} — recorded by the
-  `track_pipeline_stage` / `track_external_api` context managers in
-  `api.observability.metrics`.
-- `leap_queue_oldest_task_age_seconds` is implemented as a lazy collector
-  that reads a Redis sorted set (`leap:enq:<queue>`) on every scrape. The
-  set is populated by the `before_task_publish` signal in `celery_app.py`
-  and cleaned by `task_prerun`.
-
-**Pipeline stage histogram caveat:** `track_pipeline_stage()` runs inside
-Celery workers, but Prometheus only scrapes the API process (`api:8000`).
-Those worker-local counters are **not** visible to Grafana today. The
-**LEAP Pipeline** dashboard reads stage duration / failure rate from the
-Postgres `stage_timings` table instead (migration **025** grants
-`grafana_ro` SELECT on it).
-
-### Health endpoints (`backend/api/routers/health.py`)
-
-| Endpoint                  | Purpose                                                 |
-| ------------------------- | ------------------------------------------------------- |
-| `GET /api/v1/health/live` | Process is alive. No external calls. Docker probe.      |
-| `GET /api/v1/health/ready`| DB + Redis + storage backend reachable. LB / Grafana.   |
-
-`/ready` returns `503` with a JSON body
-`{ready: false, checks: {db: "ok", redis: "fail", storage: "ok"}}` when any
-dependency probe fails. The storage check (S3 `head_bucket`) is cached for
-60 s so per-scrape readiness probes don't hammer the bucket.
-
-## Useful queries
-
-### LogQL
-
-```logql
-# Errors only
 {app="leap", level=~"ERROR|CRITICAL"}
-
-# All requests for a specific user (last 1h)
-{app="leap", module="http.access"} | json | record_extra_user_id = "01KFHA26"
-
-# Tail a single recording across the whole pipeline
-{app="leap"} | json | record_extra_recording_id = "42"
-
-# Failed Celery tasks with their exception class
-{app="leap", task_state="FAILURE", exception_class="ValueError"}
-
-# Distinct recordings with ERROR logs (LEAP Errors dashboard)
-count(count by (record_extra_recording_id) (
-  count_over_time({app="leap", level=~"ERROR|CRITICAL"} | json | record_extra_recording_id != "" [1h])
-))
-
-# Top recordings by error count
-topk(10, sum by (record_extra_recording_id) (
-  count_over_time({app="leap", level=~"ERROR|CRITICAL"} | json | record_extra_recording_id != "" [1h])
-))
 ```
 
-### PromQL
+Do not add `request_id` / `recording_id` / `user_id` as labels.
 
-```promql
-# RPS by route, top 10
-topk(10, sum by (handler) (rate(leap_http_requests_total[5m])))
+## Metrics
 
-# 5xx error rate as percentage
-100 * sum(rate(leap_http_requests_total{status=~"5.."}[5m]))
-  / sum(rate(leap_http_requests_total[5m]))
+### FastAPI (`leap_http_*` at `api:8000/metrics`)
 
-# API latency p95
-histogram_quantile(0.95,
-  sum by (handler, le) (rate(leap_http_request_duration_seconds_bucket[5m])))
+`handler` is the route template (`/api/v1/recordings/{id}`), not the raw path.
 
-# Celery queue depth
-celery_queue_length
+| Metric                                      | Labels                    |
+| ------------------------------------------- | ------------------------- |
+| `leap_http_requests_total`                  | `method, handler, status` |
+| `leap_http_request_duration_seconds_bucket` | `method, handler`         |
+| `leap_http_requests_inprogress`             | `method, handler`         |
 
-# Task failure rate
-sum(rate(celery_task_failed_total[5m])) by (name)
-```
+### Celery (`celery_exporter:9808`)
 
-## Environment variables
+Workers must emit events (`worker_send_task_events=True`, started with `-E`).
 
-| Variable                            | Default                          | Purpose                                        |
-| ----------------------------------- | -------------------------------- | ---------------------------------------------- |
-| `JSON_LOG_FILE`                     | `/app/logs/structured.json`      | Loguru JSON sink (Promtail tails this)         |
-| `LOG_FILE`                          | `/app/logs/app.log`              | Plain-text file sink (human ops, not shipped)  |
-| `ERROR_LOG_FILE`                    | `/app/logs/error.log`            | Plain-text error-only sink                     |
-| `LOG_LEVEL`                         | `INFO`                           | Loguru console level                           |
-| `MONITORING_PROMETHEUS_ENABLED`     | `true`                           | Mount `/metrics` endpoint                      |
-| `LOKI_S3_BUCKET`                    | —                                | Yandex Object Storage bucket for Loki chunks   |
-| `LOKI_S3_ACCESS_KEY_ID`             | —                                | Service-account static access key id           |
-| `LOKI_S3_SECRET_ACCESS_KEY`         | —                                | Service-account static secret                  |
-| `GRAFANA_RO_PASSWORD`               | `rotate-me-immediately`          | PG password for `grafana_ro` read-only role    |
+Useful series: `celery_queue_length`, `celery_task_*_total`,
+`celery_task_runtime_bucket`, `celery_worker_up`.
 
-All four are wired into `api`, `celery_worker`, `celery_beat` in
-`docker-compose.yml` with `${VAR:-default}` so production `.env` can override
-without redeploying.
+### Custom (`api.observability.metrics`)
+
+| Metric                                        | Notes                                                                 |
+| --------------------------------------------- | --------------------------------------------------------------------- |
+| `leap_pipeline_stage_duration_seconds`        | `track_pipeline_stage()` in processing/upload tasks                   |
+| `leap_queue_oldest_task_age_seconds`          | Redis `leap:enq:<queue>`, scraped from the API process                |
+| `leap_external_api_duration_seconds`          | Defined; **not wired** — do not add Grafana panels until wrappers exist |
+
+### Health
+
+| Endpoint                   | Use                                      |
+| -------------------------- | ---------------------------------------- |
+| `GET /api/v1/health/live`  | Process up. Docker probe.                |
+| `GET /api/v1/health/ready` | DB + Redis + storage. 503 if any fail.   |
 
 ## Dashboards
 
-Dashboards are deliberately small — only the panels that answer questions an
-operator/owner actually asks. Add panels only when an incident or product
-question forces the need, not pre-emptively.
+Four JSON files in `monitoring/dashboards/`. Folder **LEAP**, home = Overview.
 
-| File                                    | UID              | Panels | What it answers                                                  |
-| --------------------------------------- | ---------------- | -----: | ---------------------------------------------------------------- |
-| `dashboards/leap_overview.json`         | `leap-overview`  | 12     | **Default home.** 24h stats incl. transcribed minutes + trends/health via `$__timeFilter`. |
-| `dashboards/leap_pipeline.json`         | `leap-pipeline`  |  6     | Pipeline: 24h Celery throughput, stage duration/failure from Postgres `stage_timings`, in-flight by status. |
-| `dashboards/leap_api.json`              | `leap-api`       | 10     | API: RPS, 5xx%, p95, 4xx%, latency percentiles, RPS by HTTP method, top routes by RPS / p95, 5xx by route + recent 5xx logs. |
-| `dashboards/leap_celery.json`           | `leap-celery`    | 11     | Celery: failure rate, workers, queue depth + oldest task age, task throughput, Postgres stage failures + Loki failure logs. |
-| `dashboards/leap_errors.json`           | `leap-errors`    | 10     | Errors: Loki pulse + error rate chart + exception/recording/user tables; Postgres failed-recordings fallback. |
+| File                    | UID             | Answers                                                                 |
+| ----------------------- | --------------- | ----------------------------------------------------------------------- |
+| `leap_overview.json`    | `leap-overview` | Users, recordings, transcribed minutes, uploads, stuck, failures (PG)   |
+| `leap_api.json`         | `leap-api`      | RPS / 5xx / p95 pulse (last 5m), traffic shape, top routes, 5xx logs    |
+| `leap_celery.json`      | `leap-celery`   | Workers, queues, stage duration, in-flight, Celery failures             |
+| `leap_errors.json`      | `leap-errors`   | ERROR pulse, exception/recording/user tables, PG failed-recordings      |
 
-Auto-provisioned from `monitoring/grafana_dashboards.yml` — drop a new JSON
-into `monitoring/dashboards/`, redeploy, Grafana picks it up within 30s.
+API pulse tiles ignore the dashboard time picker (`timeFrom: 5m`) so a 30-day
+window does not show a stale p95 from last week's one request. Charts use
+`$__rate_interval`. Pipeline success rate on Overview counts only terminal
+rows (READY / UPLOADED / EXPIRED / SKIPPED / failed) — in-flight is excluded.
 
-## Rolling out to an already-deployed VM
+## PromQL / LogQL
 
-The regular CI deploy uses `docker compose up -d --no-deps api celery_worker
-celery_beat flower frontend` — it deliberately does **not** touch
-infrastructure containers. New observability containers (`prometheus`,
-`celery_exporter`) and config-file changes (`promtail`, `grafana`,
-`nginx`) need a one-time bring-up:
+```promql
+topk(10, sum by (handler) (rate(leap_http_requests_total[$__rate_interval])))
 
-```bash
-ssh ubuntu@$VPS
-cd /opt/leap
+100 * sum(rate(leap_http_requests_total{status=~"5.."}[5m]))
+  / clamp_min(sum(rate(leap_http_requests_total[5m])), 1e-9) or vector(0)
 
-# 1. New images / configs are already on disk thanks to rsync in deploy.yml.
-#    Pull the app images on the new SHA (already done by CI):
-# docker compose pull api celery_worker celery_beat
+histogram_quantile(0.95,
+  sum by (handler, le) (rate(leap_http_request_duration_seconds_bucket[$__rate_interval])))
 
-# 2. Recreate app containers so they pick up JSON_LOG_FILE and emit JSON logs.
-docker compose up -d --no-deps --force-recreate api celery_worker celery_beat
-
-# 3. Start the new infra services.
-docker compose up -d prometheus celery_exporter
-
-# 4. Reload existing infra so it picks up new configs:
-docker compose restart promtail grafana
-
-# 5. nginx active config (`nginx/nginx.conf`) is a gitignored runtime artifact —
-#    point it at the updated https template and reload.
-cp nginx/nginx.https.conf nginx/nginx.conf
-docker compose exec nginx nginx -s reload
+celery_queue_length
+leap_queue_oldest_task_age_seconds
 ```
 
-After this is done once, subsequent CI deploys keep the observability
-stack running on the existing config — no further manual steps unless
-`monitoring/promtail.yml` or `monitoring/prometheus.yml` change (in which
-case repeat steps 4 + recreate prometheus).
-
-### Verification
-
-```bash
-# Structured JSON is being written:
-docker compose exec api tail -n 1 /app/logs/structured.json | jq '.record.extra'
-
-# Promtail is shipping (positions move forward):
-docker compose exec promtail cat /tmp/positions.yaml
-
-# Prometheus has targets:
-curl -s http://localhost:9090/prometheus/api/v1/targets | jq '.data.activeTargets[].labels.job'
-
-# Grafana sees both datasources:
-# open https://${DOMAIN}/grafana/datasources — both Loki and Prometheus must be green
-
-# LEAP-DB (Overview / Pipeline Postgres panels):
-# Data sources → LEAP-DB → Save & test must succeed.
-docker compose exec postgres psql -U postgres -d leap_platform -c "\du grafana_ro"
-docker compose exec postgres psql -U postgres -d leap_platform -c "\dp stage_timings"
+```logql
+{app="leap", level=~"ERROR|CRITICAL"} | json | line_format "{{.text}}"
+{app="leap"} | json | record_extra_recording_id = "42"
 ```
 
-## Cardinality budget
+## Environment
 
-A rough budget to stay healthy on a single-VM Loki/Prometheus:
-
-- Loki streams: target <1000 active streams. Current labels at full mix:
-  `level (5) × module (~50) × route (~50) × status_code (~30) × method (~7)` —
-  most combinations are sparse so we sit well under the limit.
-- Prometheus series: `leap_http_request_duration_seconds_bucket` is the
-  big one — `handler × method × le` ≈ 50 × 7 × 11 ≈ 3 800 series. Add
-  `_count` / `_sum` and the total per-API stays under 10 000. Celery
-  exporter adds ~2 000. Comfortable under 30k total on a single node.
-
-If you add a new label, do the math first.
+| Variable                        | Default                     | Purpose                              |
+| ------------------------------- | --------------------------- | ------------------------------------ |
+| `JSON_LOG_FILE`                 | `/app/logs/structured.json` | Promtail tail                        |
+| `LOG_FILE` / `ERROR_LOG_FILE`   | `/app/logs/app.log`         | Human ops files, not shipped         |
+| `LOG_LEVEL`                     | `INFO`                      | Console / Loguru                     |
+| `MONITORING_PROMETHEUS_ENABLED` | `true`                      | Mount `/metrics`                     |
+| `LOKI_S3_BUCKET` + access keys  | —                           | Loki object storage                  |
+| `GRAFANA_RO_PASSWORD`           | —                           | Postgres datasource                  |
+| `GRAFANA_USER` / `GRAFANA_PASSWORD` | `admin`                 | Grafana login (htpasswd uses the same password) |
 
 ## Failure modes
 
-| Symptom                                                | Likely cause                                                      | Fix                                                      |
-| ------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------- |
-| **Overview / Pipeline Postgres panels** all empty      | `grafana_ro` role missing or LEAP-DB password mismatch            | Set `GRAFANA_RO_PASSWORD` in Lockbox; run migration **023** (role) + **025** (`stage_timings` grant); restart Grafana |
-| **Pipeline stage duration** panels empty               | Migration **025** not applied or `grafana_ro` lacks `stage_timings` | `make migrate`; verify `\dp stage_timings` shows `grafana_ro=r/postgres` |
-| **Errors → Who's affected** always zero                | LogQL used bare `recording_id` instead of `record_extra_recording_id` after `\| json` | Use fixed `leap_errors.json` (2026-06-12+)               |
-| Grafana panels empty, "No data" (Loki)                 | App not writing `structured.json`                                 | Check `JSON_LOG_FILE` env in container; restart app      |
-| Loki has data but `level`/`module` labels are missing  | Promtail config out of sync with loguru's `serialize=True` schema | Restart promtail; verify with `promtail --check-config`  |
-| Prometheus targets DOWN for `leap-api`                 | `/metrics` not exposed                                            | Confirm `MONITORING_PROMETHEUS_ENABLED=true` on **api** container |
-| `celery_queue_length` always 0                         | celery-exporter can't read events                                 | Set `worker_send_task_events=True` + `task_send_sent_event=True` in `celery_app.conf` and restart workers with `-E` |
-| `request_id` blank in logs                             | Middleware order — `LoggingMiddleware` registered after handlers  | Keep `app.add_middleware(LoggingMiddleware)` in `main.py` |
+| Symptom                                      | Cause                                              | Fix                                                                 |
+| -------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- |
+| Overview / PG panels empty                   | `grafana_ro` missing or password mismatch          | Set `GRAFANA_RO_PASSWORD`; migrations **023** + **025**; restart Grafana |
+| API pulse p95 looks huge on a 30d window     | Fixed in `leap_api.json` v2 (pulse is last 5m)     | Redeploy Grafana JSON                                               |
+| Slowest-routes table is NaN                  | Idle traffic; quantile over empty 5m window        | v2 requires ≥5 requests in `$__rate_interval`                       |
+| Loki panels empty                            | App not writing `structured.json`                  | Check `JSON_LOG_FILE` in the container                              |
+| `leap-api` Prometheus target DOWN            | `/metrics` off                                     | `MONITORING_PROMETHEUS_ENABLED=true` on **api**                     |
+| `celery_queue_length` always 0               | Workers not sending events                         | `-E` + `worker_send_task_events=True` (already in compose)          |
+| `leap_celery_worker` Docker **unhealthy**    | Healthcheck script can fail while tasks still run  | Confirm with `docker compose logs celery_worker`; do not trust the badge alone |
+| External API Grafana panels                  | Removed — `track_external_api()` is unused         | Wire the helper before adding panels back                           |
+
+## Cardinality
+
+Keep labels bounded. Current mix stays under ~1000 Loki streams and ~10k
+Prometheus series on a single VM. Do the math before adding a label.
 
 ## See also
 
-- `backend/api/middleware/logging.py` — HTTP middleware implementation
-- `backend/api/observability/metrics.py` — Prometheus wiring
-- `backend/api/celery_app.py` — Celery lifecycle signal handlers
-- `backend/logger.py` — Loguru setup, sinks, format helpers
+- `backend/api/middleware/logging.py`
+- `backend/api/observability/metrics.py`
+- `backend/api/celery_app.py`
+- `backend/logger.py`
+- `guides/DEPLOYMENT.md` — SMTP / Lockbox (transactional email is not this stack)

@@ -12,7 +12,7 @@ from api.auth.encryption import get_encryption
 from api.dependencies import get_db_session
 from api.repositories.auth_repos import UserCredentialRepository
 from api.schemas.auth import UserCredentialCreate, UserCredentialUpdate, UserInDB
-from api.schemas.common.pagination import paginate_list
+from api.schemas.common.pagination import filter_by_search, paginate_list
 from api.schemas.credentials import (
     CredentialCreateRequest,
     CredentialListResponse,
@@ -31,12 +31,18 @@ logger = get_logger()
 
 router = APIRouter(prefix="/api/v1/credentials", tags=["Credentials"])
 
-CREDENTIAL_SORT_FIELDS = {"created_at", "platform"}
+CREDENTIAL_SORT_FIELDS = {"created_at", "platform", "account_name", "last_used_at"}
+CREDENTIAL_SEARCH_FIELDS = ("account_name", "platform")
 
 
 @router.get("", response_model=CredentialListResponse)
 async def list_credentials(
-    platform: str | None = None,
+    platform: list[str] = Query(
+        default=[],
+        description="Filter by platform; repeat the param to pass several (?platform=youtube&platform=vk)",
+    ),
+    search: str | None = Query(None, description="Search substring in account name or platform (case-insensitive)"),
+    is_active: bool | None = Query(None, description="Filter by active flag (true/false/omitted=all)"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     sort_by: str = Query("created_at", description="Sort field"),
@@ -47,11 +53,14 @@ async def list_credentials(
     """Get paginated list of user's credentials."""
     cred_repo = UserCredentialRepository(session)
 
-    credentials = (
-        await cred_repo.list_by_platform(current_user.id, platform)
-        if platform
-        else await cred_repo.find_by_user(current_user.id)
-    )
+    credentials = await cred_repo.find_by_user(current_user.id)
+
+    if platform:
+        wanted = {p.lower() for p in platform}
+        credentials = [c for c in credentials if str(c.platform).lower() in wanted]
+    if is_active is not None:
+        credentials = [c for c in credentials if bool(c.is_active) is is_active]
+    credentials = filter_by_search(credentials, search, CREDENTIAL_SEARCH_FIELDS)
 
     items, total, total_pages = paginate_list(credentials, page, per_page, sort_by, sort_order, CREDENTIAL_SORT_FIELDS)
 

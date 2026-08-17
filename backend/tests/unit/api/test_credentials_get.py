@@ -71,13 +71,16 @@ class TestListCredentials:
         assert len(data["items"]) == 0
 
     def test_list_credentials_filtered_by_platform(self, client, mocker, mock_user):  # noqa: ARG002
-        """Test filtering credentials by platform."""
+        """Filtering by platform returns only that platform's credentials."""
         # Arrange
-        mock_cred = _make_mock_credential(id=1, platform="youtube")
-
         mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
         mock_repo_instance = MagicMock()
-        mock_repo_instance.list_by_platform = AsyncMock(return_value=[mock_cred])
+        mock_repo_instance.find_by_user = AsyncMock(
+            return_value=[
+                _make_mock_credential(id=1, platform="youtube"),
+                _make_mock_credential(id=2, platform="vk_video"),
+            ]
+        )
         mock_repo.return_value = mock_repo_instance
 
         # Act
@@ -88,8 +91,51 @@ class TestListCredentials:
         data = response.json()
         assert data["total"] == 1
         assert data["items"][0]["platform"] == "youtube"
-        # Verify repository method was called with platform filter
-        mock_repo_instance.list_by_platform.assert_called_once()
+
+    def test_list_credentials_filtered_by_several_platforms(self, client, mocker, mock_user):  # noqa: ARG002
+        """The platform param is repeatable, so the UI can pass a multi-select."""
+        # Arrange
+        mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.find_by_user = AsyncMock(
+            return_value=[
+                _make_mock_credential(id=1, platform="youtube"),
+                _make_mock_credential(id=2, platform="vk_video"),
+                _make_mock_credential(id=3, platform="zoom"),
+            ]
+        )
+        mock_repo.return_value = mock_repo_instance
+
+        # Act
+        response = client.get("/api/v1/credentials/?platform=youtube&platform=zoom")
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 2
+        assert {item["platform"] for item in data["items"]} == {"youtube", "zoom"}
+
+    def test_list_credentials_search_matches_account_name(self, client, mocker, mock_user):  # noqa: ARG002
+        """Search runs over the whole result set, not just the current page."""
+        # Arrange
+        mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.find_by_user = AsyncMock(
+            return_value=[
+                _make_mock_credential(id=1, platform="youtube", account_name="Main channel"),
+                _make_mock_credential(id=2, platform="vk_video", account_name="Backup"),
+            ]
+        )
+        mock_repo.return_value = mock_repo_instance
+
+        # Act
+        response = client.get("/api/v1/credentials/?search=main")
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["items"][0]["account_name"] == "Main channel"
 
     def test_list_credentials_without_secret_data(self, client, mocker, mock_user):  # noqa: ARG002
         """Test that list endpoint returns lightweight items without credentials field."""

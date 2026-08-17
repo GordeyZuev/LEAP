@@ -5,6 +5,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.schemas.common.pagination import PaginatedResponse
+
 
 class AdminOverviewStats(BaseModel):
     """Overall platform statistics."""
@@ -133,3 +135,24 @@ class AdminSubscriptionSet(BaseModel):
     custom_min_automation_interval_hours: int | None = None
     custom_max_templates: int | None = None
     custom_max_credentials: int | None = None
+
+
+class AuditLogItem(BaseModel):
+    """One administrative action, as shown on the admin screen."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    actor_email: str
+    action: str
+    target_user_id: str | None = None
+    target_label: str | None = None
+    details: dict | None = None
+    ip_address: str | None = None
+    created_at: datetime
+
+
+class AuditLogListResponse(PaginatedResponse):
+    """Paginated administrative audit trail."""
+
+    items: list[AuditLogItem]

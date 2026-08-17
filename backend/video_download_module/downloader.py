@@ -123,7 +123,7 @@ class ZoomDownloader(BaseDownloader):
             recording.mark_failure(
                 reason="No video link",
                 rollback_to_status=ProcessingStatus.INITIALIZED,
-                failed_at_stage="downloading",
+                failed_at_stage="download",
             )
             return False
 
@@ -132,7 +132,7 @@ class ZoomDownloader(BaseDownloader):
             recording.mark_failure(
                 reason="No database ID",
                 rollback_to_status=ProcessingStatus.INITIALIZED,
-                failed_at_stage="downloading",
+                failed_at_stage="download",
             )
             return False
 
@@ -179,7 +179,7 @@ class ZoomDownloader(BaseDownloader):
                 recording.mark_failure(
                     reason="Error downloading file",
                     rollback_to_status=ProcessingStatus.INITIALIZED,
-                    failed_at_stage="downloading",
+                    failed_at_stage="download",
                 )
                 logger.error(f"Download failed for recording {recording.db_id}")
                 return False

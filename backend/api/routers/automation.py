@@ -6,26 +6,29 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.core.dependencies import get_service_context
 from api.helpers.beat_sync import remove_job_from_beat, sync_job_to_beat
-from api.repositories.automation_repos import AutomationJobRepository
+from api.repositories.automation_repos import AutomationJobRepository, AutomationJobRunRepository
 from api.schemas.automation import (
     AutomationJobCreate,
     AutomationJobResponse,
     AutomationJobUpdate,
     JobListResponse,
+    JobRunListResponse,
     TriggerJobResponse,
 )
-from api.schemas.common.pagination import paginate_list
+from api.schemas.common.pagination import filter_by_search, paginate_list
 from api.services.automation_service import AutomationService
 from api.tasks.automation import dry_run_automation_job_task, run_automation_job_task
 
 router = APIRouter(prefix="/api/v1/automation/jobs", tags=["Automation"])
 
-JOB_SORT_FIELDS = {"created_at", "updated_at", "name", "next_run_at"}
+JOB_SORT_FIELDS = {"created_at", "updated_at", "name", "next_run_at", "last_run_at", "run_count"}
+JOB_SEARCH_FIELDS = ("name", "description")
 
 
 @router.get("", response_model=JobListResponse)
 async def list_jobs(
-    active_only: bool = Query(False, description="Filter only active jobs"),
+    search: str | None = Query(None, description="Search substring in job name or description (case-insensitive)"),
+    is_active: bool | None = Query(None, description="Filter by active flag (true/false/omitted=all)"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     sort_by: str = Query("created_at", description="Sort field"),
@@ -34,7 +37,10 @@ async def list_jobs(
 ):
     """List user's automation jobs with pagination."""
     repo = AutomationJobRepository(ctx.session)
-    jobs = await repo.get_user_jobs(ctx.user_id, active_only)
+    jobs = await repo.get_user_jobs(ctx.user_id, active_only=bool(is_active))
+    if is_active is False:
+        jobs = [j for j in jobs if not j.is_active]
+    jobs = filter_by_search(jobs, search, JOB_SEARCH_FIELDS)
 
     items, total, total_pages = paginate_list(jobs, page, per_page, sort_by, sort_order, JOB_SORT_FIELDS)
 
@@ -109,6 +115,31 @@ async def delete_job(
     await repo.delete(job)
 
 
+@router.get("/{job_id}/runs", response_model=JobRunListResponse)
+async def list_job_runs(
+    job_id: int,
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    ctx=Depends(get_service_context),
+):
+    """Run history for one job, newest first."""
+    job_repo = AutomationJobRepository(ctx.session)
+    if not await job_repo.get_by_id(job_id, ctx.user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation job not found")
+
+    runs = await AutomationJobRunRepository(ctx.session).list_for_job(job_id, ctx.user_id)
+    # Already ordered newest-first by the repository.
+    items, total, total_pages = paginate_list(runs, page, per_page, "started_at", "desc")
+
+    return JobRunListResponse(
+        items=items,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+    )
+
+
 @router.post("/{job_id}/copy", response_model=AutomationJobResponse, status_code=status.HTTP_201_CREATED)
 async def copy_job(
     job_id: int,
@@ -141,7 +172,7 @@ async def trigger_job(
             mode="dry_run",
             message="Preview mode - no changes will be made",
         )
-    task = run_automation_job_task.delay(job_id, ctx.user_id)
+    task = run_automation_job_task.delay(job_id, ctx.user_id, trigger="MANUAL")
     return TriggerJobResponse(
         task_id=str(task.id),
         mode="execute",

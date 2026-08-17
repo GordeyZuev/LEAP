@@ -93,6 +93,7 @@ module "secrets" {
   assemblyai_api_key = local.assemblyai_api_key
   deepseek_api_key   = local.deepseek_api_key
 
+  domain              = var.domain
   email_smtp_user     = var.email_smtp_user
   email_smtp_password = var.email_smtp_password
 

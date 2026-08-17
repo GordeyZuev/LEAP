@@ -18,11 +18,11 @@ export function ErrorState({
 }) {
   return (
     <div className={cn("flex flex-col items-center justify-center gap-3 py-16 text-center animate-card-in", className)}>
-      <div className="rounded-2xl bg-red-50 dark:bg-red-500/10 p-3 text-red-300">
+      <div className="rounded-2xl bg-danger-fg/10 p-3 text-danger-fg">
         <AlertTriangle size={28} strokeWidth={1.5} />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-medium text-red-500">{title}</p>
+        <p className="text-sm font-medium text-danger-fg">{title}</p>
         {description && <p className="mx-auto max-w-sm text-xs text-muted-foreground">{description}</p>}
       </div>
       {onRetry && (

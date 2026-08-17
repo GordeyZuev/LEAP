@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo } from "react";
+import { Suspense, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -18,6 +17,11 @@ import { ErrorState } from "@/components/ui/error-state";
 import { CardGridSkeleton } from "@/components/ui/list-skeleton";
 import { usePlatforms } from "@/hooks/use-references";
 import { PER_PAGE_PRESETS } from "@/lib/constants";
+import { SearchInput } from "@/components/filters/search-input";
+import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
+import { ResultCount } from "@/components/ui/result-count";
+import { ActionButton } from "@/components/ui/action-button";
+import { useUrlListState } from "@/hooks/use-url-list-state";
 
 const ALLOWED_PLATFORMS = new Set(["youtube", "vk_video", "yandex_disk", "zoom"]);
 
@@ -56,55 +60,33 @@ const SORT_OPTIONS = [
   { value: "name",       label: "Name" },
 ];
 
-const SORT_ALLOWED = new Set(SORT_OPTIONS.map((o) => o.value));
+const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 
 type ActiveFilter = "all" | "active" | "inactive";
-
-// ---------------------------------------------------------------------------
-// Filters (read from URL)
-// ---------------------------------------------------------------------------
-
-interface PresetFilters {
-  platforms: string[];
-  activeFilter: ActiveFilter;
-  sortBy: string;
-  sortOrder: "asc" | "desc";
-}
-
-function filtersFromUrl(sp: URLSearchParams): PresetFilters {
-  const platforms = sp.getAll("platform").filter((p) => ALLOWED_PLATFORMS.has(p));
-  const activeRaw = sp.get("active_filter");
-  const activeFilter: ActiveFilter =
-    activeRaw === "active" ? "active" : activeRaw === "inactive" ? "inactive" : "all";
-  const sortByRaw = sp.get("sort_by") ?? "created_at";
-  const sortBy = SORT_ALLOWED.has(sortByRaw) ? sortByRaw : "created_at";
-  const sortOrder: "asc" | "desc" = sp.get("sort_order") === "asc" ? "asc" : "desc";
-  return { platforms, activeFilter, sortBy, sortOrder };
-}
 
 // ---------------------------------------------------------------------------
 // PresetsPagedGrid
 // ---------------------------------------------------------------------------
 
 interface PresetsPagedGridProps {
+  list: ReturnType<typeof useUrlListState>;
   platforms: string[];
   activeFilter: ActiveFilter;
-  sortBy: string;
-  sortOrder: string;
-  page: number;
-  onPageChange: (page: number) => void;
 }
 
-function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, onPageChange }: PresetsPagedGridProps) {
+function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridProps) {
+  const page = list.page;
+  const onPageChange = list.setPage;
+
   const { data, isLoading, error, refetch } = useQuery<PresetListResponse>({
-    queryKey: ["presets", platforms, activeFilter, sortBy, sortOrder, page],
+    queryKey: ["presets", list.urlKey],
     queryFn: async () => {
       const p = new URLSearchParams();
+      if (list.search) p.set("search", list.search);
       platforms.forEach((pl) => p.append("platform", pl));
-      if (activeFilter === "active") p.set("active_only", "true");
-      if (activeFilter === "inactive") p.set("active_only", "false");
-      p.set("sort_by", sortBy);
-      p.set("sort_order", sortOrder);
+      if (activeFilter !== "all") p.set("is_active", activeFilter === "active" ? "true" : "false");
+      p.set("sort_by", list.sortBy);
+      p.set("sort_order", list.sortOrder);
       p.set("page", String(page));
       p.set("per_page", String(PER_PAGE_PRESETS));
       const res = await apiClient.get<PresetListResponse>(`/presets?${p.toString()}`);
@@ -126,20 +108,31 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, on
 
   return (
     <>
+      <ResultCount total={data?.total} itemLabel="preset" filtered={list.hasActiveFilters} />
+
       {isLoading && <CardGridSkeleton />}
 
       {error && <ErrorState description="Failed to load presets" onRetry={() => refetch()} />}
 
       {!isLoading && !error && presets.length === 0 && (
-        <EmptyState
-          icon={Package}
-          title={platforms.length || activeFilter !== "all" ? "No presets match your filters" : "No presets yet"}
-          description={
-            platforms.length || activeFilter !== "all"
-              ? "Try adjusting or clearing the filters above."
-              : "Presets capture per-platform upload settings. Create one to get started."
-          }
-        />
+        list.hasActiveFilters ? (
+          <EmptyState
+            icon={Package}
+            title="No presets match your filters"
+            description="Try adjusting or clearing the filters above."
+            action={
+              <ActionButton variant="secondary" onClick={list.resetAll}>
+                Reset filters
+              </ActionButton>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={Package}
+            title="No presets yet"
+            description="Presets capture per-platform upload settings. Create one to get started."
+          />
+        )
       )}
 
       {!isLoading && !error && presets.length > 0 && (
@@ -192,49 +185,40 @@ function PresetsPagedGrid({ platforms, activeFilter, sortBy, sortOrder, page, on
 // ---------------------------------------------------------------------------
 
 function PresetsContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const { data: platformOptions = [] } = usePlatforms();
-  const urlKey = searchParams.toString();
-  const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
 
-  const filters = useMemo(() => filtersFromUrl(new URLSearchParams(urlKey)), [urlKey]);
+  // Filters live in the URL so a filtered view is shareable and survives reload.
+  const list = useUrlListState({
+    defaultSortBy: "created_at",
+    defaultSortOrder: "desc",
+    allowedSortFields: SORT_ALLOWED,
+  });
+  const platforms = list.getAllParams("platform").filter((p) => ALLOWED_PLATFORMS.has(p));
+  const activeFilterRaw = list.getParam("active_filter");
+  const activeFilter: ActiveFilter =
+    activeFilterRaw === "active" ? "active" : activeFilterRaw === "inactive" ? "inactive" : "all";
 
-  // Filter key excludes `page` so paging doesn't remount the grid (and its query state).
-  const filterKey = useMemo(() => {
-    const p = new URLSearchParams(urlKey);
-    p.delete("page");
-    return p.toString();
-  }, [urlKey]);
-
-  const setPage = useCallback(
-    (next: number) => {
-      const p = new URLSearchParams(searchParams.toString());
-      if (next <= 1) p.delete("page");
-      else p.set("page", String(next));
-      router.replace(`?${p.toString()}`);
-    },
-    [router, searchParams],
-  );
-
-  // Instant apply: every control writes straight to the URL (drops `page`).
-  const commit = useCallback(
-    (mutate: (p: URLSearchParams) => void) => {
-      const p = new URLSearchParams(urlKey);
-      mutate(p);
-      p.delete("page");
-      router.replace(`?${p.toString()}`);
-    },
-    [urlKey, router],
-  );
-
-  const hasActiveFilters =
-    filters.platforms.length > 0 ||
-    filters.activeFilter !== "all" ||
-    filters.sortBy !== "created_at" ||
-    filters.sortOrder !== "desc";
-
-  const resetFilters = useCallback(() => router.replace("?"), [router]);
+  const chips: FilterChipItem[] = [
+    ...(list.search
+      ? [{
+          key: "search",
+          label: `Search: "${list.search}"`,
+          onRemove: () => { list.setSearchInput(""); list.setParam("search", null); },
+        }]
+      : []),
+    ...platforms.map((pl) => ({
+      key: `platform:${pl}`,
+      label: PLATFORM_LABELS[pl] ?? pl,
+      onRemove: () => list.setMultiParam("platform", platforms.filter((x) => x !== pl)),
+    })),
+    ...(activeFilter !== "all"
+      ? [{
+          key: "active_filter",
+          label: activeFilter === "active" ? "Active" : "Inactive",
+          onRemove: () => list.setParam("active_filter", null),
+        }]
+      : []),
+  ];
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -252,64 +236,45 @@ function PresetsContent() {
 
       {/* Filters */}
       <FilterBar
+        search={
+          <SearchInput
+            id="presets-search"
+            value={list.searchInput}
+            onChange={list.setSearchInput}
+            placeholder="By name or description…"
+          />
+        }
         controls={[
           <FilterMultiSelect<string>
             key="platform"
             label="Platform"
             emptySummary="All platforms"
-            value={filters.platforms}
+            value={platforms}
             options={platformOptions}
-            onChange={(next) =>
-              commit((p) => {
-                p.delete("platform");
-                next.forEach((pl) => p.append("platform", pl));
-              })
-            }
+            onChange={(next) => list.setMultiParam("platform", next)}
           />,
           <SegmentedFilter
             key="status"
             label="Status"
-            value={filters.activeFilter}
+            value={activeFilter}
             options={ACTIVE_STATUS_OPTIONS}
-            onChange={(v) =>
-              commit((p) => {
-                if (v === "all") p.delete("active_filter");
-                else p.set("active_filter", v);
-              })
-            }
+            onChange={(v) => list.setParam("active_filter", v === "all" ? null : v)}
           />,
         ]}
         sort={
           <SortControl
-            value={filters.sortBy}
-            order={filters.sortOrder}
+            value={list.sortBy}
+            order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={(f) =>
-              commit((p) => {
-                if (f === "created_at") p.delete("sort_by");
-                else p.set("sort_by", f);
-              })
-            }
-            onToggleOrder={() =>
-              commit((p) => {
-                if (filters.sortOrder === "desc") p.set("sort_order", "asc");
-                else p.delete("sort_order");
-              })
-            }
+            onChange={list.setSort}
+            onToggleOrder={list.toggleSortOrder}
           />
         }
-        onClearAll={hasActiveFilters ? resetFilters : undefined}
+        onClearAll={list.hasActiveFilters || list.hasNonDefaultSort ? list.resetAll : undefined}
+        chips={<FilterChips chips={chips} />}
       />
 
-      <PresetsPagedGrid
-        key={filterKey}
-        platforms={filters.platforms}
-        activeFilter={filters.activeFilter}
-        sortBy={filters.sortBy}
-        sortOrder={filters.sortOrder}
-        page={urlPage}
-        onPageChange={setPage}
-      />
+      <PresetsPagedGrid list={list} platforms={platforms} activeFilter={activeFilter} />
     </div>
   );
 }

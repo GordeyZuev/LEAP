@@ -8,6 +8,8 @@ from .job import (
     AutomationJobUpdate,
     DryRunResult,
     JobListResponse,
+    JobRunItem,
+    JobRunListResponse,
     SyncConfig,
 )
 from .operations import TriggerJobResponse
@@ -30,6 +32,8 @@ __all__ = [
     "DryRunResult",
     "HoursSchedule",
     "JobListResponse",
+    "JobRunItem",
+    "JobRunListResponse",
     "Schedule",
     "ScheduleType",
     "SyncConfig",

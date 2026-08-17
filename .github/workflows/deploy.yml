@@ -59,6 +59,10 @@ jobs:
           push: true
           tags: ${{ steps.meta_backend.outputs.tags }}
           labels: ${{ steps.meta_backend.outputs.labels }}
+          # Yandex CR accepts Docker Manifest V2 Schema 2 only — not the OCI
+          # image-index + provenance attestation Buildx emits by default.
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
@@ -79,6 +83,8 @@ jobs:
           push: true
           tags: ${{ steps.meta_frontend.outputs.tags }}
           labels: ${{ steps.meta_frontend.outputs.labels }}
+          provenance: false
+          sbom: false
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 

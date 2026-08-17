@@ -127,6 +127,17 @@ services:
       # Multiprocess Prometheus: all workers (api + celery) write metric files
       # to this shared volume; /metrics reads and aggregates them all.
       PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc
+      # Transactional mail (verification / password reset). Defaults keep local
+      # compose from sending. Prod .env / Lockbox must set EMAIL_ENABLED=true.
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST:-}
+      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT:-587}
+      EMAIL_SMTP_USER: ${EMAIL_SMTP_USER:-}
+      EMAIL_SMTP_PASSWORD: ${EMAIL_SMTP_PASSWORD:-}
+      EMAIL_SMTP_USE_TLS: ${EMAIL_SMTP_USE_TLS:-true}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-LEAP Platform}
+      EMAIL_FROM_EMAIL: ${EMAIL_FROM_EMAIL:-}
+      EMAIL_BASE_URL: ${EMAIL_BASE_URL:-}
     expose:
       - "8000"
     volumes:

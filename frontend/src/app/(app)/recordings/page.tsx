@@ -21,6 +21,7 @@ import { apiClient } from "@/api/client";
 import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter, Video, LayoutGrid, List } from "lucide-react";
 import { cn, extractApiError } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
+import { usePageSize } from "@/hooks/use-page-size";
 import { useToast } from "@/hooks/use-toast";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
@@ -38,6 +39,7 @@ import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { ExportModal } from "@/components/recordings/export-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Pagination } from "@/components/ui/pagination";
+import { ResultCount } from "@/components/ui/result-count";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
@@ -47,9 +49,21 @@ import {
   DEBOUNCE_SEARCH,
   PER_PAGE_LARGE,
   PER_PAGE_RECORDINGS,
+  PER_PAGE_RECORDINGS_OPTIONS,
   POLL_INTERVAL_LIST,
   needsActivePoll,
 } from "@/lib/constants";
+
+/**
+ * Card-grid tracks, shared by the grid and its skeleton so the two can't drift.
+ *
+ * Intrinsic rather than breakpoint-driven: a card carries a 128px poster plus
+ * text, and stops being readable much under 22rem. `auto-fill` therefore lays
+ * out as many columns as genuinely fit instead of committing to a device-width
+ * guess — which also closes the old gap where `md:2 → xl:3` left two columns
+ * stretched across everything from 768 to 1279px.
+ */
+const GRID_TRACKS = "grid-cols-[repeat(auto-fill,minmax(min(22rem,100%),1fr))]";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -173,12 +187,19 @@ interface RecordingsPagedResultsProps {
   setResetConfirm: (open: boolean) => void;
   resetDeleteFiles: boolean;
   setResetDeleteFiles: (v: boolean) => void;
-  onBulkRunWithConfig: () => void;
+  onBulkRunWithConfig: (names: string[]) => void;
   notify: Notify;
   onAddVideo: () => void;
   onResetFilters: () => void;
   viewMode: "grid" | "table";
   onViewModeChange: (mode: "grid" | "table") => void;
+  perPage: number;
+  onPerPageChange: (perPage: number) => void;
+  sortBy: string;
+  sortOrder: "asc" | "desc";
+  onSort: (field: string) => void;
+  /** Filters only — sorting lives in the URL too but never changes the result set. */
+  hasActiveFilters: boolean;
 }
 
 function RecordingsPagedResults({
@@ -211,9 +232,14 @@ function RecordingsPagedResults({
   onResetFilters,
   viewMode,
   onViewModeChange,
+  perPage,
+  onPerPageChange,
+  sortBy,
+  sortOrder,
+  onSort,
+  hasActiveFilters,
 }: RecordingsPagedResultsProps) {
   const [pipelineMenuOpen, setPipelineMenuOpen] = useState(false);
-  const selectMode = selected.size > 0;
 
   const pipelineMenuRef = useRef<HTMLDivElement>(null);
   const qcInner = useQueryClient();
@@ -248,11 +274,11 @@ function RecordingsPagedResults({
   }, [pipelineMenuOpen]);
 
   const { data, isLoading, error, refetch } = useQuery<RecordingListResponse>({
-    queryKey: ["recordings", queryParamsString, page],
+    queryKey: ["recordings", queryParamsString, page, perPage],
     queryFn: async () => {
       const p = new URLSearchParams(queryParamsString);
       p.set("page", String(page));
-      p.set("per_page", String(PER_PAGE_RECORDINGS));
+      p.set("per_page", String(perPage));
       const res = await apiClient.get<RecordingListResponse>(`/recordings?${p.toString()}`);
       return res.data;
     },
@@ -281,8 +307,6 @@ function RecordingsPagedResults({
     bulkSubtitles.isPending || bulkUpload.isPending;
   const selectedIds = useMemo(() => Array.from(selected), [selected]);
 
-  const hasActiveFilters = queryParamsString.length > 0;
-
   function toggleSelect(id: number) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -302,15 +326,24 @@ function RecordingsPagedResults({
 
   return (
     <>
-      {/* Toolbar: view toggle */}
+      {/* Toolbar: result count + view toggle */}
       <div className="mb-4 flex items-center gap-2">
-        <div className="flex-1" />
+        {/* Shared component rather than a second copy of the same markup, so the
+            live-region behaviour cannot drift between pages. */}
+        <ResultCount
+          total={data?.total}
+          itemLabel="recording"
+          filtered={hasActiveFilters}
+          className="mb-0 flex-1"
+        />
         <button
           type="button"
           onClick={() => onViewModeChange("grid")}
           title="Grid view"
+          aria-label="Grid view"
+          aria-pressed={viewMode === "grid"}
           className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
+            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
             viewMode === "grid"
               ? "border-primary bg-primary text-white"
               : "border-border bg-card text-muted-foreground hover:bg-muted"
@@ -322,8 +355,10 @@ function RecordingsPagedResults({
           type="button"
           onClick={() => onViewModeChange("table")}
           title="Table view"
+          aria-label="Table view"
+          aria-pressed={viewMode === "table"}
           className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors",
+            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
             viewMode === "table"
               ? "border-primary bg-primary text-white"
               : "border-border bg-card text-muted-foreground hover:bg-muted"
@@ -333,20 +368,24 @@ function RecordingsPagedResults({
         </button>
       </div>
 
+      {/* Sticky: with 20+ rows the bar would otherwise scroll out of reach while
+          the selection it acts on is still on screen. bg-accent (not a
+          translucent tint) keeps rows from showing through it. */}
       {selected.size > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3">
+        <div className="sticky top-4 z-20 mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/20 bg-accent p-3 shadow-sm">
           <label className="mr-2 flex items-center gap-2">
             <input
               type="checkbox"
               checked={selected.size === recordings.length && recordings.length > 0}
               onChange={toggleAll}
+              aria-label="Select all recordings on this page"
               className="rounded accent-primary"
             />
             <span className="text-sm font-medium text-primary">{selected.size} selected</span>
           </label>
 
           <ActionButton size="sm" variant="secondary" onClick={() => bulkRun.mutate(selectedIds)} disabled={isBulkLoading} icon={<Play size={13} />}>Run</ActionButton>
-          <ActionButton size="sm" variant="secondary" onClick={onBulkRunWithConfig} disabled={isBulkLoading} icon={<Play size={13} />} className="border-primary/30 text-primary hover:bg-primary/5">Run with config…</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => onBulkRunWithConfig(recordings.filter((r) => selected.has(r.id)).map((r) => r.display_name))} disabled={isBulkLoading} icon={<Play size={13} />} className="border-primary/30 text-primary hover:bg-primary/5">Run with config…</ActionButton>
           <ActionButton size="sm" variant="secondary" onClick={() => bulkPause.mutate(selectedIds)} disabled={isBulkLoading} icon={<Pause size={13} />}>Pause</ActionButton>
           <ActionButton size="sm" variant="secondary" onClick={() => setResetConfirm(true)} disabled={isBulkLoading} icon={<RotateCcw size={13} />}>Reset</ActionButton>
 
@@ -384,23 +423,29 @@ function RecordingsPagedResults({
             )}
           </div>
 
-          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">Delete</ActionButton>
+          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-danger-fg/65 text-danger-fg hover:bg-danger-fg/10">Delete</ActionButton>
         </div>
       )}
 
       {isLoading && viewMode === "grid" && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        // Same tracks and the same internal shape as a real card — poster,
+        // two title lines, meta, footer — so nothing shifts when data lands.
+        <div aria-busy="true" aria-label="Loading recordings" className={cn("grid gap-4", GRID_TRACKS)}>
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex h-48 flex-col gap-3 rounded-2xl border border-border bg-card p-4">
-              <div className="flex items-start justify-between gap-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-5 w-16 rounded-full" />
+            <div key={i} className="flex flex-col rounded-xl border border-border bg-card">
+              <div className="flex gap-3 p-3">
+                <Skeleton className="aspect-video w-32 shrink-0 rounded-lg" />
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 min-h-[2.5rem] space-y-1">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-3/5" />
+                  </div>
+                  <Skeleton className="h-5 w-28 rounded-full" />
+                </div>
               </div>
-              <Skeleton className="h-3 w-1/3" />
-              <Skeleton className="mt-auto h-2 w-full rounded-full" />
-              <div className="flex gap-2">
-                <Skeleton className="h-8 w-20 rounded-xl" />
-                <Skeleton className="h-8 w-20 rounded-xl" />
+              <div className="mt-auto flex items-center gap-1.5 border-t border-border px-3 py-2">
+                <Skeleton className="h-7 w-20 rounded-xl" />
+                <Skeleton className="ml-auto h-7 w-7 rounded-xl" />
               </div>
             </div>
           ))}
@@ -454,14 +499,18 @@ function RecordingsPagedResults({
       )}
 
       {!isLoading && !error && recordings.length > 0 && viewMode === "grid" && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {recordings.map((rec, index) => (
-            <div key={rec.id} className="animate-card-in h-full" style={{ animationDelay: `${index * 30}ms` }}>
+        // Cards stretch to the row height and pin their footer, so every Run
+        // button in a row sits on one line. Column count comes from the content:
+        // as many tracks as fit at 22rem each, rather than breakpoints guessed
+        // against device widths. min() keeps the track inside a 320px viewport.
+        <div className={cn("grid animate-fade-in gap-4", GRID_TRACKS)}>
+          {recordings.map((rec) => (
             <RecordingCard
+              key={rec.id}
               recording={rec}
               selected={selected.has(rec.id)}
               onToggleSelect={toggleSelect}
-              selectMode={selectMode}
+              selectMode={selected.size > 0}
               onRun={onRun}
               onPause={onPause}
               onRunWithConfig={onRunWithConfig}
@@ -471,7 +520,6 @@ function RecordingsPagedResults({
               onRename={onRename}
               loadingId={loadingRecordingId}
             />
-            </div>
           ))}
         </div>
       )}
@@ -490,6 +538,9 @@ function RecordingsPagedResults({
           onRestore={onRestore}
           onRename={onRename}
           loadingId={loadingRecordingId}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onSort={onSort}
         />
       )}
 
@@ -498,9 +549,11 @@ function RecordingsPagedResults({
           page={page}
           totalPages={data.total_pages}
           total={data.total}
-          perPage={PER_PAGE_RECORDINGS}
+          perPage={perPage}
           onPageChange={onPageChange}
           itemLabel="recording"
+          perPageOptions={PER_PAGE_RECORDINGS_OPTIONS}
+          onPerPageChange={onPerPageChange}
         />
       )}
 
@@ -676,6 +729,7 @@ function RecordingsContent() {
   const [runConfigRecordingId, setRunConfigRecordingId] = useState<number | null>(null);
   const [runConfigRecordingName, setRunConfigRecordingName] = useState<string | undefined>(undefined);
   const [runConfigMode, setRunConfigMode] = useState<"single" | "bulk">("single");
+  const [runConfigNames, setRunConfigNames] = useState<string[]>([]);
   const [runConfigOpen, setRunConfigOpen] = useState(false);
 
   // --- Export modal ---
@@ -692,6 +746,12 @@ function RecordingsContent() {
     setViewMode(mode);
     localStorage.setItem("recordings-view-mode", mode);
   }, []);
+
+  const { perPage, setPerPage } = usePageSize(
+    "recordings-per-page",
+    PER_PAGE_RECORDINGS_OPTIONS,
+    PER_PAGE_RECORDINGS,
+  );
 
   // Local search input with debounce → syncs to URL
   const [searchInput, setSearchInput] = useState(urlSearch);
@@ -736,6 +796,15 @@ function RecordingsContent() {
       router.replace(`?${p.toString()}`);
     },
     [router, searchParams],
+  );
+
+  // Changing the page size invalidates the current page number.
+  const handlePerPageChange = useCallback(
+    (next: number) => {
+      setPerPage(next);
+      setPage(1);
+    },
+    [setPerPage, setPage],
   );
 
   // --- Current filters (read from URL) + instant-apply URL writers ---
@@ -792,6 +861,9 @@ function RecordingsContent() {
     [commitFilters],
   );
 
+  // Filters only: these narrow the result set, so the count and the empty state
+  // may call the list "filtered". Sorting is tracked separately below — it lives
+  // in the URL as well but never changes which recordings match.
   const hasActiveFilters = useMemo(() => {
     const sp = new URLSearchParams(urlKey);
     return !!(
@@ -803,11 +875,11 @@ function RecordingsContent() {
       sp.get("include_blank") === "true" ||
       sp.get("include_deleted") === "true" ||
       sp.get("from_date") ||
-      sp.get("to_date") ||
-      (sp.get("sort_by") && sp.get("sort_by") !== "start_time") ||
-      sp.get("sort_order") === "asc"
+      sp.get("to_date")
     );
   }, [urlKey]);
+
+  const hasNonDefaultSort = urlSortBy !== "start_time" || urlSortOrder === "asc";
 
   // --- Reference data ---
   const { data: templatesData } = useQuery<TemplateListResponse>({
@@ -945,8 +1017,9 @@ function RecordingsContent() {
     setSingleDeleteId(id);
   }
 
-  function handleBulkRunWithConfig() {
+  function handleBulkRunWithConfig(names: string[]) {
     setRunConfigMode("bulk");
+    setRunConfigNames(names);
     setRunConfigOpen(true);
   }
 
@@ -1089,7 +1162,7 @@ function RecordingsContent() {
             onToggleOrder={() => updateSort(undefined, urlSortOrder === "desc" ? "asc" : "desc")}
           />
         }
-        onClearAll={hasActiveFilters ? resetAllFilters : undefined}
+        onClearAll={hasActiveFilters || hasNonDefaultSort ? resetAllFilters : undefined}
         advanced={<AdvancedFiltersSection filters={filters} onPatch={patchFilters} />}
         chips={<FilterChips chips={appliedChips} />}
       />
@@ -1126,6 +1199,15 @@ function RecordingsContent() {
         onResetFilters={resetAllFilters}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
+        perPage={perPage}
+        onPerPageChange={handlePerPageChange}
+        hasActiveFilters={hasActiveFilters}
+        sortBy={urlSortBy}
+        sortOrder={urlSortOrder}
+        onSort={(field) =>
+          // Same column toggles direction; a new column starts at descending.
+          updateSort(field, field === urlSortBy ? (urlSortOrder === "desc" ? "asc" : "desc") : "desc")
+        }
       />
 
       {/* Single reset confirm */}
@@ -1175,6 +1257,7 @@ function RecordingsContent() {
         recordingId={runConfigMode === "single" ? (runConfigRecordingId ?? undefined) : undefined}
         recordingName={runConfigMode === "single" ? runConfigRecordingName : undefined}
         recordingIds={runConfigMode === "bulk" ? selectedIds : undefined}
+        recordingNames={runConfigMode === "bulk" ? runConfigNames : undefined}
         onSuccess={() => setSelected(new Set())}
       />
 

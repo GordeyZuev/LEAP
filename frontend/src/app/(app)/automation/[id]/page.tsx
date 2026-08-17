@@ -12,6 +12,8 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { JobRunHistory } from "@/components/automation/job-run-history";
+import { Toggle } from "@/components/ui/toggle";
 import { useTimezones } from "@/hooks/use-references";
 import { useToast } from "@/hooks/use-toast";
 
@@ -744,6 +746,9 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
             )}
           </div>
         </div>
+
+        {/* History is only meaningful for a job that exists. */}
+        {!isNew && <JobRunHistory jobId={Number(jobId)} />}
       </div>
 
       <ConfirmDialog
@@ -791,28 +796,5 @@ function F({ label, hint, children }: { label: string; hint?: string; children: 
       {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
       {children}
     </div>
-  );
-}
-
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex items-center justify-between py-2 cursor-pointer">
-      <span className="text-sm font-medium text-secondary-foreground">{label}</span>
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        className={cn(
-          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-          checked ? "bg-primary" : "bg-muted"
-        )}
-      >
-        <span
-          className={cn(
-            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-            checked ? "translate-x-6" : "translate-x-1"
-          )}
-        />
-      </button>
-    </label>
   );
 }

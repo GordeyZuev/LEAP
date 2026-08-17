@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { applyTheme, getStoredTheme, THEME_KEY, type ThemeMode } from "@/lib/theme";
+import { applyThemeInstantly, getStoredTheme, THEME_KEY, type ThemeMode } from "@/lib/theme";
 
 /**
  * Read/write the theme preference. The `dark` class is applied pre-paint by the
@@ -19,13 +19,13 @@ export function useTheme() {
   const setTheme = useCallback((mode: ThemeMode) => {
     setThemeState(mode);
     window.localStorage.setItem(THEME_KEY, mode);
-    applyTheme(mode);
+    applyThemeInstantly(mode);
   }, []);
 
   useEffect(() => {
     if (theme !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => applyTheme("system");
+    const onChange = () => applyThemeInstantly("system");
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, [theme]);

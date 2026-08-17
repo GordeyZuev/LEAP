@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { FilterSelect } from "@/components/filters/filter-select";
 
 interface PaginationProps {
   page: number;
@@ -11,7 +12,12 @@ interface PaginationProps {
   perPage: number;
   onPageChange: (page: number) => void;
   itemLabel?: string;
+  /** Override for nouns that do not pluralise with a trailing "s" (entry → entries). */
+  itemLabelPlural?: string;
   className?: string;
+  /** Page-size options. Renders the picker only together with onPerPageChange. */
+  perPageOptions?: number[];
+  onPerPageChange?: (perPage: number) => void;
 }
 
 const BTN_BASE =
@@ -24,7 +30,10 @@ export function Pagination({
   perPage,
   onPageChange,
   itemLabel = "item",
+  itemLabelPlural,
   className,
+  perPageOptions,
+  onPerPageChange,
 }: PaginationProps) {
   const [inputValue, setInputValue] = useState(String(page));
   const [prevPage, setPrevPage] = useState(page);
@@ -46,7 +55,7 @@ export function Pagination({
   const to = Math.min(effPage * perPage, total);
   const hasPrev = effPage > 1;
   const hasNext = effPage < totalPages;
-  const pluralLabel = total !== 1 ? `${itemLabel}s` : itemLabel;
+  const pluralLabel = total !== 1 ? (itemLabelPlural ?? `${itemLabel}s`) : itemLabel;
 
   function commitInput() {
     const raw = inputValue.trim();
@@ -70,13 +79,25 @@ export function Pagination({
         className,
       )}
     >
-      <p className="tabular-nums">
-        Showing{" "}
-        <span className="font-semibold text-foreground">
-          {from.toLocaleString()}–{to.toLocaleString()}
-        </span>{" "}
-        of <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {pluralLabel}
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="tabular-nums">
+          Showing{" "}
+          <span className="font-semibold text-foreground">
+            {from.toLocaleString()}–{to.toLocaleString()}
+          </span>{" "}
+          of <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {pluralLabel}
+        </p>
+        {perPageOptions && onPerPageChange && (
+          <FilterSelect<number>
+            compact
+            ariaLabel={`${pluralLabel} per page`}
+            className="w-28"
+            value={perPage}
+            options={perPageOptions.map((n) => ({ value: n, label: `${n} per page` }))}
+            onChange={onPerPageChange}
+          />
+        )}
+      </div>
 
       <div className="flex items-center gap-1.5">
         <button

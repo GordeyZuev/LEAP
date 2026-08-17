@@ -1,24 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Play, CheckCircle2, XCircle, Zap } from "lucide-react";
 import { cn, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
-import { useDebounce } from "@/hooks/use-debounce";
 import { useToast } from "@/hooks/use-toast";
+import { useUrlListState } from "@/hooks/use-url-list-state";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
 import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
-import { DEBOUNCE_SEARCH } from "@/lib/constants";
+import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
+import { PER_PAGE_AUTOMATION } from "@/lib/constants";
 import { ActionButton } from "@/components/ui/action-button";
 import { Toast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
+import { Pagination } from "@/components/ui/pagination";
+import { ResultCount } from "@/components/ui/result-count";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
 
 interface AutomationJob {
   id: number;
@@ -34,6 +39,9 @@ interface AutomationJob {
 interface AutomationJobListResponse {
   items: AutomationJob[];
   total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
 }
 
 const SORT_OPTIONS = [
@@ -41,10 +49,10 @@ const SORT_OPTIONS = [
   { value: "last_run_at", label: "Last run" },
   { value: "next_run_at", label: "Next run" },
   { value: "run_count",   label: "Run count" },
+  { value: "created_at",  label: "Created" },
 ];
 
-type StatusFilter = "all" | "active" | "inactive";
-type SortField = "name" | "last_run_at" | "next_run_at" | "run_count";
+const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -59,36 +67,29 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function sortJobs(items: AutomationJob[], sortBy: SortField, sortOrder: "asc" | "desc"): AutomationJob[] {
-  return [...items].sort((a, b) => {
-    let cmp = 0;
-    if (sortBy === "name") {
-      cmp = a.name.localeCompare(b.name);
-    } else if (sortBy === "last_run_at") {
-      cmp = (a.last_run_at ?? "").localeCompare(b.last_run_at ?? "");
-    } else if (sortBy === "next_run_at") {
-      cmp = (a.next_run_at ?? "").localeCompare(b.next_run_at ?? "");
-    } else if (sortBy === "run_count") {
-      cmp = a.run_count - b.run_count;
-    }
-    return sortOrder === "asc" ? cmp : -cmp;
-  });
-}
-
 function AutomationContent() {
   const qc = useQueryClient();
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
-  const [searchInput, setSearchInput] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [sortBy, setSortBy] = useState<SortField>("next_run_at");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
+  // Filters live in the URL so a filtered view is shareable and survives reload.
+  const list = useUrlListState({
+    defaultSortBy: "next_run_at",
+    defaultSortOrder: "asc",
+    allowedSortFields: SORT_ALLOWED,
+  });
+  const statusFilter = list.getParam("status") ?? "all";
 
   const { data, isLoading, error, refetch } = useQuery<AutomationJobListResponse>({
-    queryKey: ["automation-jobs"],
+    queryKey: ["automation-jobs", list.urlKey],
     queryFn: async () => {
-      const res = await apiClient.get<AutomationJobListResponse>("/automation/jobs?per_page=50");
+      const p = new URLSearchParams();
+      if (list.search) p.set("search", list.search);
+      if (statusFilter !== "all") p.set("is_active", statusFilter === "active" ? "true" : "false");
+      p.set("sort_by", list.sortBy);
+      p.set("sort_order", list.sortOrder);
+      p.set("page", String(list.page));
+      p.set("per_page", String(PER_PAGE_AUTOMATION));
+      const res = await apiClient.get<AutomationJobListResponse>(`/automation/jobs?${p.toString()}`);
       return res.data;
     },
   });
@@ -102,33 +103,26 @@ function AutomationContent() {
     onError: (e) => showToast("error", extractApiError(e, "Failed to start job")),
   });
 
-  const hasActiveFilters =
-    !!debouncedSearch ||
-    statusFilter !== "all" ||
-    sortBy !== "next_run_at" ||
-    sortOrder !== "asc";
+  // Filtering, sorting and paging are done by the API — the page just renders.
+  const jobs = data?.items ?? [];
+  const sortProps = { sortBy: list.sortBy, sortOrder: list.sortOrder, onSort: list.setSort };
 
-  function resetFilters() {
-    setSearchInput("");
-    setStatusFilter("all");
-    setSortBy("next_run_at");
-    setSortOrder("asc");
-  }
-
-  const allJobs = useMemo(() => data?.items ?? [], [data]);
-
-  const visibleJobs = useMemo(() => {
-    const filtered = allJobs.filter((j) => {
-      if (debouncedSearch) {
-        const q = debouncedSearch.toLowerCase();
-        if (!j.name.toLowerCase().includes(q) && !(j.description ?? "").toLowerCase().includes(q)) return false;
-      }
-      if (statusFilter === "active" && !j.is_active) return false;
-      if (statusFilter === "inactive" && j.is_active) return false;
-      return true;
-    });
-    return sortJobs(filtered, sortBy, sortOrder);
-  }, [allJobs, debouncedSearch, statusFilter, sortBy, sortOrder]);
+  const chips: FilterChipItem[] = [
+    ...(list.search
+      ? [{
+          key: "search",
+          label: `Search: "${list.search}"`,
+          onRemove: () => { list.setSearchInput(""); list.setParam("search", null); },
+        }]
+      : []),
+    ...(statusFilter !== "all"
+      ? [{
+          key: "status",
+          label: statusFilter === "active" ? "Active" : "Inactive",
+          onRemove: () => list.setParam("status", null),
+        }]
+      : []),
+  ];
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -149,8 +143,8 @@ function AutomationContent() {
         search={
           <SearchInput
             id="automation-search"
-            value={searchInput}
-            onChange={setSearchInput}
+            value={list.searchInput}
+            onChange={list.setSearchInput}
             placeholder="By name or description…"
           />
         }
@@ -160,35 +154,38 @@ function AutomationContent() {
             label="Status"
             value={statusFilter}
             options={ACTIVE_STATUS_OPTIONS}
-            onChange={(v) => setStatusFilter(v)}
+            onChange={(v) => list.setParam("status", v === "all" ? null : v)}
           />,
         ]}
         sort={
           <SortControl
-            value={sortBy}
-            order={sortOrder}
+            value={list.sortBy}
+            order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={(f) => setSortBy(f as SortField)}
-            onToggleOrder={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+            onChange={list.setSort}
+            onToggleOrder={list.toggleSortOrder}
           />
         }
-        onClearAll={hasActiveFilters ? resetFilters : undefined}
+        onClearAll={list.hasActiveFilters || list.hasNonDefaultSort ? list.resetAll : undefined}
+        chips={<FilterChips chips={chips} />}
       />
 
+      <ResultCount total={data?.total} itemLabel="job" filtered={list.hasActiveFilters} />
+
       {/* Table */}
-      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-x-auto">
+      <div className={TABLE_CARD}>
         <table className="w-full min-w-[760px]">
           <thead>
             <tr className="border-b border-border">
-              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Job</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Last run</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Next run</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Runs</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wide">Actions</th>
+              <SortableTh sticky className="px-6 py-3" label="Job" field="name" {...sortProps} />
+              <SortableTh sticky className="px-6 py-3" label="Last run" field="last_run_at" {...sortProps} />
+              <SortableTh sticky className="px-6 py-3" label="Next run" field="next_run_at" {...sortProps} />
+              <SortableTh sticky className="px-6 py-3" label="Runs" field="run_count" {...sortProps} />
+              <SortableTh sticky className="px-6 py-3" label="Status" />
+              <SortableTh sticky className="px-6 py-3 text-right" label="Actions" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className={TABLE_BODY}>
             {isLoading && <TableRowsSkeleton rows={5} cols={6} />}
             {error && (
               <tr>
@@ -197,7 +194,14 @@ function AutomationContent() {
                 </td>
               </tr>
             )}
-            {!isLoading && !error && allJobs.length === 0 && (
+            {!isLoading && !error && jobs.length === 0 && list.hasActiveFilters && (
+              <tr>
+                <td colSpan={6} className="p-0">
+                  <EmptyState icon={Zap} title="No jobs match your filters" description="Try adjusting or clearing the filters above." />
+                </td>
+              </tr>
+            )}
+            {!isLoading && !error && jobs.length === 0 && !list.hasActiveFilters && (
               <tr>
                 <td colSpan={6} className="p-0">
                   <EmptyState
@@ -216,15 +220,8 @@ function AutomationContent() {
                 </td>
               </tr>
             )}
-            {!isLoading && !error && allJobs.length > 0 && visibleJobs.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-0">
-                  <EmptyState icon={Zap} title="No jobs match your filters" description="Try adjusting or clearing the filters above." />
-                </td>
-              </tr>
-            )}
-            {visibleJobs.map((job) => (
-              <tr key={job.id} className="hover:bg-muted transition-colors">
+            {jobs.map((job) => (
+              <tr key={job.id} className={TABLE_ROW}>
                 <td className="px-6 py-4">
                   <Link
                     href={`/automation/${job.id}`}
@@ -270,6 +267,17 @@ function AutomationContent() {
           </tbody>
         </table>
       </div>
+
+      {data && (
+        <Pagination
+          page={list.page}
+          totalPages={data.total_pages}
+          total={data.total}
+          perPage={PER_PAGE_AUTOMATION}
+          onPageChange={list.setPage}
+          itemLabel="job"
+        />
+      )}
 
       {toast && (
         <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />

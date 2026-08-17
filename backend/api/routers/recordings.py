@@ -148,6 +148,46 @@ def _recording_video_storage_key(recording: RecordingModel, media_kind: Literal[
     return raw if raw else None
 
 
+def _recording_poster_storage_key(recording: RecordingModel) -> str | None:
+    """Storage key for a recording's poster frame, by convention.
+
+    Keyed off ``recording_root`` rather than a DB column, so posters need no
+    migration and no backfill: the key is derivable, and the object is created
+    lazily the first time a client asks for one that is missing.
+
+    Returns None when the recording has no video at all — there is nothing to
+    grab a frame from, so the card should show its placeholder and not ask.
+    """
+    if not (recording.local_video_path or recording.processed_video_path):
+        return None
+    owner = getattr(recording, "owner", None)
+    user_slug = getattr(owner, "user_slug", None)
+    if user_slug is None:
+        return None
+    from file_storage.path_builder import get_path_builder, to_storage_key
+
+    return to_storage_key(get_path_builder().recording_root(user_slug, recording.id) / "poster.jpg")
+
+
+async def _poster_urls(recordings: list[RecordingModel]) -> dict[int, str]:
+    """Presign poster keys for a page of recordings in one batch.
+
+    Signing is local, but building a storage client is not — one client for the
+    whole page rather than one per row.
+    """
+    from config.settings import get_settings
+    from file_storage.factory import get_storage_backend
+
+    pairs = [(r.id, key) for r in recordings if (key := _recording_poster_storage_key(r))]
+    if not pairs:
+        return {}
+    urls = await get_storage_backend().presigned_urls(
+        [key for _, key in pairs],
+        expires_in=get_settings().storage.s3_presign_expires,
+    )
+    return {rid: url for (rid, _), url in zip(pairs, urls, strict=True)}
+
+
 async def _storage_file_info(storage_key: str | None) -> dict[str, Any]:
     """Return ``{path, exists, size_mb}`` for a storage key (None ⇒ empty dict)."""
     if not storage_key:
@@ -243,10 +283,13 @@ async def list_recordings(
 
     total_pages = (total + per_page - 1) // per_page if total > 0 else 1
 
+    poster_urls = await _poster_urls(recordings)
+
     items = []
     for r in recordings:
         items.append(
             RecordingListItem(
+                poster_url=poster_urls.get(r.id),
                 id=r.id,
                 display_name=r.display_name,
                 start_time=r.start_time,
@@ -396,6 +439,44 @@ async def get_recording_media(
     return {"url": url, "expires_in": expires_in}
 
 
+@router.post("/{recording_id}/poster", status_code=status.HTTP_202_ACCEPTED)
+async def generate_recording_poster(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> dict:
+    """Ensure a poster frame exists for this recording.
+
+    Idempotent. The list response hands out a poster URL built by convention, so
+    a client discovers a missing poster by the image failing to load and calls
+    this once; the frame then exists for every later page view. That keeps the
+    feature working for recordings that predate it without a backfill pass.
+    """
+    from api.tasks.processing import generate_poster
+
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found or you don't have access",
+        )
+
+    poster_key = _recording_poster_storage_key(recording)
+    if not poster_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recording has no video to take a poster frame from",
+        )
+
+    from file_storage.factory import get_storage_backend
+
+    if await get_storage_backend().exists(poster_key):
+        return {"status": "ready"}
+
+    generate_poster.delay(recording_id, ctx.user_id)
+    return {"status": "queued"}
+
+
 @router.get("/{recording_id}/files/{file_type}")
 async def download_recording_artifact(
     recording_id: int,
@@ -521,6 +602,7 @@ async def get_recording(
 
     if not detailed:
         return RecordingListItem(
+            poster_url=(await _poster_urls([recording])).get(recording.id),
             id=recording.id,
             display_name=recording.display_name,
             start_time=recording.start_time,
@@ -783,6 +865,7 @@ async def update_recording(
     logger.info(f"Updated recording metadata | {format_details(rec=recording_id)}")
 
     return RecordingListItem(
+        poster_url=(await _poster_urls([recording])).get(recording.id),
         id=recording.id,
         display_name=recording.display_name,
         start_time=recording.start_time,

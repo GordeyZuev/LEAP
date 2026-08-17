@@ -174,6 +174,7 @@ After `make gh-secrets`, every push to `main` triggers
 
 1. Build `backend/` and `frontend/` images
 2. Push to `cr.yandex/<registry-id>/leap-{backend,frontend}:<sha>` and `:latest`
+   (Buildx provenance/SBOM attestations are off — Yandex CR rejects OCI image indexes)
 3. SSH to the VM:  `git pull` → `refresh-env.sh` → `docker compose pull && up -d`
 4. ~3 min from push to live.
 
@@ -188,7 +189,7 @@ Three layers, merged into `/opt/leap/.env` on the VM:
 | Layer | Source | Examples | When to update |
 |---|---|---|---|
 | **Static** | `terraform/cloud-init.yaml.tftpl` `.env.static` block | `DATABASE_HOST=postgres`, `STORAGE_S3_REGION=ru-central1`, `OAUTH_BASE_URL=https://…/api`, `IMAGE_TAG=latest` | Edit the template + `terraform apply` |
-| **Lockbox secrets** | `yandex_lockbox_secret_version` in `terraform/modules/secrets/main.tf` | `DB_PASSWORD`, `SECURITY_JWT_SECRET_KEY`, `SECURITY_ENCRYPTION_KEY`, `STORAGE_S3_ACCESS_KEY_ID`, `OAUTH_*_CLIENT_ID/SECRET`, `GRAFANA_PASSWORD`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD` | Edit Terraform vars + `terraform apply`, OR rotate via `yc lockbox secret add-version` |
+| **Lockbox secrets** | `yandex_lockbox_secret_version` in `terraform/modules/secrets/main.tf` | `DB_PASSWORD`, `SECURITY_JWT_SECRET_KEY`, `SECURITY_ENCRYPTION_KEY`, `STORAGE_S3_ACCESS_KEY_ID`, `OAUTH_*_CLIENT_ID/SECRET`, `GRAFANA_PASSWORD`, `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD`, `EMAIL_ENABLED`, `EMAIL_SMTP_HOST`, `EMAIL_FROM_*`, `EMAIL_BASE_URL` | Edit Terraform vars + `terraform apply`, OR rotate via `yc lockbox secret add-version` |
 | **Config files** | `FILE__<name>.json` entries in Lockbox → materialized to `backend/config/` on the VM by `refresh-env.sh` | `backend/config/oauth_zoom.json`, `assemblyai_creds.json`, `deepseek_creds.json`, etc. | Edit local file → `terraform apply` (re-uploads to Lockbox) |
 
 To inspect / change without re-running Terraform:
@@ -201,6 +202,31 @@ make refresh-env
 ```
 
 Full env var reference: [backend/.env.example](../../.env.example).
+
+### Transactional email (verification + password reset)
+
+`EmailService` sends only when `EMAIL_ENABLED=true`.
+
+| Keys | Source |
+| ---- | ------ |
+| `EMAIL_SMTP_USER`, `EMAIL_SMTP_PASSWORD` | Lockbox (always) |
+| `EMAIL_ENABLED`, `EMAIL_SMTP_HOST`, `EMAIL_FROM_*`, `EMAIL_BASE_URL` | Lockbox (after this change) **and** `scripts/vm-init.sh` → `.env.static` on **new** VMs |
+
+`.env.static` is written once at bootstrap. Terraform does **not** rewrite it.
+That is why the June-2026 VM had creds in Lockbox but `enabled=false` in the
+API process. New Lockbox keys land on the VM only after `terraform apply`
+(new secret version) + `/opt/leap/refresh-env.sh` + recreate `api`.
+
+Check (password redacted):
+
+```bash
+grep -E '^EMAIL_' /opt/leap/.env | sed -E 's/(PASSWORD)=.*/\1=***/'
+docker exec leap_api printenv | grep -E '^EMAIL_' | sed -E 's/(PASSWORD)=.*/\1=***/'
+```
+
+Need `EMAIL_ENABLED=true` **inside the container**, not only in `.env` on disk.
+Yandex: app-password, `smtp.yandex.ru:587` STARTTLS, From = SMTP login.
+Logs: `[email] sent to=…` / `[email] failed to send` / `[email] disabled`.
 
 ---
 

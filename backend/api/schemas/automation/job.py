@@ -87,6 +87,30 @@ class JobListResponse(PaginatedResponse):
     items: list[AutomationJobListItem]
 
 
+class JobRunItem(BaseModel):
+    """One recorded execution of an automation job."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: str = Field(description="SUCCESS | FAILED | SKIPPED")
+    trigger: str = Field(description="SCHEDULE | MANUAL")
+    started_at: datetime
+    finished_at: datetime
+    duration_seconds: int | None = None
+    synced_count: int
+    recordings_found: int
+    matched_count: int
+    processed_count: int
+    error: str | None = None
+
+
+class JobRunListResponse(PaginatedResponse):
+    """Paginated run history for one job."""
+
+    items: list[JobRunItem]
+
+
 class DryRunResult(BaseModel):
     """Result of dry-run preview."""
 

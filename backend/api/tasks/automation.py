@@ -7,7 +7,7 @@ from sqlalchemy import select
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron
-from api.repositories.automation_repos import AutomationJobRepository
+from api.repositories.automation_repos import AutomationJobRepository, AutomationJobRunRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
 from api.tasks.base import AutomationTask
 from api.tasks.processing import run_recording_task
@@ -20,6 +20,33 @@ logger = get_logger()
 settings = get_settings()
 
 
+# Maps the task's result payload onto a history row. Kept next to the task so
+# the two stay in step when the payload changes.
+_RUN_STATUS_BY_RESULT = {"success": "SUCCESS", "error": "FAILED", "skipped": "SKIPPED"}
+
+
+async def _record_run(session, job_id: int, user_id: str, started_at, result: dict, trigger: str) -> None:
+    """Persist one execution. Never lets bookkeeping break the run itself."""
+    finished_at = datetime.now(UTC)
+    try:
+        await AutomationJobRunRepository(session).create(
+            job_id=job_id,
+            user_id=user_id,
+            status=_RUN_STATUS_BY_RESULT.get(result.get("status", ""), "FAILED"),
+            trigger=trigger,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=int((finished_at - started_at).total_seconds()),
+            synced_count=result.get("synced_count", 0) or 0,
+            recordings_found=result.get("recordings_found", 0) or 0,
+            matched_count=result.get("matched_count", 0) or 0,
+            processed_count=result.get("processed_count", 0) or 0,
+            error=result.get("error") or result.get("reason"),
+        )
+    except Exception as exc:  # pragma: no cover - history must not mask results
+        logger.error(f"Failed to record run for job {job_id}: {exc}")
+
+
 @celery_app.task(
     bind=True,
     base=AutomationTask,
@@ -27,7 +54,7 @@ settings = get_settings()
     max_retries=settings.celery.automation_max_retries,
     default_retry_delay=settings.celery.automation_retry_delay,
 )
-def run_automation_job_task(self, job_id: int, user_id: str):
+def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCHEDULE"):
     """
     Execute automation job:
     1. Load templates and collect source_ids
@@ -40,212 +67,216 @@ def run_automation_job_task(self, job_id: int, user_id: str):
     async def _run():
         session_maker = get_async_session_maker()
         async with session_maker() as session:
-            job_repo = AutomationJobRepository(session)
-            job = await job_repo.get_by_id(job_id, user_id)
+            started_at = datetime.now(UTC)
+            result = await _execute_job(session, job_id, user_id)
+            await _record_run(session, job_id, user_id, started_at, result, trigger)
+            return result
 
-            if not job or not job.is_active:
-                logger.warning(f"Job {job_id} not found or inactive")
-                return {"status": "skipped", "reason": "Job not found or inactive"}
+    async def _execute_job(session, job_id: int, user_id: str):
+        job_repo = AutomationJobRepository(session)
+        job = await job_repo.get_by_id(job_id, user_id)
 
-            try:
-                logger.info(f"Starting automation job {job_id} ({job.name})")
+        if not job or not job.is_active:
+            logger.warning(f"Job {job_id} not found or inactive")
+            return {"status": "skipped", "reason": "Job not found or inactive"}
 
-                # Step 1: Load and validate templates
-                template_repo = RecordingTemplateRepository(session)
-                templates = await template_repo.find_by_ids(job.template_ids, user_id)
-                templates = [t for t in templates if t.is_active and not t.is_draft]
+        try:
+            logger.info(f"Starting automation job {job_id} ({job.name})")
 
-                if not templates:
-                    logger.warning(f"Job {job_id}: No active templates found")
-                    return {"status": "error", "error": "No active templates"}
+            # Step 1: Load and validate templates
+            template_repo = RecordingTemplateRepository(session)
+            templates = await template_repo.find_by_ids(job.template_ids, user_id)
+            templates = [t for t in templates if t.is_active and not t.is_draft]
 
-                logger.info(f"Job {job_id}: Using {len(templates)} templates: {[t.id for t in templates]}")
+            if not templates:
+                logger.warning(f"Job {job_id}: No active templates found")
+                return {"status": "error", "error": "No active templates"}
 
-                # Step 2: Collect source_ids from templates
-                source_ids_set = set()
-                has_empty_source_ids = False
+            logger.info(f"Job {job_id}: Using {len(templates)} templates: {[t.id for t in templates]}")
 
-                for template in templates:
-                    # If matching_rules is None or doesn't specify source_ids → match all sources
-                    if not template.matching_rules:
+            # Step 2: Collect source_ids from templates
+            source_ids_set = set()
+            has_empty_source_ids = False
+
+            for template in templates:
+                # If matching_rules is None or doesn't specify source_ids → match all sources
+                if not template.matching_rules:
+                    has_empty_source_ids = True
+                else:
+                    template_sources = template.matching_rules.get("source_ids")
+                    if template_sources is None or (isinstance(template_sources, list) and len(template_sources) == 0):
+                        # No source_ids specified or empty list → match all sources
                         has_empty_source_ids = True
                     else:
-                        template_sources = template.matching_rules.get("source_ids")
-                        if template_sources is None or (
-                            isinstance(template_sources, list) and len(template_sources) == 0
-                        ):
-                            # No source_ids specified or empty list → match all sources
-                            has_empty_source_ids = True
-                        else:
-                            # Specific source_ids → collect them
-                            source_ids_set.update(template_sources)
+                        # Specific source_ids → collect them
+                        source_ids_set.update(template_sources)
 
-                # Step 3: Determine sources to sync
-                source_repo = InputSourceRepository(session)
-                if has_empty_source_ids:
-                    # If ANY template has no source_ids → sync ALL sources
-                    all_sources = await source_repo.find_active_by_user(user_id)
-                    sources_to_sync = [s for s in all_sources if s.credential_id]
-                    logger.info(f"Job {job_id}: Syncing ALL sources ({len(sources_to_sync)} total)")
-                else:
-                    # Sync only specified sources
-                    sources_to_sync = []
-                    for source_id in source_ids_set:
-                        source = await source_repo.find_by_id(source_id, user_id)
-                        if source and source.is_active and source.credential_id:
-                            sources_to_sync.append(source)
-                    logger.info(f"Job {job_id}: Syncing sources: {list(source_ids_set)}")
+            # Step 3: Determine sources to sync
+            source_repo = InputSourceRepository(session)
+            if has_empty_source_ids:
+                # If ANY template has no source_ids → sync ALL sources
+                all_sources = await source_repo.find_active_by_user(user_id)
+                sources_to_sync = [s for s in all_sources if s.credential_id]
+                logger.info(f"Job {job_id}: Syncing ALL sources ({len(sources_to_sync)} total)")
+            else:
+                # Sync only specified sources
+                sources_to_sync = []
+                for source_id in source_ids_set:
+                    source = await source_repo.find_by_id(source_id, user_id)
+                    if source and source.is_active and source.credential_id:
+                        sources_to_sync.append(source)
+                logger.info(f"Job {job_id}: Syncing sources: {list(source_ids_set)}")
 
-                if not sources_to_sync:
-                    logger.warning(f"Job {job_id}: No sources to sync")
-                    return {"status": "error", "error": "No sources to sync"}
+            if not sources_to_sync:
+                logger.warning(f"Job {job_id}: No sources to sync")
+                return {"status": "error", "error": "No sources to sync"}
 
-                # Step 4: Sync recordings from all sources using existing _sync_single_source
-                sync_config = job.sync_config
-                days = sync_config.get("sync_days", 2)
-                to_date = datetime.now().strftime("%Y-%m-%d")
-                from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            # Step 4: Sync recordings from all sources using existing _sync_single_source
+            sync_config = job.sync_config
+            days = sync_config.get("sync_days", 2)
+            to_date = datetime.now().strftime("%Y-%m-%d")
+            from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-                from api.routers.input_sources import _sync_single_source
+            from api.routers.input_sources import _sync_single_source
 
-                synced_count = 0
-                for source in sources_to_sync:
-                    try:
-                        result = await _sync_single_source(
-                            source_id=source.id,
-                            from_date=from_date,
-                            to_date=to_date,
-                            session=session,
-                            user_id=user_id,
-                        )
-
-                        if result["status"] == "success":
-                            synced_count += result["recordings_saved"]
-                            logger.info(
-                                f"Job {job_id}: Synced source {source.id} - "
-                                f"found={result['recordings_found']}, "
-                                f"saved={result['recordings_saved']}, "
-                                f"updated={result['recordings_updated']}"
-                            )
-                        else:
-                            logger.error(f"Job {job_id}: Failed to sync source {source.id}: {result.get('error')}")
-
-                    except Exception as e:
-                        logger.error(f"Job {job_id}: Failed to sync source {source.id}: {e}")
-                        continue
-
-                logger.info(f"Job {job_id}: Total synced {synced_count} new recordings")
-
-                # Step 5: Query recordings using filters
-                filters = job.filters or {}
-                status_filter = filters.get("status", ["INITIALIZED"])
-                exclude_blank = filters.get("exclude_blank", True)
-
-                # Calculate date range from sync_days
-                # Use UTC to match timezone-aware start_time in DB
-                from_datetime = datetime.now(UTC) - timedelta(days=days)
-                to_datetime = datetime.now(UTC)
-
-                query = select(RecordingModel).where(
-                    RecordingModel.user_id == user_id,
-                    RecordingModel.start_time >= from_datetime,
-                    RecordingModel.start_time <= to_datetime,
-                )
-
-                # Apply status filter
-                if status_filter:
-                    query = query.where(RecordingModel.status.in_(status_filter))
-
-                # Apply exclude_blank filter
-                if exclude_blank:
-                    query = query.where(~RecordingModel.blank_record)
-
-                query = query.limit(1000)
-                result = await session.execute(query)
-                recordings_to_process = list(result.scalars().all())
-
-                logger.info(
-                    f"Job {job_id}: Found {len(recordings_to_process)} recordings to process "
-                    f"(status={status_filter}, exclude_blank={exclude_blank}, "
-                    f"date_range={from_datetime.isoformat()} to {to_datetime.isoformat()})"
-                )
-
-                # Step 6: Match and process recordings
-                from api.routers.input_sources import _find_matching_template
-
-                processed_recordings = []
-                matched_count = 0
-                unmatched_count = 0
-
-                for recording in recordings_to_process:
-                    # Find first matching template
-                    matched_template = _find_matching_template(
-                        display_name=recording.display_name,
-                        source_id=recording.input_source_id or 0,
-                        templates=templates,
+            synced_count = 0
+            for source in sources_to_sync:
+                try:
+                    result = await _sync_single_source(
+                        source_id=source.id,
+                        from_date=from_date,
+                        to_date=to_date,
+                        session=session,
+                        user_id=user_id,
                     )
 
-                    if matched_template:
-                        matched_count += 1
-                        # Apply template to recording
-                        recording.template_id = matched_template.id
-                        recording.is_mapped = True
-                        await template_repo.increment_usage(matched_template)
-
-                        # Start run task with automation processing_config as manual_override
-                        task = run_recording_task.delay(
-                            recording_id=recording.id,
-                            user_id=user_id,
-                            manual_override=job.processing_config,
-                        )
-
-                        processed_recordings.append(
-                            {
-                                "recording_id": recording.id,
-                                "template_id": matched_template.id,
-                                "task_id": str(task.id),
-                            }
-                        )
-
-                        logger.debug(
-                            f"Job {job_id}: Recording {recording.id} matched template {matched_template.id}, task={task.id}"
+                    if result["status"] == "success":
+                        synced_count += result["recordings_saved"]
+                        logger.info(
+                            f"Job {job_id}: Synced source {source.id} - "
+                            f"found={result['recordings_found']}, "
+                            f"saved={result['recordings_saved']}, "
+                            f"updated={result['recordings_updated']}"
                         )
                     else:
-                        unmatched_count += 1
-                        # Mark as SKIPPED if no template matched
-                        recording.status = ProcessingStatus.SKIPPED
-                        recording.failed_reason = "No matching template"
-                        logger.debug(f"Job {job_id}: Recording {recording.id} has no matching template - SKIPPED")
+                        logger.error(f"Job {job_id}: Failed to sync source {source.id}: {result.get('error')}")
 
-                await session.commit()
+                except Exception as e:
+                    logger.error(f"Job {job_id}: Failed to sync source {source.id}: {e}")
+                    continue
 
-                logger.info(
-                    f"Job {job_id}: Matched {matched_count} recordings, unmatched {unmatched_count}, "
-                    f"started {len(processed_recordings)} pipelines"
+            logger.info(f"Job {job_id}: Total synced {synced_count} new recordings")
+
+            # Step 5: Query recordings using filters
+            filters = job.filters or {}
+            status_filter = filters.get("status", ["INITIALIZED"])
+            exclude_blank = filters.get("exclude_blank", True)
+
+            # Calculate date range from sync_days
+            # Use UTC to match timezone-aware start_time in DB
+            from_datetime = datetime.now(UTC) - timedelta(days=days)
+            to_datetime = datetime.now(UTC)
+
+            query = select(RecordingModel).where(
+                RecordingModel.user_id == user_id,
+                RecordingModel.start_time >= from_datetime,
+                RecordingModel.start_time <= to_datetime,
+            )
+
+            # Apply status filter
+            if status_filter:
+                query = query.where(RecordingModel.status.in_(status_filter))
+
+            # Apply exclude_blank filter
+            if exclude_blank:
+                query = query.where(~RecordingModel.blank_record)
+
+            query = query.limit(1000)
+            result = await session.execute(query)
+            recordings_to_process = list(result.scalars().all())
+
+            logger.info(
+                f"Job {job_id}: Found {len(recordings_to_process)} recordings to process "
+                f"(status={status_filter}, exclude_blank={exclude_blank}, "
+                f"date_range={from_datetime.isoformat()} to {to_datetime.isoformat()})"
+            )
+
+            # Step 6: Match and process recordings
+            from api.routers.input_sources import _find_matching_template
+
+            processed_recordings = []
+            matched_count = 0
+            unmatched_count = 0
+
+            for recording in recordings_to_process:
+                # Find first matching template
+                matched_template = _find_matching_template(
+                    display_name=recording.display_name,
+                    source_id=recording.input_source_id or 0,
+                    templates=templates,
                 )
 
-                # Step 7: Update job stats
-                cron_expr, _ = schedule_to_cron(job.schedule)
-                timezone = job.schedule.get("timezone", "Europe/Moscow")
-                next_run = get_next_run_time(cron_expr, timezone)
-                await job_repo.mark_run(job, next_run)
+                if matched_template:
+                    matched_count += 1
+                    # Apply template to recording
+                    recording.template_id = matched_template.id
+                    recording.is_mapped = True
+                    await template_repo.increment_usage(matched_template)
 
-                return {
-                    "status": "success",
-                    "job_id": job_id,
-                    "synced_count": synced_count,
-                    "sources_synced": [s.id for s in sources_to_sync],
-                    "recordings_found": len(recordings_to_process),
-                    "matched_count": matched_count,
-                    "unmatched_count": unmatched_count,
-                    "processed_count": len(processed_recordings),
-                    "processed_recordings": processed_recordings,
-                    "next_run_at": next_run.isoformat(),
-                }
+                    # Start run task with automation processing_config as manual_override
+                    task = run_recording_task.delay(
+                        recording_id=recording.id,
+                        user_id=user_id,
+                        manual_override=job.processing_config,
+                    )
 
-            except Exception as e:
-                logger.error(f"Job {job_id} failed: {e}", exc_info=True)
-                return {"status": "error", "job_id": job_id, "error": str(e)}
+                    processed_recordings.append(
+                        {
+                            "recording_id": recording.id,
+                            "template_id": matched_template.id,
+                            "task_id": str(task.id),
+                        }
+                    )
+
+                    logger.debug(
+                        f"Job {job_id}: Recording {recording.id} matched template {matched_template.id}, task={task.id}"
+                    )
+                else:
+                    unmatched_count += 1
+                    # Mark as SKIPPED if no template matched
+                    recording.status = ProcessingStatus.SKIPPED
+                    recording.failed_reason = "No matching template"
+                    logger.debug(f"Job {job_id}: Recording {recording.id} has no matching template - SKIPPED")
+
+            await session.commit()
+
+            logger.info(
+                f"Job {job_id}: Matched {matched_count} recordings, unmatched {unmatched_count}, "
+                f"started {len(processed_recordings)} pipelines"
+            )
+
+            # Step 7: Update job stats
+            cron_expr, _ = schedule_to_cron(job.schedule)
+            timezone = job.schedule.get("timezone", "Europe/Moscow")
+            next_run = get_next_run_time(cron_expr, timezone)
+            await job_repo.mark_run(job, next_run)
+
+            return {
+                "status": "success",
+                "job_id": job_id,
+                "synced_count": synced_count,
+                "sources_synced": [s.id for s in sources_to_sync],
+                "recordings_found": len(recordings_to_process),
+                "matched_count": matched_count,
+                "unmatched_count": unmatched_count,
+                "processed_count": len(processed_recordings),
+                "processed_recordings": processed_recordings,
+                "next_run_at": next_run.isoformat(),
+            }
+
+        except Exception as e:
+            logger.error(f"Job {job_id} failed: {e}", exc_info=True)
+            return {"status": "error", "job_id": job_id, "error": str(e)}
 
     return self.run_async(_run())
 

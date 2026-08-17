@@ -15,6 +15,10 @@ interface NativeSelectProps {
   className?: string;
   wrapperClassName?: string;
   disabled?: boolean;
+  /** Forwarded to the trigger so an external <label htmlFor> resolves. */
+  id?: string;
+  "aria-describedby"?: string;
+  ariaLabel?: string;
 }
 
 function childrenToOptions(children: ReactNode): FilterSelectOption[] {
@@ -36,6 +40,9 @@ export function NativeSelect({
   className,
   wrapperClassName,
   disabled,
+  id,
+  "aria-describedby": describedBy,
+  ariaLabel,
 }: NativeSelectProps) {
   const options = childrenToOptions(children);
   return (
@@ -43,6 +50,9 @@ export function NativeSelect({
       value={String(value ?? "")}
       options={options}
       disabled={disabled}
+      id={id}
+      aria-describedby={describedBy}
+      ariaLabel={ariaLabel}
       className={cn(wrapperClassName, className)}
       onChange={(v) =>
         // Synthesize the minimal change event shape that call sites read.

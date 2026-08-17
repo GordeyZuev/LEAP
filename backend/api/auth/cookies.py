@@ -17,9 +17,20 @@ ACCESS_COOKIE_PATH = "/"
 REFRESH_COOKIE_PATH = "/api/v1/auth"
 """Refresh cookie is scoped to /auth so a CSRF on any other route can't trigger a refresh."""
 
+PERSISTENT_COOKIE_NAME = "leap_persistent"
+"""Marks the session as "remember me".
 
-def _cookie_kwargs(*, max_age: int, path: str, http_only: bool) -> dict:
-    """Build shared kwargs for ``response.set_cookie``."""
+Readable by the client on purpose and carries no secret: it only records the
+choice made at login so ``/auth/refresh`` can re-issue cookies with the same
+lifetime instead of silently upgrading a browser-session login to a lasting one.
+"""
+
+
+def _cookie_kwargs(*, max_age: int | None, path: str, http_only: bool) -> dict:
+    """Build shared kwargs for ``response.set_cookie``.
+
+    ``max_age=None`` produces a session cookie, which the browser drops on exit.
+    """
     kwargs: dict = {
         "max_age": max_age,
         "path": path,
@@ -43,14 +54,18 @@ def set_auth_cookies(
     access_token: str,
     refresh_token: str,
     csrf_token: str,
+    persistent: bool = True,
 ) -> None:
-    """Write the three session cookies on the response.
+    """Write the session cookies on the response.
 
     CSRF cookie outlives the access cookie so the frontend can still attach it
     to ``/auth/refresh`` once the access token has expired.
+
+    When ``persistent`` is false every cookie becomes a session cookie: the user
+    asked not to be remembered, so closing the browser must end the session.
     """
-    access_max_age = settings.security.jwt_access_token_expire_minutes * 60
-    refresh_max_age = settings.security.jwt_refresh_token_expire_days * 24 * 60 * 60
+    access_max_age = settings.security.jwt_access_token_expire_minutes * 60 if persistent else None
+    refresh_max_age = settings.security.jwt_refresh_token_expire_days * 24 * 60 * 60 if persistent else None
 
     response.set_cookie(
         ACCESS_COOKIE_NAME,
@@ -67,6 +82,11 @@ def set_auth_cookies(
         csrf_token,
         **_cookie_kwargs(max_age=refresh_max_age, path=ACCESS_COOKIE_PATH, http_only=False),
     )
+    response.set_cookie(
+        PERSISTENT_COOKIE_NAME,
+        "1" if persistent else "0",
+        **_cookie_kwargs(max_age=refresh_max_age, path=ACCESS_COOKIE_PATH, http_only=False),
+    )
 
 
 def clear_auth_cookies(response: Response) -> None:
@@ -75,3 +95,4 @@ def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie(ACCESS_COOKIE_NAME, path=ACCESS_COOKIE_PATH, domain=domain)
     response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH, domain=domain)
     response.delete_cookie(settings.security.csrf_cookie_name, path=ACCESS_COOKIE_PATH, domain=domain)
+    response.delete_cookie(PERSISTENT_COOKIE_NAME, path=ACCESS_COOKIE_PATH, domain=domain)

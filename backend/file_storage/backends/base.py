@@ -62,6 +62,15 @@ class StorageBackend(ABC):
         """
         raise NotImplementedError("This backend does not support presigned URLs")
 
+    async def presigned_urls(self, paths: list[str], expires_in: int = 3600) -> list[str]:
+        """Sign many keys at once, preserving order.
+
+        Signing itself is local computation, but building a client is not — a
+        list endpoint that signs one URL per row would construct one client per
+        row. Backends that hold a client override this to build a single one.
+        """
+        return [await self.presigned_url(p, expires_in=expires_in) for p in paths]
+
     async def list_keys(self, prefix: str) -> list[str]:
         """List all storage keys under a prefix.
 

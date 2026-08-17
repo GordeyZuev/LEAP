@@ -15,7 +15,7 @@ const OPTIONS: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   return (
-    <div role="radiogroup" aria-label="Theme" className="inline-flex rounded-xl border border-border bg-muted p-1 gap-0.5">
+    <div role="radiogroup" aria-label="Theme" className="inline-flex rounded-xl border border-input bg-muted p-1 gap-0.5">
       {OPTIONS.map(({ value, label, icon: Icon }) => {
         const active = theme === value;
         return (

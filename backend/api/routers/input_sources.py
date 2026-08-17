@@ -14,7 +14,7 @@ from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
 from api.schemas.auth import UserInDB
-from api.schemas.common.pagination import paginate_list
+from api.schemas.common.pagination import filter_by_search, paginate_list
 from api.schemas.template import (
     BulkSyncRequest,
     InputSourceCreate,
@@ -738,13 +738,17 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
 
 
 SOURCE_SORT_FIELDS = {"created_at", "updated_at", "name", "last_sync_at"}
+SOURCE_SEARCH_FIELDS = ("name", "description")
 
 
 @router.get("", response_model=SourceListResponse)
 async def list_sources(
-    search: str | None = Query(None, description="Search substring in source name (case-insensitive)"),
+    search: str | None = Query(None, description="Search substring in source name or description (case-insensitive)"),
     active_only: bool = False,
-    platform: str | None = Query(None, description="Filter by source type (e.g. zoom, google_drive)"),
+    platform: list[str] = Query(
+        default=[],
+        description="Filter by source type; repeat the param to pass several (?platform=zoom&platform=local)",
+    ),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     sort_by: str = Query("created_at", description="Sort field"),
@@ -760,15 +764,12 @@ async def list_sources(
     else:
         sources = await repo.find_by_user(current_user.id)
 
-    # Apply search filter
-    if search:
-        search_lower = search.lower()
-        sources = [s for s in sources if search_lower in s.name.lower()]
+    sources = filter_by_search(sources, search, SOURCE_SEARCH_FIELDS)
 
-    # Apply platform filter (case-insensitive)
+    # Platform filter is case-insensitive so callers can pass "zoom" or "ZOOM".
     if platform:
-        platform_upper = platform.upper()
-        sources = [s for s in sources if s.source_type.upper() == platform_upper]
+        wanted = {p.upper() for p in platform}
+        sources = [s for s in sources if s.source_type.upper() in wanted]
 
     items, total, total_pages = paginate_list(sources, page, per_page, sort_by, sort_order, SOURCE_SORT_FIELDS)
 
