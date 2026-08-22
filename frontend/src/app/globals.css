@@ -141,7 +141,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Plyr player brand overrides */
+/* Plyr — clip only on .plyr--video; not on outer frame (cuts controls). */
 .plyr {
   --plyr-color-main: var(--primary);
   --plyr-video-background: #000;
@@ -152,10 +152,11 @@ body {
   --plyr-range-thumb-height: 14px;
   --plyr-range-track-height: 4px;
 }
-/* overflow:hidden only here — outer wrapper must stay clip-free or controls get cut */
 .plyr--video {
   border-radius: 0.75rem;
   overflow: hidden;
+  height: 100%;
+  width: 100%;
 }
 .plyr--video .plyr__controls {
   border-radius: 0 0 0.75rem 0.75rem;

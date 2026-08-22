@@ -4,7 +4,7 @@ import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
-import { cn } from "@/lib/utils";
+import { VIDEO_PLAYER_FRAME } from "@/components/ui/video-player-frame";
 
 export interface VideoPlayerMarker {
   time: number;
@@ -42,14 +42,12 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       const player = new Plyr(el, {
         seekTime: 5,
         invertTime: false,
+        hideControls: false,
         speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
         tooltips: { controls: true, seek: true },
         keyboard: { focused: true, global: false },
         captions: { active: false, language: "auto", update: true },
-        // markers.enabled stays false at init — duration is 0 until loadedmetadata,
-        // which would pin all dots at left:0%. Injected via DOM below instead.
         markers: { enabled: false, points: [] as { time: number; label: string }[] },
-        // i18n omitted — Plyr's built-in labels are already English.
       });
 
       if (markers?.length) {
@@ -72,9 +70,6 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         else el.addEventListener("loadedmetadata", injectMarkers, { once: true });
       }
 
-      // Live "now playing" chapter label, injected next to Plyr's own time
-      // display — Plyr has no built-in slot for this, same DOM-injection
-      // approach as the progress markers above.
       let chapterLabelEl: HTMLSpanElement | null = null;
       let lastLabel: string | null = null;
       if (markers?.length) {
@@ -113,18 +108,15 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     }, [src]);
 
     return (
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl">
-        <video ref={setRef} src={src} preload="metadata" className="block w-full">
+      <div className={VIDEO_PLAYER_FRAME}>
+        <video ref={setRef} src={src} preload="metadata" className="block h-full w-full">
           {vttBlobUrl && <track kind="subtitles" src={vttBlobUrl} label="Subtitles" default />}
         </video>
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-0 flex items-center justify-center bg-black transition-opacity duration-300",
-            ready ? "opacity-0" : "opacity-100",
-          )}
-        >
-          <Loader2 size={24} className="animate-spin text-white/40" />
-        </div>
+        {!ready && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-black">
+            <Loader2 size={24} className="animate-spin text-white/40" />
+          </div>
+        )}
       </div>
     );
   }

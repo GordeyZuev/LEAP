@@ -161,7 +161,7 @@ export function CollapsibleCard({
       {/* The body wrapper is always rendered so `aria-controls` never dangles. */}
       <div id={bodyId}>
         {open && (
-          <div className={cn("border-t border-border", BODY_OPEN_PAD[density], bodyClassName)}>
+          <div className={cn("min-w-0 border-t border-border", BODY_OPEN_PAD[density], bodyClassName)}>
             {children}
           </div>
         )}

@@ -24,6 +24,7 @@ import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-c
 import { ArtefactList, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
 import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
+import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
 import { CollapsibleCard, SectionCard } from "@/components/ui/section-card";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,11 +36,7 @@ const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
   {
     ssr: false,
-    loading: () => (
-      <div className="flex aspect-video items-center justify-center">
-        <Loader2 size={24} className="animate-spin text-white/40" />
-      </div>
-    ),
+    loading: () => <VideoPlayerLoading theme="dark" />,
   },
 );
 
@@ -140,32 +137,33 @@ function ShareVideoPlayer({
     },
   });
 
+  if (isLoading) {
+    return <VideoPlayerLoading theme="dark" />;
+  }
+
+  if (isError || !videoUrl) {
+    return (
+      <div
+        role="status"
+        className={cn(
+          VIDEO_PLAYER_FRAME,
+          "flex flex-col items-center justify-center gap-2 bg-black text-sm text-white/60",
+        )}
+      >
+        <VideoOff size={18} />
+        <span>Video unavailable</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="aspect-video overflow-hidden rounded-xl bg-black">
-      {isLoading && (
-        <div className="flex aspect-video items-center justify-center">
-          <Loader2 size={24} className="animate-spin text-white/40" />
-        </div>
-      )}
-      {(isError || (!isLoading && !videoUrl)) && (
-        <div
-          role="status"
-          className="flex aspect-video items-center justify-center gap-2 text-sm text-white/60"
-        >
-          <VideoOff size={18} />
-          <span>Video unavailable</span>
-        </div>
-      )}
-      {videoUrl && !isLoading && (
-        <VideoPlayer
-          ref={videoRef}
-          src={videoUrl}
-          markers={markers}
-          vttBlobUrl={vttBlobUrl}
-          onTimeUpdate={onTimeUpdate}
-        />
-      )}
-    </div>
+    <VideoPlayer
+      ref={videoRef}
+      src={videoUrl}
+      markers={markers}
+      vttBlobUrl={vttBlobUrl}
+      onTimeUpdate={onTimeUpdate}
+    />
   );
 }
 

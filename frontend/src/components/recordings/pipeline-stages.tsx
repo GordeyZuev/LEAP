@@ -172,13 +172,16 @@ export function PipelineStageList({
         const time = showTimes && endedAt ? STAGE_TIME_FORMATTER.format(new Date(endedAt)) : "";
 
         return (
-          <li key={normalizeStageType(stage.stage_type)} className="py-2 first:pt-0 last:pb-0">
-            <div className="flex items-center gap-2">
-              <Icon
-                size={14}
-                aria-hidden="true"
-                className={cn("shrink-0", meta.color, state === "IN_PROGRESS" && "animate-spin")}
-              />
+          <li
+            key={normalizeStageType(stage.stage_type)}
+            className="grid grid-cols-[14px_minmax(0,1fr)] gap-x-2 py-2 first:pt-0 last:pb-0"
+          >
+            <Icon
+              size={14}
+              aria-hidden="true"
+              className={cn("shrink-0", meta.color, state === "IN_PROGRESS" && "animate-spin")}
+            />
+            <div className="flex min-w-0 items-center gap-2">
               <span className="flex-1 truncate text-xs font-medium text-secondary-foreground">{name}</span>
               {retries > 0 && (
                 <span className="shrink-0 text-xs tabular-nums text-warning-fg" title={`${retries} retries`}>
@@ -190,9 +193,11 @@ export function PipelineStageList({
               </span>
             </div>
 
-            {state === "IN_PROGRESS" && <ProgressBar variant="indeterminate" className="ms-[22px] mt-1 h-0.5" />}
+            {state === "IN_PROGRESS" && (
+              <ProgressBar variant="indeterminate" className="col-start-2 mt-1 h-0.5" />
+            )}
 
-            {time && <p className="ms-[22px] mt-0.5 text-xs text-muted-foreground">{time}</p>}
+            {time && <p className="col-start-2 mt-0.5 text-xs text-muted-foreground">{time}</p>}
 
             {/* The reason a stage failed is the whole point of this view; it is
                 shown in full and stays selectable so it can be copied. */}
@@ -201,7 +206,7 @@ export function PipelineStageList({
             {stage.failed && (
               <p
                 className={cn(
-                  "ms-[22px] mt-1 break-words rounded-lg px-2 py-1 text-xs",
+                  "col-start-2 mt-1 break-words rounded-lg px-2 py-1 text-xs",
                   stage.failed_reason?.trim()
                     ? "bg-danger-fg/10 text-danger-fg"
                     : "bg-muted text-muted-foreground",

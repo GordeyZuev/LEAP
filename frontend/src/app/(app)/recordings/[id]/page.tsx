@@ -27,6 +27,7 @@ import { ShareModal } from "@/components/recordings/share-modal";
 import { TemplateField } from "@/components/platforms/platform-fields";
 import { POLL_INTERVAL_DETAIL, needsActivePoll } from "@/lib/constants";
 import { VideoPlayer, type VideoPlayerMarker } from "@/components/ui/video-player";
+import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
 import { Toast } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -237,6 +238,26 @@ function renderRecordingTemplateNavValue(opts: {
  */
 const PAGE_ROOT = "w-full min-w-0 max-w-[110rem] p-6 sm:p-8";
 
+/** Shared by the loaded page and its skeleton so column order cannot drift. */
+const DETAIL_COLUMNS = "flex flex-col gap-6 lg:flex-row lg:items-start";
+const DETAIL_MAIN = "min-w-0 flex-1 space-y-6";
+const DETAIL_SIDEBAR = "order-first w-full space-y-6 lg:order-none lg:w-80 lg:shrink-0";
+
+/** Section labels — one source for cards and the loading shell. */
+const RECORDING_SECTION = {
+  video: "Video",
+  description: "Description",
+  chapters: "Chapters & summary",
+  configuration: "Configuration",
+  controlPanel: "Control panel",
+  details: "Details",
+  publications: "Publications",
+  files: "Files",
+  pipeline: "Pipeline",
+} as const;
+
+const CONTROL_PANEL_ACTION_GRID = "grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-2";
+
 const VIDEO_VARIANT_TABS: TabItem<"processed" | "original">[] = [
   { value: "processed", label: "Processed" },
   { value: "original", label: "Original" },
@@ -386,16 +407,12 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
   });
 
   if (loading) {
-    return (
-      <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-muted">
-        <Loader2 size={24} className="animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <VideoPlayerLoading />;
   }
 
   if (isError || !src) {
     return (
-      <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-muted">
+      <div className={cn(VIDEO_PLAYER_FRAME, "flex flex-col items-center justify-center gap-2 bg-muted")}>
         <VideoOff size={22} className="text-muted-foreground" />
         <p className="text-xs text-muted-foreground">{isError ? "Failed to load video" : "Video not available yet"}</p>
         {isError && (
@@ -694,41 +711,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const isSoftDeleted = !!recording?.soft_deleted_at;
 
   if (isLoading) {
-    return (
-      <div className={PAGE_ROOT}>
-        {/* Header */}
-        <div className="mb-5 flex min-h-[2.5rem] items-center gap-3">
-          <Skeleton className="h-8 w-72 max-w-full" />
-          <Skeleton className="h-6 w-24 shrink-0 rounded-full" />
-        </div>
-        {/* Mirrors the real split below, column order included, so nothing
-            jumps when the data lands. */}
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          <div className="order-first w-full space-y-6 lg:order-none lg:w-80 lg:shrink-0">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="space-y-3 rounded-2xl border border-border bg-card p-5">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-9 w-full rounded-xl" />
-                <Skeleton className="h-9 w-full rounded-xl" />
-              </div>
-            ))}
-          </div>
-          <div className="min-w-0 flex-1 space-y-6">
-            <div className="rounded-2xl border border-border bg-card p-5">
-              <Skeleton className="aspect-video w-full rounded-xl" />
-            </div>
-            <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
-              <Skeleton className="h-4 w-40" />
-              <div className="flex flex-wrap gap-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-9 w-28 rounded-xl" />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <RecordingDetailSkeleton />;
   }
 
   if (error || !recording) {
@@ -929,13 +912,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           The sidebar is the control surface, so below `lg` it comes first.
           Otherwise Run, Pause and Share sit under the video, description,
           AI-Data and Configuration cards. */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className={DETAIL_COLUMNS}>
 
         {/* ════ MAIN COLUMN ════ */}
-        <div className="min-w-0 flex-1 space-y-6">
+        <div className={DETAIL_MAIN}>
 
           {/* Video */}
-          <SectionCard title="Video" density="compact">
+          <SectionCard title={RECORDING_SECTION.video} density="compact">
             {!hasVideoFiles ? (
               <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-muted">
                 <VideoOff size={22} className="text-muted-foreground" />
@@ -959,7 +942,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               falling back to display_name would just repeat the <h1> above. */}
           {(displayDescription || queriedTitle || descriptionLoading) && (
             <CollapsibleCard
-              title="Description"
+              title={RECORDING_SECTION.description}
               subtitle={queriedTitle && queriedTitle !== recording.display_name ? queriedTitle : undefined}
               open={!descCollapsed}
               onOpenChange={(open) => setDescCollapsed(!open)}
@@ -1078,7 +1061,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               most useful control, and the player's chapter-following writes
               into refs that only exist while this card is expanded. */}
           {showTopics && activeTopicVersion && (
-            <CollapsibleCard title="Chapters & summary" defaultOpen>
+            <CollapsibleCard title={RECORDING_SECTION.chapters} defaultOpen>
               <AIContentEditor
                 recordingId={Number(id)}
                 version={activeTopicVersion}
@@ -1097,7 +1080,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           )}
 
           {/* Config (collapsible) */}
-          <CollapsibleCard title="Configuration" defaultOpen={false}>
+          <CollapsibleCard title={RECORDING_SECTION.configuration} defaultOpen={false}>
             {configLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 size={14} className="animate-spin" />
@@ -1175,10 +1158,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         </div>
 
         {/* ════ SIDEBAR ════ */}
-        <div className="order-first w-full space-y-6 lg:order-none lg:w-80 lg:shrink-0">
+        <div className={DETAIL_SIDEBAR}>
 
           {/* Control Panel */}
-          <SectionCard title="Control panel" density="compact">
+          <SectionCard title={RECORDING_SECTION.controlPanel} density="compact">
             {isSoftDeleted ? (
               // Restoring is this state's primary action, not a "success" —
               // ActionButton's own primary treatment, no colour override.
@@ -1251,7 +1234,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
                 {/* Secondary actions. One column until the labels fit side by
                     side — at 320px two columns leave ~75px for the text. */}
-                <div className="grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-2">
+                <div className={CONTROL_PANEL_ACTION_GRID}>
                   <button
                     type="button"
                     onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
@@ -1302,7 +1285,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 {/* Destructive actions — kept out of the routine grid above so
                     Delete is not one mis-click away from "Link template". */}
                 <div className="space-y-1.5 border-t border-border pt-3">
-                  <div className="grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-2">
+                  <div className={CONTROL_PANEL_ACTION_GRID}>
                     <button
                       type="button"
                       disabled={isActing}
@@ -1330,7 +1313,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           {/* Details — the recording's own attributes. Not collapsible: these
               used to sit at the bottom of the collapsed Configuration card, so
               nothing about the recording was readable without a click. */}
-          <SectionCard title="Details" density="compact">
+          <SectionCard title={RECORDING_SECTION.details} density="compact">
             <dl className="space-y-2">
               <SidebarInfoRow label="ID"       value={`#${recording.id}`} />
               <SidebarInfoRow label="Template" value={templateDetailNavValue} />
@@ -1349,7 +1332,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
           {/* Publications */}
           <SectionCard
-            title="Publications"
+            title={RECORDING_SECTION.publications}
             density="compact"
             action={
               recording.upload_summary && recording.upload_summary.total > 0 ? (
@@ -1387,7 +1370,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
           {/* Downloads */}
           {artefacts.length > 0 && (
-            <SectionCard title="Files" density="compact">
+            <SectionCard title={RECORDING_SECTION.files} density="compact">
               {mediaDownloadError && (
                 <div role="alert" className="mb-2 rounded-lg border border-danger-fg/20 bg-danger-fg/10 px-3 py-2 text-xs text-danger-fg">
                   {mediaDownloadError}
@@ -1578,6 +1561,93 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 }
 
 // ---------------------------------------------------------------------------
+// Loading skeleton — reuses the same cards and layout tokens as the page.
+// ---------------------------------------------------------------------------
+
+function RecordingDetailSkeleton() {
+  return (
+    <div className={PAGE_ROOT} aria-busy="true">
+      <Skeleton className="mb-2 h-4 w-24" aria-hidden />
+      <div className="mb-5 flex min-h-[2.5rem] flex-wrap items-center gap-x-3 gap-y-2">
+        <Skeleton className="h-8 min-w-0 flex-1 max-w-xl" />
+        <Skeleton className="h-6 w-24 shrink-0 rounded-full" />
+      </div>
+
+      <div className={cn(DETAIL_COLUMNS, "pointer-events-none")}>
+        <div className={DETAIL_MAIN}>
+          <SectionCard title={RECORDING_SECTION.video} density="compact">
+            <Skeleton className="aspect-video w-full rounded-xl" />
+          </SectionCard>
+
+          <CollapsibleCard title={RECORDING_SECTION.description} open={false}>
+            {null}
+          </CollapsibleCard>
+
+          <CollapsibleCard title={RECORDING_SECTION.chapters} open>
+            <div className="space-y-3">
+              <Skeleton className="h-3 w-2/5" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
+              <div className="space-y-2 pt-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-8 w-full rounded-lg" />
+                ))}
+              </div>
+            </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard title={RECORDING_SECTION.configuration} open={false}>
+            {null}
+          </CollapsibleCard>
+        </div>
+
+        <div className={DETAIL_SIDEBAR}>
+          <SectionCard title={RECORDING_SECTION.controlPanel} density="compact">
+            <div className="space-y-3">
+              <Skeleton className="h-[2.625rem] w-full rounded-xl" />
+              <div className={CONTROL_PANEL_ACTION_GRID}>
+                <Skeleton className="h-9 rounded-xl" />
+                <Skeleton className="h-9 rounded-xl" />
+              </div>
+              <Skeleton className="h-9 w-full rounded-xl" />
+              <div className="space-y-1.5 border-t border-border pt-3">
+                <div className={CONTROL_PANEL_ACTION_GRID}>
+                  <Skeleton className="h-9 rounded-xl" />
+                  <Skeleton className="h-9 rounded-xl" />
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title={RECORDING_SECTION.details} density="compact">
+            <dl className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex justify-between gap-2">
+                  <Skeleton className="h-3 w-14" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+              ))}
+            </dl>
+          </SectionCard>
+
+          <SectionCard title={RECORDING_SECTION.publications} density="compact">
+            <Skeleton className="h-3 w-full max-w-xs" />
+          </SectionCard>
+
+          <CollapsibleCard
+            title={RECORDING_SECTION.pipeline}
+            open={false}
+            badge={<Skeleton className="h-5 w-10 rounded-full" />}
+          >
+            {null}
+          </CollapsibleCard>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Helper row components
 // ---------------------------------------------------------------------------
 
@@ -1596,7 +1666,7 @@ function PipelineCard({ stages, durationSeconds, defaultOpen }: { stages: Proces
 
   return (
     <CollapsibleCard
-      title="Pipeline"
+      title={RECORDING_SECTION.pipeline}
       open={open}
       onOpenChange={setUserToggled}
       badge={
