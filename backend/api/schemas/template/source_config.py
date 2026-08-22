@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 from api.schemas.common.validators import validate_regex_pattern
+from yandex_disk_module.paths import normalize_disk_path
 
 
 class ZoomSourceConfig(BaseModel):
@@ -76,9 +77,9 @@ class YandexDiskSourceConfig(BaseModel):
     @field_validator("folder_path")
     @classmethod
     def normalize_folder_path(cls, v: str | None) -> str | None:
-        if v and not v.startswith("/"):
-            return "/" + v
-        return v
+        if not v:
+            return v
+        return normalize_disk_path(v)
 
     @field_validator("file_pattern")
     @classmethod

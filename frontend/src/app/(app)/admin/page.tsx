@@ -23,9 +23,10 @@ import { PageHeader } from "@/components/ui/page-header";
 import { AdminAuditLog } from "@/components/admin/audit-log";
 import { Toggle } from "@/components/ui/toggle";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW } from "@/lib/table-classes";
 import { ActionButton } from "@/components/ui/action-button";
 import { Modal } from "@/components/ui/modal";
+import { ModalSection } from "@/components/ui/section-card";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -116,26 +117,6 @@ type PlanQuotaKey = (typeof PLAN_QUOTA_FIELDS)[number]["key"];
 // ---------------------------------------------------------------------------
 // UI atoms — match settings/page.tsx exactly
 // ---------------------------------------------------------------------------
-
-function SectionCard({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="bg-card rounded-2xl border border-border shadow-sm">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-        {action}
-      </div>
-      <div className="p-6 space-y-4">{children}</div>
-    </div>
-  );
-}
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -409,8 +390,8 @@ function AdminDashboard() {
         )}
 
         {/* ── Plans ─────────────────────────────────────────────────────── */}
-        <div className={TABLE_CARD}>
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-foreground">Subscription plans</h2>
             <ActionButton
               size="sm"
@@ -421,6 +402,7 @@ function AdminDashboard() {
             </ActionButton>
           </div>
 
+          <div className={TABLE_CARD}>
           {plansQuery.isLoading ? (
             <div className="flex h-24 items-center justify-center">
               <Loader2 size={18} className="animate-spin text-muted-foreground" />
@@ -443,7 +425,15 @@ function AdminDashboard() {
                     <SortableTh label="Templates" />
                     <SortableTh label="Credentials" />
                     <SortableTh label="Users" />
-                    <SortableTh label="Edit" className="text-right" />
+                    <th
+                      scope="col"
+                      className={cn(
+                        TABLE_HEAD_CELL,
+                        "sticky top-0 z-10 bg-muted text-right last:rounded-tr-2xl",
+                      )}
+                    >
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className={TABLE_BODY}>
@@ -490,6 +480,7 @@ function AdminDashboard() {
                 </tbody>
               </table>
           )}
+          </div>
         </div>
 
         {/* ── Users ─────────────────────────────────────────────────────── */}
@@ -696,8 +687,7 @@ function EditPlanModal({
       label={isNew ? "New plan" : `Edit plan — ${plan?.display_name}`}
       panelClassName="max-w-xl"
     >
-      <div className="bg-card">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-foreground">
             {isNew ? "New subscription plan" : `Edit — ${plan?.display_name}`}
           </h2>
@@ -712,9 +702,9 @@ function EditPlanModal({
         </div>
 
         <div className="max-h-[78vh] overflow-y-auto">
-          <div className="px-6 pt-5 pb-4 space-y-4">
+          <div className="px-6 pt-5 pb-4 space-y-5">
 
-            <SectionCard title="Identity">
+            <ModalSection title="Identity">
               {isNew && (
                 <Field label="Internal name" hint="Unique slug, e.g. free, pro, enterprise. Cannot be changed later.">
                   <input
@@ -745,9 +735,9 @@ function EditPlanModal({
                 />
               </Field>
               <Toggle label="Active" hint="Inactive plans are hidden from assignment." checked={isActive} onChange={setIsActive} />
-            </SectionCard>
+            </ModalSection>
 
-            <SectionCard title="Quotas">
+            <ModalSection title="Quotas">
               <p className="text-xs text-muted-foreground">
                 Leave empty for unlimited (∞). Enter 0 to forbid entirely.
               </p>
@@ -766,7 +756,7 @@ function EditPlanModal({
                   </Field>
                 ))}
               </div>
-            </SectionCard>
+            </ModalSection>
 
           </div>
 
@@ -777,7 +767,6 @@ function EditPlanModal({
             </ActionButton>
           </div>
         </div>
-      </div>
     </Modal>
   );
 }
@@ -860,7 +849,6 @@ function EditUserModal({
 
   return (
     <Modal open onClose={onClose} label={`Edit ${user.email}`} panelClassName="max-w-xl">
-      <div className="bg-card">
         {/* Header */}
         <div className="flex items-start justify-between px-6 py-4 border-b border-border">
           <div className="min-w-0 pr-4">
@@ -889,14 +877,14 @@ function EditUserModal({
           <div className="px-6 pt-5 pb-4 space-y-4">
 
             {/* Account */}
-            <SectionCard title="Account">
+            <ModalSection title="Account">
               <Toggle
                 label="Email verified"
                 hint="Mark email as verified manually (e.g. for internal accounts)."
                 checked={isVerified}
                 onChange={setIsVerified}
               />
-            </SectionCard>
+            </ModalSection>
 
             {/* Actions that change who can get in, or with what powers, are kept
                 apart from routine account settings. Both are recorded in the
@@ -922,7 +910,7 @@ function EditUserModal({
             </div>
 
             {/* Permissions */}
-            <SectionCard title="Permissions">
+            <ModalSection title="Permissions">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-0.5">
                 {PERMISSION_FLAGS.map((f) => (
                   <Toggle
@@ -933,11 +921,11 @@ function EditUserModal({
                   />
                 ))}
               </div>
-            </SectionCard>
+            </ModalSection>
 
             {/* Usage this month */}
             {stats && (
-              <SectionCard title="Usage this month">
+              <ModalSection title="Usage this month">
                 <StatRow
                   label="Recordings"
                   value={fmtUsage(stats.recordings_used, stats.recordings_limit)}
@@ -976,11 +964,11 @@ function EditUserModal({
                   <span className="text-sm text-muted-foreground">Status</span>
                   <QuotaBadge exceeding={stats.is_exceeding} />
                 </div>
-              </SectionCard>
+              </ModalSection>
             )}
 
             {/* Subscription */}
-            <SectionCard title="Plan & limits">
+            <ModalSection title="Plan & limits">
               {subQuery.isLoading ? (
                 <div className="flex h-16 items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 size={16} className="animate-spin" /> Loading…
@@ -1076,7 +1064,7 @@ function EditUserModal({
                   )}
                 </>
               )}
-            </SectionCard>
+            </ModalSection>
 
           </div>
 
@@ -1092,7 +1080,6 @@ function EditUserModal({
             </ActionButton>
           </div>
         </div>
-      </div>
     </Modal>
   );
 }

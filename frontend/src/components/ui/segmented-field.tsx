@@ -27,12 +27,11 @@ interface SegmentedFieldProps<V extends string | number> {
 }
 
 /**
- * Single-choice segmented control.
+ * Single-choice segmented control (radio group).
  *
- * Announces as a radio group. Four surfaces used to hand-roll this out of the
- * FILTER_SEGMENT_* constants, and none of them exposed any state: the selected
- * option was signalled by background colour alone, so assistive tech saw a row
- * of identical unlabelled buttons.
+ * Use this everywhere a row of mutually exclusive options is needed — filter
+ * toolbars (`SegmentedFilter`), modals, settings forms. Do not hand-roll
+ * `FILTER_SEGMENT_*` buttons.
  */
 export function SegmentedField<V extends string | number = string>({
   label,
@@ -45,7 +44,7 @@ export function SegmentedField<V extends string | number = string>({
 }: SegmentedFieldProps<V>) {
   const labelId = useId();
   return (
-    <div className={className}>
+    <div data-segmented-field className={cn("w-fit max-w-full", className)}>
       <span id={labelId} className={cn(FILTER_LABEL, "mb-1.5", labelHidden && "sr-only")}>
         {label}
       </span>

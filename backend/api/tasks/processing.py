@@ -1,6 +1,6 @@
 """Celery tasks for processing recordings with multi-tenancy support."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from celery import chain, group
@@ -350,43 +350,9 @@ async def _refresh_yandex_disk_oauth_if_expiring(
     Mirrors the idea of ``_refresh_download_token_if_needed`` for Zoom: avoid starting a long
     download with a token that will expire mid-transfer when refresh_token + client_id exist.
     """
-    from api.schemas.auth import UserCredentialUpdate
-    from api.services.oauth_service import refresh_yandex_disk_oauth_token
+    from api.services.yandex_disk_credentials import refresh_yandex_disk_credential_if_needed
 
-    rt = creds_data.get("refresh_token")
-    cid = creds_data.get("client_id")
-    if not rt or not cid:
-        return
-    exp = creds_data.get("expiry")
-    need_refresh = False
-    if exp:
-        try:
-            normalized = exp.replace("Z", "+00:00") if exp.endswith("Z") else exp
-            dt = datetime.fromisoformat(normalized)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=UTC)
-            need_refresh = datetime.now(UTC) >= dt - timedelta(seconds=300)
-        except ValueError:
-            need_refresh = False
-    if not need_refresh:
-        return
-    try:
-        token_data = await refresh_yandex_disk_oauth_token(
-            rt,
-            override_client_id=cid,
-            override_client_secret=creds_data.get("client_secret"),
-        )
-    except Exception as e:
-        logger.warning(f"Yandex Disk credential refresh before download failed: {e}")
-        return
-    creds_data["oauth_token"] = token_data["access_token"]
-    if token_data.get("refresh_token"):
-        creds_data["refresh_token"] = token_data["refresh_token"]
-    expires_in = int(token_data.get("expires_in", 3600))
-    creds_data["expires_in"] = expires_in
-    creds_data["expiry"] = (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat().replace("+00:00", "Z")
-    enc = encryption.encrypt_credentials(creds_data)
-    await cred_repo.update(credential.id, UserCredentialUpdate(encrypted_data=enc))
+    await refresh_yandex_disk_credential_if_needed(creds_data, credential.id, cred_repo, encryption)
 
 
 async def _download_via_external(

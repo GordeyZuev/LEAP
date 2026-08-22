@@ -9,6 +9,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
 
@@ -166,43 +167,50 @@ export function Modal({
   const handleBackdropClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
       if (!closeOnBackdrop) return;
-      if (e.target === e.currentTarget) onClose();
+      if (e.target !== e.currentTarget) return;
+      onClose();
     },
     [closeOnBackdrop, onClose],
   );
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
   const ariaLabelledBy = labelledBy ?? (label ? fallbackLabelId : undefined);
 
-  return (
+  return createPortal(
     <div
       role="presentation"
-      onClick={handleBackdropClick}
       className={cn(
-        "animate-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4",
+        "animate-overlay-in fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm lg:left-[var(--app-sidebar-width,0px)]",
         className,
       )}
     >
       <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={ariaLabelledBy}
-        tabIndex={-1}
-        onKeyDown={handleKeyDownTrap}
-        className={cn(
-          "animate-panel-in outline-none w-full max-w-md rounded-2xl bg-card shadow-xl",
-          panelClassName,
-        )}
+        className="flex min-h-full items-center justify-center p-4"
+        onClick={handleBackdropClick}
       >
-        {label && !labelledBy && (
-          <span id={fallbackLabelId} className="sr-only">
-            {label}
-          </span>
-        )}
-        {children}
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={ariaLabelledBy}
+          tabIndex={-1}
+          onKeyDown={handleKeyDownTrap}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "animate-panel-in outline-none w-full max-w-md shrink-0 rounded-2xl bg-card shadow-xl",
+            panelClassName,
+          )}
+        >
+          {label && !labelledBy && (
+            <span id={fallbackLabelId} className="sr-only">
+              {label}
+            </span>
+          )}
+          {children}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

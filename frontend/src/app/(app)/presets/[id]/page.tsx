@@ -378,6 +378,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               value={meta as YandexDiskFieldsValue}
               onChange={patchMeta}
               showExtended
+              credentialId={credId}
             />
           )}
 

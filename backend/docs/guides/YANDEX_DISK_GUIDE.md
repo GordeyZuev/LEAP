@@ -329,6 +329,16 @@ video_upload_module/
 | `PUT` | `/v1/disk/resources?path=` | Создать папку |
 | `GET` | `/v1/disk` | Информация о Диске (для проверки токена) |
 
+### Browse из UI (LEAP API)
+
+Для folder picker в интерфейсе (Input Sources, Output Presets) — прокси над `list_folder`:
+
+| Метод | Эндпоинт | Описание |
+|-------|----------|----------|
+| `GET` | `/api/v1/credentials/{credential_id}/yandex-disk/browse?path=&limit=&offset=` | Листинг папки для picker (OAuth credential пользователя) |
+
+Пути в config и UI — всегда в формате `/Video/Lectures`, не `disk:/…` (нормализация на бэкенде).
+
 ### Процесс скачивания
 
 1. **Sync** (`_sync_yandex_disk_source`) — сканирует папку / публичную ссылку, создаёт `Recording` для каждого видео

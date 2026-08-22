@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
 import { cn, formatDate, formatDuration, stripLeadingTimestamp } from "@/lib/utils";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { RecordingPoster } from "@/components/recordings/recording-poster";
+import { RecordingPoster, RECORDING_TABLE_POSTER } from "@/components/recordings/recording-poster";
 import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW, TABLE_ROW_CORNERS } from "@/lib/table-classes";
 import { type RecordingCardData } from "./recording-card";
 import { PipelineStatusButton } from "@/components/recordings/pipeline-popover";
@@ -282,8 +282,9 @@ export function RecordingsTable({
                   <RecordingPoster
                     recordingId={r.id}
                     posterUrl={r.poster_url}
+                    posterFallbackUrl={r.poster_fallback_url}
                     duration={r.duration}
-                    className="w-16"
+                    className={RECORDING_TABLE_POSTER}
                   />
                 </td>
                 <td className="max-w-[200px] px-3 py-2.5">

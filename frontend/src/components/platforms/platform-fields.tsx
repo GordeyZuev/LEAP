@@ -7,6 +7,7 @@ import { TagInput } from "@/components/ui/tag-input";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
+import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker";
 import { PlatformToggle } from "@/components/platforms/platform-toggle";
 import {
   DisplayConfigFields,
@@ -94,6 +95,7 @@ interface TemplateFieldProps {
   multiline?: boolean;
   placeholder?: string;
   rows?: number;
+  labelExtra?: ReactNode;
 }
 
 export function TemplateField({
@@ -103,6 +105,7 @@ export function TemplateField({
   multiline = false,
   placeholder,
   rows = 1,
+  labelExtra,
 }: TemplateFieldProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -204,9 +207,18 @@ export function TemplateField({
 
   return (
     <div className="space-y-1">
-      <label htmlFor={fieldId} className={FILTER_LABEL}>
-        {label}
-      </label>
+      {labelExtra ? (
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <label htmlFor={fieldId} className="text-xs font-medium text-muted-foreground">
+            {label}
+          </label>
+          {labelExtra}
+        </div>
+      ) : (
+        <label htmlFor={fieldId} className={FILTER_LABEL}>
+          {label}
+        </label>
+      )}
       <div className="relative">
         <div
           ref={overlayRef}
@@ -736,11 +748,13 @@ function YandexExtraFileBlock({
   value,
   onChange,
   withContent = false,
+  credentialId,
 }: {
   label: string;
   value: YandexExtraFile | YandexDescriptionTxt;
   onChange: (patch: Partial<YandexDescriptionTxt>) => void;
   withContent?: boolean;
+  credentialId?: number | "";
 }) {
   return (
     <div className="rounded-xl border border-border bg-background px-4 py-3">
@@ -758,6 +772,17 @@ function YandexExtraFileBlock({
             value={value.folder_path_template}
             onChange={(v) => onChange({ folder_path_template: v })}
             placeholder="(same folder as video)"
+            labelExtra={
+              credentialId ? (
+                <YandexFolderPicker
+                  compact
+                  value={value.folder_path_template}
+                  onChange={(v) => onChange({ folder_path_template: v })}
+                  credentialId={credentialId}
+                  mode="path"
+                />
+              ) : undefined
+            }
           />
           {withContent && (
             <TemplateField
@@ -778,12 +803,14 @@ export function YandexDiskFields({
   value,
   onChange,
   showExtended = false,
+  credentialId,
 }: {
   value: YandexDiskFieldsValue;
   onChange: (patch: Partial<YandexDiskFieldsValue>) => void;
   /** Presets only: title/description templates + sidecar files (template-level
    *  YandexDiskMetadataConfig has none of these). */
   showExtended?: boolean;
+  credentialId?: number | "";
 }) {
   return (
     <div className="space-y-4">
@@ -792,7 +819,23 @@ export function YandexDiskFields({
         value={value.folder_path_template}
         onChange={(v) => onChange({ folder_path_template: v })}
         placeholder="/Video/{{ display_name }}"
+        labelExtra={
+          credentialId ? (
+            <YandexFolderPicker
+              compact
+              value={value.folder_path_template}
+              onChange={(v) => onChange({ folder_path_template: v })}
+              credentialId={credentialId}
+              mode="path"
+            />
+          ) : undefined
+        }
       />
+      {!credentialId && (
+        <p className="text-xs text-muted-foreground">
+          Link a Yandex Disk output preset with a credential to browse folders.
+        </p>
+      )}
       <TemplateField
         label="Filename template"
         value={value.filename_template}
@@ -836,21 +879,25 @@ export function YandexDiskFields({
             label="Upload subtitles (.srt)"
             value={value.subtitles_srt}
             onChange={(patch) => onChange({ subtitles_srt: { ...value.subtitles_srt, ...patch } })}
+            credentialId={credentialId}
           />
           <YandexExtraFileBlock
             label="Upload subtitles (.vtt)"
             value={value.subtitles_vtt}
             onChange={(patch) => onChange({ subtitles_vtt: { ...value.subtitles_vtt, ...patch } })}
+            credentialId={credentialId}
           />
           <YandexExtraFileBlock
             label="Upload transcription (.txt)"
             value={value.transcription}
             onChange={(patch) => onChange({ transcription: { ...value.transcription, ...patch } })}
+            credentialId={credentialId}
           />
           <YandexExtraFileBlock
             label="Upload description (.txt)"
             value={value.description_txt}
             onChange={(patch) => onChange({ description_txt: { ...value.description_txt, ...patch } })}
+            credentialId={credentialId}
             withContent
           />
         </div>

@@ -2,6 +2,70 @@
 
 ---
 
+## 2026-08-22: Modal overlay — viewport positioning and admin dialog layout
+
+- **Portal** — `Modal` renders into `document.body`, so `animate-page-in` on page content no longer traps `position: fixed` (dialogs stayed centered on the scrolled page instead of the viewport).
+- **Placement** — overlay is vertically centered in the viewport; on `lg+` it starts at `--app-sidebar-width` so the panel centers in the main content column (matches `lg:w-60` / `lg:w-16`; collapsed state via `html[data-sidebar-collapsed]`).
+- **Admin modals** — plan/user edit use shared `ModalSection` from `section-card.tsx` (flat sections, no card-in-card); removed redundant inner `bg-card` wrappers.
+
+### Файлы
+
+- `frontend/src/components/ui/modal.tsx`
+- `frontend/src/components/ui/section-card.tsx`
+- `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/app/globals.css`
+- `frontend/src/app/(app)/admin/page.tsx`
+
+---
+
+## 2026-08-22: Recording list preview uses configured thumbnail
+
+- **Poster priority** — `poster_url` in recording list/detail now uses `thumbnail_name` from resolved metadata (user → template → run override) when the image exists in storage; otherwise the lazy FFmpeg frame extract (`poster.jpg`) as before.
+- **`poster_source`** — new field (`thumbnail` | `frame`) so the UI skips frame generation when a configured thumbnail fails to load.
+- **`poster_fallback_url`** — frame poster URL when the primary preview is a thumbnail; the UI falls back to it if the thumbnail image fails to load.
+
+### Файлы
+
+- `backend/api/services/config_resolver.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/schemas/recording/response.py`
+- `frontend/src/components/recordings/recording-poster.tsx`
+- `frontend/src/components/recordings/recording-card.tsx`
+- `frontend/src/components/recordings/recordings-table.tsx`
+- `backend/tests/unit/api/test_poster_thumbnail.py`
+
+---
+
+## 2026-08-22: Yandex Disk folder picker and browse API
+
+- **Browse API** — `GET /api/v1/credentials/{id}/yandex-disk/browse` lists folders/files via existing `YandexDiskClient.list_folder` (OAuth, tenant-scoped).
+- **Path normalize** — `disk:/Video` → `/Video` in `YandexDiskSourceConfig` and browse responses (`yandex_disk_module/paths.py`).
+- **OAuth refresh DRY** — shared `api/services/yandex_disk_credentials.py`; sync, download, and upload reuse it.
+- **UI** — `YandexFolderPicker` on Input Sources (folder path + optional `file_pattern`) and Yandex Disk preset/template fields (Browse beside folder path template).
+
+### Файлы
+
+- `backend/yandex_disk_module/paths.py`
+- `backend/api/services/yandex_disk_credentials.py`
+- `backend/api/routers/credentials.py`
+- `backend/api/schemas/credentials/yandex_disk_browse.py`
+- `backend/api/schemas/template/source_config.py`
+- `backend/api/routers/input_sources.py`
+- `backend/api/tasks/processing.py`
+- `backend/video_upload_module/platforms/yadisk/uploader.py`
+- `frontend/src/components/platforms/yandex-folder-picker.tsx`
+- `frontend/src/components/platforms/platform-fields.tsx`
+- `frontend/src/app/(app)/sources/page.tsx`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `backend/tests/unit/yandex_disk_module/test_paths.py`
+- `backend/tests/unit/api/test_yandex_disk_browse.py`
+- `backend/tests/unit/api/test_yandex_disk_credentials.py`
+- `backend/docs/guides/YANDEX_DISK_GUIDE.md`
+
+---
+
 ## 2026-08-18: Deploy — Yandex CR rejects Buildx attestation manifests
 
 - **Push to `cr.yandex` failed** after a successful image build: `Cannot read manifest data` / Manifest V2-2. Buildx (GHA default) wraps the image in an OCI index plus a provenance attestation; Yandex Container Registry only accepts Docker Manifest V2 Schema 2. Both `build-push-action` steps now set `provenance: false` and `sbom: false`.
@@ -10,6 +74,12 @@
 
 - `.github/workflows/deploy.yml`
 - `backend/docs/guides/DEPLOYMENT.md`
+
+---
+
+## v0.10.6.2 (2026-08-22)
+
+Релиз: выбор папки Яндекс.Диска через browse API и UI-пикер, превью записей с настроенным thumbnail, модалки центрируются во viewport (portal + учёт ширины сайдбара).
 
 ---
 

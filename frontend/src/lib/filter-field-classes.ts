@@ -1,9 +1,14 @@
 /** Shared Tailwind classes for resource filter toolbars (recordings, presets, …). */
 
-export const FILTER_CARD =
-  "rounded-2xl border border-border/90 bg-card shadow-sm p-4 sm:p-5 mb-6 space-y-5 overflow-visible";
+/** Toolbar shell for list-page filters — flat on the page background;
+ *  the data table below carries the elevated card surface. */
+export const FILTER_TOOLBAR = "mb-5 space-y-4 overflow-visible";
 
 export const FILTER_LABEL = "block text-xs font-medium text-muted-foreground mb-1.5";
+
+/** FilterBar control slot — grows for dropdowns, stays compact for SegmentedField. */
+export const FILTER_BAR_CONTROL =
+  "min-w-[11rem] flex-1 basis-[11rem] max-w-full has-[[data-segmented-field]]:min-w-0 has-[[data-segmented-field]]:w-auto has-[[data-segmented-field]]:flex-none has-[[data-segmented-field]]:basis-auto";
 
 // All controls share one height (2.875rem = 46px) so they line up exactly with
 // the segmented toggle group (FILTER_SEGMENT_WRAP): its py-2 buttons (36px) plus
@@ -19,11 +24,13 @@ export const FILTER_SELECT =
 
 /** Segmented toggle group (mapping / include flags). */
 export const FILTER_SEGMENT_WRAP =
-  "flex w-full rounded-xl border border-input bg-muted p-1 gap-0.5";
+  "inline-flex max-w-full items-center min-h-[2.875rem] rounded-xl border border-border bg-muted p-1 gap-0.5";
 
 export const FILTER_SEGMENT_BTN =
-  "flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-center text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25";
+  "shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-center text-sm font-medium transition-[color,background-color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 active:scale-[0.98]";
 
-export const FILTER_SEGMENT_ACTIVE = "bg-card text-primary shadow-sm";
+export const FILTER_SEGMENT_ACTIVE =
+  "bg-card text-foreground shadow-sm ring-1 ring-border";
 
-export const FILTER_SEGMENT_IDLE = "text-muted-foreground hover:text-secondary-foreground";
+export const FILTER_SEGMENT_IDLE =
+  "text-muted-foreground hover:bg-card/70 hover:text-secondary-foreground";

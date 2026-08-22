@@ -8,6 +8,7 @@ from .platform_credentials import (
 )
 from .request import CredentialCreateRequest, CredentialUpdateRequest
 from .response import CredentialListItem, CredentialListResponse, CredentialResponse, CredentialStatusResponse
+from .yandex_disk_browse import YandexDiskBrowseItem, YandexDiskBrowseResponse
 
 __all__ = [
     "CredentialCreateRequest",
@@ -17,6 +18,8 @@ __all__ = [
     "CredentialStatusResponse",
     "CredentialUpdateRequest",
     "VKCredentialsManual",
+    "YandexDiskBrowseItem",
+    "YandexDiskBrowseResponse",
     "YandexDiskCredentialsManual",
     "YouTubeCredentialsManual",
     "ZoomCredentialsManual",

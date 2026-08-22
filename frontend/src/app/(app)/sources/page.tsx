@@ -24,6 +24,7 @@ import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
+import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker";
 import { PER_PAGE_SOURCES, TOAST_SHORT } from "@/lib/constants";
 
 type SourceType = "ZOOM" | "YANDEX_DISK" | "VIDEO_URL";
@@ -66,6 +67,7 @@ interface SourceForm {
   yd_public_url: string;
   yd_use_public: boolean;
   yd_recursive: boolean;
+  yd_file_pattern: string;
   // VIDEO_URL config
   url_url: string;
   url_is_playlist: boolean;
@@ -83,6 +85,7 @@ const DEFAULT_FORM: SourceForm = {
   yd_public_url: "",
   yd_use_public: false,
   yd_recursive: true,
+  yd_file_pattern: "",
   url_url: "",
   url_is_playlist: false,
   url_quality: "best",
@@ -140,6 +143,7 @@ function buildSourceBody(form: SourceForm) {
       folder_path: !form.yd_use_public ? (form.yd_folder_path || undefined) : undefined,
       public_url: form.yd_use_public ? (form.yd_public_url || undefined) : undefined,
       recursive: form.yd_recursive,
+      file_pattern: form.yd_file_pattern.trim() || undefined,
     };
   } else if (form.platform === "VIDEO_URL") {
     body.config = {
@@ -261,6 +265,7 @@ export default function SourcesPage() {
       yd_public_url: (cfg.public_url as string | undefined) ?? "",
       yd_use_public: !!(cfg.public_url),
       yd_recursive: (cfg.recursive as boolean | undefined) ?? true,
+      yd_file_pattern: (cfg.file_pattern as string | undefined) ?? "",
       url_url: (cfg.url as string | undefined) ?? "",
       url_is_playlist: (cfg.is_playlist as boolean | undefined) ?? false,
       url_quality: (cfg.quality as string | undefined) ?? "best",
@@ -272,6 +277,23 @@ export default function SourcesPage() {
 
   function handleSubmit() {
     if (!form.name) { setFormError("Name is required"); return; }
+    if (form.platform === "YANDEX_DISK") {
+      if (form.yd_use_public) {
+        if (!form.yd_public_url.trim()) {
+          setFormError("Public URL is required");
+          return;
+        }
+      } else {
+        if (!form.credential_id) {
+          setFormError("Credential is required for folder sync");
+          return;
+        }
+        if (!form.yd_folder_path.trim()) {
+          setFormError("Folder path is required");
+          return;
+        }
+      }
+    }
     setFormError("");
     saveSource.mutate(buildSourceBody(form));
   }
@@ -511,12 +533,26 @@ export default function SourcesPage() {
               {form.platform === "YANDEX_DISK" && (
                 <>
                   <Toggle label="Use public link" checked={form.yd_use_public} onChange={(v) => setForm((f) => ({ ...f, yd_use_public: v }))} />
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    Public link: paste a share URL (no credential). Private folder: OAuth + browse your Disk tree.
+                    Yandex 360 shared folders appear in browse after you accept the invite.
+                  </p>
                   {form.yd_use_public ? (
                     <MF label="Public URL"><input type="url" value={form.yd_public_url} onChange={(e) => setForm((f) => ({ ...f, yd_public_url: e.target.value }))} placeholder="https://disk.yandex.ru/d/..." className={inp} /></MF>
                   ) : (
-                    <MF label="Folder path"><input type="text" value={form.yd_folder_path} onChange={(e) => setForm((f) => ({ ...f, yd_folder_path: e.target.value }))} placeholder="/Video/Lectures" className={inp} /></MF>
+                    <YandexFolderPicker
+                      value={form.yd_folder_path}
+                      onChange={(p) => setForm((f) => ({ ...f, yd_folder_path: p }))}
+                      credentialId={form.credential_id}
+                      label="Folder path"
+                      placeholder="/Video/Lectures"
+                      mode="path"
+                    />
                   )}
                   <Toggle label="Recursive scan" checked={form.yd_recursive} onChange={(v) => setForm((f) => ({ ...f, yd_recursive: v }))} />
+                  <MF label="File pattern" hint="Optional regex, e.g. .*\.mp4$">
+                    <input type="text" value={form.yd_file_pattern} onChange={(e) => setForm((f) => ({ ...f, yd_file_pattern: e.target.value }))} placeholder=".*\.mp4$" className={inp} />
+                  </MF>
                 </>
               )}
 

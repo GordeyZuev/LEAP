@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -196,9 +196,18 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     poster_url: str | None = Field(
         None,
         description=(
-            "Time-limited URL for the poster frame, or null when the recording has no video. "
-            "The object may not exist yet — POST /recordings/{id}/poster generates it."
+            "Time-limited preview image URL, or null when nothing to show. "
+            "Uses configured thumbnail when set; otherwise a frame extracted from video "
+            "(may not exist yet — POST /recordings/{id}/poster generates it)."
         ),
+    )
+    poster_source: Literal["thumbnail", "frame"] | None = Field(
+        None,
+        description="Whether poster_url points at a configured thumbnail or an extracted video frame.",
+    )
+    poster_fallback_url: str | None = Field(
+        None,
+        description=("Frame-based poster URL when poster_source is thumbnail — used if the thumbnail fails to load."),
     )
 
     # --- Failure & pause ---

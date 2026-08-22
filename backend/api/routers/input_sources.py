@@ -1,7 +1,7 @@
 """Input source endpoints"""
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -58,46 +58,9 @@ async def _refresh_yandex_disk_credential_if_expiring_during_sync(
     encryption,
 ) -> None:
     """Refresh Yandex Disk OAuth token when near expiry so sync listing does not 401."""
-    from api.schemas.auth import UserCredentialUpdate
-    from api.services.oauth_service import refresh_yandex_disk_oauth_token
+    from api.services.yandex_disk_credentials import refresh_yandex_disk_credential_if_needed
 
-    rt = credentials.get("refresh_token")
-    cid = credentials.get("client_id")
-    if not rt or not cid:
-        return
-
-    need_refresh = False
-    exp = credentials.get("expiry")
-    if exp:
-        try:
-            normalized = exp.replace("Z", "+00:00") if exp.endswith("Z") else exp
-            dt = datetime.fromisoformat(normalized)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=UTC)
-            need_refresh = datetime.now(UTC) >= dt - timedelta(seconds=300)
-        except ValueError:
-            need_refresh = False
-    if not need_refresh:
-        return
-
-    try:
-        token_data = await refresh_yandex_disk_oauth_token(
-            rt,
-            override_client_id=cid,
-            override_client_secret=credentials.get("client_secret"),
-        )
-    except Exception as e:
-        logger.warning(f"Yandex Disk credential refresh before sync failed: {e}")
-        return
-
-    credentials["oauth_token"] = token_data["access_token"]
-    if token_data.get("refresh_token"):
-        credentials["refresh_token"] = token_data["refresh_token"]
-    expires_in = int(token_data.get("expires_in", 3600))
-    credentials["expires_in"] = expires_in
-    credentials["expiry"] = (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat().replace("+00:00", "Z")
-    enc = encryption.encrypt_credentials(credentials)
-    await cred_repo.update(credential_id, UserCredentialUpdate(encrypted_data=enc))
+    await refresh_yandex_disk_credential_if_needed(credentials, credential_id, cred_repo, encryption)
 
 
 def _get_best_video_file(recording_files: list | None) -> dict | None:

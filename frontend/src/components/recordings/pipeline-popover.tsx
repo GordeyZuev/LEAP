@@ -41,6 +41,7 @@ interface PipelineStatusButtonProps {
   /** Human label of the failed stage; forwarded to the badge. */
   failedStage?: string | null;
   stages?: PipelineStage[];
+  size?: "default" | "control";
   className?: string;
 }
 
@@ -51,7 +52,7 @@ interface PipelineStatusButtonProps {
  * handling and no touch path — and which was nevertheless the only place in the
  * app where a stage's failure reason was rendered.
  */
-export function PipelineStatusButton({ status, failed, failedStage, stages, className }: PipelineStatusButtonProps) {
+export function PipelineStatusButton({ status, failed, failedStage, stages, size = "default", className }: PipelineStatusButtonProps) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<Coords | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -107,10 +108,11 @@ export function PipelineStatusButton({ status, failed, failedStage, stages, clas
   }, [open, close]);
 
   if (!hasStages) {
-    return <StatusBadge status={status} failed={failed} failedStage={failedStage} className={className} />;
+    return <StatusBadge status={status} failed={failed} failedStage={failedStage} size={size} className={className} />;
   }
 
   const summary = pipelineSummary(ordered);
+  const triggerSize = size === "control" ? "inline-flex h-7 items-center" : undefined;
 
   return (
     <>
@@ -124,10 +126,11 @@ export function PipelineStatusButton({ status, failed, failedStage, stages, clas
         onClick={() => setOpen((v) => !v)}
         className={cn(
           "rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+          triggerSize,
           className,
         )}
       >
-        <StatusBadge status={status} failed={failed} failedStage={failedStage} className="cursor-pointer" />
+        <StatusBadge status={status} failed={failed} failedStage={failedStage} size={size} className="cursor-pointer" />
       </button>
 
       {open && coords && createPortal(

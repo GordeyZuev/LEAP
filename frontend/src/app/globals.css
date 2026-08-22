@@ -46,6 +46,8 @@
   --warning-fg: #a1560a;
   --ring: #224c87;
   --radius: 0.75rem;
+  /* Modal overlay offset — synced with sidebar width in sidebar.tsx on desktop. */
+  --app-sidebar-width: 15rem;
 
   /* Sidebar keeps the brand blue in light mode. */
   --sidebar: #224c87;
@@ -246,6 +248,18 @@ select {
     background: linear-gradient(90deg, var(--primary) 0%, color-mix(in srgb, var(--primary) 50%, white) 50%, var(--primary) 100%);
     background-size: 200% 100%;
     animation: progress-stripe 1.6s linear infinite;
+  }
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --app-sidebar-width: 0px;
+  }
+}
+
+@media (min-width: 1024px) {
+  html[data-sidebar-collapsed="true"] {
+    --app-sidebar-width: 4rem;
   }
 }
 

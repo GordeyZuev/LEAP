@@ -2,17 +2,11 @@
 
 import { useCallback, useId, useState } from "react";
 import { Download, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
-import {
-  FILTER_LABEL,
-  FILTER_SEGMENT_ACTIVE,
-  FILTER_SEGMENT_BTN,
-  FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
-} from "@/lib/filter-field-classes";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,30 +154,18 @@ export function ExportModal({
         </div>
 
         <div className="space-y-5 p-6">
-          {/* Scope */}
           {hasSelected && (
-            <div className="space-y-1.5">
-              <span className={FILTER_LABEL}>Scope</span>
-              <div className={FILTER_SEGMENT_WRAP}>
-                <button
-                  type="button"
-                  className={cn(FILTER_SEGMENT_BTN, useSelected ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => setUseSelectedOverride(true)}
-                >
-                  {selectedIds.length} selected
-                </button>
-                <button
-                  type="button"
-                  className={cn(FILTER_SEGMENT_BTN, !useSelected ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE)}
-                  onClick={() => setUseSelectedOverride(false)}
-                >
-                  All matching
-                </button>
-              </div>
-            </div>
+            <SegmentedField
+              label="Scope"
+              value={useSelected ? "selected" : "all"}
+              options={[
+                { value: "selected", label: `${selectedIds.length} selected` },
+                { value: "all", label: "All matching" },
+              ]}
+              onChange={(v) => setUseSelectedOverride(v === "selected")}
+            />
           )}
 
-          {/* Limit (only when using filters) */}
           {(!hasSelected || !useSelected) && (
             <div className="space-y-1.5">
               <span className={FILTER_LABEL}>Max recordings</span>
@@ -193,50 +175,31 @@ export function ExportModal({
                 max={2000}
                 value={limit}
                 onChange={(e) => setLimit(e.target.value)}
-                className="w-full min-h-[2.5rem] rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
+                className={FILTER_CONTROL}
               />
             </div>
           )}
 
-          {/* Format */}
-          <div className="space-y-1.5">
-            <span className={FILTER_LABEL}>Format</span>
-            <div className={FILTER_SEGMENT_WRAP}>
-              {(["xlsx", "csv", "json"] as ExportFormat[]).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  className={cn(
-                    FILTER_SEGMENT_BTN,
-                    format === f ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
-                  )}
-                  onClick={() => setFormat(f)}
-                >
-                  {f.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
+          <SegmentedField
+            label="Format"
+            value={format}
+            options={[
+              { value: "xlsx", label: "XLSX" },
+              { value: "csv", label: "CSV" },
+              { value: "json", label: "JSON" },
+            ]}
+            onChange={setFormat}
+          />
 
-          {/* Verbosity */}
-          <div className="space-y-1.5">
-            <span className={FILTER_LABEL}>Fields</span>
-            <div className={FILTER_SEGMENT_WRAP}>
-              {(["short", "long"] as ExportVerbosity[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={cn(
-                    FILTER_SEGMENT_BTN,
-                    verbosity === v ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE
-                  )}
-                  onClick={() => setVerbosity(v)}
-                >
-                  {v === "short" ? "Short (core + URLs)" : "Long (full details)"}
-                </button>
-              ))}
-            </div>
-          </div>
+          <SegmentedField
+            label="Fields"
+            value={verbosity}
+            options={[
+              { value: "short", label: "Short (core + URLs)" },
+              { value: "long", label: "Long (full details)" },
+            ]}
+            onChange={setVerbosity}
+          />
 
           {error && (
             <p className="rounded-lg border border-danger-fg/20 bg-danger-fg/10 px-3 py-2 text-xs text-danger-fg">

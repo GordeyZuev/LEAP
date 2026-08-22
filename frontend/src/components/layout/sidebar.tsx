@@ -114,6 +114,19 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
     });
   }
 
+  // Keep modal overlays aligned with the main content column on desktop.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDesktop && effectiveCollapsed) {
+      root.dataset.sidebarCollapsed = "true";
+    } else {
+      delete root.dataset.sidebarCollapsed;
+    }
+    return () => {
+      delete root.dataset.sidebarCollapsed;
+    };
+  }, [isDesktop, effectiveCollapsed]);
+
   const labelClass = cn(
     "overflow-hidden whitespace-nowrap transition-all duration-200",
     effectiveCollapsed ? "max-w-0 opacity-0 ml-0" : "max-w-[12rem] opacity-100 ml-3"

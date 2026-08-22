@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Eye, Loader2, Play, Save, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -52,7 +52,7 @@ import { useGranularities, useLanguages } from "@/hooks/use-references";
 
 interface TemplateItem { id: number; name: string }
 interface TemplateListResponse { items: TemplateItem[]; total: number }
-interface PresetItem { id: number; name: string; platform: string }
+interface PresetItem { id: number; name: string; platform: string; credential_id: number }
 interface PresetListResponse { items: PresetItem[]; total: number }
 
 interface RecordingConfigResponse {
@@ -523,6 +523,14 @@ export function RunConfigModal({
     {}
   );
 
+  const yandexBrowseCredentialId = useMemo(() => {
+    for (const pid of selectedPresetIds) {
+      const preset = presetsData?.items.find((p) => p.id === pid);
+      if (preset?.platform === "yandex_disk") return preset.credential_id;
+    }
+    return "" as const;
+  }, [selectedPresetIds, presetsData?.items]);
+
   async function handleMetadataPreview() {
     setMetadataPreviewLoading(true);
     setMetadataPreview(null);
@@ -860,6 +868,7 @@ export function RunConfigModal({
                 <YandexDiskFields
                   value={ydFields}
                   onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
+                  credentialId={yandexBrowseCredentialId}
                 />
               </PlatformSection>
             </div>

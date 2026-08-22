@@ -17,24 +17,49 @@ const requested = new Set<number>();
 
 interface RecordingPosterProps {
   recordingId: number;
-  /** Presigned URL from the list response; null when there is no video at all. */
+  /** Presigned URL from the list response; null when there is nothing to show. */
   posterUrl?: string | null;
+  /** Frame poster URL when posterUrl is a configured thumbnail. */
+  posterFallbackUrl?: string | null;
   /** Seconds — rendered as a badge over the frame. */
   duration?: number;
   className?: string;
 }
 
+/** Grid card: fixed height strip (not 16:9 — too tall at column width). */
+export const RECORDING_CARD_POSTER = "h-24 w-full";
+
+/** Table row thumb: small 16:9 frame. */
+export const RECORDING_TABLE_POSTER = "aspect-video w-16";
+
 export function RecordingPoster({
   recordingId,
   posterUrl,
+  posterFallbackUrl,
   duration,
   className,
 }: RecordingPosterProps) {
+  const [fallbackActive, setFallbackActive] = useState(false);
   const [failed, setFailed] = useState(false);
-  const showImage = !!posterUrl && !failed;
+  const [prevPosterUrl, setPrevPosterUrl] = useState(posterUrl);
+  const [prevPosterFallbackUrl, setPrevPosterFallbackUrl] = useState(posterFallbackUrl);
+
+  if (posterUrl !== prevPosterUrl || posterFallbackUrl !== prevPosterFallbackUrl) {
+    setPrevPosterUrl(posterUrl);
+    setPrevPosterFallbackUrl(posterFallbackUrl);
+    setFallbackActive(false);
+    setFailed(false);
+  }
+
+  const activeUrl = fallbackActive ? posterFallbackUrl : posterUrl;
+  const showImage = !!activeUrl && !failed;
   const dur = formatDurationCompact(duration);
 
   function handleError() {
+    if (posterFallbackUrl && !fallbackActive) {
+      setFallbackActive(true);
+      return;
+    }
     setFailed(true);
     if (requested.has(recordingId)) return;
     requested.add(recordingId);
@@ -45,7 +70,7 @@ export function RecordingPoster({
   return (
     <div
       className={cn(
-        "relative aspect-video shrink-0 overflow-hidden rounded-lg bg-muted",
+        "relative shrink-0 overflow-hidden rounded-lg bg-muted",
         "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
         className
       )}
@@ -55,7 +80,7 @@ export function RecordingPoster({
         // frame adds nothing for a screen reader.
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={resolveStorageUrl(posterUrl)}
+          src={resolveStorageUrl(activeUrl)}
           alt=""
           loading="lazy"
           decoding="async"

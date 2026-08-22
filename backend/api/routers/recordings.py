@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
@@ -148,6 +148,12 @@ def _recording_video_storage_key(recording: RecordingModel, media_kind: Literal[
     return raw if raw else None
 
 
+class _PosterPreview(NamedTuple):
+    url: str
+    source: Literal["thumbnail", "frame"]
+    fallback_url: str | None = None
+
+
 def _recording_poster_storage_key(recording: RecordingModel) -> str | None:
     """Storage key for a recording's poster frame, by convention.
 
@@ -169,23 +175,79 @@ def _recording_poster_storage_key(recording: RecordingModel) -> str | None:
     return to_storage_key(get_path_builder().recording_root(user_slug, recording.id) / "poster.jpg")
 
 
-async def _poster_urls(recordings: list[RecordingModel]) -> dict[int, str]:
-    """Presign poster keys for a page of recordings in one batch.
+async def _poster_urls(
+    session,
+    user_id: str,
+    recordings: list[RecordingModel],
+) -> dict[int, _PosterPreview]:
+    """Presign preview URLs for a page of recordings.
 
-    Signing is local, but building a storage client is not — one client for the
-    whole page rather than one per row.
+    Uses configured thumbnail from resolved metadata when the file exists;
+    otherwise falls back to the lazy ``poster.jpg`` frame extract.
     """
+    from api.services.config_resolver import ConfigResolver, extract_thumbnail_name_from_metadata
     from config.settings import get_settings
     from file_storage.factory import get_storage_backend
+    from utils.thumbnail_manager import get_thumbnail_manager
 
-    pairs = [(r.id, key) for r in recordings if (key := _recording_poster_storage_key(r))]
+    if not recordings:
+        return {}
+
+    config_resolver = ConfigResolver(session)
+    thumbnail_manager = get_thumbnail_manager()
+    # (recording_id, storage_key, source, is_fallback_for_same_recording)
+    pairs: list[tuple[int, str, Literal["thumbnail", "frame"], bool]] = []
+
+    for recording in recordings:
+        metadata = await config_resolver.resolve_metadata_config(recording, user_id)
+        thumbnail_name = extract_thumbnail_name_from_metadata(metadata)
+        owner = getattr(recording, "owner", None)
+        user_slug = getattr(owner, "user_slug", None)
+        poster_key = _recording_poster_storage_key(recording)
+
+        if thumbnail_name and user_slug is not None:
+            thumb_key = await thumbnail_manager.get_thumbnail_key(
+                user_slug=user_slug,
+                thumbnail_name=thumbnail_name,
+                fallback_to_template=True,
+            )
+            if thumb_key:
+                pairs.append((recording.id, thumb_key, "thumbnail", False))
+                if poster_key:
+                    pairs.append((recording.id, poster_key, "frame", True))
+                continue
+
+        if poster_key:
+            pairs.append((recording.id, poster_key, "frame", False))
+
     if not pairs:
         return {}
+
     urls = await get_storage_backend().presigned_urls(
-        [key for _, key in pairs],
+        [key for _, key, _, _ in pairs],
         expires_in=get_settings().storage.s3_presign_expires,
     )
-    return {rid: url for (rid, _), url in zip(pairs, urls, strict=True)}
+
+    previews: dict[int, _PosterPreview] = {}
+    fallback_urls: dict[int, str] = {}
+    for (rid, _key, source, is_fallback), url in zip(pairs, urls, strict=True):
+        if is_fallback:
+            fallback_urls[rid] = url
+        else:
+            previews[rid] = _PosterPreview(url=url, source=source)
+
+    return {rid: preview._replace(fallback_url=fallback_urls.get(rid)) for rid, preview in previews.items()}
+
+
+def _poster_fields(previews: dict[int, _PosterPreview], recording_id: int) -> dict[str, str | None]:
+    preview = previews.get(recording_id)
+    if not preview:
+        return {"poster_url": None, "poster_source": None, "poster_fallback_url": None}
+    return {
+        "poster_url": preview.url,
+        "poster_source": preview.source,
+        "poster_fallback_url": preview.fallback_url,
+    }
 
 
 async def _storage_file_info(storage_key: str | None) -> dict[str, Any]:
@@ -283,13 +345,13 @@ async def list_recordings(
 
     total_pages = (total + per_page - 1) // per_page if total > 0 else 1
 
-    poster_urls = await _poster_urls(recordings)
+    poster_urls = await _poster_urls(ctx.session, ctx.user_id, recordings)
 
     items = []
     for r in recordings:
         items.append(
             RecordingListItem(
-                poster_url=poster_urls.get(r.id),
+                **_poster_fields(poster_urls, r.id),
                 id=r.id,
                 display_name=r.display_name,
                 start_time=r.start_time,
@@ -602,7 +664,7 @@ async def get_recording(
 
     if not detailed:
         return RecordingListItem(
-            poster_url=(await _poster_urls([recording])).get(recording.id),
+            **_poster_fields(await _poster_urls(ctx.session, ctx.user_id, [recording]), recording.id),
             id=recording.id,
             display_name=recording.display_name,
             start_time=recording.start_time,
@@ -865,7 +927,7 @@ async def update_recording(
     logger.info(f"Updated recording metadata | {format_details(rec=recording_id)}")
 
     return RecordingListItem(
-        poster_url=(await _poster_urls([recording])).get(recording.id),
+        **_poster_fields(await _poster_urls(ctx.session, ctx.user_id, [recording]), recording.id),
         id=recording.id,
         display_name=recording.display_name,
         start_time=recording.start_time,

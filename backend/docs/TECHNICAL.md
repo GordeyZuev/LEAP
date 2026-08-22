@@ -596,6 +596,7 @@ video_upload_module/
 #### Yandex Disk (REST API)
 - Upload через OAuth API
 - Template-driven folder paths (e.g. `/Video/{course_name}/{date}`)
+- **Browse** — `GET /api/v1/credentials/{id}/yandex-disk/browse` for UI folder picker
 - Custom filename templates
 - Overwrite mode
 - Automatic folder creation

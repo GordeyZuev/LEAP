@@ -57,11 +57,9 @@ import {
 /**
  * Card-grid tracks, shared by the grid and its skeleton so the two can't drift.
  *
- * Intrinsic rather than breakpoint-driven: a card carries a 128px poster plus
- * text, and stops being readable much under 22rem. `auto-fill` therefore lays
- * out as many columns as genuinely fit instead of committing to a device-width
- * guess — which also closes the old gap where `md:2 → xl:3` left two columns
- * stretched across everything from 768 to 1279px.
+ * Intrinsic rather than breakpoint-driven: vertical cards (poster + title + meta
+ * + footer) stop being readable much under 22rem. `auto-fill` lays out as many
+ * columns as genuinely fit instead of guessing from device width.
  */
 const GRID_TRACKS = "grid-cols-[repeat(auto-fill,minmax(min(22rem,100%),1fr))]";
 
@@ -432,20 +430,23 @@ function RecordingsPagedResults({
         // two title lines, meta, footer — so nothing shifts when data lands.
         <div aria-busy="true" aria-label="Loading recordings" className={cn("grid gap-4", GRID_TRACKS)}>
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex flex-col rounded-xl border border-border bg-card">
-              <div className="flex gap-3 p-3">
-                <Skeleton className="aspect-video w-32 shrink-0 rounded-lg" />
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1.5 min-h-[2.5rem] space-y-1">
+            <div key={i} className="flex h-full flex-col rounded-xl border border-transparent p-2">
+              <Skeleton className="h-24 w-full rounded-lg" />
+              <div className="flex flex-1 flex-col pt-3">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2">
+                  <div className="min-h-[2.75rem] space-y-1">
                     <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-4 w-3/5" />
+                    <Skeleton className="h-4 w-4/5" />
                   </div>
-                  <Skeleton className="h-5 w-28 rounded-full" />
+                  <Skeleton className="size-8 shrink-0 rounded-full" />
                 </div>
-              </div>
-              <div className="mt-auto flex items-center gap-1.5 border-t border-border px-3 py-2">
-                <Skeleton className="h-7 w-20 rounded-xl" />
-                <Skeleton className="ml-auto h-7 w-7 rounded-xl" />
+                <div className="mt-2 flex flex-col gap-2">
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+                <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+                  <Skeleton className="h-7 w-[4.5rem] shrink-0 rounded-lg" />
+                  <Skeleton className="h-7 w-20 shrink-0 rounded-full" />
+                </div>
               </div>
             </div>
           ))}
@@ -499,10 +500,7 @@ function RecordingsPagedResults({
       )}
 
       {!isLoading && !error && recordings.length > 0 && viewMode === "grid" && (
-        // Cards stretch to the row height and pin their footer, so every Run
-        // button in a row sits on one line. Column count comes from the content:
-        // as many tracks as fit at 22rem each, rather than breakpoints guessed
-        // against device widths. min() keeps the track inside a 320px viewport.
+        // Stretch row height; Run sits on mt-auto inside each card.
         <div className={cn("grid animate-fade-in gap-4", GRID_TRACKS)}>
           {recordings.map((rec) => (
             <RecordingCard

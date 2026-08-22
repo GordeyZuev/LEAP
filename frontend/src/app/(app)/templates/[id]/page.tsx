@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useId, useState } from "react";
+import { use, useEffect, useId, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -101,6 +101,7 @@ interface PresetItem { id: number; name: string; platform: string; }
 interface PresetDetail {
   id: number;
   platform: string;
+  credential_id?: number;
   preset_metadata?: { description_template?: string };
 }
 interface MatchPreviewRecording {
@@ -181,6 +182,16 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
   const [globalThumbnail, setGlobalThumbnail] = useState("");
   const [presetDetails, setPresetDetails] = useState<Record<number, PresetDetail>>({});
+
+  const yandexBrowseCredentialId = useMemo(() => {
+    for (const pid of form.output_config.preset_ids) {
+      const preset = presetDetails[pid];
+      if (preset?.platform === "yandex_disk" && preset.credential_id) {
+        return preset.credential_id;
+      }
+    }
+    return "" as const;
+  }, [form.output_config.preset_ids, presetDetails]);
 
   const [savedSnapshot, setSavedSnapshot] = useState(() =>
     JSON.stringify({
@@ -857,6 +868,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               <YandexDiskFields
                 value={ydFields}
                 onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
+                credentialId={yandexBrowseCredentialId}
               />
             </PlatformSection>
           </Section>

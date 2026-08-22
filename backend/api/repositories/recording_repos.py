@@ -269,6 +269,7 @@ class RecordingRepository:
             selectinload(RecordingModel.processing_stages),
             selectinload(RecordingModel.input_source),
             selectinload(RecordingModel.template),
+            selectinload(RecordingModel.owner),
         )
         data_query = self._apply_filters(
             data_query,

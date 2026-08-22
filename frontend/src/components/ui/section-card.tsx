@@ -92,6 +92,26 @@ export function SectionCard({
   );
 }
 
+/** Flat section inside `Modal` — no nested card shell. */
+export function ModalSection({
+  title,
+  children,
+  className,
+  bodyClassName,
+}: {
+  title: string;
+  children: ReactNode;
+  className?: string;
+  bodyClassName?: string;
+}) {
+  return (
+    <section className={cn("space-y-4 border-t border-border pt-5 first:border-t-0 first:pt-0", className)}>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <div className={cn("space-y-4", bodyClassName)}>{children}</div>
+    </section>
+  );
+}
+
 export function CollapsibleCard({
   title,
   subtitle,

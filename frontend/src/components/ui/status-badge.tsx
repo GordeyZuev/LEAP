@@ -39,20 +39,28 @@ interface StatusBadgeProps {
    * Resolve it with `formatFailedStage` — this primitive stays presentational.
    */
   failedStage?: string | null;
+  /** `control` matches h-7 action buttons (e.g. recording card footer). */
+  size?: "default" | "control";
   className?: string;
 }
 
-export function StatusBadge({ status, failed, failedStage, className }: StatusBadgeProps) {
+const BADGE_SIZE: Record<NonNullable<StatusBadgeProps["size"]>, string> = {
+  default: "px-2.5 py-1",
+  control: "h-7 px-2.5 py-0",
+};
+
+export function StatusBadge({ status, failed, failedStage, size = "default", className }: StatusBadgeProps) {
+  const sizeCls = BADGE_SIZE[size];
   if (failed) {
     return (
-      <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-danger-fg/10 px-2.5 py-1 text-xs font-medium text-danger-fg", className)}>
+      <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-danger-fg/10 text-xs font-medium text-danger-fg", sizeCls, className)}>
         {failedStage ? `Failed · ${failedStage}` : "Failed"}
       </span>
     );
   }
   const cfg = STATUS_CONFIG[status] ?? { label: status, className: "bg-muted text-muted-foreground" };
   return (
-    <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium", cfg.className, className)}>
+    <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full text-xs font-medium", sizeCls, cfg.className, className)}>
       {cfg.pulse && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
       {cfg.label}
     </span>

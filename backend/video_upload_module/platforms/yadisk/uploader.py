@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from api.services.oauth_service import refresh_yandex_disk_oauth_token
+from api.services.yandex_disk_credentials import apply_yandex_disk_token_refresh, token_expires_within
 from logger import get_logger
 from video_upload_module.core.base import BaseUploader, UploadResult
 from yandex_disk_module.client import YandexDiskClient, YandexDiskError
@@ -15,19 +15,6 @@ if TYPE_CHECKING:
     from video_upload_module.credentials_provider import DatabaseCredentialProvider
 
 logger = get_logger()
-
-
-def _expiry_is_nearing(expiry_str: str | None, *, margin_seconds: int = 300) -> bool:
-    if not expiry_str:
-        return False
-    try:
-        normalized = expiry_str.replace("Z", "+00:00") if expiry_str.endswith("Z") else expiry_str
-        dt = datetime.fromisoformat(normalized)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return datetime.now(UTC) >= dt - timedelta(seconds=margin_seconds)
-    except ValueError:
-        return False
 
 
 class YandexDiskUploader(BaseUploader):
@@ -50,29 +37,9 @@ class YandexDiskUploader(BaseUploader):
         """Refresh OAuth token using stored refresh_token and app credentials."""
         if not self.credential_provider or not self.credentials_data:
             return False
-        rt = self.credentials_data.get("refresh_token")
-        cid = self.credentials_data.get("client_id")
-        if not rt or not cid:
-            logger.warning("Yandex Disk token refresh skipped: missing refresh_token or client_id")
+        if not await apply_yandex_disk_token_refresh(self.credentials_data):
             return False
-        try:
-            token_data = await refresh_yandex_disk_oauth_token(
-                rt,
-                override_client_id=cid,
-                override_client_secret=self.credentials_data.get("client_secret"),
-            )
-        except Exception as e:
-            logger.error(f"Yandex Disk token refresh failed: {e}")
-            return False
-        self.credentials_data["oauth_token"] = token_data["access_token"]
         self.oauth_token = self.credentials_data["oauth_token"]
-        if token_data.get("refresh_token"):
-            self.credentials_data["refresh_token"] = token_data["refresh_token"]
-        expires_in = int(token_data.get("expires_in", 3600))
-        self.credentials_data["expires_in"] = expires_in
-        self.credentials_data["expiry"] = (
-            (datetime.now(UTC) + timedelta(seconds=expires_in)).isoformat().replace("+00:00", "Z")
-        )
         if not await self.credential_provider.save_credentials(self.credentials_data):
             logger.error("Yandex Disk: failed to persist refreshed credentials")
             return False
@@ -83,7 +50,7 @@ class YandexDiskUploader(BaseUploader):
         if (
             self.credential_provider
             and self.credentials_data
-            and _expiry_is_nearing(self.credentials_data.get("expiry"))
+            and token_expires_within(self.credentials_data.get("expiry"))
         ):
             await self._try_refresh_token()
 

@@ -20,12 +20,17 @@ from api.schemas.credentials import (
     CredentialStatusResponse,
     CredentialUpdateRequest,
     VKCredentialsManual,
+    YandexDiskBrowseItem,
+    YandexDiskBrowseResponse,
     YandexDiskCredentialsManual,
     YouTubeCredentialsManual,
     ZoomCredentialsManual,
 )
 from api.services.quota_service import QuotaService
+from api.services.yandex_disk_credentials import get_yandex_disk_client_for_credential
 from logger import get_logger
+from yandex_disk_module.client import YandexDiskError
+from yandex_disk_module.paths import normalize_disk_path
 
 logger = get_logger()
 
@@ -33,6 +38,10 @@ router = APIRouter(prefix="/api/v1/credentials", tags=["Credentials"])
 
 CREDENTIAL_SORT_FIELDS = {"created_at", "platform", "account_name", "last_used_at"}
 CREDENTIAL_SEARCH_FIELDS = ("account_name", "platform")
+
+YANDEX_DISK_BROWSE_LIST_FIELDS = (
+    "_embedded.items.name,_embedded.items.path,_embedded.items.type,_embedded.items.size,_embedded.items.mime_type"
+)
 
 
 @router.get("", response_model=CredentialListResponse)
@@ -136,6 +145,93 @@ async def get_credential_by_id(
             )
 
     return response
+
+
+def _map_yandex_disk_browse_error(exc: YandexDiskError) -> HTTPException:
+    """Map Yandex Disk API errors to HTTP responses for browse."""
+    code = exc.status_code
+    if code == 401:
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Yandex Disk token invalid or expired — re-authenticate",
+        )
+    if code == 403:
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this folder")
+    if code == 404 or exc.error_code == "DiskPathDoesntExistsError":
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found")
+    if code in (503, 504):
+        return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Yandex Disk temporarily unavailable")
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Yandex Disk API error: {exc.error_code or exc}",
+    )
+
+
+def _sort_browse_items(items: list[YandexDiskBrowseItem]) -> list[YandexDiskBrowseItem]:
+    dirs = sorted((i for i in items if i.type == "dir"), key=lambda x: x.name.lower())
+    files = sorted((i for i in items if i.type == "file"), key=lambda x: x.name.lower())
+    return dirs + files
+
+
+@router.get("/{credential_id}/yandex-disk/browse", response_model=YandexDiskBrowseResponse)
+async def browse_yandex_disk(
+    credential_id: int,
+    path: str = Query("/", description="Folder path to list"),
+    limit: int = Query(100, ge=1, le=200, description="Page size"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """List folders and files on Yandex Disk for UI folder picker."""
+    folder_path = normalize_disk_path(path)
+    client = await get_yandex_disk_client_for_credential(
+        credential_id,
+        current_user.id,
+        session,
+        refresh_if_expiring=True,
+    )
+
+    try:
+        data = await client.list_folder(
+            folder_path,
+            limit=limit,
+            offset=offset,
+            fields=YANDEX_DISK_BROWSE_LIST_FIELDS,
+        )
+    except YandexDiskError as e:
+        logger.warning(
+            f"Yandex Disk browse failed | credential_id={credential_id} path={folder_path} error={e.error_code}"
+        )
+        raise _map_yandex_disk_browse_error(e) from e
+
+    embedded = data.get("_embedded") or {}
+    raw_items = embedded.get("items") or []
+    total = int(embedded.get("total") or 0)
+
+    items: list[YandexDiskBrowseItem] = []
+    for item in raw_items:
+        item_type = item.get("type")
+        if item_type not in ("dir", "file"):
+            continue
+        name = item.get("name") or ""
+        raw_path = item.get("path") or name
+        items.append(
+            YandexDiskBrowseItem(
+                name=name,
+                path=normalize_disk_path(str(raw_path)),
+                type=item_type,
+                size=item.get("size"),
+                mime_type=item.get("mime_type"),
+            )
+        )
+
+    return YandexDiskBrowseResponse(
+        path=folder_path,
+        items=_sort_browse_items(items),
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
 
 
 def _validate_credentials(platform: str, credentials: dict[str, Any]) -> None:

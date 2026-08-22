@@ -23,6 +23,26 @@ from logger import get_logger
 logger = get_logger()
 
 
+def extract_thumbnail_name_from_metadata(metadata: dict[str, Any]) -> str | None:
+    """Pick a thumbnail filename from resolved metadata_config for UI preview.
+
+    Matches upload hierarchy (see ``TemplateMetadataConfig``):
+    platform-specific overrides first, then common ``thumbnail_name``.
+    """
+    for platform in ("youtube", "vk"):
+        block = metadata.get(platform)
+        if isinstance(block, dict):
+            name = block.get("thumbnail_name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+
+    common = metadata.get("thumbnail_name")
+    if isinstance(common, str) and common.strip():
+        return common.strip()
+
+    return None
+
+
 class ConfigResolver:
     """Service for resolving recording configuration from multiple sources."""
 
