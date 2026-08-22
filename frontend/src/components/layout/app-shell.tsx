@@ -7,6 +7,7 @@ import { Menu } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Footer } from "@/components/layout/footer";
 import { Logo } from "@/components/layout/logo";
+import { ReleaseNotesGate } from "@/components/layout/release-notes-gate";
 
 /**
  * App chrome: persistent collapsible sidebar on lg+, an off-canvas drawer on
@@ -19,6 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-full">
+      <ReleaseNotesGate />
       <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Mobile top bar — hidden on lg+ where the sidebar is always visible. */}

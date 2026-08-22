@@ -27,7 +27,7 @@ Supporting rules: **`workflow-changelog.mdc`**, **`version-bump-and-readme.mdc`*
 5. **Stale version grep** — Search for the **previous** `vX.Y.Z` / `X.Y.Z` in:
    - `README.md` (version lines + highlights section, `` `Новое в v…` `` pattern)
    - `backend/api/__init__.py`, `backend/config/settings.py`, `backend/.version`
-   - `backend/docs/UPDATES.md`, **`backend/docs/ARCHITECTURE_SCHEMAS.md`** (when the header is a **product** release line), and any path that still advertises the **old** release as current
+   - `backend/docs/UPDATES.md`, **`backend/docs/ARCHITECTURE_SCHEMAS.md`** (when the header is a **product** release line), **`frontend/src/lib/app-version.ts`**, **`frontend/src/content/release-notes.ts`**, and any path that still advertises the **old** release as current
 
 Do **not** treat ADR/guide **internal** doc-edition headings (e.g. text like `` `Версия документа` ``) as the product semver unless the file explicitly tracks releases. Do **not** re-stamp **TECHNICAL.md** / every guide with product semver unless that file is meant to carry it.
 
@@ -45,6 +45,12 @@ Do **not** treat ADR/guide **internal** doc-edition headings (e.g. text like `` 
 5. If you maintain **`backend/docs/UPDATES.md`**, add/adjust the current-release bullet so it matches the new version (otherwise skip).
 6. Replace any other stale **product** stamps found in step 1.5; add month/year only where that line already carries a date.
 7. If **Alembic** revisions shipped: ensure **`alembic-migrations.mdc`** checklist and CHANGELOG mention revision ids + deploy order.
+8. **In-app release notes (“What’s new” modal)** — when the release has user-visible UI changes:
+   - Sync **`frontend/src/lib/app-version.ts`** fallback with **`pyproject`** semver (footer and modal read **`APP_VERSION`**; optional **`NEXT_PUBLIC_APP_VERSION`** at build time).
+   - Add or update the block for **`X.Y.Z`** in **`frontend/src/content/release-notes.ts`** → **`RELEASE_NOTES_BY_VERSION`**.
+   - **Copy:** English; **3–7 bullets**; outcomes for users/operators, not internal refactors. Use **`parts`** with **`{ kind: "link", label, href }`** for in-app routes (`/templates`, `/settings`, `/recordings`, …).
+   - Skip the modal for a release by omitting that version key (patch-only / ops-only).
+   - **Verify:** `localStorage.removeItem("leap:lastSeenRelease")` in the browser → reload → modal after ~1.5 s.
 
 ---
 

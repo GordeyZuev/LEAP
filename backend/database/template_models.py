@@ -114,6 +114,7 @@ class RecordingTemplateModel(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_draft: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # --- Configuration (JSONB) ---
     matching_rules: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

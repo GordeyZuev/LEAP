@@ -2,6 +2,70 @@
 
 ---
 
+## v0.10.7.0 (2026-08-22)
+
+Релиз: базовый шаблон (Default Template) и единый resolver конфигурации; настройки обработки из Settings перенесены в базовый шаблон; promote через **Make base template**; share-страница в watch-layout (видео + главы/темы); LEAP-ссылка в Publications и бейдж в списке записей; миграции **037–039** (deploy вместе с кодом). Подробности — секции **2026-08-22** ниже.
+
+---
+
+## 2026-08-22: Share page watch layout + LEAP link in publications
+
+- **Share page (`/share/[token]`)** — YouTube-style watch row: `SectionCard` video (Processed/Original tabs) + sticky companion card (generated main topic in header, chapters with wrapped titles, Topics/Transcript tabs when both exist). Summary and questions stay in **Extra content** below; Downloads and Description unchanged. Companion scroll height tracks the video column via `ResizeObserver`.
+- **Recording detail** — active LEAP public link is the first row in **Publications** (tinted group + platform rows below); removed duplicate Share control from the control panel.
+- **List UI** — grid cards and table show **LEAP** link badge (green dot) when `share_token` is set; same row as YouTube/VK platform links.
+- **API** — `share_token` included in recording list and lightweight GET/PATCH list-item payloads (`RecordingListItem`).
+- **Components** — `AIContentEditor` `embeddedInPanel` + wrapping chapter labels; `Tabs` optional `tablistClassName`; `TranscriptPanel` optional list height override.
+
+### Файлы
+
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/components/recordings/recording-card.tsx`, `recordings-table.tsx`, `ai-content-editor.tsx`, `transcript-panel.tsx`
+- `frontend/src/components/ui/tabs.tsx`
+- `backend/api/routers/recordings.py`, `backend/api/schemas/recording/response.py`
+
+---
+
+## 2026-08-22: Base template promote (swap flag) + template editor UX
+
+- **Promote model** — `POST /api/v1/templates/{id}/set-as-default` moves `is_default` to an active named template; the previous base becomes a regular template (config unchanged). Removed copy-based `apply-to-default`.
+- **Resolver** — skip bound-template merge when bound id equals default (no double merge after promote).
+- **Template list** — base row stays in the table with **Base** badge and **Base template** status; pinned banner unchanged.
+- **Editor UX** — new template: **Make base template** toggle on save (confirm); existing named template: promote via **More → Make base template** only. Base editor: Draft/Active toggles locked; hint explains base is always active, cannot be deleted, change via another template.
+- **Fix** — promote clears old default before setting new one (unique index `uq_templates_user_default`).
+- **Cleanup** — removed unused Settings `ProcessingPanel` and `useResolvedConfig` hook (processing defaults live in base template editor).
+
+### Файлы
+
+- `backend/api/services/default_template.py`, `config_resolver.py`, `api/routers/templates.py`
+- `backend/tests/unit/api/services/test_default_template.py`
+- `frontend/src/app/(app)/templates/page.tsx`, `templates/[id]/page.tsx`
+
+---
+
+## 2026-08-22: Config unification — Default Template + unified resolver
+
+- **Default Template** — `recording_templates.is_default`; one base template per user holds processing/metadata/output defaults (replaces Settings Processing). Migrations **037** (column) + **038** (seed from `user_configs`, strip pipeline keys).
+- **Unified resolver** — `ConfigResolver.resolve()` merges default → bound → runtime → preferences → manual_override; single `deep_merge` in `api/services/merger.py`. `resolve_full_config` is a thin wrapper.
+- **API** — `GET /api/v1/config/resolve?recording_id=&template_id=&include_layers=`; `GET /api/v1/templates/default`; `PATCH /recordings/{id}/config` accepts `metadata_config`.
+- **Fixes** — output config reads `upload` not `output`; output override deep-merge; `/topics/render` applies display config; `template_matcher.apply_template` no longer copies config into preferences.
+- **Frontend** — Settings Processing tab removed → link to base template; retention in Account; run modal override toggles off by default; preview below display fields.
+
+**Deploy:** run migrations 037–039 with code deploy (hard cutover). Optional post-deploy: `uv run python scripts/normalize_processing_preferences.py`.
+
+- **Fix (039)** — `output_config.preset_ids` defaults to `[]`; legacy rows from migration 038 without preset ids no longer 500 on `GET /templates/{id}`.
+
+### Файлы
+
+- `backend/api/services/config_resolver.py`, `merger.py`, `default_template.py`, `config_utils.py`
+- `backend/api/routers/config.py`, `templates.py`, `recordings.py`, `auth.py`, `user_config.py`
+- `backend/alembic/versions/037_add_template_is_default.py`, `038_seed_default_templates.py`
+- `backend/database/template_models.py`, `backend/api/repositories/template_repos.py`, `quota_service.py`
+- `frontend/src/app/(app)/settings/page.tsx`, `templates/page.tsx`, `templates/[id]/page.tsx`, `run-config-modal.tsx`
+- `backend/docs/ARCHITECTURE_SCHEMAS.md`
+
+---
+
 ## 2026-08-22: Modal overlay — viewport positioning and admin dialog layout
 
 - **Portal** — `Modal` renders into `document.body`, so `animate-page-in` on page content no longer traps `position: fixed` (dialogs stayed centered on the scrolled page instead of the viewport).

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Fragment } from "react";
 
-const VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.10.6.0";
+import { APP_VERSION } from "@/lib/app-version";
+
+const VERSION = APP_VERSION;
 
 const links = [
   { label: "Documentation", href: "/docs", external: false },

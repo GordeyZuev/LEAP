@@ -13,6 +13,8 @@ export interface SortState {
 
 interface SortableThProps extends SortState {
   label: string;
+  /** Native tooltip for abbreviated header labels. */
+  title?: string;
   /** API sort field. Omit for columns the API cannot sort by. */
   field?: string;
   className?: string;
@@ -31,6 +33,7 @@ interface SortableThProps extends SortState {
  */
 export function SortableTh({
   label,
+  title,
   field,
   className,
   sortBy,
@@ -44,6 +47,7 @@ export function SortableTh({
 
   return (
     <th
+      title={title}
       className={cn(
         TABLE_HEAD_CELL,
         "whitespace-nowrap text-left",

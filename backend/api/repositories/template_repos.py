@@ -278,6 +278,42 @@ class RecordingTemplateRepository:
         )
         return list(result.scalars().all())
 
+    async def find_matchable_by_user(self, user_id: str) -> list[RecordingTemplateModel]:
+        """Active named templates eligible for matching (excludes default template)."""
+        result = await self.session.execute(
+            select(RecordingTemplateModel)
+            .where(
+                RecordingTemplateModel.user_id == user_id,
+                RecordingTemplateModel.is_active,
+                ~RecordingTemplateModel.is_draft,
+                ~RecordingTemplateModel.is_default,
+            )
+            .order_by(RecordingTemplateModel.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def find_default_by_user(self, user_id: str) -> RecordingTemplateModel | None:
+        """Return the user's default (base) template, if any."""
+        result = await self.session.execute(
+            select(RecordingTemplateModel).where(
+                RecordingTemplateModel.user_id == user_id,
+                RecordingTemplateModel.is_default,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def count_matchable_by_user(self, user_id: str) -> int:
+        """Count named templates (excludes default) for quota checks."""
+        from sqlalchemy import func
+
+        result = await self.session.execute(
+            select(func.count(RecordingTemplateModel.id)).where(
+                RecordingTemplateModel.user_id == user_id,
+                ~RecordingTemplateModel.is_default,
+            )
+        )
+        return result.scalar() or 0
+
     async def find_by_user(self, user_id: str, include_drafts: bool = False) -> list[RecordingTemplateModel]:
         """Get all templates for user, sorted by created_at ASC."""
         query = select(RecordingTemplateModel).where(RecordingTemplateModel.user_id == user_id)

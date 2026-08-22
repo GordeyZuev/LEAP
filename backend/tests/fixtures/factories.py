@@ -52,6 +52,7 @@ def create_mock_recording(
     recording.soft_deleted_at = kwargs.get("soft_deleted_at")
     recording.hard_delete_at = kwargs.get("hard_delete_at")
     recording.expire_at = kwargs.get("expire_at")
+    recording.share_token = kwargs.get("share_token")
 
     # Mock relationships
     recording.template = kwargs.get("template")

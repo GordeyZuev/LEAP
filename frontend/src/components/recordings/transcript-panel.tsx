@@ -73,6 +73,7 @@ export function TranscriptPanel({
   cues,
   activeIdx,
   onSeek,
+  listClassName,
 }: {
   cues: TranscriptCue[];
   /** Index of the cue playing now, or -1. Resolved by the owner so playback
@@ -80,6 +81,8 @@ export function TranscriptPanel({
       `timeupdate` tick. */
   activeIdx: number;
   onSeek: (time: number) => void;
+  /** Override scroll container height — e.g. fill a side panel on the share page. */
+  listClassName?: string;
 }) {
   const [query, setQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -133,7 +136,7 @@ export function TranscriptPanel({
         </p>
       )}
 
-      <div ref={listRef} className="max-h-[28rem] overflow-y-auto">
+      <div ref={listRef} className={cn("max-h-[28rem] overflow-y-auto", listClassName)}>
         {filtered.map(({ cue, i }) => {
           const isActive = i === activeIdx && !query.trim();
           return (

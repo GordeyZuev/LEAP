@@ -36,6 +36,7 @@ export interface RecordingCardData {
   can_pause: boolean;
   ready_to_upload: boolean;
   uploads: Record<string, UploadInfo>;
+  share_token?: string | null;
   soft_deleted_at?: string | null;
   processing_stages?: PipelineStage[];
   failed_at_stage?: string | null;
@@ -291,8 +292,23 @@ export function RecordingCard({
             <span className="tabular-nums">{formatDate(r.start_time)}</span>
           </p>
 
-          {uploads.length > 0 && (
+          {(uploads.length > 0 || r.share_token) && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {r.share_token && (
+                <a
+                  href={`/share/${r.share_token}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-fg">
+                    <span className="sr-only">active</span>
+                  </span>
+                  LEAP
+                  <ExternalLink size={9} className="opacity-40" />
+                </a>
+              )}
               {uploads.map(([platform, info]) => {
                 const dotCls = UPLOAD_DOT[info.status] ?? UPLOAD_DOT["NOT_UPLOADED"];
                 const label = PLATFORM_LABELS[platform] ?? platform;

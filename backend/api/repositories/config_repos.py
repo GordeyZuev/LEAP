@@ -5,29 +5,9 @@ from typing import cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config.settings import DEFAULT_USER_CONFIG
+from api.services.default_template import account_only_user_config, product_default_account_config
+from api.services.merger import deep_merge
 from database.config_models import UserConfigModel
-
-
-def deep_merge(base: dict, override: dict) -> dict:
-    """
-    Deep merge two dictionaries.
-
-    Base values are used as defaults, override values take precedence.
-    Nested dicts are merged recursively.
-
-    Creates a deep copy to avoid mutating original dicts.
-    """
-    import copy
-
-    result = copy.deepcopy(base)
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            # Deep copy the value to avoid reference issues
-            result[key] = copy.deepcopy(value)
-    return result
 
 
 class UserConfigRepository:
@@ -40,14 +20,7 @@ class UserConfigRepository:
 
     async def get_effective_config(self, user_id: str) -> dict:
         """
-        Get user config merged with defaults.
-
-        Returns effective configuration with:
-        - Default values from DEFAULT_USER_CONFIG constant
-        - User-specific overrides from database
-
-        This ensures backward compatibility - users automatically get new config fields
-        (like retention settings) without manual migration.
+        Get account-level user config (retention, download, platforms) merged with defaults.
 
         Args:
             user_id: User ID
@@ -55,16 +28,13 @@ class UserConfigRepository:
         Returns:
             Merged configuration dict (deep copy)
         """
-        import copy
-
         user_config_model = await self.get_by_user_id(user_id)
 
         if not user_config_model:
-            # User has no config yet, return deep copy of defaults
-            return copy.deepcopy(DEFAULT_USER_CONFIG)
+            return product_default_account_config()
 
-        # Merge: defaults as base, user overrides on top (deep_merge does deep copy)
-        return deep_merge(DEFAULT_USER_CONFIG, cast("dict", user_config_model.config_data))
+        stored = account_only_user_config(cast("dict", user_config_model.config_data))
+        return deep_merge(product_default_account_config(), stored)
 
     async def create(self, user_id: str, config_data: dict) -> UserConfigModel:
         config = UserConfigModel(user_id=user_id, config_data=config_data)

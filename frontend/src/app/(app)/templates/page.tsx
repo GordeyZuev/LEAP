@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ import { useUrlListState } from "@/hooks/use-url-list-state";
 import { usePageSize } from "@/hooks/use-page-size";
 import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
 import { PER_PAGE_TEMPLATES, PER_PAGE_TEMPLATES_OPTIONS } from "@/lib/constants";
+import { BaseTemplateBanner } from "@/components/settings/base-template-banner";
 
 interface TemplateListItem {
   id: number;
@@ -29,6 +30,7 @@ interface TemplateListItem {
   description: string | null;
   is_draft: boolean;
   is_active: boolean;
+  is_default?: boolean;
   used_count: number;
   created_at: string;
   updated_at: string;
@@ -74,6 +76,14 @@ function TemplatesContent() {
     : list.getParam("is_active") === "false" ? "inactive"
     : "all";
 
+  const { data: defaultTemplate, isLoading: defaultTemplateLoading } = useQuery<{
+    id: number;
+    name: string;
+  }>({
+    queryKey: ["default-template"],
+    queryFn: async () => (await apiClient.get("/templates/default")).data,
+  });
+
   const { data, isLoading, error, refetch } = useQuery<TemplateListResponse>({
     queryKey: ["templates", list.urlKey, perPage],
     queryFn: async () => {
@@ -100,7 +110,14 @@ function TemplatesContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, list.page]);
 
-  const templates = data?.items ?? [];
+  const tableTemplates = useMemo(() => {
+    const items = data?.items ?? [];
+    return [...items].sort((a, b) => {
+      if (a.is_default && !b.is_default) return -1;
+      if (!a.is_default && b.is_default) return 1;
+      return 0;
+    });
+  }, [data?.items]);
   const sortProps = { sortBy: list.sortBy, sortOrder: list.sortOrder, onSort: list.setSort };
 
   const chips: FilterChipItem[] = [
@@ -134,6 +151,10 @@ function TemplatesContent() {
           </Link>
         }
       />
+
+      <div className="mb-6">
+        <BaseTemplateBanner template={defaultTemplate ?? null} loading={defaultTemplateLoading} />
+      </div>
 
       {/* Filters */}
       <FilterBar
@@ -189,22 +210,30 @@ function TemplatesContent() {
                 </td>
               </tr>
             )}
-            {!isLoading && !error && templates.length === 0 && (
+            {!isLoading && !error && tableTemplates.length === 0 && (
               <tr>
                 <td colSpan={4} className="p-0">
                   <EmptyState
                     icon={FileText}
-                    title={list.hasActiveFilters ? "No templates match your filters" : "No templates yet"}
+                    title={
+                      list.hasActiveFilters
+                        ? "No templates match your filters"
+                        : defaultTemplate
+                          ? "No other templates yet"
+                          : "No templates yet"
+                    }
                     description={
                       list.hasActiveFilters
                         ? "Try adjusting or clearing the filters above."
-                        : "Templates define how recordings are matched and named. Create your first one."
+                        : defaultTemplate
+                          ? "Named templates add matching rules on top of your default. Create one when you need auto-assignment."
+                          : "Templates define how recordings are matched and named. Create your first one."
                     }
                   />
                 </td>
               </tr>
             )}
-            {templates.map((t) => (
+            {tableTemplates.map((t) => (
               <tr key={t.id} className={TABLE_ROW}>
                 <td className="px-6 py-4">
                   <div>
@@ -214,6 +243,11 @@ function TemplatesContent() {
                     >
                       {t.name}
                     </Link>
+                    {t.is_default ? (
+                      <span className="ml-2 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                        Base
+                      </span>
+                    ) : null}
                   </div>
                   {t.description && (
                     <p className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground">{t.description}</p>
@@ -223,14 +257,16 @@ function TemplatesContent() {
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                      t.is_draft
+                      t.is_default
+                        ? "bg-primary/10 text-primary"
+                        : t.is_draft
                         ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300"
                         : t.is_active
                           ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
                           : "bg-muted text-muted-foreground"
                     )}
                   >
-                    {t.is_draft ? "Draft" : t.is_active ? "Active" : "Inactive"}
+                    {t.is_default ? "Base template" : t.is_draft ? "Draft" : t.is_active ? "Active" : "Inactive"}
                   </span>
                 </td>
                 <td className="px-6 py-4 text-sm text-muted-foreground">{t.used_count}×</td>

@@ -1,16 +1,14 @@
-"""User config API: per-user preferences (trimming, transcription, etc.)."""
-
-import copy
+"""User config API: account-level preferences (retention, download)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
-from api.repositories.config_repos import UserConfigRepository, deep_merge
+from api.repositories.config_repos import UserConfigRepository
 from api.schemas.auth import UserInDB
 from api.schemas.config.user_config import UserConfigResponse, UserConfigUpdate
-from config.settings import DEFAULT_USER_CONFIG
+from api.services.merger import deep_merge
 from logger import get_logger
 
 router = APIRouter(prefix="/api/v1/users/me/config", tags=["User Config"])
@@ -98,8 +96,10 @@ async def reset_user_config(
             detail="User config not found. This indicates a data integrity issue.",
         )
 
-    # Deep copy to avoid mutating the global DEFAULT_USER_CONFIG
-    config = await repo.update(config, copy.deepcopy(DEFAULT_USER_CONFIG))
+    # Reset account-level settings only; video defaults live in Default Template
+    from api.services.default_template import product_default_account_config
+
+    config = await repo.update(config, product_default_account_config())
     await session.commit()
 
     logger.info(f"User config reset to defaults: user_id={current_user.id}")

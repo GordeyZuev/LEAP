@@ -20,7 +20,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.10.6.2` (August 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.10.7.0` (August 2026) · **Статус:** In Active Development • Beta
 **Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (AssemblyAI, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
@@ -411,6 +411,8 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — что изменилось для пользователей и операторов. Полная история — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в `v0.10.7.0`** — базовый шаблон (Default Template): настройки обработки перенесены из Settings в базовый шаблон, единый resolver конфигурации; смена базового через **Make base template**; retention — в Account; share-страница в watch-layout (видео + главы/темы рядом с плеером); активная LEAP-ссылка в Publications на странице записи и зелёный бейдж LEAP в списке/таблице. **Deploy:** миграции **037–039** вместе с кодом.
 
 **Новое в `v0.10.6.2`** — browse API и UI-пикер папок Яндекс.Диска (Input Sources, пресеты, шаблоны), превью записей с настроенным thumbnail из метаданных (`poster_source`), модалки через portal центрируются во viewport с учётом ширины сайдбара.
 

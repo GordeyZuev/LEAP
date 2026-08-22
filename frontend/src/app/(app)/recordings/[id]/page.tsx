@@ -258,6 +258,11 @@ const RECORDING_SECTION = {
 
 const CONTROL_PANEL_ACTION_GRID = "grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-2";
 
+const PUBLICATION_LINK =
+  "inline-flex min-h-7 items-center gap-0.5 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm";
+const PUBLICATION_TEXT_ACTION =
+  "inline-flex min-h-7 items-center text-xs font-medium text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm";
+
 const VIDEO_VARIANT_TABS: TabItem<"processed" | "original">[] = [
   { value: "processed", label: "Processed" },
   { value: "original", label: "Original" },
@@ -304,10 +309,6 @@ const PLATFORM_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: numb
   NOT_UPLOADED: { icon: Clock,        label: "Not uploaded", color: "text-muted-foreground" },
 };
 
-
-// ---------------------------------------------------------------------------
-// PlatformOutputRow — used inside the Publications sidebar card
-// ---------------------------------------------------------------------------
 
 function PlatformOutputRow({
   output,
@@ -357,13 +358,13 @@ function PlatformOutputRow({
           </p>
         )}
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
+      <div className="flex shrink-0 flex-col items-end gap-0.5">
         {url && output.status === "UPLOADED" && (
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-0.5 text-xs font-medium text-primary hover:underline"
+            className={PUBLICATION_LINK}
           >
             Open <ExternalLink size={10} />
           </a>
@@ -381,6 +382,54 @@ function PlatformOutputRow({
           </ActionButton>
         )}
       </div>
+    </div>
+  );
+}
+
+function SharePublicationRow({
+  shareToken,
+  onManage,
+}: {
+  shareToken: string | null;
+  onManage: () => void;
+}) {
+  const active = !!shareToken;
+  const Icon = active ? CheckCircle2 : Clock;
+  const statusColor = active ? "text-success-fg" : "text-muted-foreground";
+
+  return (
+    <div className="flex items-start gap-2.5 py-2.5">
+      <Icon size={14} className={cn(statusColor, "mt-0.5 shrink-0")} />
+      <div className="min-w-0 flex-1">
+        <span className="text-xs font-semibold text-foreground">LEAP public link</span>
+        <p className={cn("text-xs", statusColor)}>{active ? "Active" : "Not shared"}</p>
+        {active && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <a
+              href={`/share/${shareToken}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={PUBLICATION_LINK}
+            >
+              Open <ExternalLink size={10} />
+            </a>
+            <button type="button" onClick={onManage} className={PUBLICATION_TEXT_ACTION}>
+              Manage
+            </button>
+          </div>
+        )}
+      </div>
+      {!active && (
+        <ActionButton
+          size="sm"
+          variant="secondary"
+          onClick={onManage}
+          icon={<Share2 size={10} />}
+          className="shrink-0 px-2 py-0.5 text-xs hover:border-primary hover:bg-primary hover:text-white"
+        >
+          Create link
+        </ActionButton>
+      )}
     </div>
   );
 }
@@ -1265,23 +1314,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   )}
                 </div>
 
-                {/* Share */}
-                <div>
-                  <ActionButton
-                    variant="secondary"
-                    onClick={() => setShareOpen(true)}
-                    icon={<Share2 size={13} />}
-                    className={cn(
-                      "w-full justify-center py-2",
-                      shareToken
-                        ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
-                        : "hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-                    )}
-                  >
-                    {shareToken ? "Manage share" : "Share"}
-                  </ActionButton>
-                </div>
-
                 {/* Destructive actions — kept out of the routine grid above so
                     Delete is not one mis-click away from "Link template". */}
                 <div className="space-y-1.5 border-t border-border pt-3">
@@ -1349,23 +1381,34 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               ) : undefined
             }
           >
-            {recording.outputs.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
+            {recording.outputs.length === 0 && (
+              <p className="mb-2 text-xs text-muted-foreground">
                 No platforms configured. Add presets and run the recording.
               </p>
-            ) : (
-              <div className="divide-y divide-muted">
-                {recording.outputs.map((output) => (
-                  <PlatformOutputRow
-                    key={output.id}
-                    output={output}
-                    readyToUpload={recording.ready_to_upload}
-                    onUpload={(targetType) => uploadTo.mutate(targetType)}
-                    uploadPending={uploadTo.isPending}
-                  />
-                ))}
-              </div>
             )}
+            <div className="space-y-4">
+              <div className="rounded-xl border border-primary/20 bg-primary/[0.04] px-3">
+                <SharePublicationRow shareToken={shareToken} onManage={() => setShareOpen(true)} />
+              </div>
+              {recording.outputs.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Platforms
+                  </p>
+                  <div className="divide-y divide-muted">
+                    {recording.outputs.map((output) => (
+                      <PlatformOutputRow
+                        key={output.id}
+                        output={output}
+                        readyToUpload={recording.ready_to_upload}
+                        onUpload={(targetType) => uploadTo.mutate(targetType)}
+                        uploadPending={uploadTo.isPending}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </SectionCard>
 
           {/* Downloads */}

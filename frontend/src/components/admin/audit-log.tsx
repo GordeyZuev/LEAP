@@ -73,7 +73,7 @@ export function AdminAuditLog() {
 
   return (
     <div className="mt-8">
-      <div className="mb-3 flex items-baseline gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <h2 className="text-sm font-semibold text-foreground">Audit log</h2>
         {data && data.total > 0 && (
           <span className="text-xs tabular-nums text-muted-foreground">{data.total} entries</span>

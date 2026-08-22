@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Eye, Loader2, Play, Save, X } from "lucide-react";
+import { ChevronDown, ExternalLink, Eye, Loader2, Play, Save, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
@@ -45,14 +46,15 @@ import {
 } from "@/components/platforms/metadata-render-preview";
 import { TagInput } from "@/components/ui/tag-input";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
+import { formatBaseTemplateLabel } from "@/lib/base-template";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface TemplateItem { id: number; name: string }
+interface TemplateItem { id: number; name: string; is_default?: boolean }
 interface TemplateListResponse { items: TemplateItem[]; total: number }
-interface PresetItem { id: number; name: string; platform: string; credential_id: number }
+interface PresetItem { id: number; name: string; platform: string; credential_id?: number | null }
 interface PresetListResponse { items: PresetItem[]; total: number }
 
 interface RecordingConfigResponse {
@@ -188,7 +190,7 @@ function OverrideSection({
         >
           <span id={titleId} className="text-sm font-semibold text-foreground">{title}</span>
           <span className="text-xs text-muted-foreground">
-            {enabled ? "overridden for this run" : "using template defaults"}
+            {enabled ? "overridden for this run" : "inherits effective config"}
           </span>
           <ChevronDown
             size={16}
@@ -306,6 +308,17 @@ export function RunConfigModal({
     enabled: open,
   });
 
+  const { data: defaultTemplate } = useQuery<TemplateItem>({
+    queryKey: ["default-template"],
+    queryFn: async () => (await apiClient.get<TemplateItem>("/templates/default")).data,
+    enabled: open,
+  });
+
+  const namedTemplates = useMemo(
+    () => (templatesData?.items ?? []).filter((t) => !t.is_default),
+    [templatesData?.items],
+  );
+
   const { data: presetsData } = useQuery<PresetListResponse>({
     queryKey: ["presets-dropdown"],
     queryFn: async () => (await apiClient.get<PresetListResponse>("/presets?per_page=100")).data,
@@ -318,6 +331,23 @@ export function RunConfigModal({
       (await apiClient.get<RecordingConfigResponse>(`/recordings/${recordingId}/config`)).data,
     enabled: open && mode === "single" && !!recordingId,
   });
+
+  const boundTemplateId = useMemo(() => {
+    const id = existingConfig?.template_id ?? null;
+    if (id == null) return null;
+    if (defaultTemplate?.id != null && id === defaultTemplate.id) return null;
+    if (templatesData?.items.some((t) => t.is_default && t.id === id)) return null;
+    return id;
+  }, [existingConfig?.template_id, defaultTemplate?.id, templatesData?.items]);
+
+  const boundTemplateName = boundTemplateId != null ? existingConfig?.template_name : null;
+  const baseTemplateLabel = formatBaseTemplateLabel(defaultTemplate?.name);
+
+  const openTemplateId = useMemo(() => {
+    if (templateId != null) return templateId;
+    if (boundTemplateId != null) return boundTemplateId;
+    return defaultTemplate?.id ?? null;
+  }, [templateId, boundTemplateId, defaultTemplate?.id]);
 
   // ── Mutation ──────────────────────────────────────────────────────────────
   const runMutation = useMutation({
@@ -393,6 +423,7 @@ export function RunConfigModal({
         return apiClient.patch(`/recordings/${recordingId}/config`, {
           processing_config: body.processing_config,
           output_config: body.output_config,
+          metadata_config: body.metadata_config,
         });
       }
 
@@ -454,33 +485,24 @@ export function RunConfigModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // ── Pre-fill from resolved config (single mode) ───────────────────────────
+  // ── Pre-fill effective values; override toggles stay off until user enables them ──
   useEffect(() => {
     if (!open || !existingConfig) return;
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (existingConfig.template_id) setTemplateId(existingConfig.template_id);
-
-    const pc = existingConfig.processing_config;
-    if (pc) {
-      setProcessingEnabled(true);
-      setProcessingOpen(true);
-      const t = pc.transcription;
-      if (t) {
-        if (t.language != null) setLanguage(t.language);
-        if (t.granularity != null) setGranularity(t.granularity);
-        if (t.enable_transcription != null) setEnableTranscription(t.enable_transcription);
-        if (t.enable_topics != null) setEnableTopics(t.enable_topics);
-        if (t.enable_subtitles != null) setEnableSubtitles(t.enable_subtitles);
-        if (t.allow_errors != null) setAllowErrors(t.allow_errors);
-        if (t.questions_count != null) setQuestionsCount(t.questions_count);
-        if (t.vocabulary != null) setVocabulary(t.vocabulary);
-      }
+    const t = existingConfig.processing_config?.transcription;
+    if (t) {
+      if (t.language != null) setLanguage(t.language);
+      if (t.granularity != null) setGranularity(t.granularity);
+      if (t.enable_transcription != null) setEnableTranscription(t.enable_transcription);
+      if (t.enable_topics != null) setEnableTopics(t.enable_topics);
+      if (t.enable_subtitles != null) setEnableSubtitles(t.enable_subtitles);
+      if (t.allow_errors != null) setAllowErrors(t.allow_errors);
+      if (t.questions_count != null) setQuestionsCount(t.questions_count);
+      if (t.vocabulary != null) setVocabulary(t.vocabulary);
     }
 
     const oc = existingConfig.output_config;
     if (oc) {
-      setOutputEnabled(true);
-      setOutputOpen(true);
       if (oc.auto_upload != null) setAutoUpload(oc.auto_upload);
       if (oc.upload_captions != null) setUploadCaptions(oc.upload_captions);
       if (oc.preset_ids) setSelectedPresetIds(oc.preset_ids);
@@ -488,8 +510,6 @@ export function RunConfigModal({
 
     const mc = existingConfig.metadata_config;
     if (mc) {
-      setMetadataEnabled(true);
-      setMetadataOpen(true);
       if (mc.title_template) setTitleTemplate(mc.title_template);
       if (mc.description_template) setDescriptionTemplate(mc.description_template);
       setTopicsDisplay(fromDisplayPayload(mc.topics_display, "topics"));
@@ -526,7 +546,9 @@ export function RunConfigModal({
   const yandexBrowseCredentialId = useMemo(() => {
     for (const pid of selectedPresetIds) {
       const preset = presetsData?.items.find((p) => p.id === pid);
-      if (preset?.platform === "yandex_disk") return preset.credential_id;
+      if (preset?.platform === "yandex_disk" && preset.credential_id != null) {
+        return preset.credential_id;
+      }
     }
     return "" as const;
   }, [selectedPresetIds, presetsData?.items]);
@@ -539,8 +561,7 @@ export function RunConfigModal({
       if (mode === "single" && recordingId != null) {
         body.recording_id = recordingId;
       }
-      const effectiveTemplateId =
-        templateId ?? (mode === "single" ? (existingConfig?.template_id ?? null) : null);
+      const effectiveTemplateId = templateId ?? (mode === "single" ? boundTemplateId : null);
       if (effectiveTemplateId != null) {
         body.template_id = effectiveTemplateId;
       }
@@ -624,7 +645,7 @@ export function RunConfigModal({
               <span className="text-xs text-muted-foreground">
                 {templateId
                   ? templatesData?.items.find((t) => t.id === templateId)?.name ?? "selected"
-                  : "using the recording's own template"}
+                  : boundTemplateName ?? baseTemplateLabel}
               </span>
               <ChevronDown
                 size={16}
@@ -634,23 +655,36 @@ export function RunConfigModal({
 
             {templateOpen && (
               <div className="space-y-4 border-t border-border px-4 pb-4 pt-4">
-                <Field
-                  label="Template to use for this run"
-                  hint={
-                    templateId
-                      ? undefined
-                      : "Leave empty to use the recording's current template (or system defaults)."
-                  }
-                >
-                  <NativeSelect
-                    value={templateId ?? ""}
-                    onChange={(e) => setTemplateId(e.target.value ? Number(e.target.value) : null)}
-                  >
-                    <option value="">Use recording&apos;s assigned template</option>
-                    {(templatesData?.items ?? []).map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </NativeSelect>
+                <Field label="Template to use for this run">
+                  <div className="flex items-center gap-2">
+                    <NativeSelect
+                      wrapperClassName="min-w-0 flex-1"
+                      value={templateId ?? ""}
+                      onChange={(e) => setTemplateId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">{baseTemplateLabel}</option>
+                      {namedTemplates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </NativeSelect>
+                    {openTemplateId != null && (
+                      <Link
+                        href={`/templates/${openTemplateId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={cn(
+                          "inline-flex size-[2.875rem] shrink-0 items-center justify-center rounded-xl border border-border",
+                          "text-muted-foreground transition-[color,background-color,border-color,scale] duration-200 ease-out",
+                          "hover:bg-muted hover:text-secondary-foreground active:scale-[0.96]",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                        )}
+                        aria-label="Open template in new tab"
+                        title="Open template"
+                      >
+                        <ExternalLink size={16} aria-hidden />
+                      </Link>
+                    )}
+                  </div>
                 </Field>
 
                 {templateId && (

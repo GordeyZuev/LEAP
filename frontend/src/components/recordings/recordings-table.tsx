@@ -316,8 +316,23 @@ export function RecordingsTable({
 
                 {/* Platforms */}
                 <td className="px-3 py-2.5">
-                  {uploadEntries.length > 0 ? (
+                  {uploadEntries.length > 0 || r.share_token ? (
                     <div className="flex flex-wrap gap-1.5">
+                      {r.share_token && (
+                        <a
+                          href={`/share/${r.share_token}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                        >
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-fg">
+                            <span className="sr-only">active</span>
+                          </span>
+                          LEAP
+                          <ExternalLink size={9} className="opacity-60" />
+                        </a>
+                      )}
                       {uploadEntries.map(([platform, info]) => {
                         const dot = (
                           <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", UPLOAD_STATUS_DOT[info.status] ?? UPLOAD_STATUS_DOT["NOT_UPLOADED"])}>

@@ -9,7 +9,7 @@ from api.schemas.common.pagination import PaginatedResponse
 
 from .matching_rules import MatchingRules
 from .metadata_config import TemplateMetadataConfig
-from .output_config import TemplateOutputConfig
+from .output_config import TemplateOutputConfig, normalize_output_config
 from .processing_config import TemplateProcessingConfig
 
 
@@ -40,6 +40,13 @@ class RecordingTemplateBase(BaseModel):
     @classmethod
     def strip_name(cls, v: str) -> str:
         return strip_and_validate_name(v)
+
+    @field_validator("output_config", mode="before")
+    @classmethod
+    def normalize_output_config_field(cls, v: object) -> object:
+        if isinstance(v, dict):
+            return normalize_output_config(v)
+        return v
 
 
 class RecordingTemplateCreate(RecordingTemplateBase):
@@ -93,6 +100,7 @@ class RecordingTemplateResponse(RecordingTemplateBase):
     user_id: str
     is_draft: bool
     is_active: bool
+    is_default: bool = False
     used_count: int
     last_used_at: datetime | None
     created_at: datetime
@@ -107,6 +115,7 @@ class RecordingTemplateListResponse(BaseModel):
     description: str | None
     is_draft: bool
     is_active: bool
+    is_default: bool = False
     used_count: int
     created_at: datetime
     updated_at: datetime

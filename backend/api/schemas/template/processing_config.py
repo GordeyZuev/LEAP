@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 
 from api.schemas.common import BASE_MODEL_CONFIG
+from api.schemas.config.user_config import TrimmingConfig
 from api.shared.enums import Granularity
 
 
@@ -19,6 +20,11 @@ class TemplateProcessingConfig(BaseModel):
     transcription_vocabulary: list[str] | None = Field(
         None,
         description="Special terms for transcriber (terms, names, abbreviations). Separate template field.",
+    )
+
+    trimming: TrimmingConfig | None = Field(
+        None,
+        description="Video trimming settings (silence detection, padding). Stored in template for default/base config.",
     )
 
 

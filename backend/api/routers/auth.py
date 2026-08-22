@@ -152,9 +152,12 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
 
     user = await user_repo.create(user_data=user_create, hashed_password=hashed_password)
 
-    default_config = await config_repo.get_effective_config(user.id)
-    await config_repo.create(user_id=user.id, config_data=default_config)
-    logger.info(f"Created default config for user: user_id={user.id}")
+    from api.services.default_template import ensure_default_template, product_default_account_config
+
+    account_config = product_default_account_config()
+    await config_repo.create(user_id=user.id, config_data=account_config)
+    await ensure_default_template(session, user.id)
+    logger.info(f"Created default config and base template for user: user_id={user.id}")
 
     # Storage backend creates per-user prefixes lazily on first write; only
     # thumbnails need an explicit seed copy.

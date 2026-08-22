@@ -27,6 +27,8 @@ export interface TopicVersion {
   manually_edited?: boolean;
 }
 
+export type AIContentSection = "topics" | "summary" | "chapters" | "questions";
+
 interface AIContentEditorProps {
   recordingId: number;
   version: TopicVersion;
@@ -34,6 +36,11 @@ interface AIContentEditorProps {
   onSeek?: (time: number) => void;
   activeChapterIdx?: number;
   readOnly?: boolean;
+  /** When set, only these blocks render. Omit for the full editor layout. */
+  sections?: AIContentSection[];
+  chaptersListClassName?: string;
+  /** Share-page sidebar: tab rail carries section names; drop duplicate labels and inner scroll. */
+  embeddedInPanel?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +83,7 @@ function ChapterItem({
   onSave,
   disabled,
   itemRef,
+  wrapLabels = false,
 }: {
   item: TopicTimestamp;
   isActive: boolean;
@@ -84,6 +92,8 @@ function ChapterItem({
   onSave: (topic: string) => void;
   disabled?: boolean;
   itemRef?: (el: HTMLButtonElement | null) => void;
+  /** Share sidebar: wrap long chapter titles instead of clipping them. */
+  wrapLabels?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.topic);
@@ -131,7 +141,8 @@ function ChapterItem({
   return (
     <div
       className={cn(
-        "group flex w-full items-center gap-3 rounded-lg transition-colors",
+        "group flex w-full gap-3 rounded-lg transition-colors",
+        wrapLabels ? "items-start" : "items-center",
         isActive ? "bg-primary/6" : isManaging ? "hover:bg-muted/30" : "hover:bg-muted/20"
       )}
     >
@@ -139,12 +150,16 @@ function ChapterItem({
         ref={itemRef}
         type="button"
         onClick={() => onSeek(item.start)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        className={cn(
+          "flex min-w-0 flex-1 gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+          wrapLabels ? "items-start" : "items-center",
+        )}
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border", wrapLabels && "mt-2")} />
         <span
           className={cn(
-            "w-11 shrink-0 font-mono text-xs transition-colors group-hover:text-primary",
+            "shrink-0 font-mono text-xs tabular-nums transition-colors group-hover:text-primary",
+            wrapLabels ? "min-w-[3.25rem] pt-0.5" : "w-11",
             isActive ? "font-semibold text-primary" : "text-muted-foreground"
           )}
         >
@@ -152,7 +167,8 @@ function ChapterItem({
         </span>
         <span
           className={cn(
-            "min-w-0 flex-1 truncate py-0.5 text-sm",
+            "min-w-0 flex-1 py-0.5 text-sm",
+            wrapLabels ? "break-words leading-relaxed" : "truncate",
             isActive ? "font-medium text-foreground" : "text-secondary-foreground"
           )}
         >
@@ -188,6 +204,9 @@ export function AIContentEditor({
   onSeek,
   activeChapterIdx = -1,
   readOnly = false,
+  sections,
+  chaptersListClassName,
+  embeddedInPanel = false,
 }: AIContentEditorProps) {
   // isManaging enables all editing (text + structural controls)
   const [isManaging, setIsManaging] = useState(false);
@@ -350,22 +369,36 @@ export function AIContentEditor({
   const hasSummary = !!version.summary;
   const hasQuestions = questions.length > 0;
 
-  if (!hasTopics && !hasChapters && !hasSummary && !hasQuestions) return null;
+  const showSection = (section: AIContentSection) =>
+    !sections || sections.includes(section);
+
+  const visibleHasTopics = showSection("topics") && hasTopics;
+  const visibleHasChapters = showSection("chapters") && hasChapters;
+  const visibleHasSummary = showSection("summary") && hasSummary;
+  const visibleHasQuestions = showSection("questions") && hasQuestions;
+
+  if (!visibleHasTopics && !visibleHasChapters && !visibleHasSummary && !visibleHasQuestions) return null;
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
+  const hideEmbeddedTopicTitle =
+    embeddedInPanel && readOnly && !isManaging;
+  const showTopicHeaderBlock =
+    !readOnly || (visibleHasTopics && !hideEmbeddedTopicTitle);
+
   return (
     <div className="space-y-4">
 
       {/* ── Header: Manage toggle ── */}
+      {showTopicHeaderBlock && (
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {/* Topics label + main topic title */}
-          {hasTopics && (
+          {visibleHasTopics && !hideEmbeddedTopicTitle && (
             <>
-              <SectionLabel>Topics</SectionLabel>
+              {!embeddedInPanel && <SectionLabel>Topics</SectionLabel>}
 
               {/* Primary topic title */}
               {isManaging && editingTopicIdx === 0 ? (
@@ -384,6 +417,7 @@ export function AIContentEditor({
                 <p
                   className={cn(
                     "text-base font-semibold leading-snug text-foreground rounded px-1 py-0.5 -mx-1 transition-colors",
+                    embeddedInPanel && "break-words",
                     isManaging && "cursor-text hover:bg-muted/50"
                   )}
                   onClick={isManaging ? () => { setTopicDraft(mainTopics[0]); setEditingTopicIdx(0); } : undefined}
@@ -461,6 +495,7 @@ export function AIContentEditor({
         </div>
 
         {/* Manage / Done toggle */}
+        {(version.manually_edited || !readOnly) && (
         <div className="flex shrink-0 items-center gap-2">
           {version.manually_edited && (
             <span className="rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">
@@ -486,10 +521,12 @@ export function AIContentEditor({
             </button>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {/* ── Summary ── */}
-      {(hasSummary || summaryEditing) && (
+      {(visibleHasSummary || summaryEditing) && (
         <div>
           <SectionLabel>Summary</SectionLabel>
           {summaryEditing ? (
@@ -566,10 +603,16 @@ export function AIContentEditor({
       )}
 
       {/* ── Chapters ── */}
-      {hasChapters && (
+      {visibleHasChapters && (
         <div>
           <SectionLabel>Chapters</SectionLabel>
-          <div ref={chaptersRef} className="max-h-52 overflow-y-auto">
+          <div
+            ref={chaptersRef}
+            className={cn(
+              embeddedInPanel ? "overflow-visible" : "max-h-52 overflow-y-auto",
+              chaptersListClassName,
+            )}
+          >
             {topicTimestamps.map((t, i) => (
               <ChapterItem
                 key={`${i}-${isManaging}`}
@@ -583,6 +626,7 @@ export function AIContentEditor({
                   if (el) chapterItemRefs.current.set(i, el);
                   else chapterItemRefs.current.delete(i);
                 }}
+                wrapLabels={embeddedInPanel}
               />
             ))}
           </div>
@@ -590,7 +634,7 @@ export function AIContentEditor({
       )}
 
       {/* ── Questions ── */}
-      {(hasQuestions || isManaging) && (
+      {(visibleHasQuestions || (isManaging && showSection("questions"))) && (
         <div>
           <SectionLabel>Questions</SectionLabel>
           <div className="space-y-0.5">

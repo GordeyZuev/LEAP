@@ -142,11 +142,11 @@ class PlatformSettings(BaseModel):
 
 
 class UserConfigData(BaseModel):
-    trimming: TrimmingConfig = Field(default_factory=TrimmingConfig)
-    transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
+    """Account-level preferences. Pipeline defaults live in the Default Template."""
+
+    model_config = ConfigDict(extra="ignore")
+
     download: DownloadConfig = Field(default_factory=DownloadConfig)
-    upload: UploadConfig = Field(default_factory=UploadConfig)
-    metadata: MetadataConfig = Field(default_factory=MetadataConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
     platforms: dict[str, YouTubePlatformSettings | VKPlatformSettings | PlatformSettings] = Field(default_factory=dict)
 
@@ -162,10 +162,6 @@ class UserConfigResponse(BaseModel):
 
 
 class UserConfigUpdate(BaseModel):
-    trimming: TrimmingConfig | None = None
-    transcription: TranscriptionConfig | None = None
     download: DownloadConfig | None = None
-    upload: UploadConfig | None = None
-    metadata: MetadataConfig | None = None
     retention: RetentionConfig | None = None
     platforms: dict[str, YouTubePlatformSettings | VKPlatformSettings | PlatformSettings] | None = None

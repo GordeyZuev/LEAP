@@ -374,6 +374,7 @@ async def list_recordings(
                 soft_deleted_at=r.soft_deleted_at,
                 hard_delete_at=r.hard_delete_at,
                 expire_at=r.expire_at,
+                share_token=r.share_token,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )
@@ -687,6 +688,7 @@ async def get_recording(
             soft_deleted_at=recording.soft_deleted_at,
             hard_delete_at=recording.hard_delete_at,
             expire_at=recording.expire_at,
+            share_token=recording.share_token,
             created_at=recording.created_at,
             updated_at=recording.updated_at,
         )
@@ -950,6 +952,7 @@ async def update_recording(
         soft_deleted_at=recording.soft_deleted_at,
         hard_delete_at=recording.hard_delete_at,
         expire_at=recording.expire_at,
+        share_token=recording.share_token,
         created_at=recording.created_at,
         updated_at=recording.updated_at,
     )
@@ -2794,7 +2797,15 @@ async def render_topics_template(
         except Exception as exc:
             logger.debug("Could not load extracted for topics render: %s", exc)
 
-    render_ctx = TemplateRenderer.prepare_recording_context(recording, extracted_data=extracted)
+    from api.services.config_resolver import ConfigResolver
+
+    meta_cfg = await ConfigResolver(ctx.session).resolve_metadata_config(recording, ctx.user_id)
+    render_ctx = TemplateRenderer.prepare_recording_context(
+        recording,
+        extracted_data=extracted,
+        topics_display=meta_cfg.get("topics_display"),
+        questions_display=meta_cfg.get("questions_display"),
+    )
     try:
         rendered = render_jinja(data.template, render_ctx)
     except Exception as e:
@@ -2926,6 +2937,14 @@ async def update_recording_config(
             new_preferences["output_config"] = {}
         new_preferences["output_config"] = config_resolver._merge_configs(
             new_preferences.get("output_config", {}), output_config_dict
+        )
+
+    if data.metadata_config is not None:
+        metadata_config_dict = data.metadata_config.model_dump(exclude_none=True)
+        if "metadata_config" not in new_preferences:
+            new_preferences["metadata_config"] = {}
+        new_preferences["metadata_config"] = config_resolver._merge_configs(
+            new_preferences.get("metadata_config", {}), metadata_config_dict
         )
 
     # Save overrides to recording.processing_preferences

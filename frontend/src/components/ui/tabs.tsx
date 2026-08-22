@@ -18,6 +18,12 @@ interface TabsProps<V extends string> {
   label: string;
   children: ReactNode;
   className?: string;
+  tablistClassName?: string;
+  /** Render only the tab rail; pair with an external `role="tabpanel"` via `panelId`. */
+  hidePanel?: boolean;
+  panelId?: string;
+  /** Stable id prefix for tab/panel nodes (defaults to `useId()`). */
+  idPrefix?: string;
 }
 
 /**
@@ -37,8 +43,13 @@ export function Tabs<V extends string>({
   label,
   children,
   className,
+  tablistClassName,
+  hidePanel = false,
+  panelId: panelIdProp,
+  idPrefix,
 }: TabsProps<V>) {
-  const base = useId();
+  const generated = useId();
+  const base = idPrefix ?? generated;
   const tabId = (v: V) => `${base}-tab-${v}`;
   const panelId = (v: V) => `${base}-panel-${v}`;
   const refs = useRef(new Map<V, HTMLButtonElement | null>());
@@ -80,7 +91,10 @@ export function Tabs<V extends string>({
         // The active tab draws a ring outside its box, so the scroll container
         // needs vertical room or it clips the top edge. -my-1 keeps the padding
         // from changing the rail's outer spacing.
-        className="-mx-1 -my-1 mb-5 flex gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "-mx-1 -my-1 mb-5 flex gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          tablistClassName,
+        )}
       >
         {items.map((t) => {
           const active = t.value === value;
@@ -92,7 +106,7 @@ export function Tabs<V extends string>({
               type="button"
               role="tab"
               aria-selected={active}
-              aria-controls={panelId(t.value)}
+              aria-controls={hidePanel && panelIdProp ? panelIdProp : panelId(t.value)}
               tabIndex={active ? 0 : -1}
               onClick={() => onChange(t.value)}
               className={cn(
@@ -112,9 +126,11 @@ export function Tabs<V extends string>({
 
       {/* No tabIndex: every panel here contains focusable controls, and APG
           only calls for making the panel itself focusable when it does not. */}
-      <div role="tabpanel" id={panelId(value)} aria-labelledby={tabId(value)}>
-        {children}
-      </div>
+      {!hidePanel && (
+        <div role="tabpanel" id={panelId(value)} aria-labelledby={tabId(value)}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }

@@ -123,7 +123,7 @@ Central helper: `validate_jinja_template` / `assert_title_template_has_substitut
 | 422 on save | Template syntax; dry-run error message; title must include an allowed variable name in a `{{ ... }}` expression |
 | Empty `original_title` / wrong title | Use `{{ display_name }}` or `{{ original_title }}` (both set from the same source at upload) |
 | Date looks wrong | Owner `users.timezone`; values are local wall time, not UTC |
-| Preview differs from upload | Preview uses stub context without `recording_id`; pass `recording_id` for realistic values |
+| Preview differs from upload | Preview without `recording_id` uses stub data; pass `recording_id` for real values. Stub preview applies `topics_display` / `questions_display` from the request (timestamps, prefix, format) on fixed sample topics. |
 
 ---
 

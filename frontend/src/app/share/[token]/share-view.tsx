@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -25,13 +25,12 @@ import { ArtefactList, type ArtefactItem, type ArtefactType } from "@/components
 import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
-import { CollapsibleCard, SectionCard } from "@/components/ui/section-card";
+import { CollapsibleCard, CARD_SHELL, SectionCard } from "@/components/ui/section-card";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { cn, formatDate, formatDuration } from "@/lib/utils";
 
-// Plyr uses `document` at module level — must be client-only
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
   {
@@ -40,27 +39,33 @@ const VideoPlayer = dynamic(
   },
 );
 
-// Matches the app shell's page padding so the public page reads as the same
-// product, capped so prose never runs the full width of a wide monitor.
-const PAGE_MAIN = "mx-auto w-full max-w-[110rem] p-6 sm:p-8";
-const PAGE_HEADER_INNER = "mx-auto flex w-full max-w-[110rem] flex-wrap items-center justify-between gap-x-4 gap-y-2";
+const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-6 sm:px-8";
+const PAGE_MAIN = cn(PAGE_SHELL, "py-6 sm:py-8");
+const PAGE_HEADER_INNER = cn(PAGE_SHELL, "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-4");
+const WATCH_GRID =
+  "grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_26rem] 2xl:grid-cols-[minmax(0,1fr)_28rem]";
+const COMPANION_COL = "min-w-0 lg:sticky lg:top-6 lg:self-start";
+const COMPANION_PANEL = cn(CARD_SHELL, "flex min-h-0 flex-col overflow-hidden");
+const COMPANION_SHELL = "flex min-h-0 flex-1 flex-col overflow-hidden";
+const COMPANION_TOPIC = "shrink-0 border-b border-border px-5 pb-3 pt-4 text-base font-semibold leading-snug break-words text-foreground";
+const COMPANION_TABS_ROW = "shrink-0 border-b border-border px-5 pb-3 pt-3";
+const COMPANION_SECTION_LABEL =
+  "shrink-0 border-b border-border px-5 pb-3 pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground";
+const COMPANION_BODY = "min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-4";
 
 const VIDEO_VARIANT_TABS: TabItem<"processed" | "original">[] = [
   { value: "processed", label: "Processed" },
   { value: "original", label: "Original" },
 ];
 
-/** Index of the last entry that has already started at `time`, or -1. */
+type SidePanelTab = "topics" | "transcript";
+
 function lastIndexAtOrBefore(items: { start: number }[], time: number): number {
   for (let i = items.length - 1; i >= 0; i--) {
     if (time >= items[i].start) return i;
   }
   return -1;
 }
-
-// ---------------------------------------------------------------------------
-// Video download button — fetches presigned URL then triggers download
-// ---------------------------------------------------------------------------
 
 function VideoDownloadButton({
   token,
@@ -109,10 +114,6 @@ function VideoDownloadButton({
     </button>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Video player with presigned URL fetching
-// ---------------------------------------------------------------------------
 
 function ShareVideoPlayer({
   token,
@@ -167,10 +168,6 @@ function ShareVideoPlayer({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main view
-// ---------------------------------------------------------------------------
-
 export function ShareView({ token }: { token: string }) {
   const {
     data: recording,
@@ -180,7 +177,6 @@ export function ShareView({ token }: { token: string }) {
   } = useQuery<PublicRecordingResponse>({
     queryKey: ["share-recording", token],
     queryFn: () => getPublicRecording(token),
-    // A revoked link is a final answer; don't spend three round trips on it.
     retry: false,
   });
 
@@ -189,8 +185,12 @@ export function ShareView({ token }: { token: string }) {
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<TranscriptCue[]>([]);
   const [videoVariant, setVideoVariant] = useState<"processed" | "original">("processed");
+  const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("topics");
   const [copied, setCopied] = useState(false);
+  const videoColRef = useRef<HTMLDivElement>(null);
+  const [companionMaxH, setCompanionMaxH] = useState<number>();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const companionPanelId = useId();
 
   const handleCopyLink = useCallback(() => {
     void navigator.clipboard.writeText(window.location.href).then(() => {
@@ -199,7 +199,6 @@ export function ShareView({ token }: { token: string }) {
     });
   }, []);
 
-  // Load VTT once: it feeds both the player's subtitle track and the transcript.
   useEffect(() => {
     if (!recording?.available_files.includes("vtt")) return;
     let cancelled = false;
@@ -239,16 +238,12 @@ export function ShareView({ token }: { token: string }) {
       }
     : null;
 
-  const hasAiContent = !!(
-    topicVersion &&
-    (topicTimestamps.length || mainTopics.length || topicVersion.summary || topicVersion.questions?.length)
-  );
+  const hasTopicsPanel = !!(mainTopics.length || topicTimestamps.length);
+  const hasTranscript = transcript.length > 0;
+  const hasExtraContent = !!(topicVersion?.summary || topicVersion?.questions?.length);
 
   const markers: VideoPlayerMarker[] = topicTimestamps.map((t) => ({ time: t.start, label: t.topic }));
 
-  // Plyr fires `timeupdate` several times a second. Both values are resolved to
-  // an *index* here so React's bail-out absorbs every tick that doesn't cross a
-  // boundary — passing the raw time down would re-render the whole page 4×/s.
   const handleTimeUpdate = useCallback(
     (time: number) => {
       setActiveChapterIdx(lastIndexAtOrBefore(topicTimestamps, time));
@@ -261,14 +256,35 @@ export function ShareView({ token }: { token: string }) {
     if (videoRef.current) videoRef.current.currentTime = time;
   }, []);
 
-  // `!recording` matters: refetch-on-focus means a flaky network can set
-  // `error` while the page is already rendered, and swapping a working page
-  // for an error screen because a background refresh blipped is worse than
-  // showing slightly stale content.
+  const watchVariant: "processed" | "original" =
+    recording?.has_processed_video ? videoVariant : "original";
+  const showCompanionColumn =
+    !!recording &&
+    watchVariant === "processed" &&
+    (hasTopicsPanel || hasTranscript);
+
+  useEffect(() => {
+    if (!showCompanionColumn) return;
+    const el = videoColRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+
+    const syncHeight = () => {
+      setCompanionMaxH(el.getBoundingClientRect().height);
+    };
+
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [
+    recording?.id,
+    videoVariant,
+    showCompanionColumn,
+    recording?.has_processed_video,
+    recording?.has_original_video,
+  ]);
+
   if (error && !recording) {
-    // Only a 404 means the link is actually gone. A 5xx or a dropped
-    // connection is a transport failure the reader can retry — telling them
-    // the link was revoked would be a lie in two cases out of three.
     const missing = (error as { response?: { status?: number } })?.response?.status === 404;
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-6">
@@ -290,7 +306,7 @@ export function ShareView({ token }: { token: string }) {
   if (isPending || !recording) {
     return (
       <div className="min-h-screen bg-background">
-        <header className="border-b border-border bg-card px-6 py-4">
+        <header className="border-b border-border bg-card">
           <div className={PAGE_HEADER_INNER}>
             <div className="flex items-center gap-3">
               <Skeleton className="h-6 w-6 rounded" />
@@ -300,21 +316,10 @@ export function ShareView({ token }: { token: string }) {
           </div>
         </header>
         <main className={PAGE_MAIN}>
-          <Skeleton className="mb-6 h-8 w-2/3 sm:w-1/2" />
-          <div className="flex flex-col gap-6 lg:flex-row">
-            <div className="min-w-0 flex-1 rounded-2xl border border-border bg-card p-5">
-              <Skeleton className="aspect-video w-full rounded-xl" />
-            </div>
-            <div className="w-full shrink-0 lg:w-80">
-              <div className="rounded-2xl border border-border bg-card p-5">
-                <Skeleton className="mb-3 h-3 w-24" />
-                <div className="flex flex-col gap-2">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Skeleton key={i} className="h-9 w-full rounded-xl" />
-                  ))}
-                </div>
-              </div>
-            </div>
+          <Skeleton className="h-8 w-2/3 sm:w-1/2" />
+          <div className={cn(WATCH_GRID, "mt-6")}>
+            <Skeleton className="aspect-[4/3] w-full rounded-2xl" />
+            <Skeleton className="h-64 w-full rounded-2xl" />
           </div>
         </main>
       </div>
@@ -330,11 +335,39 @@ export function ShareView({ token }: { token: string }) {
     href: getShareFileUrl(token, ft),
   }));
 
-  // Chapters, subtitles and the transcript are all produced after the trim
-  // stage, so their timecodes only line up with the processed video. On the
-  // original they would seek to the wrong place — same rule the recording
-  // detail page applies.
   const onProcessedTimeline = currentVariant === "processed";
+  const showCompanion = onProcessedTimeline && (hasTopicsPanel || hasTranscript);
+
+  const sidePanelTabs: TabItem<SidePanelTab>[] = [];
+  if (hasTopicsPanel) sidePanelTabs.push({ value: "topics", label: "Topics" });
+  if (hasTranscript) sidePanelTabs.push({ value: "transcript", label: "Transcript" });
+  const showCompanionTabs = sidePanelTabs.length > 1;
+  const defaultSidePanelTab: SidePanelTab = hasTopicsPanel ? "topics" : "transcript";
+  const activeSidePanelTab = sidePanelTabs.some((t) => t.value === sidePanelTab)
+    ? sidePanelTab
+    : defaultSidePanelTab;
+  const companionTopicTitle = mainTopics[0] ?? null;
+
+  const companionBody =
+    activeSidePanelTab === "topics" && hasTopicsPanel && topicVersion ? (
+      <AIContentEditor
+        recordingId={recording.id}
+        version={topicVersion}
+        onUpdated={() => {}}
+        onSeek={handleSeek}
+        activeChapterIdx={activeChapterIdx}
+        readOnly
+        sections={["chapters"]}
+        embeddedInPanel
+      />
+    ) : activeSidePanelTab === "transcript" && hasTranscript ? (
+      <TranscriptPanel
+        cues={transcript}
+        activeIdx={activeCueIdx}
+        onSeek={handleSeek}
+        listClassName="max-h-none overflow-visible"
+      />
+    ) : null;
 
   const playerNode = (
     <ShareVideoPlayer
@@ -347,13 +380,12 @@ export function ShareView({ token }: { token: string }) {
     />
   );
 
+  const hasDownloads = artefacts.length > 0 || hasVideo;
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card px-6 py-4">
+      <header className="border-b border-border bg-card">
         <div className={PAGE_HEADER_INNER}>
-          {/* The one route back into the product for someone who arrived here
-              from a pasted link. */}
           <Link
             href="/"
             className="flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
@@ -387,8 +419,6 @@ export function ShareView({ token }: { token: string }) {
               {copied ? <Check size={12} /> : <Copy size={12} />}
               {copied ? "Copied" : "Copy link"}
             </button>
-            {/* Announced separately: the visible confirmation lives inside the
-                button that already holds focus, so it is never read out. */}
             <span role="status" className="sr-only">
               {copied ? "Link copied to clipboard" : ""}
             </span>
@@ -396,73 +426,113 @@ export function ShareView({ token }: { token: string }) {
         </div>
       </header>
 
-      {/* Main content */}
       <main className={PAGE_MAIN}>
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-          {recording.display_name}
-        </h1>
+        <div className="space-y-8">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            {recording.display_name}
+          </h1>
 
-        {/* Top row: video (left) + artefacts (right) */}
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          <div className="min-w-0 flex-1">
-            <SectionCard title="Video" density="compact">
-              {bothVariants ? (
-                <Tabs
-                  items={VIDEO_VARIANT_TABS}
-                  value={currentVariant}
-                  onChange={setVideoVariant}
-                  label="Video source"
-                >
-                  {playerNode}
-                </Tabs>
-              ) : (
-                playerNode
+          <div className={WATCH_GRID}>
+            <div ref={videoColRef} className="min-w-0">
+              <SectionCard title="Video" density="compact">
+                {bothVariants ? (
+                  <Tabs
+                    items={VIDEO_VARIANT_TABS}
+                    value={currentVariant}
+                    onChange={setVideoVariant}
+                    label="Video source"
+                  >
+                    {playerNode}
+                  </Tabs>
+                ) : (
+                  playerNode
+                )}
+              </SectionCard>
+              {!onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Topics and transcript align with the processed video. Switch to Processed to browse them while watching.
+                </p>
               )}
-            </SectionCard>
+            </div>
+
+            {showCompanion && sidePanelTabs.length > 0 && (
+              <div className={COMPANION_COL}>
+                <div
+                  className={COMPANION_PANEL}
+                  style={showCompanion && companionMaxH ? { maxHeight: companionMaxH } : undefined}
+                >
+                  <div className={COMPANION_SHELL}>
+                    {companionTopicTitle && (
+                      <p className={COMPANION_TOPIC}>{companionTopicTitle}</p>
+                    )}
+                    {showCompanionTabs ? (
+                      <div className={COMPANION_TABS_ROW}>
+                        <Tabs
+                          items={sidePanelTabs}
+                          value={activeSidePanelTab}
+                          onChange={setSidePanelTab}
+                          label="Companion content"
+                          hidePanel
+                          idPrefix={companionPanelId}
+                          panelId={companionPanelId}
+                          tablistClassName="mb-0 -my-0"
+                        >
+                          {null}
+                        </Tabs>
+                      </div>
+                    ) : (
+                      !companionTopicTitle && (
+                        <h2 className={COMPANION_SECTION_LABEL}>{sidePanelTabs[0]?.label}</h2>
+                      )
+                    )}
+                    {showCompanionTabs ? (
+                      <div
+                        role="tabpanel"
+                        id={companionPanelId}
+                        aria-labelledby={`${companionPanelId}-tab-${activeSidePanelTab}`}
+                        className={COMPANION_BODY}
+                      >
+                        {companionBody}
+                      </div>
+                    ) : (
+                      <div className={COMPANION_BODY}>{companionBody}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {(artefacts.length > 0 || hasVideo) && (
-            <div className="w-full shrink-0 lg:w-80">
-              <SectionCard title="Files" density="compact">
+          <div className="space-y-6">
+            {onProcessedTimeline && hasExtraContent && topicVersion && (
+              <CollapsibleCard title="Extra content" defaultOpen>
+                <AIContentEditor
+                  recordingId={recording.id}
+                  version={topicVersion}
+                  onUpdated={() => {}}
+                  readOnly
+                  sections={["summary", "questions"]}
+                />
+              </CollapsibleCard>
+            )}
+
+            {hasDownloads && (
+              <CollapsibleCard title="Downloads" defaultOpen={false}>
                 <div className="flex flex-col gap-2">
                   {hasVideo && <VideoDownloadButton token={token} variant={currentVariant} />}
                   <ArtefactList items={artefacts} />
                 </div>
-              </SectionCard>
-            </div>
-          )}
-        </div>
+              </CollapsibleCard>
+            )}
 
-        <div className="mt-6 space-y-6">
-          {onProcessedTimeline && transcript.length > 0 && (
-            <CollapsibleCard title="Transcript" defaultOpen={false}>
-              <TranscriptPanel cues={transcript} activeIdx={activeCueIdx} onSeek={handleSeek} />
-            </CollapsibleCard>
-          )}
-
-          {/* Open by default: chapters, summary and questions are the whole
-              reason this is a share page and not a bare video file. Hidden on
-              the original, where their timecodes do not apply. */}
-          {onProcessedTimeline && hasAiContent && topicVersion && (
-            <CollapsibleCard title="Chapters & summary" defaultOpen>
-              <AIContentEditor
-                recordingId={recording.id}
-                version={topicVersion}
-                onUpdated={() => {}}
-                onSeek={handleSeek}
-                activeChapterIdx={activeChapterIdx}
-                readOnly
-              />
-            </CollapsibleCard>
-          )}
-
-          {recording.description && (
-            <CollapsibleCard title="Description" defaultOpen>
-              <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                {recording.description}
-              </p>
-            </CollapsibleCard>
-          )}
+            {recording.description && (
+              <CollapsibleCard title="Description" defaultOpen>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+                  {recording.description}
+                </p>
+              </CollapsibleCard>
+            )}
+          </div>
         </div>
       </main>
     </div>

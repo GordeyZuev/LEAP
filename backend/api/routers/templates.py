@@ -68,6 +68,48 @@ async def list_templates(
     )
 
 
+@router.get("/default", response_model=RecordingTemplateResponse)
+async def get_default_template(
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Return the user's default (base) template."""
+    from api.services.default_template import ensure_default_template
+
+    repo = RecordingTemplateRepository(session)
+    template = await repo.find_default_by_user(current_user.id)
+    if not template:
+        template = await ensure_default_template(session, current_user.id)
+        await session.commit()
+        await session.refresh(template)
+    return template
+
+
+@router.post("/{template_id}/set-as-default", response_model=RecordingTemplateResponse)
+async def set_template_as_default(
+    template_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Promote a named template to the user's base (default) template."""
+    from api.services.default_template import promote_template_to_default
+
+    try:
+        template = await promote_template_to_default(session, current_user.id, template_id)
+    except ValueError as exc:
+        msg = str(exc)
+        if msg == "Template not found":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=msg) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg) from exc
+
+    await session.commit()
+    await session.refresh(template)
+    logger.info(
+        f"Promoted template to default | {format_details(template=template_id, user_id=short_user_id(current_user.id))}"
+    )
+    return template
+
+
 @router.post("/render-preview", response_model=MetadataRenderPreviewResponse)
 async def preview_template_metadata_render(
     data: TemplateRenderPreviewRequest,
@@ -114,13 +156,14 @@ async def preview_template_metadata_render(
         else _from_merged("filename_template", "filename_template")
     )
 
+    topics = data.topics_display if data.topics_display is not None else merged.get("topics_display")
+    questions = data.questions_display if data.questions_display is not None else merged.get("questions_display")
+
     if data.recording_id is not None:
         recording_repo = RecordingRepository(session)
         recording = await recording_repo.get_by_id(data.recording_id, current_user.id)
         if not recording:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
-        topics = data.topics_display if data.topics_display is not None else merged.get("topics_display")
-        questions = data.questions_display if data.questions_display is not None else merged.get("questions_display")
         # Pre-load extracted (topics/summary) so prepare_recording_context can stay sync.
         from transcription_module.manager import get_transcription_manager
 
@@ -135,7 +178,7 @@ async def preview_template_metadata_render(
             recording, topics_display=topics, questions_display=questions, extracted_data=extracted
         )
     else:
-        ctx = build_stub_validation_context()
+        ctx = build_stub_validation_context(topics_display=topics, questions_display=questions)
 
     valid, errs, warns, rendered = compute_metadata_preview(
         title_template=title_t,
@@ -281,15 +324,26 @@ async def create_template_from_recording(
     if data.match_source_id and recording.input_source_id:
         matching_rules["source_ids"] = [recording.input_source_id]
 
-    # Extract configs if recording has manual preferences
-    processing_config = None
-    metadata_config = None
-    output_config = None
+    # Resolve effective config (without recording-specific preference overrides)
+    from api.services.config_resolver import ConfigResolver, ResolveContext
 
-    if recording.processing_preferences:
-        processing_config = recording.processing_preferences.get("processing_config")
-        metadata_config = recording.processing_preferences.get("metadata_config")
-        output_config = recording.processing_preferences.get("output_config")
+    saved_prefs = recording.processing_preferences
+    recording.processing_preferences = None
+    try:
+        resolved = await ConfigResolver(session).resolve(ResolveContext(user_id=current_user.id, recording=recording))
+        processing_config = resolved.processing
+        nested_processing: dict = {}
+        if "transcription" in processing_config:
+            nested_processing["transcription"] = processing_config["transcription"]
+        if "trimming" in processing_config:
+            nested_processing["trimming"] = processing_config["trimming"]
+        if "transcription_vocabulary" in processing_config:
+            nested_processing["transcription_vocabulary"] = processing_config["transcription_vocabulary"]
+        processing_config = nested_processing or processing_config
+        metadata_config = resolved.metadata or None
+        output_config = resolved.output or None
+    finally:
+        recording.processing_preferences = saved_prefs
 
     # Create template
     template = RecordingTemplateModel(
@@ -386,6 +440,18 @@ async def update_template(
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
 
+    if template.is_default:
+        if data.is_active is False or data.is_draft is True:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot deactivate or draft the default (base) template",
+            )
+        if data.matching_rules is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Default template cannot have matching rules",
+            )
+
     # Check for duplicate name if name is being changed
     if data.name is not None and data.name != template.name:
         existing = await repo.find_by_name(current_user.id, data.name)
@@ -417,6 +483,12 @@ async def delete_template(
 
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
+
+    if template.is_default:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete the default (base) template",
+        )
 
     # Get number of mapped recordings for logging (capture name before delete for debug log)
     template_name = template.name
@@ -477,6 +549,11 @@ async def bulk_delete_templates(
         if not template:
             skipped_count += 1
             details.append({"id": template_id, "status": "skipped", "reason": "not found"})
+            continue
+
+        if template.is_default:
+            skipped_count += 1
+            details.append({"id": template_id, "status": "skipped", "reason": "default template"})
             continue
 
         # Unmap associated recordings

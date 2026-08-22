@@ -28,6 +28,7 @@ from api.routers import (
     admin,
     auth,
     automation,
+    config,
     credentials,
     health,
     input_sources,
@@ -87,6 +88,7 @@ app.include_router(oauth.router)
 
 app.include_router(users.router)
 app.include_router(user_config.router)
+app.include_router(config.router)
 app.include_router(credentials.router)
 
 app.include_router(recordings.router)

@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
+from api.schemas.template.metadata_config import TemplateMetadataConfig
 from api.shared.enums import Granularity
 
 
@@ -82,4 +83,8 @@ class RecordingConfigUpdateRequest(BaseModel):
     output_config: OutputConfigUpdate | None = Field(
         None,
         description="Override output settings (preset_ids, auto_upload)",
+    )
+    metadata_config: TemplateMetadataConfig | None = Field(
+        None,
+        description="Override metadata templates and display settings",
     )

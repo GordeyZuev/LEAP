@@ -267,7 +267,7 @@ async def _sync_single_source(
             logger.info(f"Found recordings | {format_details(source=source_id, count=len(meetings))}")
 
             template_repo = RecordingTemplateRepository(session)
-            templates = await template_repo.find_active_by_user(user_id)
+            templates = await template_repo.find_matchable_by_user(user_id)
 
             user_config_repo = UserConfigRepository(session)
             user_config = await user_config_repo.get_effective_config(user_id)
@@ -413,7 +413,7 @@ async def _sync_video_url_source(
     platform = config.video_platform or detect_platform(config.url)
 
     template_repo = RecordingTemplateRepository(session)
-    templates = await template_repo.find_active_by_user(user_id)
+    templates = await template_repo.find_matchable_by_user(user_id)
     user_config_repo = UserConfigRepository(session)
     user_config = await user_config_repo.get_effective_config(user_id)
     recording_repo = RecordingRepository(session)
@@ -497,7 +497,7 @@ async def _sync_yandex_disk_source(
     client = YandexDiskClient(oauth_token=oauth_token)
 
     template_repo = RecordingTemplateRepository(session)
-    templates = await template_repo.find_active_by_user(user_id)
+    templates = await template_repo.find_matchable_by_user(user_id)
     user_config_repo = UserConfigRepository(session)
     user_config = await user_config_repo.get_effective_config(user_id)
     recording_repo = RecordingRepository(session)

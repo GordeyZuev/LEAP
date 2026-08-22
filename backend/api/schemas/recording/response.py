@@ -225,6 +225,9 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     hard_delete_at: datetime | None = None
     expire_at: datetime | None = None
 
+    # --- Share ---
+    share_token: uuid.UUID | None = None
+
     # --- Timestamps ---
     created_at: datetime
     updated_at: datetime

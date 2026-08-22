@@ -1,23 +1,24 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { SectionCard } from "@/components/settings/shared";
+import { BaseTemplateBanner } from "@/components/settings/base-template-banner";
 import { AccountPanel } from "@/components/settings/account-panel";
-import { ProcessingPanel } from "@/components/settings/processing-panel";
+import { RetentionSection } from "@/components/settings/retention-section";
 import { SecurityPanel } from "@/components/settings/security-panel";
+import { apiClient } from "@/api/client";
 
-type Tab = "account" | "appearance" | "processing" | "security";
+type Tab = "account" | "appearance" | "security";
 
 const TABS: TabItem<Tab>[] = [
   { value: "account", label: "Account" },
   { value: "appearance", label: "Appearance" },
-  { value: "processing", label: "Processing" },
   { value: "security", label: "Security" },
 ];
 
@@ -29,10 +30,20 @@ function SettingsContent() {
   const raw = searchParams.get("tab");
   const tab: Tab = IS_TAB(raw) ? raw : "account";
 
-  // Switching tabs unmounts the Processing panel, which would silently drop its
-  // unsaved edits — so the move has to be confirmed while it is dirty.
-  const [processingDirty, setProcessingDirty] = useState(false);
-  const [pendingTab, setPendingTab] = useState<Tab | null>(null);
+  const { data: defaultTemplate, isLoading: defaultTemplateLoading } = useQuery<{
+    id: number;
+    name: string;
+  }>({
+    queryKey: ["default-template"],
+    queryFn: async () => (await apiClient.get("/templates/default")).data,
+  });
+
+  // Legacy ?tab=processing links → Account (base template lives there now).
+  useEffect(() => {
+    if (raw === "processing") {
+      router.replace(window.location.pathname, { scroll: false });
+    }
+  }, [raw, router]);
 
   const goTo = useCallback(
     (next: Tab) => {
@@ -45,24 +56,20 @@ function SettingsContent() {
     [router],
   );
 
-  const onChange = useCallback(
-    (next: Tab) => {
-      if (next === tab) return;
-      if (tab === "processing" && processingDirty) {
-        setPendingTab(next);
-        return;
-      }
-      goTo(next);
-    },
-    [tab, processingDirty, goTo],
-  );
-
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
       <PageHeader title="Settings" />
 
-      <Tabs items={TABS} value={tab} onChange={onChange} label="Settings sections">
-        {tab === "account" && <AccountPanel />}
+      <Tabs items={TABS} value={tab} onChange={goTo} label="Settings sections">
+        {tab === "account" && (
+          <div className="space-y-6">
+            <BaseTemplateBanner template={defaultTemplate ?? null} loading={defaultTemplateLoading} />
+            <AccountPanel />
+            <SectionCard title="Data retention">
+              <RetentionSection />
+            </SectionCard>
+          </div>
+        )}
         {tab === "appearance" && (
           <SectionCard title="Appearance">
             <Field label="Theme" hint="Choose a light or dark interface, or follow your system setting.">
@@ -70,27 +77,8 @@ function SettingsContent() {
             </Field>
           </SectionCard>
         )}
-        {/* Kept mounted across tabs would preserve edits, but it also keeps a
-            fixed save bar on screen for a panel you can no longer see. */}
-        {tab === "processing" && <ProcessingPanel onDirtyChange={setProcessingDirty} />}
         {tab === "security" && <SecurityPanel />}
       </Tabs>
-
-      <ConfirmDialog
-        open={pendingTab !== null}
-        title="Leave without saving?"
-        description="Processing defaults has unsaved changes. Leaving this tab discards them."
-        confirmLabel="Discard and leave"
-        cancelLabel="Stay here"
-        danger
-        onConfirm={() => {
-          const next = pendingTab;
-          setPendingTab(null);
-          setProcessingDirty(false);
-          if (next) goTo(next);
-        }}
-        onCancel={() => setPendingTab(null)}
-      />
     </div>
   );
 }

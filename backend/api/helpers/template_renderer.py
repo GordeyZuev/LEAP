@@ -57,6 +57,11 @@ TITLE_TEMPLATE_VARIABLE_NAMES: Final[frozenset[str]] = frozenset(
 
 # Keys included in stub context for compile+render validation (types must satisfy template usage).
 _STUB_DATETIME: Final[datetime] = datetime(2026, 6, 15, 14, 30, 0, tzinfo=UTC)
+_STUB_TOPIC_TIMESTAMPS: Final[list[dict[str, Any]]] = [
+    {"topic": "Topic one", "start": 0.0},
+    {"topic": "Topic two", "start": 300.0},
+]
+_STUB_QUESTIONS: Final[list[str]] = ["Question one?", "Question two?"]
 
 _JINJA_VAR_START: Final[re.Pattern[str]] = re.compile(
     r"\{\{[-+\s]*([a-zA-Z_][a-zA-Z0-9_]*)",
@@ -176,9 +181,23 @@ def render_jinja(template: str, context: Mapping[str, Any]) -> str:
         raise
 
 
-def build_stub_validation_context() -> dict[str, Any]:
-    """Build a context for dry-run validation (deterministic UTC wall times, all string dates)."""
+def build_stub_validation_context(
+    *,
+    topics_display: Mapping[str, Any] | None = None,
+    questions_display: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a context for dry-run validation (deterministic UTC wall times, all string dates).
+
+    When ``topics_display`` / ``questions_display`` are provided (e.g. metadata preview from the
+    UI), ``topics`` and ``questions`` are formatted the same way as for a real recording upload.
+    """
     stub_ts = _STUB_DATETIME.strftime(_TIMESTAMP_LOCAL_SPEC)
+    topics = TemplateRenderer._format_topics_list(_STUB_TOPIC_TIMESTAMPS, topics_display)
+    if questions_display is not None:
+        questions = TemplateRenderer._format_questions_list(list(_STUB_QUESTIONS), questions_display)
+    else:
+        # Backward-compatible default for dry-run validation without display overrides.
+        questions = "1. Question one?"
     ctx: dict[str, Any] = {
         "display_name": "Stub Recording",
         "duration": 3600.0,
@@ -189,8 +208,8 @@ def build_stub_validation_context() -> dict[str, Any]:
         "publish_timestamp_local": stub_ts,
         "summary": "Stub summary text.",
         "themes": "theme_a, theme_b",
-        "topics": "1. Topic one\n2. Topic two",
-        "questions": "1. Question one?",
+        "topics": topics,
+        "questions": questions,
         "record_date": "15.06.2026",
         "publish_date": "15.06.2026",
         "record_datetime": "15.06.2026 14:30",

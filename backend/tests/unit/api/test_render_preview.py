@@ -35,6 +35,25 @@ class TestTemplatesRenderPreview:
         assert body["valid"] is True
         assert body["rendered_title"] == "Stub Recording"
 
+    def test_stub_preview_applies_topics_display_timestamps(self, client) -> None:
+        response = client.post(
+            "/api/v1/templates/render-preview",
+            json={
+                "description_template": "{{ topics }}",
+                "topics_display": {
+                    "enabled": True,
+                    "show_timestamps": True,
+                    "format": "numbered_list",
+                },
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["valid"] is True
+        rendered = body["rendered_description"] or ""
+        assert "00:00:00 — Topic one" in rendered
+        assert "00:05:00 — Topic two" in rendered
+
     def test_template_not_found_returns_404(self, client, mocker) -> None:
         """template_id that does not belong to user yields 404."""
         mock_repo = mocker.patch("api.routers.templates.RecordingTemplateRepository")

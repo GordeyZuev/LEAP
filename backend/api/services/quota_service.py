@@ -12,6 +12,7 @@ from api.repositories.subscription_repos import (
     SubscriptionPlanRepository,
     UserSubscriptionRepository,
 )
+from api.repositories.template_repos import RecordingTemplateRepository
 from api.schemas.auth import (
     QuotaStatusResponse,
     QuotaUsageResponse,
@@ -333,7 +334,7 @@ class QuotaService:
         max_templates = (await self.get_effective_quotas(user_id)).get("max_templates")
         if max_templates is None:
             return True, None
-        current = await self._count_rows(RecordingTemplateModel, user_id)
+        current = await RecordingTemplateRepository(self.session).count_matchable_by_user(user_id)
         if current >= max_templates:
             return False, f"Templates limit reached: {max_templates}"
         return True, None

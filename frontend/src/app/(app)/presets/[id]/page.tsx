@@ -242,6 +242,9 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
         <h1 className="flex-1 text-lg font-semibold text-foreground">
           {isNew ? "New preset" : (existing?.name ?? "…")}
         </h1>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+          Applies at upload time
+        </span>
         {!isNew && (
           <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyPreset.isPending} icon={<Copy size={15} />} pendingLabel="Copying…">
             Copy

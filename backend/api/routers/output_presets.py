@@ -102,7 +102,10 @@ async def preview_preset_metadata_render(
             extracted_data=extracted,
         )
     else:
-        ctx = build_stub_validation_context()
+        ctx = build_stub_validation_context(
+            topics_display=data.topics_display,
+            questions_display=data.questions_display,
+        )
 
     valid, errs, warns, rendered = compute_metadata_preview(
         title_template=data.title_template,

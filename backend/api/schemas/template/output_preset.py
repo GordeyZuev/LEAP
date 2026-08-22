@@ -50,7 +50,7 @@ class OutputPresetListItem(BaseModel):
     id: int
     name: str
     platform: str
-    credential_id: int
+    credential_id: int | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -63,7 +63,7 @@ class OutputPresetResponse(OutputPresetBase):
 
     id: int
     user_id: str
-    credential_id: int
+    credential_id: int | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

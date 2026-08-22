@@ -1,10 +1,10 @@
 "use client";
 
-import { use, useEffect, useId, useMemo, useState } from "react";
+import { use, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Eye, Copy, ChevronDown, Trash2, RefreshCw, Users, X } from "lucide-react";
+import { ArrowLeft, Save, Eye, Copy, ChevronDown, Trash2, RefreshCw, Users, X, MoreHorizontal, Layers } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
@@ -203,9 +203,15 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     }),
   );
   const [confirmCopy, setConfirmCopy] = useState(false);
+  const [confirmPromote, setConfirmPromote] = useState(false);
+  const [promoteMode, setPromoteMode] = useState<"with-save" | "instant">("with-save");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [pendingHref, setPendingHref] = useState("");
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const headerMenuRef = useRef<HTMLDivElement>(null);
+  const [updateBaseOnSave, setUpdateBaseOnSave] = useState(false);
+  const [baseUpdatePending, setBaseUpdatePending] = useState(false);
   const matchPreviewTitleId = useId();
   const [matchPreviewOpen, setMatchPreviewOpen] = useState(false);
   const [matchPreviewData, setMatchPreviewData] = useState<MatchPreviewResponse | null>(null);
@@ -216,6 +222,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     queryFn: async () => (await apiClient.get(`/templates/${id}`)).data,
     enabled: !isNew,
   });
+  const isDefault = !isNew && existing?.is_default === true;
 
   const { data: sourcesData } = useQuery<{ items: SourceItem[] }>({
     queryKey: ["sources-list"],
@@ -344,15 +351,20 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       const body = {
         name: data.name,
         description: data.description || undefined,
-        is_draft: data.is_draft,
-        is_active: data.is_active,
-        matching_rules:
-          data.matching_rules.keywords.length > 0 ||
-          data.matching_rules.exact_matches.length > 0 ||
-          data.matching_rules.patterns.length > 0 ||
-          data.matching_rules.source_ids.length > 0
+        matching_rules: isDefault
+          ? undefined
+          : data.matching_rules.keywords.length > 0 ||
+              data.matching_rules.exact_matches.length > 0 ||
+              data.matching_rules.patterns.length > 0 ||
+              data.matching_rules.source_ids.length > 0
             ? data.matching_rules
             : undefined,
+        ...(isDefault
+          ? {}
+          : {
+              is_draft: isNew && updateBaseOnSave ? false : data.is_draft,
+              is_active: isNew && updateBaseOnSave ? true : data.is_active,
+            }),
         processing_config: {
           transcription: {
             enable_transcription: data.processing_config.enable_transcription,
@@ -378,8 +390,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       setSavedSnapshot(JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields, globalThumbnail }));
       qc.invalidateQueries({ queryKey: ["templates"] });
       qc.invalidateQueries({ queryKey: ["template", id] });
-      showToast("success", "Template saved");
-      if (isNew) router.push(`/templates/${result.id}`);
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string | Array<{ msg: string }> } } })?.response?.data
@@ -469,8 +479,16 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const presets = presetsData?.items ?? [];
 
   // Derived status label
-  const statusLabel = form.is_draft ? "Draft" : form.is_active ? "Active" : "Inactive";
-  const statusColor = form.is_draft
+  const statusLabel = isDefault
+    ? "Base template"
+    : form.is_draft
+      ? "Draft"
+      : form.is_active
+        ? "Active"
+        : "Inactive";
+  const statusColor = isDefault
+    ? "bg-primary/10 text-primary"
+    : form.is_draft
     ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300"
     : form.is_active
       ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
@@ -478,6 +496,86 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
   const isDirty =
     JSON.stringify({ form, ytFields, vkFields, ydFields, globalThumbnail }) !== savedSnapshot;
+
+  async function promoteTemplate(sourceId: number) {
+    setBaseUpdatePending(true);
+    try {
+      await apiClient.post(`/templates/${sourceId}/set-as-default`);
+      await qc.invalidateQueries({ queryKey: ["default-template"] });
+      await qc.invalidateQueries({ queryKey: ["templates"] });
+      await qc.invalidateQueries({ queryKey: ["template", String(sourceId)] });
+      setUpdateBaseOnSave(false);
+      showToast("success", "Base template updated");
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      showToast("error", detail ?? "Failed to update base template");
+      throw err;
+    } finally {
+      setBaseUpdatePending(false);
+    }
+  }
+
+  function handleSaveClick() {
+    if (!form.name.trim()) return;
+    if (updateBaseOnSave && isNew) {
+      setPromoteMode("with-save");
+      setConfirmPromote(true);
+      return;
+    }
+    void executeSave(false);
+  }
+
+  async function executeSave(withPromote: boolean) {
+    if (!form.name.trim()) return;
+
+    let result: { id: number };
+    try {
+      result = await save.mutateAsync(form);
+    } catch {
+      return;
+    }
+
+    const sourceId = result.id ?? Number(id);
+
+    if (withPromote) {
+      try {
+        await promoteTemplate(sourceId);
+      } catch {
+        if (isNew) router.push(`/templates/${sourceId}`);
+        return;
+      }
+    } else {
+      showToast("success", "Template saved");
+    }
+
+    if (isNew) {
+      router.push(`/templates/${sourceId}`);
+    }
+  }
+
+  async function executeInstantPromote() {
+    let sourceId = Number(id);
+    if (isDirty) {
+      try {
+        const result = await save.mutateAsync(form);
+        sourceId = result.id ?? sourceId;
+      } catch {
+        return;
+      }
+    }
+    await promoteTemplate(sourceId);
+  }
+
+  useEffect(() => {
+    if (!headerMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) {
+        setHeaderMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [headerMenuOpen]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -502,49 +600,80 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           {isNew ? "New template" : (existing?.name ?? "…")}
         </h1>
 
-        {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyTemplate.isPending} icon={<Copy size={15} />} pendingLabel="Copying…">
-            Copy
-          </ActionButton>
-        )}
-
-        {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteTemplate.isPending} icon={<Trash2 size={15} />} className="border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">
-            Delete
-          </ActionButton>
-        )}
-
-        {!isNew && (
-          <ActionButton variant="secondary" onClick={handleMatchPreview} isPending={matchPreviewLoading} icon={<Users size={15} />} pendingLabel="Loading…">
-            Preview matches
-          </ActionButton>
-        )}
-
-        {!isNew && (
-          <ActionButton
-            variant="secondary"
-            onClick={() => rematch.mutate()}
-            isPending={rematch.isPending}
-            icon={<RefreshCw size={15} />}
-            pendingLabel="Rematching…"
-            title="Re-match recordings against this template's rules"
-          >
-            Rematch
-          </ActionButton>
-        )}
-
         <ActionButton
-          onClick={() => save.mutate(form)}
-          isPending={save.isPending}
-          isSuccess={save.isSuccess}
+          onClick={handleSaveClick}
+          isPending={save.isPending || baseUpdatePending}
+          isSuccess={save.isSuccess && !baseUpdatePending}
           disabled={!form.name}
           icon={<Save size={15} />}
           pendingLabel="Saving…"
         >
           Save
         </ActionButton>
-      </div>
 
+        {!isNew && (
+          <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyTemplate.isPending} icon={<Copy size={15} />} pendingLabel="Copying…">
+            Copy
+          </ActionButton>
+        )}
+
+        {!isNew && !isDefault && (
+          <div className="relative shrink-0" ref={headerMenuRef}>
+            <ActionButton
+              variant="secondary"
+              onClick={() => setHeaderMenuOpen((v) => !v)}
+              aria-expanded={headerMenuOpen}
+              aria-haspopup="menu"
+              aria-label="More template actions"
+              icon={<MoreHorizontal size={15} />}
+            >
+              More
+            </ActionButton>
+            {headerMenuOpen && (
+              <div
+                role="menu"
+                className="absolute end-0 top-full z-30 mt-1 w-52 origin-top overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-dropdown-in"
+              >
+                <TemplateHeaderMenuItem
+                  icon={Layers}
+                  label="Make base template"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    setPromoteMode("instant");
+                    setConfirmPromote(true);
+                  }}
+                />
+                <TemplateHeaderMenuItem
+                  icon={Users}
+                  label="Preview matches"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    void handleMatchPreview();
+                  }}
+                />
+                <TemplateHeaderMenuItem
+                  icon={RefreshCw}
+                  label="Rematch recordings"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    rematch.mutate();
+                  }}
+                />
+                <div className="my-1 border-t border-border" role="separator" />
+                <TemplateHeaderMenuItem
+                  icon={Trash2}
+                  label="Delete template"
+                  danger
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    setConfirmDelete(true);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* 2-column layout */}
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
@@ -574,7 +703,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </Field>
           </Section>
 
-          {/* Matching */}
+          {/* Matching – not used for the always-on base template */}
+          {!isDefault && (
           <Section title="Matching rules">
             <Field label="Keywords" hint="Match recordings whose name contains any of these words">
               <TagInput
@@ -642,6 +772,14 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               Case-sensitive matching
             </label>
           </Section>
+          )}
+
+          {isDefault && (
+            <div className="rounded-2xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              This is your account base template. It is always merged first and is not matched or bound to
+              recordings – use named templates for auto-assignment.
+            </div>
+          )}
 
           {/* Processing */}
           <Section title="Processing">
@@ -781,18 +919,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               placeholder={"Recording from {{ date }}\n\nTopics:\n{{ topics }}"}
             />
 
-            <ActionButton
-              variant="secondary"
-              onClick={handlePreview}
-              isPending={previewLoading}
-              icon={<Eye size={15} />}
-              pendingLabel="Rendering…"
-            >
-              Preview render
-            </ActionButton>
-
-            {preview && <MetadataPreviewResultBox preview={preview} />}
-
             <DisplayConfigFields
               label="Topics in description"
               hint="How {{ topics }} renders in title/description templates"
@@ -811,6 +937,22 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 setMC("questions_display", { ...form.metadata_config.questions_display, ...patch })
               }
             />
+
+            <div className="space-y-2 border-t border-border pt-4">
+              <p className="text-xs text-muted-foreground">
+                Preview uses sample data unless a recording is selected for context.
+              </p>
+              <ActionButton
+                variant="secondary"
+                onClick={handlePreview}
+                isPending={previewLoading}
+                icon={<Eye size={15} />}
+                pendingLabel="Rendering…"
+              >
+                Preview render
+              </ActionButton>
+              {preview && <MetadataPreviewResultBox preview={preview} />}
+            </div>
 
             <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Platform overrides
@@ -888,15 +1030,16 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </div>
 
             <div className="space-y-1">
+              <div className="my-3 border-t border-border" role="separator" />
               <Toggle
                 label="Draft"
                 tone="warning"
-                checked={form.is_draft}
+                checked={isDefault ? false : form.is_draft}
+                disabled={isDefault}
                 onChange={(next) =>
                   setForm((f) => ({
                     ...f,
                     is_draft: next,
-                    // Activating requires leaving draft first.
                     is_active: next ? false : f.is_active,
                   }))
                 }
@@ -904,16 +1047,36 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               />
               <Toggle
                 label="Active"
-                checked={form.is_active}
-                disabled={form.is_draft}
+                checked={isDefault ? true : form.is_active}
+                disabled={isDefault || form.is_draft}
                 onChange={(next) => setForm((f) => ({ ...f, is_active: next }))}
                 className="rounded-xl px-2 py-2 transition-colors hover:bg-muted"
               />
+              {isNew && (
+                <Toggle
+                  label="Make base template"
+                  checked={updateBaseOnSave}
+                  disabled={form.is_draft || !form.is_active}
+                  onChange={setUpdateBaseOnSave}
+                  className="rounded-xl px-2 py-2 transition-colors hover:bg-muted"
+                />
+              )}
             </div>
 
-            {form.is_draft && (
+            {!isDefault && form.is_draft && (
               <p className="mt-2 text-[11px] text-muted-foreground">
                 Disable Draft to be able to activate the template.
+              </p>
+            )}
+            {isNew && !form.is_draft && !form.is_active && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Activate the template to make it the base template.
+              </p>
+            )}
+            {isDefault && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                The base template is always active and cannot be deleted. To change it, set another template as
+                base.
               </p>
             )}
           </div>
@@ -966,6 +1129,20 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       />
 
       <ConfirmDialog
+        open={confirmPromote}
+        title="Make base template?"
+        description={`«${form.name || "This template"}» will become your base template. The current base template will become a regular template.`}
+        confirmLabel="Make base template"
+        onConfirm={() => {
+          setConfirmPromote(false);
+          if (promoteMode === "with-save") void executeSave(true);
+          else void executeInstantPromote();
+        }}
+        onCancel={() => setConfirmPromote(false)}
+        isPending={save.isPending || baseUpdatePending}
+      />
+
+      <ConfirmDialog
         open={confirmDelete}
         title="Delete template?"
         description="This template will be permanently deleted. Recordings linked to it will be unlinked but not deleted. Automation jobs referencing this template will have it removed automatically."
@@ -1011,7 +1188,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               {!matchPreviewLoading && matchPreviewData && (
                 <>
                   <p className="mb-4 text-xs text-muted-foreground">
-                    Checked <span className="font-medium text-secondary-foreground">{matchPreviewData.total_checked}</span> recordings —{" "}
+                    Checked <span className="font-medium text-secondary-foreground">{matchPreviewData.total_checked}</span> recordings –{" "}
                     <span className="font-medium text-primary">{matchPreviewData.will_match_count}</span> would match.
                   </p>
                   {matchPreviewData.will_match.length === 0 ? (
@@ -1048,6 +1225,33 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function TemplateHeaderMenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  danger,
+}: {
+  icon: React.ComponentType<{ size?: number }>;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-muted",
+        danger ? "text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10" : "text-secondary-foreground",
+      )}
+    >
+      <Icon size={15} aria-hidden />
+      {label}
+    </button>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

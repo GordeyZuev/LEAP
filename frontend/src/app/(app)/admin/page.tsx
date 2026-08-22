@@ -383,9 +383,11 @@ function AdminDashboard() {
 
         {/* Plan distribution — only shown when there are subscribers */}
         {ov && Object.keys(ov.users_by_plan).length > 0 && (
-          <div className="bg-card rounded-2xl border border-border shadow-sm p-5">
-            <p className="mb-3 text-sm font-semibold text-foreground">Users by plan</p>
-            <PlanDistributionChart data={ov.users_by_plan} />
+          <div>
+            <h2 className="mb-3 text-sm font-semibold text-foreground">Users by plan</h2>
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <PlanDistributionChart data={ov.users_by_plan} />
+            </div>
           </div>
         )}
 
@@ -419,7 +421,7 @@ function AdminDashboard() {
                 <thead>
                   <tr className="border-b border-border">
                     <SortableTh label="Plan" />
-                    <SortableTh label="Recordings/mo" />
+                    <SortableTh label="Recordings / mo" title="Recordings per month" />
                     <SortableTh label="Storage" />
                     <SortableTh label="Tasks" />
                     <SortableTh label="Templates" />
@@ -445,7 +447,9 @@ function AdminDashboard() {
                     >
                       <td className="px-6 py-3.5">
                         <p className="text-sm font-medium text-foreground">{plan.display_name}</p>
-                        <p className="text-xs text-muted-foreground">{plan.name}</p>
+                        {plan.name !== plan.display_name && (
+                          <p className="text-xs text-muted-foreground">{plan.name}</p>
+                        )}
                       </td>
                       <td className="px-6 py-3.5 text-sm text-secondary-foreground tabular-nums">
                         {fmtQuota(plan.included_recordings_per_month)}
@@ -485,6 +489,7 @@ function AdminDashboard() {
 
         {/* ── Users ─────────────────────────────────────────────────────── */}
         <div>
+          <h2 className="mb-3 text-sm font-semibold text-foreground">Users</h2>
           <FilterBar
             search={
               <SearchInput
@@ -541,7 +546,12 @@ function AdminDashboard() {
                           className={cn(TABLE_ROW, "cursor-pointer")}
                         >
                           <td className="px-6 py-3.5">
-                            <p className="text-sm font-medium text-foreground truncate max-w-[220px]">{u.email}</p>
+                            <p
+                              title={u.email}
+                              className="max-w-[220px] truncate text-sm font-medium text-foreground"
+                            >
+                              {u.email}
+                            </p>
                             <p className="text-xs text-muted-foreground">#{u.user_slug}</p>
                           </td>
                           <td className="px-6 py-3.5"><RoleBadge role={u.role} /></td>

@@ -3,7 +3,7 @@
 Provides reusable config resolution logic for template-driven pipeline.
 """
 
-from typing import Any, Literal, cast, overload
+from typing import Any, Literal, overload
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,8 +111,11 @@ async def validate_runtime_template_override(
     if runtime_template_id is None:
         return
     template_repo = RecordingTemplateRepository(session)
-    if not await template_repo.find_by_id(runtime_template_id, user_id):
+    template = await template_repo.find_by_id(runtime_template_id, user_id)
+    if not template:
         raise RuntimeTemplateNotFoundError(f"Template {runtime_template_id} not found")
+    if getattr(template, "is_default", False):
+        raise RuntimeTemplateNotFoundError("runtime_template_id cannot reference the default template")
 
 
 @overload
@@ -145,33 +148,13 @@ async def resolve_full_config(
     include_output_config: bool = False,
 ) -> tuple[dict[str, Any], RecordingModel] | tuple[dict[str, Any], dict[str, Any], RecordingModel]:
     """
-    Resolve full configuration for recording with hierarchy.
+    Resolve full configuration for recording — thin wrapper over ``ConfigResolver.resolve``.
 
-    Config hierarchy (lowest to highest priority):
-    1. user_config (base defaults)
-    2. template.processing_config (if recording.template_id set)
-    3. runtime_template_id (if provided in manual_override)
-    4. recording.processing_preferences (if exists)
-    5. manual_override (highest priority)
-
-    Args:
-        session: AsyncSession
-        recording_id: Recording ID
-        user_id: User ID
-        manual_override: Optional manual config override (can include runtime_template_id)
-        include_output_config: If True, also resolve and return output_config
-
-    Returns:
-        If include_output_config=False: Tuple of (resolved_config, recording)
-        If include_output_config=True: Tuple of (resolved_config, output_config, recording)
-
-    Raises:
-        ValueError: If recording not found
-        RuntimeTemplateNotFoundError: If ``manual_override`` references a missing runtime template
-        BoundTemplateNotFoundError: If ``recording.template_id`` points to a missing template
-        InvalidOutputPresetsError: If merged ``output_config`` is invalid (when ``include_output_config`` is True)
+    Returns flat processing keys (``trimming``, ``transcription``) plus account ``download``
+    and resolved ``metadata_config`` for pipeline tasks.
     """
-    # Get recording
+    from api.services.config_resolver import ResolveContext
+
     recording_repo = RecordingRepository(session)
     recording = await recording_repo.get_by_id(recording_id, user_id)
 
@@ -180,109 +163,38 @@ async def resolve_full_config(
 
     await validate_runtime_template_override(session, user_id, manual_override)
 
-    # Get full user config as base
-    user_config_repo = UserConfigRepository(session)
-    full_config = await user_config_repo.get_effective_config(user_id)
-
-    # Initialize config resolver for merging
-    config_resolver = ConfigResolver(session)
-
-    # Merge with bound template if recording.template_id is set (must exist)
     if recording.template_id:
         template_repo = RecordingTemplateRepository(session)
-        bound_template = await template_repo.find_by_id(recording.template_id, user_id)
-        if not bound_template:
+        if not await template_repo.find_by_id(recording.template_id, user_id):
             raise BoundTemplateNotFoundError(
                 f"Recording is bound to template {recording.template_id} but template not found"
             )
-        if bound_template.processing_config:
-            logger.debug(f"Merging recording template '{bound_template.name}' config for recording {recording_id}")
-            full_config = config_resolver._merge_configs(full_config, bound_template.processing_config)
 
-    # Merge with runtime template_id (higher priority than recording.template_id)
-    runtime_template = None
-    if manual_override and "runtime_template_id" in manual_override:
-        runtime_template_id = manual_override["runtime_template_id"]
-        if runtime_template_id is not None:
-            template_repo = RecordingTemplateRepository(session)
-            runtime_template = await template_repo.find_by_id(runtime_template_id, user_id)
-            if not runtime_template:
-                raise RuntimeTemplateNotFoundError(f"Template {runtime_template_id} not found")
-
-            logger.info(
-                f"Applying runtime template '{runtime_template.name}' (id={runtime_template_id}) "
-                f"for recording {recording_id}"
-            )
-            if runtime_template.processing_config:
-                full_config = config_resolver._merge_configs(
-                    full_config, cast("dict", runtime_template.processing_config)
-                )
-            if runtime_template.metadata_config:
-                # Wrap metadata_config to preserve structure
-                full_config = config_resolver._merge_configs(
-                    full_config, {"metadata_config": runtime_template.metadata_config}
-                )
-
-    # Merge with recording.processing_preferences if exists (higher priority)
-    if recording.processing_preferences:
-        logger.debug(f"Merging recording.processing_preferences for recording {recording_id}")
-        full_config = config_resolver._merge_configs(full_config, recording.processing_preferences)
-
-    # Merge with manual_override (absolute highest priority)
-    # Filter out runtime_template_id - it's not part of config, just a resolver hint
-    if manual_override:
-        logger.debug(f"Applying manual_override for recording {recording_id}")
-        filtered_override = {k: v for k, v in manual_override.items() if k != "runtime_template_id"}
-        if filtered_override:
-            full_config = config_resolver._merge_configs(full_config, filtered_override)
-
-    # Flatten nested processing_config structure if exists
-    # Templates store: {"processing_config": {"transcription": {...}}}
-    # Tasks expect flat: {"transcription": {...}}
-    # NOTE: metadata_config and output_config should NOT be flattened!
-    if "processing_config" in full_config:
-        nested_config = full_config.pop("processing_config")
-        full_config = config_resolver._merge_configs(full_config, nested_config)
-        logger.debug(f"Flattened nested processing_config for recording {recording_id}")
-
-    # Merge transcription_vocabulary (template-level field) into transcription.vocabulary
-    if "transcription_vocabulary" in full_config:
-        vocab = full_config.pop("transcription_vocabulary")
-        if isinstance(vocab, list) and vocab:
-            trans = full_config.setdefault("transcription", {})
-            if isinstance(trans, dict):
-                existing = trans.get("vocabulary") or []
-                merged = list(existing) if isinstance(existing, list) else []
-                for v in vocab:
-                    if isinstance(v, str) and v.strip() and v.strip() not in merged:
-                        merged.append(v.strip())
-                trans["vocabulary"] = merged
-
-    logger.info(
-        f"Resolved config for recording {recording_id}: "
-        f"template_id={recording.template_id}, "
-        f"has_preferences={bool(recording.processing_preferences)}, "
-        f"has_override={bool(manual_override)}"
+    resolver = ConfigResolver(session)
+    resolved = await resolver.resolve(
+        ResolveContext(user_id=user_id, recording=recording, manual_override=manual_override)
     )
 
-    # Optionally include output_config
+    user_config_repo = UserConfigRepository(session)
+    user_config = await user_config_repo.get_effective_config(user_id)
+
+    import copy
+
+    full_config: dict[str, Any] = copy.deepcopy(resolved.processing)
+    if isinstance(user_config.get("download"), dict):
+        full_config["download"] = copy.deepcopy(user_config["download"])
+    full_config["metadata_config"] = copy.deepcopy(resolved.metadata)
+
+    logger.info(
+        "Resolved config for recording %s: template_id=%s, has_preferences=%s, has_override=%s",
+        recording_id,
+        recording.template_id,
+        bool(recording.processing_preferences),
+        bool(manual_override),
+    )
+
     if include_output_config:
-        output_config = await config_resolver.resolve_output_config(recording, user_id)
-
-        # Apply runtime template output_config if provided (reuse already fetched template)
-        if runtime_template and runtime_template.output_config:
-            logger.debug(
-                f"Applying runtime template output_config from template {runtime_template.id} "
-                f"for recording {recording_id}"
-            )
-            output_config = config_resolver._merge_configs(output_config, cast("dict", runtime_template.output_config))
-
-        # Apply manual output_config override if provided
-        if manual_override and "output_config" in manual_override:
-            output_config = config_resolver._merge_configs(output_config, manual_override["output_config"])
-
-        await validate_effective_output_config(session, user_id, output_config)
-
-        return full_config, output_config, recording
+        await validate_effective_output_config(session, user_id, resolved.output)
+        return full_config, resolved.output, recording
 
     return full_config, recording

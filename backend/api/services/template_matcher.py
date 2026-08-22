@@ -1,7 +1,5 @@
 """Recording to template matching service"""
 
-from typing import Any, cast
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.repositories.template_repos import RecordingTemplateRepository
@@ -21,8 +19,8 @@ class TemplateMatcher:
         recording: MeetingRecording,
         user_id: str,
     ) -> RecordingTemplateModel | None:
-        """Find matching template for recording."""
-        templates = await self.repo.find_active_by_user(user_id)
+        """Find matching template for recording (excludes default template)."""
+        templates = await self.repo.find_matchable_by_user(user_id)
 
         for template in templates:
             if self._matches_template(recording, template):
@@ -54,34 +52,10 @@ class TemplateMatcher:
         recording: MeetingRecording,
         template: RecordingTemplateModel,
     ) -> MeetingRecording:
+        """Increment template usage counter.
+
+        Binding is done via ``recording.template_id`` elsewhere; config is resolved at runtime
+        from the template — not copied into ``processing_preferences``.
         """
-        Apply template to recording.
-
-        NOTE: metadata_config is no longer used - metadata is configured in output_preset.preset_metadata
-        """
-        if template.processing_config:
-            recording.processing_preferences = self._merge_configs(
-                recording.processing_preferences or {},
-                cast("dict", template.processing_config),
-            )
-
-        if template.output_config:
-            if recording.processing_preferences is None:
-                recording.processing_preferences = {}
-            recording.processing_preferences["output_config"] = template.output_config
-
         await self.repo.increment_usage(template)
-
         return recording
-
-    def _merge_configs(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-        """Deep merge configs (override takes precedence)."""
-        result = base.copy()
-
-        for key, value in override.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = self._merge_configs(result[key], value)
-            else:
-                result[key] = value
-
-        return result

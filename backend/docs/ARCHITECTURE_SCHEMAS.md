@@ -223,12 +223,14 @@ flowchart TB
 
 ### 6.2 Приоритет по типам конфига
 
-| Тип | Order 1 (base) | Order 2 | Order 3 (override) |
-|-----|----------------|---------|--------------------|
-| **processing_config** | user_config.processing | template.processing_config | recording.processing_preferences |
-| **output_config** | user_config.output | template.output_config | processing_preferences.output_config |
-| **metadata_config** | user_config.metadata | template.metadata_config | processing_preferences.metadata_config |
-| **upload metadata** *(per preset)* | preset.preset_metadata | template.metadata_config | processing_preferences.metadata_config |
+| Тип | Order 1 (base) | Order 2 | Order 3+ (override) |
+|-----|----------------|---------|---------------------|
+| **processing_config** | default_template.processing (+ trimming) | bound template.processing_config | runtime_template → processing_preferences → manual_override |
+| **output_config** | default_template.output_config | bound template.output_config | runtime → preferences → manual_override |
+| **metadata_config** | default_template.metadata_config | bound template.metadata_config | runtime → preferences → manual_override |
+| **upload metadata** *(per preset)* | preset.preset_metadata | merged template metadata (default + bound) | processing_preferences.metadata_config |
+
+Account-only (not in resolver): `user_configs.retention`, `user_configs.download`, `user_configs.platforms`.
 
 Deep merge: каждый следующий уровень перезаписывает поля предыдущего. Вложенные объекты мержатся рекурсивно.
 

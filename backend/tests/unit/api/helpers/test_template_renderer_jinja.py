@@ -35,6 +35,38 @@ class TestFormatDatetimeForTemplate:
 
 
 @pytest.mark.unit
+class TestBuildStubValidationContext:
+    def test_default_topics_numbered_without_timestamps(self) -> None:
+        ctx = build_stub_validation_context()
+        assert ctx["topics"] == "1. Topic one\n2. Topic two"
+
+    def test_topics_display_show_timestamps(self) -> None:
+        ctx = build_stub_validation_context(
+            topics_display={
+                "enabled": True,
+                "show_timestamps": True,
+                "format": "numbered_list",
+            },
+        )
+        assert "00:00:00 — Topic one" in ctx["topics"]
+        assert "00:05:00 — Topic two" in ctx["topics"]
+
+    def test_topics_display_disabled_is_empty(self) -> None:
+        ctx = build_stub_validation_context(topics_display={"enabled": False})
+        assert ctx["topics"] == ""
+
+    def test_questions_display_respects_enabled(self) -> None:
+        ctx = build_stub_validation_context(
+            questions_display={"enabled": True, "format": "numbered_list"},
+        )
+        assert "1. Question one?" in ctx["questions"]
+        assert "2. Question two?" in ctx["questions"]
+
+        disabled = build_stub_validation_context(questions_display={"enabled": False})
+        assert disabled["questions"] == ""
+
+
+@pytest.mark.unit
 class TestRenderJinja:
     def test_stub_context(self) -> None:
         """Render succeeds with stub validation context."""
