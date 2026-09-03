@@ -93,7 +93,8 @@ High-level: **Download → local path = `.../source.<ext>` (pipeline ingress) �
 
 - `extract_audio_full`: decodes **only the first audio stream** (`ffmpeg -map 0:a:0`) and **re-encodes** to **64 kbps, 16 kHz, mono** MP3 for ASR analysis.
 - `silencedetect` on that MP3; `AudioDetector._find_last_sound` can treat **trailing** “silence” to EOF as *end of speech* → **short `end` timestamp**.
-- `trim_video`: `ffmpeg -i INPUT -ss START -t DURATION -c:v copy -c:a copy` (defaults in `ProcessingConfig`) → output **`video.mp4`** often = **VP9+Opus in MP4** if input was that.
+- `trim_video`: `ffmpeg -i INPUT -ss START -t DURATION -c:v copy -c:a copy` (defaults in `ProcessingConfig`); MP4-compatible outputs also receive `-movflags +faststart -avoid_negative_ts make_zero` for browser delivery.
+- Stream-copy seeks on source keyframes: `avoid_negative_ts` removes negative timestamps but does not guarantee that video starts immediately at the requested cut point. See [VIDEO_DELIVERY.md](VIDEO_DELIVERY.md).
 
 ### 2.4 “Broken on desktop, fine in browser”
 

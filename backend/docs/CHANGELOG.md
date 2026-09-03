@@ -2,9 +2,220 @@
 
 ---
 
+## 2026-09-05: Share link observability
+
+- **Analytics** — public share page views via `POST /api/v1/share/{token}/beacon` (Redis dedup 30 min); downloads tracked on user file GET (`inline=true` skipped — e.g. VTT for the player) and `GET .../media?download=true`. Migration **042**: `share_access_events` + denorm counters on `recordings`.
+- **Owner API** — `GET /api/v1/recordings/{id}/share/analytics?days=7|28`; `share_stats` on list when link active, on detail when link active or history exists.
+- **UI** — `ShareStatsLine` in Publications + list tooltip; analytics panel in ShareModal (7/28 day chart, download breakdown); public page beacon.
+- **Admin** — overview totals (`total_share_views`, `total_share_downloads`, `active_share_links`); per-user share columns. Grafana row **Share links** on LEAP Overview dashboard.
+- **Prometheus** — `leap_share_page_views_total`, `leap_share_downloads_total{artifact_type}`.
+
+### Файлы
+
+- `backend/alembic/versions/042_add_share_observability.py`
+- `backend/database/share_models.py`, `backend/api/services/share_observability.py`, `backend/api/repositories/share_event_repo.py`
+- `backend/api/routers/share.py`, `backend/api/helpers/share_stats.py`, `backend/api/observability/metrics.py`
+- `backend/tests/unit/api/test_share_analytics_api.py`
+- `backend/api/routers/admin.py`, `backend/api/schemas/share.py`, `backend/api/schemas/recording/response.py`
+- `frontend/src/components/recordings/share-stats-line.tsx`, `share-analytics-panel.tsx`, `share-modal.tsx`
+- `frontend/src/lib/share-stats.ts`, `frontend/src/api/share.ts`, `monitoring/dashboards/leap_overview.json`
+
+**Deploy:** `make migrate` (revision **042**) before code.
+
+---
+
+## v0.10.8.0 (2026-09-03)
+
+Релиз: **МТС Линк как источник записей** — подключение по организационному API-ключу, отбор лекторов по email на Input Source, **prepare-before-run** (конвертация MP4 заказывается через `POST /run`, не через `/download`), статус `PENDING_CONVERSION`, чат и материалы мероприятия рядом с видео. **Проверка подключения** у креденшелов кнопкой Check (Zoom, YouTube, Яндекс.Диск, МТС Линк). **Стабильность видео:** раннее получение media URL, MP4 faststart, восстановление плеера после сетевого сбоя и явная маршрутизация финализаторов Celery. Плюс правки общего UI: показ секретов по «глазику», исправленный фокус в модальных окнах, скругление их панелей. Миграции **040** и **041** применяются **до** кода. Подробности — секции **2026-09-03–04** ниже.
+
+---
+
+## 2026-09-04: МТС Линк — prepare-before-run (единая точка входа `/run`)
+
+- **Конвертация MP4 не блокирует воркер `downloads`** — раньше `download_recording_task` для MTS Link заказывал рендер и опрашивал API до 30 минут, удерживая Celery-воркер и уходя в ретраи. Теперь короткий **prepare** (один ping + заказ или reuse конвертации) выполняется в **`POST /api/v1/recordings/{id}/run`** (синхронно в API) и в начале **`run_recording_task`** (автоматизация). Пока MP4 не готов — запись в **`PENDING_CONVERSION`** (или **`PENDING_SOURCE`**, если `size == 0`), **`on_air` не ставится**, пайплайн не стартует.
+- **`POST /download` для MTS Link → 400** — отдельный download больше не заказывает конвертацию. Сообщение: *«MTS Link recordings must use POST /run to prepare and download.»* То же для **`POST /bulk/download`** (статус `skipped` в ответе).
+- **Ответ Run** — поля `awaiting_source`, `recording_status`, блок `mts` (`outcome`, `conversion_progress`, `conversion_state`). Bulk run: `status: "awaiting"` для таких записей.
+- **`can_run`** — `true` для `PENDING_CONVERSION` и MTS `PENDING_SOURCE`; UI показывает бейдж **Converting** и info-тост при ожидании.
+- **Автоматизация** — фильтр по умолчанию `["INITIALIZED", "PENDING_CONVERSION"]`; существующие jobs в БД при необходимости обновить вручную.
+- **Downloader** — только стрим готового MP4; гонка → `MtsLinkConversionPendingError` → снова `PENDING_CONVERSION`, без длинного poll/retry.
+- **Retry после FAILED** — повторный Run/prepare сбрасывает `failed` при outcome `READY` / `ASSEMBLING` / `CONVERTING`.
+- **Sync** — по-прежнему только discovery; `source_processing_incomplete` в meta информационный, статус на sync не выставляется принудительно.
+
+### Файлы
+
+- `backend/api/services/mts_link_prepare.py` (новый)
+- `backend/api/routers/recordings.py`, `backend/api/routers/recordings_helpers.py`
+- `backend/api/tasks/processing.py`, `backend/api/tasks/automation.py`, `backend/api/tasks/template.py`
+- `backend/api/repositories/recording_repos.py`, `backend/api/helpers/status_manager.py`
+- `backend/api/schemas/recording/operations.py`, `backend/api/schemas/recording/response.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`
+- `backend/models/recording.py`, `backend/alembic/versions/041_add_pending_conversion_status.py`
+- `backend/tests/unit/api/services/test_mts_link_prepare.py`, `backend/tests/unit/api/test_mts_link_run_entry.py`
+- `backend/tests/unit/video_download_module/test_mtslink_downloader.py`
+- `frontend/src/lib/run-response.ts`, `frontend/src/components/ui/status-badge.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`, `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/components/recordings/run-config-modal.tsx`, `frontend/src/components/recordings/recording-card.tsx`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`, `backend/docs/TECHNICAL.md`
+
+**Порядок деплоя:** `make migrate` (ревизия **041**) **до** кода. Записи, застрявшие в `DOWNLOADING` с `on_air=true` из старого поведения — **`POST /reset`** (при необходимости с `delete_files`).
+
+---
+
+## 2026-09-04: Стабильность доставки видео и фоновых задач
+
+- **Быстрее до первого кадра** — данные страницы и presigned media URL запрашиваются параллельно; проверки объектов в S3 также выполняются параллельно. Новые MP4 получают `faststart`, а Object Storage — корректный `Content-Type: video/mp4`.
+- **Плеер не висит бесконечно** — обработаны timeout, `error` и `stalled`; при проблеме временная ссылка обновляется автоматически, затем пользователю доступен явный Retry.
+- **Стабильнее завершение pipeline** — `finalize_pipeline` закреплён за `async_operations`, `celery.backend_cleanup` — за `maintenance`; production worker временно слушает legacy-очередь `celery`, пока старые сообщения не будут обработаны.
+- **Существующие MP4** — добавлен безопасный dry-run backfill `scripts/backfill_video_faststart.py`; в apply-режиме он проверяет результат, условно переключает путь в БД и сохраняет старый объект для отката.
+- **Ограничение** — faststart переносит MP4-индекс в начало, но не уменьшает его и не устраняет задержку до следующего ключевого кадра при stream-copy. Гарантированный быстрый старт на медленной сети потребует HLS или fragmented MP4.
+
+### Файлы
+
+- `video_processing_module/video_processor.py`, `file_storage/backends/s3.py`
+- `api/routers/recordings.py`, `api/routers/share.py`, `api/celery_app.py`, `api/observability/metrics.py`
+- `scripts/backfill_video_faststart.py`, `tests/unit/scripts/test_backfill_video_faststart.py`
+- `frontend/src/components/ui/video-player.tsx`, `frontend/src/components/ui/video-player-frame.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`, `frontend/src/app/share/[token]/share-view.tsx`
+- `docs/guides/VIDEO_DELIVERY.md`, `docs/guides/CELERY_WORKERS_GUIDE.md`
+
+Миграций нет. Backend, frontend и worker разворачиваются вместе; backfill существующих файлов запускается отдельно.
+
+---
+
+## 2026-09-04: МТС Линк — не заказывать MP4, если конвертация уже идёт
+
+> **Примечание:** логика reuse активной конвертации перенесена в `mts_link_prepare.py` (prepare-before-run, см. секцию выше). Опрос API в downloader удалён.
+
+- **Повторный download не ставит второй рендер** — перед `POST /records/{id}/conversions` LEAP смотрит `GET /converted-records`. Если по тому же онлайн-файлу уже есть `waiting` или `processing` (ЛК, прошлый запуск), ждём этот джоб, обычно самый далёкий по `progress`. Готовый MP4 по-прежнему берётся с сессии, как только появляется `downloadUrl`.
+- **Зачем:** незавершённые конвертации не попадают в `GET /eventsessions/{id}/converted-records`, и без этого шага каждый download добавлял ещё одну заявку в очередь той же записи.
+
+### Файлы
+
+- `backend/api/mts_link_api.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`
+- `backend/tests/unit/api/test_mts_link_api.py`
+- `backend/tests/unit/video_download_module/test_mtslink_downloader.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+
+Миграций нет.
+
+---
+
+## 2026-09-04: Files card, Overview collapsed, player fill
+
+- **Плеер без чёрного квадрата** — фон кадра и Plyr `--plyr-video-background` используют `--muted`; скелет и оверлей загрузки тоже muted, на share и на странице записи.
+- **Overview свёрнут по умолчанию** — карточка описания на share и на странице записи.
+- **Files** — бывшая панель Downloads на share названа Files; на странице записи карточка Files свёрнута по умолчанию.
+- **Resume playback** — позиция плеера пишется в `localStorage` (recording ID + variant) и восстанавливается после reload; старт и самый конец не резюмируются. Share token в ключ не попадает.
+
+### Файлы
+
+- `frontend/src/app/globals.css`
+- `frontend/src/lib/video-resume.ts`
+- `frontend/src/components/ui/video-player.tsx`, `frontend/src/components/ui/video-player-frame.tsx`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `README.md`, `backend/docs/TECHNICAL.md`, `backend/docs/INDEX.md`, `backend/docs/ARCHITECTURE_SCHEMAS.md`, `backend/docs/DATABASE_DESIGN.md`
+
+Миграций нет.
+
+---
+
 ## v0.10.7.0 (2026-08-22)
 
 Релиз: базовый шаблон (Default Template) и единый resolver конфигурации; настройки обработки из Settings перенесены в базовый шаблон; promote через **Make base template**; share-страница в watch-layout (видео + главы/темы); LEAP-ссылка в Publications и бейдж в списке записей; миграции **037–039** (deploy вместе с кодом). Подробности — секции **2026-08-22** ниже.
+
+---
+
+## 2026-09-03: Сопровождающие файлы в Downloads + сортировка креденшелов по статусу
+
+- **Чат и материалы мероприятия в карточке Files** — под отдельным разделителем «From the source» появились строки скачивания того, что забрано из источника вместе с видео. До этого файлы лежали в хранилище, но в интерфейсе их не было.
+- **`GET /api/v1/recordings/{id}/source-extras`** — отдаёт чат и вложения с временными ссылками на скачивание. Ссылки presigned с `Content-Disposition: attachment`, поэтому большая презентация идёт из Object Storage прямо в браузер, не буферизуясь в API. Список вложений читается из `source_extras/files_manifest.json`; нечитаемый манифест не ломает ответ.
+- **`ArtefactList`** — строки могут переопределять подпись и расширение (имена вложений приходят из источника) и получили собственный ключ, иначе несколько файлов одного типа схлопывались в React.
+- **Сортировка креденшелов по статусу** — в списке появился порядок «сначала то, что требует внимания»: сначала `needs_reauth`, затем выключенные, затем рабочие; внутри группы — по имени. Статус выводится из двух колонок, поэтому `paginate_list` получил необязательный `sort_keys` для полей, которые не являются атрибутами.
+
+### Файлы
+
+- `backend/api/routers/recordings.py`, `backend/api/schemas/recording/response.py`, `backend/api/schemas/recording/__init__.py`
+- `backend/api/routers/credentials.py`, `backend/api/schemas/common/pagination.py`
+- `backend/tests/unit/api/test_credential_status_sort.py`
+- `frontend/src/components/recordings/artefact-list.tsx`, `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/credentials/page.tsx`
+
+Миграций нет.
+
+---
+
+## 2026-09-03: Проверка подключения у креденшелов
+
+- **Кнопка Check** в списке креденшелов — спрашивает платформу, работает ли ключ, и обновляет статус. До этого узнать о мёртвом ключе можно было только по упавшей задаче, и то лишь при выгрузке: флаг `needs_reauth` выставлялся исключительно в `api/tasks/upload.py`.
+- **`POST /api/v1/credentials/{id}/check`** — делает самый дешёвый аутентифицированный вызов платформы. Zoom — `GET /users/me` (для S2S сначала минтится токен), Яндекс.Диск — обновление токена при близком истечении и `GET /v1/disk`, YouTube — обновление access-токена по refresh-токену с сохранением нового, MTS Link — `GET /organization/members`.
+- **Три исхода вместо двух** — `ok` снимает `needs_reauth` и обновляет `last_used_at`; `auth_failed` выставляет флаг; `unavailable` (сеть, 5xx) **не трогает** состояние, чтобы сбой у провайдера не отправлял пользователя перевыпускать рабочий ключ. Платформы без проверки отвечают `unsupported`, а не ложным «всё хорошо» (`vk_video`, `assemblyai`, `deepseek`).
+- **Побочная польза** — у YouTube и Яндекс.Диска проверка обновляет и сохраняет токен, то есть заодно продлевает подключение (у Google неиспользуемый refresh-токен умирает через полгода).
+- **`ZoomAPI.get_current_user()`** — новый лёгкий вызов, отличает отвергнутые креды (401/403 → `ZoomAuthenticationError`) от недоступности Zoom.
+
+### Файлы
+
+- `backend/api/services/credential_probes.py`, `backend/api/routers/credentials.py`
+- `backend/api/schemas/credentials/response.py`, `backend/api/schemas/credentials/__init__.py`
+- `backend/api/zoom_api.py`
+- `backend/docs/guides/OAUTH.md`
+- `backend/tests/unit/api/test_credential_probes.py`
+- `frontend/src/app/(app)/credentials/page.tsx`
+
+Миграций нет.
+
+---
+
+## 2026-09-03: MTS Link as input source (MP4 conversion + chat and session files)
+
+- **Новый тип источника `MTS_LINK`** — МТС Линк подключается org API key (`x-auth-token`, вкладка **Manual** в Credentials; OAuth пока не поддержан). Ключ всегда организационный, поэтому «чьи записи забираем» задаётся на Input Source списком email лекторов (`user_emails`, минимум один) — по аналогии с Zoom Master. Без email источник не создаётся (422), иначе один ключ синхронизировал бы всю организацию.
+- **Sync** — email резолвится в `userId` через `GET /organization/members` (точное сравнение: несуществующий или неоднозначный email пропускает только этого лектора, остальные синхронизируются), затем `GET /records` с пагинацией и паузами под лимит ~2 rps. `source_key` записи — `mtslink:record:{recordId}`, так что две онлайн-записи одной сессии не схлопываются. Sync **не** запускает конвертацию.
+- **Статусы** — `size == 0` (запись ещё собирается на стороне МТС) → метка в meta; после prepare → `PENDING_SOURCE` или `PENDING_CONVERSION` (миграция **041**). Готовая запись без MP4 → `INITIALIZED` + `needs_mp4: true` до первого Run.
+- **Download** — интерактивную запись нельзя скачать одним файлом, поэтому этап download сам заказывает MP4: `POST /records/{id}/conversions` (`quality`, `view`), опрос статуса, стрим `downloadUrl` в storage как `source.mp4`. URL всегда перечитывается из API — ссылки CDN живут недолго. Ожидание ограничено 30 минутами на запуск задачи, дальше ожидание уходит в ретрай Celery, а не держит воркер.
+- **Одна конвертация на сотрудника** — `403` про одновременные конвертации теперь отличается от `403`/`401` про доступ: первый ретраится (это, скорее всего, наша же конвертация), второй ведёт к `needs_reauth`. Раньше клиент считал любой `403` проблемой ключа. Повторного `POST` на ту же запись не происходит.
+- **Настройки конвертации выбираются один раз** — `quality` и раскладка вплавлены в MP4 при рендере, а API не сообщает, с какими настройками сделан готовый файл, поэтому переиспользуется любой готовый MP4 сессии. В метаданных сохраняются `conversion_quality` / `conversion_view`, с которыми сделан текущий файл. Перерендер по требованию в v1 не делаем.
+- **Сопровождающие файлы** — после видео **best-effort** сохраняются чат (`GET /eventsessions/{id}/chat` → `source_extras/chat.json`) и файлы мероприятия (`GET /eventsessions/{id}/files` → `source_extras/files/` + `files_manifest.json`). Сама запись и её MP4 из списка файлов пропускаются, имена санитизируются, дубликаты получают префикс с id. Ошибка или отсутствие чата/файлов **не** ломает пайплайн: обновляются флаги `extras.chat` / `extras.files_count` / `extras.error` в метаданных источника. Параметр конвертации `view=chat` вшивает чат в кадр — это не то же самое, что `chat.json`.
+- **Frontend** — MTS Link в Credentials (Manual-only, без фейковой вкладки OAuth) и в Sources (тип, emails, quality/view, тумблеры чата и файлов); в деталях записи строка «MP4 – Requested on download», пока конвертации не было.
+- **Миграция `040`** — `ALTER TYPE sourcetype ADD VALUE 'MTS_LINK'`.
+
+### Файлы
+
+- `backend/api/mts_link_api.py`, `backend/api/routers/input_sources.py`, `backend/api/routers/references.py`
+- `backend/api/schemas/template/source_config.py`, `backend/api/schemas/template/input_source.py`, `backend/api/shared/enums.py`
+- `backend/api/tasks/processing.py`, `backend/models/recording.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`, `backend/video_download_module/factory.py`
+- `backend/file_storage/path_builder.py`
+- `backend/alembic/versions/040_add_mts_link_source_type.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`, `backend/docs/INDEX.md`, `backend/docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`
+- `backend/tests/unit/api/test_mts_link_api.py`, `backend/tests/unit/api/test_mts_link_sync.py`
+- `backend/tests/unit/video_download_module/test_mtslink_downloader.py`, `backend/tests/unit/file_storage/test_path_builder.py`
+- `frontend/src/app/(app)/credentials/page.tsx`, `frontend/src/app/(app)/sources/page.tsx`, `frontend/src/app/(app)/recordings/[id]/page.tsx`
+
+**Порядок деплоя:** миграция `040` применяется **до** кода, который пишет записи с `source_type = MTS_LINK`.
+
+---
+
+## 2026-09-01: Video download in the cabinet, detail page order, session labels, small-screen fixes
+
+- **Порядок секций на детальной странице** — **Chapters & summary** поднят под плеер, **Description** идёт следом и раскрыт по умолчанию; **Configuration** и **Pipeline** остаются свёрнутыми. Раньше главный результат обработки лежал ниже описания, а описание было спрятано под клик. Скелетон загрузки повторяет новый порядок, чтобы карточки не прыгали.
+- **Video download** — карточка **Files** на детальной странице записи получила строки **Video – processed** и **Video – original** (mp4). Варианты названы явно, чтобы совпадать со вкладками плеера: раньше скачать видео можно было только с публичной share-страницы. Подпись карточки поясняет разницу processed/original.
+- **API** — `GET /api/v1/recordings/{id}/media` принимает `download=true` и выдаёт пресайн с `Content-Disposition: attachment` (`recording-{id}.mp4`), зеркаля поведение share-эндпоинта. Без параметра поведение прежнее — inline-стрим для плеера. Файл идёт из Object Storage в браузер напрямую, без прокси через API и без буферизации в памяти вкладки.
+- **Active sessions** — `parse_device_label` научился распознавать Яндекс.Браузер (`YaBrowser/` проверяется раньше `Chrome/`). Убрано противоречие в карточке сессии, где заголовок говорил «Chrome · macOS», а подпись — «Yandex Browser 26»; вместо дубля браузера подпись показывает дату входа, так что две сессии одного браузера различимы.
+- **Адаптивность** — лендинг-навбар больше не переполняется на узких экранах (компактные кнопки, короткая подпись регистрации); сетки квот/лимитов в админке и примеров cron схлопываются в одну колонку до `sm`; строка активной сессии переносит кнопку Revoke вместо выдавливания.
+
+### Файлы
+
+- `backend/api/routers/recordings.py`, `backend/api/auth/device.py`
+- `backend/tests/unit/api/test_device_parser.py`, `backend/docs/TECHNICAL.md`
+- `frontend/src/components/recordings/artefact-list.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/components/settings/security-panel.tsx`, `frontend/src/components/settings/format.ts`
+- `frontend/src/components/landing/landing-navbar.tsx`
+- `frontend/src/app/(app)/admin/page.tsx`, `frontend/src/app/(app)/automation/[id]/page.tsx`
+
+Миграций нет. Бэкенд и фронтенд разворачиваются вместе: строки скачивания видео зависят от параметра `download`.
 
 ---
 

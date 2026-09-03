@@ -26,6 +26,7 @@ from api.schemas.admin import (
 )
 from api.schemas.auth import SubscriptionPlanCreate, SubscriptionPlanUpdate, UserInDB
 from api.schemas.common.pagination import paginate_list
+from api.services.share_observability import ShareObservabilityService
 from database.audit_models import AuditAction
 from database.auth_models import (
     QuotaUsageModel,
@@ -106,6 +107,8 @@ async def get_overview_stats(
         or 0
     )
 
+    total_share_views, total_share_downloads, active_share_links = await ShareObservabilityService.platform_totals()
+
     return AdminOverviewStats(
         total_users=total_users,
         active_users=active_users,
@@ -114,6 +117,9 @@ async def get_overview_stats(
         total_plans=total_plans,
         users_by_plan=users_by_plan,
         exceeding_users_count=exceeding_count,
+        total_share_views=total_share_views,
+        total_share_downloads=total_share_downloads,
+        active_share_links=active_share_links,
     )
 
 
@@ -164,6 +170,22 @@ async def get_user_stats(
     result = await session.execute(query)
     rows = result.all()
 
+    user_ids = [row[0] for row in rows]
+    share_totals: dict[str, tuple[int, int]] = {}
+    if user_ids:
+        share_result = await session.execute(
+            select(
+                RecordingModel.user_id,
+                func.coalesce(func.sum(RecordingModel.share_view_count), 0),
+                func.coalesce(func.sum(RecordingModel.share_download_count), 0),
+            )
+            .where(RecordingModel.user_id.in_(user_ids))
+            .group_by(RecordingModel.user_id)
+        )
+        share_totals = {
+            uid: (int(views or 0), int(downloads or 0)) for uid, views, downloads in share_result.all() if uid
+        }
+
     users = []
     for row in rows:
         user_id, email, user_slug, plan, plan_rec, plan_stor, custom_rec, custom_stor, payg, rec_count = row
@@ -181,6 +203,8 @@ async def get_user_stats(
         if exceeded_only and not is_exceeding:
             continue
 
+        share_views_total, share_downloads_total = share_totals.get(user_id, (0, 0))
+
         users.append(
             UserQuotaDetails(
                 user_id=user_id,
@@ -193,6 +217,8 @@ async def get_user_stats(
                 is_exceeding=is_exceeding,
                 overage_enabled=payg,
                 overage_cost=0,
+                share_views_total=share_views_total,
+                share_downloads_total=share_downloads_total,
             )
         )
 

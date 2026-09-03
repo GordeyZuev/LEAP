@@ -1,7 +1,16 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { AlignLeft, ArrowDownToLine, FileCode, FileDown, FileText } from "lucide-react";
+import {
+  AlignLeft,
+  ArrowDownToLine,
+  FileCode,
+  FileDown,
+  FileText,
+  MessagesSquare,
+  Paperclip,
+  Video,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -14,17 +23,25 @@ import { cn } from "@/lib/utils";
  */
 
 export type ArtefactType =
+  | "video_processed"
+  | "video_original"
   | "srt"
   | "vtt"
   | "transcript_json"
   | "transcript_txt"
   | "transcript_words"
-  | "description_txt";
+  | "description_txt"
+  | "source_chat"
+  | "source_file";
 
 export const ARTEFACT_META: Record<
   ArtefactType,
   { label: string; extension: string; icon: ReactNode; accented?: boolean }
 > = {
+  // The player above has Processed/Original tabs, so the video rows name their
+  // variant explicitly — otherwise "download" is ambiguous about which cut it saves.
+  video_processed: { label: "Video – processed", extension: "mp4", icon: <Video size={13} className="shrink-0" /> },
+  video_original: { label: "Video – original", extension: "mp4", icon: <Video size={13} className="shrink-0" /> },
   srt: { label: "Subtitles", extension: "srt", icon: <FileText size={13} className="shrink-0" /> },
   vtt: { label: "Subtitles", extension: "vtt", icon: <FileText size={13} className="shrink-0" /> },
   transcript_json: {
@@ -46,7 +63,20 @@ export const ARTEFACT_META: Record<
     accented: true,
   },
   description_txt: { label: "Description", extension: "txt", icon: <FileDown size={13} className="shrink-0" /> },
+  // Companion files that came from the source, not from the pipeline. Their labels and
+  // extensions are per-file, so rows override the defaults below.
+  source_chat: { label: "Chat", extension: "json", icon: <MessagesSquare size={13} className="shrink-0" /> },
+  source_file: { label: "Attachment", extension: "file", icon: <Paperclip size={13} className="shrink-0" /> },
 };
+
+/** Human-readable label for share analytics download breakdown keys. */
+export function getShareArtifactLabel(type: string): string {
+  const meta = ARTEFACT_META[type as ArtefactType];
+  if (!meta) return type;
+  if (type === "srt") return `${meta.label} (.srt)`;
+  if (type === "vtt") return `${meta.label} (.vtt)`;
+  return meta.label;
+}
 
 const ROW =
   "flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors " +
@@ -67,6 +97,11 @@ export interface ArtefactItem {
   href?: string;
   /** Fetch-and-save handler for artifacts behind the authenticated API. */
   onDownload?: () => void;
+  /** Overrides for files whose names come from the source rather than the pipeline. */
+  label?: string;
+  extension?: string;
+  /** Needed when several rows share a type, e.g. multiple session materials. */
+  key?: string;
 }
 
 export function ArtefactList({ items }: { items: ArtefactItem[] }) {
@@ -75,8 +110,9 @@ export function ArtefactList({ items }: { items: ArtefactItem[] }) {
   return (
     <div className="flex flex-col gap-2">
       {items.map((item) => {
-        const meta = ARTEFACT_META[item.type];
-        if (!meta) return null;
+        const base = ARTEFACT_META[item.type];
+        if (!base) return null;
+        const meta = { ...base, label: item.label ?? base.label, extension: item.extension ?? base.extension };
         const rowClass = cn(ROW, meta.accented ? ROW_ACCENTED : ROW_DEFAULT);
         const inner = (
           <>
@@ -93,12 +129,13 @@ export function ArtefactList({ items }: { items: ArtefactItem[] }) {
             <ArrowDownToLine size={11} className={cn("shrink-0", meta.accented ? "text-primary" : "text-muted-foreground")} />
           </>
         );
+        const rowKey = item.key ?? item.type;
         return item.href ? (
-          <a key={item.type} href={item.href} download className={rowClass}>
+          <a key={rowKey} href={item.href} download className={rowClass}>
             {inner}
           </a>
         ) : (
-          <button key={item.type} type="button" onClick={item.onDownload} className={rowClass}>
+          <button key={rowKey} type="button" onClick={item.onDownload} className={rowClass}>
             {inner}
           </button>
         );

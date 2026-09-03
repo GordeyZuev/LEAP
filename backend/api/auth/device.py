@@ -13,6 +13,7 @@ from config.settings import get_settings
 settings = get_settings()
 
 _BROWSER_KEYWORDS = (
+    ("YaBrowser/", "Yandex Browser"),
     ("Edg/", "Edge"),
     ("OPR/", "Opera"),
     ("Firefox/", "Firefox"),
@@ -36,8 +37,9 @@ _OS_KEYWORDS = (
 def parse_device_label(user_agent: str | None) -> str:
     """Render a short human label like ``Chrome · macOS`` from a UA string.
 
-    The keyword order matters: Chromium-based browsers all advertise ``Safari/``,
-    so we check for the more specific tokens (Edge, Opera, Chrome) first.
+    The keyword order matters: Chromium-based browsers all advertise ``Safari/``
+    (and Yandex Browser also advertises ``Chrome/``), so we check for the more
+    specific tokens (Yandex Browser, Edge, Opera, Chrome) first.
     """
     if not user_agent:
         return "Unknown device"

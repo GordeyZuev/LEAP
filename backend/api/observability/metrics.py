@@ -10,7 +10,7 @@ from contextlib import contextmanager
 import redis
 from fastapi import FastAPI
 from fastapi.responses import Response
-from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, CollectorRegistry, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, CollectorRegistry, Counter, Histogram, generate_latest
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
@@ -51,7 +51,18 @@ external_api_duration_seconds = Histogram(
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),
 )
 
-_QUEUES_TRACKED = ("downloads", "uploads", "async_operations", "processing_cpu", "maintenance")
+share_page_views_total = Counter(
+    "leap_share_page_views_total",
+    "Public share page views counted after deduplication.",
+)
+
+share_downloads_total = Counter(
+    "leap_share_downloads_total",
+    "Public share artifact downloads.",
+    labelnames=("artifact_type",),
+)
+
+_QUEUES_TRACKED = ("downloads", "uploads", "async_operations", "processing_cpu", "maintenance", "celery")
 ENQUEUE_KEY_PREFIX = "leap:enq:"
 
 

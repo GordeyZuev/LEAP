@@ -27,7 +27,7 @@
 **LEAP** (Lecture Enhancement & Automation Platform) — multi-tenant платформа для автоматизации end-to-end обработки образовательного видеоконтента.
 
 **Ключевые возможности:**
-- ✅ Синхронизация видео из Zoom, локальных файлов
+- ✅ Синхронизация видео из Zoom, МТС Линк, локальных файлов
 - ✅ Загрузка видео по ссылке (YouTube, VK, Rutube, 1000+ сайтов через yt-dlp)
 - ✅ Интеграция с Яндекс Диском (загрузка и выгрузка через REST API)
 - ✅ FFmpeg обработка (удаление тишины, обрезка)
@@ -411,6 +411,8 @@ video_download_module/
 ├── factory.py                # create_downloader(source_type) → BaseDownloader
 ├── downloader.py             # ZoomDownloader (Zoom API)
 └── platforms/
+    ├── mtslink/
+    │   └── downloader.py     # MtsLinkDownloader (stream ready MP4; prepare in mts_link_prepare)
     ├── ytdlp/
     │   ├── downloader.py     # YtDlpDownloader (YouTube, VK, Rutube, 1000+ sites)
     │   └── metadata.py       # Platform detection, playlist extraction
@@ -420,6 +422,7 @@ video_download_module/
 
 **Supported Sources:**
 - **Zoom API** — OAuth 2.0 / Server-to-Server, token refresh
+- **MTS Link** — org API key (`x-auth-token`); MP4 conversion via **prepare-before-run** on `POST /run` (not `POST /download`); statuses `PENDING_SOURCE` / `PENDING_CONVERSION`; see [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md)
 - **yt-dlp** — YouTube, VK, Rutube и 1000+ сайтов (видео + плейлисты + аудио/mp3)
 - **Yandex Disk** — публичные ссылки и OAuth API для приватных файлов
 - **Local files** — загрузка через API endpoint
@@ -438,6 +441,8 @@ POST /api/v1/recordings/add-playlist  — добавить плейлист/ка
 
 **Output:** `storage/users/user_XXXXXX/recordings/{id}/source.<ext>` for video ingress (whitelist-driven; legacy `source.mp4` supported), or `.mp3` for yt-dlp audio-only.
 
+Companion files fetched from the source (MTS Link chat and session materials) live beside it in `source_extras/` — `chat.json`, `files/<name>`, `files_manifest.json` — and are listed for the UI by `GET /api/v1/recordings/{id}/source-extras`. See [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md).
+
 ---
 
 ### ✂️ Video Processing Module (`video_processing_module/`)
@@ -450,6 +455,7 @@ POST /api/v1/recordings/add-playlist  — добавить плейлист/ка
 - Удаление пустого начала и конца
 - Audio extraction для транскрибации
 - Codec: copy (без перекодирования)
+- MP4/MOV/M4V: `faststart` (`moov` перед `mdat`) и нормализация отрицательных timestamps
 
 **Files:**
 - `video_processor.py` - Main processor
@@ -459,6 +465,8 @@ POST /api/v1/recordings/add-playlist  — добавить плейлист/ка
 **Output:**
 - Processed video: `storage/users/user_XXXXXX/recordings/{id}/video.mp4`
 - Extracted audio: `storage/users/user_XXXXXX/recordings/{id}/audio.mp3`
+
+**Browser delivery:** страницы записи и share-страница запрашивают metadata и presigned media URL параллельно. Браузер читает объект напрямую из S3 по Range; API не проксирует видеобайты. URL кешируется на 50 минут при TTL 60 минут и обновляется при `error`/`stalled`/timeout. Подробности и ограничения stream-copy — [VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md).
 
 ---
 
@@ -818,7 +826,9 @@ POST /api/v1/recordings/{id}/run
 
 # Media & artifacts (authenticated; tenant-scoped)
 GET  /api/v1/recordings/{id}/media?type=processed   # or type=original — video stream (Range supported)
+GET  /api/v1/recordings/{id}/media?type=processed&download=true  # same, but presigned as attachment → recording-{id}.mp4
 GET  /api/v1/recordings/{id}/files/srt              # subtitles / transcription downloads (see OpenAPI)
+GET  /api/v1/recordings/{id}/source-extras          # companion files saved from the source (chat, session materials) with download URLs
 
 # AI content — edit without re-running the pipeline
 PATCH /api/v1/recordings/{id}/topics                # partial update: summary, description, questions, main_topics, topic_timestamps
@@ -826,7 +836,7 @@ POST  /api/v1/recordings/{id}/topics/render         # render Jinja template in r
 POST  /api/v1/recordings/formats-preview            # list available video streams for a URL (height, codec, fps, size)
 
 # Individual stages
-POST /api/v1/recordings/{id}/download
+POST /api/v1/recordings/{id}/download   # Zoom, yt-dlp, Yandex Disk, … — NOT MTS Link (400 → use /run)
 POST /api/v1/recordings/{id}/trim
 POST /api/v1/recordings/{id}/transcribe
 POST /api/v1/recordings/{id}/topics
@@ -873,10 +883,14 @@ POST   /api/v1/recordings/{id}/share          # → { share_token: UUID }
 DELETE /api/v1/recordings/{id}/share          # revoke (204)
 
 # Public: no auth required
+POST   /api/v1/share/{token}/beacon            # anonymous page view (204)
 GET    /api/v1/share/{token}                  # recording metadata + AI data + rendered description
 GET    /api/v1/share/{token}/media?type=processed|original  # presigned video URL
-GET    /api/v1/share/{token}/media?type=processed&download=true  # download URL
+GET    /api/v1/share/{token}/media?type=processed&download=true  # download URL (tracked)
 GET    /api/v1/share/{token}/files/{file_type} # artifact download (srt|vtt|transcript_json|transcript_txt|transcript_words)
+
+# Owner analytics (auth required)
+GET    /api/v1/recordings/{id}/share/analytics?days=7|28
 ```
 
 `GET /api/v1/share/{token}` returns `PublicRecordingResponse`:
@@ -887,6 +901,8 @@ GET    /api/v1/share/{token}/files/{file_type} # artifact download (srt|vtt|tran
 - `has_processed_video`, `has_original_video`
 
 The `description` field is populated by rendering the `description_template` from the resolved metadata config. If no template is configured, the field is `null`.
+
+**Share analytics:** public page views are recorded via `POST /share/{token}/beacon` (deduplicated ~30 min per visitor). User-initiated file downloads are counted on `GET /share/{token}/files/{type}`; pass `inline=true` for player/subtitle fetches (not counted). Video saves use `GET /share/{token}/media?download=true`. Owner UI reads `share_stats` on the recording list when `share_token` is set; detail also includes `share_stats` after revoke if counters remain. Detailed charts use `GET /recordings/{id}/share/analytics`. Counters live on `recordings` (`share_view_count`, `share_download_count`, `share_last_viewed_at`, `share_last_downloaded_at`); raw events in `share_access_events`. Prometheus: `leap_share_page_views_total`, `leap_share_downloads_total{artifact_type}`.
 
 #### Template Management
 
@@ -1303,6 +1319,7 @@ psql -U postgres -d zoom_manager
 - [VK_INTEGRATION.md](guides/VK_INTEGRATION.md) - VK Implicit Flow
 - [YT_DLP_GUIDE.md](guides/YT_DLP_GUIDE.md) - yt-dlp video ingestion
 - [YANDEX_DISK_GUIDE.md](guides/YANDEX_DISK_GUIDE.md) - Yandex Disk integration
+- [MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) - MTS Link input source
 
 **Architecture:**
 - [DATABASE_DESIGN.md](DATABASE_DESIGN.md) - Database schema
@@ -1320,7 +1337,7 @@ Python 3.14+ • FastAPI • SQLAlchemy 2.0 • PostgreSQL 15+ • Redis • Cel
 - Production-ready REST API
 - Multi-tenant database with auto-migrations
 - Complete type safety with Pydantic
-- Multi-source ingestion (Zoom, yt-dlp, Yandex Disk, local files)
+- Multi-source ingestion (Zoom, MTS Link, yt-dlp, Yandex Disk, local files)
 - Processing modules (video, transcription, upload)
 - Multi-platform upload (YouTube, VK, Yandex Disk)
 - OAuth platforms (YouTube, VK, Zoom)

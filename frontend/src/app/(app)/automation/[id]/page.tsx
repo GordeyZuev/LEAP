@@ -694,7 +694,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                   </NativeSelect>
                 </F>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {CRON_EXAMPLES.map((ex) => (
                   <button
                     key={ex.expr}

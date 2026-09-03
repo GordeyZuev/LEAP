@@ -124,6 +124,9 @@ class TestS3StorageBackend:
         await backend.save_file("users/000001/video.mp4", src)
         assert await backend.exists("users/000001/video.mp4")
         assert await backend.load("users/000001/video.mp4") == b"video bytes here"
+        async with backend._client() as s3:
+            metadata = await s3.head_object(Bucket=backend.bucket, Key=backend._key("users/000001/video.mp4"))
+        assert metadata["ContentType"] == "video/mp4"
 
     async def test_download_to_file(self, backend, tmp_path):
         await backend.save("users/000001/audio.mp3", b"audio bytes")

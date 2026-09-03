@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from api.schemas.common.pagination import PaginatedResponse
+from api.schemas.share import ShareStatsSummary
 from models import ProcessingStageStatus, ProcessingStatus, SourceType, TargetStatus, TargetType
 
 
@@ -163,15 +164,18 @@ class PipelineControlMixin(BaseModel):
         Returns False when:
         - on_air=True (pipeline already active)
         - READY (already complete)
-        - PENDING_SOURCE / EXPIRED (cannot process)
+        - PENDING_SOURCE (non-MTS) / EXPIRED (cannot process)
+        - PENDING_CONVERSION is allowed (MTS Link prepare ping)
         """
         if self.on_air:
             return False
         if self.failed:
             return True
+        if self.status == ProcessingStatus.PENDING_SOURCE:
+            source = getattr(self, "source", None)
+            return source is not None and source.type == SourceType.MTS_LINK
         return self.status not in [
             ProcessingStatus.READY,
-            ProcessingStatus.PENDING_SOURCE,
             ProcessingStatus.EXPIRED,
         ]
 
@@ -227,6 +231,7 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
 
     # --- Share ---
     share_token: uuid.UUID | None = None
+    share_stats: ShareStatsSummary | None = None
 
     # --- Timestamps ---
     created_at: datetime
@@ -288,6 +293,7 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
 
     # --- Share ---
     share_token: uuid.UUID | None = None
+    share_stats: ShareStatsSummary | None = None
 
     # --- Timestamps ---
     created_at: datetime
@@ -339,6 +345,27 @@ class DetailedRecordingResponse(RecordingResponse):
     subtitles: dict | None = None
     processing_stages_detailed: list[dict] | None = None
     uploads: dict | None = None
+
+
+class SourceExtraFile(BaseModel):
+    """One companion file stored next to the source video."""
+
+    name: str = Field(..., description="Original file name, used for the download")
+    extension: str = Field(..., description="Lowercase extension, for the UI badge")
+    size: int | None = Field(None, description="Size in bytes when the manifest recorded it")
+    url: str = Field(..., description="Time-limited download URL")
+
+
+class SourceExtrasResponse(BaseModel):
+    """Companion files fetched from the source alongside the video.
+
+    Produced by MTS Link ingestion: the session chat log and materials uploaded to the
+    event. Empty for sources that have no such artifacts.
+    """
+
+    chat: SourceExtraFile | None = Field(None, description="Session chat log, when saved")
+    files: list[SourceExtraFile] = Field(default_factory=list, description="Session materials (slides, PDFs)")
+    expires_in: int = Field(..., description="Lifetime of the returned URLs, seconds")
 
 
 class RunRecordingResponse(BaseModel):

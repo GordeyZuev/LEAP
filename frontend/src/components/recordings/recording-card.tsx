@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArchiveRestore, ExternalLink, MoreHorizontal, Pause, Pencil, Play, RotateCcw, Settings2, Trash2 } from "lucide-react";
 import { cn, formatDate, stripLeadingTimestamp } from "@/lib/utils";
+import { formatShareStatsSummary, type ShareStatsSummary } from "@/lib/share-stats";
 import { type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { RecordingPoster, RECORDING_CARD_POSTER } from "@/components/recordings/recording-poster";
@@ -37,6 +38,7 @@ export interface RecordingCardData {
   ready_to_upload: boolean;
   uploads: Record<string, UploadInfo>;
   share_token?: string | null;
+  share_stats?: ShareStatsSummary | null;
   soft_deleted_at?: string | null;
   processing_stages?: PipelineStage[];
   failed_at_stage?: string | null;
@@ -76,6 +78,17 @@ const UPLOAD_DOT: Record<string, string> = {
 };
 
 const RUN_UNAVAILABLE = "Run is unavailable: this recording has no source file ready, or the pipeline is already running.";
+
+function runButtonTitle(r: RecordingCardData): string {
+  if (!r.can_run) return RUN_UNAVAILABLE;
+  if (r.status === "PENDING_CONVERSION") {
+    return "Run to check MTS Link conversion progress";
+  }
+  if (r.status === "PENDING_SOURCE" && r.source?.type === "MTS_LINK") {
+    return "Run when MTS Link finishes assembling the recording";
+  }
+  return "Run the pipeline";
+}
 
 const UPLOAD_STATE_LABEL: Record<string, string> = {
   UPLOADED: "published",
@@ -300,6 +313,7 @@ export function RecordingCard({
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
+                  title={formatShareStatsSummary(r.share_stats) || undefined}
                   className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                 >
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-fg">
@@ -360,7 +374,7 @@ export function RecordingCard({
                 type="button"
                 disabled={!r.can_run || isLoading}
                 onClick={() => onRun(r.id)}
-                title={r.can_run ? "Run the pipeline" : RUN_UNAVAILABLE}
+                title={runButtonTitle(r)}
                 aria-describedby={r.can_run ? undefined : `run-why-${r.id}`}
                 className={cn(
                   "inline-flex h-7 items-center gap-1 border border-border px-2.5 text-xs font-medium text-secondary-foreground transition-colors",

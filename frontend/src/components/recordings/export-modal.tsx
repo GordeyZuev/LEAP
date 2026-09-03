@@ -138,7 +138,12 @@ export function ExportModal({
   }
 
   return (
-    <Modal open={open} onClose={handleClose} labelledBy={titleId} panelClassName="w-full sm:max-w-sm">
+    <Modal
+      open={open}
+      onClose={handleClose}
+      labelledBy={titleId}
+      panelClassName="w-full sm:max-w-sm max-h-[90vh] overflow-y-auto"
+    >
       <div className="bg-card">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">

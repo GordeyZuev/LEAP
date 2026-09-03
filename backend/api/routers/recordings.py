@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, NamedTuple
 
@@ -12,6 +13,7 @@ from sqlalchemy import select
 from api.auth.dependencies import check_user_quotas, require_feature
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
+from api.helpers.share_stats import build_share_stats_for_detail, build_share_stats_summary
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.routers.recordings_helpers import (
@@ -77,6 +79,8 @@ from api.schemas.recording.response import (
     ProcessingStageResponse,
     RecordingListItem,
     RecordingListResponse,
+    SourceExtraFile,
+    SourceExtrasResponse,
     SourceResponse,
 )
 from api.services.config_utils import resolve_full_config
@@ -257,9 +261,10 @@ async def _storage_file_info(storage_key: str | None) -> dict[str, Any]:
     from file_storage.factory import get_storage_backend
 
     storage = get_storage_backend()
-    if not await storage.exists(storage_key):
+    try:
+        size = await storage.get_size(storage_key)
+    except FileNotFoundError:
         return {"path": storage_key, "exists": False, "size_mb": None}
-    size = await storage.get_size(storage_key)
     return {"path": storage_key, "exists": True, "size_mb": round(size / (1024 * 1024), 2)}
 
 
@@ -375,6 +380,7 @@ async def list_recordings(
                 hard_delete_at=r.hard_delete_at,
                 expire_at=r.expire_at,
                 share_token=r.share_token,
+                share_stats=build_share_stats_summary(r),
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )
@@ -463,6 +469,7 @@ async def get_recording_media(
         alias="type",
         description="original = source/local file; processed = pipeline output when present",
     ),
+    download: bool = Query(False, description="Return an attachment URL instead of inline playback"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> dict:
     """Return a time-limited presigned URL for direct video streaming.
@@ -471,6 +478,11 @@ async def get_recording_media(
     will use HTTP Range requests against Object Storage natively, with no API
     proxying. The URL expires after ``expires_in`` seconds, after which the
     frontend can simply refetch this endpoint.
+
+    ``download=true`` adds ``Content-Disposition: attachment`` to the presigned
+    URL so the browser saves the file instead of playing it, letting a large
+    recording go straight from Object Storage to disk without passing through
+    the API or the page's memory.
     """
     from config.settings import get_settings
     from file_storage.factory import get_storage_backend
@@ -498,7 +510,8 @@ async def get_recording_media(
         )
 
     expires_in = get_settings().storage.s3_presign_expires
-    url = await storage.presigned_url(storage_key, expires_in=expires_in)
+    dl_filename = f"recording-{recording.id}.mp4" if download else None
+    url = await storage.presigned_url(storage_key, expires_in=expires_in, download_filename=dl_filename)
     return {"url": url, "expires_in": expires_in}
 
 
@@ -538,6 +551,76 @@ async def generate_recording_poster(
 
     generate_poster.delay(recording_id, ctx.user_id)
     return {"status": "queued"}
+
+
+@router.get("/{recording_id}/source-extras", response_model=SourceExtrasResponse)
+async def get_recording_source_extras(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> SourceExtrasResponse:
+    """List companion files saved next to the source video, with download URLs.
+
+    Currently produced by MTS Link ingestion: the session chat log and any materials
+    uploaded to the event. Returns time-limited URLs rather than streaming, so a large
+    presentation goes straight from storage to the browser.
+    """
+    import json
+
+    from config.settings import get_settings
+    from file_storage.factory import get_storage_backend
+    from file_storage.path_builder import StoragePathBuilder, to_storage_key
+
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found or you don't have access",
+        )
+
+    builder = StoragePathBuilder()
+    user_slug = recording.owner.user_slug
+    storage = get_storage_backend()
+    expires_in = get_settings().storage.s3_presign_expires
+
+    async def _entry(key: str, name: str, size: int | None) -> SourceExtraFile | None:
+        if not await storage.exists(key):
+            return None
+        url = await storage.presigned_url(key, expires_in=expires_in, download_filename=name)
+        return SourceExtraFile(
+            name=name,
+            extension=name.rsplit(".", 1)[-1].lower() if "." in name else "file",
+            size=size,
+            url=url,
+        )
+
+    chat = await _entry(
+        to_storage_key(builder.recording_source_chat(user_slug, recording_id)),
+        f"recording-{recording_id}-chat.json",
+        None,
+    )
+
+    files: list[SourceExtraFile] = []
+    manifest_key = to_storage_key(builder.recording_source_files_manifest(user_slug, recording_id))
+    if await storage.exists(manifest_key):
+        try:
+            manifest = json.loads((await storage.load(manifest_key)).decode())
+        except (ValueError, UnicodeDecodeError) as e:
+            logger.warning(f"Unreadable source extras manifest | {format_details(rec=recording_id, error=str(e))}")
+            manifest = []
+
+        for row in manifest if isinstance(manifest, list) else []:
+            if not isinstance(row, dict) or not row.get("storage_key"):
+                continue
+            entry = await _entry(
+                str(row["storage_key"]),
+                str(row.get("name") or row.get("stored_as") or "attachment"),
+                row.get("size") if isinstance(row.get("size"), int) else None,
+            )
+            if entry:
+                files.append(entry)
+
+    return SourceExtrasResponse(chat=chat, files=files, expires_in=expires_in)
 
 
 @router.get("/{recording_id}/files/{file_type}")
@@ -689,6 +772,7 @@ async def get_recording(
             hard_delete_at=recording.hard_delete_at,
             expire_at=recording.expire_at,
             share_token=recording.share_token,
+            share_stats=build_share_stats_summary(recording),
             created_at=recording.created_at,
             updated_at=recording.updated_at,
         )
@@ -767,19 +851,23 @@ async def get_recording(
         "hard_delete_at": recording.hard_delete_at,
         "expire_at": recording.expire_at,
         "share_token": recording.share_token,
+        "share_stats": build_share_stats_for_detail(recording),
         "created_at": recording.created_at,
         "updated_at": recording.updated_at,
     }
 
     # Video files (storage keys, looked up via backend)
-    videos = {}
+    media_kinds: list[tuple[str, str]] = []
     if recording.local_video_path:
-        videos["original"] = await _storage_file_info(recording.local_video_path)
+        media_kinds.append(("original", recording.local_video_path))
     if recording.processed_video_path:
-        videos["processed"] = await _storage_file_info(recording.processed_video_path)
+        media_kinds.append(("processed", recording.processed_video_path))
 
-    # Audio file
-    audio_info = await _storage_file_info(recording.processed_audio_path) if recording.processed_audio_path else {}
+    media_info, audio_info = await asyncio.gather(
+        asyncio.gather(*(_storage_file_info(path) for _kind, path in media_kinds)),
+        _storage_file_info(recording.processed_audio_path),
+    )
+    videos = {kind: info for (kind, _path), info in zip(media_kinds, media_info, strict=True)}
 
     # Get user_slug for transcription paths
     user_slug = recording.owner.user_slug
@@ -838,18 +926,17 @@ async def get_recording(
         topics_data = {"exists": False}
 
     # Subtitles
-    subtitles = {}
-    for fmt in ["srt", "vtt"]:
-        sub_key = to_storage_key(tx_dir / "cache" / f"subtitles.{fmt}")
-        if await storage.exists(sub_key):
-            size_bytes = await storage.get_size(sub_key)
-            subtitles[fmt] = {
-                "path": sub_key,
-                "exists": True,
-                "size_kb": round(size_bytes / 1024, 2),
-            }
-        else:
-            subtitles[fmt] = {"path": None, "exists": False, "size_kb": None}
+    subtitle_keys = {fmt: to_storage_key(tx_dir / "cache" / f"subtitles.{fmt}") for fmt in ("srt", "vtt")}
+
+    async def subtitle_info(key: str) -> dict[str, Any]:
+        try:
+            size_bytes = await storage.get_size(key)
+        except FileNotFoundError:
+            return {"path": None, "exists": False, "size_kb": None}
+        return {"path": key, "exists": True, "size_kb": round(size_bytes / 1024, 2)}
+
+    subtitle_values = await asyncio.gather(*(subtitle_info(key) for key in subtitle_keys.values()))
+    subtitles = dict(zip(subtitle_keys, subtitle_values, strict=True))
 
     # Processing stages detailed (with metadata and timestamps)
     processing_stages_detailed = None
@@ -953,6 +1040,7 @@ async def update_recording(
         hard_delete_at=recording.hard_delete_at,
         expire_at=recording.expire_at,
         share_token=recording.share_token,
+        share_stats=build_share_stats_summary(recording),
         created_at=recording.created_at,
         updated_at=recording.updated_at,
     )
@@ -1416,9 +1504,12 @@ async def bulk_run_recordings(
             tasks.append(
                 {
                     "recording_id": recording_id,
-                    "status": "queued" if result.task_id else "completed",
+                    "status": ("queued" if result.task_id else ("awaiting" if result.awaiting_source else "completed")),
                     "task_id": result.task_id,
                     "message": result.message,
+                    "awaiting_source": result.awaiting_source,
+                    "recording_status": result.recording_status,
+                    "mts": result.mts,
                     "check_status_url": f"/api/v1/tasks/{result.task_id}" if result.task_id else None,
                 }
             )
@@ -1706,6 +1797,18 @@ async def bulk_download_recordings(
                         "recording_id": recording_id,
                         "status": "skipped",
                         "error": "Blank record",
+                        "task_id": None,
+                    }
+                )
+                continue
+
+            source_type = recording.source.source_type if recording.source else None
+            if source_type == SourceType.MTS_LINK:
+                tasks.append(
+                    {
+                        "recording_id": recording_id,
+                        "status": "skipped",
+                        "error": "MTS Link recordings must use POST /run to prepare and download.",
                         "task_id": None,
                     }
                 )
@@ -2074,6 +2177,7 @@ async def download_recording(
     """Download recording from source (Zoom, yt-dlp, Yandex Disk, etc.)."""
     from api.helpers.status_manager import should_allow_download
     from api.tasks.processing import download_recording_task
+    from models.recording import SourceType
 
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -2084,6 +2188,8 @@ async def download_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
+    source_type = recording.source.source_type if recording.source else None
+
     # Check if we can download
     if not should_allow_download(recording):
         raise HTTPException(
@@ -2091,8 +2197,13 @@ async def download_recording(
             detail=f"Download not allowed for recording with status {recording.status}.",
         )
 
+    if source_type == SourceType.MTS_LINK:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MTS Link recordings must use POST /run to prepare and download.",
+        )
+
     source_meta = recording.source.meta if recording.source and recording.source.meta else {}
-    source_type = recording.source.source_type if recording.source else None
 
     # Each source type stores download info under a different metadata key
     has_download_info = bool(
@@ -2245,12 +2356,6 @@ async def run_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    from api.services.quota_service import QuotaService
-
-    _allowed, _err = await QuotaService(ctx.session).check_processing_quota(ctx.user_id)
-    if not _allowed:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=_err)
-
     # Template binding (before smart run, so override is available)
     if config.template_id and config.bind_template:
         from api.repositories.template_repos import RecordingTemplateRepository
@@ -2278,6 +2383,96 @@ async def run_recording(
     return await _execute_smart_run(recording, recording_id, ctx, manual_override)
 
 
+async def _awaiting_mts_response(
+    recording_id: int,
+    recording,
+    result,
+) -> RecordingOperationResponse:
+    from api.services.mts_link_prepare import MtsPrepareOutcome, mts_prepare_response_fields
+
+    messages = {
+        MtsPrepareOutcome.ASSEMBLING: "MTS Link is still assembling the recording",
+        MtsPrepareOutcome.CONVERTING: "MTS Link is still converting; run again or wait for automation",
+        MtsPrepareOutcome.FAILED: recording.failed_reason or "MTS Link prepare failed",
+    }
+    return RecordingOperationResponse(
+        success=result.outcome != MtsPrepareOutcome.FAILED,
+        recording_id=recording_id,
+        task_id=None,
+        awaiting_source=result.outcome in (MtsPrepareOutcome.ASSEMBLING, MtsPrepareOutcome.CONVERTING),
+        recording_status=recording.status,
+        message=messages.get(result.outcome, "MTS Link prepare completed"),
+        mts=mts_prepare_response_fields(result),
+    )
+
+
+async def _check_processing_quota_or_raise(ctx: ServiceContext) -> None:
+    from api.services.quota_service import QuotaService
+
+    allowed, err = await QuotaService(ctx.session).check_processing_quota(ctx.user_id)
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
+
+
+async def _mts_prepare_before_pipeline(recording, recording_id: int, ctx: ServiceContext):
+    """Run MTS prepare when needed. Returns response if pipeline must not start."""
+    from api.services.mts_link_prepare import (
+        MtsPrepareOutcome,
+        apply_prepare_result,
+        prepare_mts_link_recording,
+        recording_needs_mts_prepare,
+        should_skip_mts_prepare,
+    )
+
+    if not recording_needs_mts_prepare(recording) or should_skip_mts_prepare(recording):
+        return None
+
+    result = await prepare_mts_link_recording(ctx.session, recording, ctx.user_id)
+    apply_prepare_result(recording, result)
+    await ctx.session.commit()
+
+    if result.outcome != MtsPrepareOutcome.READY:
+        return await _awaiting_mts_response(recording_id, recording, result)
+    return None
+
+
+async def _dispatch_full_pipeline(
+    recording,
+    recording_id: int,
+    ctx: ServiceContext,
+    manual_override: dict | None,
+    *,
+    message: str,
+) -> RecordingOperationResponse:
+    from api.tasks.processing import run_recording_task
+
+    await _check_processing_quota_or_raise(ctx)
+
+    recording.on_air = True
+    await ctx.session.commit()
+    try:
+        task = run_recording_task.delay(
+            recording_id=recording_id,
+            user_id=ctx.user_id,
+            manual_override=manual_override,
+        )
+    except Exception as exc:
+        recording.on_air = False
+        await ctx.session.commit()
+        logger.error(f"Smart run: failed to dispatch pipeline | {format_details(rec=recording_id, error=exc)}")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to dispatch pipeline task") from exc
+    recording.pipeline_task_id = task.id
+    await ctx.session.commit()
+    return RecordingOperationResponse(
+        success=True,
+        task_id=task.id,
+        recording_id=recording_id,
+        message=message,
+        awaiting_source=False,
+        recording_status=recording.status,
+    )
+
+
 async def _execute_smart_run(
     recording,
     recording_id: int,
@@ -2298,7 +2493,8 @@ async def _execute_smart_run(
     on_pause is cleared here so a paused recording resumes normally through the
     status-based routing below (status is already stable after hard pause).
     """
-    from api.tasks.processing import _launch_uploads_task, run_recording_task
+    from api.tasks.processing import _launch_uploads_task
+    from models.recording import SourceType
 
     current_status = recording.status
 
@@ -2316,10 +2512,12 @@ async def _execute_smart_run(
             detail="Cannot run expired recording.",
         )
     if current_status == ProcessingStatus.PENDING_SOURCE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Recording is waiting for source. Cannot run yet.",
-        )
+        source_type = recording.source.source_type if recording.source else None
+        if source_type != SourceType.MTS_LINK:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Recording is waiting for source. Cannot run yet.",
+            )
 
     # --- Clear pause flag if set (after hard pause status is already stable) ---
     _was_paused = recording.on_pause
@@ -2327,11 +2525,14 @@ async def _execute_smart_run(
         recording.on_pause = False
         recording.pause_requested_at = None
 
-    if current_status in [
+    _fresh_start_statuses = [
         ProcessingStatus.INITIALIZED,
         ProcessingStatus.SKIPPED,
-        ProcessingStatus.DOWNLOADED,
-    ]:
+        ProcessingStatus.PENDING_CONVERSION,
+        ProcessingStatus.PENDING_SOURCE,
+    ]
+
+    if current_status in _fresh_start_statuses or current_status == ProcessingStatus.DOWNLOADED:
         try:
             await resolve_full_config(
                 ctx.session,
@@ -2343,62 +2544,36 @@ async def _execute_smart_run(
         except _CONFIG_RESOLUTION_HTTP_ERRORS as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
-    # 1. Fresh start: INITIALIZED or SKIPPED → full pipeline
-    if current_status in [ProcessingStatus.INITIALIZED, ProcessingStatus.SKIPPED]:
-        recording.on_air = True
-        await ctx.session.commit()
-        try:
-            task = run_recording_task.delay(
-                recording_id=recording_id,
-                user_id=ctx.user_id,
-                manual_override=manual_override,
-            )
-        except Exception as exc:
-            recording.on_air = False
-            await ctx.session.commit()
-            logger.error(f"Smart run: failed to dispatch pipeline | {format_details(rec=recording_id, error=exc)}")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to dispatch pipeline task"
-            ) from exc
-        recording.pipeline_task_id = task.id
-        await ctx.session.commit()
+    # 1. Fresh start: INITIALIZED, SKIPPED, or MTS pending → full pipeline
+    if current_status in _fresh_start_statuses:
+        awaiting = await _mts_prepare_before_pipeline(recording, recording_id, ctx)
+        if awaiting is not None:
+            return awaiting
+
         logger.info(f"Smart run: starting full pipeline | {format_details(rec=recording_id, status=current_status)}")
-        return RecordingOperationResponse(
-            success=True,
-            task_id=task.id,
-            recording_id=recording_id,
+        return await _dispatch_full_pipeline(
+            recording,
+            recording_id,
+            ctx,
+            manual_override,
             message="Pipeline started",
         )
 
     # 2. Processing: DOWNLOADED → start processing (skip download)
     if current_status == ProcessingStatus.DOWNLOADED:
-        recording.on_air = True
-        await ctx.session.commit()
-        try:
-            task = run_recording_task.delay(
-                recording_id=recording_id,
-                user_id=ctx.user_id,
-                manual_override=manual_override,
-            )
-        except Exception as exc:
-            recording.on_air = False
-            await ctx.session.commit()
-            logger.error(f"Smart run: failed to dispatch pipeline | {format_details(rec=recording_id, error=exc)}")
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to dispatch pipeline task"
-            ) from exc
-        recording.pipeline_task_id = task.id
-        await ctx.session.commit()
         logger.info(f"Smart run: continuing processing | {format_details(rec=recording_id)}")
-        return RecordingOperationResponse(
-            success=True,
-            task_id=task.id,
-            recording_id=recording_id,
+        return await _dispatch_full_pipeline(
+            recording,
+            recording_id,
+            ctx,
+            manual_override,
             message="Processing pipeline started (download already complete)",
         )
 
     # 3. Upload phase: PROCESSED, UPLOADED → ensure targets from config, then upload pending/failed
     if current_status in [ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADED]:
+        from api.tasks.processing import run_recording_task
+
         # Guard: if processing stages are still PENDING the pipeline was paused mid-run
         # (e.g. trim completed after pause handler ran, pushed status→PROCESSED while
         # transcription stages remain PENDING). Re-enter the processing pipeline so
@@ -3164,7 +3339,15 @@ async def reset_recording(
         else False
     )
 
-    if source_processing_incomplete:
+    if recording.status == ProcessingStatus.PENDING_CONVERSION:
+        recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
+        if recording.source and isinstance(recording.source.meta, dict):
+            meta = dict(recording.source.meta)
+            for key in ("conversion_id", "conversion_state", "conversion_progress", "mts_prepare_checked_at"):
+                meta.pop(key, None)
+            meta["needs_mp4"] = True
+            recording.source.meta = meta
+    elif source_processing_incomplete:
         recording.status = ProcessingStatus.PENDING_SOURCE
     elif recording.is_mapped:
         recording.status = ProcessingStatus.INITIALIZED

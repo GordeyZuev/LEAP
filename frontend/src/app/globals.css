@@ -146,7 +146,7 @@ body {
 /* Plyr — clip only on .plyr--video; not on outer frame (cuts controls). */
 .plyr {
   --plyr-color-main: var(--primary);
-  --plyr-video-background: #000;
+  --plyr-video-background: var(--muted);
   --plyr-font-family: inherit;
   --plyr-font-size-base: 13px;
   --plyr-border-radius: 8px;

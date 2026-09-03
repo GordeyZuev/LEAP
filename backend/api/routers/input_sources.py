@@ -1,10 +1,12 @@
 """Input source endpoints"""
 
+import asyncio
 import re
 from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
@@ -361,6 +363,23 @@ async def _sync_single_source(
             logger.error(f"VIDEO_URL sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
             return {"status": "error", "error": str(e)}
 
+    elif source.source_type == "MTS_LINK":
+        try:
+            result = await _sync_mts_link_source(
+                source,
+                credentials,
+                session,
+                user_id,
+                from_date,
+                to_date,
+            )
+            saved_count = result.get("saved", 0)
+            updated_count = result.get("updated", 0)
+            meetings = [None] * result.get("found", 0)
+        except Exception as e:
+            logger.error(f"MTS Link sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
+            return {"status": "error", "error": str(e)}
+
     elif source.source_type == "YANDEX_DISK":
         try:
             result = await _sync_yandex_disk_source(
@@ -594,6 +613,222 @@ async def _sync_yandex_disk_source(
         f"Yandex Disk sync | {format_details(source=source.id, found=len(video_files), saved=saved_count, updated=updated_count)}"
     )
     return {"found": len(video_files), "saved": saved_count, "updated": updated_count}
+
+
+# UserAPI allows ~2 requests/second; pause between paged/per-record calls to stay under it.
+_MTS_LINK_REQUEST_PAUSE_SECONDS = 0.5
+_MTS_LINK_RECORDS_PAGE_SIZE = 100
+_MTS_LINK_MAX_RECORD_PAGES = 50
+
+
+def _mts_link_datetime_bound(value: str | None, end_of_day: bool) -> str | None:
+    """Expand a ``YYYY-MM-DD`` sync bound to the ``YYYY-MM-DD HH:MM:SS`` /records expects."""
+    if not value:
+        return None
+    value = value.strip()
+    if len(value) == 10:
+        return f"{value} 23:59:59" if end_of_day else f"{value} 00:00:00"
+    return value
+
+
+def _parse_mts_link_created_at(value: str | None) -> datetime:
+    """Parse ``createAt`` into an aware datetime, falling back to now on unknown formats."""
+    if value:
+        text = value.strip().replace("Z", "+00:00")
+        for parser in (datetime.fromisoformat, lambda v: datetime.strptime(v, "%Y-%m-%d %H:%M:%S")):
+            try:
+                parsed = parser(text)
+            except (ValueError, TypeError):
+                continue
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return datetime.now(UTC)
+
+
+async def _resolve_mts_link_user_id(mts_api, email: str) -> int:
+    """Resolve a lecturer email to an MTS Link userId.
+
+    The API email filter matches substrings, so compare exactly: an ambiguous or
+    missing email must fail loudly for that lecturer instead of syncing someone else.
+    """
+    members = await mts_api.list_organization_members(email=email)
+    wanted = email.strip().lower()
+    matches = [m for m in members if str(m.get("email") or "").strip().lower() == wanted]
+
+    if not matches:
+        raise ValueError(f"No organization member found for {email}")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple organization members share email {email}")
+
+    member_id = matches[0].get("id")
+    if member_id is None:
+        raise ValueError(f"Organization member for {email} has no id")
+    return int(member_id)
+
+
+async def _list_mts_link_records(mts_api, mts_user_id: int, from_date: str, to_date: str | None) -> list[dict]:
+    """Page through GET /records for one lecturer.
+
+    Advances by the number of rows actually returned and stops on an empty page: the
+    API may cap a page below the requested size, and treating a short page as the last
+    one would silently drop the rest. The page ceiling guards against an endpoint that
+    ignores ``offset``.
+    """
+    records: list[dict] = []
+    offset = 0
+
+    for _ in range(_MTS_LINK_MAX_RECORD_PAGES):
+        page = await mts_api.list_records(
+            from_date=from_date,
+            to_date=to_date,
+            user_id=mts_user_id,
+            offset=offset,
+            limit=_MTS_LINK_RECORDS_PAGE_SIZE,
+        )
+        if not page:
+            return records
+
+        records.extend(page)
+        offset += len(page)
+        await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
+
+    logger.warning(f"MTS Link record list truncated | {format_details(user_id=mts_user_id, records=len(records))}")
+    return records
+
+
+def _build_mts_link_metadata(
+    record: dict,
+    email: str,
+    mts_user_id: int,
+    download_url: str | None,
+) -> dict:
+    """Build source metadata for an MTS Link online recording.
+
+    ``needs_mp4`` tells the downloader to order a conversion; ``online_size == 0``
+    means the interactive recording is still being assembled on their side.
+    """
+    event_session = record.get("eventSession") or {}
+    event_session_id = event_session.get("id") if isinstance(event_session, dict) else None
+    online_size = int(record.get("size") or 0)
+
+    return {
+        "mts_record_id": record.get("id"),
+        "event_session_id": event_session_id,
+        "mts_user_id": mts_user_id,
+        "mts_user_email": email,
+        "record_link": record.get("link"),
+        "online_size": online_size,
+        "needs_mp4": download_url is None,
+        "conversion_id": None,
+        "conversion_state": None,
+        "download_url": download_url,
+        "source_processing_incomplete": online_size == 0,
+        "extras": {"chat": False, "files_count": 0, "error": None},
+    }
+
+
+async def _sync_mts_link_source(
+    source,
+    credentials: dict,
+    session: AsyncSession,
+    user_id: str,
+    from_date: str,
+    to_date: str | None,
+) -> dict:
+    """Sync online recordings for the lecturers listed on an MTS Link source.
+
+    Discovery only: MP4 conversions are ordered at prepare/run time so sync cannot
+    exhaust the per-employee conversion queue.
+    """
+    from api.mts_link_api import MtsLinkAPIError
+    from api.schemas.template.source_config import MtsLinkSourceConfig
+    from models.mts_link_auth import create_mts_link_client, create_mts_link_credentials
+
+    config = MtsLinkSourceConfig(**(source.config or {}))
+    mts_api = create_mts_link_client(create_mts_link_credentials(credentials))
+
+    template_repo = RecordingTemplateRepository(session)
+    templates = await template_repo.find_matchable_by_user(user_id)
+    user_config_repo = UserConfigRepository(session)
+    user_config = await user_config_repo.get_effective_config(user_id)
+    recording_repo = RecordingRepository(session)
+
+    # GET /records rejects an open-ended range, so a start bound is mandatory.
+    records_from = _mts_link_datetime_bound(from_date, end_of_day=False)
+    if not records_from:
+        raise ValueError("MTS Link sync requires from_date")
+    records_to = _mts_link_datetime_bound(to_date, end_of_day=True)
+
+    found = 0
+    saved_count = 0
+    updated_count = 0
+    errors: list[str] = []
+
+    for email in config.user_emails:
+        try:
+            mts_user_id = await _resolve_mts_link_user_id(mts_api, email)
+            records = await _list_mts_link_records(mts_api, mts_user_id, records_from, records_to)
+        except (MtsLinkAPIError, ValueError) as e:
+            errors.append(f"{email}: {e}")
+            logger.warning(f"MTS Link lecturer sync failed | {format_details(email=email, error=str(e))}")
+            continue
+
+        found += len(records)
+        logger.info(f"MTS Link records | {format_details(email=email, records=len(records))}")
+
+        for record in records:
+            record_id = record.get("id")
+            try:
+                event_session = record.get("eventSession") or {}
+                event_session_id = event_session.get("id") if isinstance(event_session, dict) else None
+
+                download_url = None
+                if event_session_id:
+                    try:
+                        download_url = await mts_api.get_ready_mp4_url(event_session_id)
+                    except MtsLinkAPIError as e:
+                        logger.debug(
+                            f"No converted record yet | {format_details(session_id=event_session_id, error=str(e))}"
+                        )
+                    await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
+
+                source_metadata = _build_mts_link_metadata(record, email, mts_user_id, download_url)
+                display_name = record.get("name") or "Untitled"
+                matched_template = _find_matching_template(display_name, source.id, templates)
+
+                _recording, is_new = await recording_repo.create_or_update(
+                    user_id=user_id,
+                    input_source_id=source.id,
+                    display_name=display_name,
+                    start_time=_parse_mts_link_created_at(record.get("createAt")),
+                    duration=0,
+                    source_type=SourceType.MTS_LINK,
+                    source_key=f"mtslink:record:{record_id}",
+                    source_metadata=source_metadata,
+                    user_config=user_config,
+                    is_mapped=matched_template is not None,
+                    template_id=matched_template.id if matched_template else None,
+                    source_processing_incomplete=False,
+                )
+
+                if is_new:
+                    saved_count += 1
+                else:
+                    updated_count += 1
+
+            except SQLAlchemyError:
+                logger.error(f"MTS Link sync aborted | {format_details(source=source.id, record=record_id)}")
+                raise
+            except Exception as e:
+                logger.warning(f"Failed to save MTS Link record | {format_details(record=record_id, error=str(e))}")
+                continue
+
+    if errors and not found:
+        raise ValueError("; ".join(errors))
+
+    logger.info(
+        f"MTS Link sync | {format_details(source=source.id, found=found, saved=saved_count, updated=updated_count)}"
+    )
+    return {"found": found, "saved": saved_count, "updated": updated_count, "errors": errors}
 
 
 def _normalize_string(s: str, case_sensitive: bool) -> str:

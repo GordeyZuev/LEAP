@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
 import { cn, formatDate, formatDuration, stripLeadingTimestamp } from "@/lib/utils";
+import { formatShareStatsSummary } from "@/lib/share-stats";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { RecordingPoster, RECORDING_TABLE_POSTER } from "@/components/recordings/recording-poster";
 import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW, TABLE_ROW_CORNERS } from "@/lib/table-classes";
@@ -324,6 +325,7 @@ export function RecordingsTable({
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
+                          title={formatShareStatsSummary(r.share_stats) || undefined}
                           className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                         >
                           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-fg">

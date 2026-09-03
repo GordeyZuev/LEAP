@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 export type ProcessingStatus =
   | "PENDING_SOURCE"
+  | "PENDING_CONVERSION"
   | "INITIALIZED"
   | "DOWNLOADING"
   | "DOWNLOADED"
@@ -17,6 +18,7 @@ export type ProcessingStatus =
 
 const STATUS_CONFIG: Record<ProcessingStatus, { label: string; className: string; pulse?: boolean }> = {
   PENDING_SOURCE: { label: "Pending",     className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300" },
+  PENDING_CONVERSION: { label: "Converting", className: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200", pulse: true },
   INITIALIZED:   { label: "Initialized", className: "bg-muted text-muted-foreground" },
   DOWNLOADING:   { label: "Downloading", className: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300", pulse: true },
   DOWNLOADED:    { label: "Downloaded",  className: "bg-muted text-secondary-foreground" },

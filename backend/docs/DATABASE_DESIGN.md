@@ -139,10 +139,10 @@ erDiagram
 
 | Тип | Назначение | Значения (логика приложения) |
 |-----|------------|------------------------------|
-| `processingstatus` | Статус записи | `PENDING_SOURCE`, `INITIALIZED`, `DOWNLOADING`, `DOWNLOADED`, `PROCESSING`, `PROCESSED`, `UPLOADING`, `UPLOADED`, `READY`, `SKIPPED`, `EXPIRED`. Сбой учитывается полями `failed`, `failed_reason`, а не значением `FAILED` в enum |
+| `processingstatus` | Статус записи | `PENDING_SOURCE`, `PENDING_CONVERSION`, `INITIALIZED`, `DOWNLOADING`, `DOWNLOADED`, `PROCESSING`, `PROCESSED`, `UPLOADING`, `UPLOADED`, `READY`, `SKIPPED`, `EXPIRED`. Сбой учитывается полями `failed`, `failed_reason`, а не значением `FAILED` в enum |
 | `processingstagetype` | Этап обработки | `DOWNLOAD`, `TRIM`, `TRANSCRIBE`, `EXTRACT_TOPICS`, `GENERATE_SUBTITLES` (доп. значения могут добавляться миграциями `ALTER TYPE … ADD VALUE`) |
 | `processingstagestatus` | Статус этапа | `PENDING`, `IN_PROGRESS`, `COMPLETED`, `FAILED`, `SKIPPED` |
-| `sourcetype` | Источник | `ZOOM`, `LOCAL_FILE`, `GOOGLE_DRIVE`, `YANDEX_DISK`, `YOUTUBE`, `EXTERNAL_URL`, `OTHER`, … (расширялось в `012`) |
+| `sourcetype` | Источник | `ZOOM`, `MTS_LINK`, `LOCAL_FILE`, `GOOGLE_DRIVE`, `YANDEX_DISK`, `YOUTUBE`, `EXTERNAL_URL`, `OTHER`, … (`MTS_LINK` — миграция `040`) |
 | `targettype` / `targetstatus` | Выгрузка | Типы площадок и статусы загрузки — см. `TargetType`, `TargetStatus` в `models/recording.py` |
 
 Исторические значения enum в PostgreSQL могут сохраняться после миграций; для отчётов и API ориентируйтесь на код модели и фактические данные.

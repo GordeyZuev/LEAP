@@ -19,6 +19,11 @@ def create_downloader(
 
             return ZoomDownloader(user_slug=user_slug, storage_builder=storage_builder)
 
+        case SourceType.MTS_LINK:
+            from .platforms.mtslink.downloader import MtsLinkDownloader
+
+            return MtsLinkDownloader(user_slug=user_slug, storage_builder=storage_builder, **kwargs)
+
         case SourceType.EXTERNAL_URL | SourceType.YOUTUBE:
             from .platforms.ytdlp.downloader import YtDlpDownloader
 

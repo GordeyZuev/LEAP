@@ -119,6 +119,8 @@ export interface UserQuotaDetails {
   is_exceeding: boolean;
   overage_enabled: boolean;
   overage_cost: string;
+  share_views_total: number;
+  share_downloads_total: number;
 }
 
 export interface AdminUserStatsResponse {

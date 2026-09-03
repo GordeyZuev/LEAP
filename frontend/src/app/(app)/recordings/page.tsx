@@ -20,6 +20,7 @@ import {
 import { apiClient } from "@/api/client";
 import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter, Video, LayoutGrid, List } from "lucide-react";
 import { cn, extractApiError } from "@/lib/utils";
+import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
 import { useDebounce } from "@/hooks/use-debounce";
 import { usePageSize } from "@/hooks/use-page-size";
 import { useToast } from "@/hooks/use-toast";
@@ -85,7 +86,7 @@ interface SourceListResponse { items: SourceListItem[]; total: number }
 // ---------------------------------------------------------------------------
 
 const ALL_STATUSES: ProcessingStatus[] = [
-  "PENDING_SOURCE", "INITIALIZED", "DOWNLOADING", "DOWNLOADED",
+  "PENDING_SOURCE", "PENDING_CONVERSION", "INITIALIZED", "DOWNLOADING", "DOWNLOADED",
   "PROCESSING", "PROCESSED", "UPLOADING", "UPLOADED", "READY", "SKIPPED", "EXPIRED",
 ];
 
@@ -919,8 +920,25 @@ function RecordingsContent() {
 
   // --- Mutations ---
   const bulkRun = useMutation({
-    mutationFn: (ids: number[]) => apiClient.post("/recordings/bulk/run", { recording_ids: ids }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["recordings"] }); setSelected(new Set()); showToast("success", "Pipeline started"); },
+    mutationFn: (ids: number[]) =>
+      apiClient.post<{ tasks?: Array<{ task_id?: string | null; awaiting_source?: boolean }> }>(
+        "/recordings/bulk/run",
+        { recording_ids: ids },
+      ),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+      setSelected(new Set());
+      const tasks = res.data?.tasks ?? [];
+      const awaiting = tasks.filter((t) => t.awaiting_source).length;
+      const queued = tasks.filter((t) => t.task_id).length;
+      if (awaiting > 0 && queued === 0) {
+        showToast("info", `${awaiting} recording(s) waiting for MTS Link`);
+      } else if (awaiting > 0) {
+        showToast("info", `Started ${queued}, ${awaiting} awaiting MTS Link`);
+      } else {
+        showToast("success", "Pipeline started");
+      }
+    },
     onError: (e) => showToast("error", extractApiError(e, "Failed to start pipeline")),
   });
 
@@ -945,10 +963,14 @@ function RecordingsContent() {
   });
 
   const singleRun = useMutation({
-    mutationFn: (id: number) => apiClient.post(`/recordings/${id}/run`),
+    mutationFn: (id: number) => apiClient.post<RunOperationResponse>(`/recordings/${id}/run`),
     onMutate: (id) => setLoadingRecordingId(id),
     onSettled: () => setLoadingRecordingId(null),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+      const { kind, text } = runToastMessage(res.data);
+      showToast(kind, text);
+    },
     onError: (e) => showToast("error", extractApiError(e, "Failed to start pipeline")),
   });
 

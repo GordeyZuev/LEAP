@@ -1,6 +1,7 @@
 import axios from "axios";
 
 import { apiClient } from "@/api/client";
+import type { ShareStatsSummary } from "@/lib/share-stats";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -35,6 +36,20 @@ export interface ShareMediaResponse {
   expires_in: number;
 }
 
+export interface ShareDailyPoint {
+  date: string;
+  views: number;
+  downloads: number;
+}
+
+export interface ShareAnalyticsResponse {
+  summary: ShareStatsSummary;
+  daily: ShareDailyPoint[];
+  downloads_by_type: Record<string, number>;
+}
+
+export type { ShareStatsSummary };
+
 // --- Owner endpoints (require auth) ---
 
 export async function createShareLink(recordingId: number): Promise<ShareCreateResponse> {
@@ -44,6 +59,25 @@ export async function createShareLink(recordingId: number): Promise<ShareCreateR
 
 export async function revokeShareLink(recordingId: number): Promise<void> {
   await apiClient.delete(`/recordings/${recordingId}/share`);
+}
+
+export async function fetchShareAnalytics(
+  recordingId: number,
+  days: 7 | 28 = 28,
+): Promise<ShareAnalyticsResponse> {
+  const res = await apiClient.get<ShareAnalyticsResponse>(`/recordings/${recordingId}/share/analytics`, {
+    params: { days },
+  });
+  return res.data;
+}
+
+export async function sendSharePageBeacon(token: string): Promise<void> {
+  const url = `${API_URL}/api/v1/share/${token}/beacon`;
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    navigator.sendBeacon(url);
+    return;
+  }
+  await publicClient.post(`/share/${token}/beacon`);
 }
 
 // --- Public endpoints (no auth required) ---
@@ -64,8 +98,9 @@ export async function getShareMedia(
   return res.data;
 }
 
-export function getShareFileUrl(token: string, fileType: string): string {
-  return `${API_URL}/api/v1/share/${token}/files/${fileType}`;
+export function getShareFileUrl(token: string, fileType: string, inline = false): string {
+  const url = `${API_URL}/api/v1/share/${token}/files/${fileType}`;
+  return inline ? `${url}?inline=true` : url;
 }
 
 /**

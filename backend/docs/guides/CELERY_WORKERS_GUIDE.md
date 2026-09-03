@@ -52,8 +52,8 @@ flowchart LR
 | `processing_cpu` | `api.tasks.processing.trim_video` |
 | `downloads` | `api.tasks.processing.download_recording` |
 | `uploads` | `api.tasks.upload.*` (`upload_recording_to_platform`, `batch_upload_recordings`) |
-| `async_operations` | `api.tasks.processing.transcribe_recording`, `extract_topics`, `generate_subtitles`, `batch_transcribe_recording`, `run_recording`, `launch_uploads`; `api.tasks.template.*`; `api.tasks.sync.*`; `automation.*` (`automation.run_job`, `automation.dry_run`) |
-| `maintenance` | `maintenance.*` — `cleanup_expired_tokens`, `auto_expire_recordings`, `cleanup_recording_files`, `hard_delete_recordings` |
+| `async_operations` | `api.tasks.processing.transcribe_recording`, `extract_topics`, `generate_subtitles`, `batch_transcribe_recording`, `run_recording`, `launch_uploads`, `finalize_pipeline`; `api.tasks.template.*`; `api.tasks.sync.*`; `automation.*` (`automation.run_job`, `automation.dry_run`) |
+| `maintenance` | `maintenance.*` — `cleanup_expired_tokens`, `auto_expire_recordings`, `cleanup_recording_files`, `hard_delete_recordings`; `celery.backend_cleanup` |
 
 **Зачем отдельные `downloads` и `uploads`:** изоляция сетевой полосы и долгих передач от остального I/O пайплайна (см. комментарии в `api/celery_app.py`).
 
@@ -111,7 +111,7 @@ make flower   # http://localhost:5555
 
 ## Отличия Docker Compose
 
-В `docker-compose.yml` один контейнер `celery_worker` слушает **все** очереди (`downloads,uploads,async_operations,processing_cpu,maintenance`) с `--concurrency=8`, **без** `--pool` → используется pool по умолчанию Celery (**prefork**). В Makefile сетевые и пайплайновые очереди обрабатываются **threads**-воркерами. Для продакшена при необходимости выровняйте схему (несколько сервисов с `-Q` и нужным `--pool`, как в Makefile).
+В `docker-compose.yml` один контейнер `celery_worker` слушает все рабочие очереди (`downloads,uploads,async_operations,processing_cpu,maintenance`) и временно legacy-очередь `celery`, с `--concurrency=8`, **без** `--pool` → используется pool по умолчанию Celery (**prefork**). Legacy-подписка нужна, чтобы забрать сообщения, опубликованные до явной маршрутизации `finalize_pipeline` и `celery.backend_cleanup`; её можно удалить после устойчивого нулевого backlog. В Makefile сетевые и пайплайновые очереди обрабатываются **threads**-воркерами.
 
 ---
 

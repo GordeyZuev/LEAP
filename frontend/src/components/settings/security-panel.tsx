@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { LogOut, Monitor, Save, Trash2, X } from "lucide-react";
 import { apiClient } from "@/api/client";
-import { cn, extractApiError, formatRelative } from "@/lib/utils";
+import { cn, extractApiError, formatDate, formatRelative } from "@/lib/utils";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -23,7 +23,6 @@ import {
   type SessionInfo,
 } from "@/api/sessions";
 import { SectionCard } from "./shared";
-import { sessionDetail } from "./format";
 
 /**
  * Password field with its own error slot.
@@ -237,9 +236,9 @@ export function SecurityPanel() {
             {sessions.map((s) => (
               <li
                 key={s.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
+                className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3"
               >
-                <div className="flex min-w-0 items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                   <div className="shrink-0 rounded-lg bg-muted p-2 text-secondary-foreground">
                     <Monitor size={16} />
                   </div>
@@ -254,10 +253,11 @@ export function SecurityPanel() {
                         </span>
                       )}
                     </div>
+                    {/* Sign-in date, not a second browser string: `device_label`
+                        above already names the browser, and the date is what
+                        actually tells two sessions of the same browser apart. */}
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      {[sessionDetail(s.user_agent), `last active ${formatRelative(s.last_used_at) || "—"}`]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      {`signed in ${formatDate(s.created_at)} · last active ${formatRelative(s.last_used_at) || "—"}`}
                     </p>
                   </div>
                 </div>
@@ -267,7 +267,7 @@ export function SecurityPanel() {
                     variant="secondary"
                     onClick={() => setRevokeTarget(s)}
                     icon={<X />}
-                    className="shrink-0"
+                    className="ml-auto shrink-0"
                   >
                     Revoke
                   </ActionButton>
@@ -356,12 +356,9 @@ export function SecurityPanel() {
       <ConfirmDialog
         open={revokeTarget !== null}
         title="Revoke this session?"
-        description={`${[
-          revokeTarget?.device_label || "Unknown device",
-          revokeTarget ? sessionDetail(revokeTarget.user_agent) : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")} will be signed out on its next request.`}
+        description={`${revokeTarget?.device_label || "Unknown device"}, signed in ${formatDate(
+          revokeTarget?.created_at,
+        )}, will be signed out on its next request.`}
         confirmLabel="Revoke"
         confirmIcon={<X />}
         pendingLabel="Revoking…"

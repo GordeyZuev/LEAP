@@ -121,7 +121,9 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
             # Only unmapped (SKIPPED/PENDING_SOURCE) recordings
             query = query.where(
                 RecordingModel.is_mapped == False,  # noqa: E712
-                RecordingModel.status.in_([ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]),
+                RecordingModel.status.in_(
+                    [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE, ProcessingStatus.PENDING_CONVERSION]
+                ),
             )
 
         query = query.order_by(RecordingModel.created_at.desc())
@@ -160,12 +162,12 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
                     recording.template_id = template.id
                     await template_repo.increment_usage(template)
 
-                    # Keep PENDING_SOURCE status if source is still processing
-                    if old_status != ProcessingStatus.PENDING_SOURCE:
+                    # Keep pending MTS statuses while source/conversion is not ready
+                    if old_status in (ProcessingStatus.PENDING_SOURCE, ProcessingStatus.PENDING_CONVERSION):
+                        new_status = old_status
+                    else:
                         recording.status = ProcessingStatus.INITIALIZED
                         new_status = ProcessingStatus.INITIALIZED
-                    else:
-                        new_status = ProcessingStatus.PENDING_SOURCE
 
                     updated_count += 1
                     updated_recording_ids.append(recording.id)

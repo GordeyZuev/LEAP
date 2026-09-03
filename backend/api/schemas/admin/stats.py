@@ -18,6 +18,9 @@ class AdminOverviewStats(BaseModel):
     total_plans: int = Field(..., description="Total plans")
     users_by_plan: dict[str, int] = Field(..., description="Distribution of users by plans")
     exceeding_users_count: int = Field(0, description="Users currently exceeding recordings quota")
+    total_share_views: int = Field(0, description="Total public share page views (all time)")
+    total_share_downloads: int = Field(0, description="Total public share downloads (all time)")
+    active_share_links: int = Field(0, description="Recordings with an active share token")
 
 
 class UserQuotaDetails(BaseModel):
@@ -33,6 +36,8 @@ class UserQuotaDetails(BaseModel):
     is_exceeding: bool = Field(..., description="Are quotas exceeded")
     overage_enabled: bool
     overage_cost: Decimal = Field(default=Decimal("0"))
+    share_views_total: int = Field(0, description="Total share views across user's recordings")
+    share_downloads_total: int = Field(0, description="Total share downloads across user's recordings")
 
 
 class AdminUserStats(BaseModel):

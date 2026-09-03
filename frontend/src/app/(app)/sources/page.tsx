@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { cloneElement, isValidElement, useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Pencil, Trash2, X, Database } from "lucide-react";
 import { cn, extractApiError } from "@/lib/utils";
@@ -27,7 +27,7 @@ import { ResultCount } from "@/components/ui/result-count";
 import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker";
 import { PER_PAGE_SOURCES, TOAST_SHORT } from "@/lib/constants";
 
-type SourceType = "ZOOM" | "YANDEX_DISK" | "VIDEO_URL";
+type SourceType = "ZOOM" | "MTS_LINK" | "YANDEX_DISK" | "VIDEO_URL";
 
 interface SourceItem {
   id: number;
@@ -62,6 +62,12 @@ interface SourceForm {
   // ZOOM config
   zoom_user_emails: string;
   zoom_is_master: boolean;
+  // MTS_LINK config
+  mts_user_emails: string;
+  mts_conversion_quality: string;
+  mts_conversion_view: string;
+  mts_fetch_chat: boolean;
+  mts_fetch_session_files: boolean;
   // YANDEX_DISK config
   yd_folder_path: string;
   yd_public_url: string;
@@ -81,6 +87,11 @@ const DEFAULT_FORM: SourceForm = {
   credential_id: "",
   zoom_user_emails: "",
   zoom_is_master: false,
+  mts_user_emails: "",
+  mts_conversion_quality: "720",
+  mts_conversion_view: "none",
+  mts_fetch_chat: true,
+  mts_fetch_session_files: true,
   yd_folder_path: "",
   yd_public_url: "",
   yd_use_public: false,
@@ -93,6 +104,7 @@ const DEFAULT_FORM: SourceForm = {
 
 const SOURCE_TYPE_LABELS: Record<string, string> = {
   ZOOM:        "Zoom",
+  MTS_LINK:    "MTS Link",
   YANDEX_DISK: "Yandex Disk",
   VIDEO_URL:   "Video URL",
   LOCAL:       "Local",
@@ -100,9 +112,23 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
 
 const SOURCE_TYPE_COLORS: Record<string, string> = {
   ZOOM:        "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
+  MTS_LINK:    "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
   YANDEX_DISK: "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300",
   VIDEO_URL:   "bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300",
 };
+
+const MTS_QUALITY_OPTIONS = [
+  { value: "720",  label: "720p" },
+  { value: "1080", label: "1080p" },
+];
+
+/** MTS Link renders one fixed layout into the MP4; plain wording beats their API values. */
+const MTS_VIEW_OPTIONS = [
+  { value: "none",      label: "Speakers only" },
+  { value: "chat",      label: "Speakers and chat" },
+  { value: "questions", label: "Speakers and questions" },
+  { value: "minichat",  label: "Speakers and small chat" },
+];
 
 const SORT_OPTIONS = [
   { value: "name",         label: "Name" },
@@ -114,7 +140,7 @@ const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 
 /** Filter options come from the known types, not from the loaded page — with
  *  server-side paging the page no longer contains every type in use. */
-const TYPE_OPTIONS = (["ZOOM", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] as const).map((t) => ({
+const TYPE_OPTIONS = (["ZOOM", "MTS_LINK", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] as const).map((t) => ({
   value: t as string,
   label: SOURCE_TYPE_LABELS[t],
 }));
@@ -137,6 +163,14 @@ function buildSourceBody(form: SourceForm) {
       user_emails: form.zoom_is_master && form.zoom_user_emails
         ? form.zoom_user_emails.split("\n").map((s) => s.trim()).filter(Boolean)
         : undefined,
+    };
+  } else if (form.platform === "MTS_LINK") {
+    body.config = {
+      user_emails: form.mts_user_emails.split("\n").map((s) => s.trim()).filter(Boolean),
+      conversion_quality: form.mts_conversion_quality,
+      conversion_view: form.mts_conversion_view,
+      fetch_chat: form.mts_fetch_chat,
+      fetch_session_files: form.mts_fetch_session_files,
     };
   } else if (form.platform === "YANDEX_DISK") {
     body.config = {
@@ -261,6 +295,11 @@ export default function SourcesPage() {
       credential_id: s.credential_id ?? "",
       zoom_user_emails: (cfg.user_emails as string[] | undefined)?.join("\n") ?? "",
       zoom_is_master: (cfg.is_master_account as boolean | undefined) ?? false,
+      mts_user_emails: (cfg.user_emails as string[] | undefined)?.join("\n") ?? "",
+      mts_conversion_quality: (cfg.conversion_quality as string | undefined) ?? "720",
+      mts_conversion_view: (cfg.conversion_view as string | undefined) ?? "none",
+      mts_fetch_chat: (cfg.fetch_chat as boolean | undefined) ?? true,
+      mts_fetch_session_files: (cfg.fetch_session_files as boolean | undefined) ?? true,
       yd_folder_path: (cfg.folder_path as string | undefined) ?? "",
       yd_public_url: (cfg.public_url as string | undefined) ?? "",
       yd_use_public: !!(cfg.public_url),
@@ -277,6 +316,10 @@ export default function SourcesPage() {
 
   function handleSubmit() {
     if (!form.name) { setFormError("Name is required"); return; }
+    if (form.platform === "MTS_LINK") {
+      if (!form.credential_id) { setFormError("Credential is required"); return; }
+      if (!form.mts_user_emails.trim()) { setFormError("At least one lecturer email is required"); return; }
+    }
     if (form.platform === "YANDEX_DISK") {
       if (form.yd_use_public) {
         if (!form.yd_public_url.trim()) {
@@ -300,6 +343,7 @@ export default function SourcesPage() {
 
   const credsByPlatform = (credsData?.items ?? []).filter((c) => {
     if (form.platform === "ZOOM") return c.platform === "zoom";
+    if (form.platform === "MTS_LINK") return c.platform === "mts_link";
     if (form.platform === "YANDEX_DISK") return c.platform === "yandex_disk";
     return false;
   });
@@ -489,10 +533,10 @@ export default function SourcesPage() {
               {!editingSource && (
                 <MF label="Type">
                   <div className="flex gap-2">
-                    {(["ZOOM", "YANDEX_DISK", "VIDEO_URL"] as SourceType[]).map((t) => (
+                    {(["ZOOM", "MTS_LINK", "YANDEX_DISK", "VIDEO_URL"] as SourceType[]).map((t) => (
                       <button key={t} type="button"
                         onClick={() => setForm((f) => ({ ...f, platform: t, credential_id: "" }))}
-                        className={cn("flex-1 py-2 rounded-xl text-xs font-medium border transition-colors",
+                        className={cn("flex-1 py-2 rounded-xl text-xs font-medium border transition-colors active:scale-[0.96]",
                           form.platform === t ? "bg-primary text-white border-primary" : "bg-card text-secondary-foreground border-border hover:bg-muted"
                         )}
                       >
@@ -526,6 +570,27 @@ export default function SourcesPage() {
                       <textarea value={form.zoom_user_emails} onChange={(e) => setForm((f) => ({ ...f, zoom_user_emails: e.target.value }))} rows={3} placeholder="user@example.com" className={cn(inp, "resize-none")} />
                     </MF>
                   )}
+                </>
+              )}
+
+              {/* MTS_LINK config */}
+              {form.platform === "MTS_LINK" && (
+                <>
+                  <MF label="Lecturer emails *" hint="One per line. The API key covers the whole organization, so only these people are synced.">
+                    <textarea value={form.mts_user_emails} onChange={(e) => setForm((f) => ({ ...f, mts_user_emails: e.target.value }))} rows={3} placeholder="lecturer@example.com" className={cn(inp, "resize-none")} />
+                  </MF>
+                  <MF label="Video quality" hint="MTS Link makes the MP4 when you download a recording.">
+                    <NativeSelect value={form.mts_conversion_quality} onChange={(e) => setForm((f) => ({ ...f, mts_conversion_quality: e.target.value }))}>
+                      {MTS_QUALITY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </NativeSelect>
+                  </MF>
+                  <MF label="What the video shows" hint="Chosen once and burned into the picture, so it cannot be changed afterwards.">
+                    <NativeSelect value={form.mts_conversion_view} onChange={(e) => setForm((f) => ({ ...f, mts_conversion_view: e.target.value }))}>
+                      {MTS_VIEW_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </NativeSelect>
+                  </MF>
+                  <Toggle label="Save chat as a file" hint="Text log next to the video, separate from the picture." checked={form.mts_fetch_chat} onChange={(v) => setForm((f) => ({ ...f, mts_fetch_chat: v }))} />
+                  <Toggle label="Save presentations and files" hint="Anything uploaded to the session, such as slides or PDFs." checked={form.mts_fetch_session_files} onChange={(v) => setForm((f) => ({ ...f, mts_fetch_session_files: v }))} />
                 </>
               )}
 
@@ -598,12 +663,19 @@ export default function SourcesPage() {
 
 const inp = "w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors";
 
+/** Labelled form row. Injects the generated id into the control the way `ui/field.tsx`
+ *  does, so the label actually names it, while keeping this dialog's label styling. */
 function MF({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const control = isValidElement<{ id?: string; "aria-describedby"?: string }>(children)
+    ? cloneElement(children, { id, "aria-describedby": hint ? hintId : undefined })
+    : children;
   return (
     <div>
-      <label className="block text-sm font-medium text-secondary-foreground mb-1.5">{label}</label>
-      {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
-      {children}
+      <label htmlFor={id} className="block text-sm font-medium text-secondary-foreground mb-1.5">{label}</label>
+      {hint && <p id={hintId} className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
+      {control}
     </div>
   );
 }

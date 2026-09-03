@@ -1,5 +1,6 @@
 """S3-compatible object storage backend (AWS S3, Yandex Object Storage, MinIO)."""
 
+import mimetypes
 from pathlib import Path
 
 import aioboto3
@@ -9,6 +10,14 @@ from file_storage.backends.base import StorageBackend
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _upload_extra_args(path: str) -> dict[str, str]:
+    """Return browser-safe object metadata inferred from the logical key."""
+    content_type, _encoding = mimetypes.guess_type(path)
+    if not content_type:
+        return {}
+    return {"ContentType": content_type}
 
 
 class S3StorageBackend(StorageBackend):
@@ -53,7 +62,7 @@ class S3StorageBackend(StorageBackend):
     async def save(self, path: str, content: bytes) -> str:
         key = self._key(path)
         async with self._client() as s3:
-            await s3.put_object(Bucket=self.bucket, Key=key, Body=content)
+            await s3.put_object(Bucket=self.bucket, Key=key, Body=content, **_upload_extra_args(path))
         return path
 
     async def load(self, path: str) -> bytes:
@@ -106,7 +115,9 @@ class S3StorageBackend(StorageBackend):
         """Upload a local file using multipart (automatic for large files)."""
         key = self._key(path)
         async with self._client() as s3:
-            await s3.upload_file(str(local_path), self.bucket, key)
+            extra_args = _upload_extra_args(path)
+            kwargs = {"ExtraArgs": extra_args} if extra_args else {}
+            await s3.upload_file(str(local_path), self.bucket, key, **kwargs)
         return path
 
     async def download_to_file(self, path: str, local_path: Path) -> None:

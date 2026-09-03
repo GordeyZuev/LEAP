@@ -55,6 +55,22 @@ class StoragePathBuilder:
         """Extracted audio: .../recordings/74/audio.mp3"""
         return self.recording_root(user_slug, recording_id) / "audio.mp3"
 
+    def recording_source_extras_dir(self, user_slug: int, recording_id: int) -> Path:
+        """Companion files fetched alongside the source video: .../recordings/74/source_extras"""
+        return self.recording_root(user_slug, recording_id) / "source_extras"
+
+    def recording_source_chat(self, user_slug: int, recording_id: int) -> Path:
+        """Source chat log: .../recordings/74/source_extras/chat.json"""
+        return self.recording_source_extras_dir(user_slug, recording_id) / "chat.json"
+
+    def recording_source_files_manifest(self, user_slug: int, recording_id: int) -> Path:
+        """Index of downloaded attachments: .../recordings/74/source_extras/files_manifest.json"""
+        return self.recording_source_extras_dir(user_slug, recording_id) / "files_manifest.json"
+
+    def recording_source_file(self, user_slug: int, recording_id: int, filename: str) -> Path:
+        """One source attachment: .../recordings/74/source_extras/files/<filename>"""
+        return self.recording_source_extras_dir(user_slug, recording_id) / "files" / filename
+
     def transcription_dir(self, user_slug: int, recording_id: int) -> Path:
         return self.recording_root(user_slug, recording_id) / "transcriptions"
 

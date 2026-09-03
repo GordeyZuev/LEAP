@@ -10,7 +10,9 @@ import {
   Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2,
 } from "lucide-react";
 import { cn, formatDate, formatDateTimeShort, formatDuration, extractApiError } from "@/lib/utils";
-import { apiClient } from "@/api/client";
+import type { ShareStatsSummary } from "@/lib/share-stats";
+import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
+import { apiClient, resolveStorageUrl } from "@/api/client";
 import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { CANONICAL_STAGE_ORDER, PipelineStageList, formatFailedStage, normalizeStageType } from "@/components/recordings/pipeline-stages";
@@ -24,17 +26,30 @@ import { ArtefactList, type ArtefactItem } from "@/components/recordings/artefac
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { AIContentEditor } from "@/components/recordings/ai-content-editor";
 import { ShareModal } from "@/components/recordings/share-modal";
+import { ShareStatsLine } from "@/components/recordings/share-stats-line";
 import { TemplateField } from "@/components/platforms/platform-fields";
 import { POLL_INTERVAL_DETAIL, needsActivePoll } from "@/lib/constants";
 import { VideoPlayer, type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
+import { recordingResumeKey } from "@/lib/video-resume";
 import { Toast } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+function mtsMp4SidebarLabel(
+  status: string,
+  meta: Record<string, unknown> | undefined,
+): string | null {
+  if (meta?.needs_mp4 !== true) return null;
+  if (status === "PENDING_CONVERSION") {
+    const progress = meta.conversion_progress;
+    return typeof progress === "number" ? `Converting on MTS Link (${progress}%)` : "Converting on MTS Link";
+  }
+  if (status === "PENDING_SOURCE") {
+    return "Assembling on MTS Link";
+  }
+  return "Requested on Run (not /download)";
+}
 
 interface ProcessingStage {
   stage_type: string;
@@ -64,6 +79,19 @@ interface SourceResponse {
   source_type: string;
   source_key: string;
   metadata: Record<string, unknown>;
+}
+
+interface SourceExtraFile {
+  name: string;
+  extension: string;
+  size: number | null;
+  url: string;
+}
+
+interface SourceExtrasResponse {
+  chat: SourceExtraFile | null;
+  files: SourceExtraFile[];
+  expires_in: number;
 }
 
 interface TopicTimestamp {
@@ -144,6 +172,7 @@ interface RecordingDetail {
   transcription?: TranscriptionDetail | null;
   upload_summary?: { total: number; uploaded: number; failed: number; partial: boolean } | null;
   share_token?: string | null;
+  share_stats?: ShareStatsSummary | null;
 }
 
 interface RecordingConfigResponse {
@@ -241,12 +270,20 @@ const PAGE_ROOT = "w-full min-w-0 max-w-[110rem] p-6 sm:p-8";
 /** Shared by the loaded page and its skeleton so column order cannot drift. */
 const DETAIL_COLUMNS = "flex flex-col gap-6 lg:flex-row lg:items-start";
 const DETAIL_MAIN = "min-w-0 flex-1 space-y-6";
+const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
+
+async function fetchRecordingMediaUrl(recordingId: string, variant: "processed" | "original") {
+  const res = await apiClient.get<{ url: string; expires_in: number }>(
+    `/recordings/${recordingId}/media?type=${variant}`,
+  );
+  return res.data.url;
+}
 const DETAIL_SIDEBAR = "order-first w-full space-y-6 lg:order-none lg:w-80 lg:shrink-0";
 
 /** Section labels — one source for cards and the loading shell. */
 const RECORDING_SECTION = {
   video: "Video",
-  description: "Description",
+  description: "Overview",
   chapters: "Chapters & summary",
   configuration: "Configuration",
   controlPanel: "Control panel",
@@ -288,7 +325,7 @@ function deriveIngressLifecycle(recording: RecordingDetail): { phase: LifecycleP
     return { phase: "failed", hint: recording.failed_reason ?? undefined };
   }
   if (st === "DOWNLOADING") return { phase: "active" };
-  if (st === "PENDING_SOURCE" || st === "INITIALIZED") return { phase: "pending" };
+  if (st === "PENDING_SOURCE" || st === "PENDING_CONVERSION" || st === "INITIALIZED") return { phase: "pending" };
   if (st === "EXPIRED") return { phase: "skipped", hint: "Recording is unavailable or expired" };
   if (["DOWNLOADED", "PROCESSING", "PROCESSED", "UPLOADING", "UPLOADED", "READY", "SKIPPED"].includes(st)) {
     return { phase: "done" };
@@ -388,12 +425,16 @@ function PlatformOutputRow({
 
 function SharePublicationRow({
   shareToken,
+  shareStats,
   onManage,
 }: {
   shareToken: string | null;
+  shareStats: ShareStatsSummary | null | undefined;
   onManage: () => void;
 }) {
   const active = !!shareToken;
+  const hasHistory =
+    (shareStats?.view_count ?? 0) > 0 || (shareStats?.download_count ?? 0) > 0;
   const Icon = active ? CheckCircle2 : Clock;
   const statusColor = active ? "text-success-fg" : "text-muted-foreground";
 
@@ -404,19 +445,25 @@ function SharePublicationRow({
         <span className="text-xs font-semibold text-foreground">LEAP public link</span>
         <p className={cn("text-xs", statusColor)}>{active ? "Active" : "Not shared"}</p>
         {active && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-            <a
-              href={`/share/${shareToken}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={PUBLICATION_LINK}
-            >
-              Open <ExternalLink size={10} />
-            </a>
-            <button type="button" onClick={onManage} className={PUBLICATION_TEXT_ACTION}>
-              Manage
-            </button>
-          </div>
+          <>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <a
+                href={`/share/${shareToken}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={PUBLICATION_LINK}
+              >
+                Open <ExternalLink size={10} />
+              </a>
+              <button type="button" onClick={onManage} className={PUBLICATION_TEXT_ACTION}>
+                Manage
+              </button>
+            </div>
+            <ShareStatsLine stats={shareStats} className="mt-1.5" />
+          </>
+        )}
+        {!active && hasHistory && (
+          <ShareStatsLine stats={shareStats} className="mt-1.5" />
         )}
       </div>
       {!active && (
@@ -427,7 +474,7 @@ function SharePublicationRow({
           icon={<Share2 size={10} />}
           className="shrink-0 px-2 py-0.5 text-xs hover:border-primary hover:bg-primary hover:text-white"
         >
-          Create link
+          {hasHistory ? "Manage" : "Create link"}
         </ActionButton>
       )}
     </div>
@@ -447,12 +494,8 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
 }>(function RecordingVideoPlayer({ recordingId, variant, vttBlobUrl, markers, onTimeUpdate }, ref) {
   const { data: src, isLoading: loading, isError, refetch } = useQuery({
     queryKey: ["recording-media", recordingId, variant],
-    queryFn: async () => {
-      const res = await apiClient.get<{ url: string; expires_in: number }>(
-        `/recordings/${recordingId}/media?type=${variant}`,
-      );
-      return res.data.url;
-    },
+    queryFn: () => fetchRecordingMediaUrl(recordingId, variant),
+    staleTime: MEDIA_URL_STALE_MS,
   });
 
   if (loading) {
@@ -477,6 +520,8 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
     <VideoPlayer
       ref={ref}
       src={src}
+      resumeKey={recordingResumeKey(recordingId, variant)}
+      onReload={() => refetch()}
       vttBlobUrl={vttBlobUrl}
       markers={markers}
       onTimeUpdate={onTimeUpdate}
@@ -524,6 +569,15 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     queryFn: async () => (await apiClient.get<RecordingConfigResponse>(`/recordings/${id}/config`)).data,
   });
 
+  // Companion files saved from the source. Absent for most sources, so a failure here
+  // must not surface as a page error — the section simply stays hidden.
+  const { data: extras } = useQuery<SourceExtrasResponse>({
+    queryKey: ["recording", id, "source-extras"],
+    queryFn: async () => (await apiClient.get<SourceExtrasResponse>(`/recordings/${id}/source-extras`)).data,
+    staleTime: 60_000,
+    retry: false,
+  });
+
   const { data: recording, isLoading, error, refetch } = useQuery<RecordingDetail>({
     queryKey: ["recording", id],
     queryFn: async () => {
@@ -538,13 +592,21 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     refetchIntervalInBackground: false,
   });
 
+  useQuery({
+    queryKey: ["recording-media", id, "processed"],
+    queryFn: () => fetchRecordingMediaUrl(id, "processed"),
+    staleTime: MEDIA_URL_STALE_MS,
+    retry: false,
+  });
+
   const shareToken = shareTokenOverride !== undefined ? shareTokenOverride : (recording?.share_token ?? null);
 
   const run = useMutation({
-    mutationFn: () => apiClient.post(`/recordings/${id}/run`),
-    onSuccess: () => {
+    mutationFn: () => apiClient.post<RunOperationResponse>(`/recordings/${id}/run`),
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["recording", id] });
-      showToast("success", "Pipeline started");
+      const { kind, text } = runToastMessage(res.data);
+      showToast(kind, text);
     },
     onError: (e) => showToast("error", extractApiError(e, "Failed to start pipeline")),
   });
@@ -838,9 +900,50 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     }
   }
 
+  /**
+   * Videos are hundreds of MB, so unlike `downloadArtifact` this never buffers
+   * the body: the presigned URL already carries `Content-Disposition:
+   * attachment`, letting the browser stream it from Object Storage to disk.
+   */
+  async function downloadVideo(variant: "processed" | "original") {
+    setMediaDownloadError(null);
+    try {
+      const res = await apiClient.get(`/recordings/${id}/media`, { params: { type: variant, download: true } });
+      const a = document.createElement("a");
+      // S3 hands back an absolute presigned URL; the LOCAL backend returns a
+      // relative stream path that has to be resolved against the API origin.
+      a.href = resolveStorageUrl(res.data.url);
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setMediaDownloadError(typeof detail === "string" ? detail : "Failed to download video");
+    }
+  }
+
   const dlStem = `recording-${recording.id}`;
 
+  // Chat and materials pulled from the source (MTS Link). Presigned links, so they are
+  // plain download anchors rather than authenticated fetches. resolveStorageUrl matters
+  // for the LOCAL backend, whose "presigned" URL is a relative API path.
+  const sourceExtras: ArtefactItem[] = [
+    ...(extras?.chat
+      ? [{ type: "source_chat" as const, href: resolveStorageUrl(extras.chat.url), key: "source_chat" }]
+      : []),
+    ...(extras?.files ?? []).map((file, i) => ({
+      type: "source_file" as const,
+      href: resolveStorageUrl(file.url),
+      label: file.name,
+      extension: file.extension,
+      key: `source_file_${i}`,
+    })),
+  ];
+
   const artefacts: ArtefactItem[] = [
+    ...(hasProcessedVid ? [{ type: "video_processed" as const, onDownload: () => downloadVideo("processed") }] : []),
+    ...(hasOriginalVid ? [{ type: "video_original" as const, onDownload: () => downloadVideo("original") }] : []),
     ...(recording.transcription?.exists
       ? [
           { type: "transcript_json" as const, onDownload: () => downloadArtifact("transcript_json", `${dlStem}_transcript.json`) },
@@ -987,7 +1090,31 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             )}
           </SectionCard>
 
-          {/* Description. The subtitle carries only the rendered upload title:
+          {/* Chapters & summary — the generated content is what the page is for,
+              so it sits directly under the player, ahead of the description.
+              Open by default: the chapter list is the page's most useful
+              control, and the player's chapter-following writes into refs that
+              only exist while this card is expanded. */}
+          {showTopics && activeTopicVersion && (
+            <CollapsibleCard title={RECORDING_SECTION.chapters} defaultOpen>
+              <AIContentEditor
+                recordingId={Number(id)}
+                version={activeTopicVersion}
+                onUpdated={() => {
+                  qc.invalidateQueries({ queryKey: ["recording", id] });
+                }}
+                onSeek={(t) => {
+                  if (videoRef.current) {
+                    videoRef.current.currentTime = t;
+                    videoRef.current.play().catch(() => {});
+                  }
+                }}
+                activeChapterIdx={activeChapterIdx}
+              />
+            </CollapsibleCard>
+          )}
+
+          {/* Overview. The subtitle carries only the rendered upload title:
               falling back to display_name would just repeat the <h1> above. */}
           {(displayDescription || queriedTitle || descriptionLoading) && (
             <CollapsibleCard
@@ -1031,7 +1158,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       onChange={(v) => { setDescDraft(v); setDescIsTemplate(v.includes("{{")); }}
                       multiline
                       rows={8}
-                      placeholder="Description template…"
+                      placeholder="Overview template…"
                     />
                   ) : (
                     <textarea
@@ -1040,7 +1167,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       onChange={(e) => { setDescDraft(e.target.value); setDescIsTemplate(e.target.value.includes("{{")); }}
                       rows={8}
                       className="w-full resize-none rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm outline-none focus:border-primary"
-                      placeholder="Description…"
+                      placeholder="Overview…"
                     />
                   )}
                   <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1103,28 +1230,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   {displayDescription}
                 </p>
               )}
-            </CollapsibleCard>
-          )}
-
-          {/* Chapters & summary — open by default: the chapter list is the page's
-              most useful control, and the player's chapter-following writes
-              into refs that only exist while this card is expanded. */}
-          {showTopics && activeTopicVersion && (
-            <CollapsibleCard title={RECORDING_SECTION.chapters} defaultOpen>
-              <AIContentEditor
-                recordingId={Number(id)}
-                version={activeTopicVersion}
-                onUpdated={() => {
-                  qc.invalidateQueries({ queryKey: ["recording", id] });
-                }}
-                onSeek={(t) => {
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = t;
-                    videoRef.current.play().catch(() => {});
-                  }
-                }}
-                activeChapterIdx={activeChapterIdx}
-              />
             </CollapsibleCard>
           )}
 
@@ -1352,6 +1457,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               {recording.source?.source_type && (
                 <SidebarInfoRow label="Source"   value={recording.source.source_type} />
               )}
+              {(() => {
+                const mp4Label = mtsMp4SidebarLabel(recording.status, recording.source?.metadata);
+                return mp4Label ? <SidebarInfoRow label="MP4" value={mp4Label} /> : null;
+              })()}
               <SidebarInfoRow label="Date"     value={formatDate(recording.start_time)} />
               {recording.duration > 0 && (
                 <SidebarInfoRow label="Duration" value={formatDuration(recording.duration) ?? "—"} />
@@ -1388,7 +1497,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             )}
             <div className="space-y-4">
               <div className="rounded-xl border border-primary/20 bg-primary/[0.04] px-3">
-                <SharePublicationRow shareToken={shareToken} onManage={() => setShareOpen(true)} />
+                <SharePublicationRow
+                  shareToken={shareToken}
+                  shareStats={recording.share_stats}
+                  onManage={() => setShareOpen(true)}
+                />
               </div>
               {recording.outputs.length > 0 && (
                 <div>
@@ -1411,16 +1524,30 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             </div>
           </SectionCard>
 
-          {/* Downloads */}
-          {artefacts.length > 0 && (
-            <SectionCard title={RECORDING_SECTION.files} density="compact">
+          {/* Files — also shown when only source companions survive, e.g. after a
+              reset removed the video, so those files stay reachable. */}
+          {(artefacts.length > 0 || sourceExtras.length > 0) && (
+            <CollapsibleCard title={RECORDING_SECTION.files} defaultOpen={false}>
+              {hasVideoFiles && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Processed is the pipeline output; original is the source file as ingested.
+                </p>
+              )}
               {mediaDownloadError && (
                 <div role="alert" className="mb-2 rounded-lg border border-danger-fg/20 bg-danger-fg/10 px-3 py-2 text-xs text-danger-fg">
                   {mediaDownloadError}
                 </div>
               )}
               <ArtefactList items={artefacts} />
-            </SectionCard>
+              {sourceExtras.length > 0 && (
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    From the source
+                  </p>
+                  <ArtefactList items={sourceExtras} />
+                </div>
+              )}
+            </CollapsibleCard>
           )}
 
           {/* Pipeline — collapsible, auto-expands when processing is active */}
@@ -1429,10 +1556,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       </div>
 
       <ShareModal
+        key={`${recording.id}-${shareToken ?? "none"}`}
         open={shareOpen}
         onClose={() => setShareOpen(false)}
         recordingId={recording.id}
         initialToken={shareToken}
+        shareStats={recording.share_stats ?? null}
         onTokenChange={setShareTokenOverride}
         onToast={(msg, variant) => showToast(variant === "error" ? "error" : "success", msg)}
       />
@@ -1622,10 +1751,6 @@ function RecordingDetailSkeleton() {
             <Skeleton className="aspect-video w-full rounded-xl" />
           </SectionCard>
 
-          <CollapsibleCard title={RECORDING_SECTION.description} open={false}>
-            {null}
-          </CollapsibleCard>
-
           <CollapsibleCard title={RECORDING_SECTION.chapters} open>
             <div className="space-y-3">
               <Skeleton className="h-3 w-2/5" />
@@ -1636,6 +1761,14 @@ function RecordingDetailSkeleton() {
                   <Skeleton key={i} className="h-8 w-full rounded-lg" />
                 ))}
               </div>
+            </div>
+          </CollapsibleCard>
+
+          <CollapsibleCard title={RECORDING_SECTION.description} open={false}>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
+              <Skeleton className="h-3 w-3/5" />
             </div>
           </CollapsibleCard>
 

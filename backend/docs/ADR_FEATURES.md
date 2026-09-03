@@ -171,7 +171,7 @@ FastAPI ставит задачи в **Redis** (broker); воркеры заби
 
 | Queue | Назначение |
 |-------|------------|
-| `downloads` | Сетевые загрузки (Zoom, yt-dlp и т.д.) |
+| `downloads` | Сетевые загрузки (Zoom, MTS Link, yt-dlp и т.д.) |
 | `uploads` | Выгрузка на YouTube / VK / Яндекс Диск |
 | `async_operations` | Транскрибация, темы, субтитры, оркестрация `run_recording`, sync, automation tasks |
 | `processing_cpu` | Только CPU-heavy **trim** (FFmpeg) |

@@ -115,7 +115,7 @@ Four JSON files in `monitoring/dashboards/`. Folder **LEAP**, home = Overview.
 
 | File                    | UID             | Answers                                                                 |
 | ----------------------- | --------------- | ----------------------------------------------------------------------- |
-| `leap_overview.json`    | `leap-overview` | Users, recordings, transcribed minutes, uploads, stuck, failures (PG)   |
+| `leap_overview.json`    | `leap-overview` | Users, recordings, transcribed minutes, uploads, share link traffic, stuck, failures (PG + Prometheus) |
 | `leap_api.json`         | `leap-api`      | RPS / 5xx / p95 pulse (last 5m), traffic shape, top routes, 5xx logs    |
 | `leap_celery.json`      | `leap-celery`   | Workers, queues, stage duration, in-flight, Celery failures             |
 | `leap_errors.json`      | `leap-errors`   | ERROR pulse, exception/recording/user tables, PG failed-recordings      |

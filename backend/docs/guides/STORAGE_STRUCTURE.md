@@ -11,6 +11,7 @@
 - ✅ Added `user_{slug}/thumbnails/` for user-uploaded thumbnails
 - ✅ Added `STORAGE_TYPE` configuration (LOCAL/S3)
 - ✅ Added storage quota parameters
+- ✅ Browser delivery metadata: MIME by suffix; new processed MP4 files use faststart
 
 ---
 
@@ -140,6 +141,7 @@ shared/
 ### Video Files
 - `source.mp4` - Original video (from Zoom, URL, upload)
 - `video.mp4` - Processed video (trimmed, converted)
+- The database `processed_video_path` is authoritative. A faststart backfill may switch it to `video.faststart.mp4`; the previous object is retained for rollback.
 
 ### Audio Files
 - `audio.mp3` - Extracted audio (64kbps, mono, 16kHz for transcription)

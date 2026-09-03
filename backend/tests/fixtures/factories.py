@@ -53,6 +53,10 @@ def create_mock_recording(
     recording.hard_delete_at = kwargs.get("hard_delete_at")
     recording.expire_at = kwargs.get("expire_at")
     recording.share_token = kwargs.get("share_token")
+    recording.share_view_count = kwargs.get("share_view_count", 0)
+    recording.share_download_count = kwargs.get("share_download_count", 0)
+    recording.share_last_viewed_at = kwargs.get("share_last_viewed_at")
+    recording.share_last_downloaded_at = kwargs.get("share_last_downloaded_at")
 
     # Mock relationships
     recording.template = kwargs.get("template")

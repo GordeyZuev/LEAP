@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, X, Plus, Code2, Loader2, Pencil, Settings2 } from "lucide-react";
+import { Check, X, Plus, Code2, Loader2, Pencil, Search, Settings2 } from "lucide-react";
 import { cn, scrollIntoViewWithin } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { TemplateField } from "@/components/platforms/platform-fields";
@@ -236,14 +236,22 @@ export function AIContentEditor({
   const newQuestionRef = useRef<HTMLInputElement>(null);
   const chaptersRef = useRef<HTMLDivElement>(null);
   const chapterItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const [chapterQuery, setChapterQuery] = useState("");
+  const chapterNeedle = chapterQuery.trim().toLowerCase();
+  const filteredChapters = useMemo(() => {
+    if (!chapterNeedle) return topicTimestamps.map((item, index) => ({ item, index }));
+    return topicTimestamps
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.topic.toLowerCase().includes(chapterNeedle));
+  }, [topicTimestamps, chapterNeedle]);
 
   // Following playback belongs here, not in the pages: this component owns the
   // chapter scroller, and `scrollIntoView` from outside would scroll the page
   // itself, dragging the reader back to the list every time a chapter changes.
   useEffect(() => {
-    if (activeChapterIdx < 0) return;
+    if (activeChapterIdx < 0 || chapterQuery.trim()) return;
     scrollIntoViewWithin(chaptersRef.current, chapterItemRefs.current.get(activeChapterIdx) ?? null);
-  }, [activeChapterIdx]);
+  }, [activeChapterIdx, chapterQuery]);
 
   const updateTopics = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -604,8 +612,38 @@ export function AIContentEditor({
 
       {/* ── Chapters ── */}
       {visibleHasChapters && (
-        <div>
-          <SectionLabel>Chapters</SectionLabel>
+        <div className={cn(embeddedInPanel && "space-y-3")}>
+          {!embeddedInPanel && <SectionLabel>Chapters</SectionLabel>}
+          {embeddedInPanel && (
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <input
+                type="search"
+                aria-label="Search topics"
+                placeholder="Search topics…"
+                value={chapterQuery}
+                onChange={(e) => setChapterQuery(e.target.value)}
+                className="w-full rounded-xl border border-input bg-card py-2 pl-8 pr-8 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+              />
+              {chapterQuery && (
+                <button
+                  type="button"
+                  onClick={() => setChapterQuery("")}
+                  aria-label="Clear topic search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          )}
+          {embeddedInPanel && chapterNeedle && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {filteredChapters.length === 0
+                ? `No topics match “${chapterQuery.trim()}”.`
+                : `${filteredChapters.length} of ${topicTimestamps.length} topics match “${chapterQuery.trim()}”.`}
+            </p>
+          )}
           <div
             ref={chaptersRef}
             className={cn(
@@ -613,22 +651,24 @@ export function AIContentEditor({
               chaptersListClassName,
             )}
           >
-            {topicTimestamps.map((t, i) => (
-              <ChapterItem
-                key={`${i}-${isManaging}`}
-                item={t}
-                isActive={i === activeChapterIdx}
-                isManaging={isManaging}
-                onSeek={onSeek ?? (() => {})}
-                onSave={(topic) => saveChapterTopic(i, topic)}
-                disabled={isMutating}
-                itemRef={(el) => {
-                  if (el) chapterItemRefs.current.set(i, el);
-                  else chapterItemRefs.current.delete(i);
-                }}
-                wrapLabels={embeddedInPanel}
-              />
-            ))}
+            {(embeddedInPanel ? filteredChapters : topicTimestamps.map((item, index) => ({ item, index }))).map(
+              ({ item, index }) => (
+                <ChapterItem
+                  key={`${index}-${isManaging}`}
+                  item={item}
+                  isActive={index === activeChapterIdx}
+                  isManaging={isManaging}
+                  onSeek={onSeek ?? (() => {})}
+                  onSave={(topic) => saveChapterTopic(index, topic)}
+                  disabled={isMutating}
+                  itemRef={(el) => {
+                    if (el) chapterItemRefs.current.set(index, el);
+                    else chapterItemRefs.current.delete(index);
+                  }}
+                  wrapLabels={embeddedInPanel}
+                />
+              ),
+            )}
           </div>
         </div>
       )}

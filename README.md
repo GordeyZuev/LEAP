@@ -20,7 +20,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.10.7.0` (August 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.10.8.0` (September 2026) · **Статус:** In Active Development • Beta
 **Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (AssemblyAI, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
@@ -68,6 +68,7 @@
 
 **Источники данных:**
 - Синхронизация с `Zoom API` через `OAuth 2.0`
+- Синхронизация с **МТС Линк** по организационному API-ключу (MP4 заказывается через **Run**, не через `/download`) — [MTS_LINK_GUIDE.md](backend/docs/guides/MTS_LINK_GUIDE.md)
 - **yt-dlp** — загрузка по ссылке с YouTube, VK, Rutube и 1000+ сайтов (видео, плейлисты, аудио)
 - **Яндекс Диск** — загрузка по публичной ссылке или через OAuth API
 - Загрузка локальных файлов
@@ -77,7 +78,7 @@
 - `POST /add-url` — одно видео по ссылке (yt-dlp, auto-detect платформы)
 - `POST /add-playlist` — плейлист/канал целиком
 - Яндекс Диск (публичная ссылка) — `POST /api/v1/sources` (`YANDEX_DISK` + `public_url`) и sync
-- `InputSource` sync — для периодической синхронизации (Zoom, Yandex Disk OAuth)
+- `InputSource` sync — для периодической синхронизации (Zoom, MTS Link, Yandex Disk OAuth)
 
 **Что происходит:**
 - Система забирает записи из различных источников
@@ -257,7 +258,7 @@ FFmpeg • Pydantic V2
 
 **External Integrations**
 ```
-Zoom API (OAuth 2.0) • YouTube Data API v3 • VK API
+Zoom API (OAuth 2.0) • MTS Link UserAPI (org API key) • YouTube Data API v3 • VK API
 yt-dlp (1000+ sites) • Yandex Disk REST API
 🚧 Google Drive API
 ```
@@ -343,7 +344,7 @@ api/repositories/       ← Data access layer (Repository pattern)
 api/tasks/              ← Celery background tasks (download, process, upload, maintenance)
 database/               ← SQLAlchemy models, Alembic migrations
 file_storage/           ← Storage abstraction (paths, backends: LOCAL/S3)
-video_download_module/  ← BaseDownloader + factory (Zoom, yt-dlp, Yandex Disk)
+video_download_module/  ← BaseDownloader + factory (Zoom, MTS Link, yt-dlp, Yandex Disk)
 video_processing_module/← FFmpeg (silence removal, trim, audio extraction)
 transcription_module/   ← AI transcription coordination (Fireworks Whisper)
 video_upload_module/    ← Multi-platform upload (YouTube, VK, Yandex Disk)
@@ -403,7 +404,9 @@ PROCESSING → PROCESSED → UPLOADING → READY
 | 🗺️ [tests/ROADMAP.md](backend/tests/ROADMAP.md) | Testing roadmap & plans |
 | 📋 [PLAN.md](backend/docs/archive/PLAN.md) | Thesis plan & milestones |
 | 📜 [CHANGELOG.md](backend/docs/CHANGELOG.md) | Complete version history |
+| ▶️ [VIDEO_DELIVERY.md](backend/docs/guides/VIDEO_DELIVERY.md) | Browser playback, presigned URLs, MP4 faststart and recovery |
 | 🎬 [YT_DLP_GUIDE.md](backend/docs/guides/YT_DLP_GUIDE.md) | yt-dlp video ingestion guide |
+| 🔗 [MTS_LINK_GUIDE.md](backend/docs/guides/MTS_LINK_GUIDE.md) | MTS Link input source (API key, MP4 conversion) |
 | 💿 [YANDEX_DISK_GUIDE.md](backend/docs/guides/YANDEX_DISK_GUIDE.md) | Yandex Disk integration guide |
 
 ---
@@ -411,6 +414,8 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — что изменилось для пользователей и операторов. Полная история — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в `v0.10.8.0`** — **МТС Линк как источник записей**: подключение по организационному API-ключу (вкладка Manual в Credentials), отбор email в Input Source, **prepare-before-run** — конвертация MP4 только через **Run** (статус `PENDING_CONVERSION`, отдельный `/download` для MTS → 400). **Сопутствующие файлы** — чат мероприятия и загруженные материалы (слайды, PDF) забираются вместе с видео и доступны для скачивания в карточке **Files** под разделом **From the source**. **Проверка подключения** — кнопка **Check** у креденшела спрашивает платформу, работает ли ключ (Zoom, YouTube, Яндекс.Диск, МТС Линк), и обновляет статус. **Аналитика share-ссылок** — просмотры и скачивания (Manage share, график 7/28 дней). **Стабильность видео** — страница заранее получает ссылку на медиа, MP4 подготавливается для быстрого старта, а плеер восстанавливается после сетевого сбоя или истечения ссылки. В интерфейсе — показ секретных полей по «глазику», исправлен прыгающий фокус в модальных окнах и скругление их углов. **Deploy:** миграции **040–042** вместе с кодом.
 
 **Новое в `v0.10.7.0`** — базовый шаблон (Default Template): настройки обработки перенесены из Settings в базовый шаблон, единый resolver конфигурации; смена базового через **Make base template**; retention — в Account; share-страница в watch-layout (видео + главы/темы рядом с плеером); активная LEAP-ссылка в Publications на странице записи и зелёный бейдж LEAP в списке/таблице. **Deploy:** миграции **037–039** вместе с кодом.
 
@@ -422,7 +427,7 @@ PROCESSING → PROCESSED → UPLOADING → READY
 
 - **Редактор AI-данных** — раздел «Video AI-Data» под плеером: темы, главы с таймкодами (весь ряд кликабелен для seek), саммари и вопросы редактируются прямо в браузере (click-to-edit, режим Manage). Изменения сохраняются через `PATCH /topics` без перезапуска пайплайна.
 - **Description-карточка** — рендеринг Jinja-шаблона описания (title + body) прямо под плеером; поддерживает инлайн-редактирование шаблона с возможностью «Convert to text» (рендер на сервере через `POST /topics/render`).
-- **Share-страница** — `/share/{token}` показывает видео, AI-данные (темы, главы, саммари, вопросы) и сгенерированный description (Jinja-шаблон рендерится бэкендом через полную иерархию конфига). Панель Downloads — артефакты и видео — доступна без авторизации.
+- **Share-страница** — `/share/{token}` показывает видео, AI-данные (темы, главы, саммари, вопросы) и сгенерированный description (Jinja-шаблон рендерится бэкендом через полную иерархию конфига). Панель **Files** — артефакты и видео — доступна без авторизации.
 - **Переработан UI страницы записи** — карточка «Info» (ID, Source, Date, Duration, File size) слита в карточку «Configuration»; артефакты для скачивания перемещены в сайдбар (стиль share-страницы); кнопки Reset / Create template / Link стали компактными круглыми icon-only; Delete — красная круглая кнопка рядом с Share.
 - **Выбор качества видео** — при добавлении URL на вкладке «Add by URL»: кнопка «Check formats» получает список доступных разрешений (360p / 720p / 1080p / Best), пользователь выбирает нужное перед созданием записи. Работает через `POST /formats-preview`.
 - **Admin: фильтр по квоте** — переключатель «Exceeded quota only» в списке пользователей; stat-карточка с числом пользователей, превысивших месячный лимит записей.
@@ -492,7 +497,7 @@ PROCESSING → PROCESSED → UPLOADING → READY
 - **Просмотр видео** — воспроизведение напрямую из облака, без нагрузки на сервер приложения.
 
 **Ранее (`v0.9.x`)** — ключевые возможности до появления UI:
-- **Много источников и площадок** — Zoom, YouTube/VK/Rutube по ссылке, Яндекс.Диск на входе; публикация на YouTube, VK и Я.Диск.
+- **Много источников и площадок** — Zoom, МТС Линк, YouTube/VK/Rutube по ссылке, Яндекс.Диск на входе; публикация на YouTube, VK и Я.Диск.
 - **Шаблоны и автоматизация** — гибкие описания на Jinja2, preview перед сохранением, расписания и batch-обработка.
 - **Удобство для оператора** — копирование шаблонов, пресетов и автоматизаций одной кнопкой; экспорт записей в Excel/CSV; вопросы для самопроверки в описании лекции.
 - **Надёжность пайплайна** — поддержка WebM/MKV и других форматов, устойчивее обрезка и загрузка с разных источников.

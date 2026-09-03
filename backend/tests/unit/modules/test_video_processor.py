@@ -307,3 +307,43 @@ class TestVideoProcessorHelpers:
 
             # Assert
             assert result["bitrate"] == 0  # Default value
+
+
+@pytest.mark.unit
+class TestTrimVideoPlaybackLayout:
+    @pytest.mark.asyncio
+    async def test_mp4_enables_faststart_and_normalizes_negative_timestamps(self, tmp_path):
+        from video_processing_module.config import ProcessingConfig
+        from video_processing_module.video_processor import VideoProcessor
+
+        processor = VideoProcessor(ProcessingConfig(output_dir=str(tmp_path)))
+        processor.get_video_info = AsyncMock(return_value={"video_codec": "h264", "audio_codec": "aac"})
+        process = AsyncMock()
+        process.communicate = AsyncMock(return_value=(b"", b""))
+        process.returncode = 0
+        output = tmp_path / "processed.mp4"
+
+        with patch("asyncio.create_subprocess_exec", return_value=process) as execute:
+            with patch.object(Path, "exists", return_value=True):
+                assert await processor.trim_video("input.mp4", str(output), 10, 20)
+
+        command = execute.call_args.args
+        assert command[command.index("-movflags") + 1] == "+faststart"
+        assert command[command.index("-avoid_negative_ts") + 1] == "make_zero"
+
+    @pytest.mark.asyncio
+    async def test_non_mp4_does_not_receive_mp4_muxer_flags(self, tmp_path):
+        from video_processing_module.config import ProcessingConfig
+        from video_processing_module.video_processor import VideoProcessor
+
+        processor = VideoProcessor(ProcessingConfig(output_dir=str(tmp_path)))
+        processor.get_video_info = AsyncMock(return_value={"video_codec": "vp9", "audio_codec": "opus"})
+        process = AsyncMock()
+        process.communicate = AsyncMock(return_value=(b"", b""))
+        process.returncode = 0
+
+        with patch("asyncio.create_subprocess_exec", return_value=process) as execute:
+            with patch.object(Path, "exists", return_value=True):
+                assert await processor.trim_video("input.webm", str(tmp_path / "processed.webm"), 10, 20)
+
+        assert "-movflags" not in execute.call_args.args

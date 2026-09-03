@@ -29,6 +29,13 @@ class TestParseDeviceLabel:
         ua = "Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
         assert parse_device_label(ua) == "Edge · Unknown device" or parse_device_label(ua).startswith("Edge")
 
+    def test_yandex_browser_takes_priority_over_chrome(self):
+        ua = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/132.0.0.0 YaBrowser/26.2.0.0 Safari/537.36"
+        )
+        assert parse_device_label(ua) == "Yandex Browser · macOS"
+
     def test_firefox_linux(self):
         ua = "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0"
         assert parse_device_label(ua) == "Firefox · Linux"

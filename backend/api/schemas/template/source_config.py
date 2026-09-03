@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 from api.schemas.common.validators import validate_regex_pattern
@@ -39,6 +39,30 @@ class ZoomSourceConfig(BaseModel):
         if not self.is_master_account and self.user_emails:
             raise ValueError("user_emails should only be set when is_master_account=True")
         return self
+
+
+class MtsLinkSourceConfig(BaseModel):
+    """Config for MTS Link ingestion (org API key + explicit lecturer emails).
+
+    The credential is always organization-wide, so ``user_emails`` is what limits
+    a sync to specific lecturers — without it a sync would pull the whole org.
+    """
+
+    model_config = BASE_MODEL_CONFIG
+
+    user_emails: list[EmailStr] = Field(
+        ...,
+        description="Lecturer emails to sync recordings from (resolved to MTS Link user IDs)",
+        examples=[["lecturer@example.com"]],
+        min_length=1,
+    )
+    conversion_quality: Literal["720", "1080"] = Field("720", description="MP4 conversion quality")
+    conversion_view: Literal["none", "chat", "questions", "minichat"] = Field(
+        "none",
+        description="What MTS Link bakes into the MP4 frame; 'none' keeps only presenter video",
+    )
+    fetch_chat: bool = Field(True, description="Save the session chat next to the video")
+    fetch_session_files: bool = Field(True, description="Save session attachments (slides, PDFs) next to the video")
 
 
 class GoogleDriveSourceConfig(BaseModel):
@@ -118,5 +142,10 @@ class LocalFileSourceConfig(BaseModel):
 
 
 SourceConfig = (
-    ZoomSourceConfig | GoogleDriveSourceConfig | YandexDiskSourceConfig | VideoUrlSourceConfig | LocalFileSourceConfig
+    ZoomSourceConfig
+    | MtsLinkSourceConfig
+    | GoogleDriveSourceConfig
+    | YandexDiskSourceConfig
+    | VideoUrlSourceConfig
+    | LocalFileSourceConfig
 )

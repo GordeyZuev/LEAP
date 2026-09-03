@@ -26,7 +26,7 @@ An input source defines where recordings are ingested from (Zoom, Google Drive, 
 
 | Context | Platform field |
 |---------|----------------|
-| **POST** body | `platform`: `ZOOM` \| `GOOGLE_DRIVE` \| `YANDEX_DISK` \| `VIDEO_URL` \| `LOCAL` |
+| **POST** body | `platform`: `ZOOM` \| `MTS_LINK` \| `GOOGLE_DRIVE` \| `YANDEX_DISK` \| `VIDEO_URL` \| `LOCAL` |
 | **GET** response | `source_type`: same value as stored in the DB |
 
 ### Response shape (representative)
@@ -60,7 +60,7 @@ An input source defines where recordings are ingested from (Zoom, Google Drive, 
 **Credentials:**
 
 - `LOCAL` and `VIDEO_URL` — no `credential_id` (validator rejects `credential_id` on `LOCAL`).
-- `ZOOM`, `GOOGLE_DRIVE` — `credential_id` required.
+- `ZOOM`, `MTS_LINK`, `GOOGLE_DRIVE` — `credential_id` required.
 - `YANDEX_DISK` — `credential_id` required **unless** `config` uses `public_url` (OAuth not needed for public links).
 
 ### Platform configs
@@ -84,6 +84,28 @@ An input source defines where recordings are ingested from (Zoom, Google Drive, 
 | `recording_type` | `"cloud"` | `"cloud"` or `"all"` |
 | `is_master_account` | false | Sync master + sub-accounts |
 | `user_emails` | null | Required when `is_master_account` is true; omit when false |
+
+#### MTS_LINK (`MtsLinkSourceConfig`)
+
+```json
+{
+  "user_emails": ["lecturer@example.com"],
+  "conversion_quality": "720",
+  "conversion_view": "none",
+  "fetch_chat": true,
+  "fetch_session_files": true
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `user_emails` | — (required, min 1) | Lecturer emails; the org API key sees everyone, so this is the only filter |
+| `conversion_quality` | `"720"` | `"720"` or `"1080"` |
+| `conversion_view` | `"none"` | What MTS Link burns into the picture: `none` (speakers only), `chat`, `questions`, `minichat` |
+| `fetch_chat` | true | Save `source_extras/chat.json` after the video |
+| `fetch_session_files` | true | Save attachments to `source_extras/files/` |
+
+MP4 conversion is ordered during **Run** (prepare step), not sync or `POST /download` — see [MTS_LINK_GUIDE.md](MTS_LINK_GUIDE.md).
 
 #### Google Drive (`GoogleDriveSourceConfig`)
 

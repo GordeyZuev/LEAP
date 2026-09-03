@@ -1,6 +1,7 @@
 """Pagination schemas and helpers."""
 
-from typing import Literal
+from collections.abc import Callable
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -67,8 +68,12 @@ def paginate_list(
     sort_by: str = "created_at",
     sort_order: Literal["asc", "desc"] = "desc",
     allowed_sort_fields: set[str] | None = None,
+    sort_keys: dict[str, Callable[[Any], Any]] | None = None,
 ) -> tuple[list, int, int]:
     """Sort and paginate a list in-memory.
+
+    ``sort_keys`` supplies key functions for sort fields that are not plain attributes
+    (e.g. a credential's status, which is derived from two columns).
 
     Returns:
         (paginated_items, total, total_pages)
@@ -77,8 +82,9 @@ def paginate_list(
     if allowed_sort_fields and sort_by not in allowed_sort_fields:
         sort_by = "created_at"
 
+    derived_key = (sort_keys or {}).get(sort_by)
     items.sort(
-        key=lambda item: _sort_key(item, sort_by),
+        key=derived_key or (lambda item: _sort_key(item, sort_by)),
         reverse=(sort_order == "desc"),
     )
 

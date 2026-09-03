@@ -303,7 +303,12 @@ async def _async_download_recording(
         await session.commit()
 
         try:
-            if source_type in (SourceType.EXTERNAL_URL, SourceType.YOUTUBE, SourceType.YANDEX_DISK):
+            if source_type in (
+                SourceType.EXTERNAL_URL,
+                SourceType.YOUTUBE,
+                SourceType.YANDEX_DISK,
+                SourceType.MTS_LINK,
+            ):
                 result = await _download_via_external(
                     task_self,
                     session,
@@ -355,6 +360,43 @@ async def _refresh_yandex_disk_oauth_if_expiring(
     await refresh_yandex_disk_credential_if_needed(creds_data, credential.id, cred_repo, encryption)
 
 
+async def _mts_link_download_options(session, recording, user_id: str) -> tuple[int, dict]:
+    """Credential id plus downloader kwargs for MTS Link.
+
+    The API key lives encrypted on the credential, and quality/view/companion toggles
+    live on the input source, so both have to be resolved before download. The id is
+    returned so the caller can flag the credential when the key turns out to be dead.
+    """
+    from api.auth.encryption import get_encryption
+    from api.repositories.auth_repos import UserCredentialRepository
+    from api.repositories.template_repos import InputSourceRepository
+    from models.mts_link_auth import create_mts_link_credentials
+
+    input_source_id = recording.source.input_source_id if recording.source else None
+    if not input_source_id:
+        raise ValueError("MTS Link recording has no input source")
+
+    source = await InputSourceRepository(session).find_by_id(input_source_id, user_id)
+    if not source or not source.credential_id:
+        raise ValueError("MTS Link source has no credential configured")
+
+    credential = await UserCredentialRepository(session).get_by_id(source.credential_id)
+    if not credential:
+        raise ValueError(f"MTS Link credential {source.credential_id} not found")
+
+    creds = create_mts_link_credentials(get_encryption().decrypt_credentials(credential.encrypted_data))
+    config = source.config or {}
+
+    return credential.id, {
+        "api_token": creds.api_token,
+        "base_url": creds.base_url,
+        "conversion_quality": config.get("conversion_quality", "720"),
+        "conversion_view": config.get("conversion_view", "none"),
+        "fetch_chat": config.get("fetch_chat", True),
+        "fetch_session_files": config.get("fetch_session_files", True),
+    }
+
+
 async def _download_via_external(
     task_self,
     session,
@@ -368,8 +410,10 @@ async def _download_via_external(
 ) -> dict:
     """Download via factory-based downloader (yt-dlp, Yandex Disk, etc.)."""
     from api.auth.encryption import get_encryption
+    from api.mts_link_api import MtsLinkAuthenticationError
     from api.repositories.auth_repos import UserCredentialRepository
     from api.repositories.template_repos import InputSourceRepository
+    from video_download_module.platforms.mtslink.downloader import MtsLinkConversionPendingError
 
     source_meta = recording.source.meta if recording.source and recording.source.meta else {}
 
@@ -389,11 +433,17 @@ async def _download_via_external(
                 await _refresh_yandex_disk_oauth_if_expiring(creds_data, credential, cred_repo, encryption)
                 oauth_token = creds_data.get("oauth_token")
 
+    downloader_kwargs: dict = {"oauth_token": oauth_token}
+    mts_credential_id: int | None = None
+    if source_type == "MTS_LINK":
+        mts_credential_id, mts_kwargs = await _mts_link_download_options(session, recording, user_id)
+        downloader_kwargs.update(mts_kwargs)
+
     downloader = create_downloader(
         source_type=source_type,
         user_slug=user_slug,
         storage_builder=storage_builder,
-        oauth_token=oauth_token,
+        **downloader_kwargs,
     )
 
     old_status = recording.status
@@ -403,15 +453,45 @@ async def _download_via_external(
     await recording_repo.update(recording)
     await session.commit()
 
-    task_self.update_progress(user_id=user_id, progress=50, status="Downloading video...", step="download")
+    download_status = "Downloading video..."
+    task_self.update_progress(user_id=user_id, progress=50, status=download_status, step="download")
 
-    result = await downloader.download(
-        recording_id=recording.id,
-        source_meta=source_meta,
-        force=force,
-    )
+    try:
+        result = await downloader.download(
+            recording_id=recording.id,
+            source_meta=source_meta,
+            force=force,
+        )
+    except MtsLinkAuthenticationError:
+        # Surface a dead org key as "Re-auth needed" instead of a recurring download failure.
+        if mts_credential_id:
+            await UserCredentialRepository(session).set_needs_reauth(mts_credential_id, True)
+        raise
+    except MtsLinkConversionPendingError:
+        from api.services.mts_link_prepare import MtsLinkPrepareResult, MtsPrepareOutcome, apply_prepare_result
+
+        apply_prepare_result(
+            recording,
+            MtsLinkPrepareResult(outcome=MtsPrepareOutcome.CONVERTING),
+        )
+        recording.on_air = False
+        recording.pipeline_task_id = None
+        await recording_repo.update(recording)
+        await session.commit()
+        return {
+            "success": True,
+            "status": "awaiting_mts",
+            "message": "MTS Link MP4 not ready; waiting for conversion",
+        }
+
+    if mts_credential_id:
+        await UserCredentialRepository(session).set_needs_reauth(mts_credential_id, False)
 
     task_self.update_progress(user_id=user_id, progress=90, status="Updating database...", step="download")
+
+    # Only MTS Link returns state worth persisting; other downloaders repeat what sync owns.
+    if source_type == "MTS_LINK" and result.metadata and recording.source:
+        recording.source.meta = {**(recording.source.meta or {}), **result.metadata}
 
     recording.local_video_path = result.storage_key
     old_status = recording.status
@@ -1418,21 +1498,7 @@ def run_recording_task(
             async with session_maker() as session:
                 return await QuotaService(session).check_processing_quota(user_id)
 
-        proc_allowed, proc_err = self.run_async(_check_processing_quota())
-        if not proc_allowed:
-            logger.warning(f"Processing blocked by quota | {format_details(rec=recording_id, reason=proc_err)}")
-            self.run_async(self._clear_on_air_async(recording_id, user_id))
-            return self.build_result(
-                user_id=user_id,
-                status="quota_exceeded",
-                recording_id=recording_id,
-                result={"message": proc_err},
-            )
-
-        self.run_async(_increment_usage_counter(user_id, "processing"))
-        self.run_async(_track_event(user_id, "processing_started", recording_id=recording_id))
-
-        # Resolve config to determine which steps are enabled
+        # Resolve config before MTS prepare / pipeline build
         async def _resolve_pipeline_config():
             async with session_maker() as session:
                 full_config, output_config, recording = await resolve_full_config(
@@ -1449,11 +1515,62 @@ def run_recording_task(
 
         full_config, output_config, recording, presets = self.run_async(_resolve_pipeline_config())
 
-        # Set pipeline_started_at and mark on_air. The manual /run endpoint already
-        # sets on_air before enqueue (for its 409 guard); auto-run and bulk-run reach
-        # the orchestrator without it, so set it here too — this keeps on_air the single
-        # source of truth for "pipeline active" across all entry paths (used by the
-        # concurrent-tasks quota gate). Every exit path clears it.
+        async def _mts_prepare_or_exit():
+            from api.services.mts_link_prepare import (
+                MtsPrepareOutcome,
+                apply_prepare_result,
+                mts_prepare_response_fields,
+                prepare_mts_link_recording,
+                recording_needs_mts_prepare,
+                should_skip_mts_prepare,
+            )
+
+            async with session_maker() as session:
+                repo = RecordingRepository(session)
+                rec = await repo.get_by_id(recording_id, user_id)
+                if not rec or not recording_needs_mts_prepare(rec) or should_skip_mts_prepare(rec):
+                    return None
+                result = await prepare_mts_link_recording(session, rec, user_id)
+                apply_prepare_result(rec, result)
+                if result.outcome != MtsPrepareOutcome.READY:
+                    rec.on_air = False
+                    rec.pipeline_task_id = None
+                    await session.commit()
+                    return {
+                        "status": "awaiting_mts",
+                        "mts": mts_prepare_response_fields(result),
+                        "recording_status": rec.status.value,
+                    }
+                await session.commit()
+                return None
+
+        awaiting = self.run_async(_mts_prepare_or_exit())
+        if awaiting:
+            logger.info(
+                f"MTS prepare awaiting | {format_details(rec=recording_id, status=awaiting.get('recording_status'))}"
+            )
+            return self.build_result(
+                user_id=user_id,
+                status=awaiting["status"],
+                recording_id=recording_id,
+                result=awaiting,
+            )
+
+        proc_allowed, proc_err = self.run_async(_check_processing_quota())
+        if not proc_allowed:
+            logger.warning(f"Processing blocked by quota | {format_details(rec=recording_id, reason=proc_err)}")
+            self.run_async(self._clear_on_air_async(recording_id, user_id))
+            return self.build_result(
+                user_id=user_id,
+                status="quota_exceeded",
+                recording_id=recording_id,
+                result={"message": proc_err},
+            )
+
+        self.run_async(_increment_usage_counter(user_id, "processing"))
+        self.run_async(_track_event(user_id, "processing_started", recording_id=recording_id))
+
+        # Set pipeline_started_at and mark on_air when the chain will actually run.
         async def _set_pipeline_started():
             async with session_maker() as session:
                 recording_repo = RecordingRepository(session)

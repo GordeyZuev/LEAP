@@ -17,6 +17,7 @@ class ProcessingStatus(StrEnum):
     """Processing statuses for video recording (aggregated status from processing_stages/outputs)"""
 
     PENDING_SOURCE = "PENDING_SOURCE"  # Pending: source is still processing (e.g. Zoom recording conversion)
+    PENDING_CONVERSION = "PENDING_CONVERSION"  # Pending: platform MP4 render (e.g. MTS Link conversion)
     INITIALIZED = "INITIALIZED"  # Initialized: ready for download from source
     DOWNLOADING = "DOWNLOADING"  # In progress of downloading (runtime)
     DOWNLOADED = "DOWNLOADED"  # Downloaded
@@ -34,6 +35,7 @@ class SourceType(StrEnum):
     """Type of video source."""
 
     ZOOM = "ZOOM"
+    MTS_LINK = "MTS_LINK"
     LOCAL_FILE = "LOCAL_FILE"
     GOOGLE_DRIVE = "GOOGLE_DRIVE"
     YANDEX_DISK = "YANDEX_DISK"

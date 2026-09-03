@@ -107,6 +107,17 @@ class YandexDiskCredentialsManual(BaseModel):
     oauth_token: str = Field(..., description="Yandex OAuth token", min_length=10)
 
 
+class MtsLinkCredentialsManual(BaseModel):
+    """MTS Link org UserAPI key (LK → Business → API/Webhooks → API)."""
+
+    api_token: str = Field(..., description="x-auth-token value", min_length=8)
+    account: str | None = Field(None, description="Optional org label for account_name")
+    base_url: str | None = Field(
+        None,
+        description="UserAPI base URL (default cloud; override for on-prem)",
+    )
+
+
 class ZoomCredentialsManual(BaseModel):
     """
     Zoom credentials for manual input via API.

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ExternalLink, Eye, Loader2, Play, Save, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
+import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
@@ -257,6 +259,7 @@ export function RunConfigModal({
   submitMode = "run",
 }: RunConfigModalProps) {
   const qc = useQueryClient();
+  const { show: showToast } = useToast();
   const isSave = submitMode === "save";
   const titleId = useId();
   const { data: languages = [] } = useLanguages();
@@ -428,18 +431,22 @@ export function RunConfigModal({
       }
 
       if (mode === "single") {
-        return apiClient.post(`/recordings/${recordingId}/run`, body);
+        return apiClient.post<RunOperationResponse>(`/recordings/${recordingId}/run`, body);
       }
       return apiClient.post("/recordings/bulk/run", {
         recording_ids: recordingIds,
         ...body,
       });
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["recordings"] });
       if (recordingId) {
         qc.invalidateQueries({ queryKey: ["recording", String(recordingId)] });
         qc.invalidateQueries({ queryKey: ["recording-config", recordingId] });
+      }
+      if (!isSave && mode === "single" && res && "data" in res) {
+        const { kind, text } = runToastMessage((res as { data: RunOperationResponse }).data);
+        showToast(kind, text);
       }
       onSuccess?.();
       onClose();

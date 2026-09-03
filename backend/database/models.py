@@ -108,6 +108,10 @@ class RecordingModel(Base):
 
     # --- Share ---
     share_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True, nullable=True, index=True)
+    share_view_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    share_download_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    share_last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    share_last_downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

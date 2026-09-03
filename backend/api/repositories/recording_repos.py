@@ -768,7 +768,10 @@ class RecordingRepository:
                     old_is_mapped = existing.is_mapped
                     existing.is_mapped = kwargs["is_mapped"]
 
-                    if existing.status != ProcessingStatus.PENDING_SOURCE and existing.status in [
+                    if existing.status not in (
+                        ProcessingStatus.PENDING_SOURCE,
+                        ProcessingStatus.PENDING_CONVERSION,
+                    ) and existing.status in [
                         ProcessingStatus.INITIALIZED,
                         ProcessingStatus.SKIPPED,
                     ]:
@@ -778,16 +781,18 @@ class RecordingRepository:
                             )
 
                 if existing.status == ProcessingStatus.PENDING_SOURCE and not source_processing_incomplete:
-                    is_blank = kwargs.get("blank_record", False)
-                    if is_blank:
-                        existing.status = ProcessingStatus.SKIPPED
-                    elif existing.is_mapped:
-                        existing.status = ProcessingStatus.INITIALIZED
-                    else:
-                        existing.status = ProcessingStatus.SKIPPED
-                    logger.info(
-                        f"{format_status_change('Recording', 'PENDING_SOURCE', existing.status)} | {format_details(rec=existing.id)}"
-                    )
+                    meta = existing.source.meta if existing.source and isinstance(existing.source.meta, dict) else {}
+                    if not meta.get("conversion_id"):
+                        is_blank = kwargs.get("blank_record", False)
+                        if is_blank:
+                            existing.status = ProcessingStatus.SKIPPED
+                        elif existing.is_mapped:
+                            existing.status = ProcessingStatus.INITIALIZED
+                        else:
+                            existing.status = ProcessingStatus.SKIPPED
+                        logger.info(
+                            f"{format_status_change('Recording', 'PENDING_SOURCE', existing.status)} | {format_details(rec=existing.id)}"
+                        )
 
                 if "template_id" in kwargs:
                     existing.template_id = kwargs["template_id"]

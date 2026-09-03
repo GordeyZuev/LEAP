@@ -1,8 +1,9 @@
 """Schemas for recording operations endpoints."""
 
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models import ProcessingStatus
 
@@ -24,6 +25,9 @@ class RecordingOperationResponse(BaseModel):
     recording_id: int | None = None
     message: str | None = None
     task_id: str | None = None
+    awaiting_source: bool = False
+    recording_status: ProcessingStatus | None = None
+    mts: dict[str, Any] | None = Field(default=None, description="MTS Link prepare details when awaiting or after ping")
 
 
 class RecordingBulkOperationResponse(BaseModel):

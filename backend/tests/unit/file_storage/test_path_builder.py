@@ -43,6 +43,20 @@ class TestStoragePathBuilder:
         assert to_storage_key(b.recording_video(1, 42)) == "users/user_000001/recordings/42/video.mp4"
         assert to_storage_key(b.recording_audio(1, 42)) == "users/user_000001/recordings/42/audio.mp3"
 
+    def test_source_extras_paths(self):
+        b = StoragePathBuilder()
+        assert (
+            to_storage_key(b.recording_source_chat(1, 42)) == "users/user_000001/recordings/42/source_extras/chat.json"
+        )
+        assert (
+            to_storage_key(b.recording_source_files_manifest(1, 42))
+            == "users/user_000001/recordings/42/source_extras/files_manifest.json"
+        )
+        assert (
+            to_storage_key(b.recording_source_file(1, 42, "slides.pdf"))
+            == "users/user_000001/recordings/42/source_extras/files/slides.pdf"
+        )
+
     def test_transcription_paths(self):
         b = StoragePathBuilder()
         assert (

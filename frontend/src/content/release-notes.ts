@@ -17,6 +17,52 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.10.8.0": {
+    title: "MTS Link recordings & connection checks",
+    highlights: [
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Share links track views and downloads — open Manage share on a recording for counts and a 7/28-day chart.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "MTS Link is now an input source: add the organization API key in " },
+          { kind: "link", label: "Credentials", href: "/credentials" },
+          { kind: "text", value: ", then list the lecturers to sync in " },
+          { kind: "link", label: "Sources", href: "/sources" },
+          {
+            kind: "text",
+            value:
+              ". LEAP orders the MP4 from them when you download a recording, and the session chat and materials come along with it.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "Every connection in " },
+          { kind: "link", label: "Credentials", href: "/credentials" },
+          {
+            kind: "text",
+            value: " has a Check button that asks the platform whether the key still works.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Smaller UI fixes: secret fields have a reveal toggle, and typing in a dialog no longer loses focus after each character.",
+          },
+        ],
+      },
+    ],
+  },
   "0.10.7.0": {
     title: "Base template, share pages & publications",
     highlights: [

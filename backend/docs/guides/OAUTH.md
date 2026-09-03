@@ -4,6 +4,8 @@
 
 **Статус:** ✅ Production Ready
 
+МТС Линк подключается **не через OAuth**, а org API key — см. [MTS_LINK_GUIDE.md](MTS_LINK_GUIDE.md).
+
 ---
 
 ## 📋 Содержание
@@ -538,7 +540,28 @@ POST /api/v1/credentials - Create credential (manual)
 PATCH /api/v1/credentials/{id} - Update credential
 DELETE /api/v1/credentials/{id} - Delete (revoke) credential
 GET /api/v1/credentials/{id}/status - Check credential status
+POST /api/v1/credentials/{id}/check - Verify credentials against the platform
 ```
+
+### Проверка подключения
+
+`POST /api/v1/credentials/{id}/check` делает самый дешёвый аутентифицированный вызов платформы и обновляет флаг `needs_reauth`. Реализована в `api/services/credential_probes.py`.
+
+| Платформа | Чем проверяется |
+|-----------|-----------------|
+| `zoom` | `GET /users/me` (для Server-to-Server сначала минтится токен) |
+| `yandex_disk` | обновление токена при близком истечении, затем `GET /v1/disk` |
+| `youtube` | обновление access-токена через сохранённый refresh-токен; новый токен сохраняется |
+| `mts_link` | `GET /organization/members` |
+
+Ответ — `status`, `detail`, `needs_reauth`, `checked_at`. Значения `status`:
+
+- `ok` — платформа приняла ключ; `needs_reauth` снимается, обновляется `last_used_at`;
+- `auth_failed` — ключ отвергнут, выставляется `needs_reauth`;
+- `unavailable` — проверить не удалось (сеть, 5xx); **флаг не меняется**, чтобы сбой у провайдера не отправлял пользователя перевыпускать рабочий ключ;
+- `unsupported` — для платформы проверка ещё не реализована (`vk_video`, `assemblyai`, `deepseek`).
+
+Проверка может обновлять и сохранять токены (YouTube, Яндекс.Диск) — поэтому это `POST`, а не `GET`.
 
 ---
 

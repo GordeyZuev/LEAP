@@ -409,7 +409,7 @@ export default function DocsPage() {
                 <><strong>URL</strong> — paste a link to a single video (YouTube, Rutube, Vimeo, and many other sites via yt-dlp).</>,
                 <><strong>Playlist</strong> — import every item from a playlist URL.</>,
                 <><strong>File</strong> — upload directly from your computer (up to 5 GB).</>,
-                <><strong>Sync</strong> — pull new items from a configured source (Zoom, Yandex Disk, or a saved Video URL source).</>,
+                <><strong>Sync</strong> — pull new items from a configured source (Zoom, MTS Link, Yandex Disk, or a saved Video URL source).</>,
               ]}
             />
             <Steps
@@ -433,6 +433,9 @@ export default function DocsPage() {
             <P>
               On a recording detail page, use <strong>Share</strong> to generate a public link
               (no login required). Viewers can watch the processed video in the browser.
+              The player remembers the last position in this browser after a refresh.
+              Video preparation starts while the page loads; if the temporary link expires or the network stalls,
+              the player refreshes it automatically and shows Retry if recovery is not possible.
               You can copy the link or revoke it at any time.
             </P>
           </Sub>
@@ -493,11 +496,11 @@ export default function DocsPage() {
                 },
                 {
                   title: "Choose a platform",
-                  body: "YouTube, Zoom, Yandex Disk — each has its own authorization flow.",
+                  body: "YouTube, Zoom, Yandex Disk, MTS Link — each has its own connection flow.",
                 },
                 {
                   title: "Complete OAuth",
-                  body: "For most platforms a provider authorization page opens. Once you grant access, the token is saved automatically.",
+                  body: "For OAuth platforms a provider page opens and the token is saved automatically. MTS Link uses the Manual tab: paste the organization API key.",
                 },
               ]}
             />
@@ -508,6 +511,7 @@ export default function DocsPage() {
                 <><strong>YouTube</strong> — token lasts 1 hour and refreshes automatically on upload. Re-authorization is not needed.</>,
                 <><strong>Zoom</strong> — uses Server-to-Server OAuth. Authorized once at the account level.</>,
                 <><strong>Yandex Disk</strong> — token valid for up to 1 year. Can be used both as a recording source and an upload destination.</>,
+                <><strong>MTS Link</strong> — organization API key (Credentials → Manual). Not OAuth. Lecturers to sync are listed as emails on the source.</>,
               ]}
             />
           </Sub>
@@ -528,6 +532,7 @@ export default function DocsPage() {
             <List
               items={[
                 <><strong>Zoom</strong> — syncs cloud recordings from your account or managed users. Requires a Zoom credential.</>,
+                <><strong>MTS Link</strong> — syncs event recordings for lecturers you list by email. Requires an MTS Link organization API key. LEAP asks MTS Link for an MP4 when you download.</>,
                 <><strong>Yandex Disk</strong> — watches a folder (OAuth or public link) and picks up new video files. Optional filename filter and recursive scan.</>,
                 <><strong>Video URL</strong> — a saved single-video or playlist URL processed via yt-dlp. No platform credential needed for public links.</>,
               ]}
@@ -545,7 +550,7 @@ export default function DocsPage() {
                 },
                 {
                   title: "Attach a credential",
-                  body: "For Zoom and Yandex Disk (OAuth mode) select a previously added credential. Public Yandex Disk links and Video URL sources can work without one.",
+                  body: "For Zoom, MTS Link, and Yandex Disk (OAuth mode) select a previously added credential. Public Yandex Disk links and Video URL sources can work without one.",
                 },
                 {
                   title: "Set up automation",

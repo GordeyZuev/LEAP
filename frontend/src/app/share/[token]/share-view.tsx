@@ -18,6 +18,7 @@ import {
   getPublicRecording,
   getShareMedia,
   getShareFileUrl,
+  sendSharePageBeacon,
   type PublicRecordingResponse,
 } from "@/api/share";
 import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-content-editor";
@@ -30,14 +31,16 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { cn, formatDate, formatDuration } from "@/lib/utils";
+import { shareResumeKey } from "@/lib/video-resume";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
   {
     ssr: false,
-    loading: () => <VideoPlayerLoading theme="dark" />,
+    loading: () => <VideoPlayerLoading />,
   },
 );
+const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 
 const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-6 sm:px-8";
 const PAGE_MAIN = cn(PAGE_SHELL, "py-6 sm:py-8");
@@ -117,6 +120,7 @@ function VideoDownloadButton({
 
 function ShareVideoPlayer({
   token,
+  recordingId,
   variant,
   markers,
   vttBlobUrl,
@@ -124,22 +128,24 @@ function ShareVideoPlayer({
   onTimeUpdate,
 }: {
   token: string;
+  recordingId: number;
   variant: "processed" | "original";
   markers: VideoPlayerMarker[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTimeUpdate?: (time: number) => void;
 }) {
-  const { data: videoUrl, isLoading, isError } = useQuery({
+  const { data: videoUrl, isLoading, isError, refetch } = useQuery({
     queryKey: ["share-media", token, variant],
     queryFn: async () => {
       const res = await getShareMedia(token, variant);
       return res.url;
     },
+    staleTime: MEDIA_URL_STALE_MS,
   });
 
   if (isLoading) {
-    return <VideoPlayerLoading theme="dark" />;
+    return <VideoPlayerLoading />;
   }
 
   if (isError || !videoUrl) {
@@ -148,7 +154,7 @@ function ShareVideoPlayer({
         role="status"
         className={cn(
           VIDEO_PLAYER_FRAME,
-          "flex flex-col items-center justify-center gap-2 bg-black text-sm text-white/60",
+          "flex flex-col items-center justify-center gap-2 bg-muted text-sm text-muted-foreground",
         )}
       >
         <VideoOff size={18} />
@@ -161,6 +167,8 @@ function ShareVideoPlayer({
     <VideoPlayer
       ref={videoRef}
       src={videoUrl}
+      resumeKey={shareResumeKey(recordingId, variant)}
+      onReload={() => refetch()}
       markers={markers}
       vttBlobUrl={vttBlobUrl}
       onTimeUpdate={onTimeUpdate}
@@ -179,6 +187,17 @@ export function ShareView({ token }: { token: string }) {
     queryFn: () => getPublicRecording(token),
     retry: false,
   });
+
+  useQuery({
+    queryKey: ["share-media", token, "processed"],
+    queryFn: async () => (await getShareMedia(token, "processed")).url,
+    staleTime: MEDIA_URL_STALE_MS,
+    retry: false,
+  });
+
+  useEffect(() => {
+    void sendSharePageBeacon(token).catch(() => {});
+  }, [token]);
 
   const [activeChapterIdx, setActiveChapterIdx] = useState(-1);
   const [activeCueIdx, setActiveCueIdx] = useState(-1);
@@ -203,7 +222,7 @@ export function ShareView({ token }: { token: string }) {
     if (!recording?.available_files.includes("vtt")) return;
     let cancelled = false;
     let objectUrl: string | null = null;
-    fetch(getShareFileUrl(token, "vtt"))
+    fetch(getShareFileUrl(token, "vtt", true))
       .then((r) => r.text())
       .then((text) => {
         if (cancelled) return;
@@ -372,6 +391,7 @@ export function ShareView({ token }: { token: string }) {
   const playerNode = (
     <ShareVideoPlayer
       token={token}
+      recordingId={recording.id}
       variant={currentVariant}
       markers={onProcessedTimeline ? markers : []}
       vttBlobUrl={onProcessedTimeline ? vttBlobUrl : null}
@@ -380,7 +400,7 @@ export function ShareView({ token }: { token: string }) {
     />
   );
 
-  const hasDownloads = artefacts.length > 0 || hasVideo;
+  const hasFiles = artefacts.length > 0 || hasVideo;
 
   return (
     <div className="min-h-screen bg-background">
@@ -516,8 +536,8 @@ export function ShareView({ token }: { token: string }) {
               </CollapsibleCard>
             )}
 
-            {hasDownloads && (
-              <CollapsibleCard title="Downloads" defaultOpen={false}>
+            {hasFiles && (
+              <CollapsibleCard title="Files" defaultOpen={false}>
                 <div className="flex flex-col gap-2">
                   {hasVideo && <VideoDownloadButton token={token} variant={currentVariant} />}
                   <ArtefactList items={artefacts} />
@@ -526,7 +546,7 @@ export function ShareView({ token }: { token: string }) {
             )}
 
             {recording.description && (
-              <CollapsibleCard title="Description" defaultOpen>
+              <CollapsibleCard title="Overview" defaultOpen={false}>
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                   {recording.description}
                 </p>

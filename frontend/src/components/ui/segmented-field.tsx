@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   FILTER_LABEL,
@@ -13,6 +13,10 @@ import {
 export interface SegmentedOption<V extends string | number = string> {
   value: V;
   label: string;
+  /** Not selectable yet — e.g. a connection method that ships later. */
+  disabled?: boolean;
+  /** Trailing marker inside the segment, e.g. a "Soon" chip. */
+  badge?: ReactNode;
 }
 
 interface SegmentedFieldProps<V extends string | number> {
@@ -53,23 +57,29 @@ export function SegmentedField<V extends string | number = string>({
         aria-labelledby={labelId}
         className={cn(FILTER_SEGMENT_WRAP, disabled && "opacity-50")}
       >
-        {options.map((opt) => (
-          <button
-            key={String(opt.value)}
-            type="button"
-            role="radio"
-            aria-checked={value === opt.value}
-            disabled={disabled}
-            onClick={() => onChange(opt.value)}
-            className={cn(
-              FILTER_SEGMENT_BTN,
-              value === opt.value ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE,
-              disabled && "cursor-not-allowed"
-            )}
-          >
-            {opt.label}
-          </button>
-        ))}
+        {options.map((opt) => {
+          const optionDisabled = disabled || opt.disabled;
+          return (
+            <button
+              key={String(opt.value)}
+              type="button"
+              role="radio"
+              aria-checked={value === opt.value}
+              disabled={optionDisabled}
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                FILTER_SEGMENT_BTN,
+                opt.badge && "inline-flex items-center gap-1.5",
+                value === opt.value ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE,
+                optionDisabled && "cursor-not-allowed",
+                opt.disabled && "opacity-60"
+              )}
+            >
+              {opt.label}
+              {opt.badge}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

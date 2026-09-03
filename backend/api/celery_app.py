@@ -180,6 +180,8 @@ celery_app.conf.task_routes = {
     "api.tasks.processing.generate_subtitles": {"queue": "async_operations"},
     "api.tasks.processing.run_recording": {"queue": "async_operations"},
     "api.tasks.processing.launch_uploads": {"queue": "async_operations"},
+    "api.tasks.processing.finalize_pipeline": {"queue": "async_operations"},
+    "celery.backend_cleanup": {"queue": "maintenance"},
     "api.tasks.template.*": {"queue": "async_operations"},
     "api.tasks.sync.*": {"queue": "async_operations"},
     "automation.*": {"queue": "async_operations"},

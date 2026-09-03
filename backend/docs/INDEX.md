@@ -8,7 +8,7 @@
 
 | Path | Contents |
 |------|----------|
-| **[guides/](guides/)** | How-to guides: deployment, OAuth, templates, Celery, integrations (Zoom, VK, yt-dlp, …) |
+| **[guides/](guides/)** | How-to guides: deployment, OAuth, templates, Celery, integrations (Zoom, MTS Link, VK, yt-dlp, …) |
 | **[archive/](archive/)** | Thesis plan and other historical material (not runbooks) |
 | **[dev_notes/](dev_notes/)** | Drafts, TODOs, internal notes |
 | **This folder** | Core reference: API/tech (`TECHNICAL.md`), ADRs, DB design, architecture schemas, changelog |
@@ -18,7 +18,7 @@
 ## Quick start
 
 1. [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md) — setup (dev → production)
-2. [guides/OAUTH.md](guides/OAUTH.md) — YouTube, VK, Zoom credentials
+2. [guides/OAUTH.md](guides/OAUTH.md) — YouTube, VK, Zoom credentials; [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) — MTS Link API key
 3. [TECHNICAL.md](TECHNICAL.md) — REST API and modules
 
 ---
@@ -78,9 +78,11 @@
 **Storage & ingestion**
 
 - [guides/STORAGE_STRUCTURE.md](guides/STORAGE_STRUCTURE.md)
+- [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) — browser playback, presigned URLs, MP4 faststart, retry and safe backfill
 - [guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md](guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md) — short/broken video: `supported_video_formats` whitelist (sniff + suffix), trim vs corrupt source, VP9-in-MP4, diagnostics
 - [guides/YT_DLP_GUIDE.md](guides/YT_DLP_GUIDE.md)
 - [guides/YANDEX_DISK_GUIDE.md](guides/YANDEX_DISK_GUIDE.md)
+- [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) — org API key, лекторы по email, конвертация в MP4 на download, чат и файлы сессии
 
 **Frontend & future**
 
@@ -98,7 +100,9 @@
 | Architecture | [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md), [ADR_OVERVIEW.md](ADR_OVERVIEW.md) |
 | API | [TECHNICAL.md](TECHNICAL.md) |
 | VK | [guides/VK_INTEGRATION.md](guides/VK_INTEGRATION.md) |
+| MTS Link | [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) |
 | Observability | [guides/MONITORING.md](guides/MONITORING.md) |
+| Video playback / startup | [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) |
 
 ---
 
@@ -127,4 +131,4 @@ grep -r "POST /api" backend/docs/TECHNICAL.md
 
 ---
 
-**Index last updated:** April 2026
+**Index last updated:** September 2026

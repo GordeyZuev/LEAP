@@ -1,5 +1,6 @@
 """User credentials management endpoints (multi-tenancy)"""
 
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,11 +15,13 @@ from api.repositories.auth_repos import UserCredentialRepository
 from api.schemas.auth import UserCredentialCreate, UserCredentialUpdate, UserInDB
 from api.schemas.common.pagination import filter_by_search, paginate_list
 from api.schemas.credentials import (
+    CredentialCheckResponse,
     CredentialCreateRequest,
     CredentialListResponse,
     CredentialResponse,
     CredentialStatusResponse,
     CredentialUpdateRequest,
+    MtsLinkCredentialsManual,
     VKCredentialsManual,
     YandexDiskBrowseItem,
     YandexDiskBrowseResponse,
@@ -28,7 +31,7 @@ from api.schemas.credentials import (
 )
 from api.services.quota_service import QuotaService
 from api.services.yandex_disk_credentials import get_yandex_disk_client_for_credential
-from logger import get_logger
+from logger import format_details, get_logger
 from yandex_disk_module.client import YandexDiskError
 from yandex_disk_module.paths import normalize_disk_path
 
@@ -36,8 +39,25 @@ logger = get_logger()
 
 router = APIRouter(prefix="/api/v1/credentials", tags=["Credentials"])
 
-CREDENTIAL_SORT_FIELDS = {"created_at", "platform", "account_name", "last_used_at"}
+CREDENTIAL_SORT_FIELDS = {"created_at", "platform", "account_name", "last_used_at", "status"}
 CREDENTIAL_SEARCH_FIELDS = ("account_name", "platform")
+
+
+def _credential_status_key(credential: Any) -> tuple[int, str]:
+    """Sort key for the status column: ascending puts what needs attention first.
+
+    Status is derived from two columns, so it cannot be sorted as a plain attribute.
+    """
+    if credential.needs_reauth:
+        rank = 0
+    elif not credential.is_active:
+        rank = 1
+    else:
+        rank = 2
+    return rank, str(credential.account_name or credential.platform or "").lower()
+
+
+CREDENTIAL_SORT_KEYS = {"status": _credential_status_key}
 
 YANDEX_DISK_BROWSE_LIST_FIELDS = (
     "_embedded.items.name,_embedded.items.path,_embedded.items.type,_embedded.items.size,_embedded.items.mime_type"
@@ -71,7 +91,15 @@ async def list_credentials(
         credentials = [c for c in credentials if bool(c.is_active) is is_active]
     credentials = filter_by_search(credentials, search, CREDENTIAL_SEARCH_FIELDS)
 
-    items, total, total_pages = paginate_list(credentials, page, per_page, sort_by, sort_order, CREDENTIAL_SORT_FIELDS)
+    items, total, total_pages = paginate_list(
+        credentials,
+        page,
+        per_page,
+        sort_by,
+        sort_order,
+        CREDENTIAL_SORT_FIELDS,
+        sort_keys=CREDENTIAL_SORT_KEYS,
+    )
 
     return CredentialListResponse(
         items=items,
@@ -89,7 +117,7 @@ async def check_credentials_status(
 ) -> CredentialStatusResponse:
     cred_repo = UserCredentialRepository(session)
 
-    platforms = ["zoom", "youtube", "vk_video", "assemblyai", "deepseek", "yandex_disk"]
+    platforms = ["zoom", "youtube", "vk_video", "assemblyai", "deepseek", "yandex_disk", "mts_link"]
 
     status_map = {}
     for platform in platforms:
@@ -245,6 +273,20 @@ def _validate_credentials(platform: str, credentials: dict[str, Any]) -> None:
             ZoomCredentialsManual(**credentials)
         elif platform == "yandex_disk":
             YandexDiskCredentialsManual(**credentials)
+        elif platform == "mts_link":
+            validated = MtsLinkCredentialsManual(**credentials)
+            # Normalize stored shape for create_mts_link_credentials()
+            credentials.clear()
+            credentials.update(
+                {
+                    "auth_type": "api_key",
+                    "api_token": validated.api_token,
+                }
+            )
+            if validated.account:
+                credentials["account"] = validated.account
+            if validated.base_url:
+                credentials["base_url"] = validated.base_url.rstrip("/")
         # Other platforms don't have specific validation yet
     except ValidationError as e:
         error_messages = []
@@ -301,6 +343,70 @@ def _check_duplicate_credentials(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Credentials with same access_token already exist (credential_id: {cred_id})",
             )
+    elif platform == "mts_link":
+        if existing_cred_data.get("api_token") == credentials.get("api_token"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Credentials with same api_token already exist (credential_id: {cred_id})",
+            )
+
+
+@router.post("/{credential_id}/check", response_model=CredentialCheckResponse)
+async def check_credential_connection(
+    credential_id: int,
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+) -> CredentialCheckResponse:
+    """Verify stored credentials against the platform and update the re-auth flag.
+
+    Only an explicit rejection sets ``needs_reauth``: a network or provider failure
+    reports ``unavailable`` and leaves the flag alone, so a blip never sends the user
+    off to reissue a working key. A successful check clears the flag.
+    """
+    from api.services.credential_probes import ProbeContext, check_credential
+
+    cred_repo = UserCredentialRepository(session)
+    credential = await cred_repo.get_by_id(credential_id)
+
+    if not credential or credential.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Credential {credential_id} not found",
+        )
+
+    try:
+        decrypted = get_encryption().decrypt_credentials(credential.encrypted_data)
+    except Exception as e:
+        logger.error(f"Failed to decrypt credentials: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to decrypt credentials",
+        )
+
+    result = await check_credential(
+        ProbeContext(credential_id=credential_id, credentials=decrypted, session=session),
+        credential.platform,
+    )
+
+    needs_reauth = credential.needs_reauth
+    if result.status == "ok":
+        needs_reauth = False
+        await cred_repo.set_needs_reauth(credential_id, False)
+        await cred_repo.update_last_used(credential_id)
+    elif result.status == "auth_failed":
+        needs_reauth = True
+        await cred_repo.set_needs_reauth(credential_id, True)
+
+    logger.info(
+        f"Credential check | {format_details(credential=credential_id, platform=credential.platform, result=result.status)}"
+    )
+
+    return CredentialCheckResponse(
+        status=result.status,
+        detail=result.detail,
+        needs_reauth=needs_reauth,
+        checked_at=datetime.now(UTC),
+    )
 
 
 @router.post("", response_model=CredentialResponse, status_code=status.HTTP_201_CREATED)

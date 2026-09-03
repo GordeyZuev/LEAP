@@ -173,7 +173,9 @@ services:
       dockerfile: Dockerfile
     container_name: leap_celery_worker
     restart: unless-stopped
-    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=downloads,uploads,async_operations,processing_cpu,maintenance --concurrency=8
+    # Keep the default queue during rollout so tasks stranded by older routing
+    # are drained; all current application tasks have explicit routes.
+    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=downloads,uploads,async_operations,processing_cpu,maintenance,celery --concurrency=8
     env_file: .env
     environment:
       DATABASE_HOST: postgres

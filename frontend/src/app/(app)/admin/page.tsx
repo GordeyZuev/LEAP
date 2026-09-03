@@ -13,6 +13,9 @@ import {
   Plus,
   Pencil,
   AlertTriangle,
+  Eye,
+  ArrowDownToLine,
+  Link,
 } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { cn, extractApiError, formatRelative, formatDateTime } from "@/lib/utils";
@@ -67,6 +70,9 @@ interface OverviewStats {
   total_plans: number;
   users_by_plan: Record<string, number>;
   exceeding_users_count: number;
+  total_share_views: number;
+  total_share_downloads: number;
+  active_share_links: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,7 +371,7 @@ function AdminDashboard() {
 
       <div className="space-y-6">
         {/* ── Overview ──────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
           <StatCard icon={Users} label="Total users" value={ov?.total_users ?? "—"} />
           <StatCard icon={UserCheck} label="Active users" value={ov?.active_users ?? "—"} />
           <StatCard icon={Film} label="Recordings" value={ov?.total_recordings ?? "—"} />
@@ -379,7 +385,16 @@ function AdminDashboard() {
             label="Over quota"
             value={ov?.exceeding_users_count ?? "—"}
           />
+          <StatCard icon={Eye} label="Share views" value={ov?.total_share_views ?? "—"} />
+          <StatCard icon={ArrowDownToLine} label="Share downloads" value={ov?.total_share_downloads ?? "—"} />
+          <StatCard icon={Link} label="Active links" value={ov?.active_share_links ?? "—"} />
         </div>
+
+        {ov && (
+          <p className="text-xs text-muted-foreground">
+            View share trends in Grafana on the LEAP Overview dashboard.
+          </p>
+        )}
 
         {/* Plan distribution — only shown when there are subscribers */}
         {ov && Object.keys(ov.users_by_plan).length > 0 && (
@@ -531,6 +546,8 @@ function AdminDashboard() {
                       <SortableTh label="Role" />
                       <SortableTh label="Status" />
                       <SortableTh label="Recordings" />
+                      <SortableTh label="Share views" />
+                      <SortableTh label="Share downloads" />
                       <SortableTh label="Storage" />
                       <SortableTh label="Quota" />
                       <SortableTh label="Last seen" />
@@ -558,6 +575,12 @@ function AdminDashboard() {
                           <td className="px-6 py-3.5"><StatusBadge active={u.is_active} /></td>
                           <td className="px-6 py-3.5 text-sm tabular-nums text-secondary-foreground">
                             {s ? fmtUsage(s.recordings_used, s.recordings_limit) : "—"}
+                          </td>
+                          <td className="px-6 py-3.5 text-sm tabular-nums text-secondary-foreground">
+                            {s?.share_views_total ?? "—"}
+                          </td>
+                          <td className="px-6 py-3.5 text-sm tabular-nums text-secondary-foreground">
+                            {s?.share_downloads_total ?? "—"}
                           </td>
                           <td className="px-6 py-3.5 text-sm tabular-nums text-secondary-foreground">
                             {s ? `${s.storage_used_gb.toFixed(2)} / ${s.storage_limit_gb === null ? "∞" : s.storage_limit_gb} GB` : "—"}
@@ -751,7 +774,7 @@ function EditPlanModal({
               <p className="text-xs text-muted-foreground">
                 Leave empty for unlimited (∞). Enter 0 to forbid entirely.
               </p>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {PLAN_QUOTA_FIELDS.map((f) => (
                   <Field key={f.key} label={f.label}>
                     <input
@@ -1014,7 +1037,7 @@ function EditUserModal({
                   )}
 
                   {planId !== null && (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {LIMIT_FIELDS.map((f) => {
                         const planDefault = selectedPlan ? fmtQuota(selectedPlan[f.planKey as keyof AdminPlan] as number | null) : "∞";
                         const effectiveKey = f.key.replace("custom_", "") as string;

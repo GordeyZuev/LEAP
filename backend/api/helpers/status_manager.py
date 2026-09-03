@@ -42,7 +42,11 @@ def compute_aggregate_status(recording: RecordingModel) -> ProcessingStatus:
         return ProcessingStatus.EXPIRED
 
     # 2. Check special statuses
-    if current_status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+    if current_status in [
+        ProcessingStatus.SKIPPED,
+        ProcessingStatus.PENDING_SOURCE,
+        ProcessingStatus.PENDING_CONVERSION,
+    ]:
         return current_status
 
     # 3. Check for IN_PROGRESS stages first (takes priority over base statuses like DOWNLOADED)
@@ -118,14 +122,22 @@ def should_allow_download(recording: RecordingModel) -> bool:
     1. Recording in INITIALIZED status
     2. Not in download process (DOWNLOADING)
     """
-    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+    if recording.status in [
+        ProcessingStatus.SKIPPED,
+        ProcessingStatus.PENDING_SOURCE,
+        ProcessingStatus.PENDING_CONVERSION,
+    ]:
         return False
     return recording.status == ProcessingStatus.INITIALIZED
 
 
 def should_allow_transcription(recording: RecordingModel) -> bool:
     """Check if transcription can be started (DOWNLOADED or PROCESSED status, no IN_PROGRESS stages)."""
-    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]:
+    if recording.status in [
+        ProcessingStatus.SKIPPED,
+        ProcessingStatus.PENDING_SOURCE,
+        ProcessingStatus.PENDING_CONVERSION,
+    ]:
         return False
 
     # Allow transcription from DOWNLOADED (skip trimming) or PROCESSED (after trimming)
@@ -162,7 +174,12 @@ def should_allow_upload(recording: RecordingModel, target_type: str) -> bool:
     if recording.failed or recording.deleted:
         return False
 
-    if recording.status in [ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE, ProcessingStatus.EXPIRED]:
+    if recording.status in [
+        ProcessingStatus.SKIPPED,
+        ProcessingStatus.PENDING_SOURCE,
+        ProcessingStatus.PENDING_CONVERSION,
+        ProcessingStatus.EXPIRED,
+    ]:
         return False
 
     if recording.status in [ProcessingStatus.INITIALIZED, ProcessingStatus.DOWNLOADING]:

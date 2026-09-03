@@ -25,29 +25,6 @@ export function formatTotalDuration(totalSeconds: number): string {
   return `${COUNT_FORMATTER.format(hours)} h`;
 }
 
-/**
- * Session rows all read "Chrome · macOS" on one machine, yet each has its own
- * Revoke button. Pull the distinguishing detail out of the user agent so the
- * user can tell which session they are about to kill.
- */
-export function sessionDetail(userAgent: string | null): string | null {
-  if (!userAgent) return null;
-  for (const [re, name] of [
-    [/YaBrowser\/([\d.]+)/, "Yandex Browser"],
-    [/HeadlessChrome\/([\d.]+)/, "Headless Chrome"],
-    [/Edg\/([\d.]+)/, "Edge"],
-    [/OPR\/([\d.]+)/, "Opera"],
-    [/Firefox\/([\d.]+)/, "Firefox"],
-    [/Chrome\/([\d.]+)/, "Chrome"],
-    [/Version\/([\d.]+).*Safari/, "Safari"],
-    [/curl\/([\d.]+)/, "curl"],
-  ] as [RegExp, string][]) {
-    const m = userAgent.match(re);
-    if (m) return `${name} ${m[1].split(".")[0]}`;
-  }
-  return null;
-}
-
 /** Count leaf fields that differ, so a collapsed section can show its own tally. */
 export function countChanges(a: unknown, b: unknown): number {
   if (Object.is(a, b)) return 0;

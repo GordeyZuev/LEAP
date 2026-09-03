@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from enum import IntEnum
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,16 +16,33 @@ from sqlalchemy.orm import selectinload
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.dependencies import get_db_session
+from api.helpers.share_stats import build_share_stats_from_recording
 from api.repositories.recording_repos import RecordingRepository
-from api.schemas.share import PublicRecordingResponse, ShareCreateResponse
+from api.repositories.share_event_repo import ShareEventRepository
+from api.schemas.share import (
+    PublicRecordingResponse,
+    ShareAnalyticsResponse,
+    ShareCreateResponse,
+    ShareDailyPoint,
+)
+from api.services.share_observability import ShareObservabilityService, fill_daily_series
 from config.settings import get_settings
 from database.models import RecordingModel
+from database.share_models import ShareArtifactType
 from logger import get_logger
 
 router = APIRouter(tags=["Share"])
 logger = get_logger()
+_observability = ShareObservabilityService()
 
 _SHARE_FILE_TYPES = Literal["srt", "vtt", "transcript_json", "transcript_txt", "transcript_words"]
+
+
+class ShareAnalyticsDays(IntEnum):
+    """Allowed analytics window sizes (query param coerces from string)."""
+
+    WEEK = 7
+    MONTH = 28
 
 
 async def _get_recording_by_share_token(token: uuid.UUID, session: AsyncSession) -> RecordingModel:
@@ -37,6 +56,20 @@ async def _get_recording_by_share_token(token: uuid.UUID, session: AsyncSession)
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share link not found or has been revoked")
     return recording
+
+
+async def _track_page_view_safe(recording: RecordingModel, request: Request) -> None:
+    try:
+        await _observability.record_page_view(recording, request)
+    except Exception as exc:
+        logger.warning("share page_view tracking failed (ignored): {!r}", exc)
+
+
+async def _track_download_safe(recording: RecordingModel, request: Request, artifact_type: str) -> None:
+    try:
+        await _observability.record_download(recording, request, artifact_type)
+    except Exception as exc:
+        logger.warning("share download tracking failed (ignored): {!r}", exc)
 
 
 # ===========================================================================
@@ -78,9 +111,53 @@ async def revoke_share_link(
     await ctx.session.commit()
 
 
+@router.get("/api/v1/recordings/{recording_id}/share/analytics", response_model=ShareAnalyticsResponse)
+async def get_share_analytics(
+    recording_id: int,
+    days: ShareAnalyticsDays = Query(ShareAnalyticsDays.MONTH),
+    ctx: ServiceContext = Depends(get_service_context),
+) -> ShareAnalyticsResponse:
+    """Share view/download analytics for a recording. Owner only."""
+    period_days = int(days)
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+
+    repo = ShareEventRepository(ctx.session)
+    aggregates = await repo.daily_aggregates(recording.id, days=period_days)
+    downloads_by_type = await repo.downloads_by_type(recording.id, days=period_days)
+    daily = [
+        ShareDailyPoint(date=day, views=views, downloads=downloads)
+        for day, views, downloads in fill_daily_series(aggregates, days=period_days)
+    ]
+
+    return ShareAnalyticsResponse(
+        summary=build_share_stats_from_recording(recording),
+        daily=daily,
+        downloads_by_type=downloads_by_type,
+    )
+
+
 # ===========================================================================
 # Public endpoints (no auth)
 # ===========================================================================
+
+
+@router.post("/api/v1/share/{share_token}/beacon", status_code=status.HTTP_204_NO_CONTENT)
+async def share_page_beacon(
+    share_token: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> Response:
+    """Record an anonymous page view from the public share page."""
+    try:
+        recording = await _get_recording_by_share_token(share_token, session)
+    except HTTPException:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    await _track_page_view_safe(recording, request)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/api/v1/share/{share_token}", response_model=PublicRecordingResponse)
@@ -110,7 +187,10 @@ async def get_public_recording(
         "srt": to_storage_key(cache_dir / "subtitles.srt"),
         "vtt": to_storage_key(cache_dir / "subtitles.vtt"),
     }
-    available_files = [key for key, path in candidate_keys.items() if await storage.exists(path)]
+    candidate_exists = await asyncio.gather(*(storage.exists(path) for path in candidate_keys.values()))
+    available_files = [
+        key for (key, _path), exists in zip(candidate_keys.items(), candidate_exists, strict=True) if exists
+    ]
 
     # Load active topic version from extracted.json for summary, questions, description
     from api.helpers.template_renderer import TemplateRenderer, compute_metadata_preview
@@ -183,6 +263,7 @@ async def get_public_recording(
 @router.get("/api/v1/share/{share_token}/media")
 async def get_share_media(
     share_token: uuid.UUID,
+    request: Request,
     media_kind: Literal["original", "processed"] = Query("processed", alias="type"),
     download: bool = Query(False),
     session: AsyncSession = Depends(get_db_session),
@@ -207,6 +288,10 @@ async def get_share_media(
     if not await storage.exists(raw_key):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not available")
 
+    if download:
+        artifact = ShareArtifactType.VIDEO_ORIGINAL if media_kind == "original" else ShareArtifactType.VIDEO_PROCESSED
+        await _track_download_safe(recording, request, artifact)
+
     expires_in = get_settings().storage.s3_presign_expires
     stem = f"recording-{recording.id}"
     dl_filename = f"{stem}.mp4" if download else None
@@ -218,6 +303,8 @@ async def get_share_media(
 async def download_share_file(
     share_token: uuid.UUID,
     file_type: _SHARE_FILE_TYPES,
+    request: Request,
+    inline: bool = Query(False, description="Player/subtitle fetch; not counted as a user download"),
     session: AsyncSession = Depends(get_db_session),
 ) -> StreamingResponse:
     """Download a transcription/subtitle artifact from a public share."""
@@ -254,9 +341,13 @@ async def download_share_file(
     if not await storage.exists(storage_key):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
+    if not inline:
+        await _track_download_safe(recording, request, file_type)
+
     content = await storage.load(storage_key)
+    disposition = "inline" if inline else "attachment"
     return StreamingResponse(
         iter([content]),
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{attachment_name}"'},
+        headers={"Content-Disposition": f'{disposition}; filename="{attachment_name}"'},
     )

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   X,
   Plus,
+  PlugZap,
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
@@ -19,6 +20,8 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
+import { PasswordInput } from "@/components/ui/password-input";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
@@ -57,12 +60,17 @@ interface CredentialListResponse {
   total_pages: number;
 }
 
+// `connectable: false` keeps a platform known — existing connections still show their
+// label and stay filterable — while not offering it for new ones.
 const PLATFORMS = [
-  { key: "youtube",      label: "YouTube",      oauthPath: "/oauth/youtube/authorize",     hasOAuth: true,  hasManual: false },
-  { key: "vk_video",    label: "VK Video",     oauthPath: "/oauth/vk/authorize",          hasOAuth: true,  hasManual: true  },
-  { key: "zoom",        label: "Zoom",         oauthPath: "/oauth/zoom/authorize",        hasOAuth: true,  hasManual: true  },
-  { key: "yandex_disk", label: "Yandex Disk",  oauthPath: "/oauth/yandex_disk/authorize", hasOAuth: true,  hasManual: true  },
+  { key: "youtube",      label: "YouTube",      oauthPath: "/oauth/youtube/authorize",     hasOAuth: true,  hasManual: false, connectable: true  },
+  { key: "vk_video",    label: "VK Video",     oauthPath: "/oauth/vk/authorize",          hasOAuth: true,  hasManual: true,  connectable: false },
+  { key: "zoom",        label: "Zoom",         oauthPath: "/oauth/zoom/authorize",        hasOAuth: true,  hasManual: true,  connectable: true  },
+  { key: "yandex_disk", label: "Yandex Disk",  oauthPath: "/oauth/yandex_disk/authorize", hasOAuth: true,  hasManual: true,  connectable: true  },
+  { key: "mts_link",    label: "MTS Link",     oauthPath: "",                             hasOAuth: false, hasManual: true,  connectable: true  },
 ] as const;
+
+const CONNECTABLE_PLATFORMS = PLATFORMS.filter((p) => p.connectable);
 
 type PlatformKey = typeof PLATFORMS[number]["key"];
 
@@ -71,9 +79,14 @@ const PLATFORM_MAP = Object.fromEntries(PLATFORMS.map((p) => [p.key, p])) as Rec
   typeof PLATFORMS[number]
 >;
 
+// Filter by what can be connected here. `/references/platforms` lists upload
+// targets instead, so it would miss input-only platforms like MTS Link.
+const PLATFORM_FILTER_OPTIONS = PLATFORMS.map((p) => ({ value: p.key as string, label: p.label }));
+
 const SORT_OPTIONS = [
   { value: "account_name", label: "Name" },
   { value: "platform",     label: "Platform" },
+  { value: "status",       label: "Status" },
   { value: "last_used_at", label: "Last used" },
   { value: "created_at",   label: "Created" },
 ];
@@ -99,12 +112,46 @@ const MANUAL_FIELDS: Partial<Record<PlatformKey, ManualFieldDef[]>> = {
   yandex_disk: [
     { name: "oauth_token", label: "OAuth Token", placeholder: "y0_AgAAAAA...", type: "password" },
   ],
+  mts_link: [
+    { name: "api_token", label: "API Key", placeholder: "x-auth-token value", type: "password" },
+  ],
+};
+
+const MANUAL_HINTS: Partial<Record<PlatformKey, string>> = {
+  mts_link:
+    "Take the API key from your MTS Link admin panel, section Business, then API and webhooks. One key covers the whole organization; you choose which lecturers to sync when you add a source.",
 };
 
 type AddStep = null | "platform" | "connect";
+type ConnectTab = "oauth" | "manual";
+
+const SOON_BADGE = (
+  <span className="rounded-full bg-border/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+    Soon
+  </span>
+);
+
+interface CredentialCheckResult {
+  status: "ok" | "auth_failed" | "unavailable" | "unsupported";
+  detail: string;
+  needs_reauth: boolean;
+  checked_at: string;
+}
+
+const CHECK_SUMMARY: Record<CredentialCheckResult["status"], string> = {
+  ok: "Connection is working",
+  auth_failed: "The platform rejected these credentials — reconnect them",
+  unavailable: "Could not reach the platform, credentials left unchanged",
+  unsupported: "This platform has no connection check yet",
+};
+
+const CRED_FIELD_CLASS =
+  "w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors";
 
 export default function CredentialsPage() {
   const qc = useQueryClient();
+  // Ids for dialog titles and fields, so labels name their inputs.
+  const idPrefix = useId();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -114,7 +161,8 @@ export default function CredentialsPage() {
     void qc.invalidateQueries({ queryKey: ["credentials-page"] });
     void qc.invalidateQueries({ queryKey: ["credentials-list"] });
   }, [qc]);
-  const { data: platformFilterOptions = [] } = usePlatforms();
+  // Only used for the OAuth scopes shown in the detail modal.
+  const { data: oauthPlatforms = [] } = usePlatforms();
 
   // Filters live in the URL so a filtered view is shareable and survives reload.
   const list = useUrlListState({
@@ -128,7 +176,7 @@ export default function CredentialsPage() {
   // Add modal state
   const [addStep, setAddStep] = useState<AddStep>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformKey | null>(null);
-  const [connectTab, setConnectTab] = useState<"oauth" | "manual">("oauth");
+  const [connectTab, setConnectTab] = useState<ConnectTab>("oauth");
   const [manualFields, setManualFields] = useState<Record<string, string>>({});
   const [accountName, setAccountName] = useState("");
   const [formError, setFormError] = useState("");
@@ -179,6 +227,27 @@ export default function CredentialsPage() {
     onSuccess: () => invalidateCredentials(),
   });
 
+  const [checkingId, setCheckingId] = useState<number | null>(null);
+
+  const checkConnection = useMutation({
+    mutationFn: async (id: number) => {
+      setCheckingId(id);
+      const res = await apiClient.post<CredentialCheckResult>(`/credentials/${id}/check`);
+      return res.data;
+    },
+    onSuccess: (result) => {
+      // "unavailable" is not a verdict on the credential, so it must not read as failure.
+      const tone = result.status === "ok" ? "success" : result.status === "auth_failed" ? "error" : "info";
+      showToast(tone, CHECK_SUMMARY[result.status] ?? result.detail);
+      invalidateCredentials();
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      showToast("error", msg ?? "Could not run the check");
+    },
+    onSettled: () => setCheckingId(null),
+  });
+
   const connectManual = useMutation({
     mutationFn: (payload: { platform: string; account_name?: string; credentials: Record<string, string> }) =>
       apiClient.post("/credentials", payload),
@@ -220,7 +289,7 @@ export default function CredentialsPage() {
         showToast("error", "Refused to redirect to an untrusted OAuth host");
         return;
       }
-      window.location.href = url;
+      window.location.assign(url);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
       showToast("error", msg ?? "Failed to initiate OAuth");
@@ -246,8 +315,16 @@ export default function CredentialsPage() {
   }
 
   function selectPlatform(key: PlatformKey) {
+    const target = PLATFORM_MAP[key];
+
+    // Nothing to choose on the next step, so skip straight to the redirect.
+    if (!target.hasManual && target.hasOAuth) {
+      void handleOAuthConnect(target.oauthPath);
+      return;
+    }
+
     setSelectedPlatform(key);
-    setConnectTab("oauth");
+    setConnectTab(target.hasOAuth ? "oauth" : "manual");
     const fields = MANUAL_FIELDS[key] ?? [];
     const initial: Record<string, string> = {};
     fields.forEach((f) => { initial[f.name] = ""; });
@@ -331,7 +408,7 @@ export default function CredentialsPage() {
             label="Platform"
             emptySummary="All platforms"
             value={platformFilter}
-            options={platformFilterOptions}
+            options={PLATFORM_FILTER_OPTIONS}
             onChange={(next) => list.setMultiParam("platform", next)}
           />,
           <SegmentedFilter
@@ -437,6 +514,17 @@ export default function CredentialsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
+                        <ActionButton
+                          size="sm"
+                          variant="secondary"
+                          title="Ask the platform whether these credentials still work"
+                          onClick={() => checkConnection.mutate(cred.id)}
+                          isPending={checkConnection.isPending && checkingId === cred.id}
+                          pendingLabel="Checking…"
+                          icon={<PlugZap size={12} />}
+                        >
+                          Check
+                        </ActionButton>
                         {platform?.hasOAuth && (
                           <ActionButton
                             size="sm"
@@ -453,7 +541,7 @@ export default function CredentialsPage() {
                           variant="secondary"
                           onClick={() => setDisconnectId(cred.id)}
                           icon={<X size={12} />}
-                          className="border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                          className="border-danger-fg/65 text-danger-fg hover:bg-danger-fg/10"
                         >
                           Disconnect
                         </ActionButton>
@@ -483,12 +571,12 @@ export default function CredentialsPage() {
       <Modal
         open={addStep === "platform"}
         onClose={closeAddModal}
-        label="Add connection"
-        panelClassName="max-w-md"
+        labelledBy={`${idPrefix}-platform-title`}
+        panelClassName="max-w-md max-h-[90vh] overflow-y-auto"
       >
         <div className="bg-card">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <h2 className="text-base font-semibold text-foreground">Add connection</h2>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
+            <h2 id={`${idPrefix}-platform-title`} className="text-base font-semibold text-foreground">Add connection</h2>
             <button
               type="button"
               onClick={closeAddModal}
@@ -500,13 +588,14 @@ export default function CredentialsPage() {
           </div>
           <div className="px-6 py-5">
             <p className="text-sm text-muted-foreground mb-4">Choose a platform to connect</p>
-            <div className="grid grid-cols-2 gap-3">
-              {PLATFORMS.map((p) => (
+            {/* Same chip row as the source Type selector. */}
+            <div className="flex gap-2">
+              {CONNECTABLE_PLATFORMS.map((p) => (
                 <button
                   key={p.key}
                   type="button"
                   onClick={() => selectPlatform(p.key)}
-                  className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl border border-border hover:border-primary hover:bg-blue-50/40 dark:hover:bg-blue-500/10 transition-colors text-sm font-medium text-secondary-foreground"
+                  className="flex-1 py-2 rounded-xl text-xs font-medium border transition-colors active:scale-[0.96] bg-card text-secondary-foreground border-border hover:bg-muted"
                 >
                   {p.label}
                 </button>
@@ -524,11 +613,11 @@ export default function CredentialsPage() {
           <Modal
             open
             onClose={closeAddModal}
-            label={`Connect ${platform.label}`}
-            panelClassName="max-w-md"
+            labelledBy={`${idPrefix}-connect-title`}
+            panelClassName="max-w-md max-h-[90vh] overflow-y-auto"
           >
             <div className="bg-card">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -540,7 +629,7 @@ export default function CredentialsPage() {
                       <path d="M10 3L5 8L10 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   </button>
-                  <h2 className="text-base font-semibold text-foreground">
+                  <h2 id={`${idPrefix}-connect-title`} className="text-base font-semibold text-foreground">
                     Connect {platform.label}
                   </h2>
                 </div>
@@ -554,26 +643,26 @@ export default function CredentialsPage() {
                 </button>
               </div>
 
-              {platform.hasManual && (
-                <div className="flex border-b border-border">
-                  {(["oauth", "manual"] as const).map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => { setConnectTab(tab); setFormError(""); }}
-                      className={cn(
-                        "flex-1 py-2.5 text-sm font-medium transition-colors",
-                        connectTab === tab
-                          ? "border-b-2 border-primary text-primary"
-                          : "text-muted-foreground hover:text-secondary-foreground"
-                      )}
-                    >
-                      {tab === "oauth" ? "OAuth" : "Manual"}
-                    </button>
-                  ))}
-                </div>
-              )}
-
               <div className="px-6 py-5 space-y-4">
+                {/* Platforms without OAuth still show the method, marked Soon, so the
+                    two ways to connect read the same everywhere. */}
+                {platform.hasManual && (
+                  <SegmentedField<ConnectTab>
+                    label="Connection method"
+                    labelHidden
+                    value={connectTab}
+                    options={[
+                      {
+                        value: "oauth",
+                        label: "OAuth",
+                        disabled: !platform.hasOAuth,
+                        badge: platform.hasOAuth ? undefined : SOON_BADGE,
+                      },
+                      { value: "manual", label: "Manual" },
+                    ]}
+                    onChange={(tab) => { setConnectTab(tab); setFormError(""); }}
+                  />
+                )}
                 {connectTab === "oauth" ? (
                   <>
                     <p className="text-sm text-muted-foreground">
@@ -588,36 +677,62 @@ export default function CredentialsPage() {
                   </>
                 ) : (
                   <>
+                    {MANUAL_HINTS[selectedPlatform] && (
+                      <p className="text-sm text-muted-foreground">{MANUAL_HINTS[selectedPlatform]}</p>
+                    )}
                     <div>
-                      <label className="block text-sm font-medium text-secondary-foreground mb-1.5">
+                      <label
+                        htmlFor={`${idPrefix}-account-name`}
+                        className="block text-sm font-medium text-secondary-foreground mb-1.5"
+                      >
                         Connection name <span className="text-muted-foreground font-normal">(optional)</span>
                       </label>
                       <input
+                        id={`${idPrefix}-account-name`}
                         type="text"
                         value={accountName}
                         onChange={(e) => setAccountName(e.target.value)}
                         placeholder="e.g. Main account, Work"
-                        className="w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
+                        className={CRED_FIELD_CLASS}
                       />
                     </div>
-                    {manualFieldDefs.map((field) => (
-                      <div key={field.name}>
-                        <label className="block text-sm font-medium text-secondary-foreground mb-1.5">
-                          {field.label}
-                        </label>
-                        <input
-                          type={field.type ?? "text"}
-                          value={manualFields[field.name] ?? ""}
-                          onChange={(e) =>
-                            setManualFields((prev) => ({ ...prev, [field.name]: e.target.value }))
-                          }
-                          placeholder={field.placeholder}
-                          className="w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
-                        />
-                      </div>
-                    ))}
+                    {manualFieldDefs.map((field) => {
+                      const fieldId = `${idPrefix}-${field.name}`;
+                      const setValue = (value: string) =>
+                        setManualFields((prev) => ({ ...prev, [field.name]: value }));
+                      return (
+                        <div key={field.name}>
+                          <label
+                            htmlFor={fieldId}
+                            className="block text-sm font-medium text-secondary-foreground mb-1.5"
+                          >
+                            {field.label}
+                          </label>
+                          {field.type === "password" ? (
+                            <PasswordInput
+                              id={fieldId}
+                              value={manualFields[field.name] ?? ""}
+                              onChange={(e) => setValue(e.target.value)}
+                              placeholder={field.placeholder}
+                              className={CRED_FIELD_CLASS}
+                            />
+                          ) : (
+                            <input
+                              id={fieldId}
+                              type={field.type ?? "text"}
+                              value={manualFields[field.name] ?? ""}
+                              onChange={(e) => setValue(e.target.value)}
+                              placeholder={field.placeholder}
+                              className={CRED_FIELD_CLASS}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
                     {formError && (
-                      <p className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">{formError}</p>
+                      <p role="alert" className="rounded-xl bg-danger-fg/10 px-3 py-2 text-sm text-danger-fg">
+                        {formError}
+                      </p>
                     )}
                     <div className="flex justify-end gap-3 pt-1">
                       <ActionButton variant="secondary" onClick={closeAddModal} className="py-2.5">
@@ -646,17 +761,17 @@ export default function CredentialsPage() {
         const { cred, value } = renameModal;
         const platform = PLATFORM_MAP[cred.platform as PlatformKey];
         const platformScopes =
-          platformFilterOptions.find((o) => o.value === cred.platform)?.scopes ?? [];
+          oauthPlatforms.find((o) => o.value === cred.platform)?.scopes ?? [];
         return (
           <Modal
             open
             onClose={closeRenameModal}
-            label="Connection details"
-            panelClassName="max-w-sm"
+            labelledBy={`${idPrefix}-detail-title`}
+            panelClassName="max-w-sm max-h-[90vh] overflow-y-auto"
           >
             <div className="bg-card">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                <h2 className="text-base font-semibold text-foreground">Connection details</h2>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
+                <h2 id={`${idPrefix}-detail-title`} className="text-base font-semibold text-foreground">Connection details</h2>
                 <button
                   type="button"
                   onClick={closeRenameModal}
@@ -735,7 +850,9 @@ export default function CredentialsPage() {
                   />
                 </div>
                 {renameError && (
-                  <p className="text-sm text-red-500 bg-red-50 dark:bg-red-500/10 px-3 py-2 rounded-xl">{renameError}</p>
+                  <p role="alert" className="rounded-xl bg-danger-fg/10 px-3 py-2 text-sm text-danger-fg">
+                    {renameError}
+                  </p>
                 )}
                 <div className="flex justify-end gap-3">
                   <ActionButton variant="secondary" onClick={closeRenameModal} className="py-2.5">

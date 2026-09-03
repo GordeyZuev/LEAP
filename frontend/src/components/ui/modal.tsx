@@ -96,6 +96,14 @@ export function Modal({
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const fallbackLabelId = useId();
 
+  // Callers pass inline arrows, so onClose changes identity every render. As an effect
+  // dependency it would re-run focus management per keystroke and yank focus to the
+  // first control, making fields impossible to type in.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   // ESC + body scroll lock + focus management — all gated on `open`.
   useEffect(() => {
     if (!open) return;
@@ -119,7 +127,7 @@ export function Modal({
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (closeOnEsc && e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -136,7 +144,7 @@ export function Modal({
       }
       previouslyFocused.current = null;
     };
-  }, [open, closeOnEsc, onClose]);
+  }, [open, closeOnEsc]);
 
   const handleKeyDownTrap = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Tab") return;

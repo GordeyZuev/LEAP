@@ -22,7 +22,12 @@ export const TOAST_SHORT = 3000;
 export const TOAST_LONG = 5000;
 
 // Recording statuses that trigger active polling
-export const ACTIVE_POLL_STATUSES = new Set(["DOWNLOADING", "PROCESSING", "UPLOADING"]);
+export const ACTIVE_POLL_STATUSES = new Set([
+  "DOWNLOADING",
+  "PROCESSING",
+  "UPLOADING",
+  "PENDING_CONVERSION",
+]);
 
 // Returns true if a recording needs active polling (on_air is the canonical signal;
 // status-based check is a fallback for recordings created before the on_air migration).

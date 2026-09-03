@@ -265,6 +265,13 @@ class VideoProcessor:
         if self.config.resolution != "original":
             cmd.extend(["-s", self.config.resolution])
 
+        # MP4 normally writes its movie index (moov atom) at EOF. Long recordings
+        # then force browsers to download a multi-megabyte tail range before they
+        # can start playback. Relocate the index to the front while the file is
+        # still local; this is a lossless second pass performed by the muxer.
+        if Path(output_path).suffix.lower() in {".mp4", ".mov", ".m4v"}:
+            cmd.extend(["-movflags", "+faststart", "-avoid_negative_ts", "make_zero"])
+
         cmd.extend(["-y", output_path])
 
         try:

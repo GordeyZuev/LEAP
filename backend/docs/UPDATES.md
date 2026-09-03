@@ -9,17 +9,18 @@
 **Статус:** In Active Development • Beta.
 
 **Ключевые вехи (v0.9.6 → текущий релиз):**
-- 🧩 **v0.10.7.0:** Базовый шаблон (Default Template) — настройки обработки из Settings перенесены в базовый шаблон; promote через **Make base template**; retention в Account; share-страница watch-layout; LEAP-ссылка в Publications и бейдж в списке; миграции **037–039**. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-08-22**).
-- 📁 **v0.10.6.2:** Browse API и UI-пикер папок Яндекс.Диска, превью записей с thumbnail из метаданных, модалки через portal во viewport. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-08-22**).
-- 🧹 **v0.10.6.1:** Сетка списка записей выровнена (одна высота карточек, адаптивные колонки), единый бейдж `Failed · Stage`, нормализация `failed_at_stage` (миграция **036**), реорганизация страницы записи (Files выше Pipeline). Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-08-18**).
-- ✏️ **v0.10.6.0:** AI-редактор записи — темы/главы/саммари/вопросы редактируются прямо в браузере; Description-карточка с Jinja-рендером; выбор качества видео при добавлении ссылки; фильтр превышения квот в Admin. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-07-12**).
-- 🎙️ **v0.10.4.1:** AssemblyAI ASR — Fireworks/Whisper заменён на AssemblyAI Universal-2/3-Pro, `/sentences` для сегментов, `keyterms_prompt` вместо `prompt`, `CredentialPlatform.ASSEMBLYAI`, миграция **026**. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-06-14**).
-- 🔧 **v0.10.4:** Stable upload & Fixes — `on_air` / hard pause / idempotent pipeline stages, upload-only и post-pause resume, единые defaults тем/вопросов (UI = preview = upload), Grafana dashboard fixes (миграции **024**, **025**). Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-06-12**).
-- 🎛️ **v0.10.3:** UI-паритет пресетов, шаблонов и записей — полные поля метаданных платформ в редакторах, override-схемы YouTube/VK в backend, Trim/config/template binding на странице записи, единые FilterSelect, VK upload wiring (`no_comments`, `compression`). Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-06-06**).
-- ☁️ **v0.10.0:** Production-ready релиз на Yandex Cloud. S3-first хранилище (видео/аудио/JSON-артефакты в Object Storage), presigned URLs для видео-стриминга в браузере, nginx (HTTPS) + Grafana/Loki/Promtail в Docker Compose, CI/CD через GitHub Actions с пушем в Yandex Container Registry. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-05-30**).
-- 🚀 **v0.9.7.0:** References API (справочники для фронтенда); копирование шаблонов/пресетов/автоматизаций одной кнопкой; исправление WebM/VP8 pipeline (выбор контейнера по ffprobe); устойчивость тримминга при аудио/видео-only файлах; фронтенд v0.1 с полным редизайном страниц. Подробности — [CHANGELOG.md](CHANGELOG.md) (**2026-05-20**).
-- 📦 **v0.9.6.6:** Одни правила приёма видео на всех входах (в т.ч. Яндекс.Диск и API); списки расширений только в продукте, а не через «забытые» переменные в `.env`; записи на диске как `source.<ext>`; меньше скрытой перекодировки перед YouTube/VK; обновлены гайды. Раздел **May 2026** ниже; техничка — [CHANGELOG.md](CHANGELOG.md) (**2026-05-09**).
-- 🧩 **v0.9.6.5:** Метаданные загрузки на **Jinja2** (миграции **018** / **019**), preview API для шаблонов/пресетов, **`timezone`** в профиле (`PATCH /users/me`), строже **`resolve_full_config`** перед run/dry-run; правки audio-trim. Подробности — [CHANGELOG.md](CHANGELOG.md) (2026-04-09, 2026-04-12).
+- 🧩 **v0.10.8.0:** **МТС Линк** (org API key, email-фильтр, prepare-before-run / `PENDING_CONVERSION`, `/download` → 400), сопутствующие файлы конференции, **Check** у креденшелов. **Аналитика share-ссылок** (просмотры/скачивания, Manage share). **Стабильность видео** и Celery-финализаторы. Миграции **040–042**. (**2026-09-04**)
+- 🧩 **v0.10.7.0:** Базовый шаблон (Default Template) — настройки обработки из Settings перенесены в базовый шаблон; promote через **Make base template**; retention в Account; share-страница watch-layout; LEAP-ссылка в Publications и бейдж в списке; миграции **037–039**. (**2026-08-22**)
+- 📁 **v0.10.6.2:** Browse API и UI-пикер папок Яндекс.Диска, превью записей с thumbnail из метаданных, модалки через portal во viewport. (**2026-08-22**)
+- 🧹 **v0.10.6.1:** Сетка списка записей выровнена (одна высота карточек, адаптивные колонки), единый бейдж `Failed · Stage`, нормализация `failed_at_stage` (миграция **036**), реорганизация страницы записи (Files выше Pipeline). (**2026-08-18**)
+- ✏️ **v0.10.6.0:** AI-редактор записи — темы/главы/саммари/вопросы редактируются прямо в браузере; Description-карточка с Jinja-рендером; выбор качества видео при добавлении ссылки; фильтр превышения квот в Admin. (**2026-07-12**)
+- 🎙️ **v0.10.4.1:** AssemblyAI ASR — Fireworks/Whisper заменён на AssemblyAI Universal-2/3-Pro, `/sentences` для сегментов, `keyterms_prompt` вместо `prompt`, `CredentialPlatform.ASSEMBLYAI`, миграция **026**. (**2026-06-14**)
+- 🔧 **v0.10.4:** Stable upload & Fixes — `on_air` / hard pause / idempotent pipeline stages, upload-only и post-pause resume, единые defaults тем/вопросов (UI = preview = upload), Grafana dashboard fixes (миграции **024**, **025**). (**2026-06-12**)
+- 🎛️ **v0.10.3:** UI-паритет пресетов, шаблонов и записей — полные поля метаданных платформ в редакторах, override-схемы YouTube/VK в backend, Trim/config/template binding на странице записи, единые FilterSelect, VK upload wiring (`no_comments`, `compression`). (**2026-06-06**)
+- ☁️ **v0.10.0:** Production-ready релиз на Yandex Cloud. S3-first хранилище (видео/аудио/JSON-артефакты в Object Storage), presigned URLs для видео-стриминга в браузере, nginx (HTTPS) + Grafana/Loki/Promtail в Docker Compose, CI/CD через GitHub Actions с пушем в Yandex Container Registry. (**2026-05-30**)
+- 🚀 **v0.9.7.0:** References API (справочники для фронтенда); копирование шаблонов/пресетов/автоматизаций одной кнопкой; исправление WebM/VP8 pipeline (выбор контейнера по ffprobe); устойчивость тримминга при аудио/видео-only файлах; фронтенд v0.1 с полным редизайном страниц. (**2026-05-20**)
+- 📦 **v0.9.6.6:** Одни правила приёма видео на всех входах (в т.ч. Яндекс.Диск и API); списки расширений только в продукте, а не через «забытые» переменные в `.env`; записи на диске как `source.<ext>`; меньше скрытой перекодировки перед YouTube/VK; обновлены гайды. Раздел **May 2026** ниже (**2026-05-09**)
+- 🧩 **v0.9.6.5:** Метаданные загрузки на **Jinja2** (миграции **018** / **019**), preview API для шаблонов/пресетов, **`timezone`** в профиле (`PATCH /users/me`), строже **`resolve_full_config`** перед run/dry-run; правки audio-trim. (**2026-04-09**, **2026-04-12**)
 - 🌐 **v0.9.6.4:** Cookies для yt-dlp (`YTDLP_COOKIES_FILE` / `YTDLP_COOKIES_FROM_BROWSER`), язык `en` на всей цепочке (ASR → темы → LLM → субтитры)
 - 📋 **v0.9.6.3:** Вопросы для самопроверки (DeepSeek), экспорт записей (JSON/CSV/XLSX), ограничения заголовков платформ
 - 🔗 **v0.9.6.2:** Ещё более строгая типизация API, подготовка к фронтенду (OAuth redirect, typed schemas)
@@ -28,7 +29,7 @@
 - 📝 **Точность распознавания:** дополнительные термины по предмету, гибкая структура тем (коротко/средне/подробно)
 - 🔒 **Защита от дубликатов:** система не позволит создать повторяющиеся шаблоны, пресеты, автоматизации или учётные записи
 - 📊 **Прозрачность процессов:** единый формат логов, аудит этапов обработки, корректная работа в фоновом режиме
-- 📥 **Много источников:** видео из YouTube, VK, Rutube, Яндекс Диск — не только Zoom (v0.9.5)
+- 📥 **Много источников:** видео из Zoom, МТС Линк, YouTube, VK, Rutube, Яндекс Диск
 
 ---
 

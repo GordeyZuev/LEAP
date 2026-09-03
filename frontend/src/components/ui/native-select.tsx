@@ -21,14 +21,20 @@ interface NativeSelectProps {
   ariaLabel?: string;
 }
 
+/** Join an option's text parts: `<option>{q}p</option>` arrives as an array of
+ *  children, and stringifying that array would render "720,p". */
+function optionLabel(children: ReactNode): string {
+  return Children.toArray(children)
+    .map((part) => (typeof part === "string" || typeof part === "number" ? String(part) : ""))
+    .join("");
+}
+
 function childrenToOptions(children: ReactNode): FilterSelectOption[] {
   const opts: FilterSelectOption[] = [];
   Children.forEach(children, (child) => {
     if (!isValidElement(child) || child.type !== "option") return;
     const props = child.props as { value?: string | number; children?: ReactNode };
-    const label =
-      typeof props.children === "string" ? props.children : String(props.children ?? "");
-    opts.push({ value: String(props.value ?? ""), label });
+    opts.push({ value: String(props.value ?? ""), label: optionLabel(props.children) });
   });
   return opts;
 }

@@ -56,7 +56,9 @@ flowchart TD
     H -->|ДА| I[Перезапуск загрузок]
     H -->|НЕТ| J[Обработка завершена]
     B -->|READY| K[Уже готово]
-    B -->|EXPIRED / PENDING_SOURCE| L[409: невозможно]
+    B -->|EXPIRED| L[409: невозможно]
+    B -->|PENDING_SOURCE non-MTS| L
+    B -->|PENDING_SOURCE / PENDING_CONVERSION MTS| M[prepare → Run / automation]
 ```
 
 ---
@@ -420,6 +422,21 @@ flowchart TD
 
 ---
 
+## 10.1 Video Delivery
+
+```mermaid
+flowchart LR
+    P[Recording or share page] -->|parallel| M[Metadata API]
+    P -->|parallel| U[Media API]
+    U --> S[Presigned Object Storage URL]
+    S -->|HTTP Range| V[Browser video player]
+    V -->|expired URL / stall| U
+```
+
+The API authorizes access and signs the URL but does not proxy the video body. New MP4 outputs use faststart; the player refreshes an expired URL and exposes Retry instead of keeping an endless loader. See [VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md).
+
+---
+
 ## 11. Celery Async Processing
 
 **Упрощённо:**
@@ -446,8 +463,11 @@ flowchart LR
         Q3[uploads]
         Q4[async_operations]
         Q5[maintenance]
+        Q6[celery legacy drain]
     end
 ```
+
+`finalize_pipeline` is explicitly routed to `async_operations`; `celery.backend_cleanup` goes to `maintenance`. Production also consumes the legacy `celery` queue temporarily to drain tasks published before explicit routing.
 
 ---
 
@@ -614,6 +634,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     Z[ZOOM] --> ZD[ZoomDownloader]
+    M[MTS_LINK] --> MD[MtsLinkDownloader]
     E[EXTERNAL_URL] --> YD[YtDlpDownloader]
     Y[YOUTUBE] --> YD
     YA[YANDEX_DISK] --> YAD[YandexDiskDownloader]
@@ -709,7 +730,7 @@ flowchart LR
     IS -->|sync| R[Recordings]
 ```
 
-**Типы:** ZOOM, YANDEX_DISK, VIDEO_URL, LOCAL.
+**Типы:** ZOOM, MTS_LINK, YANDEX_DISK, VIDEO_URL, LOCAL.
 
 ---
 
@@ -814,4 +835,5 @@ flowchart TB
 - [TECHNICAL.md](TECHNICAL.md) — Полная техническая документация
 - [TEMPLATES_PRESETS_SOURCES_GUIDE.md](guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md) — Templates, Presets, Sources
 - [ZOOM_CREDS_GUIDE.md](guides/ZOOM_CREDS_GUIDE.md) — Zoom credentials
+- [MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) — MTS Link input source
 - [CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md) — Шифрование credentials

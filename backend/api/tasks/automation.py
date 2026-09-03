@@ -169,7 +169,7 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
 
             # Step 5: Query recordings using filters
             filters = job.filters or {}
-            status_filter = filters.get("status", ["INITIALIZED"])
+            status_filter = filters.get("status", ["INITIALIZED", "PENDING_CONVERSION"])
             exclude_blank = filters.get("exclude_blank", True)
 
             # Calculate date range from sync_days
@@ -342,7 +342,7 @@ def dry_run_automation_job_task(self, job_id: int, user_id: str):
                 sync_config = job.sync_config
                 days = sync_config.get("sync_days", 2)
                 filters = job.filters or {}
-                status_filter = filters.get("status", ["INITIALIZED"])
+                status_filter = filters.get("status", ["INITIALIZED", "PENDING_CONVERSION"])
                 exclude_blank = filters.get("exclude_blank", True)
 
                 # Use UTC to match timezone-aware start_time in DB

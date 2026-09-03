@@ -22,7 +22,7 @@ from api.services.config_utils import (
     resolve_full_config,
 )
 from models import ProcessingStatus
-from models.recording import ProcessingStageStatus, ProcessingStageType, TargetStatus
+from models.recording import ProcessingStageStatus, ProcessingStageType, SourceType, TargetStatus
 
 _CONFIG_RESOLUTION_HTTP_ERRORS = (
     RuntimeTemplateNotFoundError,
@@ -431,6 +431,26 @@ async def _execute_dry_run_single(
     upload_enabled = output_config.get("auto_upload", False)
 
     steps = []
+
+    source_type = recording.source.source_type if recording.source else None
+    if (
+        source_type == SourceType.MTS_LINK
+        and not recording.local_video_path
+        and recording.status
+        in (
+            ProcessingStatus.INITIALIZED,
+            ProcessingStatus.SKIPPED,
+            ProcessingStatus.PENDING_SOURCE,
+            ProcessingStatus.PENDING_CONVERSION,
+        )
+    ):
+        steps.append(
+            {
+                "name": "mts_prepare",
+                "enabled": True,
+                "note": "Ping MTS Link for assembly/conversion before pipeline (use /run, not /download)",
+            }
+        )
 
     if recording.local_video_path:
         steps.append({"name": "download", "enabled": False, "skip_reason": "Completed"})

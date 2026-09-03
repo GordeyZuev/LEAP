@@ -39,7 +39,7 @@ class InputSourceCreate(BaseModel):
 
     name: str = Field(..., min_length=3, max_length=255, description="Source name")
     description: str | None = Field(None, max_length=1000, description="Source description")
-    platform: Literal["ZOOM", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] = Field(..., description="Platform")
+    platform: Literal["ZOOM", "MTS_LINK", "YANDEX_DISK", "VIDEO_URL", "LOCAL"] = Field(..., description="Platform")
     credential_id: int | None = Field(
         None,
         gt=0,

@@ -17,6 +17,7 @@ interface SegmentedFilterProps<V extends string | number> {
   value: V;
   options: SegmentedOption<V>[];
   onChange: (value: V) => void;
+  labelHidden?: boolean;
 }
 
 /**
