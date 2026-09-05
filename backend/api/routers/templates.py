@@ -1,8 +1,9 @@
 """Recording template endpoints"""
 
+from types import SimpleNamespace
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
@@ -21,7 +22,12 @@ from api.schemas.template import (
     TemplateRenderPreviewRequest,
 )
 from api.schemas.template.from_recording import TemplateFromRecordingRequest
-from api.schemas.template.operations import RematchTaskResponse, TemplatePreviewResponse, TemplateStatsResponse
+from api.schemas.template.operations import (
+    RematchTaskResponse,
+    TemplatePreviewRequest,
+    TemplatePreviewResponse,
+    TemplateStatsResponse,
+)
 from api.services.quota_service import QuotaService
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models.recording import ProcessingStatus
@@ -652,38 +658,40 @@ async def preview_template_match(
     only_skipped: bool = Query(True, description="Only SKIPPED recordings (default: True). False = all unmapped."),
     source_id: int | None = Query(None, description="Filter by source (optional)"),
     limit: int = Query(100, le=500, description="Maximum recordings to check"),
+    body: TemplatePreviewRequest | None = Body(None),
     session: AsyncSession = Depends(get_db_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> TemplatePreviewResponse:
     """
     Preview which recordings will match this template (dry-run mode).
 
-    Useful for testing matching rules before activation or rematch operation.
+    Includes unmapped SKIPPED/PENDING_SOURCE recordings and recordings already
+    linked to this template. Optional body.matching_rules overrides the saved template.
     """
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
 
     from database.models import RecordingModel
 
     template_repo = RecordingTemplateRepository(session)
 
-    # Get template
     template = await template_repo.find_by_id(template_id, current_user.id)
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
 
-    # Build query for checking
-    query = select(RecordingModel).where(RecordingModel.user_id == current_user.id)
-
-    # Filter by unmapped/SKIPPED/PENDING_SOURCE
     if only_skipped:
-        query = query.where(
-            RecordingModel.is_mapped == False,  # noqa: E712
-            RecordingModel.status.in_([ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]),
+        candidate_filter = or_(
+            RecordingModel.template_id == template_id,
+            (RecordingModel.is_mapped == False)  # noqa: E712
+            & RecordingModel.status.in_([ProcessingStatus.SKIPPED, ProcessingStatus.PENDING_SOURCE]),
         )
     else:
-        query = query.where(RecordingModel.is_mapped == False)  # noqa: E712
+        candidate_filter = or_(
+            RecordingModel.template_id == template_id,
+            RecordingModel.is_mapped == False,  # noqa: E712
+        )
 
-    # Filter by source_id (optional)
+    query = select(RecordingModel).where(RecordingModel.user_id == current_user.id, candidate_filter)
+
     if source_id:
         query = query.where(RecordingModel.input_source_id == source_id)
 
@@ -692,40 +700,51 @@ async def preview_template_match(
     result = await session.execute(query)
     recordings = result.scalars().all()
 
-    # Test matching
     from api.routers.input_sources import _find_matching_template
+
+    rules = (
+        body.matching_rules.model_dump()
+        if body and body.matching_rules is not None
+        else (template.matching_rules or {})
+    )
+    preview_template = SimpleNamespace(id=template.id, matching_rules=rules)
 
     will_match = []
     for recording in recordings:
+        linked_here = recording.template_id == template_id
         matched = _find_matching_template(
             display_name=recording.display_name,
             source_id=recording.input_source_id or 0,
-            templates=[template],
+            templates=[preview_template],
+        )
+        if not matched and not linked_here:
+            continue
+
+        will_match.append(
+            {
+                "id": recording.id,
+                "display_name": recording.display_name,
+                "current_status": recording.status,
+                "current_is_mapped": linked_here or bool(recording.is_mapped),
+                "will_become_status": "INITIALIZED",
+                "will_become_is_mapped": True,
+                "start_time": recording.start_time.isoformat(),
+                "duration": recording.duration,
+                "input_source_id": recording.input_source_id,
+                "rules_match": matched is not None,
+            }
         )
 
-        if matched:
-            will_match.append(
-                {
-                    "id": recording.id,
-                    "display_name": recording.display_name,
-                    "current_status": recording.status,
-                    "current_is_mapped": recording.is_mapped,
-                    "will_become_status": "INITIALIZED",
-                    "will_become_is_mapped": True,
-                    "start_time": recording.start_time.isoformat(),
-                    "duration": recording.duration,
-                    "input_source_id": recording.input_source_id,
-                }
-            )
+    new_match_count = sum(1 for row in will_match if row["rules_match"] and not row["current_is_mapped"])
 
     return TemplatePreviewResponse(
         template_id=template_id,
         template_name=template.name,
         mode="skipped_only" if only_skipped else "all_unmapped",
         total_checked=len(recordings),
-        will_match_count=len(will_match),
+        will_match_count=new_match_count,
         will_match=will_match,
-        note="This is a preview. No data has been changed. Use POST /api/v1/templates/{id}/rematch to apply.",
+        note="",
     )
 
 
@@ -778,5 +797,5 @@ async def rematch_template_recordings(
         template_id=template_id,
         template_name=template.name,
         only_unmapped=only_unmapped,
-        note="Use GET /api/v1/tasks/{task_id} to check status",
+        note="",
     )

@@ -18,6 +18,7 @@ from .models import (
     SourceMetadataModel,
     StageTimingModel,
 )
+from .playlist_models import PlaylistItemModel, PlaylistModel
 from .template_models import (
     BaseConfigModel,
     InputSourceModel,
@@ -35,6 +36,8 @@ __all__ = [
     "InputSourceModel",
     "OutputPresetModel",
     "OutputTargetModel",
+    "PlaylistItemModel",
+    "PlaylistModel",
     "ProcessingStageModel",
     "QuotaUsageModel",
     "RecordingModel",

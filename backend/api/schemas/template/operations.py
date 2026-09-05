@@ -1,8 +1,9 @@
 """Schemas for template operations endpoints."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.schemas.common import BASE_MODEL_CONFIG
+from api.schemas.template.matching_rules import MatchingRules
 
 
 class BulkDeleteResponse(BaseModel):
@@ -25,6 +26,14 @@ class TemplateStatsResponse(BaseModel):
     is_active: bool
 
 
+class TemplatePreviewRequest(BaseModel):
+    """Optional unsaved matching rules for a dry-run (form state)."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    matching_rules: MatchingRules | None = None
+
+
 class TemplatePreviewRecording(BaseModel):
     model_config = BASE_MODEL_CONFIG
 
@@ -37,6 +46,7 @@ class TemplatePreviewRecording(BaseModel):
     start_time: str
     duration: float | None = None
     input_source_id: int | None = None
+    rules_match: bool = Field(True, description="Current matching rules would select this recording")
 
 
 class TemplatePreviewResponse(BaseModel):

@@ -406,7 +406,7 @@ export default function DocsPage() {
             </P>
             <List
               items={[
-                <><strong>URL</strong> — paste a link to a single video (YouTube, Rutube, Vimeo, and many other sites via yt-dlp).</>,
+                <><strong>URL</strong> — paste a link to a single video (YouTube, Rutube, Vimeo, and many other sites via yt-dlp). After a short pause the dialog shows the title, duration, thumbnail, and available qualities.</>,
                 <><strong>Playlist</strong> — import every item from a playlist URL.</>,
                 <><strong>File</strong> — upload directly from your computer (up to 5 GB).</>,
                 <><strong>Sync</strong> — pull new items from a configured source (Zoom, MTS Link, Yandex Disk, or a saved Video URL source).</>,
@@ -431,12 +431,29 @@ export default function DocsPage() {
           </Sub>
           <Sub title="Share links">
             <P>
-              On a recording detail page, use <strong>Share</strong> to generate a public link
-              (no login required). Viewers can watch the processed video in the browser.
+              On a recording detail page, use <strong>Share</strong> for a public link (no login required).
+              Enable mints the URL once; Disable keeps it (the public page is 404 until you Enable again);
+              Rotate issues a new URL. Viewers can watch the processed video in the browser.
               The player remembers the last position in this browser after a refresh.
               Video preparation starts while the page loads; if the temporary link expires or the network stalls,
               the player refreshes it automatically and shows Retry if recovery is not possible.
-              You can copy the link or revoke it at any time.
+              View counts stay on the recording (anonymous page opens, deduped ~30 minutes
+              per visitor). Opening a playable video from a playlist counts as a view on that recording
+              (same window); the playlist landing and processing rows do not. Download buttons on the public page
+              can be hidden per recording — playback itself cannot be copy-proof.
+            </P>
+          </Sub>
+          <Sub title="Playlists">
+            <P>
+              A playlist is a course: an ordered list of recordings with one public link
+              (<code className="text-xs">/share/p/…</code>). Create one under <strong>Playlists</strong>,
+              then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
+              Named templates can auto-append new matches to LEAP playlists — this is not a YouTube upload.
+              Enable / Disable / Rotate work like recording share. Deleting a playlist kills the link; recordings stay.
+              The landing page is a cover image and the video list (no Play button). Opening a video goes to watch
+              (<code className="text-xs">?v=</code>): player, companion (Videos, Topics, Transcript), then Extra content,
+              Files, and Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags.
+              Opening a playable video counts as a view on that recording.
             </P>
           </Sub>
           <Sub title="Running a recording">
@@ -603,7 +620,7 @@ export default function DocsPage() {
               items={[
                 <><strong>Processing</strong> — transcription on/off, language, vocabulary, topic extraction, subtitles, question count, allow partial ASR errors.</>,
                 <><strong>Metadata templates</strong> — Jinja2 title and description; how topics and questions appear in the text (display format).</>,
-                <><strong>Output</strong> — which presets to upload to, auto-upload after processing, attach subtitle files.</>,
+                <><strong>Output</strong> — which presets to upload to, auto-upload after processing, attach subtitle files. Named templates can also list <strong>LEAP playlists</strong> (not YouTube) so newly matched recordings are appended to a course.</>,
                 <><strong>Matching rules</strong> (named templates only) — keywords, exact names, regex, source filters, exclusions. Active templates with matching rules auto-link to new recordings.</>,
                 <><strong>Platform overrides</strong> — optional per-platform fields (YouTube privacy, Yandex folder path, thumbnail) layered on top of global metadata.</>,
               ]}

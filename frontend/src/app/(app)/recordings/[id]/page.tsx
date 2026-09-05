@@ -7,9 +7,9 @@ import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
   CheckCircle2, XCircle, Clock, Loader2, RotateCcw, Settings2, ArchiveRestore, FilePlus2,
-  Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2,
+  Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2, ListVideo,
 } from "lucide-react";
-import { cn, formatDate, formatDateTimeShort, formatDuration, extractApiError } from "@/lib/utils";
+import { cn, formatDate, formatDateTimeShort, formatDuration, extractApiError, httpStatus } from "@/lib/utils";
 import type { ShareStatsSummary } from "@/lib/share-stats";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
 import { apiClient, resolveStorageUrl } from "@/api/client";
@@ -21,10 +21,12 @@ import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
 import { ErrorState } from "@/components/ui/error-state";
 import { CollapsibleCard, SectionCard } from "@/components/ui/section-card";
-import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { ArtefactList, type ArtefactItem } from "@/components/recordings/artefact-list";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { AIContentEditor } from "@/components/recordings/ai-content-editor";
+import { PlaylistPicker } from "@/components/playlists/playlist-picker";
+import { removePlaylistItem } from "@/api/playlists";
 import { ShareModal } from "@/components/recordings/share-modal";
 import { ShareStatsLine } from "@/components/recordings/share-stats-line";
 import { TemplateField } from "@/components/platforms/platform-fields";
@@ -172,7 +174,11 @@ interface RecordingDetail {
   transcription?: TranscriptionDetail | null;
   upload_summary?: { total: number; uploaded: number; failed: number; partial: boolean } | null;
   share_token?: string | null;
+  share_enabled?: boolean;
   share_stats?: ShareStatsSummary | null;
+  allow_video_download?: boolean;
+  allow_files_download?: boolean;
+  playlists?: { id: number; name: string; item_id: number }[];
 }
 
 interface RecordingConfigResponse {
@@ -198,6 +204,7 @@ interface RecordingConfigResponse {
   metadata_config: {
     title_template?: string;
     description_template?: string;
+    thumbnail_name?: string;
     youtube?: Record<string, unknown>;
     vk?: Record<string, unknown>;
     yandex_disk?: Record<string, unknown>;
@@ -300,9 +307,9 @@ const PUBLICATION_LINK =
 const PUBLICATION_TEXT_ACTION =
   "inline-flex min-h-7 items-center text-xs font-medium text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm";
 
-const VIDEO_VARIANT_TABS: TabItem<"processed" | "original">[] = [
-  { value: "processed", label: "Processed" },
-  { value: "original", label: "Original" },
+const VIDEO_VARIANT_OPTIONS = [
+  { value: "processed" as const, label: "Processed" },
+  { value: "original" as const, label: "Original" },
 ];
 
 type LifecyclePhase = "pending" | "active" | "done" | "failed" | "skipped";
@@ -442,7 +449,7 @@ function SharePublicationRow({
     <div className="flex items-start gap-2.5 py-2.5">
       <Icon size={14} className={cn(statusColor, "mt-0.5 shrink-0")} />
       <div className="min-w-0 flex-1">
-        <span className="text-xs font-semibold text-foreground">LEAP public link</span>
+        <span className="text-xs font-semibold text-foreground">LEAP Link</span>
         <p className={cn("text-xs", statusColor)}>{active ? "Active" : "Not shared"}</p>
         {active && (
           <>
@@ -477,6 +484,57 @@ function SharePublicationRow({
           {hasHistory ? "Manage" : "Create link"}
         </ActionButton>
       )}
+    </div>
+  );
+}
+
+function PlaylistMembershipRow({
+  playlists,
+  onAdd,
+  onRemove,
+}: {
+  playlists: { id: number; name: string; item_id: number }[];
+  onAdd: () => void;
+  onRemove: (playlist: { id: number; item_id: number }) => void;
+}) {
+  return (
+    <div className="flex items-start gap-2.5 border-t border-primary/10 py-2.5">
+      <ListVideo size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <span className="text-xs font-semibold text-foreground">Playlists</span>
+        {playlists.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Not in any playlist</p>
+        ) : (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {playlists.map((p) => (
+              <span
+                key={p.id}
+                className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 py-1 pl-3 pr-1.5 text-xs font-medium text-primary"
+              >
+                <Link href={`/playlists/${p.id}`} className="max-w-[14rem] truncate hover:underline">
+                  {p.name}
+                </Link>
+                <button
+                  type="button"
+                  aria-label={`Remove from ${p.name}`}
+                  onClick={() => onRemove(p)}
+                  className="rounded-full p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <ActionButton
+        size="sm"
+        variant="secondary"
+        onClick={onAdd}
+        className="shrink-0 px-2 py-0.5 text-xs"
+      >
+        Add
+      </ActionButton>
     </div>
   );
 }
@@ -552,8 +610,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [bindTemplateOpen, setBindTemplateOpen] = useState(false);
   const [bindTemplateSearch, setBindTemplateSearch] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
+  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
+  const [downloadFlags, setDownloadFlags] = useState<{
+    allow_video_download?: boolean;
+    allow_files_download?: boolean;
+  }>({});
   // Optimistic override: undefined = use server value, string/null = local override after user action
-  const [shareTokenOverride, setShareTokenOverride] = useState<string | null | undefined>(undefined);
+  const [shareOverride, setShareOverride] = useState<{ token: string | null; enabled: boolean } | undefined>(undefined);
   const [nameEditing, setNameEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
@@ -599,7 +662,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     retry: false,
   });
 
-  const shareToken = shareTokenOverride !== undefined ? shareTokenOverride : (recording?.share_token ?? null);
+  const shareToken = shareOverride !== undefined ? shareOverride.token : (recording?.share_token ?? null);
+  const shareEnabled = shareOverride !== undefined ? shareOverride.enabled : Boolean(recording?.share_enabled);
 
   const run = useMutation({
     mutationFn: () => apiClient.post<RunOperationResponse>(`/recordings/${id}/run`),
@@ -828,7 +892,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   if (error || !recording) {
     // 404/403 means it's gone or belongs to someone else. Anything else is a
     // transport failure the reader can retry — don't claim it doesn't exist.
-    const status = (error as { response?: { status?: number } } | null)?.response?.status;
+    const status = httpStatus(error);
     const missing = status === 404 || status === 403;
     return (
       <div className={PAGE_ROOT}>
@@ -1077,14 +1141,16 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 <p className="text-xs text-muted-foreground">Video not available yet</p>
               </div>
             ) : hasProcessedVid && hasOriginalVid ? (
-              <Tabs
-                items={VIDEO_VARIANT_TABS}
-                value={videoTab}
-                onChange={setVideoTabChoice}
-                label="Video source"
-              >
+              <div className="space-y-4">
+                <SegmentedField
+                  label="Video source"
+                  labelHidden
+                  options={VIDEO_VARIANT_OPTIONS}
+                  value={videoTab}
+                  onChange={setVideoTabChoice}
+                />
                 {videoPlayerNode}
-              </Tabs>
+              </div>
             ) : (
               videoPlayerNode
             )}
@@ -1301,6 +1367,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     <>
                       {m.title_template       && <ConfigRow label="Title template"       value={m.title_template}       mono />}
                       {m.description_template && <ConfigRow label="Description template" value={m.description_template} mono />}
+                      {m.thumbnail_name       && <ConfigRow label="Thumbnail"            value={m.thumbnail_name}       mono />}
                     </>
                   );
                 })()}
@@ -1502,6 +1569,19 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   shareStats={recording.share_stats}
                   onManage={() => setShareOpen(true)}
                 />
+                <PlaylistMembershipRow
+                  playlists={recording.playlists ?? []}
+                  onAdd={() => setPlaylistPickerOpen(true)}
+                  onRemove={(p) => {
+                    void removePlaylistItem(p.id, p.item_id)
+                      .then(() => {
+                        qc.invalidateQueries({ queryKey: ["recording", id] });
+                        qc.invalidateQueries({ queryKey: ["playlists"] });
+                        showToast("success", "Removed from playlist");
+                      })
+                      .catch((e) => showToast("error", extractApiError(e, "Failed to remove from playlist")));
+                  }}
+                />
               </div>
               {recording.outputs.length > 0 && (
                 <div>
@@ -1561,10 +1641,30 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         onClose={() => setShareOpen(false)}
         recordingId={recording.id}
         initialToken={shareToken}
+        initialEnabled={shareEnabled}
         shareStats={recording.share_stats ?? null}
-        onTokenChange={setShareTokenOverride}
+        onShareChange={(token, enabled) => setShareOverride({ token, enabled })}
+        allowVideoDownload={downloadFlags.allow_video_download ?? recording.allow_video_download ?? true}
+        allowFilesDownload={downloadFlags.allow_files_download ?? recording.allow_files_download ?? true}
+        onFlagsChange={(flags) => setDownloadFlags(flags)}
         onToast={(msg, variant) => showToast(variant === "error" ? "error" : "success", msg)}
       />
+
+      <Modal open={playlistPickerOpen} onClose={() => setPlaylistPickerOpen(false)} label="Add to playlist" panelClassName="max-w-md">
+        <div className="space-y-4 p-6">
+          <h2 className="text-sm font-semibold">Add to playlist</h2>
+          <PlaylistPicker
+            mode="immediate"
+            recordingId={recording.id}
+            selectedIds={(recording.playlists ?? []).map((p) => p.id)}
+            membershipItemIds={Object.fromEntries((recording.playlists ?? []).map((p) => [p.id, p.item_id]))}
+            onChange={() => {
+              qc.invalidateQueries({ queryKey: ["recording", id] });
+            }}
+            onToast={(msg, variant) => showToast(variant === "error" ? "error" : "success", msg)}
+          />
+        </div>
+      </Modal>
 
       <ConfirmDialog
         open={deleteConfirm}
@@ -1613,6 +1713,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         submitMode="save"
         recordingId={Number(id)}
         recordingName={recording.display_name}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ["recording", id] });
+          qc.invalidateQueries({ queryKey: ["recording-config", Number(id)] });
+          qc.invalidateQueries({ queryKey: ["recordings"] });
+        }}
       />
 
       {/* Bind to existing template modal */}

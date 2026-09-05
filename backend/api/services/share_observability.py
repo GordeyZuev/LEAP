@@ -180,7 +180,9 @@ class ShareObservabilityService:
             )
             active_links = (
                 await session.scalar(
-                    select(func.count()).select_from(RecordingModel).where(RecordingModel.share_token.is_not(None))
+                    select(func.count())
+                    .select_from(RecordingModel)
+                    .where(RecordingModel.share_token.is_not(None), RecordingModel.share_enabled.is_(True))
                 )
                 or 0
             )

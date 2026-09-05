@@ -10,6 +10,10 @@ export function cn(...inputs: ClassValue[]) {
  * plain string `detail` and FastAPI's `detail: [{ msg }]` validation shape;
  * falls back to `fallback` for anything else.
  */
+export function httpStatus(err: unknown): number | undefined {
+  return (err as { response?: { status?: number } } | null)?.response?.status;
+}
+
 export function extractApiError(err: unknown, fallback = "Request failed"): string {
   const detail = (err as { response?: { data?: { detail?: unknown } } } | null)?.response?.data?.detail;
   if (typeof detail === "string") return detail;

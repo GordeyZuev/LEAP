@@ -15,6 +15,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Field } from "@/components/ui/field";
 import { NumberInput } from "@/components/ui/number-input";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { Toggle } from "@/components/ui/toggle";
 import {
   TemplateField,
@@ -81,10 +82,12 @@ interface RecordingConfigResponse {
     auto_upload?: boolean;
     upload_captions?: boolean;
     preset_ids?: number[];
+    playlist_ids?: number[];
   } | null;
   metadata_config: {
     title_template?: string;
     description_template?: string;
+    thumbnail_name?: string;
     topics_display?: Record<string, unknown>;
     questions_display?: Record<string, unknown>;
     youtube?: {
@@ -127,7 +130,7 @@ export interface RunConfigModalProps {
   recordingNames?: string[];
   onSuccess?: () => void;
   /** "run" launches the pipeline; "save" persists per-recording config via
-   *  PUT /config without running (single mode only). */
+   *  PATCH /config without running (single mode only). */
   submitMode?: "run" | "save";
 }
 
@@ -159,6 +162,8 @@ function OverrideSection({
   onEnabledChange,
   open,
   onOpenChange,
+  enabledHint,
+  disabledHint = "inherits effective config",
   children,
 }: {
   title: string;
@@ -168,6 +173,8 @@ function OverrideSection({
   onEnabledChange: (v: boolean) => void;
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  enabledHint?: string;
+  disabledHint?: string;
   children: React.ReactNode;
 }) {
   const titleId = useId();
@@ -192,7 +199,7 @@ function OverrideSection({
         >
           <span id={titleId} className="text-sm font-semibold text-foreground">{title}</span>
           <span className="text-xs text-muted-foreground">
-            {enabled ? "overridden for this run" : "inherits effective config"}
+            {enabled ? (enabledHint ?? "overridden for this run") : disabledHint}
           </span>
           <ChevronDown
             size={16}
@@ -288,6 +295,7 @@ export function RunConfigModal({
   const [autoUpload, setAutoUpload] = useState(false);
   const [uploadCaptions, setUploadCaptions] = useState(true);
   const [selectedPresetIds, setSelectedPresetIds] = useState<number[]>([]);
+  const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<number[]>([]);
 
   // ── Metadata ──────────────────────────────────────────────────────────────
   const [metadataEnabled, setMetadataEnabled] = useState(false);
@@ -295,6 +303,7 @@ export function RunConfigModal({
   const [titleTemplate, setTitleTemplate] = useState("");
   const [descriptionTemplate, setDescriptionTemplate] = useState("");
   const [globalThumbnail, setGlobalThumbnail] = useState("");
+  const [thumbnailTouched, setThumbnailTouched] = useState(false);
   const [topicsDisplay, setTopicsDisplay] = useState<DisplayConfig>(() => defaultTopicsDisplay());
   const [questionsDisplay, setQuestionsDisplay] = useState<DisplayConfig>(() => defaultQuestionsDisplay());
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
@@ -383,6 +392,7 @@ export function RunConfigModal({
           upload_captions: uploadCaptions,
         };
         if (selectedPresetIds.length > 0) outputCfg.preset_ids = selectedPresetIds;
+        if (selectedPlaylistIds.length > 0) outputCfg.playlist_ids = selectedPlaylistIds;
         body.output_config = outputCfg;
       }
 
@@ -394,12 +404,12 @@ export function RunConfigModal({
         if (tdPayload) meta.topics_display = tdPayload;
         const qdPayload = toDisplayPayload(questionsDisplay, "questions");
         if (qdPayload) meta.questions_display = qdPayload;
+        if (globalThumbnail || thumbnailTouched) meta.thumbnail_name = globalThumbnail;
 
         const yt: Record<string, unknown> = {};
         if (ytFields.privacy) yt.privacy = ytFields.privacy;
         if (ytFields.playlist_id) yt.playlist_id = ytFields.playlist_id;
-        const ytThumb = ytFields.thumbnail_name || globalThumbnail;
-        if (ytThumb) yt.thumbnail_name = ytThumb;
+        if (ytFields.thumbnail_name) yt.thumbnail_name = ytFields.thumbnail_name;
         if (ytFields.title_template) yt.title_template = ytFields.title_template;
         if (ytFields.description_template) yt.description_template = ytFields.description_template;
         if (ytFields.category_id) yt.category_id = ytFields.category_id;
@@ -408,8 +418,6 @@ export function RunConfigModal({
         if (Object.keys(yt).length > 0) meta.youtube = yt;
 
         const vk = vkFieldsToApi(vkFields, { sparseBools: true });
-        const vkThumb = vkFields.thumbnail_name || globalThumbnail;
-        if (vkThumb) vk.thumbnail_name = vkThumb;
         if (Object.keys(vk).length > 0) meta.vk = vk;
 
         const yd: Record<string, unknown> = {};
@@ -423,11 +431,15 @@ export function RunConfigModal({
       }
 
       if (isSave) {
-        return apiClient.patch(`/recordings/${recordingId}/config`, {
-          processing_config: body.processing_config,
-          output_config: body.output_config,
-          metadata_config: body.metadata_config,
-        });
+        const patch: Record<string, unknown> = {};
+        if (body.processing_config) patch.processing_config = body.processing_config;
+        if (body.output_config) patch.output_config = body.output_config;
+        if (body.metadata_config) {
+          patch.metadata_config = body.metadata_config;
+        } else if (thumbnailTouched) {
+          patch.metadata_config = { thumbnail_name: globalThumbnail };
+        }
+        return apiClient.patch(`/recordings/${recordingId}/config`, patch);
       }
 
       if (mode === "single") {
@@ -440,6 +452,9 @@ export function RunConfigModal({
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["recordings"] });
+      qc.invalidateQueries({ queryKey: ["playlists"] });
+      qc.invalidateQueries({ queryKey: ["playlist"] });
+      qc.invalidateQueries({ queryKey: ["playlist-items"] });
       if (recordingId) {
         qc.invalidateQueries({ queryKey: ["recording", String(recordingId)] });
         qc.invalidateQueries({ queryKey: ["recording-config", recordingId] });
@@ -475,11 +490,13 @@ export function RunConfigModal({
     setAutoUpload(false);
     setUploadCaptions(true);
     setSelectedPresetIds([]);
+    setSelectedPlaylistIds([]);
     setMetadataEnabled(false);
     setMetadataOpen(false);
     setTitleTemplate("");
     setDescriptionTemplate("");
     setGlobalThumbnail("");
+    setThumbnailTouched(false);
     setTopicsDisplay(defaultTopicsDisplay());
     setQuestionsDisplay(defaultQuestionsDisplay());
     setYtFields({ ...DEFAULT_YOUTUBE_FIELDS });
@@ -513,21 +530,25 @@ export function RunConfigModal({
       if (oc.auto_upload != null) setAutoUpload(oc.auto_upload);
       if (oc.upload_captions != null) setUploadCaptions(oc.upload_captions);
       if (oc.preset_ids) setSelectedPresetIds(oc.preset_ids);
+      if (oc.playlist_ids) setSelectedPlaylistIds(oc.playlist_ids);
     }
 
     const mc = existingConfig.metadata_config;
     if (mc) {
       if (mc.title_template) setTitleTemplate(mc.title_template);
       if (mc.description_template) setDescriptionTemplate(mc.description_template);
+      if (mc.thumbnail_name) setGlobalThumbnail(mc.thumbnail_name);
       setTopicsDisplay(fromDisplayPayload(mc.topics_display, "topics"));
       setQuestionsDisplay(fromDisplayPayload(mc.questions_display, "questions"));
       if (mc.youtube) setYtFields(youtubeFieldsFromApi(mc.youtube));
       if (mc.vk) setVkFields(vkFieldsFromApi(mc.vk));
       if (mc.yandex_disk) setYdFields(yandexFieldsFromApi(mc.yandex_disk));
     }
+    if (isSave) setMetadataOpen(true);
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [open, existingConfig]);
+  }, [open, existingConfig, isSave]);
 
+  const overrideEnabledHint = isSave ? "saved on this recording" : undefined;
   const count = mode === "bulk" ? (recordingIds?.length ?? 0) : 1;
   const title = isSave
     ? `Edit configuration${recordingName ? `: "${recordingName}"` : recordingId ? ` #${recordingId}` : ""}`
@@ -537,7 +558,7 @@ export function RunConfigModal({
 
   const runError =
     (runMutation.error as { response?: { data?: { detail?: string } } } | null)?.response?.data?.detail ??
-    (runMutation.isError ? "Failed to run" : null);
+    (runMutation.isError ? (isSave ? "Failed to save" : "Failed to run") : null);
 
   function togglePreset(id: number) {
     setSelectedPresetIds((prev) =>
@@ -623,6 +644,19 @@ export function RunConfigModal({
               Loading configuration…
             </div>
           ) : <>
+
+          {isSave && (
+            <div className="rounded-xl border border-border bg-background px-4 py-4">
+              <ThumbnailPicker
+                label="Thumbnail"
+                value={globalThumbnail}
+                onChange={(name) => {
+                  setGlobalThumbnail(name);
+                  setThumbnailTouched(true);
+                }}
+              />
+            </div>
+          )}
 
           {/* Bulk runs used to say only "12 recordings" — name them, so the
               user can see what they are about to launch. */}
@@ -715,6 +749,7 @@ export function RunConfigModal({
             onEnabledChange={setProcessingEnabled}
             open={processingOpen}
             onOpenChange={setProcessingOpen}
+            enabledHint={overrideEnabledHint}
           >
             <SegmentedField
               label="Transcription language"
@@ -777,6 +812,7 @@ export function RunConfigModal({
             onEnabledChange={setOutputEnabled}
             open={outputOpen}
             onOpenChange={setOutputOpen}
+            enabledHint={overrideEnabledHint}
           >
             <div className="space-y-0.5">
               <Toggle
@@ -822,10 +858,19 @@ export function RunConfigModal({
                 No presets configured. Add presets to enable platform selection.
               </p>
             )}
+            <Field
+              label="LEAP playlists"
+              hint="Checked playlists get this recording appended now. This is not an upload."
+            >
+              <PlaylistPicker
+                mode="form"
+                selectedIds={selectedPlaylistIds}
+                onChange={setSelectedPlaylistIds}
+              />
+            </Field>
           </OverrideSection>
 
           {/* ── Metadata & Platform overrides ───────────────────────────── */}
-          {!isSave && (
           <OverrideSection
             title="Metadata & platform overrides"
             switchLabel="Override metadata and platform settings"
@@ -833,6 +878,7 @@ export function RunConfigModal({
             onEnabledChange={setMetadataEnabled}
             open={metadataOpen}
             onOpenChange={setMetadataOpen}
+            enabledHint={overrideEnabledHint}
           >
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
             <TemplateField
@@ -848,12 +894,13 @@ export function RunConfigModal({
               multiline
               placeholder={"{{ summary }}\n\n{{ topics }}"}
             />
+            {!isSave && (
             <ThumbnailPicker
               label="Thumbnail (all platforms)"
               value={globalThumbnail}
               onChange={setGlobalThumbnail}
-              placeholder="Platform-specific thumbnails override this"
             />
+            )}
             <DisplayConfigFields
               label="Topics in description"
               hint="How {{ topics }} renders in title/description templates"
@@ -914,7 +961,6 @@ export function RunConfigModal({
               </PlatformSection>
             </div>
           </OverrideSection>
-          )}
 
           </>}
         </div>

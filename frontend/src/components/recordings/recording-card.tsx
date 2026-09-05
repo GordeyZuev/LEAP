@@ -38,6 +38,7 @@ export interface RecordingCardData {
   ready_to_upload: boolean;
   uploads: Record<string, UploadInfo>;
   share_token?: string | null;
+  share_enabled?: boolean;
   share_stats?: ShareStatsSummary | null;
   soft_deleted_at?: string | null;
   processing_stages?: PipelineStage[];
@@ -305,9 +306,9 @@ export function RecordingCard({
             <span className="tabular-nums">{formatDate(r.start_time)}</span>
           </p>
 
-          {(uploads.length > 0 || r.share_token) && (
+          {(uploads.length > 0 || (r.share_token && r.share_enabled)) && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {r.share_token && (
+              {r.share_token && r.share_enabled && (
                 <a
                   href={`/share/${r.share_token}`}
                   target="_blank"

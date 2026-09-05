@@ -18,7 +18,7 @@ def build_share_stats_from_recording(recording: RecordingModel) -> ShareStatsSum
 
 def build_share_stats_summary(recording: RecordingModel) -> ShareStatsSummary | None:
     """Lightweight stats for list when a public link is active."""
-    if recording.share_token is None:
+    if recording.share_token is None or not recording.share_enabled:
         return None
     return build_share_stats_from_recording(recording)
 

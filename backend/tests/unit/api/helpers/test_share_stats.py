@@ -18,6 +18,7 @@ def test_build_share_stats_summary_none_without_token() -> None:
 def test_build_share_stats_summary_with_token() -> None:
     recording = MagicMock()
     recording.share_token = uuid.uuid4()
+    recording.share_enabled = True
     recording.share_view_count = 3
     recording.share_download_count = 1
     recording.share_last_viewed_at = None
@@ -27,6 +28,13 @@ def test_build_share_stats_summary_with_token() -> None:
     assert summary is not None
     assert summary.view_count == 3
     assert summary.download_count == 1
+
+
+def test_build_share_stats_summary_none_when_disabled() -> None:
+    recording = MagicMock()
+    recording.share_token = uuid.uuid4()
+    recording.share_enabled = False
+    assert build_share_stats_summary(recording) is None
 
 
 def test_build_share_stats_for_detail_after_revoke() -> None:

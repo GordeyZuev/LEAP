@@ -74,6 +74,31 @@ class TestRecordingConfigTypedSchema:
         assert data["recording_id"] == 1
         assert data["message"] == "Configuration saved"
 
+    def test_patch_config_saves_thumbnail_name(self, client, mocker, mock_user):
+        """PATCH metadata_config.thumbnail_name is stored in processing_preferences."""
+        mock_recording = create_mock_recording(record_id=1, user_id=mock_user.id)
+        mock_recording.processing_preferences = None
+
+        mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.get_by_id = AsyncMock(return_value=mock_recording)
+        mock_repo.return_value = mock_repo_instance
+
+        mock_resolver = mocker.patch("api.services.config_resolver.ConfigResolver")
+        mock_resolver.return_value._merge_configs = lambda a, b: {**a, **b}
+        mock_resolver.return_value.resolve_processing_config = AsyncMock(
+            return_value={"transcription": {"language": "ru"}}
+        )
+
+        response = client.patch(
+            "/api/v1/recordings/1/config",
+            json={"metadata_config": {"thumbnail_name": "ai_hse.jpg"}},
+        )
+
+        assert response.status_code == 200
+        prefs = mock_recording.processing_preferences
+        assert prefs["metadata_config"]["thumbnail_name"] == "ai_hse.jpg"
+
     def test_put_config_rejects_invalid_granularity(self, client, mocker, mock_user):
         """PATCH config rejects invalid granularity value."""
         mock_recording = create_mock_recording(record_id=1, user_id=mock_user.id)

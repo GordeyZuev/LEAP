@@ -86,6 +86,7 @@
 
 **Frontend & future**
 
+- [guides/PLAYLISTS.md](guides/PLAYLISTS.md) — LEAP course playlists, public `/share/p/{uuid}`, Enable/Disable/Rotate
 - [guides/TASK_PROGRESS_WEBSOCKET.md](guides/TASK_PROGRESS_WEBSOCKET.md)
 
 ---
@@ -99,6 +100,7 @@
 | Templates | [guides/TEMPLATES.md](guides/TEMPLATES.md) |
 | Architecture | [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md), [ADR_OVERVIEW.md](ADR_OVERVIEW.md) |
 | API | [TECHNICAL.md](TECHNICAL.md) |
+| Playlists / course share | [guides/PLAYLISTS.md](guides/PLAYLISTS.md), [TECHNICAL.md](TECHNICAL.md), [DATABASE_DESIGN.md](DATABASE_DESIGN.md), [guides/TEMPLATES.md](guides/TEMPLATES.md) (`output_config.playlist_ids`) |
 | VK | [guides/VK_INTEGRATION.md](guides/VK_INTEGRATION.md) |
 | MTS Link | [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) |
 | Observability | [guides/MONITORING.md](guides/MONITORING.md) |

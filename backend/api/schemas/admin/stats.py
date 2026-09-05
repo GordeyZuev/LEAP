@@ -20,7 +20,7 @@ class AdminOverviewStats(BaseModel):
     exceeding_users_count: int = Field(0, description="Users currently exceeding recordings quota")
     total_share_views: int = Field(0, description="Total public share page views (all time)")
     total_share_downloads: int = Field(0, description="Total public share downloads (all time)")
-    active_share_links: int = Field(0, description="Recordings with an active share token")
+    active_share_links: int = Field(0, description="Recordings with share_enabled and a share token")
 
 
 class UserQuotaDetails(BaseModel):

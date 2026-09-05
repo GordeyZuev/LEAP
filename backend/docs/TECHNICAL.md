@@ -833,7 +833,7 @@ GET  /api/v1/recordings/{id}/source-extras          # companion files saved from
 # AI content — edit without re-running the pipeline
 PATCH /api/v1/recordings/{id}/topics                # partial update: summary, description, questions, main_topics, topic_timestamps
 POST  /api/v1/recordings/{id}/topics/render         # render Jinja template in recording context → { title, description }
-POST  /api/v1/recordings/formats-preview            # list available video streams for a URL (height, codec, fps, size)
+POST  /api/v1/recordings/formats-preview            # title, duration, thumbnail URL, available streams (no recording created)
 
 # Individual stages
 POST /api/v1/recordings/{id}/download   # Zoom, yt-dlp, Yandex Disk, … — NOT MTS Link (400 → use /run)
@@ -878,17 +878,35 @@ device's access token expires naturally on the next refresh attempt
 Share links allow unauthenticated access to a single recording's public page.
 
 ```bash
-# Owner: generate / revoke
-POST   /api/v1/recordings/{id}/share          # → { share_token: UUID }
-DELETE /api/v1/recordings/{id}/share          # revoke (204)
+# Owner: Enable / Disable / Rotate (same token until Rotate)
+POST   /api/v1/recordings/{id}/share          # Enable (mint if empty) → { share_token, share_enabled }
+DELETE /api/v1/recordings/{id}/share          # Disable (token kept, public 404)
+POST   /api/v1/recordings/{id}/share/rotate   # new UUID; previous URL 404
 
 # Public: no auth required
 POST   /api/v1/share/{token}/beacon            # anonymous page view (204)
 GET    /api/v1/share/{token}                  # recording metadata + AI data + rendered description
+GET    /api/v1/share/{token}/poster           # 302 to presigned poster (Open Graph / Telegram)
 GET    /api/v1/share/{token}/media?type=processed|original  # presigned video URL
 GET    /api/v1/share/{token}/media?type=processed&download=true  # download URL (tracked)
 GET    /api/v1/share/{token}/files/{file_type} # artifact download (srt|vtt|transcript_json|transcript_txt|transcript_words)
 
+# Playlist (course) public share — same 404 text when disabled or unknown
+GET    /api/v1/share/p/{token}                 # name, description, items (no presigned URLs)
+GET    /api/v1/share/p/{token}/poster          # 302 to first item poster (Open Graph / Telegram)
+GET    /api/v1/share/p/{token}/items/{itemId}  # public item metadata (no original)
+POST   /api/v1/share/p/{token}/items/{itemId}/beacon  # page view on that recording (204)
+GET    /api/v1/share/p/{token}/items/{itemId}/media?type=processed[&download=true]
+GET    /api/v1/share/p/{token}/items/{itemId}/files/{file_type}[&inline=true]
+```
+
+Course watch fetches VTT with `inline=true` for captions. Files, Extra content, and Overview on watch follow `allow_video_download` / `allow_files_download` like recording share. The landing page has no Files panel.
+
+The public playlist **landing** (`/share/p/{uuid}` with no `v`) shows the first item’s poster (image; links to the first playable video) and the video list. Clicking a video navigates to `/share/p/{uuid}?v={itemId}` — the same watch chrome as recording share, with companion tabs Videos / Topics / Transcript, then Extra content, Files, and Overview. Items without `processed_video_path` are listed but not playable (`unavailable_reason=not_ready`). Playlist **watch** of a playable item sends `POST /share/p/{token}/items/{itemId}/beacon`, which increments the same `share_view_count` on that recording (30-minute visitor dedup, shared with the recording share page). Not-ready / blank / deleted items and the landing page do not send a countable beacon (the endpoint still returns 204). Recording share can be disabled; playlist watch still counts.
+
+Recording and playlist share are both **Enable / Disable / Rotate**. Disable keeps `share_token`; public GET is **404** until Enable. Rotate mints a new UUID. Migration **044** adds `recordings.share_enabled` (backfill `true` where a token already existed).
+
+```bash
 # Owner analytics (auth required)
 GET    /api/v1/recordings/{id}/share/analytics?days=7|28
 ```
@@ -899,10 +917,26 @@ GET    /api/v1/recordings/{id}/share/analytics?days=7|28
 - `description` — Jinja-шаблон рендерится через `ConfigResolver.resolve_metadata_config` (user defaults → template → processing_preferences)
 - `available_files` — список доступных артефактов в storage
 - `has_processed_video`, `has_original_video`
+- `allow_video_download`, `allow_files_download` — public download buttons; play remains allowed when video download is off. `download=true` on media returns **403** when forbidden. `inline=true` on files (player VTT) is always allowed.
 
 The `description` field is populated by rendering the `description_template` from the resolved metadata config. If no template is configured, the field is `null`.
 
-**Share analytics:** public page views are recorded via `POST /share/{token}/beacon` (deduplicated ~30 min per visitor). User-initiated file downloads are counted on `GET /share/{token}/files/{type}`; pass `inline=true` for player/subtitle fetches (not counted). Video saves use `GET /share/{token}/media?download=true`. Owner UI reads `share_stats` on the recording list when `share_token` is set; detail also includes `share_stats` after revoke if counters remain. Detailed charts use `GET /recordings/{id}/share/analytics`. Counters live on `recordings` (`share_view_count`, `share_download_count`, `share_last_viewed_at`, `share_last_downloaded_at`); raw events in `share_access_events`. Prometheus: `leap_share_page_views_total`, `leap_share_downloads_total{artifact_type}`.
+#### Playlists (owner)
+
+```bash
+GET/POST   /api/v1/playlists
+GET/PATCH/DELETE /api/v1/playlists/{id}
+GET/POST   /api/v1/playlists/{id}/items
+DELETE     /api/v1/playlists/{id}/items/{itemId}
+PUT        /api/v1/playlists/{id}/items/order   # full item id set or 409
+POST       /api/v1/playlists/{id}/share         # Enable (mint token if empty)
+DELETE     /api/v1/playlists/{id}/share         # Disable (token kept)
+POST       /api/v1/playlists/{id}/share/rotate
+```
+
+`output_config.playlist_ids` on a **named** template appends the recording when `template_id` is set. The base/default template is ignored. Missing playlist ids are skipped and do not fail the pipeline.
+
+**Share analytics:** public page views are recorded via `POST /share/{token}/beacon` and playlist watch via `POST /share/p/{token}/items/{itemId}/beacon` (both increment the same recording counters; deduplicated ~30 min per visitor per recording). User-initiated file downloads are counted on `GET /share/{token}/files/{type}` and the playlist item file/media download routes; pass `inline=true` for player/subtitle fetches (not counted). Video saves use `GET /share/{token}/media?download=true` or the playlist item media URL with `download=true`. Owner UI reads `share_stats` on the recording list when the link is **enabled**; detail also includes `share_stats` after Disable if counters remain. Detailed charts use `GET /recordings/{id}/share/analytics`. Counters live on `recordings` (`share_view_count`, `share_download_count`, `share_last_viewed_at`, `share_last_downloaded_at`); raw events in `share_access_events`. Prometheus: `leap_share_page_views_total`, `leap_share_downloads_total{artifact_type}`.
 
 #### Template Management
 
@@ -915,7 +949,7 @@ PATCH /api/v1/templates/{id}
 DELETE /api/v1/templates/{id}
 
 # Matching
-POST /api/v1/templates/{id}/preview     # Preview match (dry run)
+POST /api/v1/templates/{id}/preview     # Dry-run: unsaved matching_rules in body; includes already-linked recordings
 POST /api/v1/templates/{id}/rematch    # Apply rematch
 ```
 

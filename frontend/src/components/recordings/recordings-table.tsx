@@ -317,9 +317,9 @@ export function RecordingsTable({
 
                 {/* Platforms */}
                 <td className="px-3 py-2.5">
-                  {uploadEntries.length > 0 || r.share_token ? (
+                  {uploadEntries.length > 0 || (r.share_token && r.share_enabled) ? (
                     <div className="flex flex-wrap gap-1.5">
-                      {r.share_token && (
+                      {r.share_token && r.share_enabled && (
                         <a
                           href={`/share/${r.share_token}`}
                           target="_blank"

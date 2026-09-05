@@ -26,7 +26,7 @@
 - **Matching Rules** - правила сопоставления (keywords, patterns, exact matches)
 - **Processing Config** - настройки обработки (transcription, video processing)
 - **Metadata Config** - настройки метаданных (title_template, description_template, **thumbnail_name**)
-- **Output Config** - настройки загрузки (preset_ids, auto_upload)
+- **Output Config** - настройки загрузки (`preset_ids`, `auto_upload`, named-template `playlist_ids` for LEAP courses)
 
 **⚠️ Note about `thumbnail_name`:**
 - Use **filename only** (e.g., `"ml_extra.png"`), not full path
@@ -490,12 +490,13 @@ POST /api/v1/templates
   "output_config": {
     "preset_ids": [1],
     "auto_upload": true,
-    "upload_captions": true
+    "upload_captions": true,
+    "playlist_ids": [1]
   }
 }
 ```
 
-**Result:** Template created, unmapped recordings auto-rematched
+**Result:** Template created, unmapped recordings auto-rematched. `playlist_ids` (≤10) on a **named** template appends the recording to those LEAP playlists when `template_id` is set; the base/default template is ignored.
 
 ---
 

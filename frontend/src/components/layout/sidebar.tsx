@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Video,
+  ListVideo,
   FileText,
   Settings2,
   Database,
@@ -25,8 +26,12 @@ import { apiClient } from "@/api/client";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 
-const navItems = [
+const primaryNav = [
   { href: "/recordings", label: "Recordings", icon: Video },
+  { href: "/playlists", label: "Playlists", icon: ListVideo },
+];
+
+const secondaryNav = [
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/presets", label: "Presets", icon: Settings2 },
   { href: "/sources", label: "Sources", icon: Database },
@@ -190,7 +195,23 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 px-2 space-y-1">
-        {navItems.map(({ href, label, icon: Icon }) => {
+        {primaryNav.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={effectiveCollapsed ? label : undefined}
+              onClick={onMobileClose}
+              className={linkClass(active)}
+            >
+              <Icon size={18} strokeWidth={1.75} className="shrink-0" />
+              <span className={labelClass}>{label}</span>
+            </Link>
+          );
+        })}
+        <div className="mx-3 my-2 h-px bg-white/10" />
+        {secondaryNav.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
             <Link

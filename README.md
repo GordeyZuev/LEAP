@@ -20,7 +20,7 @@
 
 **LEAP** — это `multi-tenant` платформа с полным `REST API` и веб-интерфейсом для автоматизации `end-to-end` обработки образовательного видеоконтента — от загрузки до публикации с `AI-транскрибацией`, интеллектуальным структурированием и профессиональным оформлением.
 
-**Версия:** `v0.10.8.0` (September 2026) · **Статус:** In Active Development • Beta
+**Версия:** `v0.10.8.1` (September 2026) · **Статус:** In Active Development • Beta
 **Backend:** `Python 3.14` • `FastAPI` • `Pydantic V2` • `PostgreSQL` • `Redis` • `Celery` • `AI` (AssemblyAI, DeepSeek) • `yt-dlp` • `ruff & ty`
 **Frontend:** `Next.js 16` • `React 19` • `TypeScript 5` • `Tailwind CSS 4` • `TanStack Query v5` • `shadcn/ui`
 
@@ -185,6 +185,12 @@
 - `CSRF` protection через `Redis`
 - Encrypted credentials в БД
 - Graceful error handling для credential/token errors
+
+**📚 Playlists (курсы)**
+- Упорядоченные курсы из записей (сайдбар **Playlists**), лимиты 200/200
+- Публичная ссылка `{origin}/share/p/{uuid}`: Enable / Disable (URL не меняется) / Rotate
+- Автодобавление из именованного шаблона (`output_config.playlist_ids`)
+- Подробнее: [PLAYLISTS.md](backend/docs/guides/PLAYLISTS.md)
 
 **🤖 Smart Automation**
 - `Celery Beat` scheduling
@@ -405,6 +411,7 @@ PROCESSING → PROCESSED → UPLOADING → READY
 | 📋 [PLAN.md](backend/docs/archive/PLAN.md) | Thesis plan & milestones |
 | 📜 [CHANGELOG.md](backend/docs/CHANGELOG.md) | Complete version history |
 | ▶️ [VIDEO_DELIVERY.md](backend/docs/guides/VIDEO_DELIVERY.md) | Browser playback, presigned URLs, MP4 faststart and recovery |
+| 📚 [PLAYLISTS.md](backend/docs/guides/PLAYLISTS.md) | LEAP course playlists and public `/share/p/{uuid}` |
 | 🎬 [YT_DLP_GUIDE.md](backend/docs/guides/YT_DLP_GUIDE.md) | yt-dlp video ingestion guide |
 | 🔗 [MTS_LINK_GUIDE.md](backend/docs/guides/MTS_LINK_GUIDE.md) | MTS Link input source (API key, MP4 conversion) |
 | 💿 [YANDEX_DISK_GUIDE.md](backend/docs/guides/YANDEX_DISK_GUIDE.md) | Yandex Disk integration guide |
@@ -414,6 +421,8 @@ PROCESSING → PROCESSED → UPLOADING → READY
 ## 🆕 Последние релизы
 
 Ниже — что изменилось для пользователей и операторов. Полная история — **[CHANGELOG.md](backend/docs/CHANGELOG.md)**.
+
+**Новое в `v0.10.8.1`** — **Плейлисты и стабильность плеера**: курсы из записей в сайдбаре (**Playlists**), одна публичная ссылка `{origin}/share/p/{uuid}` (Enable / Disable без смены URL / Rotate), автодобавление из именованного шаблона. На телефоне плеер удобнее: короткая панель управления, в альбоме видео на весь экран, один скелетон загрузки. Share-ссылка в Telegram показывает карточку с постером. В **Add video** по ссылке сразу видно превью (постер, название, длительность). **Deploy:** миграция **043** вместе с кодом.
 
 **Новое в `v0.10.8.0`** — **МТС Линк как источник записей**: подключение по организационному API-ключу (вкладка Manual в Credentials), отбор email в Input Source, **prepare-before-run** — конвертация MP4 только через **Run** (статус `PENDING_CONVERSION`, отдельный `/download` для MTS → 400). **Сопутствующие файлы** — чат мероприятия и загруженные материалы (слайды, PDF) забираются вместе с видео и доступны для скачивания в карточке **Files** под разделом **From the source**. **Проверка подключения** — кнопка **Check** у креденшела спрашивает платформу, работает ли ключ (Zoom, YouTube, Яндекс.Диск, МТС Линк), и обновляет статус. **Аналитика share-ссылок** — просмотры и скачивания (Manage share, график 7/28 дней). **Стабильность видео** — страница заранее получает ссылку на медиа, MP4 подготавливается для быстрого старта, а плеер восстанавливается после сетевого сбоя или истечения ссылки. В интерфейсе — показ секретных полей по «глазику», исправлен прыгающий фокус в модальных окнах и скругление их углов. **Deploy:** миграции **040–042** вместе с кодом.
 

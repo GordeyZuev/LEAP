@@ -12,7 +12,7 @@ TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию
 
 ## ОСНОВНАЯ ТЕМА ВИДЕО
 
-Выведи РОВНО ОДНУ тему (2–5 слова, не более):{recording_topic_hint}
+Выведи РОВНО ОДНУ тему (2–8 слов, не более):{recording_topic_hint}
 
 Название темы
 
@@ -70,7 +70,7 @@ Brief summary in 2–4 sentences: what was discussed and the main ideas. Languag
 
 ## MAIN VIDEO TOPIC
 
-Output EXACTLY ONE topic (2–5 words, no more):{recording_topic_hint}
+Output EXACTLY ONE topic (2–8 words, no more):{recording_topic_hint}
 
 Topic title
 

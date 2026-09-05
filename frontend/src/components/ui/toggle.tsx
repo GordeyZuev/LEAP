@@ -39,11 +39,12 @@ export function Toggle({
   className,
 }: ToggleProps) {
   const labelId = useId();
+  const hintId = useId();
 
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-4 py-1",
+        "flex items-start justify-between gap-4 py-1.5",
         disabled && "cursor-not-allowed opacity-40",
         className,
       )}
@@ -53,7 +54,11 @@ export function Toggle({
           <p id={labelId} className="text-sm font-medium leading-snug text-secondary-foreground">
             {label}
           </p>
-          {hint && <p className="text-xs leading-snug text-muted-foreground">{hint}</p>}
+          {hint && (
+            <p id={hintId} className="mt-0.5 text-xs leading-snug text-muted-foreground">
+              {hint}
+            </p>
+          )}
         </div>
       )}
       <button
@@ -61,11 +66,12 @@ export function Toggle({
         role="switch"
         aria-checked={checked}
         aria-labelledby={labelHidden ? undefined : labelId}
+        aria-describedby={hint && !labelHidden ? hintId : undefined}
         aria-label={labelHidden ? label : undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+          "relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
           "disabled:cursor-not-allowed",
           checked ? TRACK_ON[tone] : "bg-muted",

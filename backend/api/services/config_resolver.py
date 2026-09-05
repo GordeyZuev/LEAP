@@ -31,17 +31,21 @@ logger = get_logger()
 
 
 def extract_thumbnail_name_from_metadata(metadata: dict[str, Any]) -> str | None:
-    """Pick a thumbnail filename from resolved metadata_config for UI preview."""
+    """Pick a thumbnail filename from resolved metadata_config for UI preview.
+
+    Common ``thumbnail_name`` wins so a recording-level cover shows on cards and
+    playlists even when YouTube/VK still have their own upload thumbnails.
+    """
+    common = metadata.get("thumbnail_name")
+    if isinstance(common, str) and common.strip():
+        return common.strip()
+
     for platform in ("youtube", "vk"):
         block = metadata.get(platform)
         if isinstance(block, dict):
             name = block.get("thumbnail_name")
             if isinstance(name, str) and name.strip():
                 return name.strip()
-
-    common = metadata.get("thumbnail_name")
-    if isinstance(common, str) and common.strip():
-        return common.strip()
 
     return None
 

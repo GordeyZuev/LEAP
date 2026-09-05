@@ -12,6 +12,7 @@ class TestNormalizeOutputConfig:
         raw = {"auto_upload": False, "upload_captions": True, "default_platforms": []}
         normalized = normalize_output_config(raw)
         assert normalized["preset_ids"] == []
+        assert normalized["playlist_ids"] == []
 
     def test_template_output_config_accepts_legacy_shape(self) -> None:
         cfg = TemplateOutputConfig.model_validate(
@@ -45,3 +46,12 @@ class TestNormalizeOutputConfig:
         model = RecordingTemplateResponse.model_validate(payload)
         assert model.output_config is not None
         assert model.output_config.preset_ids == []
+        assert model.output_config.playlist_ids == []
+
+    def test_playlist_ids_unique_and_capped(self) -> None:
+        cfg = TemplateOutputConfig.model_validate({"playlist_ids": [1, 2, 3]})
+        assert cfg.playlist_ids == [1, 2, 3]
+        with pytest.raises(ValueError, match="unique"):
+            TemplateOutputConfig.model_validate({"playlist_ids": [1, 1]})
+        with pytest.raises(ValueError, match="Maximum 10"):
+            TemplateOutputConfig.model_validate({"playlist_ids": list(range(1, 12))})

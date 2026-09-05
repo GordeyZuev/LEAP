@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.10.8.0", description="Application version")
+    version: str = Field(default="0.10.8.1", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -790,7 +790,7 @@ class TopicExtractionSettings(BaseSettings):
 
     # Main-topic title formatting
     main_topic_min_words: int = Field(default=2, ge=1, description="Min words in a main-topic title")
-    main_topic_max_words: int = Field(default=4, ge=1, description="Max words in a main-topic title")
+    main_topic_max_words: int = Field(default=8, ge=1, description="Max words in a main-topic title")
     main_topic_min_length: int = Field(default=3, ge=1, description="Min character length of a main-topic title")
     main_topic_max_chars: int = Field(default=150, ge=10, description="Max character length of a main-topic title")
 

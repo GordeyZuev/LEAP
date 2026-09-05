@@ -8,13 +8,16 @@ from api.schemas.common import BASE_MODEL_CONFIG
 
 
 def normalize_output_config(raw: dict[str, Any] | None) -> dict[str, Any]:
-    """Ensure JSONB output_config matches ``TemplateOutputConfig`` (legacy rows may omit preset_ids)."""
+    """Ensure JSONB output_config matches ``TemplateOutputConfig`` (legacy rows may omit lists)."""
     if not raw:
-        return {"preset_ids": [], "auto_upload": False, "upload_captions": True}
+        return {"preset_ids": [], "playlist_ids": [], "auto_upload": False, "upload_captions": True}
     out = dict(raw)
     preset_ids = out.get("preset_ids")
     if preset_ids is None or not isinstance(preset_ids, list):
         out["preset_ids"] = []
+    playlist_ids = out.get("playlist_ids")
+    if playlist_ids is None or not isinstance(playlist_ids, list):
+        out["playlist_ids"] = []
     return out
 
 
@@ -24,6 +27,7 @@ class TemplateOutputConfig(BaseModel):
 
     Fields:
     - preset_ids: list of presets for auto-upload (empty = manual upload only)
+    - playlist_ids: LEAP playlists to append matched recordings to (not a YouTube playlist)
     - auto_upload: automatic upload after processing
     - upload_captions: upload subtitles with video (if platform supports)
     """
@@ -34,6 +38,12 @@ class TemplateOutputConfig(BaseModel):
         default_factory=list,
         description="List of preset IDs for auto-upload (empty when upload is manual only)",
         examples=[[], [1], [1, 2, 3]],
+    )
+
+    playlist_ids: list[int] = Field(
+        default_factory=list,
+        description="LEAP playlist IDs to append recordings to when this template is bound",
+        examples=[[], [1], [1, 2]],
     )
 
     auto_upload: bool = Field(
@@ -71,6 +81,28 @@ class TemplateOutputConfig(BaseModel):
             raise ValueError("preset_ids must be positive numbers")
         if len(v) != len(set(v)):
             raise ValueError("preset_ids must be unique")
+        return v
+
+    @field_validator("playlist_ids", mode="before")
+    @classmethod
+    def coerce_playlist_ids(cls, v: Any) -> list[int]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            return []
+        return v
+
+    @field_validator("playlist_ids")
+    @classmethod
+    def validate_playlist_ids(cls, v: list[int]) -> list[int]:
+        if not v:
+            return v
+        if len(v) > 10:
+            raise ValueError("Maximum 10 playlists per template")
+        if any(pid <= 0 for pid in v):
+            raise ValueError("playlist_ids must be positive numbers")
+        if len(v) != len(set(v)):
+            raise ValueError("playlist_ids must be unique")
         return v
 
     @model_validator(mode="after")

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, Link2, List, Upload, RefreshCw, ScanLine, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDurationCompact } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Modal } from "@/components/ui/modal";
@@ -81,7 +81,7 @@ interface FormatsPreviewResponse {
   formats: FormatInfo[];
 }
 
-type PreviewState = "idle" | "loading" | "success" | "error";
+const PREVIEW_DEBOUNCE_MS = 500;
 
 const STATIC_QUALITY_OPTIONS = [
   { value: "best", label: "Best" },
@@ -127,6 +127,47 @@ function buildFormatOptions(formats: FormatInfo[]): { value: string; label: stri
   return options.filter((o) => { if (seen.has(o.value)) return false; seen.add(o.value); return true; });
 }
 
+function UrlLinkPreview({
+  title,
+  thumbnail,
+  duration,
+}: {
+  title: string;
+  thumbnail: string | null;
+  duration: number | null;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const dur = formatDurationCompact(duration);
+  const showImg = Boolean(thumbnail) && !imgFailed;
+
+  return (
+    <div className="mt-2 overflow-hidden rounded-xl border border-border bg-muted/30">
+      {showImg ? (
+        <div className="relative aspect-video bg-muted">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={thumbnail ?? ""}
+            alt=""
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            decoding="async"
+            onError={() => setImgFailed(true)}
+            className="h-full w-full object-cover"
+          />
+          {dur ? (
+            <span className="absolute bottom-1 end-1 rounded bg-black/70 px-1 py-0.5 text-xs font-medium tabular-nums text-white">
+              {dur}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <p className="px-3 py-2 text-sm font-medium text-foreground">
+        {title}
+      </p>
+    </div>
+  );
+}
+
 const TABS = [
   { id: "url" as Tab, label: "URL", icon: Link2 },
   { id: "playlist" as Tab, label: "Playlist", icon: List },
@@ -143,11 +184,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
   const [url, setUrl] = useState("");
   const [quality, setQuality] = useState("best");
   const [autoRun, setAutoRun] = useState(false);
-
-  // Format preview state (URL tab only)
-  const [previewState, setPreviewState] = useState<PreviewState>("idle");
-  const [previewFormats, setPreviewFormats] = useState<FormatInfo[]>([]);
-  const [previewTitle, setPreviewTitle] = useState("");
+  const [debouncedUrl, setDebouncedUrl] = useState("");
 
   // File state
   const fileRef = useRef<HTMLInputElement>(null);
@@ -180,9 +217,6 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     setSuccessMsg("");
     setErrorMsg("");
     setUploadProgress(null);
-    setPreviewState("idle");
-    setPreviewFormats([]);
-    setPreviewTitle("");
     onClose();
   }, [onClose]);
 
@@ -195,18 +229,37 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     enabled: open && tab === "sync",
   });
 
-  const checkFormats = useMutation({
-    mutationFn: (videoUrl: string) =>
-      apiClient.post<FormatsPreviewResponse>("/recordings/formats-preview", { url: videoUrl }),
-    onMutate: () => { setPreviewState("loading"); setPreviewFormats([]); setPreviewTitle(""); },
-    onSuccess: (res) => {
-      setPreviewState("success");
-      setPreviewFormats(res.data.formats);
-      setPreviewTitle(res.data.title);
-      setQuality("best");
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedUrl(url.trim()), PREVIEW_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [url]);
+
+  const previewReady =
+    open && tab === "url" && debouncedUrl === url.trim() && isLikelySupportedUrl(debouncedUrl);
+
+  const {
+    data: preview,
+    isFetching: previewLoading,
+    isError: previewError,
+    refetch: refetchPreview,
+  } = useQuery({
+    queryKey: ["formats-preview", debouncedUrl],
+    queryFn: async () => {
+      const res = await apiClient.post<FormatsPreviewResponse>("/recordings/formats-preview", {
+        url: debouncedUrl,
+      });
+      return res.data;
     },
-    onError: () => { setPreviewState("error"); },
+    enabled: previewReady,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
+
+  const [prevPreview, setPrevPreview] = useState(preview);
+  if (preview !== prevPreview) {
+    setPrevPreview(preview);
+    if (preview) setQuality("best");
+  }
 
   const addUrl = useMutation({
     mutationFn: (payload: { url: string; quality: string; auto_run: boolean }) =>
@@ -276,7 +329,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
     },
   });
 
-  const isLoading = addUrl.isPending || addPlaylist.isPending || uploadFile.isPending || syncSource.isPending || checkFormats.isPending;
+  const isLoading = addUrl.isPending || addPlaylist.isPending || uploadFile.isPending || syncSource.isPending;
 
   function handleSubmit() {
     if (isLoading) return;
@@ -358,39 +411,37 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                   <input
                     type="url"
                     value={url}
-                    onChange={(e) => {
-                      setUrl(e.target.value);
-                      if (previewState !== "idle") {
-                        setPreviewState("idle");
-                        setPreviewFormats([]);
-                        setPreviewTitle("");
-                      }
-                    }}
+                    onChange={(e) => setUrl(e.target.value)}
                     placeholder={tab === "url" ? "https://youtube.com/watch?v=..." : "https://youtube.com/playlist?list=..."}
                     className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
                   />
                   {tab === "url" && isLikelySupportedUrl(url.trim()) && (
                     <button
                       type="button"
-                      onClick={() => checkFormats.mutate(url.trim())}
-                      disabled={previewState === "loading"}
-                      title="Check available formats"
+                      onClick={() => void refetchPreview()}
+                      disabled={!previewReady || previewLoading}
+                      title="Refresh preview"
                       className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-border text-xs font-medium text-secondary-foreground hover:bg-muted transition-colors disabled:opacity-50"
                     >
-                      {previewState === "loading"
+                      {previewLoading
                         ? <Loader2 size={14} className="animate-spin" />
                         : <ScanLine size={14} />}
                     </button>
                   )}
                 </div>
-                {tab === "url" && previewState === "success" && previewTitle && (
-                  <p className="mt-1.5 text-xs text-muted-foreground">
-                    <span className="font-medium text-secondary-foreground">Title: </span>
-                    {previewTitle.length > 60 ? previewTitle.slice(0, 60) + "…" : previewTitle}
-                  </p>
+                {tab === "url" && previewReady && previewLoading && !preview && (
+                  <div className="mt-2 aspect-video animate-pulse rounded-xl bg-muted" />
                 )}
-                {tab === "url" && previewState === "error" && (
-                  <p className="mt-1.5 text-xs text-danger-fg">Could not fetch formats — using default options</p>
+                {tab === "url" && previewReady && preview && (
+                  <UrlLinkPreview
+                    key={preview.thumbnail ?? preview.title}
+                    title={preview.title}
+                    thumbnail={preview.thumbnail}
+                    duration={preview.duration}
+                  />
+                )}
+                {tab === "url" && previewReady && previewError && (
+                  <p className="mt-1.5 text-xs text-danger-fg">Could not fetch preview — using default quality options</p>
                 )}
               </div>
               <div>
@@ -399,8 +450,8 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                   value={quality}
                   onChange={(e) => setQuality(e.target.value)}
                 >
-                  {(tab === "url" && previewState === "success" && previewFormats.length > 0
-                    ? buildFormatOptions(previewFormats)
+                  {(tab === "url" && previewReady && preview && preview.formats.length > 0
+                    ? buildFormatOptions(preview.formats)
                     : STATIC_QUALITY_OPTIONS
                   ).map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>

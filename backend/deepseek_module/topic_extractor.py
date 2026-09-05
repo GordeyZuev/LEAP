@@ -42,12 +42,15 @@ def _line_for_timestamp_match(line: str) -> str:
 
 
 def _truncate_topic(topic: str) -> str:
-    """Truncate topic: by word count or char length. Keeps first part + ellipsis."""
+    """Truncate a main-topic title by word count, then by character length.
+
+    Does not append an ellipsis: ``{{ themes }}`` is used in published video titles.
+    """
     words = topic.split()
     if len(words) > _te.main_topic_max_words:
-        return " ".join(words[: _te.main_topic_max_words]) + "..."
+        topic = " ".join(words[: _te.main_topic_max_words])
     if len(topic) > _te.main_topic_max_chars:
-        return topic[: _te.main_topic_max_chars].rsplit(" ", 1)[0] + "..."
+        return topic[: _te.main_topic_max_chars].rsplit(" ", 1)[0]
     return topic
 
 

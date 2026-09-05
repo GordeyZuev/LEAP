@@ -56,6 +56,10 @@ class OutputConfigUpdate(BaseModel):
     )
     auto_upload: bool | None = Field(None, description="Auto-upload after processing")
     upload_captions: bool | None = Field(None, description="Upload subtitles with video")
+    playlist_ids: list[int] | None = Field(
+        None,
+        description="LEAP playlist IDs (replaces existing when provided; does not change membership by itself)",
+    )
 
     @field_validator("preset_ids")
     @classmethod
@@ -68,6 +72,19 @@ class OutputConfigUpdate(BaseModel):
             raise ValueError("preset_ids must be positive numbers")
         if len(v) != len(set(v)):
             raise ValueError("preset_ids must be unique")
+        return v
+
+    @field_validator("playlist_ids")
+    @classmethod
+    def validate_playlist_ids(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return None
+        if len(v) > 10:
+            raise ValueError("Maximum 10 playlists per recording")
+        if any(pid <= 0 for pid in v):
+            raise ValueError("playlist_ids must be positive numbers")
+        if len(v) != len(set(v)):
+            raise ValueError("playlist_ids must be unique")
         return v
 
 

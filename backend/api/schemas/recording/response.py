@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from api.schemas.common.pagination import PaginatedResponse
+from api.schemas.playlist import PlaylistSummary
 from api.schemas.share import ShareStatsSummary
 from models import ProcessingStageStatus, ProcessingStatus, SourceType, TargetStatus, TargetType
 
@@ -231,6 +232,7 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
 
     # --- Share ---
     share_token: uuid.UUID | None = None
+    share_enabled: bool = False
     share_stats: ShareStatsSummary | None = None
 
     # --- Timestamps ---
@@ -293,7 +295,10 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
 
     # --- Share ---
     share_token: uuid.UUID | None = None
+    share_enabled: bool = False
     share_stats: ShareStatsSummary | None = None
+    allow_video_download: bool = True
+    allow_files_download: bool = True
 
     # --- Timestamps ---
     created_at: datetime
@@ -345,6 +350,7 @@ class DetailedRecordingResponse(RecordingResponse):
     subtitles: dict | None = None
     processing_stages_detailed: list[dict] | None = None
     uploads: dict | None = None
+    playlists: list[PlaylistSummary] = Field(default_factory=list)
 
 
 class SourceExtraFile(BaseModel):

@@ -1,10 +1,11 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Loader2, RotateCcw } from "lucide-react";
+import { AlertCircle, RotateCcw } from "lucide-react";
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
 import { VIDEO_PLAYER_FRAME } from "@/components/ui/video-player-frame";
+import { cn } from "@/lib/utils";
 import { createResumeSaver, readResumeTime, resumeTimeWithinDuration } from "@/lib/video-resume";
 
 export interface VideoPlayerMarker {
@@ -19,19 +20,35 @@ interface VideoPlayerProps {
   vttBlobUrl?: string | null;
   markers?: VideoPlayerMarker[];
   onTimeUpdate?: (currentTime: number) => void;
+  /** Fired once when playback reaches the end. */
+  onEnded?: () => void;
   /** Refresh a signed media URL after an expiry or transport failure. */
   onReload?: () => void | Promise<unknown>;
 }
 
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
-  function VideoPlayer({ src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onReload }, forwardedRef) {
+  function VideoPlayer({ src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onReload }, forwardedRef) {
     const [ready, setReady] = useState(false);
     const [failure, setFailure] = useState<string | null>(null);
+    const [instanceId, setInstanceId] = useState(0);
     const localRef = useRef<HTMLVideoElement>(null);
     const onTimeUpdateRef = useRef(onTimeUpdate);
+    const onEndedRef = useRef(onEnded);
     const onReloadRef = useRef(onReload);
     useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
+    useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
     useEffect(() => { onReloadRef.current = onReload; }, [onReload]);
+
+    useEffect(() => {
+      const mq = window.matchMedia("(orientation: landscape) and (hover: none) and (max-height: 540px)");
+      const sync = () => document.body.classList.toggle("video-landscape-lock", mq.matches);
+      sync();
+      mq.addEventListener("change", sync);
+      return () => {
+        mq.removeEventListener("change", sync);
+        document.body.classList.remove("video-landscape-lock");
+      };
+    }, []);
 
     const setRef = useCallback((el: HTMLVideoElement | null) => {
       (localRef as React.RefObject<HTMLVideoElement | null>).current = el;
@@ -48,24 +65,33 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       setFailure(null);
       let cancelled = false;
       let refreshAttempted = false;
-      let stallTimer: ReturnType<typeof setTimeout> | null = null;
       let startupTimer: ReturnType<typeof setTimeout> | null = null;
 
       const clearTimers = () => {
-        if (stallTimer) clearTimeout(stallTimer);
         if (startupTimer) clearTimeout(startupTimer);
-        stallTimer = null;
         startupTimer = null;
       };
 
       const player = new Plyr(el, {
         seekTime: 5,
         invertTime: false,
-        hideControls: false,
+        hideControls: true,
         speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
         tooltips: { controls: true, seek: true },
-        keyboard: { focused: true, global: false },
+        keyboard: { focused: true, global: true },
         captions: { active: false, language: "auto", update: true },
+        // No volume slider — phones use hardware volume; mute is enough.
+        controls: [
+          "play-large",
+          "play",
+          "progress",
+          "current-time",
+          "mute",
+          "captions",
+          "settings",
+          "pip",
+          "fullscreen",
+        ],
         markers: { enabled: false, points: [] as { time: number; label: string }[] },
       });
 
@@ -115,20 +141,11 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         clearTimers();
         setReady(false);
         setFailure(message);
-        if (!refreshAttempted && onReloadRef.current) {
+        if (!refreshAttempted) {
           refreshAttempted = true;
-          void onReloadRef.current();
+          void onReloadRef.current?.();
         }
       };
-      const markStalled = () => {
-        if (cancelled || stallTimer) return;
-        stallTimer = setTimeout(() => markFailed("Video loading stalled"), 15_000);
-      };
-      const markProgress = () => {
-        if (stallTimer) clearTimeout(stallTimer);
-        stallTimer = null;
-      };
-      const markNativeFailed = () => markFailed();
 
       const saver = resumeKey ? createResumeSaver(resumeKey) : null;
       const applyResume = () => {
@@ -161,22 +178,20 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       player.on("ready", applyResume);
       player.on("canplay", markReady);
       player.on("playing", markReady);
-      player.on("progress", markProgress);
       player.on("loadeddata", markReady);
       player.on("loadedmetadata", markReady);
-      player.on("waiting", markStalled);
-      player.on("stalled", markStalled);
-      player.on("error", () => markFailed());
+      const onMediaError = () => markFailed();
+      player.on("error", onMediaError);
       el.addEventListener("loadedmetadata", markReady);
       el.addEventListener("loadeddata", markReady);
       el.addEventListener("canplay", markReady);
-      el.addEventListener("error", markNativeFailed);
-      // preload="metadata" often stops at HAVE_METADATA (1) until play.
+      el.addEventListener("error", onMediaError);
       if (el.readyState >= 1) markReady();
       else startupTimer = setTimeout(() => markFailed("Video is taking too long to load"), 20_000);
 
       const persistNow = () => saver?.flush(player.currentTime || el.currentTime || 0);
       player.on("pause", persistNow);
+      player.on("ended", () => onEndedRef.current?.());
       window.addEventListener("pagehide", persistNow);
 
       return () => {
@@ -189,38 +204,42 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         el.removeEventListener("loadedmetadata", markReady);
         el.removeEventListener("loadeddata", markReady);
         el.removeEventListener("canplay", markReady);
-        el.removeEventListener("error", markNativeFailed);
+        el.removeEventListener("error", onMediaError);
         player.destroy();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [src, resumeKey]);
+    }, [src, resumeKey, instanceId]);
 
     return (
-      <div className={VIDEO_PLAYER_FRAME}>
-        <video ref={setRef} src={src} preload="metadata" className="block h-full w-full">
+      <div className={cn(VIDEO_PLAYER_FRAME, "video-fill-landscape")}>
+        <video
+          ref={setRef}
+          src={src}
+          preload="metadata"
+          playsInline
+          className="block h-full w-full"
+        >
           {vttBlobUrl && <track kind="subtitles" src={vttBlobUrl} label="Subtitles" default />}
         </video>
         {Boolean(src) && !ready && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-muted/90">
+          <div className="absolute inset-0 z-10 overflow-hidden rounded-xl">
             {failure ? (
-              <>
+              <div className="flex h-full flex-col items-center justify-center gap-3 bg-muted/90">
                 <AlertCircle size={24} className="text-danger-fg" />
                 <p className="text-sm text-muted-foreground">{failure}</p>
-                {onReload && (
-                  <button
-                    type="button"
-                    onClick={() => { setFailure(null); void onReload(); }}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-                  >
-                    <RotateCcw size={14} /> Retry
-                  </button>
-                )}
-              </>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFailure(null);
+                    setInstanceId((n) => n + 1);
+                  }}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                >
+                  <RotateCcw size={14} /> Retry
+                </button>
+              </div>
             ) : (
-              <>
-                <Loader2 size={24} className="animate-spin text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Preparing video…</p>
-              </>
+              <div className="h-full w-full animate-pulse bg-muted" role="status" aria-label="Loading video" />
             )}
           </div>
         )}

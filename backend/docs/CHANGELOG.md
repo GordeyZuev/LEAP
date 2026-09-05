@@ -2,6 +2,177 @@
 
 ---
 
+## 2026-09-05: Playlist watch counts as a recording view
+
+- **Views** — opening a **playable** video on `/share/p/{uuid}?v={itemId}` increments that recording’s `share_view_count` (same ~30 min visitor dedup as recording share). Processing / blank / deleted items and the playlist landing do not count.
+
+### Файлы
+
+- `backend/api/routers/share.py`
+- `backend/tests/unit/api/test_playlists.py`
+- `frontend/src/api/share.ts`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`, `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-05: Playlist landing cover and share-like watch
+
+- **Landing** — `/share/p/{uuid}` shows the first-item poster as an image (no Play overlay or button). The picture and the video list still open `?v={itemId}`.
+- **Watch** — same layout as recording share: player, sticky companion (**Videos / Topics / Transcript**), then Extra content, Files, and Overview for the current item.
+
+### Файлы
+
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/components/recordings/share-video-download-button.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`, `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-05: Main topic titles without ellipsis
+
+- **`{{ themes }}` in video titles** — main-topic extraction no longer appends `...` after a word-count cut (that string was ending up on YouTube/VK). Default `TOPIC_MAIN_TOPIC_MAX_WORDS` is **8** (was 4); the LLM prompt asks for 2–8 words so titles like «Введение в SQL и …» are not chopped mid-phrase.
+
+### Файлы
+
+- `backend/deepseek_module/topic_extractor.py`
+- `backend/deepseek_module/prompts.py`
+- `backend/config/settings.py`
+- `backend/.env.example`
+
+---
+
+## 2026-09-05: Recording thumbnail in Configuration Edit
+
+- **Thumbnail** — Configuration → Edit shows a thumbnail picker (no metadata toggle needed). Save writes `metadata_config.thumbnail_name` without starting the pipeline. LEAP cards and playlists prefer this common cover over YouTube/VK upload thumbs.
+
+### Файлы
+
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `backend/api/routers/recordings.py`
+- `backend/api/services/config_resolver.py`
+- `backend/tests/unit/api/test_poster_thumbnail.py`
+- `backend/tests/unit/api/test_api_audit_endpoints.py`
+
+---
+
+## 2026-09-05: Recording share Enable/Disable/Rotate and playlist landing
+
+- **Recording share** — same contract as playlists: Enable mints `share_token` once, Disable keeps it (public 404), Rotate issues a new UUID. Migration **044** (`recordings.share_enabled`, backfill `true` where a token already existed).
+- **Playlist watch** — `/share/p/{uuid}` is the course landing (first-item poster + Play). A video row is a real link to `?v={itemId}` (watch layout with player). Play starts the first item by playlist order.
+- **List badge** — LEAP chip only while the recording link is enabled.
+
+### Файлы
+
+- `backend/alembic/versions/044_add_recording_share_enabled.py`
+- `backend/database/models.py`, `backend/api/routers/share.py`, `backend/api/helpers/share_stats.py`
+- `backend/api/schemas/share.py`, `backend/api/schemas/recording/response.py`
+- `frontend/src/components/recordings/share-modal.tsx`, `frontend/src/api/share.ts`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `backend/docs/TECHNICAL.md`, `backend/docs/guides/PLAYLISTS.md`
+
+**Deploy:** `make migrate` (revision **044**) with the API.
+
+---
+
+## 2026-09-05: Template match preview — linked recordings and unsaved rules
+
+- **Preview** — dry-run used only unmapped SKIPPED recordings and saved rules, so an already-linked video looked like a miss. It now includes recordings on this template, applies the form’s current matching rules, and labels **already linked** vs **linked, rules miss**.
+
+### Файлы
+
+- `backend/api/routers/templates.py`
+- `backend/api/schemas/template/operations.py`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+
+---
+
+## 2026-09-05: Template match preview — no API recipe in the UI
+
+- **Copy** — preview and rematch responses no longer tell people to call `POST /templates/{id}/rematch` or `GET /tasks/{task_id}`. The match preview dialog already says how many recordings would match.
+
+### Файлы
+
+- `backend/api/routers/templates.py`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+
+---
+
+## 2026-09-05: Safari — не убивать буфер, починить старые MP4
+
+- **Плеер** — после первого кадра `waiting`/`stalled` больше не считаются аварией и не запускают второй download (WebKit так делает на полном буфере). Авто-обновление signed URL только на native `error`. Retry пересоздаёт `<video>`. На элементе `playsInline`.
+- **Старые объекты** — `scripts/backfill_video_faststart.py` ставит `Content-Type: video/mp4` in-place и remux faststart только если `moov` после `mdat`. Сначала canary `--recording-id 38`, затем `--apply` без фильтра (все processed + original `.mp4`). Новые загрузки уже с MIME и faststart в пайплайне.
+- **Не в этом фиксе** — CDN, proxy, DNS, VPN/заграница до Object Storage.
+
+### Файлы
+
+- `frontend/src/components/ui/video-player.tsx`
+- `backend/scripts/backfill_video_faststart.py`
+- `backend/tests/unit/scripts/test_backfill_video_faststart.py`
+- `backend/docs/guides/VIDEO_DELIVERY.md`
+
+**Прод:** задеплоить фронт, затем dry-run скрипта на VM, `--apply --recording-id 38`, проверка Safari, затем полный `--apply`. Миграций нет.
+
+---
+
+## v0.10.8.1 (2026-09-05)
+
+Релиз: **Плейлисты и стабильность плеера** — курсы из записей с одной публичной ссылкой, автодобавление из шаблона, флаги скачивания на записи. **Улучшенный плеер для телефона:** короткая панель, в альбоме видео на весь экран, один скелетон загрузки. **Превью в Telegram** у share-ссылок (`og:image`). Подробности — секции **2026-09-05** ниже. Миграция **043** вместе с кодом.
+
+---
+
+## 2026-09-05: Telegram / Open Graph for share links
+
+- **Почему не было карточки в TG** — в `generateMetadata` были title/description, но не `og:image`. Telegram без картинки часто не рисует превью.
+- **Poster** — `GET /api/v1/share/{token}/poster` и `GET /api/v1/share/p/{token}/poster` → 302 на presigned постер (404 если нет файла).
+- **OG image** — Next `opengraph-image` на `/share/{token}` и `/share/p/{token}`: кадр записи или текстовая карточка с названием. `og:type` = `website` (не `video.other` без видео).
+- **SSR** — `API_INTERNAL_URL=http://api:8000` у frontend-контейнера, иначе Node не достучится до API (`NEXT_PUBLIC_API_URL` в образе пустой).
+
+### Файлы
+
+- `backend/api/routers/share.py`
+- `frontend/src/app/share/[token]/opengraph-image.tsx`, `frontend/src/app/share/p/[token]/opengraph-image.tsx`
+- `frontend/src/lib/share-og-image.tsx`, `frontend/src/api/share.ts`
+- `docker-compose.yml`
+
+**После деплоя:** Telegram кэширует превью. Обновить через [@webpagebot](https://t.me/webpagebot) или переслать ссылку заново.
+
+---
+
+## 2026-09-05: URL ingest preview
+
+- **Add by URL** — after a supported link is pasted, the modal calls existing `POST /api/v1/recordings/formats-preview` and shows thumbnail, title, duration, and live quality options. Scan refreshes. Add is not blocked while preview loads.
+
+### Файлы
+
+- `frontend/src/components/recordings/add-video-modal.tsx`
+
+---
+
+## 2026-09-05: Playlists and course watch
+
+- **Playlists** — ordered course of recordings (`playlists` / `playlist_items`, unique per user name, 200/200 caps). Owner REST under `/api/v1/playlists`. Public URL `{origin}/share/p/{uuid}` with stable token: Enable mints once, Disable keeps it, Rotate replaces it. Migration **043**.
+- **Template bind** — named templates may set `output_config.playlist_ids` (≤10). Recordings are appended when `template_id` is set (bind / create / match). Default/base template is ignored. Run override checkboxes add now; empty list does not clear membership.
+- **Download flags** — `recordings.allow_video_download` / `allow_files_download` (default true). Public play 200 vs `download=true` 403; inline VTT always. Same helper on recording share and playlist share.
+- **UI** — Playlists in the sidebar; card grid; course editor (drag to reorder); Publications chips; public WatchShell queue (no prev/next/autoplay). Course page has no Files section. Opening a course link selects the **first item by order** (`?v=` overrides). **Phone player:** compact Plyr bar, landscape fills the viewport, same pulse skeleton as desktop. Share and playlist watch: title above the player. Processed / Original is a segmented control.
+
+### Файлы
+
+- `backend/alembic/versions/043_add_playlists_and_download_flags.py`
+- `backend/database/playlist_models.py`, `backend/api/services/playlist_service.py`, `backend/api/repositories/playlist_repo.py`
+- `backend/api/routers/playlists.py`, `backend/api/routers/share.py`, `backend/api/routers/recordings.py`
+- `frontend/src/app/(app)/playlists/`, `frontend/src/app/share/p/[token]/`, `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/components/playlists/playlist-picker.tsx`, `frontend/src/components/ui/video-player.tsx`, `frontend/src/app/globals.css`
+- `backend/docs/guides/TEMPLATES.md`
+
+**Deploy:** `make migrate` (revision **043**) before/with code.
+
+---
+
 ## 2026-09-05: Share link observability
 
 - **Analytics** — public share page views via `POST /api/v1/share/{token}/beacon` (Redis dedup 30 min); downloads tracked on user file GET (`inline=true` skipped — e.g. VTT for the player) and `GET .../media?download=true`. Migration **042**: `share_access_events` + denorm counters on `recordings`.

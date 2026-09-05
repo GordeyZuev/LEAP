@@ -32,7 +32,7 @@ export async function generateMetadata({
     // A share token is an unguessable capability URL; keep it out of indexes.
     robots: { index: false, follow: false },
     openGraph: {
-      type: "video.other",
+      type: "website",
       title: recording.display_name,
       description,
       siteName: "LEAP",

@@ -11,6 +11,7 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
+import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,7 @@ interface MetadataConfig {
 
 interface OutputConfig {
   preset_ids: number[];
+  playlist_ids: number[];
   auto_upload: boolean;
   upload_captions: boolean;
 }
@@ -111,6 +113,7 @@ interface MatchPreviewRecording {
   current_is_mapped: boolean;
   will_become_is_mapped: boolean;
   start_time: string;
+  rules_match?: boolean;
 }
 
 interface MatchPreviewResponse {
@@ -118,7 +121,6 @@ interface MatchPreviewResponse {
   total_checked: number;
   will_match_count: number;
   will_match: MatchPreviewRecording[];
-  note: string;
 }
 
 const DEFAULT_FORM: TemplateFormData = {
@@ -153,6 +155,7 @@ const DEFAULT_FORM: TemplateFormData = {
   },
   output_config: {
     preset_ids: [],
+    playlist_ids: [],
     auto_upload: false,
     upload_captions: true,
   },
@@ -273,6 +276,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       },
       output_config: {
         preset_ids: existing.output_config?.preset_ids ?? [],
+        playlist_ids: existing.output_config?.playlist_ids ?? [],
         auto_upload: existing.output_config?.auto_upload ?? false,
         upload_captions: existing.output_config?.upload_captions ?? true,
       },
@@ -379,7 +383,9 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         },
         metadata_config: hasMetadata ? metaConfig : undefined,
         output_config:
-          data.output_config.preset_ids.length > 0 || data.output_config.auto_upload
+          data.output_config.preset_ids.length > 0
+          || data.output_config.auto_upload
+          || data.output_config.playlist_ids.length > 0
             ? data.output_config
             : undefined,
       };
@@ -425,7 +431,9 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     setMatchPreviewData(null);
     setMatchPreviewOpen(true);
     try {
-      const res = await apiClient.post<MatchPreviewResponse>(`/templates/${id}/preview`);
+      const res = await apiClient.post<MatchPreviewResponse>(`/templates/${id}/preview`, {
+        matching_rules: form.matching_rules,
+      });
       setMatchPreviewData(res.data);
     } catch {
       setMatchPreviewOpen(false);
@@ -892,6 +900,18 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               checked={form.output_config.upload_captions}
               onChange={(v) => setOC("upload_captions", v)}
             />
+            {!isDefault && (
+              <Field
+                label="LEAP playlists"
+                hint="New recordings matched to this template are added at the end. This is not an upload."
+              >
+                <PlaylistPicker
+                  mode="form"
+                  selectedIds={form.output_config.playlist_ids}
+                  onChange={(ids) => setOC("playlist_ids", ids)}
+                />
+              </Field>
+            )}
           </Section>
 
           {/* Metadata */}
@@ -1188,30 +1208,44 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               {!matchPreviewLoading && matchPreviewData && (
                 <>
                   <p className="mb-4 text-xs text-muted-foreground">
-                    Checked <span className="font-medium text-secondary-foreground">{matchPreviewData.total_checked}</span> recordings –{" "}
-                    <span className="font-medium text-primary">{matchPreviewData.will_match_count}</span> would match.
+                    Checked <span className="font-medium text-secondary-foreground">{matchPreviewData.total_checked}</span> recordings
+                    {" "}–{" "}
+                    <span className="font-medium text-primary">{matchPreviewData.will_match_count}</span> new matches,
+                    {" "}
+                    <span className="font-medium text-secondary-foreground">
+                      {matchPreviewData.will_match.filter((r) => r.current_is_mapped).length}
+                    </span>{" "}
+                    already linked.
                   </p>
                   {matchPreviewData.will_match.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-muted-foreground">No recordings would match.</p>
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      No unmapped skipped recordings match these rules, and none are linked to this template yet.
+                    </p>
                   ) : (
                     <div className="divide-y divide-muted">
-                      {matchPreviewData.will_match.map((r) => (
+                      {matchPreviewData.will_match.map((r) => {
+                        const rulesMatch = r.rules_match !== false;
+                        let badge = "will map";
+                        let badgeClass = "bg-muted text-muted-foreground";
+                        if (r.current_is_mapped && rulesMatch) {
+                          badge = "already linked";
+                          badgeClass = "bg-green-50 dark:bg-green-500/10 text-green-700";
+                        } else if (r.current_is_mapped && !rulesMatch) {
+                          badge = "linked, rules miss";
+                          badgeClass = "bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200";
+                        }
+                        return (
                         <div key={r.id} className="flex items-center justify-between gap-3 py-2.5">
                           <Link href={`/recordings/${r.id}`} className="min-w-0 flex-1 truncate text-sm font-medium text-foreground hover:text-primary">
                             {r.display_name}
                           </Link>
-                          <span className={cn(
-                            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium",
-                            r.current_is_mapped ? "bg-green-50 dark:bg-green-500/10 text-green-700" : "bg-muted text-muted-foreground"
-                          )}>
-                            {r.current_is_mapped ? "already mapped" : "will map"}
+                          <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium", badgeClass)}>
+                            {badge}
                           </span>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                  )}
-                  {matchPreviewData.note && (
-                    <p className="mt-4 text-xs italic text-muted-foreground">{matchPreviewData.note}</p>
                   )}
                 </>
               )}

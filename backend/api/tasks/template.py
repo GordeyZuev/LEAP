@@ -172,6 +172,10 @@ async def _async_rematch_recordings(task_self, template_id: int, user_id: str, o
                     updated_count += 1
                     updated_recording_ids.append(recording.id)
 
+                    from api.services.playlist_service import add_from_bound_template
+
+                    await add_from_bound_template(session, user_id, recording)
+
                     logger.info(
                         f"{format_status_change('Recording', old_status, new_status)} | "
                         f"{format_details(rec=recording.id, template=template.id)}"

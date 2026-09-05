@@ -5,12 +5,9 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowDownToLine,
   Check,
   Clock,
   Copy,
-  Loader2,
-  Video,
   VideoOff,
 } from "lucide-react";
 
@@ -23,15 +20,17 @@ import {
 } from "@/api/share";
 import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-content-editor";
 import { ArtefactList, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
+import { ShareVideoDownloadButton } from "@/components/recordings/share-video-download-button";
 import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
-import { CollapsibleCard, CARD_SHELL, SectionCard } from "@/components/ui/section-card";
+import { CollapsibleCard, CARD_SHELL } from "@/components/ui/section-card";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SegmentedField } from "@/components/ui/segmented-field";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
-import { cn, formatDate, formatDuration } from "@/lib/utils";
-import { shareResumeKey } from "@/lib/video-resume";
+import { cn, formatDate, formatDuration, httpStatus } from "@/lib/utils";
+import { recordingResumeKey } from "@/lib/video-resume";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -42,9 +41,9 @@ const VideoPlayer = dynamic(
 );
 const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 
-const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-6 sm:px-8";
-const PAGE_MAIN = cn(PAGE_SHELL, "py-6 sm:py-8");
-const PAGE_HEADER_INNER = cn(PAGE_SHELL, "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-4");
+const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-4 sm:px-8";
+const PAGE_MAIN = cn(PAGE_SHELL, "py-4 sm:py-8");
+const PAGE_HEADER_INNER = cn(PAGE_SHELL, "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 sm:py-4");
 const WATCH_GRID =
   "grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_26rem] 2xl:grid-cols-[minmax(0,1fr)_28rem]";
 const COMPANION_COL = "min-w-0 lg:sticky lg:top-6 lg:self-start";
@@ -56,9 +55,9 @@ const COMPANION_SECTION_LABEL =
   "shrink-0 border-b border-border px-5 pb-3 pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 const COMPANION_BODY = "min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-4";
 
-const VIDEO_VARIANT_TABS: TabItem<"processed" | "original">[] = [
-  { value: "processed", label: "Processed" },
-  { value: "original", label: "Original" },
+const VIDEO_VARIANT_OPTIONS = [
+  { value: "processed" as const, label: "Processed" },
+  { value: "original" as const, label: "Original" },
 ];
 
 type SidePanelTab = "topics" | "transcript";
@@ -70,54 +69,6 @@ function lastIndexAtOrBefore(items: { start: number }[], time: number): number {
   return -1;
 }
 
-function VideoDownloadButton({
-  token,
-  variant,
-}: {
-  token: string;
-  variant: "processed" | "original";
-}) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-
-  async function handleDownload() {
-    setLoading(true);
-    setError(false);
-    try {
-      const res = await getShareMedia(token, variant, true);
-      const a = document.createElement("a");
-      a.href = res.url;
-      a.download = "";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleDownload}
-      disabled={loading}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors disabled:opacity-50",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-        error
-          ? "border-danger-fg/40 bg-danger-fg/10 text-danger-fg hover:bg-danger-fg/15"
-          : "border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
-      )}
-    >
-      {loading ? <Loader2 size={13} className="animate-spin" /> : <Video size={13} />}
-      <span className="flex-1 text-left">{error ? "Download failed — retry" : "Download video"}</span>
-      <ArrowDownToLine size={11} className="shrink-0" />
-    </button>
-  );
-}
-
 function ShareVideoPlayer({
   token,
   recordingId,
@@ -126,6 +77,7 @@ function ShareVideoPlayer({
   vttBlobUrl,
   videoRef,
   onTimeUpdate,
+  onMediaMissing,
 }: {
   token: string;
   recordingId: number;
@@ -134,15 +86,21 @@ function ShareVideoPlayer({
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTimeUpdate?: (time: number) => void;
+  onMediaMissing?: () => void;
 }) {
-  const { data: videoUrl, isLoading, isError, refetch } = useQuery({
+  const { data: videoUrl, isLoading, isError, refetch, error } = useQuery({
     queryKey: ["share-media", token, variant],
     queryFn: async () => {
       const res = await getShareMedia(token, variant);
       return res.url;
     },
     staleTime: MEDIA_URL_STALE_MS,
+    retry: false,
   });
+
+  useEffect(() => {
+    if (httpStatus(error) === 404) onMediaMissing?.();
+  }, [error, onMediaMissing]);
 
   if (isLoading) {
     return <VideoPlayerLoading />;
@@ -165,12 +123,13 @@ function ShareVideoPlayer({
 
   return (
     <VideoPlayer
+      key={variant}
       ref={videoRef}
       src={videoUrl}
-      resumeKey={shareResumeKey(recordingId, variant)}
+      resumeKey={recordingResumeKey(String(recordingId), variant)}
       onReload={() => refetch()}
       markers={markers}
-      vttBlobUrl={vttBlobUrl}
+      vttBlobUrl={variant === "processed" ? vttBlobUrl : null}
       onTimeUpdate={onTimeUpdate}
     />
   );
@@ -217,6 +176,10 @@ export function ShareView({ token }: { token: string }) {
       setTimeout(() => setCopied(false), 2000);
     });
   }, []);
+
+  const handleMediaMissing = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   useEffect(() => {
     if (!recording?.available_files.includes("vtt")) return;
@@ -292,9 +255,15 @@ export function ShareView({ token }: { token: string }) {
     };
 
     syncHeight();
+    const raf = window.requestAnimationFrame(syncHeight);
     const observer = new ResizeObserver(syncHeight);
     observer.observe(el);
-    return () => observer.disconnect();
+    window.addEventListener("resize", syncHeight);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      observer.disconnect();
+      window.removeEventListener("resize", syncHeight);
+    };
   }, [
     recording?.id,
     videoVariant,
@@ -303,19 +272,28 @@ export function ShareView({ token }: { token: string }) {
     recording?.has_original_video,
   ]);
 
-  if (error && !recording) {
-    const missing = (error as { response?: { status?: number } })?.response?.status === 404;
+  const missing = httpStatus(error) === 404;
+  if (missing) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-6">
         <div className="w-full max-w-md">
           <ErrorState
-            title={missing ? "Link not found" : "Unable to load this recording"}
-            description={
-              missing
-                ? "This share link has been revoked, or it never existed."
-                : "Check your connection and try again."
-            }
-            onRetry={missing ? undefined : () => void refetch()}
+            title="Link not found"
+            description="This share link has been revoked, or it never existed."
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !recording) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <div className="w-full max-w-md">
+          <ErrorState
+            title="Unable to load this recording"
+            description="Check your connection and try again."
+            onRetry={() => void refetch()}
           />
         </div>
       </div>
@@ -335,10 +313,9 @@ export function ShareView({ token }: { token: string }) {
           </div>
         </header>
         <main className={PAGE_MAIN}>
-          <Skeleton className="h-8 w-2/3 sm:w-1/2" />
-          <div className={cn(WATCH_GRID, "mt-6")}>
-            <Skeleton className="aspect-[4/3] w-full rounded-2xl" />
-            <Skeleton className="h-64 w-full rounded-2xl" />
+          <div className="space-y-5">
+            <Skeleton className="h-7 w-2/3 sm:w-1/2" />
+            <div className={cn(VIDEO_PLAYER_FRAME, "animate-pulse")} />
           </div>
         </main>
       </div>
@@ -349,10 +326,14 @@ export function ShareView({ token }: { token: string }) {
   const bothVariants = recording.has_processed_video && recording.has_original_video;
   const currentVariant: "processed" | "original" = recording.has_processed_video ? videoVariant : "original";
 
-  const artefacts: ArtefactItem[] = recording.available_files.map((ft) => ({
-    type: ft as ArtefactType,
-    href: getShareFileUrl(token, ft),
-  }));
+  const allowVideo = recording.allow_video_download !== false;
+  const allowFiles = recording.allow_files_download !== false;
+  const artefacts: ArtefactItem[] = allowFiles
+    ? recording.available_files.map((ft) => ({
+        type: ft as ArtefactType,
+        href: getShareFileUrl(token, ft),
+      }))
+    : [];
 
   const onProcessedTimeline = currentVariant === "processed";
   const showCompanion = onProcessedTimeline && (hasTopicsPanel || hasTranscript);
@@ -361,6 +342,7 @@ export function ShareView({ token }: { token: string }) {
   if (hasTopicsPanel) sidePanelTabs.push({ value: "topics", label: "Topics" });
   if (hasTranscript) sidePanelTabs.push({ value: "transcript", label: "Transcript" });
   const showCompanionTabs = sidePanelTabs.length > 1;
+  const showCompanionCol = showCompanion && sidePanelTabs.length > 0;
   const defaultSidePanelTab: SidePanelTab = hasTopicsPanel ? "topics" : "transcript";
   const activeSidePanelTab = sidePanelTabs.some((t) => t.value === sidePanelTab)
     ? sidePanelTab
@@ -397,10 +379,11 @@ export function ShareView({ token }: { token: string }) {
       vttBlobUrl={onProcessedTimeline ? vttBlobUrl : null}
       videoRef={videoRef}
       onTimeUpdate={handleTimeUpdate}
+      onMediaMissing={handleMediaMissing}
     />
   );
 
-  const hasFiles = artefacts.length > 0 || hasVideo;
+  const hasFiles = artefacts.length > 0 || (hasVideo && allowVideo);
 
   return (
     <div className="min-h-screen bg-background">
@@ -447,39 +430,45 @@ export function ShareView({ token }: { token: string }) {
       </header>
 
       <main className={PAGE_MAIN}>
-        <div className="space-y-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-            {recording.display_name}
-          </h1>
-
-          <div className={WATCH_GRID}>
+        <div className="space-y-5 sm:space-y-8">
+          <div className={showCompanionCol ? WATCH_GRID : undefined}>
             <div ref={videoColRef} className="min-w-0">
-              <SectionCard title="Video" density="compact">
-                {bothVariants ? (
-                  <Tabs
-                    items={VIDEO_VARIANT_TABS}
+              <h1 className="mb-5 text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
+                {recording.display_name}
+              </h1>
+              {bothVariants && (
+                <div className="mb-5 space-y-2">
+                  <SegmentedField
+                    label="Video source"
+                    labelHidden
+                    options={VIDEO_VARIANT_OPTIONS}
                     value={currentVariant}
                     onChange={setVideoVariant}
-                    label="Video source"
-                  >
-                    {playerNode}
-                  </Tabs>
-                ) : (
-                  playerNode
-                )}
-              </SectionCard>
-              {!onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Topics and transcript align with the processed video. Switch to Processed to browse them while watching.
-                </p>
+                  />
+                  {!onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
+                    <p className="text-xs text-muted-foreground">
+                      Topics and transcript follow the processed video.
+                    </p>
+                  )}
+                </div>
               )}
+              <div
+                className={cn(
+                  CARD_SHELL,
+                  "overflow-hidden",
+                  "max-lg:p-0 max-lg:[&_.rounded-xl]:rounded-2xl max-lg:[&_.outline]:outline-none",
+                  "lg:p-3",
+                )}
+              >
+                {playerNode}
+              </div>
             </div>
 
-            {showCompanion && sidePanelTabs.length > 0 && (
+            {showCompanionCol && (
               <div className={COMPANION_COL}>
                 <div
-                  className={COMPANION_PANEL}
-                  style={showCompanion && companionMaxH ? { maxHeight: companionMaxH } : undefined}
+                  className={cn(COMPANION_PANEL, companionMaxH && "lg:h-[var(--companion-h)]")}
+                  style={companionMaxH ? { ["--companion-h" as string]: `${companionMaxH}px` } : undefined}
                 >
                   <div className={COMPANION_SHELL}>
                     {companionTopicTitle && (
@@ -525,7 +514,7 @@ export function ShareView({ token }: { token: string }) {
 
           <div className="space-y-6">
             {onProcessedTimeline && hasExtraContent && topicVersion && (
-              <CollapsibleCard title="Extra content" defaultOpen>
+              <CollapsibleCard title="Extra content" defaultOpen={false}>
                 <AIContentEditor
                   recordingId={recording.id}
                   version={topicVersion}
@@ -539,7 +528,9 @@ export function ShareView({ token }: { token: string }) {
             {hasFiles && (
               <CollapsibleCard title="Files" defaultOpen={false}>
                 <div className="flex flex-col gap-2">
-                  {hasVideo && <VideoDownloadButton token={token} variant={currentVariant} />}
+                  {hasVideo && allowVideo && (
+                    <ShareVideoDownloadButton download={() => getShareMedia(token, currentVariant, true)} />
+                  )}
                   <ArtefactList items={artefacts} />
                 </div>
               </CollapsibleCard>

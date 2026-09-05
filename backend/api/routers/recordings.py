@@ -158,7 +158,7 @@ class _PosterPreview(NamedTuple):
     fallback_url: str | None = None
 
 
-def _recording_poster_storage_key(recording: RecordingModel) -> str | None:
+def _recording_poster_storage_key(recording: RecordingModel, user_slug: int | None = None) -> str | None:
     """Storage key for a recording's poster frame, by convention.
 
     Keyed off ``recording_root`` rather than a DB column, so posters need no
@@ -170,8 +170,9 @@ def _recording_poster_storage_key(recording: RecordingModel) -> str | None:
     """
     if not (recording.local_video_path or recording.processed_video_path):
         return None
-    owner = getattr(recording, "owner", None)
-    user_slug = getattr(owner, "user_slug", None)
+    if user_slug is None:
+        owner = getattr(recording, "owner", None)
+        user_slug = getattr(owner, "user_slug", None)
     if user_slug is None:
         return None
     from file_storage.path_builder import get_path_builder, to_storage_key
@@ -191,11 +192,16 @@ async def _poster_urls(
     """
     from api.services.config_resolver import ConfigResolver, extract_thumbnail_name_from_metadata
     from config.settings import get_settings
+    from database.auth_models import UserModel
     from file_storage.factory import get_storage_backend
     from utils.thumbnail_manager import get_thumbnail_manager
 
     if not recordings:
         return {}
+
+    slug_row = await session.execute(select(UserModel.user_slug).where(UserModel.id == user_id))
+    raw_slug = slug_row.scalar_one_or_none()
+    user_slug = raw_slug if isinstance(raw_slug, int) else None
 
     config_resolver = ConfigResolver(session)
     thumbnail_manager = get_thumbnail_manager()
@@ -205,9 +211,7 @@ async def _poster_urls(
     for recording in recordings:
         metadata = await config_resolver.resolve_metadata_config(recording, user_id)
         thumbnail_name = extract_thumbnail_name_from_metadata(metadata)
-        owner = getattr(recording, "owner", None)
-        user_slug = getattr(owner, "user_slug", None)
-        poster_key = _recording_poster_storage_key(recording)
+        poster_key = _recording_poster_storage_key(recording, user_slug)
 
         if thumbnail_name and user_slug is not None:
             thumb_key = await thumbnail_manager.get_thumbnail_key(
@@ -380,6 +384,7 @@ async def list_recordings(
                 hard_delete_at=r.hard_delete_at,
                 expire_at=r.expire_at,
                 share_token=r.share_token,
+                share_enabled=bool(r.share_enabled),
                 share_stats=build_share_stats_summary(r),
                 created_at=r.created_at,
                 updated_at=r.updated_at,
@@ -772,6 +777,7 @@ async def get_recording(
             hard_delete_at=recording.hard_delete_at,
             expire_at=recording.expire_at,
             share_token=recording.share_token,
+            share_enabled=bool(recording.share_enabled),
             share_stats=build_share_stats_summary(recording),
             created_at=recording.created_at,
             updated_at=recording.updated_at,
@@ -851,7 +857,10 @@ async def get_recording(
         "hard_delete_at": recording.hard_delete_at,
         "expire_at": recording.expire_at,
         "share_token": recording.share_token,
+        "share_enabled": bool(recording.share_enabled),
         "share_stats": build_share_stats_for_detail(recording),
+        "allow_video_download": recording.allow_video_download,
+        "allow_files_download": recording.allow_files_download,
         "created_at": recording.created_at,
         "updated_at": recording.updated_at,
     }
@@ -981,9 +990,16 @@ async def get_recording(
 
             uploads[platform] = upload_info
 
+    from api.repositories.playlist_repo import PlaylistRepository
+    from api.schemas.playlist import PlaylistSummary
+
+    playlist_rows = await PlaylistRepository(ctx.session).summaries_for_recording(recording.id, ctx.user_id)
+    playlists = [PlaylistSummary(id=p.id, name=p.name, item_id=item_id) for p, item_id in playlist_rows]
+
     # Create response model
     return DetailedRecordingResponse(
         **base_data,
+        playlists=playlists,
         videos=videos if videos else None,
         audio=audio_info if audio_info else None,
         transcription=transcription_data,
@@ -1040,6 +1056,7 @@ async def update_recording(
         hard_delete_at=recording.hard_delete_at,
         expire_at=recording.expire_at,
         share_token=recording.share_token,
+        share_enabled=bool(recording.share_enabled),
         share_stats=build_share_stats_summary(recording),
         created_at=recording.created_at,
         updated_at=recording.updated_at,
@@ -1261,6 +1278,9 @@ async def add_video_by_url(
         template = await template_repo.find_by_id(data.template_id, ctx.user_id)
         if template:
             await template_repo.increment_usage(template)
+            from api.services.playlist_service import add_from_bound_template
+
+            await add_from_bound_template(ctx.session, ctx.user_id, recording)
 
     await ctx.session.commit()
 
@@ -1357,6 +1377,11 @@ async def add_playlist_by_url(
                 created_count += 1
             else:
                 updated_count += 1
+
+            if data.template_id:
+                from api.services.playlist_service import add_from_bound_template
+
+                await add_from_bound_template(ctx.session, ctx.user_id, recording)
 
             created_recordings.append(
                 {
@@ -1492,6 +1517,13 @@ async def bulk_run_recordings(
                 if recording.status == ProcessingStatus.SKIPPED:
                     recording.status = ProcessingStatus.INITIALIZED
                 await template_repo.increment_usage(template)
+                from api.services.playlist_service import add_from_bound_template
+
+                await add_from_bound_template(ctx.session, ctx.user_id, recording)
+
+            from api.services.playlist_service import add_from_output_override
+
+            await add_from_output_override(ctx.session, ctx.user_id, recording, data.output_config)
 
             # Smart run: determine action by current status
             result = await _execute_smart_run(
@@ -2377,6 +2409,16 @@ async def run_recording(
 
         await ctx.session.commit()
         logger.info(f"Bound template | {format_details(template=config.template_id, rec=recording_id)}")
+        from api.services.playlist_service import add_from_bound_template
+
+        await add_from_bound_template(ctx.session, ctx.user_id, recording)
+        await ctx.session.commit()
+
+    from api.services.playlist_service import add_from_output_override
+
+    await add_from_output_override(ctx.session, ctx.user_id, recording, config.output_config)
+    if config.output_config and config.output_config.get("playlist_ids"):
+        await ctx.session.commit()
 
     manual_override = _build_override_from_flexible(config)
 
@@ -3094,8 +3136,9 @@ async def update_recording_config(
     # Get config resolver
     config_resolver = ConfigResolver(ctx.session)
 
-    # Save only user overrides (not full config)
-    new_preferences = recording.processing_preferences or {}
+    # Copy so JSONB mutation is a new object (in-place edits are not persisted).
+    prefs = recording.processing_preferences
+    new_preferences = dict(prefs) if isinstance(prefs, dict) else {}
 
     if data.processing_config is not None:
         processing_config_dict = data.processing_config.model_dump(exclude_none=True)
@@ -3421,6 +3464,9 @@ async def bind_template_to_recording(
     if recording.status == ProcessingStatus.SKIPPED:
         recording.status = ProcessingStatus.INITIALIZED
 
+    from api.services.playlist_service import add_from_bound_template
+
+    await add_from_bound_template(ctx.session, ctx.user_id, recording)
     await ctx.session.commit()
 
     logger.info(

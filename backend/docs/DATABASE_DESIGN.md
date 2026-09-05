@@ -33,6 +33,7 @@
 | Конфигурация | `user_configs`, `base_configs` |
 | Шаблоны и источники/пресеты | `recording_templates`, `input_sources`, `output_presets` |
 | Обработка записей | `recordings`, `source_metadata`, `output_targets`, `processing_stages`, `stage_timings` |
+| Плейлисты | `playlists`, `playlist_items` |
 | Автоматизация | `automation_jobs` |
 | Celery Beat (django-celery-beat–совместимая схема) | `celery_interval_schedule`, `celery_crontab_schedule`, `celery_solar_schedule`, `celery_periodic_task_changed`, `celery_periodic_task` |
 
@@ -71,6 +72,9 @@ erDiagram
     recordings ||--o{ output_targets : has
     recordings ||--o{ processing_stages : has
     recordings ||--o{ stage_timings : has
+    users ||--o{ playlists : owns
+    playlists ||--o{ playlist_items : contains
+    recordings ||--o{ playlist_items : listed
 
     user_credentials ||--o{ input_sources : uses
     user_credentials ||--o{ output_presets : uses
@@ -125,11 +129,22 @@ erDiagram
 
 | Таблица | Модель | Назначение |
 |---------|--------|------------|
-| `recordings` | `RecordingModel` | Агрегатный статус `processingstatus` (enum), `duration` / `final_duration` (**Float**, секунды), пути к файлам, JSONB транскрипции/тем, `failed` + `failed_*`, **pipeline** (`pipeline_started_at`, `pipeline_completed_at`, `pipeline_duration_seconds`), **пауза** (`on_pause`, `pause_requested_at`), soft/hard delete |
+| `recordings` | `RecordingModel` | Агрегатный статус `processingstatus` (enum), `duration` / `final_duration` (**Float**, секунды), пути к файлам, JSONB транскрипции/тем, `failed` + `failed_*`, **pipeline**, **пауза**, soft/hard delete; **043:** `allow_video_download`, `allow_files_download` (default true); **044:** `share_enabled` (Disable keeps `share_token`) |
 | `source_metadata` | `SourceMetadataModel` | 1:1 с записью: `source_type` (enum `sourcetype`), `source_key`, колонка БД `metadata` (в ORM — атрибут `meta`) |
 | `output_targets` | `OutputTargetModel` | `target_type` / `status` (enum), `preset_id`, `target_meta`, `started_at`, `uploaded_at`, ошибки загрузки |
 | `processing_stages` | `ProcessingStageModel` | Этапы пайплайна (`processingstagetype`), статус этапа (`processingstagestatus`), `started_at`, `completed_at`, `skip_reason`, `stage_meta` |
 | `stage_timings` | `StageTimingModel` | Append-only метрики: `stage_type`, `substep`, `attempt`, интервалы, `status`, `meta` (миграция `014`) |
+
+### Плейлисты (миграция 043)
+
+Курс записей — **не** `output_targets`. Членство в `playlist_items`. Публичная ссылка стабильная: `share_token` + `share_enabled`.
+
+| Таблица | Модель | Назначение |
+|---------|--------|------------|
+| `playlists` | `PlaylistModel` | `user_id`, уникальное `name` на пользователя, `description`, `share_token` (UUID, nullable), `share_enabled`, `share_created_at`; лимит 200 на пользователя |
+| `playlist_items` | `PlaylistItemModel` | `playlist_id`, `recording_id`, `position`; UNIQUE `(playlist_id, recording_id)`; лимит 200 пунктов |
+
+`output_config.playlist_ids` у **именованного** шаблона (не default) добавляет запись при bind/create/match.
 
 ---
 

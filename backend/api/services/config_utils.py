@@ -62,6 +62,8 @@ async def validate_effective_output_config(
     """
     Validate merged output_config: preset ids exist and are active; upload invariants.
 
+    Stale or missing ``playlist_ids`` are ignored (membership bind skips them).
+
     Raises:
         InvalidOutputPresetsError: On unknown ids, inactive presets, or auto_upload/platform mismatch.
     """

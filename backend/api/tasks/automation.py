@@ -223,6 +223,10 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
                     recording.is_mapped = True
                     await template_repo.increment_usage(matched_template)
 
+                    from api.services.playlist_service import add_from_bound_template
+
+                    await add_from_bound_template(session, user_id, recording)
+
                     # Start run task with automation processing_config as manual_override
                     task = run_recording_task.delay(
                         recording_id=recording.id,

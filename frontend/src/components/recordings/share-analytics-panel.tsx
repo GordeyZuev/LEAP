@@ -16,6 +16,14 @@ const PERIOD_OPTIONS = [
   { value: 28 as const, label: "28 days" },
 ];
 
+const CHART_DATE = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+
+function formatChartDate(isoDate: string): string {
+  const date = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return CHART_DATE.format(date);
+}
+
 function sumDailyMetric(
   daily: ShareAnalyticsResponse["daily"],
   key: "views" | "downloads",
@@ -41,24 +49,44 @@ function ShareViewsChart({
     );
   }
 
+  const firstDate = daily[0]?.date;
+  const lastDate = daily[daily.length - 1]?.date;
+
   return (
     <div
       role="img"
-      aria-label={`Views per day, last ${days} days`}
+      aria-label={`Views per day, last ${days} days. Maximum ${maxViews} on the busiest day.`}
       className="rounded-xl border border-border bg-card px-3 py-3"
     >
-      <div className="flex h-16 items-end gap-px sm:gap-0.5">
-        {daily.map((point) => {
-          const height = point.views > 0 ? Math.max(8, (point.views / maxViews) * 100) : 0;
-          return (
-            <div
-              key={point.date}
-              title={`${point.date}: ${point.views} views`}
-              className="min-w-0 flex-1 rounded-sm bg-primary/70"
-              style={{ height: `${height}%` }}
-            />
-          );
-        })}
+      <div className="flex gap-2">
+        <div
+          className="flex h-24 shrink-0 flex-col justify-between text-end text-[10px] tabular-nums leading-none text-muted-foreground"
+          aria-hidden
+        >
+          <span>{maxViews}</span>
+          <span>0</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex h-24 items-end gap-px border-b border-border sm:gap-0.5">
+            {daily.map((point) => {
+              const height = point.views > 0 ? Math.max(8, (point.views / maxViews) * 100) : 0;
+              return (
+                <div
+                  key={point.date}
+                  title={`${point.date}: ${point.views} views`}
+                  className="min-w-0 flex-1 rounded-t-sm bg-primary/70"
+                  style={{ height: `${height}%` }}
+                />
+              );
+            })}
+          </div>
+          {firstDate && lastDate && (
+            <div className="mt-1.5 flex justify-between text-[10px] tabular-nums text-muted-foreground" aria-hidden>
+              <span>{formatChartDate(firstDate)}</span>
+              <span>{formatChartDate(lastDate)}</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -107,7 +135,7 @@ export function ShareAnalyticsPanel({
     <div className="space-y-5">
       {showRevokedBanner && (
         <p className="rounded-xl border border-border bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
-          Link revoked · activity history kept
+          Link disabled · activity history kept
         </p>
       )}
 

@@ -165,7 +165,7 @@ body {
 }
 .plyr__chapter-label {
   overflow: hidden;
-  margin-left: var(--plyr-control-spacing, 10px);
+  margin-inline-start: var(--plyr-control-spacing, 10px);
   max-width: 14rem;
   color: var(--muted-foreground);
   font-size: var(--plyr-font-size-base, 13px);
@@ -174,8 +174,44 @@ body {
 }
 .plyr__chapter-label::before {
   content: "•";
-  margin-right: 6px;
+  margin-inline-end: 6px;
   opacity: 0.5;
+}
+
+@media (max-width: 640px) {
+  .plyr__chapter-label {
+    display: none;
+  }
+  .plyr--video {
+    --plyr-control-spacing: 2px;
+    --plyr-control-icon-size: 18px;
+    --plyr-range-thumb-height: 16px;
+    --plyr-range-track-height: 5px;
+  }
+  .plyr--video .plyr__controls {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.15rem 0;
+    padding: 0.35rem 0.4rem max(0.5rem, env(safe-area-inset-bottom));
+  }
+  .plyr__progress__container {
+    flex: 1 0 100%;
+    order: -1;
+    min-width: 100%;
+    margin-inline: 0;
+  }
+  .plyr__volume input[data-plyr="volume"],
+  .plyr [data-plyr="pip"],
+  .plyr__progress__marker {
+    display: none !important;
+  }
+  .plyr--video .plyr__control {
+    padding: 0.7rem;
+  }
+  .plyr__time {
+    min-width: 0;
+    padding-inline: 0.25rem;
+  }
 }
 .plyr__chapter-label--hidden {
   display: none;
@@ -184,6 +220,65 @@ body {
   .plyr__chapter-label {
     display: none !important;
   }
+}
+
+/* Phone landscape: player covers the viewport (all Plyr instances). */
+@media (orientation: landscape) and (hover: none) and (max-height: 540px) {
+  .video-fill-landscape {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    aspect-ratio: auto;
+    border-radius: 0;
+    outline: none;
+    background: #000;
+  }
+  .video-fill-landscape .plyr,
+  .video-fill-landscape .plyr--video {
+    height: 100%;
+    width: 100%;
+    border-radius: 0;
+  }
+  .video-fill-landscape video {
+    height: 100%;
+    width: 100%;
+    object-fit: contain;
+    background: #000;
+  }
+  .video-fill-landscape .plyr--video {
+    --plyr-control-spacing: 2px;
+    --plyr-control-icon-size: 18px;
+    --plyr-range-thumb-height: 16px;
+    --plyr-range-track-height: 5px;
+  }
+  .video-fill-landscape .plyr--video .plyr__controls {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.15rem 0;
+    padding: 0.35rem 0.4rem max(0.5rem, env(safe-area-inset-bottom));
+    border-radius: 0;
+  }
+  .video-fill-landscape .plyr__progress__container {
+    flex: 1 0 100%;
+    order: -1;
+    min-width: 100%;
+    margin-inline: 0;
+  }
+  .video-fill-landscape .plyr__volume input[data-plyr="volume"],
+  .video-fill-landscape .plyr [data-plyr="pip"],
+  .video-fill-landscape .plyr__progress__marker,
+  .video-fill-landscape .plyr__chapter-label {
+    display: none !important;
+  }
+  .video-fill-landscape .plyr--video .plyr__control {
+    padding: 0.7rem;
+  }
+}
+body.video-landscape-lock {
+  overflow: hidden;
 }
 
 select {

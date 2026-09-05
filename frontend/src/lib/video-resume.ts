@@ -7,8 +7,8 @@ export function recordingResumeKey(recordingId: string, variant: "processed" | "
   return `${PREFIX}recording:${recordingId}:${variant}`;
 }
 
-export function shareResumeKey(recordingId: number, variant: "processed" | "original"): string {
-  return `${PREFIX}share:${recordingId}:${variant}`;
+export function playlistResumeKey(token: string, itemId: number): string {
+  return `${PREFIX}playlist:${token}:${itemId}`;
 }
 
 export function readResumeTime(key: string): number | null {

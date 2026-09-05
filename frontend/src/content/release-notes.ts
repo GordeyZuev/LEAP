@@ -17,6 +17,50 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.10.8.1": {
+    title: "Playlists and player stability",
+    highlights: [
+      {
+        parts: [
+          { kind: "text", value: "Build a course from your recordings in " },
+          { kind: "link", label: "Playlists", href: "/playlists" },
+          {
+            kind: "text",
+            value:
+              " — one public link for the whole set. Enable, disable (same URL), or rotate the link. Named templates can add new recordings automatically.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "On a phone the player is easier to use: a short control bar, video fills the screen when you rotate to landscape, and the same loading frame as on desktop.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "Paste a video URL in " },
+          { kind: "link", label: "Recordings", href: "/recordings" },
+          {
+            kind: "text",
+            value: " → Add video and you get a thumbnail, title, duration, and the qualities that URL actually has.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "A public share link pasted into Telegram (or another chat) shows a card with the recording poster and title.",
+          },
+        ],
+      },
+    ],
+  },
   "0.10.8.0": {
     title: "MTS Link recordings & connection checks",
     highlights: [

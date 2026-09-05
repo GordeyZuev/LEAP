@@ -13,6 +13,7 @@ from models.recording import ProcessingStatus
 
 class ShareCreateResponse(BaseModel):
     share_token: uuid.UUID
+    share_enabled: bool = True
 
 
 class ShareStatsSummary(BaseModel):
@@ -56,3 +57,5 @@ class PublicRecordingResponse(BaseModel):
     available_files: list[str]
     has_processed_video: bool
     has_original_video: bool
+    allow_video_download: bool = True
+    allow_files_download: bool = True

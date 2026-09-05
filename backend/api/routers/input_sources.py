@@ -34,6 +34,13 @@ router = APIRouter(prefix="/api/v1/sources", tags=["Input Sources"])
 logger = get_logger()
 
 
+async def _maybe_add_to_playlists(session: AsyncSession, user_id: str, recording) -> None:
+    if recording.template_id:
+        from api.services.playlist_service import add_from_bound_template
+
+        await add_from_bound_template(session, user_id, recording)
+
+
 def _yandex_disk_path_source_key(file_path: str, file_name: str) -> str:
     """Legacy path-based key (same file after rename has a different path)."""
     if file_path:
@@ -334,6 +341,8 @@ async def _sync_single_source(
                     else:
                         updated_count += 1
 
+                    await _maybe_add_to_playlists(session, user_id, _recording)
+
                 except Exception as e:
                     logger.warning(f"Failed to save recording | {format_details(meeting=meeting_id, error=str(e))}")
                     continue
@@ -489,6 +498,8 @@ async def _sync_video_url_source(
             else:
                 updated_count += 1
 
+            await _maybe_add_to_playlists(session, user_id, _recording)
+
         except Exception as e:
             logger.warning(
                 f"Failed to save video entry | {format_details(video_id=entry.get('id', '?'), error=str(e))}"
@@ -602,6 +613,8 @@ async def _sync_yandex_disk_source(
                 saved_count += 1
             else:
                 updated_count += 1
+
+            await _maybe_add_to_playlists(session, user_id, _recording)
 
         except Exception as e:
             logger.warning(
@@ -814,6 +827,8 @@ async def _sync_mts_link_source(
                     saved_count += 1
                 else:
                     updated_count += 1
+
+                await _maybe_add_to_playlists(session, user_id, _recording)
 
             except SQLAlchemyError:
                 logger.error(f"MTS Link sync aborted | {format_details(source=source.id, record=record_id)}")

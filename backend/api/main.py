@@ -34,6 +34,7 @@ from api.routers import (
     input_sources,
     oauth,
     output_presets,
+    playlists,
     recordings,
     references,
     share,
@@ -92,6 +93,7 @@ app.include_router(config.router)
 app.include_router(credentials.router)
 
 app.include_router(recordings.router)
+app.include_router(playlists.router)
 app.include_router(templates.router)
 app.include_router(input_sources.router)
 app.include_router(output_presets.router)

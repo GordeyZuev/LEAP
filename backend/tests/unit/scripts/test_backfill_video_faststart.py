@@ -2,7 +2,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.backfill_video_faststart import faststart_key, top_level_atoms
+from scripts.backfill_video_faststart import (
+    faststart_key,
+    needs_faststart_remux,
+    needs_video_mp4_content_type,
+    top_level_atoms,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -26,3 +31,18 @@ def test_top_level_atoms_rejects_broken_size(tmp_path: Path) -> None:
     media.write_bytes((100).to_bytes(4, "big") + b"moov")
     with pytest.raises(ValueError, match="Invalid MP4 atom"):
         top_level_atoms(media)
+
+
+def test_needs_video_mp4_content_type() -> None:
+    assert needs_video_mp4_content_type(None)
+    assert needs_video_mp4_content_type("application/octet-stream")
+    assert needs_video_mp4_content_type("APPLICATION/OCTET-STREAM")
+    assert not needs_video_mp4_content_type("video/mp4")
+    assert not needs_video_mp4_content_type("video/mp4; charset=binary")
+
+
+def test_needs_faststart_remux() -> None:
+    assert not needs_faststart_remux(["ftyp", "moov", "mdat"])
+    assert needs_faststart_remux(["ftyp", "mdat", "moov"])
+    assert needs_faststart_remux(["ftyp", "mdat"])
+    assert needs_faststart_remux([])

@@ -278,6 +278,8 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      # Next generateMetadata / opengraph-image run in this container — not the browser.
+      API_INTERNAL_URL: http://api:8000
     expose:
       - "3000"
     depends_on:

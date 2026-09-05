@@ -165,7 +165,7 @@ export function CollapsibleCard({
           {subtitle && (
             <span className="min-w-0 truncate text-sm font-medium text-foreground">{subtitle}</span>
           )}
-          <span className="ml-auto flex shrink-0 items-center gap-2">
+          <span className="ms-auto flex shrink-0 items-center gap-2">
             {badge}
             <ChevronDown
               size={15}

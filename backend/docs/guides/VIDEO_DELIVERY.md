@@ -19,31 +19,32 @@ recording/share page
 
 ## MP4 requirements
 
-- New MP4/MOV/M4V outputs use FFmpeg `-movflags +faststart`, so the `moov` index is placed before `mdat` and playback can begin without downloading the tail first.
+- New MP4/MOV/M4V outputs use FFmpeg `-movflags +faststart`, so the `moov` index (file table of contents) is placed before `mdat` (media bytes). Safari otherwise often requests `Range: 0–end` of a large file.
 - `-avoid_negative_ts make_zero` normalizes negative timestamps.
-- Uploads set a MIME type inferred from the object suffix; `.mp4` is stored as `video/mp4`.
+- Uploads set a MIME type from the object suffix; `.mp4` must be stored as `video/mp4`. `application/octet-stream` makes WebKit treat the object as an opaque blob.
 
-Faststart is an optimization, not a fixed startup-time guarantee. It does not shrink a large `moov` atom. With stream-copy trimming, the first video frame may also wait for the next source keyframe. HLS or fragmented MP4 is the next step if a strict startup bound is required on slow links.
+Faststart does not shrink a large `moov` atom. Stream-copy trim may still wait for the next source keyframe. HLS is a later step if progressive MP4 is not enough on slow links.
 
 ## Player recovery
 
-The shared player handles initial-load timeout, media `error`, and `stalled` events. On failure it invalidates the cached URL and requests a new signed URL once. If recovery does not succeed, the UI stops the spinner, explains the problem and exposes Retry. Playback position is stored by recording ID and media variant; a public share token is never stored in the key.
+The shared player times out only until the first playable frame. After `playing`, `waiting` / `stalled` are treated as buffering (Safari fires `stalled` when the buffer is full and the download pauses). A signed URL is refreshed once on native media `error`. Retry remounts the `<video>` element. Position is stored by recording ID and variant, never by a public share token.
 
 ## Existing-object backfill
 
-Run from `backend/`. The command is dry-run by default and does not modify storage or the database:
+Old objects (uploaded before MIME/faststart in the pipeline) are not updated automatically. Run from `backend/`. Dry-run is the default:
 
 ```bash
 uv run python scripts/backfill_video_faststart.py
 ```
 
-Apply only after reviewing the dry-run:
+Canary one recording (for example 38), then all remaining processed and original `.mp4` keys:
 
 ```bash
+uv run python scripts/backfill_video_faststart.py --apply --recording-id 38
 uv run python scripts/backfill_video_faststart.py --apply
 ```
 
-Apply mode downloads the current processed MP4, remuxes without re-encoding, verifies that `moov` precedes `mdat`, uploads a new `*.faststart.mp4` object, and conditionally updates the recording path. The prior object remains available for rollback. A concurrent path change prevents the database switch.
+Apply mode sets `Content-Type: video/mp4` in place when HEAD is wrong. For processed files that are not already `*.faststart.mp4`, it remuxes only when `moov` follows `mdat`, uploads a new object, and switches `processed_video_path`. The prior object is kept for rollback.
 
 ## Worker delivery guarantees
 
@@ -54,7 +55,7 @@ Apply mode downloads the current processed MP4, remuxes without re-encoding, ver
 - Object metadata reports the expected video MIME type and accepts byte ranges.
 - For MP4, the `moov` atom appears before `mdat`.
 - Opening a recording triggers metadata and media requests together, followed by Object Storage range traffic.
-- An expired or invalid media URL causes one refresh and then a visible Retry state, not an endless loader.
+- After playback has started, buffering must not replace the player with Retry. An expired or invalid media URL causes one refresh on `error`, then Retry remounts the element.
 - `async_operations`, `maintenance`, and temporary `celery` queue depths are monitored during rollout.
 
 See also [MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md](MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md), [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md), and [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md).
