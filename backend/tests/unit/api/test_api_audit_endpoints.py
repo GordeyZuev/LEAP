@@ -7,6 +7,31 @@ import pytest
 from tests.fixtures.factories import create_mock_recording
 
 
+def _stub_config_resolver(mocker, *, processing_config: dict | None = None, output_config: dict | None = None):
+    """Patch ConfigResolver so every awaited method is an AsyncMock (MagicMock is not awaitable)."""
+    mock_resolver = mocker.patch("api.services.config_resolver.ConfigResolver")
+    inst = mock_resolver.return_value
+    inst._merge_configs = lambda a, b: {**a, **b}
+    inst.resolve_processing_config = AsyncMock(return_value=processing_config or {"transcription": {"language": "ru"}})
+    resolved = MagicMock()
+    resolved.output = output_config if output_config is not None else {}
+    inst.resolve = AsyncMock(return_value=resolved)
+    inst.resolve_metadata_config = AsyncMock(return_value={})
+    inst.resolve_output_config = AsyncMock(return_value={})
+    inst.get_base_config_for_edit = AsyncMock(
+        return_value={
+            "template_id": None,
+            "template_name": None,
+            "has_manual_override": False,
+            "processing_config": {},
+            "output_config": {},
+            "metadata_config": {},
+        }
+    )
+    mocker.patch("api.services.config_utils.validate_effective_output_config", new_callable=AsyncMock)
+    return inst
+
+
 @pytest.mark.unit
 class TestOAuthFrontendRedirect:
     """Tests for OAuth frontend redirect URL from settings."""
@@ -50,10 +75,10 @@ class TestRecordingConfigTypedSchema:
         mock_repo_instance.get_by_id = AsyncMock(return_value=mock_recording)
         mock_repo.return_value = mock_repo_instance
 
-        mock_resolver = mocker.patch("api.services.config_resolver.ConfigResolver")
-        mock_resolver.return_value._merge_configs = lambda a, b: {**a, **b}
-        mock_resolver.return_value.resolve_processing_config = AsyncMock(
-            return_value={"transcription": {"language": "ru", "enable_topics": True}}
+        _stub_config_resolver(
+            mocker,
+            processing_config={"transcription": {"language": "ru", "enable_topics": True}},
+            output_config={"preset_ids": [5], "auto_upload": True},
         )
 
         # Use None so handler builds proper dict (MagicMock is truthy and would pollute overrides)
@@ -84,11 +109,7 @@ class TestRecordingConfigTypedSchema:
         mock_repo_instance.get_by_id = AsyncMock(return_value=mock_recording)
         mock_repo.return_value = mock_repo_instance
 
-        mock_resolver = mocker.patch("api.services.config_resolver.ConfigResolver")
-        mock_resolver.return_value._merge_configs = lambda a, b: {**a, **b}
-        mock_resolver.return_value.resolve_processing_config = AsyncMock(
-            return_value={"transcription": {"language": "ru"}}
-        )
+        _stub_config_resolver(mocker, processing_config={"transcription": {"language": "ru"}})
 
         response = client.patch(
             "/api/v1/recordings/1/config",

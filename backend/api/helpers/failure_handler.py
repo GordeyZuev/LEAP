@@ -6,6 +6,7 @@ Centralized logic following DRY principle.
 
 from datetime import UTC, datetime
 
+from api.helpers.blank_record import BLANK_REASON_NO_SPEECH, apply_blank_record
 from database.models import RecordingModel
 from logger import format_details, format_status_change, get_logger
 from models.recording import ProcessingStageStatus, ProcessingStageType, ProcessingStatus
@@ -80,6 +81,21 @@ async def handle_transcribe_failure(
             f"{stage_type.value} failed | {format_status_change('Recording', old_status, ProcessingStatus.DOWNLOADED)} | "
             f"{format_details(rec=recording.id)}"
         )
+
+
+async def handle_empty_transcript(recording: RecordingModel) -> None:
+    """No speech in ASR: mark blank and skip remaining transcript-dependent stages."""
+    apply_blank_record(recording, True, reason=BLANK_REASON_NO_SPEECH, force_status_skip=True)
+    for stage in recording.processing_stages:
+        if stage.stage_type == ProcessingStageType.TRANSCRIBE:
+            stage.status = ProcessingStageStatus.SKIPPED
+            stage.stage_meta = {"skip_reason": "empty_transcript"}
+            break
+    _cascade_skip_dependent_stages(recording, ProcessingStageType.TRANSCRIBE)
+    from api.helpers.status_manager import update_aggregate_status
+
+    update_aggregate_status(recording)
+    logger.info(f"Empty transcript treated as blank | {format_details(rec=recording.id)}")
 
 
 def _cascade_skip_dependent_stages(recording: RecordingModel, parent_stage: ProcessingStageType) -> None:

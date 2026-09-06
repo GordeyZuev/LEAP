@@ -11,6 +11,6 @@ export default async function Image({ params }: { params: Promise<{ token: strin
   const recording = await fetchPublicRecordingForMetadata(token);
   return shareOpenGraphImage(
     `/api/v1/share/${token}/poster`,
-    recording?.display_name ?? "LEAP",
+    recording?.title || recording?.display_name || "LEAP",
   );
 }

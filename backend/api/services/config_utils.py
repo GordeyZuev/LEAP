@@ -17,6 +17,24 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
+LEAP_PLATFORM = "leap"
+
+
+def is_leap_platform(platform: str | None) -> bool:
+    return (platform or "").lower() == LEAP_PLATFORM
+
+
+def copy_presets(presets: list[OutputPresetModel]) -> list[OutputPresetModel]:
+    """Upload/copy presets only (excludes leap look)."""
+    return [p for p in presets if not is_leap_platform(p.platform)]
+
+
+def leap_preset_id(presets: list[OutputPresetModel]) -> int | None:
+    for preset in presets:
+        if is_leap_platform(preset.platform):
+            return preset.id
+    return None
+
 
 class RuntimeTemplateNotFoundError(ValueError):
     """``manual_override`` requested a template id that does not exist for this user."""
@@ -85,13 +103,21 @@ async def validate_effective_output_config(
         missing = requested - found_ids
         if missing:
             raise InvalidOutputPresetsError(f"Unknown or inaccessible preset ids: {sorted(missing)}")
-        inactive = [p.id for p in presets if not p.is_active]
+        inactive = [p.id for p in copy_presets(presets) if not p.is_active]
         if inactive:
             raise InvalidOutputPresetsError(f"Inactive presets cannot be used for upload: {sorted(inactive)}")
+        leap_count = sum(1 for p in presets if is_leap_platform(p.platform))
+        if leap_count > 1:
+            raise InvalidOutputPresetsError("At most one leap look preset is allowed in preset_ids")
+
+    if auto_upload and not copy_presets(presets):
+        raise InvalidOutputPresetsError("auto_upload requires at least one copy preset (YouTube or Yandex Disk)")
 
     if auto_upload and default_platforms and preset_ids:
-        platforms_from_presets = {p.platform.lower() for p in presets}
+        platforms_from_presets = {p.platform.lower() for p in copy_presets(presets)}
         for plat in default_platforms:
+            if is_leap_platform(plat):
+                continue
             if plat.lower() not in platforms_from_presets:
                 raise InvalidOutputPresetsError(f"No preset for platform {plat!r} in output_config.preset_ids")
 

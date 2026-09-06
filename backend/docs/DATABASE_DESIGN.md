@@ -130,7 +130,7 @@ erDiagram
 | Таблица | Модель | Назначение |
 |---------|--------|------------|
 | `recordings` | `RecordingModel` | Агрегатный статус `processingstatus` (enum), `duration` / `final_duration` (**Float**, секунды), пути к файлам, JSONB транскрипции/тем, `failed` + `failed_*`, **pipeline**, **пауза**, soft/hard delete; **043:** `allow_video_download`, `allow_files_download` (default true); **044:** `share_enabled` (Disable keeps `share_token`) |
-| `source_metadata` | `SourceMetadataModel` | 1:1 с записью: `source_type` (enum `sourcetype`), `source_key`, колонка БД `metadata` (в ORM — атрибут `meta`) |
+| `source_metadata` | `SourceMetadataModel` | 1:1 с записью: `source_type` (enum `sourcetype`), `source_key`, колонка БД `metadata` (в ORM — атрибут `meta`). **046:** UNIQUE `(user_id, source_key)` WHERE `source_type = 'MTS_LINK'` |
 | `output_targets` | `OutputTargetModel` | `target_type` / `status` (enum), `preset_id`, `target_meta`, `started_at`, `uploaded_at`, ошибки загрузки |
 | `processing_stages` | `ProcessingStageModel` | Этапы пайплайна (`processingstagetype`), статус этапа (`processingstagestatus`), `started_at`, `completed_at`, `skip_reason`, `stage_meta` |
 | `stage_timings` | `StageTimingModel` | Append-only метрики: `stage_type`, `substep`, `attempt`, интервалы, `status`, `meta` (миграция `014`) |

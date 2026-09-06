@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
+from api.helpers.leap_publication import publication_looks_for_recordings
+from api.helpers.playlist_description import render_playlist_description
 from api.schemas.common.pagination import paginate_list
 from api.schemas.playlist import (
     PlaylistAddItemsRequest,
@@ -66,12 +68,17 @@ def _first_playable_recording(playlist: PlaylistModel):
     return None
 
 
-def _to_list_item(playlist: PlaylistModel, poster_url: str | None = None) -> PlaylistListItem:
+def _to_list_item(
+    playlist: PlaylistModel,
+    poster_url: str | None = None,
+    *,
+    item_titles: dict[int, str] | None = None,
+) -> PlaylistListItem:
     video_count, duration_sum = _counts(playlist)
     return PlaylistListItem(
         id=playlist.id,
         name=playlist.name,
-        description=playlist.description,
+        description=render_playlist_description(playlist.description, playlist, item_titles=item_titles),
         video_count=video_count,
         duration_sum=duration_sum,
         share_enabled=playlist.share_enabled,
@@ -81,14 +88,21 @@ def _to_list_item(playlist: PlaylistModel, poster_url: str | None = None) -> Pla
     )
 
 
-def _to_item_response(item: PlaylistItemModel, poster_url: str | None = None) -> PlaylistItemResponse:
+def _to_item_response(
+    item: PlaylistItemModel,
+    poster_url: str | None = None,
+    *,
+    title: str | None = None,
+) -> PlaylistItemResponse:
     rec = item.recording
     reason = item_unavailable_reason(rec) if rec else "deleted"
+    display = rec.display_name if rec else "Unknown"
     return PlaylistItemResponse(
         id=item.id,
         recording_id=item.recording_id,
         position=item.position,
-        display_name=rec.display_name if rec else "Unknown",
+        display_name=display,
+        title=title if title is not None else display,
         start_time=rec.start_time if rec else item.created_at,
         duration=(rec.final_duration or rec.duration) if rec else 0.0,
         playable=is_playable(rec) if rec else False,
@@ -115,10 +129,17 @@ async def list_playlists(
         playlists = [p for p in playlists if needle in p.name.lower()]
     items, total, total_pages = paginate_list(playlists, page, per_page, sort_by, sort_order, PLAYLIST_SORT_FIELDS)
     first_recs = [_first_playable_recording(p) for p in items]
-    posters = await poster_url_map(ctx.session, ctx.user_id, first_recs)
+    listed_recs = [item.recording for p in items for item in (p.items or [])]
+    looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, listed_recs)
+    item_titles = {rid: look.title for rid, look in looks.items()}
+    posters = await poster_url_map(ctx.session, ctx.user_id, first_recs, looks=looks)
     return PlaylistListResponse(
         items=[
-            _to_list_item(p, poster_url=posters.get(rec.id) if rec is not None else None)
+            _to_list_item(
+                p,
+                poster_url=posters.get(rec.id) if rec is not None else None,
+                item_titles=item_titles,
+            )
             for p, rec in zip(items, first_recs, strict=True)
         ],
         page=page,
@@ -214,9 +235,18 @@ async def list_playlist_items(
     page_items, total, total_pages = paginate_list(
         items, page, per_page, sort_by="position", sort_order="asc", allowed_sort_fields={"position"}
     )
-    posters = await poster_url_map(ctx.session, ctx.user_id, [i.recording for i in page_items])
+    recs = [i.recording for i in page_items]
+    looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, recs)
+    posters = await poster_url_map(ctx.session, ctx.user_id, recs, looks=looks)
     return PlaylistItemsResponse(
-        items=[_to_item_response(i, poster_url=posters.get(i.recording_id)) for i in page_items],
+        items=[
+            _to_item_response(
+                i,
+                poster_url=posters.get(i.recording_id),
+                title=looks[i.recording_id].title if i.recording_id in looks else None,
+            )
+            for i in page_items
+        ],
         page=page,
         per_page=per_page,
         total=total,
@@ -236,10 +266,16 @@ async def add_playlist_items(
     await ctx.session.commit()
     # Reload to get recording relationships
     playlist = await svc.get_owned(playlist_id)
-    posters = await poster_url_map(ctx.session, ctx.user_id, [item.recording for item in playlist.items])
+    recs = [item.recording for item in playlist.items]
+    looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, recs)
+    posters = await poster_url_map(ctx.session, ctx.user_id, recs, looks=looks)
     by_id = {item.id: item for item in playlist.items}
     return [
-        _to_item_response(by_id[item.id], poster_url=posters.get(by_id[item.id].recording_id))
+        _to_item_response(
+            by_id[item.id],
+            poster_url=posters.get(by_id[item.id].recording_id),
+            title=looks[by_id[item.id].recording_id].title if by_id[item.id].recording_id in looks else None,
+        )
         for item in created
         if item.id in by_id
     ]

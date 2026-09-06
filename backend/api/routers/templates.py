@@ -28,6 +28,7 @@ from api.schemas.template.operations import (
     TemplatePreviewResponse,
     TemplateStatsResponse,
 )
+from api.services.config_utils import InvalidOutputPresetsError, validate_effective_output_config
 from api.services.quota_service import QuotaService
 from logger import format_details, get_logger, short_task_id, short_user_id
 from models.recording import ProcessingStatus
@@ -36,6 +37,15 @@ router = APIRouter(prefix="/api/v1/templates", tags=["Templates"])
 logger = get_logger()
 
 TEMPLATE_SORT_FIELDS = {"created_at", "updated_at", "name", "used_count"}
+
+
+async def _ensure_valid_output_config(session: AsyncSession, user_id: str, output: dict | None) -> None:
+    if not output:
+        return
+    try:
+        await validate_effective_output_config(session, user_id, output)
+    except InvalidOutputPresetsError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("", response_model=TemplateListResponse)
@@ -230,6 +240,12 @@ async def create_template(
             detail=f"Template with name '{data.name}' already exists",
         )
 
+    await _ensure_valid_output_config(
+        session,
+        current_user.id,
+        data.output_config.model_dump(exclude_none=True) if data.output_config else None,
+    )
+
     template = await repo.create(
         user_id=current_user.id,
         name=data.name,
@@ -348,6 +364,7 @@ async def create_template_from_recording(
         processing_config = nested_processing or processing_config
         metadata_config = resolved.metadata or None
         output_config = resolved.output or None
+        await _ensure_valid_output_config(session, current_user.id, output_config)
     finally:
         recording.processing_preferences = saved_prefs
 
@@ -466,6 +483,9 @@ async def update_template(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Template with name '{data.name}' already exists",
             )
+
+    if data.output_config is not None:
+        await _ensure_valid_output_config(session, current_user.id, data.output_config.model_dump(exclude_none=True))
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():

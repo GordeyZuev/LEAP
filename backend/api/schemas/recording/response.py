@@ -133,6 +133,20 @@ class ReadyToUploadMixin(BaseModel):
         return True
 
 
+def _source_kind(source: object | None) -> SourceType | str | None:
+    """List items use ``SourceInfo.type``; detail uses ``SourceResponse.source_type``."""
+    if source is None:
+        return None
+    if isinstance(source, SourceInfo):
+        return source.type
+    if isinstance(source, SourceResponse):
+        return source.source_type
+    kind = getattr(source, "source_type", None)
+    if kind is None:
+        kind = getattr(source, "type", None)
+    return kind
+
+
 class PipelineControlMixin(BaseModel):
     """Mixin for computing pipeline control UI fields (run/pause)."""
 
@@ -173,8 +187,7 @@ class PipelineControlMixin(BaseModel):
         if self.failed:
             return True
         if self.status == ProcessingStatus.PENDING_SOURCE:
-            source = getattr(self, "source", None)
-            return source is not None and source.type == SourceType.MTS_LINK
+            return _source_kind(getattr(self, "source", None)) == SourceType.MTS_LINK
         return self.status not in [
             ProcessingStatus.READY,
             ProcessingStatus.EXPIRED,

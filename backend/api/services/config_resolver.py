@@ -35,6 +35,7 @@ def extract_thumbnail_name_from_metadata(metadata: dict[str, Any]) -> str | None
 
     Common ``thumbnail_name`` wins so a recording-level cover shows on cards and
     playlists even when YouTube/VK still have their own upload thumbnails.
+    LEAP look covers are applied only via ``publication_looks`` (resolved leap preset).
     """
     common = metadata.get("thumbnail_name")
     if isinstance(common, str) and common.strip():
@@ -343,7 +344,7 @@ class ConfigResolver:
         template_meta = resolved.metadata
 
         platform_key = preset.platform.lower()
-        platform_keys = {"youtube", "vk", "yandex_disk", "common"}
+        platform_keys = {"youtube", "vk", "yandex_disk", "leap", "common"}
         common_fields = {k: v for k, v in template_meta.items() if k not in platform_keys}
         if common_fields:
             final_metadata = deep_merge(final_metadata, common_fields, skip_none=True)

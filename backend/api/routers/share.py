@@ -16,6 +16,8 @@ from sqlalchemy.orm import selectinload
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.dependencies import get_db_session
+from api.helpers.leap_publication import publication_looks_for_recordings
+from api.helpers.playlist_description import render_playlist_description
 from api.helpers.share_stats import build_share_stats_from_recording
 from api.repositories.playlist_repo import PlaylistRepository
 from api.repositories.recording_repos import RecordingRepository
@@ -90,7 +92,9 @@ async def _respond_page_view_beacon(recording: RecordingModel | None, request: R
 
 async def _redirect_to_poster(session: AsyncSession, user_id: str, recordings: list) -> RedirectResponse:
     """302 to a presigned poster; 404 when none of the recordings have one."""
-    posters = await poster_url_map(session, user_id, recordings)
+    recs = [r for r in recordings if r is not None]
+    looks = await publication_looks_for_recordings(session, user_id, recs)
+    posters = await poster_url_map(session, user_id, recs, looks=looks)
     for rec in recordings:
         if rec is None:
             continue
@@ -145,7 +149,7 @@ async def _build_public_recording_response(
         key for (key, _path), exists in zip(candidate_keys.items(), candidate_exists, strict=True) if exists
     ]
 
-    from api.helpers.template_renderer import TemplateRenderer, compute_metadata_preview
+    from api.helpers.template_renderer import TemplateRenderer, render_jinja
 
     summary: str | None = None
     questions: list[str] | None = None
@@ -171,29 +175,29 @@ async def _build_public_recording_response(
     except Exception as exc:
         logger.debug("Could not load extracted for share | rec=%s err=%s", recording_id, exc)
 
+    looks = await publication_looks_for_recordings(session, recording.owner.id, [recording])
+    look = looks.get(recording.id)
+    pub_title = look.title if look else recording.display_name
+
     if not description:
         try:
             from api.services.config_resolver import ConfigResolver
 
-            config_resolver = ConfigResolver(session)
-            meta_cfg = await config_resolver.resolve_metadata_config(recording, recording.owner.id)
-            desc_t = meta_cfg.get("description_template")
+            desc_t = look.description_template if look else None
+            if not desc_t:
+                config_resolver = ConfigResolver(session)
+                meta_cfg = await config_resolver.resolve_metadata_config(recording, recording.owner.id)
+                desc_t = meta_cfg.get("description_template")
             if desc_t:
                 render_ctx = TemplateRenderer.prepare_recording_context(recording, extracted_data=active_version)
-                _, _, _, rendered = compute_metadata_preview(
-                    title_template=None,
-                    description_template=desc_t,
-                    folder_path_template=None,
-                    filename_template=None,
-                    context=render_ctx,
-                )
-                description = rendered.get("description") or None
+                description = render_jinja(desc_t, render_ctx).strip() or None
         except Exception as exc:
             logger.debug("Could not render description template for share | rec=%s err=%s", recording_id, exc)
 
     return PublicRecordingResponse(
         id=recording.id,
         display_name=recording.display_name,
+        title=pub_title,
         duration=recording.duration,
         start_time=recording.start_time,
         status=recording.status,
@@ -455,16 +459,24 @@ async def download_share_file(
     return await _stream_share_file(recording, file_type, request, inline)
 
 
-def _public_playlist_items(playlist, posters: dict[int, str] | None = None) -> list[PublicPlaylistItem]:
+def _public_playlist_items(
+    playlist,
+    posters: dict[int, str] | None = None,
+    titles: dict[int, str] | None = None,
+) -> list[PublicPlaylistItem]:
     items: list[PublicPlaylistItem] = []
     for item in sorted(playlist.items, key=lambda i: i.position):
         rec = item.recording
         reason = item_unavailable_reason(rec) if rec else "deleted"
+        if rec is not None and titles and rec.id in titles:
+            title = titles[rec.id]
+        else:
+            title = rec.display_name if rec else "Unknown"
         items.append(
             PublicPlaylistItem(
                 id=item.id,
                 position=item.position,
-                title=rec.display_name if rec else "Unknown",
+                title=title,
                 duration=(rec.final_duration or rec.duration) if rec else 0.0,
                 start_time=rec.start_time if rec else item.created_at,
                 playable=is_playable(rec) if rec else False,
@@ -482,11 +494,14 @@ async def get_public_playlist(
 ) -> PublicPlaylistResponse:
     """Public playlist metadata. Empty playlists return 200 with items=[]."""
     playlist = await _get_enabled_playlist(share_token, session)
-    posters = await poster_url_map(session, playlist.user_id, [i.recording for i in playlist.items])
+    recs = [i.recording for i in playlist.items]
+    looks = await publication_looks_for_recordings(session, playlist.user_id, recs)
+    titles = {rid: look.title for rid, look in looks.items()}
+    posters = await poster_url_map(session, playlist.user_id, recs, looks=looks)
     return PublicPlaylistResponse(
         name=playlist.name,
-        description=playlist.description,
-        items=_public_playlist_items(playlist, posters),
+        description=render_playlist_description(playlist.description, playlist, item_titles=titles),
+        items=_public_playlist_items(playlist, posters, titles),
     )
 
 

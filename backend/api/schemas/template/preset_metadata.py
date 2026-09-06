@@ -321,7 +321,75 @@ class YandexDiskPresetMetadata(BaseModel):
         return validate_optional_jinja(v)
 
 
-PresetMetadata = YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata
+class LeapPresetMetadata(BaseModel):
+    """Look profile for LEAP course/share titles — not an upload target."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    title_template: str | None = Field(
+        None,
+        max_length=500,
+        description="Publication title Jinja (course/share). Empty render falls back to display_name.",
+    )
+    description_template: str | None = Field(
+        None,
+        max_length=5000,
+        description="Publication description Jinja for share Overview when this preset is resolved.",
+    )
+    thumbnail_name: str | None = Field(
+        None,
+        description="Cover filename only (e.g. 'python_base.png').",
+        examples=["python_base.png", "ml_extra.png"],
+    )
+
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _leap_title_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _leap_desc_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
+    @field_validator("thumbnail_name")
+    @classmethod
+    def _thumbnail_filename_only(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        name = v.strip()
+        if not name:
+            return None
+        if "/" in name or "\\" in name or name.startswith("."):
+            raise ValueError("thumbnail_name must be a filename without path")
+        return name
+
+
+PresetMetadata = YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata | LeapPresetMetadata
+
+
+def coerce_preset_metadata(platform: str, raw: Any) -> PresetMetadata:
+    """Parse preset_metadata using ``platform`` so empty dicts are not YouTube by default."""
+    payload: Mapping[str, Any]
+    if isinstance(raw, BaseModel):
+        payload = raw.model_dump()
+    elif isinstance(raw, Mapping):
+        payload = raw
+    elif raw is None:
+        payload = {}
+    else:
+        raise ValueError("preset_metadata must be an object")
+    plat = (platform or "").lower()
+    if plat == "leap":
+        return LeapPresetMetadata.model_validate(payload)
+    if plat == "youtube":
+        return YouTubePresetMetadata.model_validate(payload)
+    if plat == "vk":
+        return VKPresetMetadata.model_validate(payload)
+    if plat == "yandex_disk":
+        return YandexDiskPresetMetadata.model_validate(payload)
+    raise ValueError(f"Unknown platform {platform!r}")
+
 
 _NUMERIC_BOUND_FIELDS = ("max_count", "min_length", "max_length")
 

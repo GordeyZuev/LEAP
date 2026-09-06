@@ -24,12 +24,11 @@ class PlaylistCreate(BaseModel):
 
     @field_validator("description", mode="before")
     @classmethod
-    def strip_description(cls, v: str | None) -> str | None:
+    def keep_description_whitespace(cls, v: str | None) -> str | None:
         if v is None:
             return None
         if isinstance(v, str):
-            stripped = v.strip()
-            return stripped or None
+            return None if not v.strip() else v
         return v
 
 
@@ -48,12 +47,11 @@ class PlaylistUpdate(BaseModel):
 
     @field_validator("description", mode="before")
     @classmethod
-    def strip_description(cls, v: str | None) -> str | None:
+    def keep_description_whitespace(cls, v: str | None) -> str | None:
         if v is None:
             return None
         if isinstance(v, str):
-            stripped = v.strip()
-            return stripped or None
+            return None if not v.strip() else v
         return v
 
 
@@ -126,6 +124,7 @@ class PlaylistItemResponse(BaseModel):
     recording_id: int
     position: int
     display_name: str
+    title: str
     start_time: datetime
     duration: float
     playable: bool

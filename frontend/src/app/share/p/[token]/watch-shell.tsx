@@ -32,6 +32,7 @@ import { CARD_SHELL, CollapsibleCard } from "@/components/ui/section-card";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { FormattedText } from "@/components/ui/formatted-text";
 import { cn, formatDurationCompact, httpStatus } from "@/lib/utils";
 import { playlistResumeKey } from "@/lib/video-resume";
 
@@ -583,9 +584,10 @@ export function WatchShell({ token }: { token: string }) {
 
               {recording?.description && (
                 <CollapsibleCard title="Overview" defaultOpen={false}>
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                    {recording.description}
-                  </p>
+                  <FormattedText
+                    text={recording.description}
+                    className="text-sm leading-relaxed text-foreground"
+                  />
                 </CollapsibleCard>
               )}
             </div>
@@ -636,9 +638,10 @@ export function WatchShell({ token }: { token: string }) {
                   This playlist has no playable videos yet.
                 </p>
               ) : playlist.description ? (
-                <p className="mt-3 min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed text-pretty text-muted-foreground">
-                  {playlist.description}
-                </p>
+                <FormattedText
+                  text={playlist.description}
+                  className="mt-3 min-h-0 flex-1 overflow-y-auto text-sm leading-relaxed text-pretty text-muted-foreground"
+                />
               ) : (
                 <div className="min-h-0 flex-1" aria-hidden />
               )}

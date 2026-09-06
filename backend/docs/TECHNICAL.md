@@ -919,7 +919,7 @@ GET    /api/v1/recordings/{id}/share/analytics?days=7|28
 - `has_processed_video`, `has_original_video`
 - `allow_video_download`, `allow_files_download` — public download buttons; play remains allowed when video download is off. `download=true` on media returns **403** when forbidden. `inline=true` on files (player VTT) is always allowed.
 
-The `description` field is populated by rendering the `description_template` from the resolved metadata config. If no template is configured, the field is `null`.
+The `description` field is populated by rendering the `description_template` from the resolved metadata config. If no template is configured, the field is `null`. Owner/share UIs render description markup (`**bold**`, `*italic*`, `++underline++`, `~~strike~~`, `[label](https://…)`). Platform uploads strip those marks (`markup_to_plain`) after Jinja.
 
 #### Playlists (owner)
 
@@ -935,6 +935,8 @@ POST       /api/v1/playlists/{id}/share/rotate
 ```
 
 `output_config.playlist_ids` on a **named** template appends the recording when `template_id` is set. The base/default template is ignored. Missing playlist ids are skipped and do not fail the pipeline.
+
+Playlist `description` on owner detail is the Jinja **source** (`{{ video_count }}`, `{{ duration_hm }}`, `{{ items }}`). List and public GET return the **rendered** string. Markup is applied in the UI (editor keeps marks; public look is formatted, one line at a time); uploads of recording descriptions strip marks.
 
 **Share analytics:** public page views are recorded via `POST /share/{token}/beacon` and playlist watch via `POST /share/p/{token}/items/{itemId}/beacon` (both increment the same recording counters; deduplicated ~30 min per visitor per recording). User-initiated file downloads are counted on `GET /share/{token}/files/{type}` and the playlist item file/media download routes; pass `inline=true` for player/subtitle fetches (not counted). Video saves use `GET /share/{token}/media?download=true` or the playlist item media URL with `download=true`. Owner UI reads `share_stats` on the recording list when the link is **enabled**; detail also includes `share_stats` after Disable if counters remain. Detailed charts use `GET /recordings/{id}/share/analytics`. Counters live on `recordings` (`share_view_count`, `share_download_count`, `share_last_viewed_at`, `share_last_downloaded_at`); raw events in `share_access_events`. Prometheus: `leap_share_page_views_total`, `leap_share_downloads_total{artifact_type}`.
 

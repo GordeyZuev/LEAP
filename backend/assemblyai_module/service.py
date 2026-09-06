@@ -17,6 +17,10 @@ from .config import AssemblyAIConfig
 logger = get_logger()
 
 
+class EmptyTranscriptError(ValueError):
+    """ASR returned no words — treat as a blank recording, not a provider outage."""
+
+
 class AssemblyAITranscriptionService:
     """Async transcription via AssemblyAI REST API (submit → poll → normalize)."""
 
@@ -188,9 +192,11 @@ class AssemblyAITranscriptionService:
 
         raw_words = data.get("words") or []
         if not raw_words:
-            raise ValueError("No words in AssemblyAI response — check audio quality or language settings")
+            raise EmptyTranscriptError("No words in AssemblyAI response — check audio quality or language settings")
 
         words = extract_words(raw_words)
+        if not words:
+            raise EmptyTranscriptError("No words in AssemblyAI response — check audio quality or language settings")
 
         segments = self._normalize_sentences(raw_sentences) if raw_sentences else []
         if segments:

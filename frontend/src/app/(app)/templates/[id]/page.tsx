@@ -27,6 +27,10 @@ import {
   vkFieldsFromApi,
   vkFieldsToApi,
   yandexFieldsFromApi,
+  LeapLookFields,
+  DEFAULT_LEAP_FIELDS,
+  leapFieldsFromApi,
+  type LeapFieldsValue,
   type YouTubeFieldsValue,
   type VkFieldsValue,
   type YandexDiskFieldsValue,
@@ -104,7 +108,11 @@ interface PresetDetail {
   id: number;
   platform: string;
   credential_id?: number;
-  preset_metadata?: { description_template?: string };
+  preset_metadata?: {
+    title_template?: string;
+    description_template?: string;
+    thumbnail_name?: string;
+  };
 }
 interface MatchPreviewRecording {
   id: number;
@@ -180,6 +188,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
   const [preview, setPreview] = useState<MetadataRenderPreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [leapFields, setLeapFields] = useState<LeapFieldsValue>({ ...DEFAULT_LEAP_FIELDS });
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
   const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
@@ -199,6 +208,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [savedSnapshot, setSavedSnapshot] = useState(() =>
     JSON.stringify({
       form: DEFAULT_FORM,
+      leapFields: { ...DEFAULT_LEAP_FIELDS },
       ytFields: { ...DEFAULT_YOUTUBE_FIELDS },
       vkFields: { ...DEFAULT_VK_FIELDS },
       ydFields: { ...DEFAULT_YANDEX_DISK_FIELDS },
@@ -281,16 +291,18 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         upload_captions: existing.output_config?.upload_captions ?? true,
       },
     };
+    const newLeapFields = leapFieldsFromApi(mc?.leap);
     const newYtFields = youtubeFieldsFromApi(mc?.youtube);
     const newVkFields = vkFieldsFromApi(mc?.vk);
     const newYdFields = yandexFieldsFromApi(mc?.yandex_disk);
     const newGlobalThumbnail = mc?.thumbnail_name ?? "";
     setForm(newForm);
+    setLeapFields(newLeapFields);
     setYtFields(newYtFields);
     setVkFields(newVkFields);
     setYdFields(newYdFields);
     setGlobalThumbnail(newGlobalThumbnail);
-    setSavedSnapshot(JSON.stringify({ form: newForm, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields, globalThumbnail: newGlobalThumbnail }));
+    setSavedSnapshot(JSON.stringify({ form: newForm, leapFields: newLeapFields, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields, globalThumbnail: newGlobalThumbnail }));
   }, [existing]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -338,6 +350,11 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       if (ydFields.overwrite) yd.overwrite = true;
       if (ydFields.publish) yd.publish = true;
 
+      const leap: Record<string, unknown> = {};
+      if (leapFields.title_template) leap.title_template = leapFields.title_template;
+      if (leapFields.description_template) leap.description_template = leapFields.description_template;
+      if (leapFields.thumbnail_name) leap.thumbnail_name = leapFields.thumbnail_name;
+
       const metaConfig: Record<string, unknown> = {
         title_template: data.metadata_config.title_template || undefined,
         description_template: data.metadata_config.description_template || undefined,
@@ -349,6 +366,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       if (Object.keys(yt).length > 0) metaConfig.youtube = yt;
       if (Object.keys(vk).length > 0) metaConfig.vk = vk;
       if (Object.keys(yd).length > 0) metaConfig.yandex_disk = yd;
+      if (Object.keys(leap).length > 0) metaConfig.leap = leap;
       if (globalThumbnail) metaConfig.thumbnail_name = globalThumbnail;
       const hasMetadata = Object.values(metaConfig).some((v) => v != null);
 
@@ -393,7 +411,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       return (await apiClient.patch(`/templates/${id}`, body)).data;
     },
     onSuccess: (result, savedForm) => {
-      setSavedSnapshot(JSON.stringify({ form: savedForm, ytFields, vkFields, ydFields, globalThumbnail }));
+      setSavedSnapshot(JSON.stringify({ form: savedForm, leapFields, ytFields, vkFields, ydFields, globalThumbnail }));
       qc.invalidateQueries({ queryKey: ["templates"] });
       qc.invalidateQueries({ queryKey: ["template", id] });
     },
@@ -485,6 +503,17 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
   const sources = sourcesData?.items ?? [];
   const presets = presetsData?.items ?? [];
+  const leapPresets = presets.filter((p) => p.platform === "leap");
+  const copyPresets = presets.filter((p) => p.platform !== "leap");
+  const selectedLeapId = form.output_config.preset_ids.find((id) => leapPresets.some((p) => p.id === id)) ?? null;
+  const selectedCopyCount = form.output_config.preset_ids.filter((id) =>
+    copyPresets.some((p) => p.id === id),
+  ).length;
+
+  function setLeapPresetId(id: number | null) {
+    const withoutLeap = form.output_config.preset_ids.filter((pid) => !leapPresets.some((p) => p.id === pid));
+    setOC("preset_ids", id == null ? withoutLeap : [...withoutLeap, id]);
+  }
 
   // Derived status label
   const statusLabel = isDefault
@@ -503,7 +532,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       : "bg-muted text-muted-foreground";
 
   const isDirty =
-    JSON.stringify({ form, ytFields, vkFields, ydFields, globalThumbnail }) !== savedSnapshot;
+    JSON.stringify({ form, leapFields, ytFields, vkFields, ydFields, globalThumbnail }) !== savedSnapshot;
 
   async function promoteTemplate(sourceId: number) {
     setBaseUpdatePending(true);
@@ -525,6 +554,10 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
   function handleSaveClick() {
     if (!form.name.trim()) return;
+    if (form.output_config.auto_upload && selectedCopyCount === 0) {
+      showToast("error", "Auto-upload needs a YouTube or Yandex Disk preset. A LEAP look is not an upload.");
+      return;
+    }
     if (updateBaseOnSave && isNew) {
       setPromoteMode("with-save");
       setConfirmPromote(true);
@@ -535,6 +568,10 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
   async function executeSave(withPromote: boolean) {
     if (!form.name.trim()) return;
+    if (form.output_config.auto_upload && selectedCopyCount === 0) {
+      showToast("error", "Auto-upload needs a YouTube or Yandex Disk preset. A LEAP look is not an upload.");
+      return;
+    }
 
     let result: { id: number };
     try {
@@ -855,36 +892,108 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </Field>
           </Section>
 
-          {/* Output */}
-          <Section title="Output">
-            {presets.length > 0 ? (
-              <Field label="Output presets" hint="Apply these presets when uploading">
-                <div className="space-y-2">
-                  {presets.map((p) => (
+          {!isDefault && (
+            <Section title="LEAP playlists">
+              <Field
+                label="Add matched recordings to courses"
+                hint="Membership only — not an upload. Look presets cannot attach a course; pick courses here."
+              >
+                <PlaylistPicker
+                  mode="form"
+                  selectedIds={form.output_config.playlist_ids}
+                  onChange={(ids) => setOC("playlist_ids", ids)}
+                />
+              </Field>
+            </Section>
+          )}
+
+          <Section title="LEAP look">
+            <Field
+              label="Look preset"
+              hint="Reusable title, description, and cover for courses and share pages. Not an upload. Override fields for this template under Metadata → LEAP."
+            >
+              {leapPresets.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No LEAP look presets yet.{" "}
+                  <Link href="/presets/new" className="text-primary hover:underline">
+                    Create one →
+                  </Link>
+                </p>
+              ) : (
+                <div className="space-y-2" role="radiogroup" aria-label="LEAP look preset">
+                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted">
+                    <input
+                      type="radio"
+                      name="leap-look-preset"
+                      checked={selectedLeapId == null}
+                      onChange={() => setLeapPresetId(null)}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm text-foreground">None — use global title template</span>
+                  </label>
+                  {leapPresets.map((p) => (
                     <label
                       key={p.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted"
+                      className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted"
                     >
                       <input
-                        type="checkbox"
-                        checked={form.output_config.preset_ids.includes(p.id)}
-                        onChange={(e) => {
-                          const ids = e.target.checked
-                            ? [...form.output_config.preset_ids, p.id]
-                            : form.output_config.preset_ids.filter((x) => x !== p.id);
-                          setOC("preset_ids", ids);
-                        }}
-                        className="rounded accent-primary"
+                        type="radio"
+                        name="leap-look-preset"
+                        checked={selectedLeapId === p.id}
+                        onChange={() => setLeapPresetId(p.id)}
+                        className="accent-primary"
                       />
-                      <span className="flex-1 text-sm font-medium text-foreground">{p.name}</span>
-                      <span className="text-xs capitalize text-muted-foreground">{p.platform}</span>
+                      <span className="text-sm font-medium text-foreground">{p.name}</span>
                     </label>
+                  ))}
+                </div>
+              )}
+            </Field>
+          </Section>
+
+          <Section title="Upload a copy">
+            {copyPresets.length > 0 ? (
+              <Field label="Output presets" hint="YouTube and Yandex Disk presets upload a copy of the video.">
+                <div className="space-y-4">
+                  {Object.entries(
+                    copyPresets.reduce<Record<string, PresetItem[]>>((acc, p) => {
+                      (acc[p.platform] = acc[p.platform] ?? []).push(p);
+                      return acc;
+                    }, {}),
+                  ).map(([platform, group]) => (
+                    <div key={platform} className="space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {platform}
+                      </p>
+                      <div className="space-y-2">
+                        {group.map((p) => (
+                          <label
+                            key={p.id}
+                            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={form.output_config.preset_ids.includes(p.id)}
+                              onChange={(e) => {
+                                const ids = e.target.checked
+                                  ? [...form.output_config.preset_ids, p.id]
+                                  : form.output_config.preset_ids.filter((x) => x !== p.id);
+                                setOC("preset_ids", ids);
+                              }}
+                              className="rounded accent-primary"
+                            />
+                            <span className="flex-1 text-sm font-medium text-foreground">{p.name}</span>
+                            <span className="text-xs capitalize text-muted-foreground">{p.platform}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </Field>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No presets yet.{" "}
+                No upload presets yet.{" "}
                 <Link href="/presets/new" className="text-primary hover:underline">
                   Create one →
                 </Link>
@@ -893,25 +1002,21 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             <Toggle
               label="Auto-upload after processing"
               checked={form.output_config.auto_upload}
-              onChange={(v) => setOC("auto_upload", v)}
+              onChange={(v) => {
+                if (v && selectedCopyCount === 0) return;
+                setOC("auto_upload", v);
+              }}
             />
+            {form.output_config.auto_upload && selectedCopyCount === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Auto-upload needs a YouTube or Yandex Disk preset. A LEAP look is not an upload.
+              </p>
+            ) : null}
             <Toggle
               label="Upload captions / subtitles"
               checked={form.output_config.upload_captions}
               onChange={(v) => setOC("upload_captions", v)}
             />
-            {!isDefault && (
-              <Field
-                label="LEAP playlists"
-                hint="New recordings matched to this template are added at the end. This is not an upload."
-              >
-                <PlaylistPicker
-                  mode="form"
-                  selectedIds={form.output_config.playlist_ids}
-                  onChange={(ids) => setOC("playlist_ids", ids)}
-                />
-              </Field>
-            )}
           </Section>
 
           {/* Metadata */}
@@ -977,6 +1082,44 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Platform overrides
             </p>
+            <div className="space-y-3">
+            <PlatformSection label="LEAP look">
+              <LeapLookFields
+                value={leapFields}
+                onChange={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
+              />
+              {(() => {
+                const leapPreset = selectedLeapId != null ? presetDetails[selectedLeapId] : undefined;
+                const tpl = leapPreset?.preset_metadata?.title_template || leapPreset?.preset_metadata?.description_template;
+                if (!leapPreset) return (
+                  <p className="text-xs text-muted-foreground">
+                    Empty fields inherit from the look preset. Select a look preset above, or fill these to override without one.
+                  </p>
+                );
+                return (
+                  <div className="flex flex-col items-start gap-2">
+                    {tpl ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLeapFields((f) => ({
+                            ...f,
+                            title_template: String(leapPreset.preset_metadata?.title_template ?? f.title_template),
+                            description_template: String(
+                              leapPreset.preset_metadata?.description_template ?? f.description_template,
+                            ),
+                            thumbnail_name: String(leapPreset.preset_metadata?.thumbnail_name ?? f.thumbnail_name),
+                          }))
+                        }
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        Fill from look preset
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })()}
+            </PlatformSection>
             <PlatformSection label="YouTube">
               <YouTubeFields
                 value={ytFields}
@@ -1033,6 +1176,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 credentialId={yandexBrowseCredentialId}
               />
             </PlatformSection>
+            </div>
           </Section>
         </div>
 
@@ -1314,7 +1458,8 @@ function PlatformSection({ label, children }: { label: string; children: React.R
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
+        aria-expanded={open}
+        className="flex min-h-11 w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
       >
         {label}
         <ChevronDown

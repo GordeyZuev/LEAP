@@ -41,6 +41,25 @@ The public UI must treat **HTTP 404** on `GET /api/v1/share/{token}` and `GET /a
 
 Owner `GET /api/v1/playlists/{id}` 404/403 → playlist missing (deleted or another tenant).
 
+Playlist **description** is a Jinja string (owner GET/PATCH stores the source). Allowed variables: `video_count`, `duration_hm` (total length, same `H:MM:SS` / `M:SS` as recordings), `items` (numbered titles in watch order). Public GET and the playlist card list **render** Jinja; markup (`**bold**`, `*italic*`, `++underline++`, `~~strike~~`, `[label](url)`) is applied in the UI after render. Cmd/Ctrl+B, I, U, K, and Shift+X wrap only the text around `{{ … }}`, e.g. `**Курс:** {{ items }} **далее**`. The editor keeps the marks; **Public look** (and the share page) is formatted. Marks do not span line breaks, so they cannot wrap a multi-line `{{ items }}` block. A `*` in a video title can look like italic on the public page. YouTube/VK/Yandex receive **plain text** (`markup_to_plain` after Jinja).
+
 ## Templates
 
-Named templates may set `output_config.playlist_ids` (≤10). When `template_id` is set (bind / create / match), the recording is **appended**. The default/base template is ignored. Missing playlist ids are skipped. Empty override lists do not clear membership. See [TEMPLATES.md](TEMPLATES.md).
+Named templates may set `output_config.playlist_ids` (≤10). When `template_id` is set (bind / create / match), the recording is **appended**. The default/base template is ignored. Missing playlist ids are skipped. Empty override lists do not clear membership.
+
+Run and named templates can add a recording to LEAP courses **without** upload presets: membership is not an upload. See [TEMPLATES.md](TEMPLATES.md).
+
+## Publication titles (LEAP look preset)
+
+Course and share titles are computed on **read**. They are not stored on `playlist_items` and do not overwrite `recordings.display_name`.
+
+1. Active `platform=leap` preset in the resolved `output_config.preset_ids` (`title_template`)
+2. Else the template’s global `metadata_config.title_template`
+3. Else `display_name`
+4. If Jinja renders blank → `display_name`
+
+A leap preset is a look profile (title, description, optional cover). It is **not** an upload: no credential, no `output_targets`, no Celery. Add it to a template’s `preset_ids` the same way as YouTube. At most one leap preset. `auto_upload` still needs a copy preset (YouTube / Yandex Disk). Inactive leap ids are skipped on read (title/cover fall back); they do not block Run. `metadata_config.leap` overlays the look **only** when an active leap preset is resolved.
+
+Owner playlist items keep `display_name` (library name) and add `title` (publication). Public `/share/p/…` items expose publication `title` only. Add-to-playlist search still uses `display_name`. Editing the leap preset or rebinding the template changes names on the next GET.
+
+Course membership (`playlist_ids`) lives on the **named template** and on **Run**, not on the leap look preset. Template and Run can override look fields via `metadata_config.leap` (title, description, cover) the same way as YouTube/VK platform overrides.

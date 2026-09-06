@@ -24,7 +24,7 @@ export const apiClient = axios.create({
   withCredentials: true,
 });
 
-const MUTATING_METHODS = new Set(["post", "put", "patch", "delete"]);
+const MUTATING_METHODS = new Set<string>(["post", "put", "patch", "delete"]);
 
 apiClient.interceptors.request.use((config) => {
   // Mutating requests need the CSRF header for the double-submit defence.

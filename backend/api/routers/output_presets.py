@@ -155,13 +155,13 @@ async def create_preset(
     """
     from api.services.resource_access_validator import ResourceAccessValidator
 
-    # Validate credential ownership
-    validator = ResourceAccessValidator(session)
-    await validator.validate_credential_access(
-        data.credential_id,
-        current_user.id,
-        error_detail=f"Cannot create preset: credential {data.credential_id} not found or access denied",
-    )
+    if data.platform != "leap":
+        validator = ResourceAccessValidator(session)
+        await validator.validate_credential_access(
+            data.credential_id,
+            current_user.id,
+            error_detail=f"Cannot create preset: credential {data.credential_id} not found or access denied",
+        )
 
     repo = OutputPresetRepository(session)
 
@@ -255,14 +255,24 @@ async def update_preset(
                 detail=f"Output preset with name '{data.name}' already exists",
             )
 
-    # Validate credential ownership if credential_id is being updated
     if data.credential_id is not None:
+        if preset.platform == "leap":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="leap presets must not have a credential",
+            )
         validator = ResourceAccessValidator(session)
         await validator.validate_credential_for_update(
             data.credential_id, current_user.id, resource_name="output preset"
         )
 
     update_data = data.model_dump(exclude_unset=True)
+    if "preset_metadata" in update_data and update_data["preset_metadata"] is not None:
+        from api.schemas.template.preset_metadata import coerce_preset_metadata
+
+        update_data["preset_metadata"] = coerce_preset_metadata(
+            preset.platform, update_data["preset_metadata"]
+        ).model_dump(exclude_none=True)
     for field, value in update_data.items():
         setattr(preset, field, value)
 

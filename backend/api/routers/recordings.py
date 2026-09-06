@@ -184,6 +184,8 @@ async def _poster_urls(
     session,
     user_id: str,
     recordings: list[RecordingModel],
+    *,
+    looks: dict | None = None,
 ) -> dict[int, _PosterPreview]:
     """Presign preview URLs for a page of recordings.
 
@@ -210,7 +212,10 @@ async def _poster_urls(
 
     for recording in recordings:
         metadata = await config_resolver.resolve_metadata_config(recording, user_id)
-        thumbnail_name = extract_thumbnail_name_from_metadata(metadata)
+        look_thumb = None
+        if looks and recording.id in looks:
+            look_thumb = getattr(looks[recording.id], "thumbnail_name", None)
+        thumbnail_name = look_thumb or extract_thumbnail_name_from_metadata(metadata)
         poster_key = _recording_poster_storage_key(recording, user_slug)
 
         if thumbnail_name and user_slug is not None:
@@ -3167,6 +3172,16 @@ async def update_recording_config(
 
     # Save overrides to recording.processing_preferences
     recording.processing_preferences = new_preferences if new_preferences else None
+
+    if data.output_config is not None:
+        from api.services.config_resolver import ResolveContext
+        from api.services.config_utils import InvalidOutputPresetsError, validate_effective_output_config
+
+        resolved_output = await config_resolver.resolve(ResolveContext(user_id=ctx.user_id, recording=recording))
+        try:
+            await validate_effective_output_config(ctx.session, ctx.user_id, resolved_output.output)
+        except InvalidOutputPresetsError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     # Sync stages with updated config
     from api.helpers.stage_sync import sync_stages_with_config

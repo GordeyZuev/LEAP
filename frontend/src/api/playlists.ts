@@ -44,6 +44,7 @@ export interface PlaylistItem {
   recording_id: number;
   position: number;
   display_name: string;
+  title?: string;
   start_time: string;
   duration: number;
   playable: boolean;

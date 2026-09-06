@@ -24,6 +24,14 @@ def test_extract_thumbnail_name_falls_back_to_platform():
     assert extract_thumbnail_name_from_metadata(metadata) == "yt.png"
 
 
+def test_extract_thumbnail_name_ignores_leap_overlay_without_looks():
+    metadata = {
+        "leap": {"thumbnail_name": "look.png"},
+        "youtube": {"thumbnail_name": "yt.png"},
+    }
+    assert extract_thumbnail_name_from_metadata(metadata) == "yt.png"
+
+
 def test_extract_thumbnail_name_ignores_blank():
     assert extract_thumbnail_name_from_metadata({"thumbnail_name": "  "}) is None
     assert extract_thumbnail_name_from_metadata({}) is None

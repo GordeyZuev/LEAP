@@ -237,14 +237,20 @@ class PlaylistService:
                 raise
 
 
-async def poster_url_map(session: AsyncSession, user_id: str, recordings: list) -> dict[int, str]:
+async def poster_url_map(
+    session: AsyncSession,
+    user_id: str,
+    recordings: list,
+    *,
+    looks: dict | None = None,
+) -> dict[int, str]:
     """Presigned poster URLs keyed by recording id. Missing files are omitted."""
     from api.routers.recordings import _poster_urls
 
     recs = [rec for rec in recordings if rec is not None]
     if not recs:
         return {}
-    previews = await _poster_urls(session, user_id, recs)
+    previews = await _poster_urls(session, user_id, recs, looks=looks)
     return {rid: preview.url for rid, preview in previews.items() if preview.url}
 
 

@@ -315,6 +315,25 @@ class MtsLinkAPI:
             return data
         raise MtsLinkResponseError(200, "Unexpected conversion status response", payload=data)
 
+    async def get_file(self, file_id: int | str) -> dict[str, Any]:
+        """GET /fileSystem/file/{fileId} — full file object (record IDs are valid here).
+
+        Online recordings (``typeFile=record``) are documented to include ``duration``.
+        """
+        data = await self._request("GET", f"fileSystem/file/{file_id}")
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            return data[0]
+        raise MtsLinkResponseError(200, "Unexpected fileSystem/file response", payload=data)
+
+    async def get_event_session(self, event_session_id: int | str) -> dict[str, Any]:
+        """GET /eventsessions/{eventSessionId} — session metadata including ``files``."""
+        data = await self._request("GET", f"eventsessions/{event_session_id}")
+        if isinstance(data, dict):
+            return data
+        raise MtsLinkResponseError(200, "Unexpected eventsessions response", payload=data)
+
     async def get_converted_records_by_event_session(self, event_session_id: int | str) -> Any:
         """GET /eventsessions/{eventSessionId}/converted-records."""
         return await self._request("GET", f"eventsessions/{event_session_id}/converted-records")

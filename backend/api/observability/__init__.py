@@ -1,5 +1,6 @@
 from api.observability.metrics import (
     ENQUEUE_KEY_PREFIX,
+    QUEUES_TRACKED,
     external_api_duration_seconds,
     pipeline_stage_duration_seconds,
     setup_prometheus,
@@ -11,6 +12,7 @@ from api.observability.metrics import (
 
 __all__ = [
     "ENQUEUE_KEY_PREFIX",
+    "QUEUES_TRACKED",
     "external_api_duration_seconds",
     "pipeline_stage_duration_seconds",
     "setup_prometheus",

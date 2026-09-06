@@ -29,6 +29,10 @@ import {
   vkFieldsFromApi,
   vkFieldsToApi,
   yandexFieldsFromApi,
+  LeapLookFields,
+  DEFAULT_LEAP_FIELDS,
+  leapFieldsFromApi,
+  type LeapFieldsValue,
   type YouTubeFieldsValue,
   type VkFieldsValue,
   type YandexDiskFieldsValue,
@@ -115,6 +119,11 @@ interface RecordingConfigResponse {
       filename_template?: string;
       overwrite?: boolean;
       publish?: boolean;
+    };
+    leap?: {
+      title_template?: string;
+      description_template?: string;
+      thumbnail_name?: string;
     };
   } | null;
 }
@@ -306,6 +315,7 @@ export function RunConfigModal({
   const [thumbnailTouched, setThumbnailTouched] = useState(false);
   const [topicsDisplay, setTopicsDisplay] = useState<DisplayConfig>(() => defaultTopicsDisplay());
   const [questionsDisplay, setQuestionsDisplay] = useState<DisplayConfig>(() => defaultQuestionsDisplay());
+  const [leapFields, setLeapFields] = useState<LeapFieldsValue>({ ...DEFAULT_LEAP_FIELDS });
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
   const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
@@ -386,15 +396,31 @@ export function RunConfigModal({
         };
       }
 
-      if (outputEnabled) {
-        const outputCfg: Record<string, unknown> = {
-          auto_upload: autoUpload,
-          upload_captions: uploadCaptions,
-        };
-        if (selectedPresetIds.length > 0) outputCfg.preset_ids = selectedPresetIds;
-        if (selectedPlaylistIds.length > 0) outputCfg.playlist_ids = selectedPlaylistIds;
-        body.output_config = outputCfg;
+      const outputCfg: Record<string, unknown> = {};
+      const leapPlatformIds = new Set(
+        (presetsData?.items ?? []).filter((p) => p.platform === "leap").map((p) => p.id),
+      );
+      const leapSelected = selectedPresetIds.filter((id) => leapPlatformIds.has(id));
+      const copySelected = selectedPresetIds.filter((id) => !leapPlatformIds.has(id));
+      if (outputEnabled && autoUpload && copySelected.length === 0) {
+        throw new Error("Auto-upload needs a YouTube or Yandex Disk preset");
       }
+      if (outputEnabled) {
+        outputCfg.auto_upload = autoUpload;
+        outputCfg.upload_captions = uploadCaptions;
+        if (selectedPresetIds.length > 0) outputCfg.preset_ids = selectedPresetIds;
+      } else if (mode === "single") {
+        const hydrated = existingConfig?.output_config?.preset_ids ?? [];
+        const hydratedCopy = hydrated.filter((id) => !leapPlatformIds.has(id));
+        const hydratedLeap = hydrated.filter((id) => leapPlatformIds.has(id));
+        const leapUnchanged =
+          leapSelected.length === hydratedLeap.length && leapSelected.every((id) => hydratedLeap.includes(id));
+        if (!leapUnchanged) {
+          outputCfg.preset_ids = [...hydratedCopy, ...leapSelected];
+        }
+      }
+      if (selectedPlaylistIds.length > 0) outputCfg.playlist_ids = selectedPlaylistIds;
+      if (Object.keys(outputCfg).length > 0) body.output_config = outputCfg;
 
       if (metadataEnabled) {
         const meta: Record<string, unknown> = {};
@@ -426,6 +452,12 @@ export function RunConfigModal({
         if (ydFields.overwrite) yd.overwrite = true;
         if (ydFields.publish) yd.publish = true;
         if (Object.keys(yd).length > 0) meta.yandex_disk = yd;
+
+        const leap: Record<string, unknown> = {};
+        if (leapFields.title_template) leap.title_template = leapFields.title_template;
+        if (leapFields.description_template) leap.description_template = leapFields.description_template;
+        if (leapFields.thumbnail_name) leap.thumbnail_name = leapFields.thumbnail_name;
+        if (Object.keys(leap).length > 0) meta.leap = leap;
 
         if (Object.keys(meta).length > 0) body.metadata_config = meta;
       }
@@ -499,6 +531,7 @@ export function RunConfigModal({
     setThumbnailTouched(false);
     setTopicsDisplay(defaultTopicsDisplay());
     setQuestionsDisplay(defaultQuestionsDisplay());
+    setLeapFields({ ...DEFAULT_LEAP_FIELDS });
     setYtFields({ ...DEFAULT_YOUTUBE_FIELDS });
     setVkFields({ ...DEFAULT_VK_FIELDS });
     setYdFields({ ...DEFAULT_YANDEX_DISK_FIELDS });
@@ -540,6 +573,7 @@ export function RunConfigModal({
       if (mc.thumbnail_name) setGlobalThumbnail(mc.thumbnail_name);
       setTopicsDisplay(fromDisplayPayload(mc.topics_display, "topics"));
       setQuestionsDisplay(fromDisplayPayload(mc.questions_display, "questions"));
+      if (mc.leap) setLeapFields(leapFieldsFromApi(mc.leap));
       if (mc.youtube) setYtFields(youtubeFieldsFromApi(mc.youtube));
       if (mc.vk) setVkFields(vkFieldsFromApi(mc.vk));
       if (mc.yandex_disk) setYdFields(yandexFieldsFromApi(mc.yandex_disk));
@@ -556,19 +590,39 @@ export function RunConfigModal({
       ? `Run with config${recordingName ? `: "${recordingName}"` : recordingId ? ` #${recordingId}` : ""}`
       : `Bulk run ${count} recording${count !== 1 ? "s" : ""} with config`;
 
+  const axiosDetail = (runMutation.error as { response?: { data?: { detail?: string } } } | null)?.response
+    ?.data?.detail;
   const runError =
-    (runMutation.error as { response?: { data?: { detail?: string } } } | null)?.response?.data?.detail ??
+    (typeof axiosDetail === "string" ? axiosDetail : null) ??
+    (runMutation.error instanceof Error && runMutation.error.message
+      ? runMutation.error.message
+      : null) ??
     (runMutation.isError ? (isSave ? "Failed to save" : "Failed to run") : null);
+
+  function setLeapPresetId(id: number | null) {
+    const leapIds = new Set((presetsData?.items ?? []).filter((p) => p.platform === "leap").map((p) => p.id));
+    setSelectedPresetIds((prev) => {
+      const without = prev.filter((pid) => !leapIds.has(pid));
+      return id == null ? without : [...without, id];
+    });
+  }
 
   function togglePreset(id: number) {
     setSelectedPresetIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
 
-  const presetsByPlatform = (presetsData?.items ?? []).reduce<Record<string, PresetItem[]>>(
-    (acc, p) => { (acc[p.platform] = acc[p.platform] ?? []).push(p); return acc; },
-    {}
+  const leapPresets = (presetsData?.items ?? []).filter((p) => p.platform === "leap");
+  const copyPresets = (presetsData?.items ?? []).filter((p) => p.platform !== "leap");
+  const selectedLeapId = selectedPresetIds.find((id) => leapPresets.some((p) => p.id === id)) ?? null;
+  const leapLookLocked = mode === "bulk" && !outputEnabled;
+  const copyPresetsByPlatform = copyPresets.reduce<Record<string, PresetItem[]>>(
+    (acc, p) => {
+      (acc[p.platform] = acc[p.platform] ?? []).push(p);
+      return acc;
+    },
+    {},
   );
 
   const yandexBrowseCredentialId = useMemo(() => {
@@ -804,10 +858,70 @@ export function RunConfigModal({
             </Field>
           </OverrideSection>
 
-          {/* ── Output ──────────────────────────────────────────────────── */}
+          <div className="space-y-6 rounded-xl border border-border bg-background px-4 py-4">
+            <Field
+              label="LEAP playlists"
+              hint="Add to these courses on this run. Membership is not an upload and is not stored on a look preset."
+            >
+              <PlaylistPicker
+                mode="form"
+                selectedIds={selectedPlaylistIds}
+                onChange={setSelectedPlaylistIds}
+              />
+            </Field>
+            <Field
+              label="LEAP look"
+              hint={
+                leapLookLocked
+                  ? "Bulk run uses each recording’s template look unless you override Upload a copy (that sends the same presets, including look, to every recording)."
+                  : "Reusable course/share title, description, and cover. Field overrides live under Metadata."
+              }
+            >
+              {leapPresets.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No LEAP look presets.{" "}
+                  <Link href="/presets/new" className="text-primary hover:underline">
+                    Create one →
+                  </Link>
+                </p>
+              ) : (
+                <div className="space-y-2" role="radiogroup" aria-label="LEAP look preset">
+                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted">
+                    <input
+                      type="radio"
+                      name="run-leap-look"
+                      checked={selectedLeapId == null}
+                      onChange={() => setLeapPresetId(null)}
+                      disabled={leapLookLocked}
+                      className="accent-primary"
+                    />
+                    <span className="text-sm text-foreground">None — inherit from template</span>
+                  </label>
+                  {leapPresets.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted"
+                    >
+                      <input
+                        type="radio"
+                        name="run-leap-look"
+                        checked={selectedLeapId === p.id}
+                        onChange={() => setLeapPresetId(p.id)}
+                        disabled={leapLookLocked}
+                        className="accent-primary"
+                      />
+                      <span className="text-sm font-medium text-foreground">{p.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </Field>
+          </div>
+
+          {/* ── Upload ─────────────────────────────────────────────────── */}
           <OverrideSection
-            title="Output & upload"
-            switchLabel="Override output and upload settings"
+            title="Upload a copy"
+            switchLabel="Override upload settings"
             enabled={outputEnabled}
             onEnabledChange={setOutputEnabled}
             open={outputOpen}
@@ -827,21 +941,23 @@ export function RunConfigModal({
               />
             </div>
 
-            {Object.keys(presetsByPlatform).length > 0 ? (
+            {Object.keys(copyPresetsByPlatform).length > 0 ? (
               <fieldset className="space-y-3">
                 <legend className={cn(FILTER_LABEL, "mb-1.5")}>
                   Presets (platforms to publish to)
-                  {selectedPresetIds.length > 0 && (
-                    <span className="ms-1 text-primary">· {selectedPresetIds.length} selected</span>
+                  {copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length > 0 && (
+                    <span className="ms-1 text-primary">
+                      · {copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length} selected
+                    </span>
                   )}
                 </legend>
-                {Object.entries(presetsByPlatform).map(([platform, presets]) => (
-                  <div key={platform}>
-                    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {Object.entries(copyPresetsByPlatform).map(([platform, group]) => (
+                  <div key={platform} className="space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                       {platform}
                     </p>
                     <div className="space-y-0.5">
-                      {presets.map((p) => (
+                      {group.map((p) => (
                         <Toggle
                           key={p.id}
                           label={p.name}
@@ -855,19 +971,9 @@ export function RunConfigModal({
               </fieldset>
             ) : (
               <p className="text-xs text-muted-foreground">
-                No presets configured. Add presets to enable platform selection.
+                No upload presets configured. Add YouTube or Yandex Disk presets to enable copies.
               </p>
             )}
-            <Field
-              label="LEAP playlists"
-              hint="Checked playlists get this recording appended now. This is not an upload."
-            >
-              <PlaylistPicker
-                mode="form"
-                selectedIds={selectedPlaylistIds}
-                onChange={setSelectedPlaylistIds}
-              />
-            </Field>
           </OverrideSection>
 
           {/* ── Metadata & Platform overrides ───────────────────────────── */}
@@ -932,7 +1038,13 @@ export function RunConfigModal({
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Platform overrides
             </p>
-            <div className="space-y-2">
+            <div className="space-y-3">
+              <PlatformSection label="LEAP look">
+                <LeapLookFields
+                  value={leapFields}
+                  onChange={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
+                />
+              </PlatformSection>
               <PlatformSection label="YouTube">
                 <YouTubeFields
                   value={ytFields}

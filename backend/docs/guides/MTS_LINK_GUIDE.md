@@ -67,9 +67,15 @@ Sync только **находит** записи и пишет метаданн
 
 | Условие | Статус после sync | Метаданные |
 |---------|-------------------|------------|
-| `size == 0` (запись ещё собирается на стороне МТС) | `INITIALIZED` (если сматчился шаблон) | `online_size: 0`, `needs_mp4: true` |
+| `GET /fileSystem/file` duration **&lt; 10 мин** | `SKIPPED`, `blank_record` | `online_duration` задан |
+| Duration известен, `size == 0`, MP4 ещё нет | `INITIALIZED` (если шаблон) | не Pending: запись уже собрана |
+| Duration неизвестен и `size == 0` и нет MP4 | `PENDING_SOURCE` (prepare) | `online_size: 0`, `needs_mp4: true` |
 | Запись готова, MP4 ещё нет | `INITIALIZED` | `needs_mp4: true` |
 | Для сессии уже есть сконвертированная запись | `INITIALIZED` | `needs_mp4: false`, `download_url` в метаданных |
+
+Длительность на синке берётся из `GET /fileSystem/file/{recordId}` (поле `duration` в секундах), не из урезанного `GET /records`. Порог blank **10 минут** (`duration < 600`): обрывы на секунды и короткие «переносы» скрываются, семинары ~17 мин остаются. Blank-записи по-прежнему видны в списке с фильтром **Include blanks**.
+
+Уже существующие строки: из `backend/` `uv run python scripts/backfill_mts_link_blank.py` (просмотр), затем `--apply`.
 
 Статусы **`PENDING_SOURCE`** / **`PENDING_CONVERSION`** выставляет **prepare** при Run или автоматизации, не sync.
 
@@ -128,7 +134,7 @@ Sync только **находит** записи и пишет метаданн
 
 ### Автоматизация
 
-`run_recording_task` в начале вызывает тот же `prepare_mts_link_recording`. Job с фильтром `INITIALIZED` / **`PENDING_CONVERSION`** периодически «пингует» МТС, пока MP4 не появится. Старые automation jobs в БД могут не включать `PENDING_CONVERSION` — добавьте статус в фильтр вручную.
+`run_recording_task` в начале вызывает тот же `prepare_mts_link_recording`. Job с фильтром **Initialized** / **Converting** / **Pending** периодически «пингует» МТС, пока MP4 не появится. В форме автоматизации эти статусы есть по умолчанию у новых правил. Старые jobs, где выбран только `INITIALIZED`, нужно обновить: включить **Converting** (и **Pending**, если запись ещё собирается).
 
 ### Сброс застрявших записей
 
@@ -194,8 +200,12 @@ storage/users/user_{slug}/recordings/{id}/
 ```bash
 export MTS_LINK_API_KEY='your-key'
 uv run python scripts/mts_link_smoke.py --list-members
+uv run python scripts/mts_link_smoke.py --list-members --query пономарен
 uv run python scripts/mts_link_smoke.py --user-id 176030889 --limit 10
+uv run python scripts/mts_link_smoke.py --user-id 176030889 --limit 15 --skip-converted
 ```
+
+Duration probe (default): `GET /fileSystem/file/{recordId}` for each listed record and `files[].duration` on the first event session. Skip with `--skip-duration`; extra id with `--file-id`.
 
 ---
 
@@ -205,7 +215,7 @@ uv run python scripts/mts_link_smoke.py --user-id 176030889 --limit 10
 Нет, ключ всегда организационный. Ограничение — список email на Input Source.
 
 **Почему запись в `PENDING_SOURCE`?**
-Онлайн-запись ещё собирается на стороне МТС (`size == 0`). Нажмите **Run** позже или дождитесь автоматизации — prepare проверит размер снова.
+Онлайн-запись ещё собирается: нет `duration` в `GET /fileSystem/file`, `size == 0` **и** готового MP4 ещё нет. Если duration уже есть, `size == 0` больше не ставит Pending. Если MP4 уже есть в `converted-records`, **Run** забирает его даже при `size == 0`. Повторный sync не создаёт вторую строку: ключ `mtslink:record:{id}` уникален на пользователя (миграция `046`).
 
 **Почему запись в `PENDING_CONVERSION`?**
 Заказан или уже идёт рендер MP4 на серверах МТС Линк. **Run** (или automation) периодически пингует статус; воркер download не занят. В UI — бейдж **Converting**.

@@ -99,7 +99,7 @@ Useful series: `celery_queue_length`, `celery_task_*_total`,
 | Metric                                        | Notes                                                                 |
 | --------------------------------------------- | --------------------------------------------------------------------- |
 | `leap_pipeline_stage_duration_seconds`        | `track_pipeline_stage()` in processing/upload tasks                   |
-| `leap_queue_oldest_task_age_seconds`          | Redis `leap:enq:<queue>`, scraped from the API process                |
+| `leap_queue_oldest_task_age_seconds`          | Redis `leap:enq:<queue>`; stale members (>7d) dropped on scrape       |
 | `leap_external_api_duration_seconds`          | Defined; **not wired** — do not add Grafana panels until wrappers exist |
 
 ### Health
@@ -124,6 +124,12 @@ API pulse tiles ignore the dashboard time picker (`timeFrom: 5m`) so a 30-day
 window does not show a stale p95 from last week's one request. Charts use
 `$__rate_interval`. Pipeline success rate on Overview counts only terminal
 rows (READY / UPLOADED / EXPIRED / SKIPPED / failed) — in-flight is excluded.
+
+Share traffic on Overview is **Postgres** (`share_access_events`), grouped by
+calendar day. Do not use Prometheus `increase(...[1d])` for those panels —
+a sliding 24h window plus legend `sum` overcounts overlapping samples.
+
+MTS Link “MP4 still converting” is an INFO parking path, not an ERROR / retry.
 
 ## PromQL / LogQL
 
@@ -161,9 +167,13 @@ leap_queue_oldest_task_age_seconds
 
 | Symptom                                      | Cause                                              | Fix                                                                 |
 | -------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- |
-| Overview / PG panels empty                   | `grafana_ro` missing or password mismatch          | Set `GRAFANA_RO_PASSWORD`; migrations **023** + **025**; restart Grafana |
+| Overview / PG panels empty                   | `grafana_ro` missing or password mismatch          | Set `GRAFANA_RO_PASSWORD`; migrations **023**, **025**, **045**; restart Grafana |
 | API pulse p95 looks huge on a 30d window     | Fixed in `leap_api.json` v2 (pulse is last 5m)     | Redeploy Grafana JSON                                               |
-| Slowest-routes table is NaN                  | Idle traffic; quantile over empty 5m window        | v2 requires ≥5 requests in `$__rate_interval`                       |
+| Slowest-routes table is empty                | Too few requests in range for a stable p95 | v3 uses ≥3 requests over `$__range`                                 |
+| Loki exception table empty                   | Query parsed JSON `exception_class`        | Use label `{exception_class=~".+"}` (task_failure only)             |
+| Share downloads legend in the thousands      | `increase[1d]` + legend `sum` on overlap   | Overview v6 reads `share_access_events` by calendar day             |
+| Oldest task age is weeks with queue depth 0  | Stale `leap:enq:*` ZSET member             | Prerun/postrun zrem all queues; scrape drops members older than 7d  |
+| MTS pending fills Errors dashboard           | Logged ERROR + Celery retry                | Pending conversion is INFO and does not retry                       |
 | Loki panels empty                            | App not writing `structured.json`                  | Check `JSON_LOG_FILE` in the container                              |
 | `leap-api` Prometheus target DOWN            | `/metrics` off                                     | `MONITORING_PROMETHEUS_ENABLED=true` on **api**                     |
 | `celery_queue_length` always 0               | Workers not sending events                         | `-E` + `worker_send_task_events=True` (already in compose)          |

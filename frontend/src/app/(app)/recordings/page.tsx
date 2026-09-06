@@ -45,7 +45,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
-import type { ProcessingStatus } from "@/components/ui/status-badge";
+import { PROCESSING_STATUS_LABEL, type ProcessingStatus } from "@/components/ui/status-badge";
 import {
   DEBOUNCE_SEARCH,
   PER_PAGE_LARGE,
@@ -92,7 +92,7 @@ const ALL_STATUSES: ProcessingStatus[] = [
 
 const STATUS_OPTIONS: FilterMultiSelectOption<ProcessingStatus>[] = ALL_STATUSES.map((s) => ({
   value: s,
-  label: s.charAt(0) + s.slice(1).toLowerCase().replace(/_/g, " "),
+  label: PROCESSING_STATUS_LABEL[s],
 }));
 
 const SORT_OPTIONS = [
@@ -103,9 +103,9 @@ const SORT_OPTIONS = [
   { value: "status",       label: "Status" },
 ];
 
-const SORT_BY_ALLOWED = new Set(SORT_OPTIONS.map((o) => o.value));
+const SORT_BY_ALLOWED = new Set<string>(SORT_OPTIONS.map((o) => o.value));
 
-const STATUS_LABEL_BY_VALUE = new Map(STATUS_OPTIONS.map((o) => [o.value, o.label]));
+const STATUS_LABEL_BY_VALUE = new Map<string, string>(STATUS_OPTIONS.map((o) => [o.value, o.label]));
 
 type Notify = (type: "success" | "error" | "info", msg: string) => void;
 

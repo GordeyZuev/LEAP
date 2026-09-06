@@ -173,6 +173,21 @@ class TestMtsLinkAPI:
         with patch("api.mts_link_api.httpx.AsyncClient", return_value=_mock_http(response)):
             assert await client.get_ready_mp4_url(7) is None
 
+    @pytest.mark.asyncio
+    async def test_get_file_accepts_record_id(self):
+        client = MtsLinkAPI(api_token="k")
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b"{}"
+        response.json.return_value = {"id": 42, "typeFile": "record", "duration": 39.2, "size": 100}
+        http = _mock_http(response)
+
+        with patch("api.mts_link_api.httpx.AsyncClient", return_value=http):
+            payload = await client.get_file(42)
+
+        assert payload["duration"] == 39.2
+        assert http.request.await_args.args[1].endswith("/fileSystem/file/42")
+
 
 @pytest.mark.unit
 class TestMtsLinkPayloadHelpers:

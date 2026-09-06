@@ -1,6 +1,6 @@
 """Schemas for automation jobs."""
 
-from .filters import AutomationFilters
+from .filters import DEFAULT_AUTOMATION_STATUS_FILTER, AutomationFilters
 from .job import (
     AutomationJobCreate,
     AutomationJobListItem,
@@ -23,6 +23,7 @@ from .schedule import (
 )
 
 __all__ = [
+    "DEFAULT_AUTOMATION_STATUS_FILTER",
     "AutomationFilters",
     "AutomationJobCreate",
     "AutomationJobListItem",

@@ -14,6 +14,7 @@ import {
   YouTubeFields,
   VkFields,
   YandexDiskFields,
+  TemplateField,
   type YouTubeFieldsValue,
   type VkFieldsValue,
   type YandexDiskFieldsValue,
@@ -27,6 +28,7 @@ import {
   vkFieldsToApi,
   yandexFieldsToApi,
 } from "@/components/platforms/platform-fields";
+import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import { appendDisplayConfigPreviewBody } from "@/components/platforms/display-config-fields";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -36,9 +38,26 @@ import {
   MetadataPreviewResultBox,
   type MetadataRenderPreviewData,
 } from "@/components/platforms/metadata-render-preview";
-import { usePlatforms } from "@/hooks/use-references";
 
-type Platform = "youtube" | "vk" | "yandex_disk";
+type Platform = "youtube" | "vk" | "yandex_disk" | "leap";
+
+const CREATE_PLATFORMS: { value: Platform; label: string }[] = [
+  { value: "youtube", label: "YouTube" },
+  { value: "yandex_disk", label: "Yandex Disk" },
+  { value: "leap", label: "LEAP look" },
+];
+
+interface LeapFieldsValue {
+  title_template: string;
+  description_template: string;
+  thumbnail_name: string;
+}
+
+const DEFAULT_LEAP_FIELDS: LeapFieldsValue = {
+  title_template: "",
+  description_template: "",
+  thumbnail_name: "",
+};
 
 interface CredentialItem {
   id: number;
@@ -50,17 +69,26 @@ interface CredentialItem {
 // Per-platform meta helpers
 // ---------------------------------------------------------------------------
 
-type PlatformMeta = YouTubeFieldsValue | VkFieldsValue | YandexDiskFieldsValue;
+type PlatformMeta = YouTubeFieldsValue | VkFieldsValue | YandexDiskFieldsValue | LeapFieldsValue;
 
 function getDefaultMeta(platform: Platform): PlatformMeta {
   if (platform === "youtube")     return { ...DEFAULT_YOUTUBE_FIELDS };
   if (platform === "vk")          return { ...DEFAULT_VK_FIELDS };
+  if (platform === "leap")        return { ...DEFAULT_LEAP_FIELDS };
   return { ...DEFAULT_YANDEX_DISK_FIELDS };
 }
 
 function coerceMeta(platform: Platform, raw: unknown): PlatformMeta {
   if (platform === "youtube") return youtubeFieldsFromApi(raw);
   if (platform === "vk") return vkFieldsFromApi(raw);
+  if (platform === "leap") {
+    const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    return {
+      title_template: typeof obj.title_template === "string" ? obj.title_template : "",
+      description_template: typeof obj.description_template === "string" ? obj.description_template : "",
+      thumbnail_name: typeof obj.thumbnail_name === "string" ? obj.thumbnail_name : "",
+    };
+  }
   return yandexFieldsFromApi(raw);
 }
 
@@ -72,6 +100,14 @@ function coerceMeta(platform: Platform, raw: unknown): PlatformMeta {
 function serialiseMeta(platform: Platform, meta: PlatformMeta): Record<string, unknown> {
   if (platform === "youtube") return youtubeFieldsToApi(meta as YouTubeFieldsValue, { includeDisplay: true });
   if (platform === "vk") return vkFieldsToApi(meta as VkFieldsValue, { includeDisplay: true });
+  if (platform === "leap") {
+    const m = meta as LeapFieldsValue;
+    return {
+      title_template: m.title_template || undefined,
+      description_template: m.description_template || undefined,
+      thumbnail_name: m.thumbnail_name || undefined,
+    };
+  }
   return yandexFieldsToApi(meta as YandexDiskFieldsValue, { includeExtended: true });
 }
 
@@ -84,8 +120,6 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   const isNew = id === "new";
   const router = useRouter();
   const qc = useQueryClient();
-
-  const { data: platformOptions = [] } = usePlatforms();
 
   const [name,        setName]        = useState("");
   const [description, setDescription] = useState("");
@@ -120,7 +154,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!existing) return;
-    const p = (existing.platform ?? "youtube") as Platform;
+    const raw = existing.platform ?? "youtube";
+    const p = (raw === "vk_video" ? "vk" : raw) as Platform;
     const newName = existing.name ?? "";
     const newDesc = existing.description ?? "";
     const newCredId = existing.credential_id ?? "";
@@ -138,14 +173,16 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
 
   const save = useMutation({
     mutationFn: async () => {
-      const body = {
+      const body: Record<string, unknown> = {
         name,
         description: description || undefined,
         platform,
-        credential_id: credId || undefined,
         is_active: isActive,
         preset_metadata: serialiseMeta(platform, meta),
       };
+      if (platform !== "leap") {
+        body.credential_id = credId || undefined;
+      }
       if (isNew) {
         return (await apiClient.post("/presets", body)).data;
       } else {
@@ -195,11 +232,13 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
     setRenderPreview(null);
     try {
       const body: Record<string, unknown> = {};
-      if (platform === "youtube" || platform === "vk") {
-        const m = meta as YouTubeFieldsValue | VkFieldsValue;
+      if (platform === "youtube" || platform === "vk" || platform === "leap") {
+        const m = meta as YouTubeFieldsValue | VkFieldsValue | LeapFieldsValue;
         if (m.title_template.trim()) body.title_template = m.title_template;
         if (m.description_template.trim()) body.description_template = m.description_template;
-        appendDisplayConfigPreviewBody(body, m.topics_display, m.questions_display);
+        if (platform !== "leap") {
+          appendDisplayConfigPreviewBody(body, (m as YouTubeFieldsValue | VkFieldsValue).topics_display, (m as YouTubeFieldsValue | VkFieldsValue).questions_display);
+        }
       } else {
         const yd = meta as YandexDiskFieldsValue;
         if (yd.folder_path_template?.trim()) body.folder_path_template = yd.folder_path_template;
@@ -243,7 +282,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           {isNew ? "New preset" : (existing?.name ?? "…")}
         </h1>
         <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-          Applies at upload time
+          {platform === "leap" ? "Look for courses and share — not an upload" : "Applies at upload time"}
         </span>
         {!isNew && (
           <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyPreset.isPending} icon={<Copy size={15} />} pendingLabel="Copying…">
@@ -305,11 +344,14 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           <div>
             <label className={FILTER_LABEL}>Platform</label>
             <div className="mt-1 flex gap-2">
-              {platformOptions.map((o) => (
+              {(platform === "vk"
+                ? [{ value: "vk" as Platform, label: "VK Video" }, ...CREATE_PLATFORMS]
+                : CREATE_PLATFORMS
+              ).map((o) => (
                 <button
                   key={o.value}
                   type="button"
-                  onClick={() => changePlatform(o.value as Platform)}
+                  onClick={() => changePlatform(o.value)}
                   disabled={!isNew}
                   className={cn(
                     "flex-1 rounded-xl border py-2 text-sm font-medium transition-colors",
@@ -324,11 +366,15 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
             </div>
           </div>
 
+          {platform !== "leap" && (
           <div>
             <label className={FILTER_LABEL}>Credential</label>
             {creds.length === 0 ? (
               <p className="mt-1 text-sm text-muted-foreground">
-                No {platformOptions.find((o) => o.value === platform)?.label} credentials.{" "}
+                No {platform === "vk"
+                  ? "VK Video"
+                  : CREATE_PLATFORMS.find((o) => o.value === platform)?.label ?? platform}{" "}
+                credentials.{" "}
                 <Link href="/credentials" className="text-primary hover:underline">
                   Add credentials →
                 </Link>
@@ -347,6 +393,12 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               </NativeSelect>
             )}
           </div>
+          )}
+          {platform === "leap" && (
+            <p className="text-sm text-muted-foreground">
+              LEAP look, not an upload. Titles on courses and share links render from this preset at read time. No credential.
+            </p>
+          )}
         </div>
 
         {/* Platform-specific settings */}
@@ -374,6 +426,31 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
               showExtended
               showDisplayConfig
             />
+          )}
+
+          {platform === "leap" && (
+            <>
+              <TemplateField
+                label="Title template"
+                value={(meta as LeapFieldsValue).title_template}
+                onChange={(v) => patchMeta({ title_template: v })}
+                placeholder="{{ display_name }}"
+              />
+              <TemplateField
+                label="Description template"
+                value={(meta as LeapFieldsValue).description_template}
+                onChange={(v) => patchMeta({ description_template: v })}
+                multiline
+                rows={6}
+                placeholder="{{ summary }}"
+              />
+              <ThumbnailPicker
+                label="Cover image"
+                placeholder="No cover image"
+                value={(meta as LeapFieldsValue).thumbnail_name}
+                onChange={(name) => patchMeta({ thumbnail_name: name })}
+              />
+            </>
           )}
 
           {platform === "yandex_disk" && (

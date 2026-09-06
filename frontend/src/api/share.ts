@@ -27,6 +27,7 @@ export interface ShareCreateResponse {
 export interface PublicRecordingResponse {
   id: number;
   display_name: string;
+  title?: string;
   duration: number;
   start_time: string;
   status: string;

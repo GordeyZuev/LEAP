@@ -13,7 +13,7 @@ from .input_source import (
     SourceSyncResult,
 )
 from .matching_rules import MatchingRules
-from .metadata_config import TemplateMetadataConfig, VKMetadataConfig, YouTubeMetadataConfig
+from .metadata_config import LeapMetadataConfig, TemplateMetadataConfig, VKMetadataConfig, YouTubeMetadataConfig
 from .operations import BulkDeleteResponse, RematchTaskResponse
 from .output_config import TemplateOutputConfig
 from .output_preset import (
@@ -24,6 +24,7 @@ from .output_preset import (
     PresetListResponse,
 )
 from .preset_metadata import (
+    LeapPresetMetadata,
     QuestionsDisplayConfig,
     TopicsDisplayConfig,
     TopicsDisplayFormat,
@@ -67,6 +68,8 @@ __all__ = [
     "InputSourceListItem",
     "InputSourceResponse",
     "InputSourceUpdate",
+    "LeapMetadataConfig",
+    "LeapPresetMetadata",
     "LocalFileSourceConfig",
     "MatchingRules",
     "MetadataRenderPreviewResponse",

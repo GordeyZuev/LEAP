@@ -2,22 +2,102 @@
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import case, select
+from sqlalchemy.orm import selectinload
 
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron
 from api.repositories.automation_repos import AutomationJobRepository, AutomationJobRunRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
+from api.schemas.automation.filters import DEFAULT_AUTOMATION_STATUS_FILTER
 from api.tasks.base import AutomationTask
 from api.tasks.processing import run_recording_task
 from config.settings import get_settings
 from database.models import RecordingModel
 from logger import get_logger
-from models.recording import ProcessingStatus
+from models.recording import ProcessingStatus, SourceType
 
 logger = get_logger()
 settings = get_settings()
+
+
+_VALID_STATUS_VALUES = {item.value for item in ProcessingStatus}
+
+
+def _resolve_status_filter(filters: dict) -> list[str] | None:
+    """None means every status. Missing key uses the MTS-aware default.
+
+    Drops values that are not ProcessingStatus members (legacy UI sent FAILED /
+    TRANSCRIBED). Those would make ``status IN (...)`` raise on the Postgres enum
+    and abort the whole job.
+    """
+    if "status" not in filters:
+        return list(DEFAULT_AUTOMATION_STATUS_FILTER)
+    raw = filters.get("status") or []
+    if not raw:
+        return None
+    kept = [s for s in raw if isinstance(s, str) and s in _VALID_STATUS_VALUES]
+    if not kept:
+        return list(DEFAULT_AUTOMATION_STATUS_FILTER)
+    return kept
+
+
+_WAIT_STATUSES = frozenset(
+    {
+        ProcessingStatus.PENDING_SOURCE,
+        ProcessingStatus.PENDING_CONVERSION,
+        ProcessingStatus.DOWNLOADING,
+        ProcessingStatus.PROCESSING,
+        ProcessingStatus.UPLOADING,
+    }
+)
+
+
+def _is_mts_link(recording: RecordingModel) -> bool:
+    source = recording.source
+    return source is not None and source.source_type == SourceType.MTS_LINK
+
+
+def _should_enqueue_recording(recording: RecordingModel) -> bool:
+    """Skip in-flight pipelines, expired rows, and Zoom-style PENDING_SOURCE."""
+    if recording.on_air or recording.on_pause or recording.deleted:
+        return False
+    if recording.status == ProcessingStatus.EXPIRED:
+        return False
+    if recording.status != ProcessingStatus.PENDING_SOURCE:
+        return True
+    return _is_mts_link(recording)
+
+
+def _recordings_for_job_query(
+    *,
+    user_id: str,
+    from_datetime: datetime,
+    to_datetime: datetime,
+    status_filter: list[str] | None,
+    exclude_blank: bool,
+):
+    """Active recordings in the sync window. Wait statuses are first so MTS pings are not starved by limit(1000)."""
+    query = (
+        select(RecordingModel)
+        .options(selectinload(RecordingModel.source))
+        .where(
+            RecordingModel.user_id == user_id,
+            RecordingModel.deleted == False,  # noqa: E712
+            RecordingModel.start_time >= from_datetime,
+            RecordingModel.start_time <= to_datetime,
+        )
+    )
+    if status_filter:
+        query = query.where(RecordingModel.status.in_(status_filter))
+    if exclude_blank:
+        query = query.where(~RecordingModel.blank_record)
+    wait = (ProcessingStatus.PENDING_SOURCE, ProcessingStatus.PENDING_CONVERSION)
+    return query.order_by(
+        case((RecordingModel.status.in_(wait), 0), else_=1),
+        RecordingModel.start_time.asc(),
+    ).limit(1000)
 
 
 # Maps the task's result payload onto a history row. Kept next to the task so
@@ -169,7 +249,7 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
 
             # Step 5: Query recordings using filters
             filters = job.filters or {}
-            status_filter = filters.get("status", ["INITIALIZED", "PENDING_CONVERSION"])
+            status_filter = _resolve_status_filter(filters)
             exclude_blank = filters.get("exclude_blank", True)
 
             # Calculate date range from sync_days
@@ -177,21 +257,13 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
             from_datetime = datetime.now(UTC) - timedelta(days=days)
             to_datetime = datetime.now(UTC)
 
-            query = select(RecordingModel).where(
-                RecordingModel.user_id == user_id,
-                RecordingModel.start_time >= from_datetime,
-                RecordingModel.start_time <= to_datetime,
+            query = _recordings_for_job_query(
+                user_id=user_id,
+                from_datetime=from_datetime,
+                to_datetime=to_datetime,
+                status_filter=status_filter,
+                exclude_blank=exclude_blank,
             )
-
-            # Apply status filter
-            if status_filter:
-                query = query.where(RecordingModel.status.in_(status_filter))
-
-            # Apply exclude_blank filter
-            if exclude_blank:
-                query = query.where(~RecordingModel.blank_record)
-
-            query = query.limit(1000)
             result = await session.execute(query)
             recordings_to_process = list(result.scalars().all())
 
@@ -207,8 +279,12 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
             processed_recordings = []
             matched_count = 0
             unmatched_count = 0
+            pending_starts: list[tuple[int, int]] = []
 
             for recording in recordings_to_process:
+                if not _should_enqueue_recording(recording):
+                    continue
+
                 # Find first matching template
                 matched_template = _find_matching_template(
                     display_name=recording.display_name,
@@ -218,41 +294,43 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
 
                 if matched_template:
                     matched_count += 1
-                    # Apply template to recording
-                    recording.template_id = matched_template.id
-                    recording.is_mapped = True
-                    await template_repo.increment_usage(matched_template)
+                    newly_bound = (not recording.is_mapped) or recording.template_id != matched_template.id
+                    if newly_bound:
+                        recording.template_id = matched_template.id
+                        recording.is_mapped = True
+                        await template_repo.increment_usage(matched_template)
 
-                    from api.services.playlist_service import add_from_bound_template
+                        from api.services.playlist_service import add_from_bound_template
 
-                    await add_from_bound_template(session, user_id, recording)
+                        await add_from_bound_template(session, user_id, recording)
 
-                    # Start run task with automation processing_config as manual_override
-                    task = run_recording_task.delay(
-                        recording_id=recording.id,
-                        user_id=user_id,
-                        manual_override=job.processing_config,
-                    )
-
-                    processed_recordings.append(
-                        {
-                            "recording_id": recording.id,
-                            "template_id": matched_template.id,
-                            "task_id": str(task.id),
-                        }
-                    )
-
-                    logger.debug(
-                        f"Job {job_id}: Recording {recording.id} matched template {matched_template.id}, task={task.id}"
-                    )
+                    pending_starts.append((recording.id, matched_template.id))
                 else:
                     unmatched_count += 1
-                    # Mark as SKIPPED if no template matched
-                    recording.status = ProcessingStatus.SKIPPED
-                    recording.failed_reason = "No matching template"
-                    logger.debug(f"Job {job_id}: Recording {recording.id} has no matching template - SKIPPED")
+                    if recording.status not in _WAIT_STATUSES:
+                        recording.status = ProcessingStatus.SKIPPED
+                        recording.failed_reason = "No matching template"
+                    logger.debug(
+                        f"Job {job_id}: Recording {recording.id} has no matching template"
+                        + (" - left in wait status" if recording.status in _WAIT_STATUSES else " - SKIPPED")
+                    )
 
             await session.commit()
+
+            for recording_id, template_id in pending_starts:
+                task = run_recording_task.delay(
+                    recording_id=recording_id,
+                    user_id=user_id,
+                    manual_override=job.processing_config,
+                )
+                processed_recordings.append(
+                    {
+                        "recording_id": recording_id,
+                        "template_id": template_id,
+                        "task_id": str(task.id),
+                    }
+                )
+                logger.debug(f"Job {job_id}: Recording {recording_id} matched template {template_id}, task={task.id}")
 
             logger.info(
                 f"Job {job_id}: Matched {matched_count} recordings, unmatched {unmatched_count}, "
@@ -346,27 +424,20 @@ def dry_run_automation_job_task(self, job_id: int, user_id: str):
                 sync_config = job.sync_config
                 days = sync_config.get("sync_days", 2)
                 filters = job.filters or {}
-                status_filter = filters.get("status", ["INITIALIZED", "PENDING_CONVERSION"])
+                status_filter = _resolve_status_filter(filters)
                 exclude_blank = filters.get("exclude_blank", True)
 
                 # Use UTC to match timezone-aware start_time in DB
                 from_datetime = datetime.now(UTC) - timedelta(days=days)
                 to_datetime = datetime.now(UTC)
 
-                query = select(RecordingModel).where(
-                    RecordingModel.user_id == user_id,
-                    RecordingModel.start_time >= from_datetime,
-                    RecordingModel.start_time <= to_datetime,
+                query = _recordings_for_job_query(
+                    user_id=user_id,
+                    from_datetime=from_datetime,
+                    to_datetime=to_datetime,
+                    status_filter=status_filter,
+                    exclude_blank=exclude_blank,
                 )
-
-                if status_filter:
-                    query = query.where(RecordingModel.status.in_(status_filter))
-
-                # Apply exclude_blank filter
-                if exclude_blank:
-                    query = query.where(~RecordingModel.blank_record)
-
-                query = query.limit(1000)
                 result = await session.execute(query)
                 recordings = list(result.scalars().all())
 
@@ -375,6 +446,8 @@ def dry_run_automation_job_task(self, job_id: int, user_id: str):
 
                 estimated_matched = 0
                 for recording in recordings:
+                    if not _should_enqueue_recording(recording):
+                        continue
                     matched_template = _find_matching_template(
                         display_name=recording.display_name,
                         source_id=recording.input_source_id or 0,

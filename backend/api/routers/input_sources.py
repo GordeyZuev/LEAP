@@ -11,6 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
 from api.dependencies import get_db_session
+from api.helpers.blank_record import (
+    ZOOM_BLANK_MIN_DURATION_SECONDS,
+    ZOOM_BLANK_MIN_FILE_SIZE_MB,
+    is_blank_recording,
+    is_mts_link_blank,
+    positive_duration_seconds,
+)
 from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
@@ -147,20 +154,17 @@ def _determine_blank_status(
     duration: float,
     video_file_size: int,
     source_processing_incomplete: bool,
-    min_duration_seconds: int = 1200,
-    min_file_size_mb: int = 25,
+    min_duration_seconds: int = ZOOM_BLANK_MIN_DURATION_SECONDS,
+    min_file_size_mb: int = ZOOM_BLANK_MIN_FILE_SIZE_MB,
 ) -> bool:
-    """Determine if recording should be marked as blank (skip if source is still processing).
-
-    Args:
-        duration: Recording duration in seconds.
-        min_duration_seconds: Minimum duration threshold (default 1200 = 20 min).
-    """
-    if source_processing_incomplete:
-        return False
-
-    min_file_size_bytes = min_file_size_mb * 1024 * 1024
-    return duration < min_duration_seconds or video_file_size < min_file_size_bytes
+    """Determine if recording should be marked as blank (skip if source is still processing)."""
+    return is_blank_recording(
+        duration,
+        video_file_size,
+        source_processing_incomplete=source_processing_incomplete,
+        min_duration_seconds=min_duration_seconds,
+        min_file_size_mb=min_file_size_mb,
+    )
 
 
 async def _sync_single_source(
@@ -713,11 +717,14 @@ def _build_mts_link_metadata(
     email: str,
     mts_user_id: int,
     download_url: str | None,
+    duration_seconds: float | None = None,
 ) -> dict:
     """Build source metadata for an MTS Link online recording.
 
-    ``needs_mp4`` tells the downloader to order a conversion; ``online_size == 0``
-    means the interactive recording is still being assembled on their side.
+    ``needs_mp4`` tells the downloader to order a conversion; incomplete means
+    the online recording is still assembling and no MP4 URL is available yet.
+    A known ``duration`` from ``GET /fileSystem/file`` means the record is assembled
+    even when ``size`` is still 0.
     """
     event_session = record.get("eventSession") or {}
     event_session_id = event_session.get("id") if isinstance(event_session, dict) else None
@@ -730,12 +737,10 @@ def _build_mts_link_metadata(
         "mts_user_email": email,
         "record_link": record.get("link"),
         "online_size": online_size,
+        "online_duration": duration_seconds,
         "needs_mp4": download_url is None,
-        "conversion_id": None,
-        "conversion_state": None,
         "download_url": download_url,
-        "source_processing_incomplete": online_size == 0,
-        "extras": {"chat": False, "files_count": 0, "error": None},
+        "source_processing_incomplete": duration_seconds is None and online_size == 0 and download_url is None,
     }
 
 
@@ -794,6 +799,19 @@ async def _sync_mts_link_source(
                 event_session = record.get("eventSession") or {}
                 event_session_id = event_session.get("id") if isinstance(event_session, dict) else None
 
+                duration_seconds = None
+                file_size = int(record.get("size") or 0)
+                if record_id is not None:
+                    try:
+                        file_payload = await mts_api.get_file(record_id)
+                        duration_seconds = positive_duration_seconds(file_payload.get("duration"))
+                        file_size = int(file_payload.get("size") or file_size or 0)
+                    except MtsLinkAPIError as e:
+                        logger.debug(
+                            f"MTS Link file metadata missing | {format_details(record=record_id, error=str(e))}"
+                        )
+                    await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
+
                 download_url = None
                 if event_session_id:
                     try:
@@ -804,23 +822,31 @@ async def _sync_mts_link_source(
                         )
                     await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
-                source_metadata = _build_mts_link_metadata(record, email, mts_user_id, download_url)
+                source_metadata = _build_mts_link_metadata(record, email, mts_user_id, download_url, duration_seconds)
                 display_name = record.get("name") or "Untitled"
                 matched_template = _find_matching_template(display_name, source.id, templates)
+                is_blank = is_mts_link_blank(duration_seconds)
+
+                upsert_kwargs: dict = {}
+                if file_size > 0:
+                    upsert_kwargs["video_file_size"] = file_size
 
                 _recording, is_new = await recording_repo.create_or_update(
                     user_id=user_id,
                     input_source_id=source.id,
                     display_name=display_name,
                     start_time=_parse_mts_link_created_at(record.get("createAt")),
-                    duration=0,
+                    duration=int(duration_seconds) if duration_seconds is not None else 0,
                     source_type=SourceType.MTS_LINK,
                     source_key=f"mtslink:record:{record_id}",
                     source_metadata=source_metadata,
                     user_config=user_config,
                     is_mapped=matched_template is not None,
                     template_id=matched_template.id if matched_template else None,
-                    source_processing_incomplete=False,
+                    blank_record=is_blank,
+                    source_processing_incomplete=bool(source_metadata["source_processing_incomplete"]),
+                    require_start_time_in_lookup=False,
+                    **upsert_kwargs,
                 )
 
                 if is_new:

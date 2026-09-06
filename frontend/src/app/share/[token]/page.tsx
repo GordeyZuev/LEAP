@@ -27,19 +27,19 @@ export async function generateMetadata({
   const description = [duration, "Shared via LEAP"].filter(Boolean).join(" · ");
 
   return {
-    title: `${recording.display_name} — LEAP`,
+    title: `${recording.title || recording.display_name} — LEAP`,
     description,
     // A share token is an unguessable capability URL; keep it out of indexes.
     robots: { index: false, follow: false },
     openGraph: {
       type: "website",
-      title: recording.display_name,
+      title: recording.title || recording.display_name,
       description,
       siteName: "LEAP",
     },
     twitter: {
       card: "summary_large_image",
-      title: recording.display_name,
+      title: recording.title || recording.display_name,
       description,
     },
   };

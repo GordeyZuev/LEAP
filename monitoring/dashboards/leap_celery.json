@@ -202,7 +202,7 @@
     {
       "type": "timeseries",
       "title": "Oldest task age per queue",
-      "description": "Seconds since the oldest pending task was enqueued (Redis tracker in API /metrics). Yellow >5min, red >15min.",
+      "description": "Age of the oldest pending task from Redis leap:enq:* (not broker length). Members older than 7 days are dropped as tracker leftovers. Yellow >5min, red >15min.",
       "gridPos": {"x": 12, "y": 7, "w": 12, "h": 9},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
@@ -274,7 +274,7 @@
     {
       "type": "timeseries",
       "title": "Failed tasks / min by name",
-      "description": "Non-zero failure rates only.",
+      "description": "celery_task_failed_total (final failures). Retries are not counted here — see Recent Celery task failures / RETRY logs.",
       "gridPos": {"x": 12, "y": 17, "w": 12, "h": 9},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [
@@ -304,7 +304,7 @@
 
     {
       "type": "row",
-      "title": "Pipeline stage duration (Prometheus)",
+      "title": "Pipeline (Postgres)",
       "gridPos": {"x": 0, "y": 26, "w": 24, "h": 1},
       "collapsed": false,
       "panels": []
@@ -312,15 +312,10 @@
     {
       "type": "stat",
       "title": "Recordings completed (24h)",
+      "description": "Recordings that reached READY or UPLOADED with pipeline_completed_at in the last 24h.",
       "gridPos": {"x": 0, "y": 27, "w": 8, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(celery_task_succeeded_total{name=\"api.tasks.processing.run_recording\"}[24h]))",
-          "legendFormat": " "
-        }
-      ],
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM recordings WHERE pipeline_completed_at > NOW() - INTERVAL '24 hours' AND NOT failed AND status IN ('READY', 'UPLOADED');"}],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -330,23 +325,18 @@
         }
       },
       "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"},
         "colorMode": "value",
-        "graphMode": "area"
+        "graphMode": "none"
       }
     },
     {
       "type": "stat",
       "title": "Uploads (24h)",
+      "description": "output_targets with status UPLOADED in the last 24h.",
       "gridPos": {"x": 8, "y": 27, "w": 8, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(celery_task_succeeded_total{name=~\"api.tasks.upload.*\"}[24h]))",
-          "legendFormat": " "
-        }
-      ],
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM output_targets WHERE status = 'UPLOADED' AND uploaded_at > NOW() - INTERVAL '24 hours';"}],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -356,27 +346,23 @@
         }
       },
       "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"},
         "colorMode": "value",
-        "graphMode": "area"
+        "graphMode": "none"
       }
     },
     {
       "type": "stat",
       "title": "Pipeline failures (24h)",
+      "description": "recordings.failed in the last 24h. MTS conversion wait is not a failure.",
       "gridPos": {"x": 16, "y": 27, "w": 8, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(celery_task_failed_total{name=~\"api.tasks.processing.*|api.tasks.upload.*\"}[24h]))",
-          "legendFormat": " "
-        }
-      ],
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM recordings WHERE failed AND failed_at > NOW() - INTERVAL '24 hours';"}],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
+          "noValue": "0",
           "color": {"mode": "thresholds"},
           "thresholds": {
             "mode": "absolute",
@@ -389,27 +375,22 @@
         }
       },
       "options": {
-        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"},
         "colorMode": "background",
-        "graphMode": "area"
+        "graphMode": "none"
       }
     },
     {
       "type": "timeseries",
-      "title": "Stage duration p50 / p95 by stage",
-      "description": "Pipeline stage execution time from worker metrics (multiprocess mode). Requires PROMETHEUS_MULTIPROC_DIR.",
+      "title": "Stage duration avg by stage (Postgres)",
+      "description": "Mean duration_seconds from completed stage_timings (no substeps). Sparse Prometheus histograms are not used here.",
       "gridPos": {"x": 0, "y": 31, "w": 16, "h": 10},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (stage, le) (rate(leap_pipeline_stage_duration_seconds_bucket{status=\"success\"}[10m])))",
-          "legendFormat": "{{stage}} p50"
-        },
-        {
-          "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (stage, le) (rate(leap_pipeline_stage_duration_seconds_bucket{status=\"success\"}[10m])))",
-          "legendFormat": "{{stage}} p95"
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', completed_at) AS time, stage_type::text AS metric, ROUND(AVG(duration_seconds)::numeric, 1) AS value FROM stage_timings WHERE status = 'COMPLETED' AND substep IS NULL AND duration_seconds IS NOT NULL AND $__timeFilter(completed_at) GROUP BY 1, 2 ORDER BY 1;"
         }
       ],
       "fieldConfig": {
@@ -431,7 +412,7 @@
     {
       "type": "barchart",
       "title": "Recordings in flight (by status)",
-      "description": "Active recordings not yet finished — authoritative source from DB.",
+      "description": "Not finished: excludes READY / UPLOADED / EXPIRED / SKIPPED, failed, deleted, paused. PROCESSED often means waiting for upload.",
       "gridPos": {"x": 16, "y": 31, "w": 8, "h": 10},
       "datasource": {"type": "postgres", "uid": "leap_db"},
       "targets": [
@@ -484,14 +465,14 @@
     },
     {
       "type": "logs",
-      "title": "Recent Celery task failures",
-      "description": "task_state=FAILURE lines from structured logs.",
+      "title": "Recent Celery retries and failures",
+      "description": "task_state RETRY (expected backoff) and FAILURE (retries exhausted). WARNING Task failure in postrun is a log, not celery_task_failed_total.",
       "gridPos": {"x": 12, "y": 52, "w": 12, "h": 9},
       "datasource": {"type": "loki", "uid": "loki"},
       "targets": [
         {
           "refId": "A",
-          "expr": "{app=\"leap\", task_state=\"FAILURE\"} | json | line_format \"{{.text}}\""
+          "expr": "{app=\"leap\", task_state=~\"FAILURE|RETRY\"} | json | line_format \"{{.text}}\""
         }
       ],
       "options": {
@@ -513,5 +494,5 @@
   "timezone": "",
   "title": "LEAP Workers & Pipeline",
   "uid": "leap-celery",
-  "version": 4
+  "version": 5
 }

@@ -29,6 +29,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { FormattedText } from "@/components/ui/formatted-text";
 import { cn, formatDate, formatDuration, httpStatus } from "@/lib/utils";
 import { recordingResumeKey } from "@/lib/video-resume";
 
@@ -434,7 +435,7 @@ export function ShareView({ token }: { token: string }) {
           <div className={showCompanionCol ? WATCH_GRID : undefined}>
             <div ref={videoColRef} className="min-w-0">
               <h1 className="mb-5 text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
-                {recording.display_name}
+                {recording.title || recording.display_name}
               </h1>
               {bothVariants && (
                 <div className="mb-5 space-y-2">
@@ -538,9 +539,10 @@ export function ShareView({ token }: { token: string }) {
 
             {recording.description && (
               <CollapsibleCard title="Overview" defaultOpen={false}>
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                  {recording.description}
-                </p>
+                <FormattedText
+                  text={recording.description}
+                  className="text-sm leading-relaxed text-foreground"
+                />
               </CollapsibleCard>
             )}
           </div>

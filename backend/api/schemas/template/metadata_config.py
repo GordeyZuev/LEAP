@@ -91,6 +91,44 @@ class YouTubeMetadataConfig(BaseModel):
         return validate_optional_jinja(v)
 
 
+class LeapMetadataConfig(BaseModel):
+    """Template/Run overrides for the LEAP look (inherit unset fields from the leap preset)."""
+
+    model_config = BASE_MODEL_CONFIG
+
+    title_template: str | None = Field(None, max_length=500, description="Override publication title Jinja")
+    description_template: str | None = Field(
+        None, max_length=5000, description="Override publication description Jinja"
+    )
+    thumbnail_name: str | None = Field(
+        None,
+        description="Override cover filename (e.g. 'python_base.png').",
+        examples=["python_base.png", "ml_extra.png"],
+    )
+
+    @field_validator("title_template", mode="before")
+    @classmethod
+    def _leap_title_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja_title(v)
+
+    @field_validator("description_template", mode="before")
+    @classmethod
+    def _leap_desc_jinja(cls, v: str | None) -> str | None:
+        return validate_optional_jinja(v)
+
+    @field_validator("thumbnail_name")
+    @classmethod
+    def _leap_thumb_filename(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        name = v.strip()
+        if not name:
+            return None
+        if "/" in name or "\\" in name or name.startswith("."):
+            raise ValueError("thumbnail_name must be a filename without path")
+        return name
+
+
 class YandexDiskMetadataConfig(BaseModel):
     """Yandex Disk metadata overrides at template level."""
 
@@ -138,6 +176,9 @@ class TemplateMetadataConfig(BaseModel):
     vk: VKMetadataConfig | None = Field(None, description="VK-specific settings")
     youtube: YouTubeMetadataConfig | None = Field(None, description="YouTube-specific settings")
     yandex_disk: YandexDiskMetadataConfig | None = Field(None, description="Yandex Disk-specific settings")
+    leap: LeapMetadataConfig | None = Field(
+        None, description="LEAP look overrides (course/share title, description, cover)"
+    )
 
     title_template: str | None = Field(
         None,

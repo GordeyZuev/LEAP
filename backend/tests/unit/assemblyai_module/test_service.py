@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from assemblyai_module.config import AssemblyAIConfig, AssemblyAISettings
-from assemblyai_module.service import AssemblyAITranscriptionService
+from assemblyai_module.service import AssemblyAITranscriptionService, EmptyTranscriptError
 
 
 def _make_config() -> AssemblyAIConfig:
@@ -161,7 +161,7 @@ class TestAssemblyAIServiceNormalize:
 
     def test_normalize_raises_on_empty_words(self):
         svc = AssemblyAITranscriptionService(_make_config())
-        with pytest.raises(ValueError, match="No words"):
+        with pytest.raises(EmptyTranscriptError, match="No words"):
             svc._normalize({"text": "x", "words": []}, "ru")
 
     def test_normalize_fallback_language(self):

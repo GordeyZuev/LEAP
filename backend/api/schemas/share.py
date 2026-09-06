@@ -40,6 +40,7 @@ class PublicRecordingResponse(BaseModel):
 
     id: int
     display_name: str
+    title: str
     duration: float
     start_time: datetime
     status: ProcessingStatus

@@ -4,14 +4,32 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from api.helpers.blank_record import BLANK_REASON_TOO_SHORT, apply_blank_record
 from database.models import OutputTargetModel, RecordingModel, SourceMetadataModel
 from logger import format_details, format_status_change, get_logger
 from models.recording import ProcessingStatus, SourceType, TargetStatus
 
 logger = get_logger()
+
+
+def merge_mts_link_source_metadata(existing_meta: dict[str, Any], incoming: dict[str, Any] | None) -> dict[str, Any]:
+    """Merge MTS discovery metadata without wiping a prepare-time MP4 URL.
+
+    Sync often has no converted-record URL even after prepare stored ``download_url``.
+    """
+    merged = dict(existing_meta)
+    payload = dict(incoming or {})
+    existing_url = existing_meta.get("download_url")
+    if existing_url and not payload.get("download_url"):
+        payload["download_url"] = existing_url
+        payload["needs_mp4"] = False
+        payload["source_processing_incomplete"] = False
+    merged.update(payload)
+    return merged
 
 
 class RecordingRepository:
@@ -748,6 +766,28 @@ class RecordingRepository:
                     existing = candidate
                     break
 
+        if existing is None and not require_start_time_in_lookup:
+            try:
+                async with self.session.begin_nested():
+                    return await self._insert_recording(
+                        user_id=user_id,
+                        input_source_id=input_source_id,
+                        display_name=display_name,
+                        start_time=start_time,
+                        duration=duration,
+                        source_type=source_type,
+                        source_key=source_key,
+                        source_metadata=source_metadata,
+                        user_config=user_config,
+                        kwargs=kwargs,
+                    )
+            except IntegrityError:
+                existing = await self.find_by_source_key(
+                    user_id, source_type, source_key, start_time, require_start_time_in_lookup=False
+                )
+                if existing is None:
+                    raise
+
         if existing:
             # Don't update deleted recordings (user deleted manually)
             if existing.deleted:
@@ -759,10 +799,15 @@ class RecordingRepository:
                 if not require_start_time_in_lookup:
                     existing.start_time = start_time
                 existing.display_name = display_name
-                existing.duration = duration
+                if duration > 0 or source_type != SourceType.MTS_LINK:
+                    existing.duration = duration
                 existing.video_file_size = kwargs.get("video_file_size", existing.video_file_size)
 
                 source_processing_incomplete = kwargs.get("source_processing_incomplete", False)
+                if source_type == SourceType.MTS_LINK and existing.source:
+                    existing_meta = existing.source.meta if isinstance(existing.source.meta, dict) else {}
+                    source_metadata = merge_mts_link_source_metadata(existing_meta, source_metadata)
+                    source_processing_incomplete = bool(source_metadata.get("source_processing_incomplete"))
 
                 if "is_mapped" in kwargs:
                     old_is_mapped = existing.is_mapped
@@ -798,15 +843,18 @@ class RecordingRepository:
                     existing.template_id = kwargs["template_id"]
 
                 if "blank_record" in kwargs:
-                    existing.blank_record = kwargs["blank_record"]
+                    apply_blank_record(existing, bool(kwargs["blank_record"]), reason=BLANK_REASON_TOO_SHORT)
 
                 if existing.source:
                     if existing.source.source_key != source_key:
                         existing.source.source_key = source_key
                     existing_meta = existing.source.meta if isinstance(existing.source.meta, dict) else {}
-                    merged_meta = dict(existing_meta)
-                    merged_meta.update(source_metadata or {})
-                    existing.source.meta = merged_meta
+                    if source_type == SourceType.MTS_LINK:
+                        existing.source.meta = source_metadata or existing_meta
+                    else:
+                        merged_meta = dict(existing_meta)
+                        merged_meta.update(source_metadata or {})
+                        existing.source.meta = merged_meta
 
                 existing.updated_at = datetime.now(UTC)
 
@@ -830,7 +878,33 @@ class RecordingRepository:
                 return existing, False
             logger.info(f"Skipped: already uploaded | {format_details(rec=existing.id)}")
             return existing, False
-        # Create new recording
+        return await self._insert_recording(
+            user_id=user_id,
+            input_source_id=input_source_id,
+            display_name=display_name,
+            start_time=start_time,
+            duration=duration,
+            source_type=source_type,
+            source_key=source_key,
+            source_metadata=source_metadata,
+            user_config=user_config,
+            kwargs=kwargs,
+        )
+
+    async def _insert_recording(
+        self,
+        *,
+        user_id: str,
+        input_source_id: int | None,
+        display_name: str,
+        start_time: datetime,
+        duration: int,
+        source_type: SourceType,
+        source_key: str,
+        source_metadata: dict[str, Any] | None,
+        user_config: dict | None,
+        kwargs: dict[str, Any],
+    ) -> tuple[RecordingModel, bool]:
         is_mapped = kwargs.get("is_mapped", False)
         is_blank = kwargs.get("blank_record", False)
         source_processing_incomplete = kwargs.get("source_processing_incomplete", False)

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from api.mts_link_api import MtsLinkConversionBusyError
+from api.mts_link_api import MtsLinkConversionBusyError, MtsLinkResponseError
 from api.services.mts_link_prepare import (
     MtsLinkPrepareResult,
     MtsPrepareOutcome,
@@ -61,12 +61,14 @@ class TestPrepareOutcomes:
 
         assert result.outcome == MtsPrepareOutcome.READY
         assert result.download_url == "https://cdn/ready.mp4"
+        api.list_records.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_assembling_when_size_zero(self):
         rec = _recording()
         api = AsyncMock()
         api.list_records.return_value = [{"size": 0}]
+        api.get_ready_mp4_url.return_value = None
 
         with patch(
             "api.services.mts_link_prepare.resolve_mts_link_context",
@@ -75,6 +77,70 @@ class TestPrepareOutcomes:
             result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
 
         assert result.outcome == MtsPrepareOutcome.ASSEMBLING
+
+    @pytest.mark.asyncio
+    async def test_assembling_when_converted_records_404(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.list_records.return_value = [{"size": 0}]
+        api.get_ready_mp4_url.side_effect = MtsLinkResponseError(404, "missing")
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.ASSEMBLING
+
+    @pytest.mark.asyncio
+    async def test_failed_when_converted_records_500(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.get_ready_mp4_url.side_effect = MtsLinkResponseError(500, "boom")
+
+        with (
+            patch(
+                "api.services.mts_link_prepare.resolve_mts_link_context",
+                new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+            ),
+            patch("api.services.mts_link_prepare.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.FAILED
+
+    @pytest.mark.asyncio
+    async def test_ready_when_size_zero_but_mp4_exists(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.list_records.return_value = [{"size": 0}]
+        api.get_ready_mp4_url.return_value = "https://cdn/ready.mp4"
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.READY
+        assert result.download_url == "https://cdn/ready.mp4"
+        api.list_records.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_failed_when_record_missing_and_no_mp4(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.list_records.return_value = []
+        api.get_ready_mp4_url.return_value = None
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.FAILED
 
     @pytest.mark.asyncio
     async def test_converting_when_busy(self):
@@ -116,3 +182,5 @@ class TestApplyPrepareResult:
         assert rec.failed_reason is None
         assert rec.failed_at_stage is None
         assert rec.status == ProcessingStatus.INITIALIZED
+        assert rec.source.meta["source_processing_incomplete"] is False
+        assert rec.source.meta["needs_mp4"] is False

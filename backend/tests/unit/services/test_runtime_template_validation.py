@@ -130,3 +130,57 @@ async def test_validate_effective_default_platform_not_covered():
                     "default_platforms": ["youtube"],
                 },
             )
+
+
+@pytest.mark.asyncio
+async def test_validate_effective_two_leap_presets():
+    session = AsyncMock()
+    a = MagicMock()
+    a.id = 1
+    a.platform = "leap"
+    a.is_active = True
+    b = MagicMock()
+    b.id = 2
+    b.platform = "leap"
+    b.is_active = True
+    with patch("api.services.config_utils.OutputPresetRepository") as repo_cls:
+        repo_cls.return_value.find_by_ids = AsyncMock(return_value=[a, b])
+        with pytest.raises(InvalidOutputPresetsError, match="At most one leap"):
+            await validate_effective_output_config(session, "user-1", {"preset_ids": [1, 2]})
+
+
+@pytest.mark.asyncio
+async def test_validate_effective_inactive_leap_does_not_block_copy():
+    session = AsyncMock()
+    leap = MagicMock()
+    leap.id = 2
+    leap.platform = "leap"
+    leap.is_active = False
+    yt = MagicMock()
+    yt.id = 1
+    yt.platform = "youtube"
+    yt.is_active = True
+    with patch("api.services.config_utils.OutputPresetRepository") as repo_cls:
+        repo_cls.return_value.find_by_ids = AsyncMock(return_value=[leap, yt])
+        await validate_effective_output_config(
+            session,
+            "user-1",
+            {"auto_upload": True, "preset_ids": [1, 2]},
+        )
+
+
+@pytest.mark.asyncio
+async def test_validate_effective_auto_upload_leap_only():
+    session = AsyncMock()
+    preset = MagicMock()
+    preset.id = 1
+    preset.platform = "leap"
+    preset.is_active = True
+    with patch("api.services.config_utils.OutputPresetRepository") as repo_cls:
+        repo_cls.return_value.find_by_ids = AsyncMock(return_value=[preset])
+        with pytest.raises(InvalidOutputPresetsError, match="copy preset"):
+            await validate_effective_output_config(
+                session,
+                "user-1",
+                {"auto_upload": True, "preset_ids": [1]},
+            )

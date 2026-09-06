@@ -10,8 +10,10 @@ Optional::
 
     uv run python scripts/mts_link_smoke.py --from '2024-01-01 00:00:00' --limit 5
     uv run python scripts/mts_link_smoke.py --list-members
+    uv run python scripts/mts_link_smoke.py --list-members --query пономарен
     uv run python scripts/mts_link_smoke.py --list-members --member-email user@example.com
     uv run python scripts/mts_link_smoke.py --user-id 12345678 --limit 10
+    uv run python scripts/mts_link_smoke.py --user-id 12345678 --limit 15 --skip-converted
 """
 
 from __future__ import annotations
@@ -60,11 +62,25 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--limit", type=int, default=5, help="records page size (1–500)")
     p.add_argument("--skip-converted", action="store_true", help="Skip GET /converted-records")
     p.add_argument(
+        "--skip-duration",
+        action="store_true",
+        help="Skip GET /fileSystem/file/{recordId} and eventsession files duration probe",
+    )
+    p.add_argument(
+        "--file-id",
+        type=int,
+        help="Also GET /fileSystem/file/{id} (online record id) even if it is not in the list page",
+    )
+    p.add_argument(
         "--list-members",
         action="store_true",
         help="List org employees (GET /organization/members) with userId and email",
     )
-    p.add_argument("--member-email", help="Filter members by email (substring ok server-side)")
+    p.add_argument(
+        "--query",
+        help="Local substring filter on name, email, or position (case-insensitive; after fetching all pages)",
+    )
+    p.add_argument("--member-email", help="Local substring filter on email (after fetching all pages)")
     p.add_argument("--member-role", choices=("admin", "lecturer", "ADMIN", "LECTURER"), help="Filter by role")
     p.add_argument(
         "--user-id",
@@ -72,6 +88,64 @@ def _parse_args() -> argparse.Namespace:
         help="Filter GET /records by MTS Link userId (from --list-members)",
     )
     return p.parse_args()
+
+
+def _summarize_file(payload: dict) -> dict:
+    """Keep duration-related fields and the key set so missing duration is obvious."""
+    return {
+        "id": payload.get("id"),
+        "name": payload.get("name"),
+        "type": payload.get("type"),
+        "typeFile": payload.get("typeFile") or payload.get("fileType"),
+        "state": payload.get("state"),
+        "size": payload.get("size"),
+        "duration": payload.get("duration"),
+        "format": payload.get("format"),
+        "keys": sorted(payload.keys()),
+    }
+
+
+def _record_files_from_session(session: dict) -> list[dict]:
+    files = session.get("files") or []
+    if not isinstance(files, list):
+        return []
+    rows = []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("fileType") or item.get("typeFile")
+        if kind == "record" or item.get("duration") is not None:
+            rows.append(
+                {
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "fileType": kind,
+                    "size": item.get("size"),
+                    "duration": item.get("duration"),
+                    "keys": sorted(item.keys()),
+                }
+            )
+    return rows
+
+
+def _converted_duration_rows(payload) -> list[dict]:
+    from api.mts_link_api import unwrap_items
+
+    rows = []
+    for item in unwrap_items(payload):
+        if not isinstance(item, dict):
+            continue
+        params = item.get("startedParameters") if isinstance(item.get("startedParameters"), dict) else {}
+        rows.append(
+            {
+                "id": item.get("id"),
+                "fileId": item.get("fileId"),
+                "state": item.get("state"),
+                "duration": item.get("duration") if item.get("duration") is not None else params.get("duration"),
+                "size": item.get("size"),
+            }
+        )
+    return rows
 
 
 def _summarize_record(rec: dict) -> dict:
@@ -109,21 +183,44 @@ def _summarize_member(member: dict) -> dict:
     }
 
 
+def _member_haystack(member: dict) -> str:
+    summary = _summarize_member(member)
+    return " ".join(str(summary.get(key) or "") for key in ("email", "name", "position", "userId", "role")).casefold()
+
+
+async def _fetch_all_members(client, *, role: str | None) -> list[dict]:
+    """Walk GET /organization/members pages (max 500 per page) until a short page."""
+    members: list[dict] = []
+    page = 1
+    page_size = 500
+    while True:
+        batch = await client.list_organization_members(role=role, page=page, per_page=page_size)
+        members.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
+        if page > 50:
+            print(f"WARN stopped after {page - 1} pages ({len(members)} rows)")
+            break
+    return members
+
+
 async def _print_members(client, args: argparse.Namespace) -> int:
     from api.mts_link_api import MtsLinkAPIError
 
     role = args.member_role.upper() if args.member_role and args.member_role.islower() else args.member_role
     try:
-        members = await client.list_organization_members(
-            email=args.member_email,
-            role=role,
-            per_page=500,
-        )
+        members = await _fetch_all_members(client, role=role)
     except MtsLinkAPIError as e:
         print(f"FAIL list_organization_members: {e}")
         return 1
 
-    print(f"OK GET /organization/members — {len(members)} employee(s)")
+    print(f"OK GET /organization/members — {len(members)} employee(s) before local filter")
+    needles = [s.casefold() for s in (args.query, args.member_email) if s]
+    if needles:
+        members = [m for m in members if all(n in _member_haystack(m) for n in needles)]
+        print(f"after filter — {len(members)} match(es)")
+
     for i, member in enumerate(members):
         print(f"  [{i + 1}] {json.dumps(_summarize_member(member), ensure_ascii=False)}")
     return 0
@@ -137,6 +234,8 @@ async def _run(args: argparse.Namespace) -> int:
 
     if args.list_members:
         print("=== MTS Link organization members ===")
+        if args.query:
+            print(f"filter query={args.query!r}")
         if args.member_email:
             print(f"filter email={args.member_email!r}")
         if args.member_role:
@@ -168,19 +267,69 @@ async def _run(args: argparse.Namespace) -> int:
         summary = _summarize_record(rec)
         print(f"  [{i + 1}] {json.dumps(summary, ensure_ascii=False)}")
 
-    if not records:
+    extra_ids = [args.file_id] if args.file_id is not None else []
+    if extra_ids and extra_ids[0] not in {rec.get("id") for rec in records}:
+        print(f"\nAlso probing --file-id={args.file_id} (not on this /records page)")
+
+    if not args.skip_duration:
+        print("\n--- GET /fileSystem/file/{recordId} (duration on online record) ---")
+        seen: set[int] = set()
+        probe_ids: list[int] = []
+        for rec in records[: args.limit]:
+            rid = rec.get("id")
+            if isinstance(rid, int) and rid not in seen:
+                seen.add(rid)
+                probe_ids.append(rid)
+        for rid in extra_ids:
+            if rid not in seen:
+                seen.add(rid)
+                probe_ids.append(rid)
+        if not probe_ids:
+            print("  (no record ids)")
+        for rid in probe_ids:
+            try:
+                file_payload = await client.get_file(rid)
+                print(f"  record {rid}: {json.dumps(_summarize_file(file_payload), ensure_ascii=False)}")
+            except MtsLinkAPIError as e:
+                print(f"  record {rid}: FAIL {e}")
+            await asyncio.sleep(0.5)
+
+    if not records and args.file_id is None:
         print("\nNo online records in range. Try an earlier --from date.")
         return 0
 
-    first = records[0]
+    first = records[0] if records else {}
     event_session = first.get("eventSession") or {}
     event_session_id = event_session.get("id") if isinstance(event_session, dict) else None
     record_id = first.get("id")
+
+    if event_session_id and not args.skip_duration:
+        print(f"\n--- GET /eventsessions/{event_session_id} (files[].duration) ---")
+        try:
+            session = await client.get_event_session(event_session_id)
+            record_files = _record_files_from_session(session)
+            print(
+                json.dumps(
+                    {
+                        "id": session.get("id"),
+                        "name": session.get("name"),
+                        "startsAt": session.get("startsAt"),
+                        "endsAt": session.get("endsAt"),
+                        "duration": session.get("duration"),
+                        "record_files": record_files,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )[:4000]
+            )
+        except MtsLinkAPIError as e:
+            print(f"WARN eventsession: {e}")
 
     if event_session_id:
         print(f"\n--- GET /eventsessions/{event_session_id}/converted-records ---")
         try:
             converted = await client.get_converted_records_by_event_session(event_session_id)
+            print("durations:", json.dumps(_converted_duration_rows(converted), ensure_ascii=False))
             print(json.dumps(converted, ensure_ascii=False, indent=2)[:2000])
         except MtsLinkAPIError as e:
             print(f"WARN converted-records: {e}")

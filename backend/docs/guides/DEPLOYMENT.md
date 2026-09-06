@@ -23,7 +23,7 @@ These are unavoidable because they involve external accounts.
 | **Yandex Cloud** | Working account with billing enabled | ~10 min |
 | **`yc` CLI** | Installed and `yc init` complete | 2 min |
 | **`terraform` ≥ 1.5** | `brew install terraform` (or apt) | 1 min |
-| **`gh` CLI** | `brew install gh && gh auth login` (for `make gh-secrets`) | 2 min |
+| **`gh` CLI** | `brew install gh && gh auth login` (for `make deploy-gh-secrets`) | 2 min |
 | **SSH keypair** | `ssh-keygen -t ed25519 -C "leap-prod" -f ~/.ssh/id_ed25519` if you don't have one | 1 min |
 | **Domain** | Owned at reg.ru (in our case `leap-platform.ru`) | already done |
 | **Zoom OAuth app** | Marketplace → Server-to-Server OAuth → client_id + secret | ~10 min |
@@ -119,7 +119,7 @@ make init       # ~30 sec  — downloads providers from YC mirror
 make plan       # preview (should show "Plan: ~22 to add, 0 to change")
 make deploy     # ~5 min   — creates all YC resources
 
-make gh-secrets # push Terraform outputs to GitHub Actions secrets
+make deploy-gh-secrets # push Terraform outputs to GitHub Actions secrets
 ```
 
 `make deploy` writes a summary at the end:
@@ -169,14 +169,26 @@ make grafana-pw  # admin password for /grafana/
 
 ## 6. Continuous deployment
 
-After `make gh-secrets`, every push to `main` triggers
+After `make deploy-gh-secrets`, every push to `main` triggers
 `.github/workflows/deploy.yml`:
 
 1. Build `backend/` and `frontend/` images
 2. Push to `cr.yandex/<registry-id>/leap-{backend,frontend}:<sha>` and `:latest`
    (Buildx provenance/SBOM attestations are off — Yandex CR rejects OCI image indexes)
-3. SSH to the VM:  `git pull` → `refresh-env.sh` → `docker compose pull && up -d`
-4. ~3 min from push to live.
+3. **Manual approval** — job `Deploy to VPS` waits on GitHub Environment
+   `production` (Review deployments). Enable reviewers once:
+
+   ```bash
+   make deploy-gh-protect   # current `gh` user becomes the required reviewer
+   ```
+
+   Or: repo **Settings → Environments → production → Required reviewers**.
+   Until reviewers are set, the job does not wait.
+4. After approval, SSH to the VM: `git pull` → `refresh-env.sh` → `docker compose pull && up -d`
+
+Reject the deployment in the Actions UI to leave production on the previous
+compose revision (images for the rejected SHA stay in Container Registry).
+Jobs run only on `main` (including `workflow_dispatch`).
 
 PRs run `.github/workflows/ci.yml`: `ruff` + `ty` + backend `pytest tests/unit` + frontend `pnpm lint && pnpm build`.
 

@@ -108,5 +108,5 @@ class TemplateOutputConfig(BaseModel):
     @model_validator(mode="after")
     def auto_upload_requires_presets(self) -> "TemplateOutputConfig":
         if self.auto_upload and not self.preset_ids:
-            raise ValueError("auto_upload=True requires at least one preset_id")
+            raise ValueError("auto_upload=True requires at least one copy preset (not leap-only)")
         return self

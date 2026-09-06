@@ -13,6 +13,7 @@ from api.mts_link_api import (
     MtsLinkAPIError,
     MtsLinkAuthenticationError,
     MtsLinkConversionBusyError,
+    MtsLinkResponseError,
     pick_active_conversion,
     unwrap_conversion_jobs,
 )
@@ -175,17 +176,25 @@ async def _prepare_once(
     conversion_quality: str,
     conversion_view: str,
 ) -> MtsLinkPrepareResult:
-    online_size = await _fetch_online_size(api, mts_record_id)
-    if online_size == 0:
-        return MtsLinkPrepareResult(outcome=MtsPrepareOutcome.ASSEMBLING, online_size=0)
-
-    ready_url = await api.get_ready_mp4_url(event_session_id)
+    ready_url = None
+    try:
+        ready_url = await api.get_ready_mp4_url(event_session_id)
+    except MtsLinkResponseError as e:
+        if e.status_code != 404:
+            raise
     if ready_url:
         return MtsLinkPrepareResult(
             outcome=MtsPrepareOutcome.READY,
-            online_size=online_size,
             download_url=ready_url,
         )
+    found, online_size = await _fetch_online_size(api, mts_record_id)
+    if not found:
+        return MtsLinkPrepareResult(
+            outcome=MtsPrepareOutcome.FAILED,
+            error="MTS Link online recording was not found",
+        )
+    if online_size == 0:
+        return MtsLinkPrepareResult(outcome=MtsPrepareOutcome.ASSEMBLING, online_size=0)
 
     active = await _fetch_active_conversion(api, mts_record_id)
     if active is not None:
@@ -224,12 +233,17 @@ async def _prepare_once(
     )
 
 
-async def _fetch_online_size(api: MtsLinkAPI, mts_record_id: Any) -> int:
+async def _fetch_online_size(api: MtsLinkAPI, mts_record_id: Any) -> tuple[bool, int]:
     today = datetime.now(UTC).strftime("%Y-%m-%d")
-    records = await api.list_records(from_date="2000-01-01", to_date=today, record_id=int(mts_record_id), limit=1)
+    records = await api.list_records(
+        from_date="2000-01-01 00:00:00",
+        to_date=f"{today} 23:59:59",
+        record_id=int(mts_record_id),
+        limit=1,
+    )
     if records:
-        return int(records[0].get("size") or 0)
-    return 0
+        return True, int(records[0].get("size") or 0)
+    return False, 0
 
 
 async def _fetch_active_conversion(api: MtsLinkAPI, mts_record_id: Any) -> dict[str, Any] | None:
@@ -321,6 +335,7 @@ def apply_prepare_result(recording: RecordingModel, result: MtsLinkPrepareResult
 
     if result.outcome == MtsPrepareOutcome.READY:
         meta["needs_mp4"] = False
+        meta["source_processing_incomplete"] = False
         if result.download_url:
             meta["download_url"] = result.download_url
         recording.failed = False

@@ -35,7 +35,7 @@
     {
       "type": "stat",
       "title": "ERROR / CRITICAL (5m)",
-      "description": "Count of error-level log lines in the last 5 minutes.",
+      "description": "Count of error-level log lines in the last 5 minutes. Empty Loki window shows 0.",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -55,6 +55,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "0",
           "unit": "short",
           "decimals": 0,
           "color": {
@@ -151,7 +152,7 @@
     {
       "type": "stat",
       "title": "HTTP 5xx (5m)",
-      "description": "Server errors from the HTTP access log stream.",
+      "description": "HTTP access-log 5xx in the last 5 minutes. No data is shown as 0 — this is not Celery/MTS.",
       "gridPos": {
         "x": 12,
         "y": 1,
@@ -171,6 +172,7 @@
       ],
       "fieldConfig": {
         "defaults": {
+          "noValue": "0",
           "unit": "short",
           "decimals": 0,
           "color": {
@@ -223,7 +225,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(count by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id > 0 [1h])))",
+          "expr": "count(count by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id != \"\" [1h])))",
           "legendFormat": " "
         }
       ],
@@ -267,7 +269,7 @@
     {
       "type": "timeseries",
       "title": "Error log rate",
-      "description": "ERROR and CRITICAL lines per minute over the dashboard time range.",
+      "description": "ERROR and CRITICAL lines per Grafana interval (not strictly per minute on wide ranges).",
       "gridPos": {
         "x": 0,
         "y": 5,
@@ -281,12 +283,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(count_over_time({app=\"leap\", level=\"ERROR\"}[1m]))",
+          "expr": "sum(count_over_time({app=\"leap\", level=\"ERROR\"}[$__interval]))",
           "legendFormat": "ERROR"
         },
         {
           "refId": "B",
-          "expr": "sum(count_over_time({app=\"leap\", level=\"CRITICAL\"}[1m]))",
+          "expr": "sum(count_over_time({app=\"leap\", level=\"CRITICAL\"}[$__interval]))",
           "legendFormat": "CRITICAL"
         }
       ],
@@ -328,7 +330,7 @@
     {
       "type": "table",
       "title": "Top exception types (1h)",
-      "description": "Uses the exception_class Loki label set by Celery task_failure logs.",
+      "description": "Promtail label exception_class (set on Celery task_failure). Empty when nothing failed in the last hour.",
       "gridPos": {
         "x": 0,
         "y": 13,
@@ -342,7 +344,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(15, sum by (exception_class) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | exception_class != \"\" [1h])))",
+          "expr": "topk(15, sum by (exception_class) (count_over_time({app=\"leap\", exception_class=~\".+\"}[1h])))",
           "instant": true,
           "format": "table"
         }
@@ -464,7 +466,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, sum by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id > 0 [1h])))",
+          "expr": "topk(10, sum by (record_extra_recording_id) (count_over_time({app=\"leap\", level=~\"ERROR|CRITICAL\"} | json | record_extra_recording_id != \"\" [1h])))",
           "instant": true,
           "format": "table"
         }
@@ -668,5 +670,5 @@
   "timezone": "",
   "title": "LEAP Errors & Logs",
   "uid": "leap-errors",
-  "version": 3
+  "version": 4
 }

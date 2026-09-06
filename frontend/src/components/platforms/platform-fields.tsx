@@ -3,6 +3,7 @@
 import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { applyDescriptionHotkey, DESCRIPTION_FORMAT_WHISPER, isDescriptionFormatHotkey } from "@/lib/formatted-text";
 import { TagInput } from "@/components/ui/tag-input";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -162,6 +163,20 @@ export function TemplateField({
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !multiline) {
       e.preventDefault();
+      return;
+    }
+    if (multiline && (e.metaKey || e.ctrlKey) && !e.altKey) {
+      if (!isDescriptionFormatHotkey(e.code, e.shiftKey)) return;
+      e.preventDefault();
+      const ta = e.currentTarget;
+      const applied = applyDescriptionHotkey(e.code, e.shiftKey, ta.value, ta.selectionStart, ta.selectionEnd);
+      if (!applied || applied.next === ta.value) return;
+      onChange(applied.next);
+      const [a, b] = applied.range;
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(a, b);
+      });
     }
   }
 
@@ -181,7 +196,7 @@ export function TemplateField({
     if (!ta) return;
     const caret = ta.selectionStart;
     const before = value.slice(0, caret);
-    const after = value.slice(caret);
+    const after = value.slice(ta.selectionEnd);
     const newBefore = before.replace(/\{\{\s*\w*$/, `{{ ${varName} }}`);
     const newVal = newBefore + after;
     onChange(newVal);
@@ -282,8 +297,12 @@ export function TemplateField({
       </div>
       <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
         <Info size={11} className="shrink-0" />
-        Jinja2 — type <code className="font-mono">{"{{ "}</code> to autocomplete variables
+        Jinja2 — type <code className="font-mono">{"{{ "}</code> to autocomplete.
+        {multiline ? " Cmd/Ctrl+B, I, U, Shift+X, K (skips {{ variables }})." : null}
       </p>
+      {multiline ? (
+        <p className="text-[10px] leading-snug text-muted-foreground/55">{DESCRIPTION_FORMAT_WHISPER}</p>
+      ) : null}
     </div>
   );
 }
@@ -314,6 +333,64 @@ function Disclosure({ title, children }: { title: string; children: ReactNode })
 /** Lay out toggle rows in two columns so the switch hugs its label. */
 function ToggleGrid({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">{children}</div>;
+}
+
+// ---------------------------------------------------------------------------
+// LEAP look (course/share) — title, description, cover
+// ---------------------------------------------------------------------------
+
+export interface LeapFieldsValue {
+  title_template: string;
+  description_template: string;
+  thumbnail_name: string;
+}
+
+export const DEFAULT_LEAP_FIELDS: LeapFieldsValue = {
+  title_template: "",
+  description_template: "",
+  thumbnail_name: "",
+};
+
+export function leapFieldsFromApi(raw: unknown): LeapFieldsValue {
+  const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    title_template: typeof obj.title_template === "string" ? obj.title_template : "",
+    description_template: typeof obj.description_template === "string" ? obj.description_template : "",
+    thumbnail_name: typeof obj.thumbnail_name === "string" ? obj.thumbnail_name : "",
+  };
+}
+
+export function LeapLookFields({
+  value,
+  onChange,
+}: {
+  value: LeapFieldsValue;
+  onChange: (patch: Partial<LeapFieldsValue>) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <TemplateField
+        label="Title template"
+        value={value.title_template}
+        onChange={(v) => onChange({ title_template: v })}
+        placeholder="{{ display_name }}"
+      />
+      <TemplateField
+        label="Description template"
+        value={value.description_template}
+        onChange={(v) => onChange({ description_template: v })}
+        multiline
+        rows={6}
+        placeholder={"{{ summary }}\n\n{{ topics }}"}
+      />
+      <ThumbnailPicker
+        label="Cover image"
+        placeholder="No cover image"
+        value={value.thumbnail_name}
+        onChange={(name) => onChange({ thumbnail_name: name })}
+      />
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------

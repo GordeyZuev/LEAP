@@ -155,18 +155,43 @@ class TestBuildMtsLinkMetadata:
         assert meta["download_url"] is None
         assert meta["event_session_id"] == 900
         assert meta["mts_user_id"] == 176_030_889
-        assert meta["extras"] == {"chat": False, "files_count": 0, "error": None}
+        assert "extras" not in meta
+
+    def test_zero_size_with_duration_is_assembled(self):
+        meta = _build_mts_link_metadata(_record(size=0), "lecturer@example.com", 1, None, duration_seconds=6058)
+
+        assert meta["source_processing_incomplete"] is False
+        assert meta["online_duration"] == 6058
 
     def test_zero_size_marks_source_still_processing(self):
         meta = _build_mts_link_metadata(_record(size=0), "lecturer@example.com", 1, None)
 
         assert meta["source_processing_incomplete"] is True
 
+    def test_zero_size_with_mp4_is_not_incomplete(self):
+        meta = _build_mts_link_metadata(_record(size=0), "lecturer@example.com", 1, "https://cdn/x.mp4")
+
+        assert meta["source_processing_incomplete"] is False
+        assert meta["needs_mp4"] is False
+
     def test_existing_conversion_skips_further_work(self):
         meta = _build_mts_link_metadata(_record(), "lecturer@example.com", 1, "https://cdn/x.mp4")
 
         assert meta["needs_mp4"] is False
         assert meta["download_url"] == "https://cdn/x.mp4"
+
+
+@pytest.mark.unit
+class TestMtsLinkSyncUpsertFlags:
+    def test_sync_looks_up_by_source_key_only(self):
+        import inspect
+
+        from api.routers.input_sources import _sync_mts_link_source
+
+        src = inspect.getsource(_sync_mts_link_source)
+        assert "require_start_time_in_lookup=False" in src
+        assert "get_file" in src
+        assert "is_mts_link_blank" in src
 
 
 @pytest.mark.unit
@@ -184,3 +209,35 @@ class TestMtsLinkSyncErrorIsolation:
 
         meta = _build_mts_link_metadata(_record(), "lecturer@example.com", 1, download_url)
         assert meta["needs_mp4"] is True
+
+
+@pytest.mark.unit
+class TestMergeMtsLinkSourceMetadata:
+    def test_keeps_prepare_download_url_when_sync_has_none(self):
+        from api.repositories.recording_repos import merge_mts_link_source_metadata
+
+        existing = {
+            "download_url": "https://cdn/ready.mp4",
+            "needs_mp4": False,
+            "source_processing_incomplete": False,
+            "extras": {"chat": True, "files_count": 1, "error": None},
+            "conversion_id": 99,
+        }
+        incoming = _build_mts_link_metadata(_record(size=0), "lecturer@example.com", 1, None)
+        merged = merge_mts_link_source_metadata(existing, incoming)
+
+        assert merged["download_url"] == "https://cdn/ready.mp4"
+        assert merged["needs_mp4"] is False
+        assert merged["source_processing_incomplete"] is False
+        assert merged["extras"] == existing["extras"]
+        assert merged["conversion_id"] == 99
+
+    def test_does_not_invent_url_while_assembling(self):
+        from api.repositories.recording_repos import merge_mts_link_source_metadata
+
+        existing = {"needs_mp4": True, "source_processing_incomplete": True}
+        incoming = _build_mts_link_metadata(_record(size=0), "lecturer@example.com", 1, None)
+        merged = merge_mts_link_source_metadata(existing, incoming)
+
+        assert merged["download_url"] is None
+        assert merged["source_processing_incomplete"] is True

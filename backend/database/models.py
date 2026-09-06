@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -211,6 +212,13 @@ class SourceMetadataModel(Base):
 
     __table_args__ = (
         UniqueConstraint("source_type", "source_key", "recording_id", name="unique_source_per_recording"),
+        Index(
+            "uq_source_metadata_mts_user_key",
+            "user_id",
+            "source_key",
+            unique=True,
+            postgresql_where=text("source_type = 'MTS_LINK'"),
+        ),
     )
 
     # --- PK & FK ---

@@ -17,6 +17,49 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.10.8.2": {
+    title: "Playlist descriptions",
+    highlights: [
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Playlist and Overview text can be bold, italic, underlined, struck through, or linked. Shortcuts work like in a normal editor. Inserted fields, such as video count, keep their own look.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "On a public " },
+          { kind: "link", label: "playlist", href: "/playlists" },
+          {
+            kind: "text",
+            value:
+              " page, the number of videos, total length, and the video list fill in automatically. YouTube and VK still get plain text.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "The editor shows how the text is written. Public look is what visitors see. Formatting stays on one line.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "In the player, J and L skip ten seconds, arrow keys skip five, C toggles captions in the gear menu, and the question-mark key lists every shortcut. The bar shows current time and duration.",
+          },
+        ],
+      },
+    ],
+  },
   "0.10.8.1": {
     title: "Playlists and player stability",
     highlights: [

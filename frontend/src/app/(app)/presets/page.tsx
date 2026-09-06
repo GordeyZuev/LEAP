@@ -23,7 +23,7 @@ import { ResultCount } from "@/components/ui/result-count";
 import { ActionButton } from "@/components/ui/action-button";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 
-const ALLOWED_PLATFORMS = new Set(["youtube", "vk_video", "yandex_disk", "zoom"]);
+const ALLOWED_PLATFORMS = new Set<string>(["youtube", "yandex_disk", "leap"]);
 
 interface PresetItem {
   id: number;
@@ -46,12 +46,14 @@ const PLATFORM_LABELS: Record<string, string> = {
   youtube: "YouTube",
   vk: "VK Video",
   yandex_disk: "Yandex Disk",
+  leap: "LEAP",
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
   youtube: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-300",
   vk: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
   yandex_disk: "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300",
+  leap: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
 };
 
 const SORT_OPTIONS = [
@@ -250,7 +252,10 @@ function PresetsContent() {
             label="Platform"
             emptySummary="All platforms"
             value={platforms}
-            options={platformOptions}
+            options={[
+              ...platformOptions.filter((o) => ALLOWED_PLATFORMS.has(o.value)),
+              { value: "leap", label: "LEAP" },
+            ]}
             onChange={(next) => list.setMultiParam("platform", next)}
           />,
           <SegmentedFilter
