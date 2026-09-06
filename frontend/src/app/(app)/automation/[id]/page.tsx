@@ -14,8 +14,13 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { JobRunHistory } from "@/components/automation/job-run-history";
 import { Toggle } from "@/components/ui/toggle";
+import { PROCESSING_STATUS_LABEL } from "@/components/ui/status-badge";
 import { useTimezones } from "@/hooks/use-references";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AUTOMATION_STATUS_FILTER_OPTIONS,
+  DEFAULT_AUTOMATION_STATUS_FILTER,
+} from "@/lib/constants";
 
 type ScheduleMode = "visual" | "cron";
 
@@ -112,10 +117,21 @@ const DEFAULT_FORM: JobForm = {
   cron_expression: "0 9 * * *",
   sync_days: 2,
   is_active: true,
-  filters: { exclude_blank: false, status: [] },
+  filters: { exclude_blank: false, status: [...DEFAULT_AUTOMATION_STATUS_FILTER] },
   processing_config_enabled: false,
   processing_config: { ...DEFAULT_PROCESSING_CONFIG },
 };
+
+const ALLOWED_AUTOMATION_STATUSES = new Set<string>(
+  AUTOMATION_STATUS_FILTER_OPTIONS.map((opt) => opt.value),
+);
+
+function sanitizeStatusFilter(status: string[] | undefined): string[] {
+  if (status == null) return [...DEFAULT_AUTOMATION_STATUS_FILTER];
+  const kept = status.filter((s) => ALLOWED_AUTOMATION_STATUSES.has(s));
+  if (kept.length === 0 && status.length > 0) return [...DEFAULT_AUTOMATION_STATUS_FILTER];
+  return kept;
+}
 
 function apiJobToForm(job: AutomationJobApi): JobForm {
   const s = job.schedule;
@@ -157,7 +173,7 @@ function apiJobToForm(job: AutomationJobApi): JobForm {
     is_active: job.is_active ?? true,
     filters: {
       exclude_blank: job.filters?.exclude_blank ?? false,
-      status: job.filters?.status ?? [],
+      status: sanitizeStatusFilter(job.filters?.status),
     },
     processing_config_enabled: !!pc,
     processing_config: {
@@ -291,7 +307,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         is_active: data.is_active,
         filters: {
           exclude_blank: data.filters.exclude_blank,
-          ...(data.filters.status.length > 0 ? { status: data.filters.status } : {}),
+          status: data.filters.status,
         },
         processing_config: data.processing_config_enabled
           ? {
@@ -369,6 +385,18 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         ? f.template_ids.filter((x) => x !== tid)
         : [...f.template_ids, tid],
     }));
+  }
+
+  function toggleStatus(value: string, checked: boolean) {
+    setForm((f) => {
+      const has = f.filters.status.includes(value);
+      const status = checked
+        ? has
+          ? f.filters.status
+          : [...f.filters.status, value]
+        : f.filters.status.filter((x) => x !== value);
+      return { ...f, filters: { ...f.filters, status } };
+    });
   }
 
   const syncWarning = getSyncDaysWarning(form);
@@ -499,26 +527,36 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
             checked={form.filters.exclude_blank}
             onChange={(v) => setForm((f) => ({ ...f, filters: { ...f.filters, exclude_blank: v } }))}
           />
-          <F label="Recording statuses" hint="Process only recordings in selected statuses (empty = all)">
-            <div className="mt-1 space-y-1.5">
-              {(["INITIALIZED", "DOWNLOADED", "TRANSCRIBED", "READY", "FAILED"] as const).map((s) => (
-                <label key={s} className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.filters.status.includes(s)}
-                    onChange={(e) => {
-                      const next = e.target.checked
-                        ? [...form.filters.status, s]
-                        : form.filters.status.filter((x) => x !== s);
-                      setForm((f) => ({ ...f, filters: { ...f.filters, status: next } }));
-                    }}
-                    className="rounded accent-primary"
-                  />
-                  <span className="text-sm text-secondary-foreground">{s}</span>
-                </label>
-              ))}
+          <fieldset>
+            <legend className="text-sm font-medium text-secondary-foreground">Recording statuses</legend>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Only recordings in the selected statuses are matched. Uncheck all to include every status.
+            </p>
+            <div className="mt-3 space-y-4">
+              <StatusFilterGroup
+                heading="Waiting for source"
+                values={["PENDING_SOURCE", "PENDING_CONVERSION"]}
+                selected={form.filters.status}
+                onToggle={toggleStatus}
+              />
+              <StatusFilterGroup
+                heading="Ready to run"
+                values={["INITIALIZED", "DOWNLOADED", "READY"]}
+                selected={form.filters.status}
+                onToggle={toggleStatus}
+              />
             </div>
-          </F>
+            {form.filters.status.length > 0 &&
+              (!form.filters.status.includes("PENDING_CONVERSION") ||
+                !form.filters.status.includes("PENDING_SOURCE")) && (
+                <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">
+                  {!form.filters.status.includes("PENDING_CONVERSION") &&
+                    "MTS Link recordings still converting are skipped unless Converting is selected. "}
+                  {!form.filters.status.includes("PENDING_SOURCE") &&
+                    "Recordings still assembling on the source are skipped unless Pending is selected."}
+                </p>
+              )}
+          </fieldset>
         </div>
 
         {/* Processing config */}
@@ -795,6 +833,55 @@ function F({ label, hint, children }: { label: string; hint?: string; children: 
       <label className="block text-sm font-medium text-secondary-foreground mb-1.5">{label}</label>
       {hint && <p className="text-xs text-muted-foreground mb-1.5">{hint}</p>}
       {children}
+    </div>
+  );
+}
+
+const STATUS_FILTER_HINT = new Map<string, string>(
+  AUTOMATION_STATUS_FILTER_OPTIONS.map((opt) => [opt.value, opt.hint]),
+);
+
+function StatusFilterGroup({
+  heading,
+  values,
+  selected,
+  onToggle,
+}: {
+  heading: string;
+  values: readonly string[];
+  selected: string[];
+  onToggle: (value: string, checked: boolean) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{heading}</p>
+      <div className="space-y-1">
+        {values.map((value) => {
+          const id = `filter-status-${value}`;
+          const hint = STATUS_FILTER_HINT.get(value);
+          return (
+            <label
+              key={value}
+              htmlFor={id}
+              className="flex cursor-pointer items-start gap-2.5 rounded-xl px-1 py-1.5 -mx-1 hover:bg-muted/60"
+            >
+              <input
+                id={id}
+                type="checkbox"
+                checked={selected.includes(value)}
+                onChange={(e) => onToggle(value, e.target.checked)}
+                className="mt-0.5 rounded accent-primary"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm text-secondary-foreground">
+                  {PROCESSING_STATUS_LABEL[value as keyof typeof PROCESSING_STATUS_LABEL] ?? value}
+                </span>
+                {hint && <span className="mt-0.5 block text-xs text-muted-foreground">{hint}</span>}
+              </span>
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }

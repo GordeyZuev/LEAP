@@ -36,8 +36,10 @@ import { SearchInput } from "@/components/filters/search-input";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DescriptionEditor } from "@/components/ui/description-editor";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { FormattedText } from "@/components/ui/formatted-text";
 import { Modal } from "@/components/ui/modal";
 import { CARD_SHELL, SectionCard } from "@/components/ui/section-card";
 import { RecordingPoster } from "@/components/recordings/recording-poster";
@@ -45,6 +47,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Toast } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { interpolatePlaylistDescription, PLAYLIST_JINJA_VARS } from "@/lib/formatted-text";
 import { cn, extractApiError, formatDate, httpStatus } from "@/lib/utils";
 
 function shareUrl(token: string | null): string | null {
@@ -318,6 +321,12 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
 
   const descriptionValue = descDraft ?? playlist.description ?? "";
   const canDrag = !q && !fromDate && !toDate;
+  const descriptionPreview = interpolatePlaylistDescription(descriptionValue, {
+    videoCount: playlist.video_count,
+    durationSeconds: playlist.duration_sum,
+    titles: canDrag ? items.map((i) => i.display_name) : [],
+    substituteItems: canDrag,
+  });
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -371,21 +380,27 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
           </div>
 
           <div className="mt-4">
-            <label htmlFor="playlist-description" className="mb-1.5 block text-xs font-medium text-muted-foreground">
-              Description
-            </label>
-            <textarea
+            <DescriptionEditor
               id="playlist-description"
+              label="Description"
               value={descriptionValue}
-              onChange={(e) => setDescDraft(e.target.value)}
-              rows={3}
+              onChange={(v) => setDescDraft(v)}
               placeholder="What this playlist is about…"
-              className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+              variables={PLAYLIST_JINJA_VARS}
             />
-            <p className="mt-1.5 text-xs text-muted-foreground">Shown on the public playlist page.</p>
+            {descriptionValue.trim() !== "" && (
+              <div className="mt-3 rounded-xl border border-border bg-muted/20 px-3 py-2.5">
+                <p className="mb-1.5 text-[10px] leading-snug text-muted-foreground/60">Public look</p>
+                <FormattedText text={descriptionPreview} className="text-sm leading-relaxed text-muted-foreground" />
+              </div>
+            )}
             {descDraft !== null && (
               <div className="mt-2">
-                <ActionButton size="sm" isPending={saveDesc.isPending} onClick={() => saveDesc.mutate(descDraft.trim() || null)}>
+                <ActionButton
+                  size="sm"
+                  isPending={saveDesc.isPending}
+                  onClick={() => saveDesc.mutate(/^\s*$/.test(descDraft) ? null : descDraft)}
+                >
                   Save description
                 </ActionButton>
               </div>

@@ -2,6 +2,184 @@
 
 ---
 
+## 2026-09-06: Fix 500 on recording detail for PENDING_SOURCE
+
+- **GET `/recordings/{id}?detailed=true`** — `can_run` used list-shape `source.type`; detail payload has `source.source_type`, so MTS/Zoom wait rows raised 500. Both shapes are accepted.
+- **Release notes copy** — dropped modifier glyphs (⌘, ⇧) from the in-app notes, README, and format hints.
+
+### Файлы
+
+- `backend/api/schemas/recording/response.py`
+- `backend/tests/unit/api/test_pause_resume.py`
+- `frontend/src/content/release-notes.ts`
+- `frontend/src/lib/formatted-text.ts`
+- `frontend/src/components/platforms/platform-fields.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `README.md`
+- `backend/docs/UPDATES.md`
+- `backend/docs/guides/PLAYLISTS.md`
+
+---
+
+## 2026-09-06: Automation status filters include MTS wait states
+
+- **Filters UI** — automation jobs list **Pending** (`PENDING_SOURCE`) and **Converting** (`PENDING_CONVERSION`) with human labels. Removed non-existent `TRANSCRIBED` / `FAILED` checkboxes.
+- **Defaults** — new jobs select Initialized + Converting + Pending so MTS Link recordings are retried while MP4 is still rendering. Empty selection still means every status.
+- **Jobs without a stored `status` key** — Celery uses the same default list.
+- **Retry safety** — pending MTS pings no longer increment template usage or rewrite mapping; unmatched wait statuses are not forced to `SKIPPED`; Zoom `PENDING_SOURCE` is not started (same as `/run`). Deleted/expired/paused rows are skipped; wait statuses are ordered first so `limit(1000)` does not starve MTS retries. Legacy `FAILED`/`TRANSCRIBED` in stored filters are dropped so Postgres enum `IN (...)` cannot abort the job. Pipeline tasks are enqueued only after the template bind is committed.
+
+### Файлы
+
+- `frontend/src/app/(app)/automation/[id]/page.tsx`
+- `frontend/src/lib/constants.ts`
+- `frontend/src/components/ui/status-badge.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`
+- `backend/api/schemas/automation/filters.py`
+- `backend/api/tasks/automation.py`
+- `backend/api/tasks/processing.py`
+- `backend/tests/unit/api/tasks/test_automation_status_filter.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+
+### Файлы
+
+- `frontend/src/app/(app)/automation/[id]/page.tsx`
+- `frontend/src/lib/constants.ts`
+- `frontend/src/components/ui/status-badge.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`
+- `backend/api/schemas/automation/filters.py`
+- `backend/api/tasks/automation.py`
+- `backend/tests/unit/api/tasks/test_automation_status_filter.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+
+---
+
+## 2026-09-06: LEAP courses without an upload preset
+
+- **Run** — LEAP playlists sit outside the upload override. Selecting courses sends `output_config.playlist_ids` without setting `auto_upload` (template upload flags still merge). Upload presets stay behind “Upload a copy”.
+- **Templates** — named templates list LEAP playlists separately from upload presets. Default/base template still cannot set `playlist_ids`. A named template with only `playlist_ids` is valid.
+- **Presets UI** — new presets are YouTube or Yandex Disk. Existing VK presets remain editable.
+
+### Файлы
+
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `frontend/src/app/(app)/presets/page.tsx`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/TEMPLATES.md`
+- `frontend/src/app/(app)/docs/page.tsx`
+
+---
+
+## 2026-09-06: Player shortcuts and duration
+
+- **Keyboard** — Plyr stock keys off. J/L ±10s (L is not loop), arrows ±5s, C captions, `[`/`]` and Shift+`,`/`.` speed, 0–9 jump, `?` overlay. Ignored in inputs and dialogs.
+- **Bar** — current time plus duration; duration hidden under 480px. Captions only in settings (and C). Settings: captions + speed.
+- **Late VTT / chapters** — subtitle track and topic dots apply without remounting the player.
+
+### Файлы
+
+- `frontend/src/components/ui/video-player.tsx`
+- `frontend/src/components/ui/video-player-keys.ts`
+- `frontend/src/app/globals.css`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/content/release-notes.ts`
+- `README.md`
+- `backend/docs/UPDATES.md`
+
+---
+
+## 2026-09-06: Grafana dashboards — real signal, not idle noise
+
+- **MTS pending** — `MtsLinkConversionPendingError` is INFO and a successful `awaiting_mts` result; it must not ERROR or Celery-retry. Later chain steps (trim / transcribe / topics / subtitles / uploads / finalize) no-op while status is `PENDING_CONVERSION` or `PENDING_SOURCE`, so the pipeline does not fail with "No video file".
+- **Share panels** — Overview views/downloads come from `share_access_events` (calendar days). Migration **045** grants `grafana_ro` SELECT.
+- **Queue age** — enqueue tracker is cleared on every queue name at prerun/postrun; members older than 7 days are dropped.
+- **Dashboards** — HTTP latency gaps documented; slowest routes use `$__range`; Errors exception types use Loki label `exception_class`; Workers pipeline tiles/duration from Postgres.
+
+### Файлы
+
+- `backend/api/tasks/processing.py`
+- `backend/api/celery_app.py`
+- `backend/api/observability/metrics.py`
+- `backend/alembic/versions/045_grafana_ro_share_access_events.py`
+- `monitoring/dashboards/leap_api.json`
+- `monitoring/dashboards/leap_errors.json`
+- `monitoring/dashboards/leap_overview.json`
+- `monitoring/dashboards/leap_celery.json`
+- `backend/docs/guides/MONITORING.md`
+- `backend/tests/unit/api/test_mts_link_download_credentials.py`
+
+---
+
+## 2026-09-06: Manual approval before production deploy
+
+- **GitHub Actions** — after images are pushed, job **Deploy to VPS** waits on Environment `production` (Review deployments). VPS restart runs only after approval. Concurrent deploys no longer cancel a run that is waiting for review. Deploy jobs run only on `main`.
+- **One-time setup** — `make deploy-gh-protect` (or Settings → Environments → Required reviewers). Without reviewers the job does not wait.
+
+### Файлы
+
+- `.github/workflows/deploy.yml`
+- `Makefile` (`deploy-gh-protect`)
+- `backend/docs/guides/DEPLOYMENT.md`
+
+---
+
+## v0.10.8.2 (2026-09-06)
+
+Релиз: **описания с форматом и Jinja в плейлистах** — жирный, курсив, подчёркивание, зачёркивание, ссылка (Cmd/Ctrl+B, I, U, K и Shift+X); переменные курса `video_count` / `duration_hm` / `items`; чистый текст на YouTube/VK. В поле остаются маркеры; **Public look** — как на share. **Плеер:** J/L ±10 с, клавиша «?» — шпаргалка, длительность на панели, субтитры в шестерёнке. Подробности — секции **2026-09-06** ниже.
+
+---
+
+## 2026-09-06: Playlist Jinja, format hotkeys, upload strip
+
+- **Playlist Jinja** — `{{ video_count }}`, `{{ duration_hm }}`, `{{ items }}` in playlist descriptions. Owner stores the source; public share and playlist cards render it.
+- **Format hotkeys** — Cmd/Ctrl+B, I, U; Shift+X strikethrough; K link. Marks wrap text around `{{ … }}` (`**Список тем:** {{ topics }} **вот такой**`). Underline `++ ++`, strike `~~ ~~`.
+- **Uploads** — YouTube/VK/Yandex descriptions strip those marks after Jinja (`markup_to_plain`).
+- **Limits (UI)** — editor keeps marks; **Public look** is formatted. Marks do not span newlines. A `*` in an item title can look like italic. Whisper hint under the field.
+
+### Файлы
+
+- `backend/api/helpers/description_markup.py`
+- `backend/api/helpers/playlist_description.py`
+- `backend/api/routers/playlists.py`, `backend/api/routers/share.py`
+- `backend/api/tasks/upload.py`
+- `backend/tests/unit/api/helpers/test_description_markup.py`
+- `frontend/src/lib/formatted-text.ts`
+- `frontend/src/components/ui/description-editor.tsx`
+- `frontend/src/components/ui/formatted-text.tsx`
+- `frontend/src/components/platforms/platform-fields.tsx`
+- `frontend/src/app/(app)/playlists/page.tsx`, `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/content/release-notes.ts`
+- `backend/docs/guides/PLAYLISTS.md`, `backend/docs/guides/JINJA_METADATA_TEMPLATES.md`, `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-05: Playlist and Overview description formatting
+
+- **Whitespace** — playlist descriptions keep line breaks and indentation (no longer collapsed on the public landing or owner UI).
+- **Markup** — `**bold**`, `*italic*`, `[label](https://…)` and bare `http(s)` URLs render on playlist descriptions and recording Overview (owner + share). Only `http`/`https` links. Open Graph uses the plain text. Platform uploads still send the stored string.
+
+### Файлы
+
+- `backend/api/schemas/playlist.py`
+- `backend/tests/unit/api/test_playlists.py`
+- `frontend/src/lib/formatted-text.ts`
+- `frontend/src/components/ui/formatted-text.tsx`
+- `frontend/src/app/(app)/playlists/page.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/share/p/[token]/page.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`, `backend/docs/TECHNICAL.md`
+
+---
+
 ## 2026-09-05: Playlist watch counts as a recording view
 
 - **Views** — opening a **playable** video on `/share/p/{uuid}?v={itemId}` increments that recording’s `share_view_count` (same ~30 min visitor dedup as recording share). Processing / blank / deleted items and the playlist landing do not count.

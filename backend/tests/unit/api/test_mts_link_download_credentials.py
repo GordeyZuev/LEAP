@@ -104,3 +104,71 @@ class TestDeadKeyFlagsCredential:
             )
 
         cred_repo.set_needs_reauth.assert_awaited_once_with(3, True)
+
+    @pytest.mark.asyncio
+    async def test_pending_conversion_returns_awaiting_without_raising(self):
+        from api.tasks import processing
+        from video_download_module.platforms.mtslink.downloader import MtsLinkConversionPendingError
+
+        downloader = AsyncMock()
+        downloader.download.side_effect = MtsLinkConversionPendingError("still converting")
+        recording = SimpleNamespace(
+            id=42,
+            status="INITIALIZED",
+            download_started_at=None,
+            on_air=True,
+            pipeline_task_id="abc",
+            source=SimpleNamespace(input_source_id=7, meta={}),
+        )
+        recording_repo = AsyncMock()
+
+        with (
+            patch.object(processing, "create_downloader", return_value=downloader),
+            patch.object(
+                processing,
+                "_mts_link_download_options",
+                new=AsyncMock(return_value=(3, {"api_token": "ok"})),
+            ),
+            patch("api.services.mts_link_prepare.apply_prepare_result"),
+        ):
+            result = await processing._download_via_external(
+                task_self=AsyncMock(),
+                session=AsyncMock(),
+                recording=recording,
+                recording_repo=recording_repo,
+                user_id="user-1",
+                user_slug=1,
+                storage_builder=None,
+                source_type="MTS_LINK",
+                force=False,
+            )
+
+        assert result["status"] == "awaiting_mts"
+        assert result["success"] is True
+        assert recording.on_air is False
+        assert recording.pipeline_task_id is None
+
+
+@pytest.mark.unit
+def test_waiting_for_external_source_statuses():
+    from types import SimpleNamespace
+
+    from api.tasks.processing import _waiting_for_external_source
+    from models import ProcessingStatus
+
+    assert _waiting_for_external_source(SimpleNamespace(status=ProcessingStatus.PENDING_CONVERSION))
+    assert _waiting_for_external_source(SimpleNamespace(status=ProcessingStatus.PENDING_SOURCE))
+    assert not _waiting_for_external_source(SimpleNamespace(status=ProcessingStatus.DOWNLOADED))
+
+
+@pytest.mark.unit
+def test_run_download_recording_treats_pending_as_success():
+    from unittest.mock import Mock
+
+    from api.tasks.processing import _run_download_recording
+    from video_download_module.platforms.mtslink.downloader import MtsLinkConversionPendingError
+
+    task = SimpleNamespace(run_async=Mock(side_effect=MtsLinkConversionPendingError("wait")))
+    result = _run_download_recording(task, 1, "user-1", False, None)
+    assert result["status"] == "awaiting_mts"
+    assert result["success"] is True

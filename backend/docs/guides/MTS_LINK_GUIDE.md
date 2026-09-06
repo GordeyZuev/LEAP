@@ -128,7 +128,7 @@ Sync только **находит** записи и пишет метаданн
 
 ### Автоматизация
 
-`run_recording_task` в начале вызывает тот же `prepare_mts_link_recording`. Job с фильтром `INITIALIZED` / **`PENDING_CONVERSION`** периодически «пингует» МТС, пока MP4 не появится. Старые automation jobs в БД могут не включать `PENDING_CONVERSION` — добавьте статус в фильтр вручную.
+`run_recording_task` в начале вызывает тот же `prepare_mts_link_recording`. Job с фильтром **Initialized** / **Converting** / **Pending** периодически «пингует» МТС, пока MP4 не появится. В форме автоматизации эти статусы есть по умолчанию у новых правил. Старые jobs, где выбран только `INITIALIZED`, нужно обновить: включить **Converting** (и **Pending**, если запись ещё собирается).
 
 ### Сброс застрявших записей
 
@@ -194,6 +194,7 @@ storage/users/user_{slug}/recordings/{id}/
 ```bash
 export MTS_LINK_API_KEY='your-key'
 uv run python scripts/mts_link_smoke.py --list-members
+uv run python scripts/mts_link_smoke.py --list-members --query пономарен
 uv run python scripts/mts_link_smoke.py --user-id 176030889 --limit 10
 ```
 

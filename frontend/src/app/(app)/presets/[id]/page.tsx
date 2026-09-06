@@ -36,9 +36,13 @@ import {
   MetadataPreviewResultBox,
   type MetadataRenderPreviewData,
 } from "@/components/platforms/metadata-render-preview";
-import { usePlatforms } from "@/hooks/use-references";
 
 type Platform = "youtube" | "vk" | "yandex_disk";
+
+const CREATE_PLATFORMS: { value: Platform; label: string }[] = [
+  { value: "youtube", label: "YouTube" },
+  { value: "yandex_disk", label: "Yandex Disk" },
+];
 
 interface CredentialItem {
   id: number;
@@ -85,8 +89,6 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   const router = useRouter();
   const qc = useQueryClient();
 
-  const { data: platformOptions = [] } = usePlatforms();
-
   const [name,        setName]        = useState("");
   const [description, setDescription] = useState("");
   const [platform,    setPlatform]    = useState<Platform>("youtube");
@@ -120,7 +122,8 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!existing) return;
-    const p = (existing.platform ?? "youtube") as Platform;
+    const raw = existing.platform ?? "youtube";
+    const p = (raw === "vk_video" ? "vk" : raw) as Platform;
     const newName = existing.name ?? "";
     const newDesc = existing.description ?? "";
     const newCredId = existing.credential_id ?? "";
@@ -305,11 +308,14 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           <div>
             <label className={FILTER_LABEL}>Platform</label>
             <div className="mt-1 flex gap-2">
-              {platformOptions.map((o) => (
+              {(platform === "vk"
+                ? [{ value: "vk" as Platform, label: "VK Video" }, ...CREATE_PLATFORMS]
+                : CREATE_PLATFORMS
+              ).map((o) => (
                 <button
                   key={o.value}
                   type="button"
-                  onClick={() => changePlatform(o.value as Platform)}
+                  onClick={() => changePlatform(o.value)}
                   disabled={!isNew}
                   className={cn(
                     "flex-1 rounded-xl border py-2 text-sm font-medium transition-colors",
@@ -328,7 +334,10 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
             <label className={FILTER_LABEL}>Credential</label>
             {creds.length === 0 ? (
               <p className="mt-1 text-sm text-muted-foreground">
-                No {platformOptions.find((o) => o.value === platform)?.label} credentials.{" "}
+                No {platform === "vk"
+                  ? "VK Video"
+                  : CREATE_PLATFORMS.find((o) => o.value === platform)?.label ?? platform}{" "}
+                credentials.{" "}
                 <Link href="/credentials" className="text-primary hover:underline">
                   Add credentials →
                 </Link>

@@ -10,6 +10,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
+from api.schemas.playlist import PlaylistCreate, PlaylistUpdate
 from api.services.playlist_service import (
     SHARE_NOT_FOUND,
     PlaylistService,
@@ -18,6 +19,19 @@ from api.services.playlist_service import (
     item_unavailable_reason,
 )
 from tests.fixtures.factories import create_mock_recording
+
+
+@pytest.mark.unit
+class TestPlaylistDescriptionSchema:
+    def test_keeps_line_breaks_and_indent(self) -> None:
+        body = "Intro\n  indented\nthird"
+        created = PlaylistCreate(name="Course", description=body)
+        assert created.description == body
+        updated = PlaylistUpdate(description=body)
+        assert updated.description == body
+
+    def test_blank_becomes_none(self) -> None:
+        assert PlaylistCreate(name="Course", description="   \n  ").description is None
 
 
 @pytest.mark.unit

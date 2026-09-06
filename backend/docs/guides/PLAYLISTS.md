@@ -41,6 +41,10 @@ The public UI must treat **HTTP 404** on `GET /api/v1/share/{token}` and `GET /a
 
 Owner `GET /api/v1/playlists/{id}` 404/403 → playlist missing (deleted or another tenant).
 
+Playlist **description** is a Jinja string (owner GET/PATCH stores the source). Allowed variables: `video_count`, `duration_hm` (total length, same `H:MM:SS` / `M:SS` as recordings), `items` (numbered titles in watch order). Public GET and the playlist card list **render** Jinja; markup (`**bold**`, `*italic*`, `++underline++`, `~~strike~~`, `[label](url)`) is applied in the UI after render. Cmd/Ctrl+B, I, U, K, and Shift+X wrap only the text around `{{ … }}`, e.g. `**Курс:** {{ items }} **далее**`. The editor keeps the marks; **Public look** (and the share page) is formatted. Marks do not span line breaks, so they cannot wrap a multi-line `{{ items }}` block. A `*` in a video title can look like italic on the public page. YouTube/VK/Yandex receive **plain text** (`markup_to_plain` after Jinja).
+
 ## Templates
 
-Named templates may set `output_config.playlist_ids` (≤10). When `template_id` is set (bind / create / match), the recording is **appended**. The default/base template is ignored. Missing playlist ids are skipped. Empty override lists do not clear membership. See [TEMPLATES.md](TEMPLATES.md).
+Named templates may set `output_config.playlist_ids` (≤10). When `template_id` is set (bind / create / match), the recording is **appended**. The default/base template is ignored. Missing playlist ids are skipped. Empty override lists do not clear membership.
+
+Run and named templates can add a recording to LEAP courses **without** upload presets: membership is not an upload. See [TEMPLATES.md](TEMPLATES.md).

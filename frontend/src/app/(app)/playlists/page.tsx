@@ -19,9 +19,12 @@ import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
+import { DescriptionEditor } from "@/components/ui/description-editor";
 import { Field } from "@/components/ui/field";
+import { FormattedText } from "@/components/ui/formatted-text";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { PER_PAGE_PLAYLISTS } from "@/lib/constants";
+import { PLAYLIST_JINJA_VARS } from "@/lib/formatted-text";
 import { cn, extractApiError } from "@/lib/utils";
 
 const GRID_TRACKS = "grid-cols-[repeat(auto-fill,minmax(min(22rem,100%),1fr))]";
@@ -122,7 +125,10 @@ function PlaylistsGrid({
               </div>
               <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-balance text-foreground">{p.name}</h2>
               {p.description && (
-                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-pretty text-muted-foreground">{p.description}</p>
+                <FormattedText
+                  text={p.description}
+                  className="mt-1 line-clamp-2 text-xs leading-relaxed text-pretty text-muted-foreground"
+                />
               )}
               <p className="mt-2 text-xs text-muted-foreground">
                 {p.video_count} {p.video_count === 1 ? "video" : "videos"}
@@ -169,7 +175,11 @@ function PlaylistsContent() {
   });
 
   const create = useMutation({
-    mutationFn: () => createPlaylist({ name: name.trim(), description: description.trim() || null }),
+    mutationFn: () =>
+      createPlaylist({
+        name: name.trim(),
+        description: /^\s*$/.test(description) ? null : description,
+      }),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ["playlists"] });
       setCreateOpen(false);
@@ -245,14 +255,14 @@ function PlaylistsContent() {
             />
             {fieldError && <p className="mt-1.5 text-xs text-danger-fg">{fieldError}</p>}
           </Field>
-          <Field label="Description" hint="Optional">
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-            />
-          </Field>
+          <DescriptionEditor
+            label="Description"
+            value={description}
+            onChange={setDescription}
+            placeholder="Optional"
+            rows={4}
+            variables={PLAYLIST_JINJA_VARS}
+          />
           <div className="flex justify-end gap-2">
             <ActionButton type="button" variant="secondary" onClick={() => setCreateOpen(false)}>
               Cancel

@@ -10,6 +10,7 @@ from sqlalchemy import select
 from api.celery_app import celery_app
 from api.core.context import ServiceContext
 from api.dependencies import get_async_session_maker
+from api.helpers.description_markup import markup_to_plain
 from api.helpers.template_renderer import TemplateRenderer, render_jinja, render_upload_title_and_description
 from api.observability import track_pipeline_stage
 from api.repositories.auth_repos import UserCredentialRepository
@@ -599,6 +600,8 @@ async def _async_upload_recording(
                     description += f"\n\n{topics_str}"
                 if questions_display and questions_display.get("enabled") and template_context.get("questions"):
                     description += f"\n\n{template_context['questions']}"
+
+            description = markup_to_plain(description)
 
             original_title_len = len(title)
             title = _truncate_title_for_platform(title, platform)

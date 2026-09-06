@@ -63,7 +63,10 @@ share_downloads_total = Counter(
 )
 
 _QUEUES_TRACKED = ("downloads", "uploads", "async_operations", "processing_cpu", "maintenance", "celery")
+QUEUES_TRACKED = _QUEUES_TRACKED
 ENQUEUE_KEY_PREFIX = "leap:enq:"
+# Drop tracker members older than this — leftover ZSET rows, not a live backlog.
+_STALE_ENQUEUE_SECONDS = 7 * 24 * 3600
 
 
 class _QueueAgeCollector:
@@ -92,9 +95,9 @@ class _QueueAgeCollector:
             client = self._redis()
             now = time.time()
             for queue in _QUEUES_TRACKED:
-                # Sync client returns list[tuple[member, score]]; ty sees the
-                # unified async/sync types from redis-py and flags subscription.
-                oldest = client.zrange(f"{ENQUEUE_KEY_PREFIX}{queue}", 0, 0, withscores=True)
+                key = f"{ENQUEUE_KEY_PREFIX}{queue}"
+                client.zremrangebyscore(key, 0, now - _STALE_ENQUEUE_SECONDS)
+                oldest = client.zrange(key, 0, 0, withscores=True)
                 age = max(0.0, now - oldest[0][1]) if oldest else 0.0  # type: ignore[index]
                 gauge.add_metric([queue], age)
         except Exception as exc:

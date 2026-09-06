@@ -21,6 +21,8 @@ import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
 import { ErrorState } from "@/components/ui/error-state";
 import { CollapsibleCard, SectionCard } from "@/components/ui/section-card";
+import { DescriptionEditor } from "@/components/ui/description-editor";
+import { FormattedText } from "@/components/ui/formatted-text";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { ArtefactList, type ArtefactItem } from "@/components/recordings/artefact-list";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
@@ -285,7 +287,7 @@ async function fetchRecordingMediaUrl(recordingId: string, variant: "processed" 
   );
   return res.data.url;
 }
-const DETAIL_SIDEBAR = "order-first w-full space-y-6 lg:order-none lg:w-80 lg:shrink-0";
+const DETAIL_SIDEBAR = "order-first w-full min-w-0 space-y-6 lg:order-none lg:w-80 lg:shrink-0";
 
 /** Section labels — one source for cards and the loading shell. */
 const RECORDING_SECTION = {
@@ -334,7 +336,11 @@ function deriveIngressLifecycle(recording: RecordingDetail): { phase: LifecycleP
   if (st === "DOWNLOADING") return { phase: "active" };
   if (st === "PENDING_SOURCE" || st === "PENDING_CONVERSION" || st === "INITIALIZED") return { phase: "pending" };
   if (st === "EXPIRED") return { phase: "skipped", hint: "Recording is unavailable or expired" };
-  if (["DOWNLOADED", "PROCESSING", "PROCESSED", "UPLOADING", "UPLOADED", "READY", "SKIPPED"].includes(st)) {
+  if (
+    (["DOWNLOADED", "PROCESSING", "PROCESSED", "UPLOADING", "UPLOADED", "READY", "SKIPPED"] as readonly ProcessingStatus[]).includes(
+      st,
+    )
+  ) {
     return { phase: "done" };
   }
   return { phase: "pending" };
@@ -446,7 +452,7 @@ function SharePublicationRow({
   const statusColor = active ? "text-success-fg" : "text-muted-foreground";
 
   return (
-    <div className="flex items-start gap-2.5 py-2.5">
+    <div className="flex min-w-0 items-start gap-2.5 py-2.5">
       <Icon size={14} className={cn(statusColor, "mt-0.5 shrink-0")} />
       <div className="min-w-0 flex-1">
         <span className="text-xs font-semibold text-foreground">LEAP Link</span>
@@ -498,20 +504,20 @@ function PlaylistMembershipRow({
   onRemove: (playlist: { id: number; item_id: number }) => void;
 }) {
   return (
-    <div className="flex items-start gap-2.5 border-t border-primary/10 py-2.5">
+    <div className="flex min-w-0 items-start gap-2.5 border-t border-primary/10 py-2.5">
       <ListVideo size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <span className="text-xs font-semibold text-foreground">Playlists</span>
         {playlists.length === 0 ? (
           <p className="text-xs text-muted-foreground">Not in any playlist</p>
         ) : (
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
             {playlists.map((p) => (
               <span
                 key={p.id}
-                className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 py-1 pl-3 pr-1.5 text-xs font-medium text-primary"
+                className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-primary/20 bg-primary/5 py-1 pl-3 pr-1.5 text-xs font-medium text-primary"
               >
-                <Link href={`/playlists/${p.id}`} className="max-w-[14rem] truncate hover:underline">
+                <Link href={`/playlists/${p.id}`} className="min-w-0 truncate hover:underline">
                   {p.name}
                 </Link>
                 <button
@@ -1227,12 +1233,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       placeholder="Overview template…"
                     />
                   ) : (
-                    <textarea
-                      autoFocus
+                    <DescriptionEditor
                       value={descDraft}
-                      onChange={(e) => { setDescDraft(e.target.value); setDescIsTemplate(e.target.value.includes("{{")); }}
+                      onChange={(v) => { setDescDraft(v); setDescIsTemplate(v.includes("{{")); }}
                       rows={8}
-                      className="w-full resize-none rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm outline-none focus:border-primary"
                       placeholder="Overview…"
                     />
                   )}
@@ -1292,9 +1296,10 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   </div>
                 </div>
               ) : (
-                <p className="max-w-prose whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                  {displayDescription}
-                </p>
+                <FormattedText
+                  text={displayDescription ?? ""}
+                  className="max-w-prose text-sm leading-relaxed text-foreground"
+                />
               )}
             </CollapsibleCard>
           )}
@@ -1563,7 +1568,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               </p>
             )}
             <div className="space-y-4">
-              <div className="rounded-xl border border-primary/20 bg-primary/[0.04] px-3">
+              <div className="min-w-0 rounded-xl border border-primary/20 bg-primary/[0.04] px-3">
                 <SharePublicationRow
                   shareToken={shareToken}
                   shareStats={recording.share_stats}

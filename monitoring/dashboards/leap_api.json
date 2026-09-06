@@ -272,6 +272,7 @@
     {
       "type": "timeseries",
       "title": "Latency p50 / p95 / p99",
+      "description": "Gaps mean no HTTP traffic in that scrape window (quantile is undefined at 0 RPS), not a missing Prometheus scrape. Connects nulls up to 1h.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -306,7 +307,7 @@
             "drawStyle": "line",
             "lineInterpolation": "linear",
             "fillOpacity": 10,
-            "spanNulls": false
+            "spanNulls": 3600000
           }
         }
       },
@@ -472,7 +473,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, sum by (handler) (rate(leap_http_requests_total[$__rate_interval])))",
+          "expr": "topk(10, sum by (handler) (rate(leap_http_requests_total[$__rate_interval])) > 0.0001)",
           "instant": true,
           "format": "table"
         }
@@ -508,6 +509,7 @@
     {
       "type": "table",
       "title": "Top 10 slowest routes (p95)",
+      "description": "p95 over $__rate_interval for handlers with at least 3 requests in the dashboard range. Empty when traffic is too sparse for a stable quantile.",
       "gridPos": {
         "x": 12,
         "y": 15,
@@ -521,7 +523,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(10, histogram_quantile(0.95, sum by (handler, le) (rate(leap_http_request_duration_seconds_bucket[$__rate_interval]))) and on(handler) (sum by (handler) (increase(leap_http_requests_total[$__rate_interval])) >= 5))",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (handler, le) (rate(leap_http_request_duration_seconds_bucket[$__rate_interval]))) and on(handler) (sum by (handler) (increase(leap_http_requests_total[$__range])) >= 3))",
           "instant": true,
           "format": "table"
         }
@@ -606,6 +608,7 @@
     {
       "type": "timeseries",
       "title": "5xx errors by route",
+      "description": "HTTP 5xx only. Pipeline / Celery errors are on LEAP Errors & Logs. Empty means no server HTTP errors.",
       "gridPos": {
         "x": 0,
         "y": 25,
@@ -648,6 +651,7 @@
     {
       "type": "logs",
       "title": "Recent 5xx (logs)",
+      "description": "HTTP access log lines with status 5xx. Empty is healthy. Application ERROR logs are on the Errors dashboard.",
       "gridPos": {
         "x": 12,
         "y": 25,
@@ -690,5 +694,5 @@
   "timezone": "",
   "title": "LEAP API",
   "uid": "leap-api",
-  "version": 2
+  "version": 3
 }

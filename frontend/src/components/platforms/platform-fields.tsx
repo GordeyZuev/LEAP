@@ -3,6 +3,7 @@
 import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { applyDescriptionHotkey, DESCRIPTION_FORMAT_WHISPER, isDescriptionFormatHotkey } from "@/lib/formatted-text";
 import { TagInput } from "@/components/ui/tag-input";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -162,6 +163,20 @@ export function TemplateField({
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !multiline) {
       e.preventDefault();
+      return;
+    }
+    if (multiline && (e.metaKey || e.ctrlKey) && !e.altKey) {
+      if (!isDescriptionFormatHotkey(e.code, e.shiftKey)) return;
+      e.preventDefault();
+      const ta = e.currentTarget;
+      const applied = applyDescriptionHotkey(e.code, e.shiftKey, ta.value, ta.selectionStart, ta.selectionEnd);
+      if (!applied || applied.next === ta.value) return;
+      onChange(applied.next);
+      const [a, b] = applied.range;
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(a, b);
+      });
     }
   }
 
@@ -181,7 +196,7 @@ export function TemplateField({
     if (!ta) return;
     const caret = ta.selectionStart;
     const before = value.slice(0, caret);
-    const after = value.slice(caret);
+    const after = value.slice(ta.selectionEnd);
     const newBefore = before.replace(/\{\{\s*\w*$/, `{{ ${varName} }}`);
     const newVal = newBefore + after;
     onChange(newVal);
@@ -282,8 +297,12 @@ export function TemplateField({
       </div>
       <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
         <Info size={11} className="shrink-0" />
-        Jinja2 — type <code className="font-mono">{"{{ "}</code> to autocomplete variables
+        Jinja2 — type <code className="font-mono">{"{{ "}</code> to autocomplete.
+        {multiline ? " Cmd/Ctrl+B, I, U, Shift+X, K (skips {{ variables }})." : null}
       </p>
+      {multiline ? (
+        <p className="text-[10px] leading-snug text-muted-foreground/55">{DESCRIPTION_FORMAT_WHISPER}</p>
+      ) : null}
     </div>
   );
 }

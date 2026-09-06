@@ -62,6 +62,18 @@ Values are prepared in `api.helpers.template_renderer.TemplateRenderer.prepare_r
 
 ---
 
+## Playlist descriptions
+
+LEAP playlist `description` (not YouTube `playlist_id`) is Jinja with a **separate** context, rendered on public share and on the playlist card list. Owner GET/PATCH stores the source.
+
+| Variable | Notes |
+|----------|--------|
+| `video_count` | Number of items |
+| `duration_hm` | Sum of item durations (`H:MM:SS` or `M:SS`, same helper as recordings) |
+| `items` | Numbered `display_name` list in playlist order (`1. …`) |
+
+Inline format marks are stripped **after** Jinja on YouTube/VK/Yandex upload (`markup_to_plain`). They stay in the stored string for LEAP UI (the editor shows marks; Public look / share is formatted). Marks do not span newlines. A `*` inside a substituted `{{ items }}` title can render as italic.
+
 ## Two-step render (title → description)
 
 1. Render `title_template` → string `title`.

@@ -289,7 +289,12 @@ def task_postrun_handler(task_id, task, *, state, **_kwargs):
     entry = _TASK_STATE.pop(task_id, None)
     started, stack = entry if entry is not None else (None, None)
     duration_ms = round((time.perf_counter() - started) * 1000, 2) if started is not None else None
-    level = "INFO" if state == "SUCCESS" else "WARNING"
+    if state == "SUCCESS":
+        level = "INFO"
+    elif state == "RETRY":
+        level = "DEBUG"
+    else:
+        level = "WARNING"
     logger.bind(task_state=state, duration_ms=duration_ms).log(
         level,
         "Task {} | task={} • id={} • {}ms",
@@ -301,6 +306,12 @@ def task_postrun_handler(task_id, task, *, state, **_kwargs):
 
     if stack is not None:
         stack.close()
+    try:
+        client = _publish_redis()
+        for queue in QUEUES_TRACKED:
+            client.zrem(f"{ENQUEUE_KEY_PREFIX}{queue}", task_id)
+    except Exception as err:
+        logger.debug("Failed to clear enqueue time after task {}: {}", task_id, err)
 
 
 @task_failure.connect
@@ -339,7 +350,7 @@ def task_retry_handler(request, reason, *, sender, **_kwargs):
 
 import redis  # noqa: E402
 
-from api.observability.metrics import ENQUEUE_KEY_PREFIX  # noqa: E402
+from api.observability.metrics import ENQUEUE_KEY_PREFIX, QUEUES_TRACKED  # noqa: E402
 
 _publish_redis_client: redis.Redis | None = None
 
@@ -364,8 +375,10 @@ def _record_enqueue_time(_sender=None, headers=None, properties=None, routing_ke
 
 
 @task_prerun.connect
-def _clear_enqueue_time(task_id, task, *_args, **_kwargs):
+def _clear_enqueue_time(task_id, _task, *_args, **_kwargs):
     try:
-        _publish_redis().zrem(f"{ENQUEUE_KEY_PREFIX}{_task_queue(task)}", task_id)
+        client = _publish_redis()
+        for queue in QUEUES_TRACKED:
+            client.zrem(f"{ENQUEUE_KEY_PREFIX}{queue}", task_id)
     except Exception as exc:
         logger.debug("Failed to clear enqueue time for {}: {}", task_id, exc)

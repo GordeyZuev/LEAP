@@ -127,64 +127,65 @@
       ]}
     },
     {
-      "type": "barchart",
-      "title": "Upload success rate by platform",
-      "description": "Percentage of output targets that reached UPLOADED status.",
+      "type": "table",
+      "title": "Upload success by platform",
+      "description": "Targets created in the dashboard range: uploaded / total. Empty when nothing was created in that window (in-flight and older uploads are excluded).",
       "gridPos": {"x": 12, "y": 15, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT target_type::text AS platform, ROUND((100.0 * COUNT(*) FILTER (WHERE status = 'UPLOADED') / NULLIF(COUNT(*), 0))::numeric, 1) AS success_pct FROM output_targets WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 2 DESC;"}],
-      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 85}, {"color": "green", "value": 95}]}}},
-      "options": {"orientation": "horizontal", "xField": "platform", "showValue": "always", "legend": {"displayMode": "hidden"}}
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT target_type::text AS platform, COUNT(*) FILTER (WHERE status = 'UPLOADED') AS uploaded, COUNT(*) AS total, ROUND((100.0 * COUNT(*) FILTER (WHERE status = 'UPLOADED') / NULLIF(COUNT(*), 0))::numeric, 1) AS success_pct FROM output_targets WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY total DESC;"}],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 1, "custom": {"align": "left"}}, "overrides": [
+        {"matcher": {"id": "byName", "options": "success_pct"}, "properties": [{"id": "unit", "value": "percent"}, {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 85}, {"color": "green", "value": 95}]}}]}
+      ]}
     },
 
     {"type": "row", "title": "Share links (dashboard time range)", "gridPos": {"x": 0, "y": 23, "w": 24, "h": 1}, "collapsed": false, "panels": []},
     {
       "type": "stat",
       "title": "Share views",
-      "description": "Public share page views in the selected time range (Prometheus counter).",
+      "description": "page_view rows in share_access_events for the dashboard time range (30 min visitor dedup already applied when the event was written).",
       "gridPos": {"x": 0, "y": 24, "w": 4, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "increase(leap_share_page_views_total[$__range]) or vector(0)", "instant": true}],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name"},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM share_access_events WHERE event_type = 'page_view' AND $__timeFilter(created_at);"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}}}
     },
     {
       "type": "stat",
       "title": "Share downloads",
-      "description": "User-initiated file/video downloads from public share pages in the selected time range.",
+      "description": "file_download rows in share_access_events for the dashboard time range (player inline fetches are not stored).",
       "gridPos": {"x": 4, "y": 24, "w": 4, "h": 4},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "sum(increase(leap_share_downloads_total[$__range])) or vector(0)", "instant": true}],
-      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name"},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM share_access_events WHERE event_type = 'file_download' AND $__timeFilter(created_at);"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}}}
     },
     {
       "type": "stat",
       "title": "Active share links",
-      "description": "Recordings with a public share token right now.",
+      "description": "Recordings with share_enabled and a public token right now.",
       "gridPos": {"x": 8, "y": 24, "w": 4, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM recordings WHERE share_token IS NOT NULL AND NOT deleted;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COUNT(*) AS value FROM recordings WHERE share_token IS NOT NULL AND share_enabled AND NOT deleted;"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]}}}
     },
     {
       "type": "timeseries",
       "title": "Share views per day",
-      "description": "Daily increase of leap_share_page_views_total.",
+      "description": "Calendar-day counts (UTC) from share_access_events. Each bar is that day's total, not a rolling 24h window.",
       "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "increase(leap_share_page_views_total[1d])", "legendFormat": "views"}],
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', created_at) AS time, COUNT(*) AS value FROM share_access_events WHERE event_type = 'page_view' AND $__timeFilter(created_at) GROUP BY 1 ORDER BY 1;"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "barAlignment": 0}}},
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
     },
     {
       "type": "timeseries",
       "title": "Share downloads by type",
-      "description": "Daily downloads stacked by artifact type (subtitles, transcript, video, …).",
+      "description": "Calendar-day file_download events stacked by artifact_type. Legend Total is the sum of daily bars (non-overlapping).",
       "gridPos": {"x": 12, "y": 28, "w": 12, "h": 8},
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "targets": [{"refId": "A", "expr": "increase(leap_share_downloads_total[1d])", "legendFormat": "{{artifact_type}}"}],
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', created_at) AS time, COALESCE(artifact_type, 'unknown') AS metric, COUNT(*) AS value FROM share_access_events WHERE event_type = 'file_download' AND $__timeFilter(created_at) GROUP BY 1, 2 ORDER BY 1;"}],
       "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "custom": {"drawStyle": "bars", "fillOpacity": 70, "stacking": {"mode": "normal"}}}},
       "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}, "tooltip": {"mode": "multi"}}
     },
@@ -193,10 +194,10 @@
     {
       "type": "table",
       "title": "Stuck recordings (>2h in same status)",
-      "description": "Active recordings that have not progressed for more than two hours (excludes paused).",
+      "description": "Active recordings that have not progressed for more than two hours (excludes paused and MTS pending conversion/source).",
       "gridPos": {"x": 0, "y": 37, "w": 12, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT id, user_id, status, ROUND((EXTRACT(EPOCH FROM NOW() - updated_at) / 3600)::numeric, 1) AS hours_stuck, display_name FROM recordings WHERE status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED') AND NOT failed AND NOT deleted AND NOT on_pause AND updated_at < NOW() - INTERVAL '2 hours' ORDER BY hours_stuck DESC LIMIT 20;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT id, user_id, status, ROUND((EXTRACT(EPOCH FROM NOW() - updated_at) / 3600)::numeric, 1) AS hours_stuck, display_name FROM recordings WHERE status NOT IN ('READY', 'UPLOADED', 'EXPIRED', 'SKIPPED', 'PENDING_CONVERSION', 'PENDING_SOURCE') AND NOT failed AND NOT deleted AND NOT on_pause AND updated_at < NOW() - INTERVAL '2 hours' ORDER BY hours_stuck DESC LIMIT 20;"}],
       "fieldConfig": {"defaults": {}, "overrides": [
         {"matcher": {"id": "byName", "options": "hours_stuck"}, "properties": [{"id": "unit", "value": "h"}, {"id": "custom.cellOptions", "value": {"type": "color-background", "mode": "gradient"}}, {"id": "thresholds", "value": {"mode": "absolute", "steps": [{"color": "yellow", "value": null}, {"color": "red", "value": 12}]}}]}
       ]}
@@ -221,5 +222,5 @@
   "timezone": "",
   "title": "LEAP Overview",
   "uid": "leap-overview",
-  "version": 5
+  "version": 6
 }

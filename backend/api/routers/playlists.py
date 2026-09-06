@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
+from api.helpers.playlist_description import render_playlist_description
 from api.schemas.common.pagination import paginate_list
 from api.schemas.playlist import (
     PlaylistAddItemsRequest,
@@ -71,7 +72,7 @@ def _to_list_item(playlist: PlaylistModel, poster_url: str | None = None) -> Pla
     return PlaylistListItem(
         id=playlist.id,
         name=playlist.name,
-        description=playlist.description,
+        description=render_playlist_description(playlist.description, playlist),
         video_count=video_count,
         duration_sum=duration_sum,
         share_enabled=playlist.share_enabled,

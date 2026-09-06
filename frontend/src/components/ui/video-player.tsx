@@ -5,6 +5,7 @@ import { AlertCircle, RotateCcw } from "lucide-react";
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
 import { VIDEO_PLAYER_FRAME } from "@/components/ui/video-player-frame";
+import { PLAYER_SHORTCUTS, PLAYER_SPEEDS, handlePlayerKey } from "@/components/ui/video-player-keys";
 import { cn } from "@/lib/utils";
 import { createResumeSaver, readResumeTime, resumeTimeWithinDuration } from "@/lib/video-resume";
 
@@ -26,15 +27,57 @@ interface VideoPlayerProps {
   onReload?: () => void | Promise<unknown>;
 }
 
+function markerSignature(markers?: VideoPlayerMarker[]): string {
+  if (!markers?.length) return "";
+  return markers.map((m) => `${m.time}\t${m.label}`).join("\n");
+}
+
+function syncMarkers(player: Plyr, markers: VideoPlayerMarker[] | undefined) {
+  const bar = player.elements.container?.querySelector(".plyr__progress");
+  if (!bar) return;
+  bar.querySelectorAll(".plyr__progress__marker").forEach((n: Element) => n.remove());
+  const duration = player.duration;
+  if (!duration || !markers?.length) return;
+  markers.forEach((m) => {
+    const dot = document.createElement("span");
+    dot.className = "plyr__progress__marker";
+    dot.title = m.label;
+    dot.setAttribute("aria-hidden", "true");
+    dot.style.left = `${(m.time / duration) * 100}%`;
+    bar.appendChild(dot);
+  });
+}
+
+function ensureChapterLabel(player: Plyr): HTMLSpanElement | null {
+  const existing = player.elements.controls?.querySelector(".plyr__chapter-label");
+  if (existing instanceof HTMLSpanElement) return existing;
+  const timeEl =
+    player.elements.controls?.querySelector(".plyr__time--duration")
+    ?? player.elements.controls?.querySelector(".plyr__time--current");
+  if (!timeEl) return null;
+  const el = document.createElement("span");
+  el.className = "plyr__chapter-label plyr__chapter-label--hidden";
+  timeEl.insertAdjacentElement("afterend", el);
+  return el;
+}
+
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   function VideoPlayer({ src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onReload }, forwardedRef) {
     const [ready, setReady] = useState(false);
     const [failure, setFailure] = useState<string | null>(null);
     const [instanceId, setInstanceId] = useState(0);
+    const [helpOpen, setHelpOpen] = useState(false);
     const localRef = useRef<HTMLVideoElement>(null);
+    const playerRef = useRef<Plyr | null>(null);
+    const chapterLabelRef = useRef<HTMLSpanElement | null>(null);
+    const lastLabelRef = useRef<string | null>(null);
+    const markersRef = useRef(markers);
+    markersRef.current = markers;
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onEndedRef = useRef(onEnded);
     const onReloadRef = useRef(onReload);
+    const helpOpenRef = useRef(false);
+    helpOpenRef.current = helpOpen;
     useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
     useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
     useEffect(() => { onReloadRef.current = onReload; }, [onReload]);
@@ -63,6 +106,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
       setReady(false);
       setFailure(null);
+      setHelpOpen(false);
       let cancelled = false;
       let refreshAttempted = false;
       let startupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,59 +120,26 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         seekTime: 5,
         invertTime: false,
         hideControls: true,
-        speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+        speed: { selected: 1, options: [...PLAYER_SPEEDS] },
         tooltips: { controls: true, seek: true },
-        keyboard: { focused: true, global: true },
+        keyboard: { focused: false, global: false },
         captions: { active: false, language: "auto", update: true },
+        settings: ["captions", "speed"],
         // No volume slider — phones use hardware volume; mute is enough.
         controls: [
           "play-large",
           "play",
           "progress",
           "current-time",
+          "duration",
           "mute",
-          "captions",
           "settings",
           "pip",
           "fullscreen",
         ],
         markers: { enabled: false, points: [] as { time: number; label: string }[] },
       });
-
-      if (markers?.length) {
-        const injectMarkers = () => {
-          const duration = player.duration;
-          if (!duration) return;
-          const bar = player.elements.container?.querySelector(".plyr__progress");
-          if (!bar) return;
-          bar.querySelectorAll(".plyr__progress__marker").forEach((n: Element) => n.remove());
-          markers.forEach((m) => {
-            const dot = document.createElement("span");
-            dot.className = "plyr__progress__marker";
-            dot.title = m.label;
-            dot.setAttribute("aria-hidden", "true");
-            dot.style.left = `${(m.time / duration) * 100}%`;
-            bar.appendChild(dot);
-          });
-        };
-        if (el.readyState >= 1) injectMarkers();
-        else el.addEventListener("loadedmetadata", injectMarkers, { once: true });
-      }
-
-      let chapterLabelEl: HTMLSpanElement | null = null;
-      let lastLabel: string | null = null;
-      if (markers?.length) {
-        const injectChapterLabel = () => {
-          const timeEl = player.elements.controls?.querySelector(".plyr__time--duration")
-            ?? player.elements.controls?.querySelector(".plyr__time--current");
-          if (!timeEl) return;
-          chapterLabelEl = document.createElement("span");
-          chapterLabelEl.className = "plyr__chapter-label plyr__chapter-label--hidden";
-          timeEl.insertAdjacentElement("afterend", chapterLabelEl);
-        };
-        if (el.readyState >= 1) injectChapterLabel();
-        else el.addEventListener("loadedmetadata", injectChapterLabel, { once: true });
-      }
+      playerRef.current = player;
 
       const markReady = () => {
         if (cancelled) return;
@@ -165,14 +176,15 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         const ct = player.currentTime;
         onTimeUpdateRef.current?.(ct);
         saver?.save(ct);
-        if (chapterLabelEl && markers?.length) {
-          const active = markers.findLast((m) => m.time <= ct);
-          const label = active?.label ?? null;
-          if (label !== lastLabel) {
-            chapterLabelEl.textContent = label ?? "";
-            chapterLabelEl.classList.toggle("plyr__chapter-label--hidden", !label);
-            lastLabel = label;
-          }
+        const list = markersRef.current;
+        const labelEl = chapterLabelRef.current;
+        if (!labelEl || !list?.length) return;
+        const active = list.findLast((m) => m.time <= ct);
+        const label = active?.label ?? null;
+        if (label !== lastLabelRef.current) {
+          labelEl.textContent = label ?? "";
+          labelEl.classList.toggle("plyr__chapter-label--hidden", !label);
+          lastLabelRef.current = label;
         }
       });
       player.on("ready", applyResume);
@@ -194,21 +206,69 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       player.on("ended", () => onEndedRef.current?.());
       window.addEventListener("pagehide", persistNow);
 
+      const onKeyDown = (event: KeyboardEvent) => {
+        handlePlayerKey(event, player, {
+          isOpen: () => helpOpenRef.current,
+          toggle: () => setHelpOpen((open) => !open),
+          close: () => setHelpOpen(false),
+        });
+      };
+      window.addEventListener("keydown", onKeyDown);
+
       return () => {
         cancelled = true;
         clearTimers();
         persistNow();
         saver?.cancel();
         window.removeEventListener("pagehide", persistNow);
+        window.removeEventListener("keydown", onKeyDown);
         el.removeEventListener("loadedmetadata", applyResume);
         el.removeEventListener("loadedmetadata", markReady);
         el.removeEventListener("loadeddata", markReady);
         el.removeEventListener("canplay", markReady);
         el.removeEventListener("error", onMediaError);
+        playerRef.current = null;
+        chapterLabelRef.current = null;
+        lastLabelRef.current = null;
         player.destroy();
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [src, resumeKey, instanceId]);
+
+    const markersKey = markerSignature(markers);
+    useEffect(() => {
+      const player = playerRef.current;
+      if (!player || !ready) return;
+      const apply = () => {
+        syncMarkers(player, markersRef.current);
+        const list = markersRef.current;
+        if (list?.length) {
+          chapterLabelRef.current = ensureChapterLabel(player);
+        } else {
+          chapterLabelRef.current?.remove();
+          chapterLabelRef.current = null;
+          lastLabelRef.current = null;
+        }
+      };
+      apply();
+      const el = localRef.current;
+      el?.addEventListener("loadedmetadata", apply);
+      return () => el?.removeEventListener("loadedmetadata", apply);
+    }, [markersKey, ready]);
+
+    useEffect(() => {
+      const el = localRef.current;
+      if (!el) return;
+      el.querySelectorAll('track[data-leap="1"]').forEach((n) => n.remove());
+      if (!vttBlobUrl) return;
+      const track = document.createElement("track");
+      track.kind = "subtitles";
+      track.label = "Subtitles";
+      track.srclang = "und";
+      track.src = vttBlobUrl;
+      track.dataset.leap = "1";
+      el.appendChild(track);
+    }, [vttBlobUrl, src, instanceId]);
 
     return (
       <div className={cn(VIDEO_PLAYER_FRAME, "video-fill-landscape")}>
@@ -218,9 +278,19 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
           preload="metadata"
           playsInline
           className="block h-full w-full"
-        >
-          {vttBlobUrl && <track kind="subtitles" src={vttBlobUrl} label="Subtitles" default />}
-        </video>
+        />
+        {helpOpen && (
+          <div className="video-player-help" role="region" aria-label="Keyboard shortcuts">
+            <dl>
+              {PLAYER_SHORTCUTS.map((row) => (
+                <div key={row.keys}>
+                  <dt>{row.keys}</dt>
+                  <dd>{row.label}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
         {Boolean(src) && !ready && (
           <div className="absolute inset-0 z-10 overflow-hidden rounded-xl">
             {failure ? (

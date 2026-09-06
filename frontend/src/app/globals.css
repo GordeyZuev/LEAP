@@ -216,8 +216,44 @@ body {
 .plyr__chapter-label--hidden {
   display: none;
 }
+.video-player-help {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(0 0 0 / 0.55);
+  padding: 1rem;
+}
+.video-player-help dl {
+  margin: 0;
+  max-height: 100%;
+  overflow: auto;
+  border-radius: 0.75rem;
+  background: var(--card);
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  color: var(--foreground);
+}
+.video-player-help dl > div {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 0.5rem 0.75rem;
+  padding-block: 0.2rem;
+}
+.video-player-help dt {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+.video-player-help dd {
+  margin: 0;
+}
 @media (max-width: 480px) {
   .plyr__chapter-label {
+    display: none !important;
+  }
+  .plyr__time--duration {
     display: none !important;
   }
 }

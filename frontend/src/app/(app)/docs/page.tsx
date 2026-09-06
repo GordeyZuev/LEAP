@@ -435,6 +435,9 @@ export default function DocsPage() {
               Enable mints the URL once; Disable keeps it (the public page is 404 until you Enable again);
               Rotate issues a new URL. Viewers can watch the processed video in the browser.
               The player remembers the last position in this browser after a refresh.
+              Shortcuts match common video sites: <kbd>J</kbd>/<kbd>L</kbd> skip 10 seconds,
+              arrows skip 5, <kbd>C</kbd> captions (also in the gear menu), <kbd>?</kbd> lists every key.
+              The bar shows current time and duration.
               Video preparation starts while the page loads; if the temporary link expires or the network stalls,
               the player refreshes it automatically and shows Retry if recovery is not possible.
               View counts stay on the recording (anonymous page opens, deduped ~30 minutes
@@ -448,12 +451,17 @@ export default function DocsPage() {
               A playlist is a course: an ordered list of recordings with one public link
               (<code className="text-xs">/share/p/…</code>). Create one under <strong>Playlists</strong>,
               then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
-              Named templates can auto-append new matches to LEAP playlists — this is not a YouTube upload.
+              Named templates and Run can append recordings to LEAP playlists without upload presets — this is membership, not a YouTube upload.
               Enable / Disable / Rotate work like recording share. Deleting a playlist kills the link; recordings stay.
               The landing page is a cover image and the video list (no Play button). Opening a video goes to watch
               (<code className="text-xs">?v=</code>): player, companion (Videos, Topics, Transcript), then Extra content,
               Files, and Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags.
               Opening a playable video counts as a view on that recording.
+              Playlist descriptions can use <code className="text-xs">{"{{ video_count }}"}</code>,{" "}
+              <code className="text-xs">{"{{ duration_hm }}"}</code>, and <code className="text-xs">{"{{ items }}"}</code>.
+              Cmd or Ctrl with B, I, U, K, and Shift+X formats the selection and skips Jinja variables.
+              The field keeps the marks; Public look is what visitors see. Formatting stays on one line;
+              YouTube and VK get plain text.
             </P>
           </Sub>
           <Sub title="Running a recording">
@@ -461,6 +469,7 @@ export default function DocsPage() {
               Click <strong>Run</strong> on the recording page (or select several on the list and bulk-run).
               The Run dialog shows the effective config merged from your templates. Override toggles are{" "}
               <strong>off by default</strong> — expand a section and enable it only when you need a one-time change.
+              LEAP playlists are always visible: checking a course appends the recording without turning on upload.
             </P>
             <Tip>
               You can pick a different template for a single run without changing the recording&apos;s linked template.
@@ -469,7 +478,9 @@ export default function DocsPage() {
           <Sub title="Recording statuses">
             <List
               items={[
-                <><strong>Pending</strong> — recording added, waiting to be started.</>,
+                <><strong>Pending</strong> — source is still assembling the file (Zoom conversion, or MTS Link with size 0).</>,
+                <><strong>Converting</strong> — MTS Link is rendering MP4. Automation retries until the file is ready.</>,
+                <><strong>Initialized</strong> — ready to download.</>,
                 <><strong>Downloading</strong> — fetching from the source.</>,
                 <><strong>Processing</strong> — trimming, transcription, topics, subtitles.</>,
                 <><strong>Ready</strong> — processing complete, ready to publish.</>,
@@ -620,7 +631,7 @@ export default function DocsPage() {
               items={[
                 <><strong>Processing</strong> — transcription on/off, language, vocabulary, topic extraction, subtitles, question count, allow partial ASR errors.</>,
                 <><strong>Metadata templates</strong> — Jinja2 title and description; how topics and questions appear in the text (display format).</>,
-                <><strong>Output</strong> — which presets to upload to, auto-upload after processing, attach subtitle files. Named templates can also list <strong>LEAP playlists</strong> (not YouTube) so newly matched recordings are appended to a course.</>,
+                <><strong>Output</strong> — LEAP playlists on named templates (course membership, no preset required); presets and auto-upload for copies to YouTube or Yandex Disk.</>,
                 <><strong>Matching rules</strong> (named templates only) — keywords, exact names, regex, source filters, exclusions. Active templates with matching rules auto-link to new recordings.</>,
                 <><strong>Platform overrides</strong> — optional per-platform fields (YouTube privacy, Yandex folder path, thumbnail) layered on top of global metadata.</>,
               ]}
@@ -762,6 +773,17 @@ export default function DocsPage() {
               would have been processed, without actually running anything. Useful for testing filters.
             </P>
           </Sub>
+          <Sub title="Status filters">
+            <P>
+              Each job only matches recordings in the statuses you select. New jobs include{" "}
+              <strong>Initialized</strong>, <strong>Converting</strong>, and <strong>Pending</strong> so MTS Link
+              recordings are retried while MP4 is still rendering. Uncheck all statuses to include every status.
+            </P>
+            <Tip>
+              Existing jobs that only selected Initialized will skip converting MTS Link files until you add
+              Converting (and Pending, if the source is still assembling).
+            </Tip>
+          </Sub>
           <Note>
             Automation requires at least one source with a configured credential to be connected.
           </Note>
@@ -864,7 +886,7 @@ export default function DocsPage() {
           </Sub>
           <Sub title="Where presets fit">
             <P>
-              Presets are selected in a template&apos;s <strong>Output</strong> section (typical) or in the Run dialog.
+              Presets are selected in a template&apos;s <strong>Upload a copy</strong> section (typical) or in the Run dialog.
               Each preset adds platform-specific publish settings (privacy, folder path, etc.) on top of the
               resolved metadata templates.
             </P>

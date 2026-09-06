@@ -661,6 +661,98 @@ class TestPipelineControlComputedFields:
     def test_can_run(self, status, failed, on_pause, on_air, expected):
         assert self._make(status, failed=failed, on_pause=on_pause, on_air=on_air).can_run is expected
 
+    def test_can_run_pending_source_on_detailed_response_mts_link(self):
+        from datetime import UTC, datetime
+
+        from api.schemas.recording.response import RecordingResponse, SourceResponse
+        from models.recording import SourceType
+
+        now = datetime.now(UTC)
+        rec = RecordingResponse(
+            id=56,
+            display_name="pending",
+            start_time=now,
+            duration=0,
+            status=ProcessingStatus.PENDING_SOURCE,
+            is_mapped=False,
+            failed=False,
+            deleted=False,
+            processing_stages=[],
+            created_at=now,
+            updated_at=now,
+            source=SourceResponse(source_type=SourceType.MTS_LINK, source_key="event-1"),
+        )
+        dumped = rec.model_dump()
+        assert dumped["can_run"] is True
+
+    def test_can_run_pending_source_on_detailed_response_zoom(self):
+        from datetime import UTC, datetime
+
+        from api.schemas.recording.response import RecordingResponse, SourceResponse
+        from models.recording import SourceType
+
+        now = datetime.now(UTC)
+        rec = RecordingResponse(
+            id=56,
+            display_name="pending",
+            start_time=now,
+            duration=0,
+            status=ProcessingStatus.PENDING_SOURCE,
+            is_mapped=False,
+            failed=False,
+            deleted=False,
+            processing_stages=[],
+            created_at=now,
+            updated_at=now,
+            source=SourceResponse(source_type=SourceType.ZOOM, source_key="meeting-1"),
+        )
+        assert rec.model_dump()["can_run"] is False
+
+    def test_can_run_pending_source_without_source_does_not_raise(self):
+        from datetime import UTC, datetime
+
+        from api.schemas.recording.response import RecordingResponse
+
+        now = datetime.now(UTC)
+        rec = RecordingResponse(
+            id=56,
+            display_name="pending",
+            start_time=now,
+            duration=0,
+            status=ProcessingStatus.PENDING_SOURCE,
+            is_mapped=False,
+            failed=False,
+            deleted=False,
+            processing_stages=[],
+            created_at=now,
+            updated_at=now,
+            source=None,
+        )
+        assert rec.model_dump()["can_run"] is False
+
+    def test_can_run_pending_source_on_list_item_mts_link(self):
+        from datetime import UTC, datetime
+
+        from api.schemas.recording.response import RecordingListItem, SourceInfo
+        from models.recording import SourceType
+
+        now = datetime.now(UTC)
+        rec = RecordingListItem(
+            id=56,
+            display_name="pending",
+            start_time=now,
+            duration=0,
+            status=ProcessingStatus.PENDING_SOURCE,
+            is_mapped=False,
+            failed=False,
+            deleted=False,
+            processing_stages=[],
+            created_at=now,
+            updated_at=now,
+            source=SourceInfo(type=SourceType.MTS_LINK),
+        )
+        assert rec.model_dump()["can_run"] is True
+
 
 # =============================================================================
 # Pydantic: PauseRecordingResponse schema validation

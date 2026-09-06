@@ -101,6 +101,26 @@ def _update_pipeline_completed(recording: RecordingModel) -> None:
         recording.pipeline_duration_seconds = (now - recording.pipeline_started_at).total_seconds()
 
 
+def _waiting_for_external_source(recording: RecordingModel) -> bool:
+    """True when MTS (or similar) has parked the recording until the source MP4 exists."""
+    return recording.status in (ProcessingStatus.PENDING_CONVERSION, ProcessingStatus.PENDING_SOURCE)
+
+
+def _run_download_recording(task_self, recording_id: int, user_id: str, force: bool, manual_override: dict | None):
+    """Run the async downloader; pending MTS conversion is success, not a retryable error."""
+    from video_download_module.platforms.mtslink.downloader import MtsLinkConversionPendingError
+
+    try:
+        return task_self.run_async(_async_download_recording(task_self, recording_id, user_id, force, manual_override))
+    except MtsLinkConversionPendingError:
+        logger.info("MTS Link conversion still in progress; download will resume later")
+        return {
+            "success": True,
+            "status": "awaiting_mts",
+            "message": "MTS Link MP4 not ready; waiting for conversion",
+        }
+
+
 @celery_app.task(
     bind=True,
     base=ProcessingTask,
@@ -140,11 +160,14 @@ def download_recording_task(
             self.update_progress(user_id=user_id, progress=10, status="Initializing download...", step="download")
 
             with track_pipeline_stage("download"):
-                result = self.run_async(_async_download_recording(self, recording_id, user_id, force, manual_override))
+                result = _run_download_recording(self, recording_id, user_id, force, manual_override)
 
+            task_status = (
+                "awaiting_mts" if isinstance(result, dict) and result.get("status") == "awaiting_mts" else "completed"
+            )
             return self.build_result(
                 user_id=user_id,
-                status="completed",
+                status=task_status,
                 recording_id=recording_id,
                 result=result,
             )
@@ -332,6 +355,11 @@ async def _async_download_recording(
                     force,
                 )
 
+            if isinstance(result, dict) and result.get("status") == "awaiting_mts":
+                await timing_service.complete_stage(timing, meta={"deferred": "mts_conversion"})
+                await session.commit()
+                return result
+
             await timing_service.complete_stage(timing, meta={"file_size": recording.video_file_size})
             _update_pipeline_completed(recording)
             await session.commit()
@@ -470,6 +498,7 @@ async def _download_via_external(
     except MtsLinkConversionPendingError:
         from api.services.mts_link_prepare import MtsLinkPrepareResult, MtsPrepareOutcome, apply_prepare_result
 
+        logger.info("MTS Link MP4 is still converting; parking recording until it is ready")
         apply_prepare_result(
             recording,
             MtsLinkPrepareResult(outcome=MtsPrepareOutcome.CONVERTING),
@@ -709,6 +738,10 @@ async def _async_process_video(
         if recording.on_pause:
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
+
+        if _waiting_for_external_source(recording):
+            logger.info("Skipped: source not ready (waiting for MTS conversion)")
+            return {"status": "skipped", "reason": "awaiting_mts"}
 
         # Idempotency: skip if trim already completed successfully
         trim_stage = next((s for s in recording.processing_stages if s.stage_type == ProcessingStageType.TRIM), None)
@@ -1090,6 +1123,10 @@ async def _async_transcribe_recording(
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
+        if _waiting_for_external_source(recording):
+            logger.info("Skipped: source not ready (waiting for MTS conversion)")
+            return {"status": "skipped", "reason": "awaiting_mts"}
+
         transcription_config = full_config.get("transcription", {})
 
         recording_repo = RecordingRepository(session)
@@ -1296,6 +1333,12 @@ def _finalize_pipeline_task(self, recording_id: int, user_id: str) -> dict:
                 rec.pipeline_task_id = None
                 await session.commit()
                 return
+            if _waiting_for_external_source(rec):
+                logger.info(f"finalize_pipeline: recording {recording_id} is waiting for source — leaving parked")
+                rec.on_air = False
+                rec.pipeline_task_id = None
+                await session.commit()
+                return
             rec.on_air = False
             rec.pipeline_task_id = None
             completed_at = datetime.now(UTC)
@@ -1351,7 +1394,9 @@ def _launch_uploads_task(
         async with session_maker() as session:
             recording_repo = RecordingRepository(session)
             recording = await recording_repo.get_by_id(recording_id, user_id)
-            return recording.on_pause if recording else False
+            if not recording:
+                return False
+            return bool(recording.on_pause or _waiting_for_external_source(recording))
 
     async def _output_skip_reason(platform: str) -> str | None:
         async with session_maker() as session:
@@ -1376,7 +1421,7 @@ def _launch_uploads_task(
         user_id=short_user_id(user_id),
     ):
         if self.run_async(_check_pause()):
-            logger.info("Skipped: recording paused")
+            logger.info("Skipped: recording paused or waiting for source")
             return self.build_result(
                 user_id=user_id,
                 status="paused",
@@ -1524,11 +1569,22 @@ def run_recording_task(
                 recording_needs_mts_prepare,
                 should_skip_mts_prepare,
             )
+            from models.recording import SourceType
 
             async with session_maker() as session:
                 repo = RecordingRepository(session)
                 rec = await repo.get_by_id(recording_id, user_id)
-                if not rec or not recording_needs_mts_prepare(rec) or should_skip_mts_prepare(rec):
+                if not rec:
+                    return None
+                if rec.status == ProcessingStatus.PENDING_SOURCE:
+                    source_type = rec.source.source_type if rec.source else None
+                    if source_type != SourceType.MTS_LINK:
+                        return {
+                            "status": "skipped",
+                            "recording_status": rec.status.value,
+                            "message": "Recording is waiting for source",
+                        }
+                if not recording_needs_mts_prepare(rec) or should_skip_mts_prepare(rec):
                     return None
                 result = await prepare_mts_link_recording(session, rec, user_id)
                 apply_prepare_result(rec, result)
@@ -1546,6 +1602,16 @@ def run_recording_task(
 
         awaiting = self.run_async(_mts_prepare_or_exit())
         if awaiting:
+            if awaiting.get("status") == "skipped":
+                logger.info(
+                    f"Skipped: waiting for source | {format_details(rec=recording_id, status=awaiting.get('recording_status'))}"
+                )
+                return self.build_result(
+                    user_id=user_id,
+                    status="skipped",
+                    recording_id=recording_id,
+                    result=awaiting,
+                )
             logger.info(
                 f"MTS prepare awaiting | {format_details(rec=recording_id, status=awaiting.get('recording_status'))}"
             )
@@ -1821,6 +1887,10 @@ async def _async_extract_topics(
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
 
+        if _waiting_for_external_source(recording):
+            logger.info("Skipped: source not ready (waiting for MTS conversion)")
+            return {"status": "skipped", "reason": "awaiting_mts"}
+
         # Idempotency: skip if topics already extracted successfully
         topics_stage = next(
             (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.EXTRACT_TOPICS), None
@@ -2038,6 +2108,10 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
         if recording.on_pause:
             logger.info("Skipped: recording paused")
             return {"status": "paused", "message": "Pipeline paused by user"}
+
+        if _waiting_for_external_source(recording):
+            logger.info("Skipped: source not ready (waiting for MTS conversion)")
+            return {"status": "skipped", "reason": "awaiting_mts"}
 
         # Idempotency: skip if subtitles already generated successfully
         subs_stage = next(

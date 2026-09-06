@@ -386,15 +386,14 @@ export function RunConfigModal({
         };
       }
 
+      const outputCfg: Record<string, unknown> = {};
       if (outputEnabled) {
-        const outputCfg: Record<string, unknown> = {
-          auto_upload: autoUpload,
-          upload_captions: uploadCaptions,
-        };
+        outputCfg.auto_upload = autoUpload;
+        outputCfg.upload_captions = uploadCaptions;
         if (selectedPresetIds.length > 0) outputCfg.preset_ids = selectedPresetIds;
-        if (selectedPlaylistIds.length > 0) outputCfg.playlist_ids = selectedPlaylistIds;
-        body.output_config = outputCfg;
       }
+      if (selectedPlaylistIds.length > 0) outputCfg.playlist_ids = selectedPlaylistIds;
+      if (Object.keys(outputCfg).length > 0) body.output_config = outputCfg;
 
       if (metadataEnabled) {
         const meta: Record<string, unknown> = {};
@@ -804,10 +803,23 @@ export function RunConfigModal({
             </Field>
           </OverrideSection>
 
-          {/* ── Output ──────────────────────────────────────────────────── */}
+          <div className="rounded-xl border border-border bg-background px-4 py-4">
+            <Field
+              label="LEAP playlists"
+              hint="Add to these courses on this run (membership, not an upload). Upload still follows the template unless you override Upload a copy. Share links stay on the recording page."
+            >
+              <PlaylistPicker
+                mode="form"
+                selectedIds={selectedPlaylistIds}
+                onChange={setSelectedPlaylistIds}
+              />
+            </Field>
+          </div>
+
+          {/* ── Upload ─────────────────────────────────────────────────── */}
           <OverrideSection
-            title="Output & upload"
-            switchLabel="Override output and upload settings"
+            title="Upload a copy"
+            switchLabel="Override upload settings"
             enabled={outputEnabled}
             onEnabledChange={setOutputEnabled}
             open={outputOpen}
@@ -858,16 +870,6 @@ export function RunConfigModal({
                 No presets configured. Add presets to enable platform selection.
               </p>
             )}
-            <Field
-              label="LEAP playlists"
-              hint="Checked playlists get this recording appended now. This is not an upload."
-            >
-              <PlaylistPicker
-                mode="form"
-                selectedIds={selectedPlaylistIds}
-                onChange={setSelectedPlaylistIds}
-              />
-            </Field>
           </OverrideSection>
 
           {/* ── Metadata & Platform overrides ───────────────────────────── */}

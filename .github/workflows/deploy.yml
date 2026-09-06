@@ -5,10 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# A single in-flight deploy per environment. Don't queue — cancel the older one.
+# One deploy at a time. Do not cancel a run waiting for approval when a
+# later push lands — the newer run waits until this one finishes or is rejected.
 concurrency:
   group: deploy-${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 # Yandex Container Registry: cr.yandex/<REGISTRY_ID>/<repo>:<tag>
 #
@@ -28,6 +29,7 @@ env:
 jobs:
   build-and-push:
     name: Build & push images
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
@@ -88,8 +90,12 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
+  # Environment "production" has Required reviewers (`make deploy-gh-protect`
+  # or Settings → Environments). This job waits at Review deployments until
+  # a reviewer approves; GitHub then records success/failure of the VPS step.
   deploy:
     name: Deploy to VPS
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs: build-and-push
     environment: production

@@ -42,6 +42,7 @@ help:
 	@echo "  make deploy-plan             — terraform plan (preview, no changes)"
 	@echo "  make deploy                  — terraform apply (creates everything in YC)"
 	@echo "  make deploy-gh-secrets       — push Terraform outputs to GitHub Secrets"
+	@echo "  make deploy-gh-protect       — require a reviewer before VPS deploy"
 	@echo "  make deploy-vm-init          — bootstrap the VM (install docker, fetch secrets, start stack)"
 	@echo ""
 	@echo "Daily ops (after the VM is provisioned):"
@@ -113,7 +114,7 @@ deploy: deploy-check
 # Push outputs to GitHub Secrets directly (validates JSON before writing the
 # YC SA secret — yc-cr-login is picky and a malformed value yields a cryptic
 # "Password is invalid" at build time).
-.PHONY: deploy-gh-secrets deploy-status
+.PHONY: deploy-gh-secrets deploy-gh-protect deploy-status
 deploy-gh-secrets:
 	@command -v gh >/dev/null || { echo "  ✗ gh CLI not installed (brew install gh && gh auth login)"; exit 1; }
 	@command -v jq >/dev/null || { echo "  ✗ jq not installed (brew install jq)"; exit 1; }
@@ -134,6 +135,21 @@ deploy-gh-secrets:
 	echo "  · VPS_SSH_KEY";             gh secret set VPS_SSH_KEY < $$HOME/.ssh/id_ed25519; \
 	echo "  · VPS_DEPLOY_PATH";         gh secret set VPS_DEPLOY_PATH --body "/opt/leap"
 	@echo "✓ Done. Verify: gh secret list"
+
+# GitHub Environment protection is not expressible in workflow YAML. This
+# creates/updates environment `production` with the logged-in gh user as a
+# required reviewer so Deploy → Review deployments actually waits.
+.PHONY: deploy-gh-protect
+deploy-gh-protect:
+	@command -v gh >/dev/null || { echo "  ✗ gh CLI not installed (brew install gh && gh auth login)"; exit 1; }
+	@command -v jq >/dev/null || { echo "  ✗ jq not installed (brew install jq)"; exit 1; }
+	@user_id=$$(gh api user --jq .id); \
+	login=$$(gh api user --jq .login); \
+	repo=$$(gh repo view --json nameWithOwner -q .nameWithOwner); \
+	echo "==> Environment production on $$repo — required reviewer: $$login (id $$user_id)"; \
+	jq -n --argjson id "$$user_id" '{prevent_self_review:false,reviewers:[{type:"User",id:$$id}]}' \
+	  | gh api --method PUT "repos/$$repo/environments/production" --input - >/dev/null; \
+	echo "✓ Push to main still builds images; VPS restart waits for Review deployments."
 
 deploy-status:
 	@$(TF) output

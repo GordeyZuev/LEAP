@@ -26,7 +26,7 @@
 - **Matching Rules** - правила сопоставления (keywords, patterns, exact matches)
 - **Processing Config** - настройки обработки (transcription, video processing)
 - **Metadata Config** - настройки метаданных (title_template, description_template, **thumbnail_name**)
-- **Output Config** - настройки загрузки (`preset_ids`, `auto_upload`, named-template `playlist_ids` for LEAP courses)
+- **Output Config** - upload copies (`preset_ids`, `auto_upload`) and, on named templates, LEAP course membership (`playlist_ids`). Courses do not require presets.
 
 **⚠️ Note about `thumbnail_name`:**
 - Use **filename only** (e.g., `"ml_extra.png"`), not full path
@@ -496,7 +496,7 @@ POST /api/v1/templates
 }
 ```
 
-**Result:** Template created, unmapped recordings auto-rematched. `playlist_ids` (≤10) on a **named** template appends the recording to those LEAP playlists when `template_id` is set; the base/default template is ignored.
+**Result:** Template created, unmapped recordings auto-rematched. `playlist_ids` (≤10) on a **named** template appends the recording to those LEAP playlists when `template_id` is set; the base/default template is ignored. `playlist_ids` without `preset_ids` is valid (`auto_upload` stays false). Run can send `playlist_ids` without overriding upload; that merge does not turn off template `auto_upload` — disable upload in the template or via the Upload override.
 
 ---
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { FormattedText } from "@/components/ui/formatted-text";
 import { cn } from "@/lib/utils";
 
 /** Response shape from `POST /templates/render-preview` and `POST /presets/render-preview`. */
@@ -50,9 +51,13 @@ export function MetadataPreviewResultBox({ preview }: { preview: MetadataRenderP
           className={cn(preview.rendered_folder_path ?? preview.rendered_filename ? "mb-2" : undefined)}
         >
           <p className="mb-1 text-xs text-muted-foreground">Description:</p>
-          <pre className="whitespace-pre-wrap font-sans text-xs text-secondary-foreground">
-            {preview.rendered_description}
-          </pre>
+          <FormattedText
+            text={preview.rendered_description}
+            className="text-xs leading-relaxed text-secondary-foreground"
+          />
+          <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground/55">
+            Public look. YouTube and VK get plain text.
+          </p>
         </div>
       ) : null}
       {preview.rendered_folder_path ? (

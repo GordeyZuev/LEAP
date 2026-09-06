@@ -125,7 +125,9 @@ export function orderStages(stages: PipelineStage[]): PipelineStage[] {
 export function pipelineSummary(stages: PipelineStage[]): string {
   if (!stages.length) return "Pipeline: no stages recorded";
   const failed = stages.find((s) => stageState(s) === "FAILED");
-  const done = stages.filter((s) => ["COMPLETED", "SKIPPED"].includes(stageState(s))).length;
+  const done = stages.filter((s) =>
+    (["COMPLETED", "SKIPPED"] as readonly StageState[]).includes(stageState(s)),
+  ).length;
   const base = `Pipeline: ${done} of ${stages.length} stages complete`;
   if (failed) {
     const name = STAGE_LABEL[normalizeStageType(failed.stage_type)] ?? failed.stage_type;

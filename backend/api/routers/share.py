@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.dependencies import get_db_session
+from api.helpers.playlist_description import render_playlist_description
 from api.helpers.share_stats import build_share_stats_from_recording
 from api.repositories.playlist_repo import PlaylistRepository
 from api.repositories.recording_repos import RecordingRepository
@@ -485,7 +486,7 @@ async def get_public_playlist(
     posters = await poster_url_map(session, playlist.user_id, [i.recording for i in playlist.items])
     return PublicPlaylistResponse(
         name=playlist.name,
-        description=playlist.description,
+        description=render_playlist_description(playlist.description, playlist),
         items=_public_playlist_items(playlist, posters),
     )
 

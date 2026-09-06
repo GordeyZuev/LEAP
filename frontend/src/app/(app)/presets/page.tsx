@@ -23,7 +23,7 @@ import { ResultCount } from "@/components/ui/result-count";
 import { ActionButton } from "@/components/ui/action-button";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 
-const ALLOWED_PLATFORMS = new Set(["youtube", "vk_video", "yandex_disk", "zoom"]);
+const ALLOWED_PLATFORMS = new Set<string>(["youtube", "yandex_disk"]);
 
 interface PresetItem {
   id: number;
@@ -250,7 +250,7 @@ function PresetsContent() {
             label="Platform"
             emptySummary="All platforms"
             value={platforms}
-            options={platformOptions}
+            options={platformOptions.filter((o) => ALLOWED_PLATFORMS.has(o.value))}
             onChange={(next) => list.setMultiParam("platform", next)}
           />,
           <SegmentedFilter

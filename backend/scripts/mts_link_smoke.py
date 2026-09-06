@@ -10,6 +10,7 @@ Optional::
 
     uv run python scripts/mts_link_smoke.py --from '2024-01-01 00:00:00' --limit 5
     uv run python scripts/mts_link_smoke.py --list-members
+    uv run python scripts/mts_link_smoke.py --list-members --query пономарен
     uv run python scripts/mts_link_smoke.py --list-members --member-email user@example.com
     uv run python scripts/mts_link_smoke.py --user-id 12345678 --limit 10
 """
@@ -64,7 +65,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="List org employees (GET /organization/members) with userId and email",
     )
-    p.add_argument("--member-email", help="Filter members by email (substring ok server-side)")
+    p.add_argument(
+        "--query",
+        help="Local substring filter on name, email, or position (case-insensitive; after fetching all pages)",
+    )
+    p.add_argument("--member-email", help="Local substring filter on email (after fetching all pages)")
     p.add_argument("--member-role", choices=("admin", "lecturer", "ADMIN", "LECTURER"), help="Filter by role")
     p.add_argument(
         "--user-id",
@@ -109,21 +114,44 @@ def _summarize_member(member: dict) -> dict:
     }
 
 
+def _member_haystack(member: dict) -> str:
+    summary = _summarize_member(member)
+    return " ".join(str(summary.get(key) or "") for key in ("email", "name", "position", "userId", "role")).casefold()
+
+
+async def _fetch_all_members(client, *, role: str | None) -> list[dict]:
+    """Walk GET /organization/members pages (max 500 per page) until a short page."""
+    members: list[dict] = []
+    page = 1
+    page_size = 500
+    while True:
+        batch = await client.list_organization_members(role=role, page=page, per_page=page_size)
+        members.extend(batch)
+        if len(batch) < page_size:
+            break
+        page += 1
+        if page > 50:
+            print(f"WARN stopped after {page - 1} pages ({len(members)} rows)")
+            break
+    return members
+
+
 async def _print_members(client, args: argparse.Namespace) -> int:
     from api.mts_link_api import MtsLinkAPIError
 
     role = args.member_role.upper() if args.member_role and args.member_role.islower() else args.member_role
     try:
-        members = await client.list_organization_members(
-            email=args.member_email,
-            role=role,
-            per_page=500,
-        )
+        members = await _fetch_all_members(client, role=role)
     except MtsLinkAPIError as e:
         print(f"FAIL list_organization_members: {e}")
         return 1
 
-    print(f"OK GET /organization/members — {len(members)} employee(s)")
+    print(f"OK GET /organization/members — {len(members)} employee(s) before local filter")
+    needles = [s.casefold() for s in (args.query, args.member_email) if s]
+    if needles:
+        members = [m for m in members if all(n in _member_haystack(m) for n in needles)]
+        print(f"after filter — {len(members)} match(es)")
+
     for i, member in enumerate(members):
         print(f"  [{i + 1}] {json.dumps(_summarize_member(member), ensure_ascii=False)}")
     return 0
@@ -137,6 +165,8 @@ async def _run(args: argparse.Namespace) -> int:
 
     if args.list_members:
         print("=== MTS Link organization members ===")
+        if args.query:
+            print(f"filter query={args.query!r}")
         if args.member_email:
             print(f"filter email={args.member_email!r}")
         if args.member_role:

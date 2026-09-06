@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 
 import { fetchPublicPlaylistForMetadata } from "@/api/share";
+import { formattedTextToPlain } from "@/lib/formatted-text";
 
 import { WatchShell } from "./watch-shell";
 
@@ -19,12 +20,12 @@ export async function generateMetadata({
 
   return {
     title: `${playlist.name} — LEAP`,
-    description: playlist.description || "Shared via LEAP",
+    description: playlist.description ? formattedTextToPlain(playlist.description) : "Shared via LEAP",
     robots: { index: false, follow: false },
     openGraph: {
       type: "website",
       title: playlist.name,
-      description: playlist.description || "Shared via LEAP",
+      description: playlist.description ? formattedTextToPlain(playlist.description) : "Shared via LEAP",
       siteName: "LEAP",
     },
   };

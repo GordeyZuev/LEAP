@@ -855,10 +855,24 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </Field>
           </Section>
 
-          {/* Output */}
-          <Section title="Output">
+          {!isDefault && (
+            <Section title="LEAP playlists">
+              <Field
+                label="Add matched recordings to courses"
+                hint="Appended at the end when this template is bound. Membership only — not an upload. Share links stay on the recording or playlist."
+              >
+                <PlaylistPicker
+                  mode="form"
+                  selectedIds={form.output_config.playlist_ids}
+                  onChange={(ids) => setOC("playlist_ids", ids)}
+                />
+              </Field>
+            </Section>
+          )}
+
+          <Section title="Upload a copy">
             {presets.length > 0 ? (
-              <Field label="Output presets" hint="Apply these presets when uploading">
+              <Field label="Output presets" hint="Apply these presets when uploading to YouTube or Yandex Disk">
                 <div className="space-y-2">
                   {presets.map((p) => (
                     <label
@@ -900,18 +914,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               checked={form.output_config.upload_captions}
               onChange={(v) => setOC("upload_captions", v)}
             />
-            {!isDefault && (
-              <Field
-                label="LEAP playlists"
-                hint="New recordings matched to this template are added at the end. This is not an upload."
-              >
-                <PlaylistPicker
-                  mode="form"
-                  selectedIds={form.output_config.playlist_ids}
-                  onChange={(ids) => setOC("playlist_ids", ids)}
-                />
-              </Field>
-            )}
           </Section>
 
           {/* Metadata */}
