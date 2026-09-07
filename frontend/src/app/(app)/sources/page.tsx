@@ -3,11 +3,13 @@
 import { cloneElement, isValidElement, useId, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, RefreshCw, Pencil, Trash2, X, Database } from "lucide-react";
+import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { cn, extractApiError } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { NativeSelect } from "@/components/ui/native-select";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { Toggle } from "@/components/ui/toggle";
@@ -208,7 +210,7 @@ export default function SourcesPage() {
   });
   const typeFilter = list.getAllParams("platform");
 
-  const { data, isLoading, error, refetch } = useQuery<SourceListResponse>({
+  const { data, isPending, error, refetch } = useQuery<SourceListResponse>({
     queryKey: ["sources", list.urlKey],
     queryFn: async () => {
       const p = new URLSearchParams();
@@ -221,7 +223,11 @@ export default function SourcesPage() {
       const res = await apiClient.get<SourceListResponse>(`/sources?${p.toString()}`);
       return res.data;
     },
+    staleTime: STALE_TIME.catalog,
+    ...listQueryOptions,
   });
+
+  const showSkeleton = isInitialLoad(isPending, data);
 
   // "Sync all" must mean every active source, not just the visible page.
   const { data: activeSources } = useQuery<SourceListResponse>({
@@ -417,7 +423,7 @@ export default function SourcesPage() {
               value={list.sortBy}
               order={list.sortOrder}
               options={SORT_OPTIONS}
-              onChange={list.setSort}
+              onChange={list.setSortField}
               onToggleOrder={list.toggleSortOrder}
             />
           }
@@ -428,9 +434,9 @@ export default function SourcesPage() {
 
       <ResultCount total={data?.total} itemLabel="source" filtered={list.hasActiveFilters} />
 
-      {isLoading && <CardGridSkeleton count={3} />}
+      {showSkeleton && <CardGridSkeleton count={3} />}
       {error && <ErrorState description="Failed to load sources" onRetry={() => refetch()} />}
-      {!isLoading && !error && sources.length === 0 && (
+      {!showSkeleton && !error && sources.length === 0 && (
         list.hasActiveFilters ? (
           <EmptyState
             icon={Database}
@@ -448,18 +454,16 @@ export default function SourcesPage() {
             title="No sources yet"
             description="Sources pull recordings in automatically (Zoom, Yandex Disk, and more). Add one to start ingesting."
             action={
-              <ActionButton onClick={openCreate} icon={<Plus size={16} />}>
-                Add source
-              </ActionButton>
+              <CreatePlaceholder className="w-full max-w-xs" label="Add a source" onClick={openCreate} />
             }
           />
         )
       )}
 
-      {!isLoading && !error && sources.length > 0 && (
+      {!showSkeleton && !error && sources.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sources.map((s, index) => (
-            <div key={s.id} className="bg-card rounded-2xl border border-border shadow-sm p-5 flex flex-col gap-3 animate-card-in" style={{ animationDelay: `${index * 30}ms` }}>
+          {sources.map((s) => (
+            <div key={s.id} className="bg-card rounded-2xl border border-border shadow-sm p-5 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-semibold text-foreground flex-1">{s.name}</span>
                 <span className={cn("inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium shrink-0", SOURCE_TYPE_COLORS[s.source_type] ?? "bg-muted text-muted-foreground")}>
@@ -536,7 +540,7 @@ export default function SourcesPage() {
                     {(["ZOOM", "MTS_LINK", "YANDEX_DISK", "VIDEO_URL"] as SourceType[]).map((t) => (
                       <button key={t} type="button"
                         onClick={() => setForm((f) => ({ ...f, platform: t, credential_id: "" }))}
-                        className={cn("flex-1 py-2 rounded-xl text-xs font-medium border transition-colors active:scale-[0.96]",
+                        className={cn("flex-1 py-2 rounded-xl text-xs font-medium border transition-colors",
                           form.platform === t ? "bg-primary text-white border-primary" : "bg-card text-secondary-foreground border-border hover:bg-muted"
                         )}
                       >
@@ -551,7 +555,7 @@ export default function SourcesPage() {
               {form.platform !== "VIDEO_URL" && (
                 <MF label="Credential">
                   {credsByPlatform.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No matching credentials. <a href="/credentials" className="text-primary hover:underline">Add credentials →</a></p>
+                    <CreatePlaceholder href="/credentials" label="Add credentials" />
                   ) : (
                     <NativeSelect value={form.credential_id} onChange={(e) => setForm((f) => ({ ...f, credential_id: Number(e.target.value) || "" }))}>
                       <option value="">— Select —</option>

@@ -201,7 +201,9 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     id: int
     display_name: str
     start_time: datetime
-    duration: float
+    duration: float = Field(
+        description="Processed (trimmed/transcribed) length in seconds when known, otherwise source length.",
+    )
     status: ProcessingStatus
     is_mapped: bool
     template_id: int | None = None
@@ -226,6 +228,10 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     poster_fallback_url: str | None = Field(
         None,
         description=("Frame-based poster URL when poster_source is thumbnail — used if the thumbnail fails to load."),
+    )
+    poster_asset_key: str | None = Field(
+        None,
+        description="Stable poster identity (storage keys); unchanged when presigned URLs are refreshed.",
     )
 
     # --- Failure & pause ---
@@ -260,7 +266,9 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     id: int
     display_name: str
     start_time: datetime
-    duration: float
+    duration: float = Field(
+        description="Processed (trimmed/transcribed) length in seconds when known, otherwise source length.",
+    )
     status: ProcessingStatus
     is_mapped: bool
     blank_record: bool = Field(False, description="Whether recording is too short/small to process")
@@ -364,27 +372,6 @@ class DetailedRecordingResponse(RecordingResponse):
     processing_stages_detailed: list[dict] | None = None
     uploads: dict | None = None
     playlists: list[PlaylistSummary] = Field(default_factory=list)
-
-
-class SourceExtraFile(BaseModel):
-    """One companion file stored next to the source video."""
-
-    name: str = Field(..., description="Original file name, used for the download")
-    extension: str = Field(..., description="Lowercase extension, for the UI badge")
-    size: int | None = Field(None, description="Size in bytes when the manifest recorded it")
-    url: str = Field(..., description="Time-limited download URL")
-
-
-class SourceExtrasResponse(BaseModel):
-    """Companion files fetched from the source alongside the video.
-
-    Produced by MTS Link ingestion: the session chat log and materials uploaded to the
-    event. Empty for sources that have no such artifacts.
-    """
-
-    chat: SourceExtraFile | None = Field(None, description="Session chat log, when saved")
-    files: list[SourceExtraFile] = Field(default_factory=list, description="Session materials (slides, PDFs)")
-    expires_in: int = Field(..., description="Lifetime of the returned URLs, seconds")
 
 
 class RunRecordingResponse(BaseModel):

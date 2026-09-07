@@ -123,13 +123,13 @@ export function FilterSelect<V extends string | number = string>({
       if (panelRef.current && panelRef.current.contains(e.target as Node)) return;
       close();
     }
-    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("pointerdown", onMouseDown);
     // Reposition is non-trivial across nested scrollers — closing on scroll is
     // the simplest correct behavior.
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", close);
     return () => {
-      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("pointerdown", onMouseDown);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", close);
     };
@@ -256,9 +256,13 @@ export function FilterSelect<V extends string | number = string>({
               aria-selected={opt.value === value}
               data-highlighted={i === activeIndex ? "true" : undefined}
               onMouseEnter={() => setActiveIndex(i)}
-              // The panel closes on mousedown-outside, so commit on mousedown
-              // rather than click or the option would unmount first.
-              onMouseDown={(e) => { e.preventDefault(); commit(i); }}
+              // Cancel pointerdown so the following click cannot land on whatever
+              // sat under the portalled panel (Clear all, sort direction, a card).
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                commit(i);
+              }}
               className={cn(
                 "flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-sm",
                 opt.value === value ? "text-primary font-medium" : "text-secondary-foreground",

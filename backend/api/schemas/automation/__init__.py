@@ -1,7 +1,8 @@
 """Schemas for automation jobs."""
 
-from .filters import DEFAULT_AUTOMATION_STATUS_FILTER, AutomationFilters
+from .filters import DEFAULT_AUTOMATION_STATUS_FILTER, AutomationFilters, sanitize_automation_status_filter
 from .job import (
+    AffectedRecording,
     AutomationJobCreate,
     AutomationJobListItem,
     AutomationJobResponse,
@@ -24,6 +25,7 @@ from .schedule import (
 
 __all__ = [
     "DEFAULT_AUTOMATION_STATUS_FILTER",
+    "AffectedRecording",
     "AutomationFilters",
     "AutomationJobCreate",
     "AutomationJobListItem",
@@ -41,4 +43,5 @@ __all__ = [
     "TimeOfDaySchedule",
     "TriggerJobResponse",
     "WeekdaysSchedule",
+    "sanitize_automation_status_filter",
 ]

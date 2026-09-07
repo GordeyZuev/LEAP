@@ -1,28 +1,24 @@
 "use client";
 
 import { useEffect } from "react";
+
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 
-import { useSession } from "@/hooks/use-session";
+import { hasSessionCookie } from "@/lib/auth";
+import { useMe } from "@/lib/react-query";
 
-// Gates the (app) section on an authenticated session. Renders a loading
-// placeholder until session status is known so protected pages never paint
-// before redirect.
+// Gates the (app) section. With a session cookie we paint the shell immediately
+// and let /users/me confirm in the background — unlike useSession on /login.
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const status = useSession();
+  const hasCookie = hasSessionCookie();
+  const { isError } = useMe({ enabled: hasCookie });
 
   useEffect(() => {
-    if (status === "anonymous") router.replace("/login");
-  }, [status, router]);
+    if (!hasCookie || isError) router.replace("/login");
+  }, [hasCookie, isError, router]);
 
-  if (status !== "authenticated") {
-    return (
-      <div className="flex h-full items-center justify-center bg-background" role="status" aria-label="Loading">
-        <Loader2 className="animate-spin text-muted-foreground" size={28} />
-      </div>
-    );
-  }
+  if (!hasCookie || isError) return null;
+
   return <>{children}</>;
 }

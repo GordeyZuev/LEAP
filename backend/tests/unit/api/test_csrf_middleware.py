@@ -5,7 +5,7 @@ real route layer's DB / dependency wiring.
 """
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 
 from api.middleware.csrf import CSRFMiddleware
@@ -13,7 +13,7 @@ from api.middleware.csrf import CSRFMiddleware
 
 @pytest.fixture
 def csrf_client():
-    """Tiny app with the CSRF middleware mounted and a single POST route."""
+    """Tiny app with CSRF middleware, a probe route, and public share beacons."""
     app = FastAPI()
     app.add_middleware(CSRFMiddleware)
 
@@ -27,6 +27,18 @@ def csrf_client():
 
     @app.delete("/probe")
     def delete_probe():
+        return {"ok": True}
+
+    @app.post("/api/v1/share/{token}/beacon")
+    def share_beacon(token: str):
+        return Response(status_code=204)
+
+    @app.post("/api/v1/share/p/{token}/items/{item_id}/beacon")
+    def playlist_beacon(token: str, item_id: int):
+        return Response(status_code=204)
+
+    @app.post("/api/v1/recordings/{recording_id}/share/rotate")
+    def recording_share_rotate(recording_id: int):
         return {"ok": True}
 
     with TestClient(app) as c:
@@ -85,4 +97,35 @@ class TestCSRFMiddleware:
         """DELETE is also a state-changing method."""
         csrf_client.cookies.set("access_token", "dummy")
         r = csrf_client.delete("/probe")
+        assert r.status_code == 403
+
+    def test_get_with_session_cookie_does_not_need_csrf(self, csrf_client):
+        csrf_client.cookies.set("access_token", "dummy")
+        r = csrf_client.get("/probe")
+        assert r.status_code == 200
+
+    def test_share_beacon_skips_csrf_with_session_cookie(self, csrf_client):
+        """sendBeacon cannot send X-CSRF-Token; logged-in viewers still send cookies."""
+        csrf_client.cookies.set("access_token", "dummy")
+        r = csrf_client.post("/api/v1/share/86bf7e22-18c1-4285-bfef-fa4ca8e1dae4/beacon")
+        assert r.status_code == 204
+
+    def test_playlist_item_beacon_skips_csrf_with_session_cookie(self, csrf_client):
+        csrf_client.cookies.set("access_token", "dummy")
+        r = csrf_client.post("/api/v1/share/p/86bf7e22-18c1-4285-bfef-fa4ca8e1dae4/items/1/beacon")
+        assert r.status_code == 204
+
+    def test_share_rotate_still_requires_csrf(self, csrf_client):
+        csrf_client.cookies.set("access_token", "dummy")
+        r = csrf_client.post("/api/v1/share/86bf7e22-18c1-4285-bfef-fa4ca8e1dae4/rotate")
+        assert r.status_code == 403
+
+    def test_non_uuid_share_beacon_does_not_skip_csrf(self, csrf_client):
+        csrf_client.cookies.set("access_token", "dummy")
+        r = csrf_client.post("/api/v1/share/not-a-uuid/beacon")
+        assert r.status_code == 403
+
+    def test_owner_share_rotate_still_requires_csrf(self, csrf_client):
+        csrf_client.cookies.set("access_token", "dummy")
+        r = csrf_client.post("/api/v1/recordings/1/share/rotate")
         assert r.status_code == 403

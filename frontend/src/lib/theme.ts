@@ -2,6 +2,9 @@ export type ThemeMode = "light" | "dark" | "system";
 
 export const THEME_KEY = "theme";
 
+/** Inline boot script — keep in sync with getStoredTheme / resolveDark. Injected in root layout <head>. */
+export const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('${THEME_KEY}')||'system';var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var d=t==='dark'||(t==='system'&&m);document.documentElement.classList.toggle('dark',d);}catch(e){}})();`;
+
 /** Read the persisted preference; defaults to "system". */
 export function getStoredTheme(): ThemeMode {
   if (typeof window === "undefined") return "system";

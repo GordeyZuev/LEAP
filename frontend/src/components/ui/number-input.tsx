@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { FILTER_CONTROL } from "@/lib/filter-field-classes";
 
@@ -39,16 +39,15 @@ export function NumberInput({
   "aria-describedby": describedBy,
 }: NumberInputProps) {
   const [draft, setDraft] = useState(() => String(value));
-  const editingRef = useRef(false);
-
-  useEffect(() => {
-    // Follow external changes (server hydration, reset to defaults) but never
-    // yank the value out from under someone mid-edit.
-    if (!editingRef.current) setDraft(String(value));
-  }, [value]);
+  const [editing, setEditing] = useState(false);
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    if (!editing) setDraft(String(value));
+  }
 
   function commit() {
-    editingRef.current = false;
+    setEditing(false);
     const parsed = Number.parseFloat(draft);
     if (Number.isNaN(parsed)) {
       setDraft(String(value));
@@ -73,7 +72,7 @@ export function NumberInput({
       disabled={disabled}
       value={draft}
       onChange={(e) => {
-        editingRef.current = true;
+        setEditing(true);
         setDraft(e.target.value);
       }}
       onBlur={commit}

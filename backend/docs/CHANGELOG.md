@@ -1,8 +1,479 @@
+## 2026-09-10: Automation preview and run history
+
+- **Preview (dry run)** — `POST /automation/jobs/{id}/run?dry_run=true` still returns `task_id`. The Celery task `automation.dry_run` now runs the **same source sync and matching** as a real job, then returns `would_process` (id, name, template) **without** binding, skipping unmatched, enqueue, or writing history. Poll `GET /api/v1/tasks/{task_id}`. Sync is **committed** so new catalog rows stay after preview.
+- **Preview poll** — `GET /api/v1/tasks/{id}` allows **STARTED** and **RETRY** the same way as PENDING (Celery `task_track_started` / retry info is not a user_id dict). The UI stops “Refreshing sources…” if the poll errors instead of spinning forever.
+- **Run confirm** — UI asks before a manual run (job page and list).
+- **History** — migration **047** adds JSONB `affected_recordings` on `automation_job_runs`. Each real run stores the snapshot; click a history row to see which recordings started. Rows from before **047** have `null` (list wasn’t stored). Dry-run does not write history. Cap remains 100 runs per job.
+- **Deploy** — apply Alembic **047**, then API and Celery workers.
+
+### Файлы
+
+- `backend/alembic/versions/047_add_affected_recordings.py`
+- `backend/database/automation_models.py`
+- `backend/api/tasks/automation.py`
+- `backend/api/schemas/automation/job.py`
+- `backend/api/routers/automation.py`
+- `backend/api/services/task_access_service.py`
+- `backend/tests/unit/api/tasks/test_automation_preview.py`
+- `frontend/src/app/(app)/automation/page.tsx`
+- `frontend/src/app/(app)/automation/[id]/page.tsx`
+- `frontend/src/components/automation/job-run-history.tsx`
+- `frontend/src/components/automation/preview-panel.tsx`
+- `frontend/src/components/automation/affected-recordings.tsx`
+- `frontend/src/lib/automation-run.ts`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/content/release-notes.ts`
+- `backend/docs/guides/AUTOMATION_CELERY_BEAT.md`
+
+---
+
+## 2026-09-10: Stable list posters during status refresh
+
+- **Recordings / playlists UI** — preview images no longer reload on every list poll or refetch when the underlying storage object is unchanged; status badges and metadata still update.
+- **API** — list and public playlist items include `poster_asset_key` (storage-key identity, not a secret); optional `poster_fallback_url` on playlist items.
+
+### Files
+
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/playlists.py`
+- `backend/api/routers/share.py`
+- `backend/api/schemas/recording/response.py`
+- `backend/api/schemas/playlist.py`
+- `backend/api/services/playlist_service.py`
+- `backend/tests/unit/api/test_poster_asset_key.py`
+- `frontend/src/lib/poster-stable.ts`
+- `frontend/src/components/recordings/recording-poster.tsx`
+- `frontend/src/components/recordings/recording-card.tsx`
+- `frontend/src/components/recordings/recordings-table.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`
+- `frontend/src/app/(app)/playlists/page.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/api/playlists.ts`
+- `frontend/src/api/share.ts`
+- `frontend/src/content/release-notes.ts`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-10: Quieter WARNING logs; share beacons work while logged in
+
+- **HTTP access log** — 400/401/404/422 are INFO (expired session, missing recording, scanners). WARNING is kept for 403/409/413/429 and similar. 5xx stay ERROR and now bind `exception_class` for Loki.
+- **Celery** — `Ignore()` (`IGNORED`, e.g. empty transcript) is INFO on postrun, not WARNING. FAILURE/RETRY stay on their dedicated handlers.
+- **Pipeline** — small trim-end clamp (≤ 30s past EOF) and best-effort usage/share tracking failures are INFO.
+- **Share views** — public `POST /api/v1/share/.../beacon` skips CSRF so `navigator.sendBeacon` from a logged-in viewer still counts (the browser sends cookies but cannot send `X-CSRF-Token`). Owner share rotate/disable still require CSRF.
+
+### Files
+
+- `backend/api/middleware/logging.py`
+- `backend/api/middleware/error_handler.py`
+- `backend/api/auth/csrf.py`
+- `backend/api/celery_app.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/routers/share.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/services/share_observability.py`
+- `backend/logger.py`
+- `backend/tests/unit/api/test_logging_levels.py`
+- `backend/tests/unit/api/test_csrf_middleware.py`
+- `backend/docs/guides/MONITORING.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/guides/USAGE_AND_ANALYTICS.md`
+- `backend/docs/UPDATES.md`
+- `backend/docs/FAQ.md`
+- `backend/docs/CHANGELOG.md`
+- `README.md`
+- `frontend/src/content/release-notes.ts`
+
+---
+
+## 2026-09-09: Trailing silence trim ignored if FFmpeg closes a bit before EOF
+
+- **Symptom** — Rec 91: `Audio boundaries: 147.9s - 24655.3s` (intro only). MP3 `silencedetect` can close a multi-hour −91 dB tail a fraction of a second (or tens of seconds) before `ffprobe` duration; a 0.1s slack then treated the rest as speech.
+- **Fix** — cut at the last silence that reaches within 30s of EOF, or lasts ≥ 60s and is not from t=0.
+
+### Files
+
+- `backend/video_processing_module/audio_detector.py`
+- `backend/tests/unit/modules/test_audio_detector.py`
+- `backend/scripts/run_silence_detect_on_file.py`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-09: Product analytics charts (Usage tab, admin overview)
+
+- **Settings → Usage** — **Quota:** all eight limits in two columns (`used / limit`, `∞` when unlimited): recordings, storage, concurrent tasks, automation jobs (live DB count), transcriptions, processing, templates, credentials; monthly limits labelled `/ month`. **Activity:** custom date range (max 366 days UTC), summary cards, daily charts (recordings, transcribed minutes, uploads by platform, share views), auto-bucketing for long ranges, breakdowns by status and template.
+- **Admin → Analytics** — platform trends with one date filter (recordings, transcribed minutes, active users, share views); per-user **Activity** in the edit-user modal (charts + `usage_events` list).
+- **Share analytics** — custom `from`/`to` on owner chart (presets 7/28/90 days retained); rolling `days=7|28` still supported.
+- **API** — `GET /users/me/analytics`, `GET /admin/stats/analytics`, `GET /admin/users/{id}/analytics`, `GET /admin/users/{id}/events?from=&to=`; max range 366 calendar days (UTC).
+- **Quota status** — `automation_jobs.used` in `GET /users/me/quota` is a live count of the user's automation jobs (same logic as create-job enforcement via `check_automation_jobs_quota`).
+- **API cleanup** — removed legacy `GET /users/me/stats`, unused `StatsService`, and unused `top_users` from platform analytics (use `/users/me/analytics` and `/admin/stats/analytics` instead).
+
+### Files
+
+- `backend/api/services/analytics_service.py`
+- `backend/api/services/quota_service.py`
+- `backend/api/services/automation_service.py`
+- `backend/api/schemas/analytics.py`
+- `backend/api/routers/users.py`
+- `backend/api/routers/admin.py`
+- `backend/api/schemas/user/stats.py`
+- `backend/tests/unit/api/test_analytics_api.py`
+- `backend/tests/unit/api/test_users_get.py`
+- `frontend/src/api/analytics.ts`
+- `frontend/src/components/settings/types.ts`
+- `frontend/src/app/(auth)/verify-email-sent/page.tsx`
+- `frontend/src/app/(auth)/verify-email/page.tsx`
+- `backend/api/routers/share.py`
+- `backend/api/repositories/share_event_repo.py`
+- `backend/api/services/share_observability.py`
+- `backend/tests/unit/services/test_analytics_service.py`
+- `backend/tests/unit/api/test_analytics_api.py`
+- `backend/tests/unit/services/test_quota_service.py`
+- `frontend/src/components/charts/`
+- `frontend/src/lib/chart-bucketing.ts`
+- `frontend/src/lib/analytics-date-range.ts`
+- `frontend/src/components/filters/date-range-filter.tsx`
+- `frontend/src/components/settings/usage-panel.tsx`
+- `frontend/src/components/settings/format.ts`
+- `frontend/src/components/admin/admin-analytics-section.tsx`
+- `frontend/src/components/admin/user-activity-section.tsx`
+- `frontend/src/components/recordings/share-analytics-panel.tsx`
+- `frontend/src/app/(app)/settings/page.tsx`
+- `frontend/src/app/(app)/admin/page.tsx`
+- `frontend/src/api/analytics.ts`
+- `backend/docs/guides/USAGE_AND_ANALYTICS.md`
+- `backend/docs/guides/QUOTAS.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/INDEX.md`
+
+---
+
+## 2026-09-09: Быстрее списки в интерфейсе
+
+- **Меньше ожидания при входе** — приложение не дублирует проверку сессии и сразу показывает рабочий экран, если вы уже вошли.
+- **Списки не мигают пустым** — плейлисты, шаблоны, источники, пресеты, креденшелы, автоматизации и записи при переходе между разделами или смене страницы показывают уже загруженное, пока подтягиваются свежие данные.
+- **Быстрее переход по меню** — при наведении на пункт бокового меню список начинает подгружаться заранее, до клика.
+
+### Files
+
+- `frontend/src/lib/react-query.ts`
+- `frontend/src/hooks/use-session.ts`
+- `frontend/src/components/layout/auth-guard.tsx`
+- `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/components/settings/account-panel.tsx`
+- `frontend/src/app/(app)/admin/page.tsx`
+- `frontend/src/app/(app)/playlists/page.tsx`
+- `frontend/src/app/(app)/templates/page.tsx`
+- `frontend/src/app/(app)/sources/page.tsx`
+- `frontend/src/app/(app)/presets/page.tsx`
+- `frontend/src/app/(app)/credentials/page.tsx`
+- `frontend/src/app/(app)/automation/page.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`
+
+---
+
+## 2026-09-09: Docs hub, README, in-app FAQ, age rating 12+
+
+- **README** – shortened to the current stack (AssemblyAI, S3-compatible storage, pnpm, playlists, MTS Link, LEAP share). Older `v0.10.x` notes collapsed; full history stays in CHANGELOG.
+- **Docs hub** – [FAQ.md](FAQ.md) plus a task-oriented [INDEX.md](INDEX.md). In-app **Documentation** has a searchable FAQ (templates vs presets, share, ASR, MTS blank, 12+).
+- **VK** – not listed as a destination in README, FAQ, INDEX, in-app Documentation, or the landing page. Upload is not supported.
+- **Age rating 12+** – mark on the landing page, signed-in footer, login/register, and public share headers. Educational product label, not a player age-gate.
+
+### Files
+
+- `docs/FAQ.md`
+- `docs/INDEX.md`
+- `docs/guides/FIREWORKS_BATCH_API.md`
+- `docs/CHANGELOG.md`
+- `../README.md`
+- `../frontend/src/app/(app)/docs/page.tsx`
+- `../frontend/src/components/ui/age-rating-badge.tsx`
+- `../frontend/src/components/layout/footer.tsx`
+- `../frontend/src/components/landing/landing-navbar.tsx`
+- `../frontend/src/components/landing/landing-cta.tsx`
+- `../frontend/src/components/landing/landing-audience.tsx`
+- `../frontend/src/components/landing/landing-features.tsx`
+- `../frontend/src/components/landing/landing-how-it-works.tsx`
+- `../frontend/src/app/(auth)/login/page.tsx`
+- `../frontend/src/app/(auth)/register/page.tsx`
+- `../frontend/src/app/share/[token]/share-view.tsx`
+- `../frontend/src/app/share/p/[token]/watch-shell.tsx`
+
+---
+
+## 2026-09-09: Trim keeps hours of digital silence (FFmpeg has no silence_end)
+
+- **Trailing digital silence** — MTS slots often continue as −91 dB after the lecture. `silencedetect` emits `silence_start` and no `silence_end` through EOF. We dropped that interval, so trim cut only the intro (~4 min) and ASR billed the remaining ~5 h file.
+- **Fix** — treat an unclosed `silence_start` as silence until media duration.
+
+### Файлы
+
+- `backend/video_processing_module/audio_detector.py`
+- `backend/tests/unit/modules/test_audio_detector.py`
+- `backend/docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-09: Completed MTS conversion is ready even without session downloadUrl
+
+- **Run stuck on `PENDING_CONVERSION`** — UserAPI `GET /records/conversions/{id}` often returns only `{state: completed}` (no `downloadUrl`). Session `converted-records` can be empty after the job finished. Prepare treated that as still converting, even with `conversion_progress: 100` and a CDN URL already in `source.meta`.
+- **Prepare** — `state=completed` is `READY` and starts the pipeline. Downloader uses a fresh session URL, or the stored `download_url` if the session list is empty.
+
+### Файлы
+
+- `backend/api/services/mts_link_prepare.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`
+- `backend/tests/unit/api/services/test_mts_link_prepare.py`
+- `backend/tests/unit/video_download_module/test_mtslink_downloader.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-09: Template matching collapses newlines in display names
+
+- **Whitespace** — Zoom/MTS titles with a line break (e.g. `разработки\n1 группа`) match the same exact/keyword/regex rules as a single-space title.
+
+### Файлы
+
+- `backend/api/routers/input_sources.py`
+- `backend/tests/unit/api/routers/test_template_name_matching.py`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-08: MTS Link prepare does not re-order conversion on pending Run
+
+- **Reuse list first** — `GET /converted-records` for this `recordFile.id`. Prefer `completed`, else max `processing` `progress`. Stored `conversion_id` is merged so a later 5% job does not replace a 65% one. `failed` / `canceled` are ignored.
+- **UserAPI `state`** — `waiting`, `processing`, `completed`, `failed`, `canceled`; on-prem also `loaded`.
+- **Reuse completed** — `completed` without a session `downloadUrl` still avoids a second POST. 403 busy attaches `currentConversionID`.
+- **UserAPI shapes** — session `converted-records` may be a single `{downloadUrl}` object (as in their help example); list jobs send `from` so we are not limited to their default 7-day window.
+- **Prepare order** — reuse stored/`GET /converted-records` jobs before treating a recording as assembling. **`PENDING_SOURCE`** only when there is still no `duration` **and** `size == 0` (same rule as sync); known duration + `size == 0` orders conversion (`PENDING_CONVERSION`). `source_processing_incomplete` is set only for assembling, not because size is zero.
+
+### Файлы
+
+- `backend/api/services/mts_link_prepare.py`
+- `backend/api/mts_link_api.py`
+- `backend/api/routers/input_sources.py`
+- `backend/tests/unit/api/services/test_mts_link_prepare.py`
+- `backend/tests/unit/api/test_mts_link_api.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+
+
+- **Pause during download** — if `local_video_path` is already set, status rolls back to `DOWNLOADED` (not `INITIALIZED`), so `/run` does not start a fresh YouTube fetch.
+- **Skip download** — existing storage object is enough to skip, even when status is still `INITIALIZED` / `SKIPPED` / `DOWNLOADING`.
+- **Failed download retry** — a late Celery 403 after a successful download no longer sets `SKIPPED` and does not demote `PROCESSING`/`READY`.
+
+### Файлы
+
+- `backend/api/helpers/failure_handler.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/tasks/processing.py`
+- `backend/tests/unit/api/test_download_failure_handler.py`
+- `backend/tests/unit/api/test_pause_resume.py`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+
+
+- **Recording Publications** — LEAP Link, Playlists, and platform rows vertically center their leading icons with the status text and actions (no top offset).
+- **Playlist editor** — the LEAP Link access card uses the same icon alignment.
+
+### Файлы
+
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-07: Playlist list — public share link
+
+- **Owner playlist cards** — when share is enabled, **LEAP** opens `/share/p/{token}` (new tab) and **Copy link** copies the absolute URL; editor is still poster/name/duration. Description stays outside that link so markup URLs are not nested. Disabled playlists stay without those controls. Enable / Disable / Rotate invalidate the list cache.
+- **List API** — `GET /api/v1/playlists` items include `share_token` (kept after Disable) and `share_enabled`.
+
+### Файлы
+
+- `backend/api/schemas/playlist.py`
+- `backend/api/routers/playlists.py`
+- `backend/tests/unit/api/test_playlists.py`
+- `frontend/src/api/playlists.ts`
+- `frontend/src/app/(app)/playlists/page.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/INDEX.md`
+- `README.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-07: Frontend motion — quieter, interruptible
+
+- **Navigation** — App route changes fade with opacity (~120ms), without scale/translate. Landing/auth panels keep a short enter.
+- **Dialogs / mobile nav** — Modal overlay and panel use CSS transitions so open/close can reverse mid-flight; close eases out with a small upward shift. Overlay keeps capturing pointer events until unmount so clicks do not fall through the fade. Mobile drawer backdrop fades with the slide.
+- **Buttons** — Shared `pressable` press (`scale(0.96)`, 150ms) on ActionButton, pagination, tabs, create placeholders, toast dismiss, sidebar/menu controls, and landing CTAs. Filter segments stay color-only.
+- **ActionButton** — Pending/success icons cross-fade (opacity, scale, blur) instead of swapping instantly. Theme toggle still snaps without a color smear.
+
+### Файлы
+
+- `frontend/src/app/globals.css`
+- `frontend/src/hooks/use-exit-presence.ts`
+- `frontend/src/components/ui/modal.tsx`
+- `frontend/src/components/ui/action-button.tsx`
+- `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/components/layout/app-shell.tsx`
+- `frontend/src/components/ui/pagination.tsx`
+- `frontend/src/components/ui/tabs.tsx`
+- `frontend/src/components/ui/toggle.tsx`
+- `frontend/src/components/ui/toast.tsx`
+- `frontend/src/components/ui/create-placeholder.tsx`
+- `frontend/src/lib/filter-field-classes.ts`
+- `frontend/src/components/landing/landing-hero.tsx`
+- `frontend/src/components/landing/landing-cta.tsx`
+- `frontend/src/components/landing/landing-navbar.tsx`
+- `frontend/src/app/(app)/sources/page.tsx`
+- `frontend/src/app/(app)/presets/page.tsx`
+- `frontend/src/app/(app)/playlists/page.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/admin/page.tsx`
+- `backend/docs/guides/FRONTEND_UI.md`
+- `backend/docs/INDEX.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-07: List duration is processed length
+
+- **Recordings / share / playlists** — `duration` on list cards, the recording sidebar, export, public share, and playlist sums uses `final_duration` after trim/transcription when it is set; otherwise the source length. Thumbnail badges stay empty only when both are missing or zero.
+
+### Файлы
+
+- `backend/api/helpers/media_duration.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/recordings_helpers.py`
+- `backend/api/routers/playlists.py`
+- `backend/api/routers/share.py`
+- `backend/api/helpers/playlist_description.py`
+- `backend/api/schemas/recording/response.py`
+- `backend/api/schemas/share.py`
+- `backend/tests/unit/api/helpers/test_media_duration.py`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-07: Config forms — inherit, Jinja display, processing Advanced
+
+- **Forms** — Template, preset, automation, Run with config, and Edit configuration share disclosure, toggles, and Jinja autocomplete (Tab/Enter insert, Esc closes).
+- **Inheritance (model A)** — Override switches write a whole processing/output/metadata block at this level; off omits the block so the parent template keeps winning. Run with config starts with switches off; Edit configuration turns them on when `has_manual_override`.
+- **Timestamps** — List formatting for `{{ topics }}` is labelled **Timestamps** (not “topics”); questions use **Questions**. `show_timestamps` defaults on and lives under **Extra timestamps settings**. Copy lives in `DisplayConfigFields` so template, run-config, and presets stay in sync. Preview render is below platform overrides.
+- **Processing** — Language, then granularity | questions count. Extra processing / platform settings use a muted accordion. Templates persist `processing_config.trimming`.
+- **Multi-select** — Sources, courses, upload presets, and automation templates open a dialog: search, type **toggle** (segmented, full width), checkboxes. The closed field shows selected names as wrapping pills. Empty create slots (Look, presets, credentials, list empty states) use a faded dashed control with a plus. Default transcription language label is **Russian**.
+- **Cron** — The expression is summarized in plain English while editing.
+- **YouTube** — License, language (from the languages list), schedule, and embed/comment flags are on the template and run-config editors, with Advanced at the bottom of presets.
+- **Platforms** — YouTube / Yandex / LEAP look editors only for selected destinations. VK blocks removed from template and run-config (legacy VK presets stay on `/presets/[id]`).
+- **Recordings** — Gear `aria-label="Run with config"`; disabled when `can_run` is false. Configuration card Override badge, preset names, empty “Using the bound template” copy. Edit configuration keeps override sections closed until expanded; cover image sits under Metadata. Modal sections use `bg-card` so they are not washed out on the dialog.
+
+### Файлы
+
+- `frontend/src/components/ui/disclosure.tsx`
+- `frontend/src/components/ui/about-formatting.tsx`
+- `frontend/src/lib/cron-describe.ts`
+- `frontend/src/lib/jinja-autocomplete.ts`
+- `frontend/src/hooks/use-jinja-combobox.ts`
+- `frontend/src/components/platforms/processing-fields.tsx`
+- `frontend/src/components/platforms/platform-fields.tsx`
+- `frontend/src/components/platforms/display-config-fields.tsx`
+- `frontend/src/components/ui/description-editor.tsx`
+- `frontend/src/components/ui/create-placeholder.tsx`
+- `frontend/src/components/ui/checklist-picker.tsx`
+- `frontend/src/components/playlists/playlist-picker.tsx`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`
+- `frontend/src/app/(app)/automation/[id]/page.tsx`
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `backend/api/routers/references.py`
+- `frontend/src/components/recordings/recording-card.tsx`
+- `frontend/src/components/recordings/recordings-table.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `backend/api/helpers/template_renderer.py`
+- `backend/api/tasks/upload.py`
+- `backend/tests/unit/api/helpers/test_template_renderer_jinja.py`
+- `backend/docs/guides/JINJA_METADATA_TEMPLATES.md`
+- `backend/docs/guides/TEMPLATES.md`
+- `backend/docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`
+- `backend/docs/INDEX.md`
+- `backend/api/schemas/template/preset_metadata.py`
+- `backend/api/schemas/template/metadata_config.py`
+
+- **Public share** — `GET /share/{token}` and playlist item metadata include `source_extras` (chat + materials) when `allow_files_download` is on. Share Files shows the same **From the source** group as the owner recording page.
+
+### Файлы
+
+- `backend/api/helpers/source_extras.py`
+- `backend/api/schemas/source_extras.py`
+- `backend/api/schemas/recording/response.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/share.py`
+- `backend/api/repositories/playlist_repo.py`
+- `backend/api/schemas/share.py`
+- `backend/docs/TECHNICAL.md`
+- `frontend/src/api/share.ts`
+- `frontend/src/components/recordings/artefact-list.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+
+---
+
+## 2026-09-07: List sorting matches the UI
+
+- **Recordings** — default `sort_by=start_time` `desc` on `GET /recordings`, bulk ID selection, and export filters. SQL uses `NULLS LAST` plus `id` as a tie-break. The list page always sends those params and shares `useUrlListState` with other lists.
+- **Sort by dropdown** — choosing a field no longer flips direction (the ↑/↓ button and table headers still do). Portalled options commit on `pointerdown` so the click cannot hit Clear all or a card underneath.
+- **Sources / automation** — FastAPI defaults match the UI (`name`/`asc`, `next_run_at`/`asc`). In-memory `paginate_list` keeps null timestamps last in both directions.
+
+### Файлы
+
+- `frontend/src/hooks/use-url-list-state.ts`
+- `frontend/src/components/filters/filter-select.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`
+- `frontend/src/app/(app)/templates/page.tsx`
+- `frontend/src/app/(app)/sources/page.tsx`
+- `frontend/src/app/(app)/presets/page.tsx`
+- `frontend/src/app/(app)/playlists/page.tsx`
+- `frontend/src/app/(app)/automation/page.tsx`
+- `frontend/src/app/(app)/credentials/page.tsx`
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/input_sources.py`
+- `backend/api/routers/automation.py`
+- `backend/api/repositories/recording_repos.py`
+- `backend/api/schemas/recording/filters.py`
+- `backend/api/schemas/common/pagination.py`
+- `backend/tests/unit/api/test_recordings_get.py`
+- `backend/tests/unit/api/test_paginate_list.py`
+
+---
+
 ## 2026-09-07: MTS Link blank records by duration
 
-- **Sync** — `GET /fileSystem/file/{recordId}` supplies `duration` (seconds). Blank if duration **< 10 min** (`600` s). `size == 0` is not blank (assembled lectures can still report zero bytes). Blanks stay reachable in the UI (`include_blank`).
-- **Existing rows** — `scripts/backfill_mts_link_blank.py` (dry-run default; `--apply` writes). Idle short rows become `SKIPPED` + `blank_record`; uploaded keep status and are hidden by the usual blank filter.
+- **Sync** — `GET /fileSystem/file/{recordId}` supplies `duration` (seconds). Blank if duration **< 10 min** (`600` s). `size == 0` is not blank (assembled lectures can still report zero bytes). Blanks stay reachable in the UI (`include_blank`). Sync never clears `blank_record` (empty-ASR blanks stay).
+- **File vs session** — UserAPI session length can be hours while the converted MP4 is a few seconds. After download, LEAP probes the MP4; if **either** duration is under 10 min the row is blank. Sync writes session length to `source.meta.online_duration` always; `recordings.duration` (list/sidebar) is not overwritten once `local_video_path` exists or the stored duration is already short.
+- **Existing rows** — `scripts/backfill_mts_link_blank.py` (dry-run default; `--apply` writes). With a stored MP4, **ffprobe** that object even if UserAPI returns 404. Short files become `SKIPPED` + `blank_record` (and `FAILED` → `SKIPPED`). Without a file, uses API duration. Uploaded keep status and are hidden by the usual blank filter.
 - **Empty ASR** — no words → blank / skip, not a transcription failure.
+- **Converted MP4** — `get_ready_mp4_url` / prepare take the session **and** `recordId`, so a short extra conversion on the same event is not downloaded as the lecture.
 
 ### Файлы
 
@@ -11,9 +482,15 @@
 - `backend/api/repositories/recording_repos.py`
 - `backend/api/helpers/failure_handler.py`
 - `backend/api/tasks/processing.py`
+- `backend/api/mts_link_api.py`
+- `backend/api/services/mts_link_prepare.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`
 - `backend/assemblyai_module/service.py`
+- `backend/api/helpers/media_duration.py`
 - `backend/scripts/backfill_mts_link_blank.py`
 - `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/INDEX.md`
+- `backend/docs/TECHNICAL.md`
 
 ---
 
@@ -88,7 +565,7 @@
 - **Filters UI** — automation jobs list **Pending** (`PENDING_SOURCE`) and **Converting** (`PENDING_CONVERSION`) with human labels. Removed non-existent `TRANSCRIBED` / `FAILED` checkboxes.
 - **Defaults** — new jobs select Initialized + Converting + Pending so MTS Link recordings are retried while MP4 is still rendering. Empty selection still means every status.
 - **Jobs without a stored `status` key** — Celery uses the same default list.
-- **Retry safety** — pending MTS pings no longer increment template usage or rewrite mapping; unmatched wait statuses are not forced to `SKIPPED`; Zoom `PENDING_SOURCE` is not started (same as `/run`). Deleted/expired/paused rows are skipped; wait statuses are ordered first so `limit(1000)` does not starve MTS retries. Legacy `FAILED`/`TRANSCRIBED` in stored filters are dropped so Postgres enum `IN (...)` cannot abort the job. Pipeline tasks are enqueued only after the template bind is committed.
+- **Retry safety** — pending MTS pings no longer increment template usage or rewrite mapping; unmatched wait statuses are not forced to `SKIPPED`; Zoom `PENDING_SOURCE` is not started (same as `/run`). Deleted/expired/paused rows are skipped; wait statuses are ordered first so `limit(1000)` does not starve MTS retries. Legacy `FAILED`/`TRANSCRIBED` in stored filters are dropped so Postgres enum `IN (...)` cannot abort the job; malformed `status` (non-list) falls back to the default. Pipeline tasks are enqueued only after the template bind is committed.
 
 ### Файлы
 
@@ -188,9 +665,15 @@
 
 ---
 
-## v0.10.8.2 (2026-09-06)
+## v0.10.8.3 (2026-09-09)
 
-Релиз: **описания с форматом и Jinja в плейлистах** — жирный, курсив, подчёркивание, зачёркивание, ссылка (Cmd/Ctrl+B, I, U, K и Shift+X); переменные курса `video_count` / `duration_hm` / `items`; чистый текст на YouTube/VK. В поле остаются маркеры; **Public look** — как на share. **Плеер:** J/L ±10 с, клавиша «?» — шпаргалка, длительность на панели, субтитры в шестерёнке. Подробности — секции **2026-09-06** ниже.
+Релиз-опора: **Usage & product analytics** — Settings → Usage (квоты `used / limit` по всем восьми лимитам + Activity с графиками и произвольным периодом до 366 дней); Admin → Analytics и Activity в карточке пользователя; share-аналитика с `from`/`to`; API analytics + live-счётчик automation jobs в `/users/me/quota`. В том же релизе: **быстрее списки**, **docs hub / FAQ / 12+**, **обрезка тишины** МТС Линк, **стабильность** (просмотры шары у залогиненного зрителя; честный Loki WARNING), **автоматизации** (Preview после синка, подтверждение Run, список записей в истории — миграция **047**). Подробности — dated-секции **2026-09-09** и **2026-09-10**; гайды: [USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md), [MONITORING.md](guides/MONITORING.md), [AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md).
+
+---
+
+## v0.10.8.2 (2026-09-07)
+
+Релиз: **описания с форматом и Jinja в плейлистах** — жирный, курсив, подчёркивание, зачёркивание, ссылка; переменные курса `video_count` / `duration_hm` / `items`; чистый текст на YouTube/VK. **Look LEAP** — заголовок, описание и обложка для публикации без загрузки копии. С списка плейлистов — открыть и скопировать публичную ссылку. **МТС Линк** — короче 10 мин → blank (не пайплайн); unique `source_key` без дублей sync (миграция **046**); Pending, пока нет MP4. **Конфиги** — наследование целым блоком, Timestamps, курсы отдельно от Upload a copy. В списках длительность после обрезки; на share — чат и материалы из источника. **Плеер:** J/L ±10 с, «?», длительность на панели. Подробности — секции **2026-09-06** и **2026-09-07**.
 
 ---
 

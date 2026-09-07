@@ -33,17 +33,8 @@ class PaginatedResponse(BaseModel):
 
 
 def _sort_key(item: object, field: str):
-    """Extract a sort key that handles None values safely.
-
-    For nullable fields (e.g. last_sync_at, next_run_at), we need
-    to ensure None values sort consistently without causing TypeError
-    from mixed-type comparisons (datetime vs str).
-    """
-    value = getattr(item, field, None)
-    if value is None:
-        # (0, ...) sorts before (1, value), pushing None to the start
-        return (0, "")
-    return (1, value)
+    """Plain attribute key; None is partitioned out by paginate_list."""
+    return getattr(item, field, None)
 
 
 def filter_by_search(items: list, query: str | None, fields: tuple[str, ...]) -> list:
@@ -83,10 +74,14 @@ def paginate_list(
         sort_by = "created_at"
 
     derived_key = (sort_keys or {}).get(sort_by)
-    items.sort(
-        key=derived_key or (lambda item: _sort_key(item, sort_by)),
-        reverse=(sort_order == "desc"),
-    )
+
+    def raw(item: Any) -> Any:
+        return derived_key(item) if derived_key else _sort_key(item, sort_by)
+
+    filled = [item for item in items if raw(item) is not None]
+    empty = [item for item in items if raw(item) is None]
+    filled.sort(key=raw, reverse=(sort_order == "desc"))
+    items[:] = filled + empty
 
     total = len(items)
     total_pages = max(1, (total + per_page - 1) // per_page)

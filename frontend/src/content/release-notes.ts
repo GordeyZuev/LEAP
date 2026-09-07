@@ -17,27 +17,124 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
-  "0.10.8.2": {
-    title: "Playlist descriptions",
+  "0.10.8.3": {
+    title: "Usage, analytics, and polish",
     highlights: [
       {
         parts: [
+          { kind: "text", value: "Open " },
+          { kind: "link", label: "Settings → Usage", href: "/settings?tab=usage" },
           {
             kind: "text",
             value:
-              "Playlist and Overview text can be bold, italic, underlined, struck through, or linked. Shortcuts work like in a normal editor. Inserted fields, such as video count, keep their own look.",
+              " to see all plan quotas as used / limit (including automation jobs) and activity charts for any period up to 366 days.",
           },
         ],
       },
       {
         parts: [
-          { kind: "text", value: "On a public " },
+          { kind: "text", value: "Charts cover new recordings, transcribed minutes, uploads by platform, and share views; long ranges group by week or month automatically." },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "Admins: platform " },
+          { kind: "link", label: "Analytics", href: "/admin" },
+          {
+            kind: "text",
+            value:
+              " and per-user Activity in the user editor (same charts plus recent account events). Share link stats support custom date ranges.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Lists (playlists, templates, sources, and more) load faster and no longer flash empty when you switch pages.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Recording and playlist thumbnails stay steady while statuses update in the background — no more flickering posters every few seconds.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "MTS Link trim removes long silent tail at the end of a slot so you are not billed for hours of empty audio.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "On " },
+          { kind: "link", label: "Automations", href: "/automation" },
+          {
+            kind: "text",
+            value:
+              ", Dry run syncs sources and lists which recordings would start — it does not run the pipeline. Manual Run asks first. Open a history row to see recordings from that run.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Opening a public share while signed in to LEAP still counts as a view on Manage share and Usage charts.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "link", label: "Documentation", href: "/docs" },
+          { kind: "text", value: " in the app now has searchable FAQ and a 12+ age rating on public pages." },
+        ],
+      },
+    ],
+  },
+  "0.10.8.2": {
+    title: "Courses, configs, and MTS Link",
+    highlights: [
+      {
+        parts: [
+          { kind: "text", value: "Playlist and Overview text can be bold, italic, underlined, or linked. On a public " },
           { kind: "link", label: "playlist", href: "/playlists" },
           {
             kind: "text",
             value:
-              " page, the number of videos, total length, and the video list fill in automatically. YouTube and VK still get plain text.",
+              " page, video count, total length, and the item list fill in automatically. From the playlist list you can open or copy the share link. YouTube and VK still get plain text.",
           },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "A " },
+          { kind: "link", label: "LEAP look", href: "/presets" },
+          {
+            kind: "text",
+            value:
+              " preset sets title, description, and cover for LEAP without uploading a copy. Courses stay on the recording, separate from Upload a copy.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "MTS Link lectures shorter than 10 minutes are marked blank and skipped. Sync no longer creates duplicate rows." },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "Template, preset, automation, and Run with config share the same editors: inherit a whole block or override it, timestamps live under Extra timestamps, and processing extras sit in Advanced." },
         ],
       },
       {
@@ -45,16 +142,7 @@ export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
           {
             kind: "text",
             value:
-              "The editor shows how the text is written. Public look is what visitors see. Formatting stays on one line.",
-          },
-        ],
-      },
-      {
-        parts: [
-          {
-            kind: "text",
-            value:
-              "In the player, J and L skip ten seconds, arrow keys skip five, C toggles captions in the gear menu, and the question-mark key lists every shortcut. The bar shows current time and duration.",
+              "Lists show duration after trim. Public share can include chat and materials from the source when file download is allowed. In the player, J and L skip ten seconds, and the question-mark key lists shortcuts.",
           },
         ],
       },

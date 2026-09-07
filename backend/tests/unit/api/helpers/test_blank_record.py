@@ -44,6 +44,29 @@ class TestBlankHeuristics:
         assert is_mts_link_blank(1055) is False
         assert MTS_LINK_BLANK_MIN_DURATION_SECONDS == 600
 
+    def test_any_known_short_duration_is_blank(self):
+        from api.helpers.blank_record import is_mts_link_blank_any
+
+        assert is_mts_link_blank_any(6058, 4) is True
+        assert is_mts_link_blank_any(6058, None) is False
+        assert is_mts_link_blank_any(None, 39) is True
+
+
+@pytest.mark.unit
+class TestPreserveMtsDuration:
+    def test_keeps_duration_once_media_is_downloaded(self):
+        from api.helpers.blank_record import preserve_mts_recording_duration
+
+        assert preserve_mts_recording_duration(has_downloaded_media=True, existing_duration=6058) is True
+        assert preserve_mts_recording_duration(has_downloaded_media=True, existing_duration=4) is True
+
+    def test_keeps_short_duration_even_without_path(self):
+        from api.helpers.blank_record import preserve_mts_recording_duration
+
+        assert preserve_mts_recording_duration(has_downloaded_media=False, existing_duration=4) is True
+        assert preserve_mts_recording_duration(has_downloaded_media=False, existing_duration=6058) is False
+        assert preserve_mts_recording_duration(has_downloaded_media=False, existing_duration=0) is False
+
 
 @pytest.mark.unit
 class TestMtsSourceKey:

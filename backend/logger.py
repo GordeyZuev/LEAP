@@ -112,6 +112,7 @@ def setup_logger(log_level: str | None = None, log_file: str | None = None) -> N
             "queue": None,
             "task_name": None,
             "task_state": None,
+            "exception_class": None,
         }
     )
 

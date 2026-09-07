@@ -17,12 +17,14 @@ import {
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
+import { useExitPresence } from "@/hooks/use-exit-presence";
 import { Logo } from "@/components/layout/logo";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { apiClient } from "@/api/client";
+import { prefetchNavList, useMe } from "@/lib/react-query";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 
@@ -60,18 +62,21 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
-  // Role gates the Admin entry. Cached under ["me"] and shared with the admin page.
-  const { data: me } = useQuery({
-    queryKey: ["me"],
-    queryFn: async () => (await apiClient.get("/users/me")).data as { role: string },
-    staleTime: 5 * 60 * 1000,
-  });
+  const qc = useQueryClient();
+  // Role gates the Admin entry. Cached under ["me"] and shared across the app.
+  const { data: me } = useMe();
   const isAdmin = me?.role === "admin";
+
+  function prefetchNav(href: string) {
+    if (href === "/recordings") return;
+    prefetchNavList(qc, href);
+  }
   // Hydrate after mount to avoid SSR/client mismatch: the server can't read
   // localStorage and would always render the expanded state.
   const [collapsed, setCollapsed] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const mobileOverlay = useExitPresence(mobileOpen, 200);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -133,7 +138,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   }, [isDesktop, effectiveCollapsed]);
 
   const labelClass = cn(
-    "overflow-hidden whitespace-nowrap transition-all duration-200",
+    "overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-200",
     effectiveCollapsed ? "max-w-0 opacity-0 ml-0" : "max-w-[12rem] opacity-100 ml-3"
   );
 
@@ -149,9 +154,12 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   return (
     <>
       {/* Backdrop — mobile drawer only. */}
-      {mobileOpen && (
+      {mobileOverlay.mounted && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden animate-overlay-in"
+          className={cn(
+            "fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden transition-opacity duration-200 ease-out",
+            mobileOverlay.visible ? "opacity-100" : "opacity-0",
+          )}
           aria-hidden="true"
           onClick={onMobileClose}
         />
@@ -184,7 +192,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           <Logo size={22} variant="inverse" />
           <span
             className={cn(
-              "text-lg font-semibold tracking-wider text-white leading-none whitespace-nowrap overflow-hidden transition-all duration-200",
+              "text-lg font-semibold tracking-wider text-white leading-none whitespace-nowrap overflow-hidden transition-[max-width,opacity,margin] duration-200",
               effectiveCollapsed ? "max-w-0 opacity-0 -ml-2" : "max-w-[5rem] opacity-100"
             )}
           >
@@ -203,6 +211,8 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
               href={href}
               title={effectiveCollapsed ? label : undefined}
               onClick={onMobileClose}
+              onMouseEnter={() => prefetchNav(href)}
+              onFocus={() => prefetchNav(href)}
               className={linkClass(active)}
             >
               <Icon size={18} strokeWidth={1.75} className="shrink-0" />
@@ -219,6 +229,8 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
               href={href}
               title={effectiveCollapsed ? label : undefined}
               onClick={onMobileClose}
+              onMouseEnter={() => prefetchNav(href)}
+              onFocus={() => prefetchNav(href)}
               className={linkClass(active)}
             >
               <Icon size={18} strokeWidth={1.75} className="shrink-0" />
@@ -263,7 +275,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           onClick={() => setLogoutConfirmOpen(true)}
           title={effectiveCollapsed ? "Log out" : undefined}
           className={cn(
-            "flex items-center rounded-xl text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-colors w-full px-3 py-2.5",
+            "pressable flex items-center rounded-xl text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white w-full px-3 py-2.5",
             effectiveCollapsed && "justify-center"
           )}
         >
@@ -281,7 +293,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!collapsed}
           className={cn(
-            "hidden lg:flex items-center rounded-xl text-xs font-medium text-white/60 hover:bg-white/10 hover:text-white transition-colors w-full px-3 py-2",
+            "pressable hidden lg:flex items-center rounded-xl text-xs font-medium text-white/60 hover:bg-white/10 hover:text-white w-full px-3 py-2",
             effectiveCollapsed && "justify-center"
           )}
         >

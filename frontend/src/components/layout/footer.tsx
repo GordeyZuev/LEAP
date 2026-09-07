@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Fragment } from "react";
 
 import { APP_VERSION } from "@/lib/app-version";
+import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 
 const VERSION = APP_VERSION;
 
@@ -15,6 +16,8 @@ export function Footer() {
     <footer className="border-t border-border bg-card">
       <div className="px-8 py-4 flex items-center justify-center gap-3 text-xs text-muted-foreground">
         <span>© {new Date().getFullYear()} LEAP</span>
+        <span className="text-gray-200">·</span>
+        <AgeRatingBadge />
         <span className="text-gray-200">·</span>
         <span className="text-gray-300">v{VERSION}</span>
         <span className="text-gray-200">·</span>

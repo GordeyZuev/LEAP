@@ -223,7 +223,7 @@ Presets define upload targets and platform metadata (title/description templates
 | `playlist_id` | null | |
 | `tags` | null | List length capped at 500 in schema |
 | `thumbnail_name` | null | Filename only; resolved under the user’s thumbnail directory |
-| `topics_display`, `questions_display` | null | Formatting for description blocks |
+| `topics_display`, `questions_display` | null | List formatting for `{{ topics }}` / `{{ questions }}` (UI: Timestamps / Questions) |
 | `publish_at` | null | ISO 8601 scheduled publish |
 | `disable_comments`, `rating_disabled`, `notify_subscribers` | see schema | |
 
@@ -231,12 +231,14 @@ Presets define upload targets and platform metadata (title/description templates
 
 `privacy_view` / `privacy_comment` (0–3), `group_id`, `album_id`, `thumbnail_name`, `topics_display`, `questions_display`, `repeat`, `compression`, `wallpost`, `disable_comments` — full field list in `preset_metadata.py`.
 
-### Topics / questions display
+### Timestamps / questions display
 
-Shared models: `TopicsDisplayConfig`, `QuestionsDisplayConfig`.
+Shared models: `TopicsDisplayConfig`, `QuestionsDisplayConfig` (JSON names unchanged).
 
-- Topics: `enabled` defaults to **true**. Questions: `enabled` defaults to **false** (backward compatible).
+- UI: **Timestamps** / **Questions**; extra options including **Show timestamps** under **Extra timestamps settings**.
+- `enabled` on topics defaults to **true**. Questions `enabled` defaults to **false** in stored schema; the editors always send `enabled: true` and gate inclusion with `{{ topics }}` / `{{ questions }}`.
 - Formats: `numbered_list`, `bullet_list`, `dash_list`, `comma_separated`, `inline`.
+- `show_timestamps` defaults **true** (legacy key `include_timestamps` still read).
 
 ---
 
@@ -269,7 +271,7 @@ Excludes run **before** positive rules.
 
 | Field | Role |
 |-------|------|
-| `exact_matches` | Exact display name match (after case normalization per flag) |
+| `exact_matches` | Exact display name match (whitespace collapsed; case per flag) |
 | `keywords` | Substring match, OR across list |
 | `patterns` | Regex match, OR across list |
 | `source_ids` | **Filter only**: recording must belong to one of these input sources |

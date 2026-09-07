@@ -1,95 +1,35 @@
 "use client";
 
+import { useState } from "react";
 import { isAxiosError } from "axios";
 import { useQuery } from "@tanstack/react-query";
 
-import { fetchShareAnalytics, type ShareAnalyticsResponse } from "@/api/share";
+import {
+  fetchShareAnalytics,
+  type ShareAnalyticsResponse,
+} from "@/api/share";
 import { getShareArtifactLabel } from "@/components/recordings/artefact-list";
-import { SegmentedFilter } from "@/components/filters/segmented-filter";
+import { AnalyticsSummaryCards } from "@/components/charts/analytics-summary-cards";
+import { ChartCard } from "@/components/charts/chart-card";
+import { DailyBarChart } from "@/components/charts/daily-bar-chart";
+import { DateRangeFilter } from "@/components/filters/date-range-filter";
 import { StatRow } from "@/components/settings/shared";
 import { ActionButton } from "@/components/ui/action-button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  defaultAnalyticsRange,
+  presetRange,
+  type AnalyticsDateRange,
+  type DateRangePreset,
+  validateRange,
+} from "@/lib/analytics-date-range";
 import { formatRelative } from "@/lib/utils";
-
-const PERIOD_OPTIONS = [
-  { value: 7 as const, label: "7 days" },
-  { value: 28 as const, label: "28 days" },
-];
-
-const CHART_DATE = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
-
-function formatChartDate(isoDate: string): string {
-  const date = new Date(`${isoDate}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return isoDate;
-  return CHART_DATE.format(date);
-}
 
 function sumDailyMetric(
   daily: ShareAnalyticsResponse["daily"],
   key: "views" | "downloads",
 ): number {
   return daily.reduce((sum, point) => sum + point[key], 0);
-}
-
-function ShareViewsChart({
-  daily,
-  days,
-}: {
-  daily: ShareAnalyticsResponse["daily"];
-  days: 7 | 28;
-}) {
-  const maxViews = Math.max(1, ...daily.map((point) => point.views));
-  const hasViews = daily.some((point) => point.views > 0);
-
-  if (!hasViews) {
-    return (
-      <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
-        No views in this period
-      </p>
-    );
-  }
-
-  const firstDate = daily[0]?.date;
-  const lastDate = daily[daily.length - 1]?.date;
-
-  return (
-    <div
-      role="img"
-      aria-label={`Views per day, last ${days} days. Maximum ${maxViews} on the busiest day.`}
-      className="rounded-xl border border-border bg-card px-3 py-3"
-    >
-      <div className="flex gap-2">
-        <div
-          className="flex h-24 shrink-0 flex-col justify-between text-end text-[10px] tabular-nums leading-none text-muted-foreground"
-          aria-hidden
-        >
-          <span>{maxViews}</span>
-          <span>0</span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex h-24 items-end gap-px border-b border-border sm:gap-0.5">
-            {daily.map((point) => {
-              const height = point.views > 0 ? Math.max(8, (point.views / maxViews) * 100) : 0;
-              return (
-                <div
-                  key={point.date}
-                  title={`${point.date}: ${point.views} views`}
-                  className="min-w-0 flex-1 rounded-t-sm bg-primary/70"
-                  style={{ height: `${height}%` }}
-                />
-              );
-            })}
-          </div>
-          {firstDate && lastDate && (
-            <div className="mt-1.5 flex justify-between text-[10px] tabular-nums text-muted-foreground" aria-hidden>
-              <span>{formatChartDate(firstDate)}</span>
-              <span>{formatChartDate(lastDate)}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function analyticsErrorMessage(error: unknown): string {
@@ -104,20 +44,30 @@ function analyticsErrorMessage(error: unknown): string {
 export function ShareAnalyticsPanel({
   recordingId,
   open,
-  days,
-  onDaysChange,
   showRevokedBanner,
 }: {
   recordingId: number;
   open: boolean;
-  days: 7 | 28;
-  onDaysChange: (days: 7 | 28) => void;
   showRevokedBanner: boolean;
 }) {
+  const [range, setRangeState] = useState<AnalyticsDateRange>(() => defaultAnalyticsRange());
+  const [preset, setPreset] = useState<DateRangePreset>("28d");
+  const validationError = validateRange(range.from, range.to);
+  const isValid = validationError === null;
+
+  const setRange = (next: AnalyticsDateRange, nextPreset: DateRangePreset = "custom") => {
+    setRangeState(next);
+    setPreset(nextPreset);
+  };
+
+  const applyPreset = (p: Exclude<DateRangePreset, "custom">) => {
+    setRange(presetRange(p), p);
+  };
+
   const { data, isPending, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ["share-analytics", recordingId, days],
-    queryFn: () => fetchShareAnalytics(recordingId, days),
-    enabled: open && recordingId > 0,
+    queryKey: ["share-analytics", recordingId, range.from, range.to],
+    queryFn: () => fetchShareAnalytics(recordingId, { from: range.from, to: range.to }),
+    enabled: open && recordingId > 0 && isValid,
     staleTime: 30_000,
     refetchOnMount: "always",
   });
@@ -130,6 +80,9 @@ export function ShareAnalyticsPanel({
 
   const periodViews = data ? sumDailyMetric(data.daily, "views") : 0;
   const periodDownloads = data ? sumDailyMetric(data.daily, "downloads") : 0;
+
+  const viewsChart = data?.daily.map((point) => ({ date: point.date, value: point.views })) ?? [];
+  const downloadsChart = data?.daily.map((point) => ({ date: point.date, value: point.downloads })) ?? [];
 
   return (
     <div className="space-y-5">
@@ -144,14 +97,15 @@ export function ShareAnalyticsPanel({
           <h3 className="text-sm font-semibold text-foreground">Analytics</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">Anonymous views and file downloads</p>
         </div>
-        <SegmentedFilter
-          label="Date range"
-          labelHidden
-          value={days}
-          options={PERIOD_OPTIONS}
-          onChange={onDaysChange}
-        />
       </div>
+
+      <DateRangeFilter
+        range={range}
+        preset={preset}
+        onRangeChange={(next) => setRange(next, "custom")}
+        onPresetChange={applyPreset}
+        validationError={validationError}
+      />
 
       {isPending && (
         <div className="space-y-4">
@@ -159,7 +113,7 @@ export function ShareAnalyticsPanel({
             <Skeleton className="h-20 rounded-xl" />
             <Skeleton className="h-20 rounded-xl" />
           </div>
-          <Skeleton className="h-24 rounded-xl" />
+          <Skeleton className="h-48 rounded-xl" />
         </div>
       )}
 
@@ -179,25 +133,30 @@ export function ShareAnalyticsPanel({
         </div>
       )}
 
-      {data && !isPending && (
+      {data && !isPending && isValid && (
         <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-border bg-card px-4 py-3">
-              <p className="text-xs font-medium text-muted-foreground">Views</p>
-              <p className="text-xs text-muted-foreground/80">Last {days} days</p>
-              <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{periodViews}</p>
-            </div>
-            <div className="rounded-xl border border-border bg-card px-4 py-3">
-              <p className="text-xs font-medium text-muted-foreground">Downloads</p>
-              <p className="text-xs text-muted-foreground/80">Last {days} days</p>
-              <p className="mt-2 text-2xl font-semibold tabular-nums text-foreground">{periodDownloads}</p>
-            </div>
-          </div>
+          <AnalyticsSummaryCards
+            items={[
+              { label: "Views", value: String(periodViews), hint: "Selected period" },
+              { label: "Downloads", value: String(periodDownloads), hint: "Selected period" },
+            ]}
+          />
 
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">Views per day</p>
-            <ShareViewsChart daily={data.daily} days={days} />
-          </div>
+          <ChartCard
+            title="Views per day"
+            isEmpty={viewsChart.every((p) => p.value === 0)}
+            emptyMessage="No views in this period"
+          >
+            <DailyBarChart data={viewsChart} valueLabel="Views" />
+          </ChartCard>
+
+          <ChartCard
+            title="Downloads per day"
+            isEmpty={downloadsChart.every((p) => p.value === 0)}
+            emptyMessage="No downloads in this period"
+          >
+            <DailyBarChart data={downloadsChart} valueLabel="Downloads" />
+          </ChartCard>
 
           <div className="space-y-2">
             <p className="text-xs font-medium text-foreground">Downloads by file type</p>

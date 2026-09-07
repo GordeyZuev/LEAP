@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Film } from "lucide-react";
 import { cn, formatDurationCompact } from "@/lib/utils";
 import { apiClient, resolveStorageUrl } from "@/api/client";
@@ -21,6 +21,8 @@ interface RecordingPosterProps {
   posterUrl?: string | null;
   /** Frame poster URL when posterUrl is a configured thumbnail. */
   posterFallbackUrl?: string | null;
+  /** Stable storage identity from API; presign refresh must not change img src. */
+  posterAssetKey?: string | null;
   /** Seconds — rendered as a badge over the frame. */
   duration?: number;
   className?: string;
@@ -32,39 +34,63 @@ export const RECORDING_CARD_POSTER = "h-24 w-full";
 /** Table row thumb: small 16:9 frame. */
 export const RECORDING_TABLE_POSTER = "aspect-video w-16";
 
-export function RecordingPoster({
-  recordingId,
-  posterUrl,
-  posterFallbackUrl,
-  duration,
+function useStablePosterUrls(
+  posterUrl: string | null | undefined,
+  posterFallbackUrl: string | null | undefined,
+  posterAssetKey: string | null | undefined,
+) {
+  const live = useMemo(
+    () => ({
+      primary: posterUrl ?? null,
+      fallback: posterFallbackUrl ?? null,
+    }),
+    [posterUrl, posterFallbackUrl],
+  );
+
+  const pinned = useMemo(
+    () => ({
+      primary: posterUrl ?? null,
+      fallback: posterFallbackUrl ?? null,
+    }),
+    // posterUrl omitted on purpose: presign refresh must not change img src when asset is unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by posterAssetKey only
+    [posterAssetKey],
+  );
+
+  if (!posterAssetKey) return live;
+  // Keep stable src across presign refresh, but still pick up the first URL when it appears.
+  return {
+    primary: pinned.primary ?? posterUrl ?? null,
+    fallback: pinned.fallback ?? posterFallbackUrl ?? null,
+  };
+}
+
+function PosterImageBody({
+  displayPrimary,
+  displayFallback,
   className,
-}: RecordingPosterProps) {
+  placeholderIconSize,
+  onPrimaryError,
+}: {
+  displayPrimary: string | null;
+  displayFallback: string | null;
+  className?: string;
+  placeholderIconSize: number;
+  onPrimaryError?: () => void;
+}) {
   const [fallbackActive, setFallbackActive] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [prevPosterUrl, setPrevPosterUrl] = useState(posterUrl);
-  const [prevPosterFallbackUrl, setPrevPosterFallbackUrl] = useState(posterFallbackUrl);
 
-  if (posterUrl !== prevPosterUrl || posterFallbackUrl !== prevPosterFallbackUrl) {
-    setPrevPosterUrl(posterUrl);
-    setPrevPosterFallbackUrl(posterFallbackUrl);
-    setFallbackActive(false);
-    setFailed(false);
-  }
-
-  const activeUrl = fallbackActive ? posterFallbackUrl : posterUrl;
+  const activeUrl = fallbackActive ? displayFallback : displayPrimary;
   const showImage = !!activeUrl && !failed;
-  const dur = formatDurationCompact(duration);
 
   function handleError() {
-    if (posterFallbackUrl && !fallbackActive) {
+    if (displayFallback && !fallbackActive) {
       setFallbackActive(true);
       return;
     }
     setFailed(true);
-    if (requested.has(recordingId)) return;
-    requested.add(recordingId);
-    // Best-effort: a poster is decorative, so a failure here must stay silent.
-    void apiClient.post(`/recordings/${recordingId}/poster`).catch(() => {});
+    onPrimaryError?.();
   }
 
   return (
@@ -72,12 +98,10 @@ export function RecordingPoster({
       className={cn(
         "relative shrink-0 overflow-hidden rounded-lg bg-muted",
         "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
-        className
+        className,
       )}
     >
       {showImage ? (
-        // The title next to it is already a link to the same place, so the
-        // frame adds nothing for a screen reader.
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={resolveStorageUrl(activeUrl)}
@@ -89,12 +113,71 @@ export function RecordingPoster({
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center">
-          <Film size={16} className="text-muted-foreground/50" aria-hidden="true" />
+          <Film size={placeholderIconSize} className="text-muted-foreground/50" aria-hidden="true" />
         </div>
       )}
+    </div>
+  );
+}
 
+/** Poster image without recording-specific lazy-generate behavior (playlists cover, share). */
+export function StablePosterImage({
+  posterUrl,
+  posterFallbackUrl,
+  posterAssetKey,
+  className,
+  placeholderIconSize = 16,
+}: {
+  posterUrl?: string | null;
+  posterFallbackUrl?: string | null;
+  posterAssetKey?: string | null;
+  className?: string;
+  placeholderIconSize?: number;
+}) {
+  const displayUrls = useStablePosterUrls(posterUrl, posterFallbackUrl, posterAssetKey);
+  const remountKey = posterAssetKey ?? `${displayUrls.primary ?? ""}|${displayUrls.fallback ?? ""}`;
+
+  return (
+    <PosterImageBody
+      key={remountKey}
+      displayPrimary={displayUrls.primary}
+      displayFallback={displayUrls.fallback}
+      className={className}
+      placeholderIconSize={placeholderIconSize}
+    />
+  );
+}
+
+export function RecordingPoster({
+  recordingId,
+  posterUrl,
+  posterFallbackUrl,
+  posterAssetKey,
+  duration,
+  className,
+}: RecordingPosterProps) {
+  const displayUrls = useStablePosterUrls(posterUrl, posterFallbackUrl, posterAssetKey);
+  const remountKey = posterAssetKey ?? `${displayUrls.primary ?? ""}|${displayUrls.fallback ?? ""}`;
+  const dur = formatDurationCompact(duration);
+
+  function handlePosterGenerate() {
+    if (requested.has(recordingId)) return;
+    requested.add(recordingId);
+    void apiClient.post(`/recordings/${recordingId}/poster`).catch(() => {});
+  }
+
+  return (
+    <div className="relative shrink-0">
+      <PosterImageBody
+        key={remountKey}
+        displayPrimary={displayUrls.primary}
+        displayFallback={displayUrls.fallback}
+        className={className}
+        placeholderIconSize={16}
+        onPrimaryError={handlePosterGenerate}
+      />
       {dur && (
-        <span className="absolute bottom-1 end-1 rounded bg-black/70 px-1 py-0.5 text-xs font-medium tabular-nums text-white">
+        <span className="pointer-events-none absolute bottom-1 end-1 rounded bg-black/70 px-1 py-0.5 text-xs font-medium tabular-nums text-white">
           {dur}
         </span>
       )}

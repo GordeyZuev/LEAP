@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { CHECKBOX, FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 
 export interface FilterMultiSelectOption<V extends string | number = number> {
   value: V;
@@ -111,7 +111,7 @@ export function FilterMultiSelect<V extends string | number = number>({
                       cur.includes(opt.value) ? cur.filter((x) => x !== opt.value) : [...cur, opt.value]
                     )
                   }
-                  className="rounded accent-[var(--primary)]"
+                  className={CHECKBOX}
                 />
                 <span className="truncate">{opt.label}</span>
               </label>

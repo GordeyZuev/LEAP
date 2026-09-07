@@ -51,8 +51,6 @@ export function ShareModal({
   const [isCopied, setIsCopied] = useState(false);
   const [rotateConfirm, setRotateConfirm] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
-  const [analyticsDays, setAnalyticsDays] = useState<7 | 28>(28);
-
   const [sourceSnapshot, setSourceSnapshot] = useState({
     open,
     initialToken,
@@ -151,11 +149,6 @@ export function ShareModal({
             <p className={cn("text-xs font-medium", active ? "text-success-fg" : "text-muted-foreground")}>
               {active ? "Active" : "Not shared"}
             </p>
-            {shareUrl && (
-              <p className="mt-1.5 truncate font-mono text-xs text-muted-foreground" title={shareUrl}>
-                {shareUrl}
-              </p>
-            )}
             {!enabled && (
               <div className="mt-3">
                 <ActionButton
@@ -238,8 +231,6 @@ export function ShareModal({
               <ShareAnalyticsPanel
                 recordingId={recordingId}
                 open={open}
-                days={analyticsDays}
-                onDaysChange={setAnalyticsDays}
                 showRevokedBanner={!enabled && showAnalytics}
               />
             </section>

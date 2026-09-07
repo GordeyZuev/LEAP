@@ -12,6 +12,7 @@ import { SortControl } from "@/components/filters/sort-control";
 import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/segmented-filter";
 import { Pagination } from "@/components/ui/pagination";
 import { PageHeader } from "@/components/ui/page-header";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
@@ -23,6 +24,7 @@ import { usePageSize } from "@/hooks/use-page-size";
 import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
 import { PER_PAGE_TEMPLATES, PER_PAGE_TEMPLATES_OPTIONS } from "@/lib/constants";
 import { BaseTemplateBanner } from "@/components/settings/base-template-banner";
+import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 
 interface TemplateListItem {
   id: number;
@@ -84,7 +86,7 @@ function TemplatesContent() {
     queryFn: async () => (await apiClient.get("/templates/default")).data,
   });
 
-  const { data, isLoading, error, refetch } = useQuery<TemplateListResponse>({
+  const { data, isPending, error, refetch } = useQuery<TemplateListResponse>({
     queryKey: ["templates", list.urlKey, perPage],
     queryFn: async () => {
       const p = new URLSearchParams();
@@ -97,7 +99,11 @@ function TemplatesContent() {
       const res = await apiClient.get<TemplateListResponse>(`/templates?${p.toString()}`);
       return res.data;
     },
+    staleTime: STALE_TIME.catalog,
+    ...listQueryOptions,
   });
+
+  const showSkeleton = isInitialLoad(isPending, data);
 
   // Self-correct out-of-range `page` (e.g. after deletes, shared stale links).
   useEffect(() => {
@@ -180,7 +186,7 @@ function TemplatesContent() {
             value={list.sortBy}
             order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={list.setSort}
+            onChange={list.setSortField}
             onToggleOrder={list.toggleSortOrder}
           />
         }
@@ -202,7 +208,7 @@ function TemplatesContent() {
             </tr>
           </thead>
           <tbody className={TABLE_BODY}>
-            {isLoading && <TableRowsSkeleton rows={5} cols={4} />}
+            {showSkeleton && <TableRowsSkeleton rows={5} cols={4} />}
             {error && (
               <tr>
                 <td colSpan={4} className="p-0">
@@ -210,7 +216,7 @@ function TemplatesContent() {
                 </td>
               </tr>
             )}
-            {!isLoading && !error && tableTemplates.length === 0 && (
+            {!showSkeleton && !error && tableTemplates.length === 0 && (
               <tr>
                 <td colSpan={4} className="p-0">
                   <EmptyState
@@ -228,6 +234,11 @@ function TemplatesContent() {
                         : defaultTemplate
                           ? "Named templates add matching rules on top of your default. Create one when you need auto-assignment."
                           : "Templates define how recordings are matched and named. Create your first one."
+                    }
+                    action={
+                      list.hasActiveFilters ? undefined : (
+                        <CreatePlaceholder className="w-full max-w-xs" href="/templates/new" label="Add a template" />
+                      )
                     }
                   />
                 </td>

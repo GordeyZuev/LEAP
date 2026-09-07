@@ -8,7 +8,7 @@ import { ShareView } from "./share-view";
 /**
  * Server shell. Its only job is `generateMetadata`: a share link is made to be
  * pasted into a chat, and without this every one of them previewed as the same
- * "LEAP — Shared Recording" with no hint of what was sent.
+ * "LEAP – Shared Recording" with no hint of what was sent.
  */
 export async function generateMetadata({
   params,
@@ -20,14 +20,14 @@ export async function generateMetadata({
 
   // Revoked or unreachable: stay neutral rather than leak anything.
   if (!recording) {
-    return { title: "Shared recording — LEAP", robots: { index: false, follow: false } };
+    return { title: "Shared recording – LEAP", robots: { index: false, follow: false } };
   }
 
   const duration = recording.duration > 0 ? formatDuration(recording.duration) : null;
   const description = [duration, "Shared via LEAP"].filter(Boolean).join(" · ");
 
   return {
-    title: `${recording.title || recording.display_name} — LEAP`,
+    title: `${recording.title || recording.display_name} – LEAP`,
     description,
     // A share token is an unguessable capability URL; keep it out of indexes.
     robots: { index: false, follow: false },

@@ -11,6 +11,8 @@ For basic checks, use built-in Pydantic capabilities:
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from api.helpers.text import collapse_whitespace
+
 
 def validate_regex_pattern(v: str | None, field_name: str = "pattern") -> str | None:
     """
@@ -57,6 +59,18 @@ def validate_regex_patterns(v: list[str] | None, field_name: str = "patterns") -
     return v
 
 
+def collapse_optional_display_name(v: str | None, *, allow_empty: bool = False) -> str | None:
+    """Collapse whitespace in an optional recording title. None stays None."""
+    if v is None:
+        return None
+    collapsed = collapse_whitespace(v)
+    if collapsed:
+        return collapsed
+    if allow_empty:
+        return None
+    raise ValueError("Name cannot be empty")
+
+
 def strip_and_validate_name(v: str) -> str:
     """Strip whitespace from name and validate it's not empty."""
     if isinstance(v, str):
@@ -70,7 +84,7 @@ def clean_and_deduplicate_strings(v: list[str] | None) -> list[str] | None:
     """
     Clean and deduplicate list of strings.
 
-    - Strips leading/trailing whitespace
+    - Collapses internal whitespace (newlines, tabs) and strips ends
     - Removes empty strings
     - Removes duplicates (preserving order)
     - Returns None if list is empty after cleaning
@@ -94,8 +108,13 @@ def clean_and_deduplicate_strings(v: list[str] | None) -> list[str] | None:
     if v is None:
         return None
 
-    # Clean and filter
-    cleaned = [s.strip() for s in v if isinstance(s, str) and s.strip()]
+    cleaned: list[str] = []
+    for s in v:
+        if not isinstance(s, str):
+            continue
+        collapsed = collapse_whitespace(s)
+        if collapsed:
+            cleaned.append(collapsed)
 
     if not cleaned:
         return None

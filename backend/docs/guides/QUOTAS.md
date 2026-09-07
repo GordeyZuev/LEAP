@@ -46,6 +46,11 @@ DEFAULT_QUOTAS (config/settings.py)    ← дефолты в коде
 | `storage_bytes` | **не используется для гейта** — объём считается на лету из хранилища |
 | `concurrent_tasks_count` | **не используется для гейта** — активные задачи считаются из `on_air` |
 
+**Count-based лимиты (total, не месячные):** `max_automation_jobs`, `max_templates`,
+`max_credentials` — текущее значение считается live-подсчётом (`automation_jobs`,
+named `recording_templates` без default, `user_credentials`); см. `GET /users/me/quota`
+и [USAGE_AND_ANALYTICS.md](USAGE_AND_ANALYTICS.md).
+
 > Трекинг — **best-effort**: сбой записи счётчика/события логируется и не роняет
 > операцию (в худшем случае лёгкий недосчёт, никогда не сломанный пайплайн).
 
@@ -127,8 +132,8 @@ Storage / MinIO), а не с локального диска и не из хра
 - **Планы:** `GET/POST/PATCH /admin/plans`.
 
 Пользователь видит своё потребление и лимиты: `GET /api/v1/users/me/quota`
-(блоки `recordings`, `storage`, `concurrent_tasks`, `transcriptions`,
-`processing` + `current_usage`).
+(блоки `recordings`, `storage`, `concurrent_tasks`, `automation_jobs`, `transcriptions`,
+`processing`, `templates`, `credentials` + `current_usage`).
 
 ---
 

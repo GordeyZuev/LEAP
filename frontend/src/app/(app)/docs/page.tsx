@@ -16,6 +16,7 @@ import {
   Info,
   Layers,
   AlertTriangle,
+  CircleHelp,
 } from "lucide-react";
 
 // ─── primitives ───────────────────────────────────────────────────────────────
@@ -211,6 +212,7 @@ function LayerCard({
 
 const NAV = [
   { id: "getting-started", label: "Start here", icon: BookOpen },
+  { id: "faq", label: "FAQ", icon: CircleHelp },
   { id: "recordings", label: "Recordings", icon: Video },
   { id: "templates", label: "Templates", icon: FileText },
   { id: "presets", label: "Presets", icon: Settings2 },
@@ -256,16 +258,16 @@ export default function DocsPage() {
           </h1>
         </div>
         <P>
-          LEAP takes a video from import to publication — trimming, transcription, topics, subtitles,
-          and upload to your platforms. This guide explains every part of the app in plain language.
+          LEAP takes a video from import to publication – trimming, transcription, topics, subtitles,
+          and upload to your platforms. This guide covers the product in plain language. Age rating: 12+.
         </P>
         <Note>
-          New here? Open <strong>Start here</strong> below, then skim <strong>Templates</strong> — almost
+          New here? Open <strong>Start here</strong> below, then skim <strong>Templates</strong> – almost
           everything about processing and publishing flows through templates now.
         </Note>
       </header>
 
-      {/* Search — the accordion hides text from the browser's own find, so the
+      {/* Search – the accordion hides text from the browser's own find, so the
           page needs its own way in. */}
       <div className="relative mb-6">
         <Search
@@ -291,7 +293,7 @@ export default function DocsPage() {
         Nothing matches “{query}”. Try a different word, or clear the search to browse by section.
       </p>
 
-      {/* Nav — section jump links; gap keeps adjacent targets visually distinct. */}
+      {/* Nav – section jump links; gap keeps adjacent targets visually distinct. */}
       <nav aria-label="Documentation sections" className="mb-8 flex flex-wrap gap-2.5">
         {NAV.map(({ id, label, icon: Icon }) => (
           <a
@@ -316,8 +318,8 @@ export default function DocsPage() {
           <Sub title="What LEAP does">
             <P>
               You bring in a lecture or webinar. LEAP can trim silence, transcribe speech, extract topics
-              with timecodes, generate subtitles, and publish the result to YouTube or Yandex Disk — using
-              title and description templates you define once.
+              with timecodes, generate subtitles, and publish the result to YouTube, Yandex Disk, or a
+              public LEAP link – using title and description templates you define once.
             </P>
           </Sub>
           <Sub title="Five-minute setup">
@@ -327,8 +329,8 @@ export default function DocsPage() {
                   title: "Connect platforms (if you publish or sync)",
                   body: (
                     <>
-                      Go to <strong>Credentials</strong> and authorize YouTube, Zoom, and/or Yandex Disk
-                      depending on what you use. You can skip this for a one-off file upload or a public URL.
+                      Go to <strong>Credentials</strong> and authorize YouTube, Zoom, Yandex Disk, and/or
+                      MTS Link depending on what you use. You can skip this for a one-off file upload or a public URL.
                     </>
                   ),
                 },
@@ -346,7 +348,7 @@ export default function DocsPage() {
                   title: "Create presets (destinations)",
                   body: (
                     <>
-                      In <strong>Presets</strong>, create one preset per destination — e.g. «My YouTube channel»
+                      In <strong>Presets</strong>, create one preset per destination – e.g. «My YouTube channel»
                       or «Course folder on Yandex Disk». A preset stores the account, privacy, and platform-specific options.
                     </>
                   ),
@@ -355,7 +357,7 @@ export default function DocsPage() {
                   title: "Add a recording",
                   body: (
                     <>
-                      <strong>Recordings → Add recording</strong> — paste a URL, upload a file, or sync from a source.
+                      <strong>Recordings → Add recording</strong> – paste a URL, upload a file, or sync from a source.
                     </>
                   ),
                 },
@@ -374,13 +376,13 @@ export default function DocsPage() {
           <Sub title="When you need more">
             <List
               items={[
-                <><strong>Many lecture series</strong> — create named templates with matching rules so the right settings apply automatically.</>,
-                <><strong>Nightly imports from Zoom</strong> — add a Source and an Automation rule.</>,
-                <><strong>One-off tweaks</strong> — use the Run dialog; overrides apply to that run only and stay off until you enable them.</>,
+                <><strong>Many lecture series</strong> – create named templates with matching rules so the right settings apply automatically.</>,
+                <><strong>Nightly imports from Zoom</strong> – add a Source and an Automation rule.</>,
+                <><strong>One-off tweaks</strong> – use the Run dialog; overrides apply to that run only and stay off until you enable them.</>,
               ]}
             />
           </Sub>
-          <Sub title="Templates vs presets — quick comparison">
+          <Sub title="Templates vs presets – quick comparison">
             <CompareTable
               rows={[
                 { label: "Answers", template: "How to process and what to write", preset: "Where to upload" },
@@ -388,6 +390,75 @@ export default function DocsPage() {
                 { label: "Count", template: "One base + optional named ones", preset: "One per platform/account" },
               ]}
             />
+          </Sub>
+        </Section>
+
+        {/* ── FAQ ── */}
+        <Section id="faq" search={query} icon={CircleHelp} title="FAQ" color="#2563eb">
+          <Sub title="Template vs preset vs source">
+            <List
+              items={[
+                <><strong>Template</strong> – how to process and what to write (language, trim, Jinja title and description). Every account has one <strong>base template</strong>.</>,
+                <><strong>Preset</strong> – where to publish (YouTube privacy, Disk folder). A LEAP look preset sets title, description, and cover inside LEAP and does not upload a copy.</>,
+                <><strong>Source</strong> – where new files come from (Zoom, MTS Link, Yandex Disk, saved URL). A one-off URL or file does not need a source.</>,
+              ]}
+            />
+          </Sub>
+          <Sub title="Where did processing settings go?">
+            <P>
+              Defaults live in your <strong>base template</strong> (Settings → Account, or the row marked{" "}
+              <strong>Base</strong> on Templates). Settings is for profile, theme, sessions, and retention.
+            </P>
+          </Sub>
+          <Sub title="Do I need credentials to try LEAP?">
+            <P>
+              No. Paste a public URL or upload a file. Credentials are required to sync Zoom, MTS Link, or Disk,
+              and to publish to YouTube or Disk.
+            </P>
+          </Sub>
+          <Sub title="Is VK supported?">
+            <P>
+              No. VK is not a destination. Publish to YouTube, Yandex Disk, or a LEAP share/course link.
+            </P>
+          </Sub>
+          <Sub title="How do share links and playlists work?">
+            <P>
+              A recording has one public URL: Enable / Disable (same URL) / Rotate (new URL). A playlist is an
+              ordered course with <code className="text-xs">/share/p/…</code>. Look LEAP is membership and
+              appearance, not an upload. Details in <strong>Recordings</strong> below.
+            </P>
+          </Sub>
+          <Sub title="Which speech engine does LEAP use?">
+            <P>
+              Transcription is AssemblyAI. DeepSeek extracts topics, summaries, and self-check questions.
+              Set language and Vocabulary on the template if names or jargon come out wrong.
+            </P>
+          </Sub>
+          <Sub title="Why is a short MTS Link recording marked blank?">
+            <P>
+              Events shorter than 10 minutes are treated as empty slots and skipped. Longer lectures: LEAP
+              asks MTS Link for an MP4 when you click <strong>Run</strong>, not through a separate download action.
+            </P>
+          </Sub>
+          <Sub title="Why is there a 12+ mark?">
+            <P>
+              LEAP is educational software and hosts lecture video. The product, the public site, and share
+              pages carry a <strong>12+</strong> information-product label. It is not YouTube “Made for kids”
+              and not an 18+ gate on the player.
+            </P>
+          </Sub>
+          <Sub title="Upload failed after processing finished">
+            <P>
+              You do not need to reprocess. On the recording page, run the upload stage again. The trimmed
+              video and subtitles are reused. If the credential shows Re-auth needed, refresh it first.
+            </P>
+          </Sub>
+          <Sub title="A recording looks stuck">
+            <P>
+              Open the recording and read the pipeline panel. Pause an in-flight run, then Run again.
+              Completed steps (transcript, trim) are reused when possible. See <strong>Troubleshooting</strong>{" "}
+              for stage-by-stage checks.
+            </P>
           </Sub>
         </Section>
 
@@ -406,10 +477,10 @@ export default function DocsPage() {
             </P>
             <List
               items={[
-                <><strong>URL</strong> — paste a link to a single video (YouTube, Rutube, Vimeo, and many other sites via yt-dlp). After a short pause the dialog shows the title, duration, thumbnail, and available qualities.</>,
-                <><strong>Playlist</strong> — import every item from a playlist URL.</>,
-                <><strong>File</strong> — upload directly from your computer (up to 5 GB).</>,
-                <><strong>Sync</strong> — pull new items from a configured source (Zoom, MTS Link, Yandex Disk, or a saved Video URL source).</>,
+                <><strong>URL</strong> – paste a link to a single video (YouTube, Rutube, Vimeo, and many other sites via yt-dlp). After a short pause the dialog shows the title, duration, thumbnail, and available qualities.</>,
+                <><strong>Playlist</strong> – import every item from a playlist URL.</>,
+                <><strong>File</strong> – upload directly from your computer (up to 5 GB).</>,
+                <><strong>Sync</strong> – pull new items from a configured source (Zoom, MTS Link, Yandex Disk, or a saved Video URL source).</>,
               ]}
             />
             <Steps
@@ -424,7 +495,7 @@ export default function DocsPage() {
                 },
                 {
                   title: "Publish",
-                  body: "When processing finishes, upload to one or more presets — or enable auto-upload in your base template.",
+                  body: "When processing finishes, upload to one or more presets – or enable auto-upload in your base template.",
                 },
               ]}
             />
@@ -443,7 +514,7 @@ export default function DocsPage() {
               View counts stay on the recording (anonymous page opens, deduped ~30 minutes
               per visitor). Opening a playable video from a playlist counts as a view on that recording
               (same window); the playlist landing and processing rows do not. Download buttons on the public page
-              can be hidden per recording — playback itself cannot be copy-proof.
+              can be hidden per recording – playback itself cannot be copy-proof.
             </P>
           </Sub>
           <Sub title="Playlists">
@@ -451,25 +522,26 @@ export default function DocsPage() {
               A playlist is a course: an ordered list of recordings with one public link
               (<code className="text-xs">/share/p/…</code>). Create one under <strong>Playlists</strong>,
               then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
-              Named templates and Run can append recordings to LEAP playlists without upload presets — this is membership, not a YouTube upload.
+              Named templates and Run can append recordings to LEAP playlists without upload presets – this is membership, not a YouTube upload.
               Enable / Disable / Rotate work like recording share. Deleting a playlist kills the link; recordings stay.
               The landing page is a cover image and the video list (no Play button). Opening a video goes to watch
-              (<code className="text-xs">?v=</code>): player, companion (Videos, Topics, Transcript), then Extra content,
+              (<code className="text-xs">?v=</code>): player, companion (Timestamps, Transcript, Playlist), then Extra content,
               Files, and Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags.
               Opening a playable video counts as a view on that recording.
               Playlist descriptions can use <code className="text-xs">{"{{ video_count }}"}</code>,{" "}
               <code className="text-xs">{"{{ duration_hm }}"}</code>, and <code className="text-xs">{"{{ items }}"}</code>.
               Cmd or Ctrl with B, I, U, K, and Shift+X formats the selection and skips Jinja variables.
               The field keeps the marks; Public look is what visitors see. Formatting stays on one line;
-              YouTube and VK get plain text.
+              YouTube descriptions are sent as plain text.
             </P>
           </Sub>
           <Sub title="Running a recording">
             <P>
               Click <strong>Run</strong> on the recording page (or select several on the list and bulk-run).
               The Run dialog shows the effective config merged from your templates. Override toggles are{" "}
-              <strong>off by default</strong> — expand a section and enable it only when you need a one-time change.
+              <strong>off by default</strong> – expand a section and enable it only when you need a one-time change.
               LEAP playlists are always visible: checking a course appends the recording without turning on upload.
+              Look (title, description, cover) is in the same LEAP block; it is not an upload.
             </P>
             <Tip>
               You can pick a different template for a single run without changing the recording&apos;s linked template.
@@ -478,26 +550,26 @@ export default function DocsPage() {
           <Sub title="Recording statuses">
             <List
               items={[
-                <><strong>Pending</strong> — source is still assembling the file (Zoom conversion, or MTS Link with size 0).</>,
-                <><strong>Converting</strong> — MTS Link is rendering MP4. Automation retries until the file is ready.</>,
-                <><strong>Initialized</strong> — ready to download.</>,
-                <><strong>Downloading</strong> — fetching from the source.</>,
-                <><strong>Processing</strong> — trimming, transcription, topics, subtitles.</>,
-                <><strong>Ready</strong> — processing complete, ready to publish.</>,
-                <><strong>Uploading</strong> — being uploaded to platforms.</>,
-                <><strong>Done</strong> — published to all selected platforms.</>,
-                <><strong>Failed</strong> — an error occurred. Open the recording to see details.</>,
+                <><strong>Pending</strong> – source is still assembling the file (Zoom conversion, or MTS Link with size 0).</>,
+                <><strong>Converting</strong> – MTS Link is rendering MP4. Automation retries until the file is ready.</>,
+                <><strong>Initialized</strong> – ready to download.</>,
+                <><strong>Downloading</strong> – fetching from the source.</>,
+                <><strong>Processing</strong> – trimming, transcription, topics, subtitles.</>,
+                <><strong>Ready</strong> – processing complete, ready to publish.</>,
+                <><strong>Uploading</strong> – being uploaded to platforms.</>,
+                <><strong>Done</strong> – published to all selected platforms.</>,
+                <><strong>Failed</strong> – an error occurred. Open the recording to see details.</>,
               ]}
             />
           </Sub>
           <Sub title="Processing options">
             <List
               items={[
-                <><strong>Transcription</strong> — speech recognition via AssemblyAI (Universal-2). Language, vocabulary hints, and optional translation are configurable.</>,
-                <><strong>Silence trimming</strong> — FFmpeg automatically removes leading and trailing silence.</>,
-                <><strong>Topic extraction</strong> — DeepSeek analyses the transcript and produces a topic list with timecodes and optional self-check questions.</>,
-                <><strong>Subtitles</strong> — generated in SRT and VTT formats from the transcript.</>,
-                <><strong>Auto-upload</strong> — immediately after processing, the recording is published to selected presets.</>,
+                <><strong>Transcription</strong> – speech recognition via AssemblyAI (Universal-2). Language, vocabulary hints, and optional translation are configurable.</>,
+                <><strong>Silence trimming</strong> – FFmpeg removes leading and trailing silence (including digital silence to the end of the file, typical of long MTS slots).</>,
+                <><strong>Topic extraction</strong> – DeepSeek analyses the transcript and produces a topic list with timecodes and optional self-check questions.</>,
+                <><strong>Subtitles</strong> – generated in SRT and VTT formats from the transcript.</>,
+                <><strong>Auto-upload</strong> – immediately after processing, the recording is published to selected presets.</>,
               ]}
             />
             <Tip>
@@ -511,7 +583,7 @@ export default function DocsPage() {
         <Section id="credentials" search={query} icon={Key} title="Credentials" color="#059669">
           <Sub title="Overview">
             <P>
-              Credentials stores OAuth tokens and keys for connected platforms — YouTube, Zoom, Yandex Disk.
+              Credentials stores OAuth tokens and keys for connected platforms – YouTube, Zoom, Yandex Disk, MTS Link.
               Without credentials the platform cannot download recordings or publish videos.
             </P>
           </Sub>
@@ -524,7 +596,7 @@ export default function DocsPage() {
                 },
                 {
                   title: "Choose a platform",
-                  body: "YouTube, Zoom, Yandex Disk, MTS Link — each has its own connection flow.",
+                  body: "YouTube, Zoom, Yandex Disk, MTS Link – each has its own connection flow.",
                 },
                 {
                   title: "Complete OAuth",
@@ -536,10 +608,10 @@ export default function DocsPage() {
           <Sub title="Platform notes">
             <List
               items={[
-                <><strong>YouTube</strong> — token lasts 1 hour and refreshes automatically on upload. Re-authorization is not needed.</>,
-                <><strong>Zoom</strong> — uses Server-to-Server OAuth. Authorized once at the account level.</>,
-                <><strong>Yandex Disk</strong> — token valid for up to 1 year. Can be used both as a recording source and an upload destination.</>,
-                <><strong>MTS Link</strong> — organization API key (Credentials → Manual). Not OAuth. Lecturers to sync are listed as emails on the source.</>,
+                <><strong>YouTube</strong> – token lasts 1 hour and refreshes automatically on upload. Re-authorization is not needed.</>,
+                <><strong>Zoom</strong> – uses Server-to-Server OAuth. Authorized once at the account level.</>,
+                <><strong>Yandex Disk</strong> – token valid for up to 1 year. Can be used both as a recording source and an upload destination.</>,
+                <><strong>MTS Link</strong> – organization API key (Credentials → Manual). Not OAuth. Lecturers to sync are listed as emails on the source.</>,
               ]}
             />
           </Sub>
@@ -559,14 +631,14 @@ export default function DocsPage() {
           <Sub title="Supported sources">
             <List
               items={[
-                <><strong>Zoom</strong> — syncs cloud recordings from your account or managed users. Requires a Zoom credential.</>,
-                <><strong>MTS Link</strong> — syncs event recordings for lecturers you list by email. Requires an MTS Link organization API key. LEAP asks MTS Link for an MP4 when you download.</>,
-                <><strong>Yandex Disk</strong> — watches a folder (OAuth or public link) and picks up new video files. Optional filename filter and recursive scan.</>,
-                <><strong>Video URL</strong> — a saved single-video or playlist URL processed via yt-dlp. No platform credential needed for public links.</>,
+                <><strong>Zoom</strong> – syncs cloud recordings from your account or managed users. Requires a Zoom credential.</>,
+                <><strong>MTS Link</strong> – syncs event recordings for lecturers you list by email. Requires an MTS Link organization API key. LEAP asks MTS Link for an MP4 when you download.</>,
+                <><strong>Yandex Disk</strong> – watches a folder (OAuth or public link) and picks up new video files. Optional filename filter and recursive scan.</>,
+                <><strong>Video URL</strong> – a saved single-video or playlist URL processed via yt-dlp. No platform credential needed for public links.</>,
               ]}
             />
             <Tip>
-              One-off uploads do not require a source — use <strong>Recordings → Add recording</strong> (URL, playlist, or file).
+              One-off uploads do not require a source – use <strong>Recordings → Add recording</strong> (URL, playlist, or file).
             </Tip>
           </Sub>
           <Sub title="Setting up a source">
@@ -582,7 +654,7 @@ export default function DocsPage() {
                 },
                 {
                   title: "Set up automation",
-                  body: "To have new recordings processed automatically — link the source to a rule in the Automation section.",
+                  body: "To have new recordings processed automatically – link the source to a rule in the Automation section.",
                 },
               ]}
             />
@@ -590,7 +662,7 @@ export default function DocsPage() {
           <Sub title="Sync behaviour">
             <P>
               Each source can be synced manually via the «Sync» button or through automation.
-              Only new recordings are pulled — existing ones are never duplicated.
+              Only new recordings are pulled – existing ones are never duplicated.
             </P>
           </Sub>
         </Section>
@@ -608,13 +680,13 @@ export default function DocsPage() {
             <List
               items={[
                 <>
-                  <strong>Base template</strong> — exactly one per account. Always applied to every recording.
+                  <strong>Base template</strong> – exactly one per account. Always applied to every recording.
                   Holds your account-wide defaults (processing, metadata, output presets). Shown with a{" "}
                   <strong>Base</strong> badge. Cannot be deleted; open it from <strong>Settings → Account</strong>{" "}
                   or the Templates list.
                 </>,
                 <>
-                  <strong>Named templates</strong> — optional extras for specific courses or sources. Can auto-assign
+                  <strong>Named templates</strong> – optional extras for specific courses or sources. Can auto-assign
                   to recordings via matching rules, or you can link one manually on a recording page. When linked,
                   their settings merge on top of the base template.
                 </>,
@@ -623,26 +695,26 @@ export default function DocsPage() {
             <Tip>
               To switch which named template is your base: open it → <strong>More → Make base template</strong>.
               When creating a new template, enable <strong>Make base template</strong> on save. The previous base
-              becomes a regular named template — nothing is copied or lost.
+              becomes a regular named template – nothing is copied or lost.
             </Tip>
           </Sub>
           <Sub title="What you configure in a template">
             <List
               items={[
-                <><strong>Processing</strong> — transcription on/off, language, vocabulary, topic extraction, subtitles, question count, allow partial ASR errors.</>,
-                <><strong>Metadata templates</strong> — Jinja2 title and description; how topics and questions appear in the text (display format).</>,
-                <><strong>Output</strong> — LEAP playlists on named templates (course membership, no preset required); presets and auto-upload for copies to YouTube or Yandex Disk.</>,
-                <><strong>Matching rules</strong> (named templates only) — keywords, exact names, regex, source filters, exclusions. Active templates with matching rules auto-link to new recordings.</>,
-                <><strong>Platform overrides</strong> — optional per-platform fields (YouTube privacy, Yandex folder path, thumbnail) layered on top of global metadata.</>,
+                <><strong>Processing</strong> – transcription on/off, language, vocabulary, topic extraction, subtitles, question count, allow partial ASR errors.</>,
+                <><strong>Metadata templates</strong> – Jinja2 title and description; how topics and questions appear in the text (display format).</>,
+                <><strong>Output</strong> – on named templates, one LEAP block: courses (membership, no upload) and look (course/share title, description, cover). Copy presets and auto-upload send video to YouTube or Yandex Disk.</>,
+                <><strong>Matching rules</strong> (named templates only) – keywords, exact names, regex, source filters, exclusions. Active templates with matching rules auto-link to new recordings.</>,
+                <><strong>Platform overrides</strong> – optional per-platform fields (YouTube privacy, Yandex folder path, thumbnail) layered on top of global metadata.</>,
               ]}
             />
           </Sub>
           <Sub title="Draft, active, and base">
             <List
               items={[
-                <><strong>Draft</strong> — work in progress; matching rules do not run.</>,
-                <><strong>Active</strong> — matching and rematch apply; can be linked to recordings.</>,
-                <><strong>Base</strong> — always active; matching is disabled (it applies to everything already).</>,
+                <><strong>Draft</strong> – work in progress; matching rules do not run.</>,
+                <><strong>Active</strong> – matching and rematch apply; can be linked to recordings.</>,
+                <><strong>Base</strong> – always active; matching is disabled (it applies to everything already).</>,
               ]}
             />
           </Sub>
@@ -675,15 +747,15 @@ export default function DocsPage() {
             </P>
             <List
               items={[
-                <><strong>{"{{ display_name }}"}</strong> — recording title.</>,
-                <><strong>{"{{ record_date }}"}</strong> — date (DD.MM.YYYY, your timezone from Settings).</>,
-                <><strong>{"{{ record_datetime }}"}</strong> — date and time (DD.MM.YYYY HH:MM).</>,
-                <><strong>{"{{ themes }}"}</strong> — topics as a comma-separated line.</>,
-                <><strong>{"{{ topics }}"}</strong> — numbered list with timecodes (format depends on display settings).</>,
-                <><strong>{"{{ summary }}"}</strong> — plain-text summary from the transcript.</>,
-                <><strong>{"{{ questions }}"}</strong> — self-check questions if generated.</>,
-                <><strong>{"{{ duration_hm }}"}</strong> — duration (e.g. 1:05:03).</>,
-                <><strong>{"{{ title }}"}</strong> — the already-rendered title (handy inside the description body).</>,
+                <><strong>{"{{ display_name }}"}</strong> – recording title.</>,
+                <><strong>{"{{ record_date }}"}</strong> – date (DD.MM.YYYY, your timezone from Settings).</>,
+                <><strong>{"{{ record_datetime }}"}</strong> – date and time (DD.MM.YYYY HH:MM).</>,
+                <><strong>{"{{ themes }}"}</strong> – topics as a comma-separated line.</>,
+                <><strong>{"{{ topics }}"}</strong> – numbered list with timecodes (format depends on display settings).</>,
+                <><strong>{"{{ summary }}"}</strong> – plain-text summary from the transcript.</>,
+                <><strong>{"{{ questions }}"}</strong> – self-check questions if generated.</>,
+                <><strong>{"{{ duration_hm }}"}</strong> – duration (e.g. 1:05:03).</>,
+                <><strong>{"{{ title }}"}</strong> – the already-rendered title (handy inside the description body).</>,
               ]}
             />
           </Sub>
@@ -692,7 +764,7 @@ export default function DocsPage() {
               <div>
                 <p className={SUBHEAD}>Title</p>
                 <p className="mt-1.5 overflow-x-auto font-mono text-sm leading-[1.5] text-foreground">
-                  {"{{ display_name }} — {{ record_date }}"}
+                  {"{{ display_name }} – {{ record_date }}"}
                 </p>
               </div>
               <div>
@@ -724,8 +796,8 @@ export default function DocsPage() {
           <Sub title="Platform settings">
             <List
               items={[
-                <><strong>YouTube</strong> — privacy (public / unlisted / private), category, license, embeddable, language.</>,
-                <><strong>Yandex Disk</strong> — destination folder (supports template variables), filename, optional subtitle and transcript sidecar upload.</>,
+                <><strong>YouTube</strong> – privacy (public / unlisted / private), category, license, embeddable, language.</>,
+                <><strong>Yandex Disk</strong> – destination folder (supports template variables), filename, optional subtitle and transcript sidecar upload.</>,
               ]}
             />
           </Sub>
@@ -742,7 +814,7 @@ export default function DocsPage() {
           <Sub title="Overview">
             <P>
               Automation lets you trigger recording processing on a schedule or when new videos appear
-              in a source — without any manual action.
+              in a source – without any manual action.
             </P>
           </Sub>
           <Sub title="How it works">
@@ -769,8 +841,9 @@ export default function DocsPage() {
           </Sub>
           <Sub title="Dry Run mode">
             <P>
-              Before enabling a rule you can run «Dry Run» — the platform shows which recordings
-              would have been processed, without actually running anything. Useful for testing filters.
+              Dry run uses the <strong>saved</strong> job: it syncs the same sources as a real run (new
+              recordings can appear in the catalog), then lists which recordings would start processing.
+              Pipelines are not started. Use it to check filters and matching before Run now.
             </P>
           </Sub>
           <Sub title="Status filters">
@@ -793,16 +866,32 @@ export default function DocsPage() {
         <Section id="settings" search={query} icon={SlidersHorizontal} title="Settings" color="#6b7280">
           <Sub title="Overview">
             <P>
-              Settings is for your account profile, appearance, security, and data retention — not for
+              Settings is for your account profile, appearance, security, and data retention – not for
               processing defaults. Those live in your <strong>base template</strong> (see Templates).
             </P>
+          </Sub>
+          <Sub title="Usage">
+            <List
+              items={[
+                <>
+                  <strong>Quota</strong> – all plan limits as <strong>used / limit</strong> (eight rows: recordings and
+                  transcriptions per month, storage, concurrent tasks, automation jobs, processing, templates,
+                  credentials). Unlimited limits show ∞.
+                </>,
+                <>
+                  <strong>Activity</strong> – pick a date range (up to 366 days) and see summary cards plus charts:
+                  new recordings, transcribed minutes, uploads by platform, share views, and breakdowns by status and
+                  template.
+                </>,
+              ]}
+            />
           </Sub>
           <Sub title="Account">
             <List
               items={[
-                <><strong>Profile</strong> — name, email (read-only), timezone (used for {"{{ record_date }}"} in templates).</>,
-                <><strong>Base template banner</strong> — shortcut to edit your account defaults for processing, metadata, and uploads.</>,
-                <><strong>Usage & plan</strong> — recordings this month, storage, concurrent tasks, automation jobs.</>,
+                <><strong>Profile</strong> – name, email (read-only), timezone (used for {"{{ record_date }}"} in templates).</>,
+                <><strong>Base template banner</strong> – shortcut to edit your account defaults for processing, metadata, and uploads.</>,
+                <><strong>Plan name</strong> – your subscription display name (quota numbers are on the Usage tab).</>,
               ]}
             />
           </Sub>
@@ -812,8 +901,8 @@ export default function DocsPage() {
           <Sub title="Security">
             <List
               items={[
-                <><strong>Password</strong> — change your login password.</>,
-                <><strong>Active sessions</strong> — devices signed in to your account; revoke any session or sign out all others.</>,
+                <><strong>Password</strong> – change your login password.</>,
+                <><strong>Active sessions</strong> – devices signed in to your account; revoke any session or sign out all others.</>,
               ]}
             />
           </Sub>
@@ -821,9 +910,9 @@ export default function DocsPage() {
             <P>Controls how long recordings are kept before automatic deletion:</P>
             <List
               items={[
-                <><strong>Soft delete after N days</strong> — hidden from the main list; files remain on storage.</>,
-                <><strong>Hard delete after N days</strong> — permanent removal after the soft-delete grace period.</>,
-                <><strong>Auto-expire after N days</strong> — recordings older than this are soft-deleted regardless of status.</>,
+                <><strong>Soft delete after N days</strong> – hidden from the main list; files remain on storage.</>,
+                <><strong>Hard delete after N days</strong> – permanent removal after the soft-delete grace period.</>,
+                <><strong>Auto-expire after N days</strong> – recordings older than this are soft-deleted regardless of status.</>,
               ]}
             />
             <Tip>
@@ -837,7 +926,7 @@ export default function DocsPage() {
         <Section id="config-hierarchy" search={query} icon={Layers} title="How settings combine" color="#0891b2">
           <Sub title="The idea">
             <P>
-              LEAP merges settings from several layers. You only specify what differs — everything else
+              LEAP merges settings from several layers. You only specify what differs – everything else
               is inherited from the layer below. The most specific layer wins.
             </P>
           </Sub>
@@ -845,29 +934,29 @@ export default function DocsPage() {
             <div className="space-y-3">
               {[
                 {
-                  level: "1 — Base template",
+                  level: "1 – Base template",
                   scope: "Every recording",
                   desc: "Your account defaults: processing, metadata templates, output presets, auto-upload. Always applied first.",
                 },
                 {
-                  level: "2 — Linked template",
+                  level: "2 – Linked template",
                   scope: "This recording",
                   desc: "A named template attached to the recording (manually or via matching). Merges on top of the base. Skipped if it is the same as the base.",
                 },
                 {
-                  level: "3 — Run-time template",
+                  level: "3 – Run-time template",
                   scope: "Single run",
                   desc: "Optional: pick a different template in the Run dialog for one execution only.",
                 },
                 {
-                  level: "4 — Recording preferences",
+                  level: "4 – Recording preferences",
                   scope: "This recording",
                   desc: "Edits saved on the recording itself (e.g. from the recording page). Uncommon for most users.",
                 },
                 {
-                  level: "5 — Run overrides",
+                  level: "5 – Run overrides",
                   scope: "Single run",
-                  desc: "Fields you explicitly enable in the Run dialog. Off by default — turn on only what you want to change for this run.",
+                  desc: "Fields you explicitly enable in the Run dialog. Off by default – turn on only what you want to change for this run.",
                 },
               ].map((layer) => (
                 <LayerCard key={layer.level} {...layer} />
@@ -878,7 +967,7 @@ export default function DocsPage() {
             <P>
               Your base template transcribes in Russian. You link an «English ML» template to a recording
               (English language). That recording transcribes in English. If you run it once with transcription
-              disabled in the Run dialog, that single run skips transcription — the templates themselves do not change.
+              disabled in the Run dialog, that single run skips transcription – the templates themselves do not change.
             </P>
             <Note>
               Priority: Run overrides → recording preferences → run-time template → linked template → base template.
@@ -894,9 +983,9 @@ export default function DocsPage() {
           <Sub title="What is not in templates">
             <List
               items={[
-                <><strong>Retention</strong> — Settings → Account → Data retention.</>,
-                <><strong>Timezone</strong> — Settings → Account (affects date variables in templates).</>,
-                <><strong>Credentials</strong> — separate; presets reference them by account.</>,
+                <><strong>Retention</strong> – Settings → Account → Data retention.</>,
+                <><strong>Timezone</strong> – Settings → Account (affects date variables in templates).</>,
+                <><strong>Credentials</strong> – separate; presets reference them by account.</>,
               ]}
             />
           </Sub>
@@ -907,8 +996,8 @@ export default function DocsPage() {
           <Sub title="Recording is stuck">
             <List
               items={[
-                <>Check the recording status — if it shows <strong>Downloading</strong> or <strong>Processing</strong> for more than 15 minutes, the background task may have stalled.</>,
-                <>Open the recording detail page — the log panel shows the last known step and any error message.</>,
+                <>Check the recording status – if it shows <strong>Downloading</strong> or <strong>Processing</strong> for more than 15 minutes, the background task may have stalled.</>,
+                <>Open the recording detail page – the log panel shows the last known step and any error message.</>,
                 <>Use <strong>Pause</strong> on the recording detail page to stop an in-flight run, or cancel and start a new one. Previous partial results (e.g. a completed transcript) are reused where possible.</>,
               ]}
             />
@@ -916,9 +1005,9 @@ export default function DocsPage() {
           <Sub title="Recording failed">
             <List
               items={[
-                <>Open the recording and read the error message — it usually points to the exact stage that failed (download, trim, transcription, upload).</>,
+                <>Open the recording and read the error message – it usually points to the exact stage that failed (download, trim, transcription, upload).</>,
                 <>For <strong>download failures</strong>: check that the source credential is still valid and the source file exists.</>,
-                <>For <strong>transcription failures</strong>: check that the audio track is not empty or corrupted. Set the correct language and add domain terms in <strong>Vocabulary</strong> on the template. If failures persist, contact your operator — ASR is configured server-side.</>,
+                <>For <strong>transcription failures</strong>: check that the audio track is not empty or corrupted. Set the correct language and add domain terms in <strong>Vocabulary</strong> on the template. If failures persist, contact your operator – ASR is configured server-side.</>,
                 <>For <strong>upload failures</strong>: the platform credential may have expired. Go to Credentials and refresh it, then re-run the upload stage only.</>,
               ]}
             />
@@ -926,14 +1015,14 @@ export default function DocsPage() {
           <Sub title="Upload failed, but processing succeeded">
             <P>
               You don&apos;t need to reprocess the whole recording. On the recording detail page you can
-              trigger the upload stage independently — the existing processed video and subtitles are reused.
+              trigger the upload stage independently – the existing processed video and subtitles are reused.
             </P>
           </Sub>
           <Sub title="Credential expired">
             <List
               items={[
-                <>Go to <strong>Credentials</strong> and find the affected credential — it will show an expired or error status.</>,
-                <>Click «Refresh» or «Re-authorize» to start a new OAuth flow. The existing credential record is updated in place — no need to reconfigure presets or sources that reference it.</>,
+                <>Go to <strong>Credentials</strong> and find the affected credential – it will show an expired or error status.</>,
+                <>Click «Refresh» or «Re-authorize» to start a new OAuth flow. The existing credential record is updated in place – no need to reconfigure presets or sources that reference it.</>,
                 <>YouTube refreshes automatically. Yandex Disk tokens last up to a year. Zoom Server-to-Server tokens refresh automatically.</>,
               ]}
             />
@@ -953,7 +1042,7 @@ export default function DocsPage() {
               items={[
                 <>Set the correct language in your base or linked template. Wrong language hurts accuracy a lot.</>,
                 <>Add domain terms in <strong>Vocabulary</strong> on the template (Processing section). Helps with names, abbreviations, and jargon.</>,
-                <>Enable <strong>Allow transcription errors</strong> for noisy audio — strict mode rejects low-confidence segments.</>,
+                <>Enable <strong>Allow transcription errors</strong> for noisy audio – strict mode rejects low-confidence segments.</>,
               ]}
             />
           </Sub>

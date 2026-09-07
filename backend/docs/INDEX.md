@@ -1,6 +1,22 @@
-# Documentation Index
+# LEAP documentation
 
-**Production-Ready Multi-tenant SaaS for Video Processing**
+Canonical hub for operators and contributors. Product age rating: **12+**.
+
+In-app guide (plain language, search, FAQ): web client → **Documentation**.
+
+---
+
+## Start here
+
+| If you… | Read |
+|---------|------|
+| Need a short product answer | [FAQ.md](FAQ.md) |
+| Are deploying or running locally | [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md) |
+| Are connecting platforms | [guides/OAUTH.md](guides/OAUTH.md), [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) |
+| Need the HTTP surface | [TECHNICAL.md](TECHNICAL.md), [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md) |
+| Want what shipped | [CHANGELOG.md](CHANGELOG.md) |
+
+Root product overview: repository [`README.md`](../../README.md).
 
 ---
 
@@ -8,86 +24,68 @@
 
 | Path | Contents |
 |------|----------|
-| **[guides/](guides/)** | How-to guides: deployment, OAuth, templates, Celery, integrations (Zoom, MTS Link, VK, yt-dlp, …) |
-| **[archive/](archive/)** | Thesis plan and other historical material (not runbooks) |
-| **[dev_notes/](dev_notes/)** | Drafts, TODOs, internal notes |
-| **This folder** | Core reference: API/tech (`TECHNICAL.md`), ADRs, DB design, architecture schemas, changelog |
+| **[FAQ.md](FAQ.md)** | Product FAQ (templates, pipeline, share, 12+) |
+| **[guides/](guides/)** | How-tos: deploy, OAuth, Celery, integrations, templates, quotas |
+| **This folder** | API/tech (`TECHNICAL.md`), ADRs, schema, changelog |
+| **[archive/](archive/)** | Historical / thesis material – not runbooks |
+| **[dev_notes/](dev_notes/)** | Drafts; ignore when they conflict with `guides/` |
 
 ---
 
-## Quick start
+## Using the product
 
-1. [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md) — setup (dev → production)
-2. [guides/OAUTH.md](guides/OAUTH.md) — YouTube, VK, Zoom credentials; [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) — MTS Link API key
-3. [TECHNICAL.md](TECHNICAL.md) — REST API and modules
-
----
-
-## Architecture & design
-
-- [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md) — statuses, run/pause, credentials, configs (diagrams)
-- [ADR_OVERVIEW.md](ADR_OVERVIEW.md) — Architecture Decision Records
-- [ADR_FEATURES.md](ADR_FEATURES.md) — feature-specific ADRs
-- [DATABASE_DESIGN.md](DATABASE_DESIGN.md) — schema & migrations
-- [TECHNICAL.md](TECHNICAL.md) — full technical reference
-
-### Academic / talks (archive)
-
-- [archive/PLAN.md](archive/PLAN.md) — thesis plan
-
----
-
-## Guides ([guides/](guides/))
-
-**Templates & automation**
-
+- [FAQ.md](FAQ.md)
+- [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md) – Settings → Usage, quotas, activity charts, admin analytics, share stats (v0.10.8.3)
+- [guides/PLAYLISTS.md](guides/PLAYLISTS.md) – course playlists, public `/share/p/{uuid}`, Enable / Disable / Rotate
 - [guides/TEMPLATES.md](guides/TEMPLATES.md)
 - [guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md](guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md)
-- [guides/JINJA_METADATA_TEMPLATES.md](guides/JINJA_METADATA_TEMPLATES.md) — Jinja2 variables, precomputed date strings (owner TZ), preview API, migrations 018–019
-- [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md)
+- [guides/JINJA_METADATA_TEMPLATES.md](guides/JINJA_METADATA_TEMPLATES.md) – Jinja variables, Timestamps vs `topics_display`, preview API
+- [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) – browser playback, presigned URLs, MP4 faststart
+- [guides/FRONTEND_UI.md](guides/FRONTEND_UI.md) – motion, `.pressable`, reduced-motion
 
-**Quotas & admin**
+---
 
-- [guides/QUOTAS.md](guides/QUOTAS.md) — как работают квоты, лимиты и feature-флаги (концепция)
-- [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md) — API-справочник quota/admin эндпоинтов
+## Deploy, auth, workers
 
-**Auth & sessions**
-
-- [guides/SESSIONS.md](guides/SESSIONS.md) — token_version kill-switch, active-sessions UI, incident-response cookbook
-
-**Credentials & platforms**
-
+- [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md)
 - [guides/OAUTH.md](guides/OAUTH.md)
 - [guides/CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md)
-- [guides/VK_INTEGRATION.md](guides/VK_INTEGRATION.md)
-- [guides/VK_POLICY_UPDATE_2026.md](guides/VK_POLICY_UPDATE_2026.md)
-- [guides/ZOOM_CREDS_GUIDE.md](guides/ZOOM_CREDS_GUIDE.md)
-
-**Processing & workers**
-
-- [guides/FIREWORKS_BATCH_API.md](guides/FIREWORKS_BATCH_API.md)
-- [guides/BATCH_TESTING.md](guides/BATCH_TESTING.md)
+- [guides/SESSIONS.md](guides/SESSIONS.md)
+- [guides/QUOTAS.md](guides/QUOTAS.md)
+- [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md)
+- [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md)
 - [guides/CELERY_WORKERS_GUIDE.md](guides/CELERY_WORKERS_GUIDE.md)
 - [guides/CELERY_ASYNCIO_TECHNICAL.md](guides/CELERY_ASYNCIO_TECHNICAL.md)
+- [guides/MONITORING.md](guides/MONITORING.md)
 
-**Observability**
+---
 
-- [guides/MONITORING.md](guides/MONITORING.md) — Loki / Prometheus / Grafana, four dashboards, label policy
-- [hidden/ASR_MODELS_DEEP_DIVE.md](hidden/ASR_MODELS_DEEP_DIVE.md) — подробный разбор моделей ASR (черновик / внутренняя заметка)
+## Integrations
 
-**Storage & ingestion**
-
-- [guides/STORAGE_STRUCTURE.md](guides/STORAGE_STRUCTURE.md)
-- [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) — browser playback, presigned URLs, MP4 faststart, retry and safe backfill
-- [guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md](guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md) — short/broken video: `supported_video_formats` whitelist (sniff + suffix), trim vs corrupt source, VP9-in-MP4, diagnostics
+- [guides/ZOOM_CREDS_GUIDE.md](guides/ZOOM_CREDS_GUIDE.md)
+- [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) – org API key, lecturers by email, MP4 on Run, blank by duration, session chat/files
 - [guides/YT_DLP_GUIDE.md](guides/YT_DLP_GUIDE.md)
 - [guides/YANDEX_DISK_GUIDE.md](guides/YANDEX_DISK_GUIDE.md)
-- [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) — org API key, лекторы по email, конвертация в MP4 на download, чат и файлы сессии
 
-**Frontend & future**
+---
 
-- [guides/PLAYLISTS.md](guides/PLAYLISTS.md) — LEAP course playlists, public `/share/p/{uuid}`, Enable/Disable/Rotate
+## Storage and processing
+
+- [guides/STORAGE_STRUCTURE.md](guides/STORAGE_STRUCTURE.md)
+- [guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md](guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md) – short/broken files vs under-trim (trailing digital silence)
 - [guides/TASK_PROGRESS_WEBSOCKET.md](guides/TASK_PROGRESS_WEBSOCKET.md)
+
+ASR in production is **AssemblyAI**. Notes about Fireworks Batch API are historical: [guides/FIREWORKS_BATCH_API.md](guides/FIREWORKS_BATCH_API.md).
+
+---
+
+## Architecture and API
+
+- [TECHNICAL.md](TECHNICAL.md)
+- [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md)
+- [ADR_OVERVIEW.md](ADR_OVERVIEW.md)
+- [ADR_FEATURES.md](ADR_FEATURES.md)
+- [DATABASE_DESIGN.md](DATABASE_DESIGN.md)
 
 ---
 
@@ -95,41 +93,29 @@
 
 | Goal | Doc |
 |------|-----|
-| OAuth setup | [guides/OAUTH.md](guides/OAUTH.md), [guides/CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md) |
+| FAQ / onboarding | [FAQ.md](FAQ.md), in-app **Documentation** |
+| OAuth | [guides/OAUTH.md](guides/OAUTH.md), [guides/CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md) |
 | Deploy | [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md) |
 | Templates | [guides/TEMPLATES.md](guides/TEMPLATES.md) |
-| Architecture | [ARCHITECTURE_SCHEMAS.md](ARCHITECTURE_SCHEMAS.md), [ADR_OVERVIEW.md](ADR_OVERVIEW.md) |
-| API | [TECHNICAL.md](TECHNICAL.md) |
-| Playlists / course share | [guides/PLAYLISTS.md](guides/PLAYLISTS.md), [TECHNICAL.md](TECHNICAL.md), [DATABASE_DESIGN.md](DATABASE_DESIGN.md), [guides/TEMPLATES.md](guides/TEMPLATES.md) (`output_config.playlist_ids`) |
-| VK | [guides/VK_INTEGRATION.md](guides/VK_INTEGRATION.md) |
+| Playlists / course share | [guides/PLAYLISTS.md](guides/PLAYLISTS.md) |
 | MTS Link | [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) |
+| Playback | [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) |
 | Observability | [guides/MONITORING.md](guides/MONITORING.md) |
-| Video playback / startup | [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) |
+| API | [TECHNICAL.md](TECHNICAL.md) |
 
 ---
 
-## History
+## History and archive
 
-- [CHANGELOG.md](CHANGELOG.md) — version history (canonical release facts)
+- [CHANGELOG.md](CHANGELOG.md) – what shipped (canonical)
+- [archive/PLAN.md](archive/PLAN.md) – thesis plan (not a runbook)
 
 ---
 
 ## Developer conventions
 
-- From `backend/`: run **`make lint`**, **`make typecheck`**, **`make test`** (or **`make tests-mock`** for a fast pass); use **`uv run …`** for one-off commands.
-- Code layout and modules: see **Repository layout** in the root `README.md` and this index (`guides/`, `TECHNICAL.md`, `CHANGELOG.md`).
-- In **`CHANGELOG.md`**, paths in **`### Файлы` / `### Files`** blocks are relative to **`backend/`** (same as `api/…`, `alembic/…`): `docs/…` means `backend/docs/…` from the repository root.
-
----
-
-## Search tips
-
-Run from the repository root (paths under `backend/docs/`):
-
-```bash
-grep -r "OAuth" backend/docs/*.md backend/docs/guides/*.md
-grep -r "POST /api" backend/docs/TECHNICAL.md
-```
+- From `backend/`: **`make lint`**, **`make typecheck`**, **`make test`** (or **`make tests-mock`**); **`uv run …`** for one-off commands.
+- In **`CHANGELOG.md`**, paths in **Files** blocks are relative to **`backend/`**.
 
 ---
 

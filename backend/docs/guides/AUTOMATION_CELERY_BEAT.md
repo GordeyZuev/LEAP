@@ -13,7 +13,7 @@ Automation jobs schedule **sync + template matching + processing** for Zoom reco
 - Schedule types: `time_of_day`, `hours`, `weekdays`, `cron` (see `api/schemas/automation/schedule.py`)
 - Rows in `celery_periodic_task` survive Beat restarts
 - Per-job template lists, filters, `processing_config` override
-- Manual run and async dry-run (`automation.dry_run`) via Celery
+- Manual run and async dry-run (`automation.dry_run`) via Celery — dry-run **syncs sources and lists matches**, does not enqueue pipelines
 
 ---
 
@@ -169,9 +169,10 @@ Full Pydantic models: `api/schemas/automation/job.py`.
 | `GET` | `/api/v1/automation/jobs/{job_id}` | Full job |
 | `PATCH` | `/api/v1/automation/jobs/{job_id}` | Updates → `sync_job_to_beat` |
 | `DELETE` | `/api/v1/automation/jobs/{job_id}` | `remove_job_from_beat` then delete row |
+| `GET` | `/api/v1/automation/jobs/{job_id}/runs` | History; items include `affected_recordings` (null on rows from before migration **047**) |
 | `POST` | `/api/v1/automation/jobs/{job_id}/run` | `dry_run=true` → `automation.dry_run`; else `automation.run_job` |
 
-**Manual / dry-run:** response is `TriggerJobResponse` (`task_id`, `mode`, `message`). Preview and execution are **async Celery tasks** — poll task status/result via your existing tasks API or Celery result backend; the HTTP handler does not return the dry-run estimate body.
+**Manual / dry-run:** response is `TriggerJobResponse` (`task_id`, `mode`, `message`). Preview and execution are **async Celery tasks**. Poll **`GET /api/v1/tasks/{task_id}`** — on SUCCESS, dry-run `result` is `would_process` plus counts. HTTP does not return the preview body.
 
 ---
 
@@ -183,9 +184,9 @@ Scheduled and manual runs use **`automation.run_job`** (`run_automation_job_task
 2. Derive **sources to sync** from template `matching_rules.source_ids`: if any template omits or empties `source_ids`, **all** active user sources with credentials are synced; otherwise only listed IDs.
 3. For each source, call `_sync_single_source` (same path as manual sync) over `sync_days`.
 4. Load recordings in the window, apply `filters`, match templates (`_find_matching_template`), enqueue `run_recording_task` with automation overrides where applicable.
-5. Update job stats and `next_run_at` (from `get_next_run_time` + `schedule_to_cron`).
+5. Update job stats and `next_run_at` (from `get_next_run_time` + `schedule_to_cron`). Persist `affected_recordings` on the history row.
 
-Dry run (`automation.dry_run`) estimates counts without syncing or processing.
+Shared helper `_sync_and_match` does steps 1–4 (sync + match only). Dry run (`automation.dry_run`) calls `_preview_job`: same helper, then **commits** the sync (catalog rows stay) and returns `would_process` **without** bind / SKIPPED unmatched / enqueue / `mark_run` / history.
 
 ---
 

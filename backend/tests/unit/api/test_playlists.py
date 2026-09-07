@@ -198,7 +198,8 @@ class TestPlaylistOwnerApi:
         assert response.json()["name"] == "Algorp"
 
     def test_list_playlists(self, client, mocker) -> None:
-        pl = _playlist(name="Algorp")
+        token = uuid.uuid4()
+        pl = _playlist(name="Algorp", token=token, enabled=True)
         pl.id = 3
         mocker.patch(
             "api.services.playlist_service.PlaylistRepository.list_by_user",
@@ -207,7 +208,10 @@ class TestPlaylistOwnerApi:
         response = client.get("/api/v1/playlists")
         assert response.status_code == 200
         assert response.json()["total"] == 1
-        assert response.json()["items"][0]["name"] == "Algorp"
+        item = response.json()["items"][0]
+        assert item["name"] == "Algorp"
+        assert item["share_enabled"] is True
+        assert item["share_token"] == str(token)
 
 
 def _storage_ok(mocker) -> None:

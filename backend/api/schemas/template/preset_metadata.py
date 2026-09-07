@@ -24,14 +24,16 @@ class TopicsDisplayFormat(StrEnum):
 class TopicsDisplayConfig(BaseModel):
     model_config = BASE_MODEL_CONFIG
 
-    enabled: bool = Field(True, description="Enable topics display")
+    enabled: bool = Field(True, description="Kept for storage; Jinja {{ topics }} gates inclusion")
     format: TopicsDisplayFormat = Field(TopicsDisplayFormat.NUMBERED_LIST, description="List format")
-    max_count: int | None = Field(None, ge=1, le=999, description="Max topics count (None = default from base config)")
-    min_length: int | None = Field(None, ge=0, le=500, description="Min topic length in chars (0 = no filtering)")
-    max_length: int | None = Field(None, ge=10, le=1000, description="Max topic length in chars")
-    prefix: str | None = Field(None, max_length=200, description="Prefix before topics list")
-    separator: str = Field("\n", max_length=10, description="Separator between topics")
-    show_timestamps: bool = Field(False, description="Show timestamps for topics")
+    max_count: int | None = Field(
+        None, ge=1, le=999, description="Max timestamps count (None = default from base config)"
+    )
+    min_length: int | None = Field(None, ge=0, le=500, description="Min line length in chars (0 = no filtering)")
+    max_length: int | None = Field(None, ge=10, le=1000, description="Max line length in chars")
+    prefix: str | None = Field(None, max_length=200, description="Prefix before the timestamps list")
+    separator: str = Field("\n", max_length=10, description="Separator between timestamp lines")
+    show_timestamps: bool = Field(True, description="Prefix each {{ topics }} line with a timecode")
 
     @field_validator("prefix")
     @classmethod
@@ -109,12 +111,12 @@ class YouTubePresetMetadata(BaseModel):
     title_template: str | None = Field(
         None,
         max_length=500,
-        description="Title template with variables (e.g. '{display_name} | {themes}')",
+        description="Title template with variables (e.g. '{{ display_name }} | {{ themes }}')",
     )
     description_template: str | None = Field(
         None,
         max_length=5000,
-        description="Description template with variables (e.g. '{summary}\\n\\n{topics}\\n\\n{questions}')",
+        description="Description template with variables (e.g. '{{ summary }}\\n\\n{{ topics }}\\n\\n{{ questions }}')",
     )
 
     privacy: YouTubePrivacy = Field(YouTubePrivacy.UNLISTED, description="Privacy status")
@@ -135,8 +137,12 @@ class YouTubePresetMetadata(BaseModel):
 
     publish_at: str | None = Field(None, description="ISO 8601 publish date/time (for scheduled publishing)")
 
-    topics_display: TopicsDisplayConfig | None = Field(None, description="Topics display settings")
-    questions_display: QuestionsDisplayConfig | None = Field(None, description="Questions display settings")
+    topics_display: TopicsDisplayConfig | None = Field(
+        None, description="Formatting for Jinja {{ topics }} (UI: Timestamps)"
+    )
+    questions_display: QuestionsDisplayConfig | None = Field(
+        None, description="Formatting for Jinja {{ questions }} (UI: Questions)"
+    )
 
     disable_comments: bool = Field(False, description="Disable comments")
     rating_disabled: bool = Field(False, description="Disable like/dislike ratings")
@@ -178,12 +184,12 @@ class VKPresetMetadata(BaseModel):
     title_template: str | None = Field(
         None,
         max_length=500,
-        description="Title template with variables (e.g. '{display_name}')",
+        description="Title template with variables (e.g. '{{ display_name }}')",
     )
     description_template: str | None = Field(
         None,
         max_length=5000,
-        description="Description template with variables (e.g. '{summary}\\n\\n{topics}\\n\\n{questions}')",
+        description="Description template with variables (e.g. '{{ summary }}\\n\\n{{ topics }}\\n\\n{{ questions }}')",
     )
 
     privacy_view: VKPrivacyLevel = Field(
@@ -203,8 +209,12 @@ class VKPresetMetadata(BaseModel):
         examples=["applied_python.png", "ml_extra.png", "hse_ai.jpg"],
     )
 
-    topics_display: TopicsDisplayConfig | None = Field(None, description="Topics display settings")
-    questions_display: QuestionsDisplayConfig | None = Field(None, description="Questions display settings")
+    topics_display: TopicsDisplayConfig | None = Field(
+        None, description="Formatting for Jinja {{ topics }} (UI: Timestamps)"
+    )
+    questions_display: QuestionsDisplayConfig | None = Field(
+        None, description="Formatting for Jinja {{ questions }} (UI: Questions)"
+    )
 
     disable_comments: bool = Field(False, description="Disable comments completely")
     repeat: bool = Field(False, description="Loop playback")

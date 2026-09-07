@@ -44,7 +44,8 @@ export function Toggle({
   return (
     <div
       className={cn(
-        "flex items-start justify-between gap-4 py-1.5",
+        "flex items-start justify-between gap-4",
+        labelHidden ? "py-0" : "py-1.5",
         disabled && "cursor-not-allowed opacity-40",
         className,
       )}
@@ -71,15 +72,15 @@ export function Toggle({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+          "pressable relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
           "disabled:cursor-not-allowed",
-          checked ? TRACK_ON[tone] : "bg-muted",
+          checked ? TRACK_ON[tone] : "bg-foreground/20",
         )}
       >
         <span
           className={cn(
-            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 ease-out",
             checked ? "translate-x-6" : "translate-x-1",
           )}
         />

@@ -60,7 +60,7 @@ class TopicsDisplayConfig(BaseModel):
     format: Literal["numbered_list", "bullet_list", "dash_list", "comma_separated", "inline", "plain"] = "numbered_list"
     separator: str = "\n"
     prefix: str = "Темы:"
-    show_timestamps: bool = False
+    show_timestamps: bool = True
 
     @model_validator(mode="after")
     def validate_length_range(self):

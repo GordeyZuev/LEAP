@@ -273,6 +273,53 @@ class TestQuotaServiceNewLimits:
         assert "20" in error
 
     @pytest.mark.asyncio
+    async def test_check_credentials_quota_at_limit_blocks(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_credentials": 2})
+        service._count_rows = AsyncMock(return_value=2)
+
+        allowed, error = await service.check_credentials_quota("user_123")
+        assert allowed is False
+        assert "2" in error
+
+    @pytest.mark.asyncio
+    async def test_check_automation_jobs_quota_unlimited(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_automation_jobs": None})
+
+        allowed, error = await service.check_automation_jobs_quota("user_123")
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.asyncio
+    async def test_check_automation_jobs_quota_under_limit(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_automation_jobs": 3})
+        service._count_rows = AsyncMock(return_value=2)
+
+        allowed, error = await service.check_automation_jobs_quota("user_123")
+        assert allowed is True
+        assert error is None
+
+    @pytest.mark.asyncio
+    async def test_check_automation_jobs_quota_at_limit_blocks(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_automation_jobs": 3})
+        service._count_rows = AsyncMock(return_value=3)
+
+        allowed, error = await service.check_automation_jobs_quota("user_123")
+        assert allowed is False
+        assert "3" in error
+
+    @pytest.mark.asyncio
     async def test_concurrent_tasks_quota_uses_on_air_count(self, mock_db_session):
         """Concurrency gate must derive from on_air count, not a stored counter."""
         from api.services.quota_service import QuotaService

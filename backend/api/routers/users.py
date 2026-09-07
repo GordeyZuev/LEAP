@@ -1,7 +1,5 @@
 """User profile management endpoints"""
 
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +12,7 @@ from api.repositories.auth_repos import (
     UserRepository,
 )
 from api.repositories.recording_repos import RecordingRepository
+from api.schemas.analytics import UserAnalyticsResponse
 from api.schemas.auth import QuotaStatusResponse, UserInDB, UserResponse, UserUpdate
 from api.schemas.auth.response import UserMeResponse
 from api.schemas.user import (
@@ -23,9 +22,13 @@ from api.schemas.user import (
     PasswordChangeResponse,
     UserProfileUpdate,
 )
-from api.schemas.user.stats import UserStatsResponse
+from api.services.analytics_service import (
+    AnalyticsRangeError,
+    AnalyticsService,
+    analytics_range_http_error,
+    default_analytics_range,
+)
 from api.services.quota_service import QuotaService
-from api.services.stats_service import StatsService
 from database.auth_models import (
     RefreshTokenModel,
     UserCredentialModel,
@@ -68,19 +71,20 @@ async def get_me(
     )
 
 
-@router.get("/me/stats", response_model=UserStatsResponse)
-async def get_my_stats(
+@router.get("/me/analytics", response_model=UserAnalyticsResponse)
+async def get_my_analytics(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
-    from_date: date | None = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
-    to_date: date | None = Query(None, alias="to", description="End date (YYYY-MM-DD)"),
+    from_date: str | None = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
+    to_date: str | None = Query(None, alias="to", description="End date (YYYY-MM-DD)"),
 ):
-    """Get usage statistics: recordings, transcription minutes, storage. Optional date range filter."""
-    if from_date and to_date and from_date > to_date:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'from' must be <= 'to'")
-
-    stats_service = StatsService(session)
-    return await stats_service.get_user_stats(current_user.id, current_user.user_slug, from_date, to_date)
+    """Daily usage analytics for the current user (recordings, transcription, uploads, share)."""
+    if not from_date or not to_date:
+        from_date, to_date = default_analytics_range()
+    try:
+        return await AnalyticsService(session).get_user_analytics(current_user.id, from_date, to_date)
+    except AnalyticsRangeError as exc:
+        raise analytics_range_http_error(exc) from exc
 
 
 @router.get("/me/quota", response_model=QuotaStatusResponse)

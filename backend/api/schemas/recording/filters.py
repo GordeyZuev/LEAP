@@ -32,8 +32,10 @@ class RecordingFilters(BaseModel):
     to_date: str | None = Field(None, description="Filter by end date (ISO 8601)")
 
     # Sorting
-    order_by: str = Field("created_at", description="Field to sort by (created_at, updated_at, id)")
-    order: str = Field("asc", description="Sorting direction (asc, desc)")
+    order_by: str = Field(
+        "start_time", description="Field to sort by (start_time, created_at, updated_at, display_name, status)"
+    )
+    order: str = Field("desc", description="Sorting direction (asc, desc)")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -48,7 +50,7 @@ class RecordingFilters(BaseModel):
                 "exclude_blank": True,
                 "include_deleted": False,
                 "search": "lecture",
-                "order_by": "created_at",
+                "order_by": "start_time",
                 "order": "desc",
             }
         }

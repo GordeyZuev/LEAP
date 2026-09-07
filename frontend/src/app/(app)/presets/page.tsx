@@ -12,6 +12,7 @@ import { SegmentedFilter, ACTIVE_STATUS_OPTIONS } from "@/components/filters/seg
 import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
 import { Pagination } from "@/components/ui/pagination";
 import { PageHeader } from "@/components/ui/page-header";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { CardGridSkeleton } from "@/components/ui/list-skeleton";
@@ -22,6 +23,7 @@ import { FilterChips, type FilterChipItem } from "@/components/filters/filter-ch
 import { ResultCount } from "@/components/ui/result-count";
 import { ActionButton } from "@/components/ui/action-button";
 import { useUrlListState } from "@/hooks/use-url-list-state";
+import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 
 const ALLOWED_PLATFORMS = new Set<string>(["youtube", "yandex_disk", "leap"]);
 
@@ -80,7 +82,7 @@ function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridPro
   const page = list.page;
   const onPageChange = list.setPage;
 
-  const { data, isLoading, error, refetch } = useQuery<PresetListResponse>({
+  const { data, isPending, error, refetch } = useQuery<PresetListResponse>({
     queryKey: ["presets", list.urlKey],
     queryFn: async () => {
       const p = new URLSearchParams();
@@ -94,7 +96,11 @@ function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridPro
       const res = await apiClient.get<PresetListResponse>(`/presets?${p.toString()}`);
       return res.data;
     },
+    staleTime: STALE_TIME.catalog,
+    ...listQueryOptions,
   });
+
+  const showSkeleton = isInitialLoad(isPending, data);
 
   // Self-correct out-of-range `page` (e.g. after deletes, shared stale links).
   useEffect(() => {
@@ -112,11 +118,11 @@ function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridPro
     <>
       <ResultCount total={data?.total} itemLabel="preset" filtered={list.hasActiveFilters} />
 
-      {isLoading && <CardGridSkeleton />}
+      {showSkeleton && <CardGridSkeleton />}
 
       {error && <ErrorState description="Failed to load presets" onRetry={() => refetch()} />}
 
-      {!isLoading && !error && presets.length === 0 && (
+      {!showSkeleton && !error && presets.length === 0 && (
         list.hasActiveFilters ? (
           <EmptyState
             icon={Package}
@@ -133,17 +139,20 @@ function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridPro
             icon={Package}
             title="No presets yet"
             description="Presets capture per-platform upload settings. Create one to get started."
+            action={
+              <CreatePlaceholder className="w-full max-w-xs" href="/presets/new" label="Add a preset" />
+            }
           />
         )
       )}
 
-      {!isLoading && !error && presets.length > 0 && (
+      {!showSkeleton && !error && presets.length > 0 && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {presets.map((p, index) => (
-            <div key={p.id} className="animate-card-in" style={{ animationDelay: `${index * 30}ms` }}>
+          {presets.map((p) => (
             <Link
+              key={p.id}
               href={`/presets/${p.id}`}
-              className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
+              className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="flex-1 text-sm font-semibold text-foreground">{p.name}</span>
@@ -163,7 +172,6 @@ function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridPro
                 </span>
               </div>
             </Link>
-            </div>
           ))}
         </div>
       )}
@@ -271,7 +279,7 @@ function PresetsContent() {
             value={list.sortBy}
             order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={list.setSort}
+            onChange={list.setSortField}
             onToggleOrder={list.toggleSortOrder}
           />
         }

@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
 import { addPlaylistItems, createPlaylist, listPlaylists, removePlaylistItem, type PlaylistListItem } from "@/api/playlists";
 import { ActionButton } from "@/components/ui/action-button";
-import { Field } from "@/components/ui/field";
+import { ChecklistPicker } from "@/components/ui/checklist-picker";
 import { extractApiError } from "@/lib/utils";
 
 const EMPTY_PLAYLISTS: PlaylistListItem[] = [];
@@ -15,11 +15,13 @@ interface PlaylistPickerProps {
   mode: "immediate" | "form";
   selectedIds: number[];
   onChange: (ids: number[]) => void;
-  /** Required in immediate mode to add/remove the current recording. */
   recordingId?: number;
-  /** Existing membership item ids by playlist, used to DELETE in immediate mode. */
   membershipItemIds?: Record<number, number>;
   onToast?: (message: string, variant?: "success" | "error") => void;
+  id?: string;
+  "aria-describedby"?: string;
+  /** Parent already shows a dialog (recording page). */
+  embedded?: boolean;
 }
 
 export function PlaylistPicker({
@@ -29,11 +31,14 @@ export function PlaylistPicker({
   recordingId,
   membershipItemIds,
   onToast,
+  id,
+  "aria-describedby": describedBy,
+  embedded = false,
 }: PlaylistPickerProps) {
   const qc = useQueryClient();
-  const [search, setSearch] = useState("");
   const [createName, setCreateName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["playlists", "picker"],
@@ -41,49 +46,50 @@ export function PlaylistPicker({
   });
 
   const playlists = data?.items ?? EMPTY_PLAYLISTS;
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return playlists;
-    return playlists.filter((p) => p.name.toLowerCase().includes(needle));
-  }, [playlists, search]);
-  const showSearch = playlists.length > 8;
+  const items = useMemo(
+    () =>
+      playlists.map((p) => ({
+        value: p.id,
+        label: p.name,
+        hint: `${p.video_count} ${p.video_count === 1 ? "video" : "videos"}`,
+      })),
+    [playlists],
+  );
 
-  const addImmediate = useMutation({
-    mutationFn: async (playlistId: number) => {
-      if (!recordingId) return;
-      await addPlaylistItems(playlistId, [recordingId]);
-    },
-    onSuccess: (_data, playlistId) => {
-      onChange([...selectedIds, playlistId]);
-      qc.invalidateQueries({ queryKey: ["playlists"] });
-      qc.invalidateQueries({ queryKey: ["recording"] });
-      onToast?.("Added to playlist", "success");
-    },
-    onError: (e) => onToast?.(extractApiError(e, "Failed to add to playlist"), "error"),
-  });
+  async function applyImmediate(next: number[]) {
+    if (!recordingId) return;
+    const prev = new Set(selectedIds);
+    const nextSet = new Set(next);
+    const removed = selectedIds.filter((pid) => !nextSet.has(pid));
+    const added = next.filter((pid) => !prev.has(pid));
+    setBusy(true);
+    try {
+      for (const playlistId of removed) {
+        const itemId = membershipItemIds?.[playlistId];
+        if (!itemId) continue;
+        await removePlaylistItem(playlistId, itemId);
+      }
+      for (const playlistId of added) {
+        await addPlaylistItems(playlistId, [recordingId]);
+      }
+      onChange(next);
+      void qc.invalidateQueries({ queryKey: ["playlists"] });
+      void qc.invalidateQueries({ queryKey: ["recording"] });
+      if (added.length > 0) onToast?.("Added to playlist", "success");
+      else if (removed.length > 0) onToast?.("Removed from playlist", "success");
+    } catch (e) {
+      onToast?.(extractApiError(e, "Failed to update playlists"), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  const removeImmediate = useMutation({
-    mutationFn: async (playlistId: number) => {
-      const itemId = membershipItemIds?.[playlistId];
-      if (!itemId) throw new Error("Missing playlist item");
-      await removePlaylistItem(playlistId, itemId);
-    },
-    onSuccess: (_data, playlistId) => {
-      onChange(selectedIds.filter((id) => id !== playlistId));
-      qc.invalidateQueries({ queryKey: ["playlists"] });
-      qc.invalidateQueries({ queryKey: ["recording"] });
-      onToast?.("Removed from playlist", "success");
-    },
-    onError: (e) => onToast?.(extractApiError(e, "Failed to remove from playlist"), "error"),
-  });
-
-  async function handleToggle(playlist: PlaylistListItem, checked: boolean) {
+  function handleChange(next: number[]) {
     if (mode === "form") {
-      onChange(checked ? [...selectedIds, playlist.id] : selectedIds.filter((id) => id !== playlist.id));
+      onChange(next);
       return;
     }
-    if (checked) addImmediate.mutate(playlist.id);
-    else removeImmediate.mutate(playlist.id);
+    void applyImmediate(next);
   }
 
   async function handleCreate() {
@@ -92,14 +98,14 @@ export function PlaylistPicker({
     setCreating(true);
     try {
       const created = await createPlaylist({ name });
-      qc.invalidateQueries({ queryKey: ["playlists"] });
+      void qc.invalidateQueries({ queryKey: ["playlists"] });
       setCreateName("");
       if (mode === "form") {
         onChange([...selectedIds, created.id]);
       } else if (recordingId) {
         await addPlaylistItems(created.id, [recordingId]);
         onChange([...selectedIds, created.id]);
-        qc.invalidateQueries({ queryKey: ["recording"] });
+        void qc.invalidateQueries({ queryKey: ["recording"] });
         onToast?.("Added to playlist", "success");
       }
     } catch (e) {
@@ -110,43 +116,19 @@ export function PlaylistPicker({
   }
 
   return (
-    <div className="space-y-3">
-      {showSearch && (
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search playlists"
-          aria-label="Search playlists"
-          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-        />
-      )}
-      {filtered.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No playlists yet</p>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((p) => {
-            const checked = selectedIds.includes(p.id);
-            return (
-              <label
-                key={p.id}
-                className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted"
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={mode === "immediate" && (addImmediate.isPending || removeImmediate.isPending)}
-                  onChange={(e) => void handleToggle(p, e.target.checked)}
-                  className="rounded accent-primary"
-                />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{p.name}</span>
-                <span className="text-xs tabular-nums text-muted-foreground">{p.video_count}</span>
-              </label>
-            );
-          })}
-        </div>
-      )}
-      <Field label="Create playlist">
+    <ChecklistPicker
+      id={id}
+      aria-describedby={describedBy}
+      title="Select courses"
+      ariaLabel="Courses"
+      emptyLabel="No courses selected"
+      searchPlaceholder="Search courses"
+      items={items}
+      value={selectedIds}
+      onChange={handleChange}
+      disabled={busy}
+      embedded={embedded}
+      footer={
         <div className="flex gap-2">
           <input
             value={createName}
@@ -157,8 +139,8 @@ export function PlaylistPicker({
                 void handleCreate();
               }
             }}
-            placeholder="Name"
-            className="min-w-0 flex-1 rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+            placeholder="New course name"
+            className="min-w-0 flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
           />
           <ActionButton
             variant="secondary"
@@ -168,10 +150,10 @@ export function PlaylistPicker({
             disabled={!createName.trim()}
             onClick={() => void handleCreate()}
           >
-            Create playlist
+            Create
           </ActionButton>
         </div>
-      </Field>
-    </div>
+      }
+    />
   );
 }

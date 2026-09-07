@@ -284,19 +284,22 @@ def task_prerun_handler(task_id, task, *_args, **_kwargs):
     )
 
 
+def _postrun_log_level(state: str) -> str:
+    """Log level for the generic postrun line (retry/failure have richer handlers)."""
+    if state in {"SUCCESS", "IGNORED"}:
+        return "INFO"
+    if state in {"RETRY", "FAILURE"}:
+        return "DEBUG"
+    return "WARNING"
+
+
 @task_postrun.connect
 def task_postrun_handler(task_id, task, *, state, **_kwargs):
     entry = _TASK_STATE.pop(task_id, None)
     started, stack = entry if entry is not None else (None, None)
     duration_ms = round((time.perf_counter() - started) * 1000, 2) if started is not None else None
-    if state == "SUCCESS":
-        level = "INFO"
-    elif state == "RETRY":
-        level = "DEBUG"
-    else:
-        level = "WARNING"
     logger.bind(task_state=state, duration_ms=duration_ms).log(
-        level,
+        _postrun_log_level(state),
         "Task {} | task={} • id={} • {}ms",
         state.lower(),
         _short_name(task.name),

@@ -120,6 +120,13 @@ class MtsLinkDownloader(BaseDownloader):
                 raise RuntimeError(f"Failed to download MTS Link MP4 for recording {recording_id}")
 
             size = await self._commit_temp_to_storage(temp_path, target_key)
+            file_duration = None
+            try:
+                from video_processing_module.audio_detector import AudioDetector
+
+                file_duration = await AudioDetector().get_duration_seconds(str(temp_path))
+            except Exception:
+                logger.debug("Could not probe MTS Link MP4 duration", exc_info=True)
         finally:
             if temp_path.exists():
                 temp_path.unlink(missing_ok=True)
@@ -129,6 +136,7 @@ class MtsLinkDownloader(BaseDownloader):
         return DownloadResult(
             storage_key=target_key,
             file_size=size,
+            duration=file_duration,
             metadata={
                 "conversion_id": conversion_id,
                 "conversion_state": "completed",
@@ -147,9 +155,13 @@ class MtsLinkDownloader(BaseDownloader):
         source_meta: dict[str, Any],
     ) -> tuple[str, Any]:
         """Return a fresh MP4 URL when conversion already finished (prepare owns ordering/wait)."""
-        ready_url = await self.api.get_ready_mp4_url(event_session_id)
+        ready_url = await self.api.get_ready_mp4_url(event_session_id, _record_id)
         if ready_url:
             return ready_url, source_meta.get("conversion_id")
+
+        stored = source_meta.get("download_url")
+        if stored:
+            return str(stored), source_meta.get("conversion_id")
 
         raise MtsLinkConversionPendingError(
             f"MTS Link MP4 not ready for session {event_session_id}; use /run to prepare",

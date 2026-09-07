@@ -26,20 +26,12 @@ class AutomationService:
     async def validate_quota(self) -> dict[str, int | None]:
         """Validate that user hasn't exceeded automation job limit."""
         quotas = await self.get_user_quotas()
-        max_jobs = quotas["max_automation_jobs"]
-
-        # NULL = unlimited
-        if max_jobs is None:
-            return quotas
-
-        current_count = await self.job_repo.count_user_jobs(self.user_id)
-
-        if current_count >= max_jobs:
+        allowed, error = await self.quota_service.check_automation_jobs_quota(self.user_id)
+        if not allowed:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Automation job limit reached ({max_jobs} jobs maximum)",
+                detail=error,
             )
-
         return quotas
 
     async def validate_schedule(self, schedule: dict, quotas: dict[str, int | None]) -> None:

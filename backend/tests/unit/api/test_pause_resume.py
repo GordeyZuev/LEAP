@@ -83,6 +83,26 @@ class TestPauseEndpoint:
         assert data["on_pause"] is True
         assert "paused" in data["message"].lower()
 
+    def test_pause_downloading_with_file_rolls_back_to_downloaded(self, client, mocker):
+        recording = create_mock_recording(
+            record_id=1,
+            status=ProcessingStatus.DOWNLOADING,
+            on_pause=False,
+            on_air=True,
+            local_video_path="user/1/source.mp4",
+        )
+
+        mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
+        mock_repo.return_value = mock_repo_instance
+
+        response = client.post("/api/v1/recordings/1/pause")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "DOWNLOADED"
+        assert recording.status == ProcessingStatus.DOWNLOADED
+
     def test_pause_downloading_recording(self, client, mocker):
         """Pause a recording during download (on_air=True)."""
         recording = create_mock_recording(

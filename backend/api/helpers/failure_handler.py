@@ -14,10 +14,31 @@ from models.recording import ProcessingStageStatus, ProcessingStageType, Process
 logger = get_logger(__name__)
 
 
+_POST_DOWNLOAD_STATUSES = frozenset(
+    {
+        ProcessingStatus.DOWNLOADED,
+        ProcessingStatus.PROCESSING,
+        ProcessingStatus.PROCESSED,
+        ProcessingStatus.UPLOADING,
+        ProcessingStatus.UPLOADED,
+        ProcessingStatus.READY,
+    }
+)
+
+
 async def handle_download_failure(recording: RecordingModel, error: str) -> None:
-    """Handle download failure: rollback to INITIALIZED if mapped, else SKIPPED."""
+    """Handle download failure.
+
+    A late Celery retry must not roll a finished (or in-flight post-download)
+    recording back to SKIPPED/INITIALIZED — that hides existing storage files.
+    """
     old_status = recording.status
-    recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
+    if old_status in _POST_DOWNLOAD_STATUSES:
+        recording.status = old_status
+    elif recording.local_video_path:
+        recording.status = ProcessingStatus.DOWNLOADED
+    else:
+        recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
     recording.failed = True
     recording.failed_at_stage = "download"
     recording.failed_reason = error[:1000]

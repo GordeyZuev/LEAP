@@ -11,6 +11,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { useExitPresence } from "@/hooks/use-exit-presence";
 import { cn } from "@/lib/utils";
 
 interface ModalProps {
@@ -92,6 +93,7 @@ export function Modal({
   panelClassName,
   children,
 }: ModalProps) {
+  const { mounted, visible } = useExitPresence(open);
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const fallbackLabelId = useId();
@@ -104,15 +106,21 @@ export function Modal({
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  // ESC + body scroll lock + focus management — all gated on `open`.
+  // Body scroll lock lasts until the exit transition unmounts, so the page
+  // does not jump under a fading dialog.
+  useEffect(() => {
+    if (!mounted) return;
+    acquireScrollLock();
+    return () => releaseScrollLock();
+  }, [mounted]);
+
+  // ESC + focus management — gated on `open` so a closing dialog does not
+  // recapture focus.
   useEffect(() => {
     if (!open) return;
 
     previouslyFocused.current = document.activeElement as HTMLElement | null;
-    acquireScrollLock();
 
-    // Move focus into the dialog. Prefer the first focusable element; if none,
-    // focus the panel itself (which is made focusable via tabIndex={-1}).
     const focusInitial = () => {
       const panel = panelRef.current;
       if (!panel) return;
@@ -120,8 +128,6 @@ export function Modal({
       const target = focusables[0] ?? panel;
       target.focus({ preventScroll: true });
     };
-    // requestAnimationFrame: let React paint the dialog before we focus,
-    // otherwise autoFocus inputs lose the race and offsetParent checks fail.
     const raf = requestAnimationFrame(focusInitial);
 
     function onKeyDown(e: globalThis.KeyboardEvent) {
@@ -135,9 +141,6 @@ export function Modal({
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKeyDown);
-      releaseScrollLock();
-      // Restore focus to whoever opened the dialog. The element may have been
-      // removed from the DOM in the meantime — guard with isConnected.
       const prev = previouslyFocused.current;
       if (prev && prev.isConnected && typeof prev.focus === "function") {
         prev.focus({ preventScroll: true });
@@ -174,22 +177,25 @@ export function Modal({
 
   const handleBackdropClick = useCallback(
     (e: MouseEvent<HTMLDivElement>) => {
-      if (!closeOnBackdrop) return;
+      if (!open || !closeOnBackdrop) return;
       if (e.target !== e.currentTarget) return;
       onClose();
     },
-    [closeOnBackdrop, onClose],
+    [open, closeOnBackdrop, onClose],
   );
 
-  if (!open || typeof document === "undefined") return null;
+  if (!mounted || typeof document === "undefined") return null;
 
   const ariaLabelledBy = labelledBy ?? (label ? fallbackLabelId : undefined);
 
   return createPortal(
     <div
       role="presentation"
+      aria-hidden={!open || undefined}
       className={cn(
-        "animate-overlay-in fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm lg:left-[var(--app-sidebar-width,0px)]",
+        "fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm lg:left-[var(--app-sidebar-width,0px)]",
+        "transition-opacity duration-150 ease-out",
+        visible ? "opacity-100" : "opacity-0",
         className,
       )}
     >
@@ -200,13 +206,15 @@ export function Modal({
         <div
           ref={panelRef}
           role="dialog"
-          aria-modal="true"
+          aria-modal={open}
           aria-labelledby={ariaLabelledBy}
           tabIndex={-1}
           onKeyDown={handleKeyDownTrap}
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "animate-panel-in outline-none w-full max-w-md shrink-0 rounded-2xl bg-card shadow-xl",
+            "outline-none w-full max-w-md shrink-0 rounded-2xl bg-card shadow-xl",
+            "transition-[opacity,transform] duration-150 ease-out",
+            visible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-3",
             panelClassName,
           )}
         >

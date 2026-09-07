@@ -5,6 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Collapse newlines/tabs/runs of spaces so titles match how the API stores display_name. */
+export function collapseWhitespace(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Pull a human-readable message out of an Axios error from the API. Handles a
  * plain string `detail` and FastAPI's `detail: [{ msg }]` validation shape;

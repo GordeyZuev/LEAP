@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldCheck,
@@ -18,12 +18,16 @@ import {
   Link,
 } from "lucide-react";
 import { apiClient } from "@/api/client";
+import { useMe } from "@/lib/react-query";
 import { cn, extractApiError, formatRelative, formatDateTime } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { Toast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { AdminAuditLog } from "@/components/admin/audit-log";
+import { AdminAnalyticsSection } from "@/components/admin/admin-analytics-section";
+import { AdminQuotaByPlanSection } from "@/components/admin/admin-quota-by-plan-section";
+import { UserActivitySection } from "@/components/admin/user-activity-section";
 import { Toggle } from "@/components/ui/toggle";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW } from "@/lib/table-classes";
@@ -33,6 +37,7 @@ import { ModalSection } from "@/components/ui/section-card";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Pagination } from "@/components/ui/pagination";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { SearchInput } from "@/components/filters/search-input";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SegmentedFilter } from "@/components/filters/segmented-filter";
@@ -80,6 +85,19 @@ interface OverviewStats {
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 50;
+
+type AdminUserSortField =
+  | "email"
+  | "role"
+  | "status"
+  | "recordings"
+  | "share_views"
+  | "share_downloads"
+  | "storage"
+  | "quota"
+  | "last_login_at";
+
+const DEFAULT_USER_SORT: AdminUserSortField = "last_login_at";
 
 const ROLE_OPTIONS = [
   { value: "all", label: "All roles" },
@@ -262,12 +280,9 @@ function PlanDistributionChart({ data }: { data: Record<string, number> }) {
 // ---------------------------------------------------------------------------
 
 export default function AdminPage() {
-  const me = useQuery({
-    queryKey: ["me"],
-    queryFn: async () => (await apiClient.get("/users/me")).data as { role: string },
-  });
+  const me = useMe();
 
-  if (me.isLoading) {
+  if (me.isPending && !me.data) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="animate-spin text-muted-foreground" />
@@ -302,6 +317,8 @@ function AdminDashboard() {
   const [exceededFilter, setExceededFilter] = useState("all");
   const [editingUser, setEditingUser] = useState<AdminUserProfile | null>(null);
   const [editingPlan, setEditingPlan] = useState<AdminPlan | null | "new">(null);
+  const [userSortBy, setUserSortBy] = useState<AdminUserSortField>(DEFAULT_USER_SORT);
+  const [userSortOrder, setUserSortOrder] = useState<"asc" | "desc">("desc");
 
   const debouncedSearch = useDebounce(search, DEBOUNCE_SEARCH);
 
@@ -349,6 +366,72 @@ function AdminDashboard() {
     return map;
   }, [userStatsQuery.data]);
 
+  const handleUserSort = useCallback(
+    (field: string) => {
+      const nextField = field as AdminUserSortField;
+      setUserSortBy((prev) => {
+        if (prev === nextField) {
+          setUserSortOrder((order) => (order === "desc" ? "asc" : "desc"));
+          return prev;
+        }
+        setUserSortOrder("desc");
+        return nextField;
+      });
+    },
+    [],
+  );
+
+  const sortedUsers = useMemo(() => {
+    const dir = userSortOrder === "asc" ? 1 : -1;
+    const list = [...users];
+
+    const num = (value: number | null | undefined, missing = -1) =>
+      value == null || Number.isNaN(value) ? missing : value;
+
+    list.sort((a, b) => {
+      const sa = statsById.get(a.id);
+      const sb = statsById.get(b.id);
+      let cmp = 0;
+
+      switch (userSortBy) {
+        case "email":
+          cmp = a.email.localeCompare(b.email, undefined, { sensitivity: "base" });
+          break;
+        case "role":
+          cmp = a.role.localeCompare(b.role);
+          break;
+        case "status":
+          cmp = Number(a.is_active) - Number(b.is_active);
+          break;
+        case "recordings":
+          cmp = num(sa?.recordings_used) - num(sb?.recordings_used);
+          break;
+        case "share_views":
+          cmp = num(sa?.share_views_total) - num(sb?.share_views_total);
+          break;
+        case "share_downloads":
+          cmp = num(sa?.share_downloads_total) - num(sb?.share_downloads_total);
+          break;
+        case "storage":
+          cmp = num(sa?.storage_used_gb) - num(sb?.storage_used_gb);
+          break;
+        case "quota":
+          cmp = Number(sa?.is_exceeding) - Number(sb?.is_exceeding);
+          break;
+        case "last_login_at": {
+          const ta = a.last_login_at ? Date.parse(a.last_login_at) : 0;
+          const tb = b.last_login_at ? Date.parse(b.last_login_at) : 0;
+          cmp = ta - tb;
+          break;
+        }
+      }
+
+      return cmp * dir;
+    });
+
+    return list;
+  }, [users, statsById, userSortBy, userSortOrder]);
+
   function handlePlanSaved() {
     void qc.invalidateQueries({ queryKey: ["admin-plans"] });
     void qc.invalidateQueries({ queryKey: ["admin-overview"] });
@@ -371,7 +454,7 @@ function AdminDashboard() {
 
       <div className="space-y-6">
         {/* ── Overview ──────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard icon={Users} label="Total users" value={ov?.total_users ?? "—"} />
           <StatCard icon={UserCheck} label="Active users" value={ov?.active_users ?? "—"} />
           <StatCard icon={Film} label="Recordings" value={ov?.total_recordings ?? "—"} />
@@ -390,11 +473,9 @@ function AdminDashboard() {
           <StatCard icon={Link} label="Active links" value={ov?.active_share_links ?? "—"} />
         </div>
 
-        {ov && (
-          <p className="text-xs text-muted-foreground">
-            View share trends in Grafana on the LEAP Overview dashboard.
-          </p>
-        )}
+        <AdminAnalyticsSection />
+
+        <AdminQuotaByPlanSection />
 
         {/* Plan distribution — only shown when there are subscribers */}
         {ov && Object.keys(ov.users_by_plan).length > 0 && (
@@ -425,11 +506,16 @@ function AdminDashboard() {
               <Loader2 size={18} className="animate-spin text-muted-foreground" />
             </div>
           ) : plans.length === 0 ? (
-            <div className="px-6 py-8 text-center">
-              <p className="text-sm text-muted-foreground">No plans yet.</p>
-              <p className="mt-1 text-xs text-muted-foreground">
+            <div className="px-6 py-8">
+              <p className="text-center text-sm text-muted-foreground">No plans yet.</p>
+              <p className="mt-1 text-center text-xs text-muted-foreground">
                 Create a plan first, then assign it to users.
               </p>
+              <CreatePlaceholder
+                className="mx-auto mt-4 max-w-xs"
+                label="Add a plan"
+                onClick={() => setEditingPlan("new")}
+              />
             </div>
           ) : (
               <table className="w-full min-w-[700px]">
@@ -542,19 +628,73 @@ function AdminDashboard() {
                 <table className="w-full min-w-[800px]">
                   <thead>
                     <tr className="border-b border-border">
-                      <SortableTh label="Email" />
-                      <SortableTh label="Role" />
-                      <SortableTh label="Status" />
-                      <SortableTh label="Recordings" />
-                      <SortableTh label="Share views" />
-                      <SortableTh label="Share downloads" />
-                      <SortableTh label="Storage" />
-                      <SortableTh label="Quota" />
-                      <SortableTh label="Last seen" />
+                      <SortableTh
+                        label="Email"
+                        field="email"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Role"
+                        field="role"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Status"
+                        field="status"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Recordings"
+                        field="recordings"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Share views"
+                        field="share_views"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Share downloads"
+                        field="share_downloads"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Storage"
+                        field="storage"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Quota"
+                        field="quota"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
+                      <SortableTh
+                        label="Last seen"
+                        field="last_login_at"
+                        sortBy={userSortBy}
+                        sortOrder={userSortOrder}
+                        onSort={handleUserSort}
+                      />
                     </tr>
                   </thead>
                   <tbody className={TABLE_BODY}>
-                    {users.map((u) => {
+                    {sortedUsers.map((u) => {
                       const s = statsById.get(u.id);
                       return (
                         <tr
@@ -842,6 +982,7 @@ function EditUserModal({
   const sub = subQuery.data?.subscription;
   const hadSubscription = Boolean(sub);
   const effectiveQuotas = subQuery.data?.effective_quotas ?? {};
+  const quotaStatus = subQuery.data?.quota_status;
 
   // Seed form from loaded subscription
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -967,7 +1108,7 @@ function EditUserModal({
                   <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn(
-                        "h-full rounded-full transition-all",
+                        "h-full rounded-full transition-[width] duration-150 ease-out",
                         stats.recordings_used > stats.recordings_limit ? "bg-amber-500" : "bg-primary",
                       )}
                       style={{
@@ -984,7 +1125,7 @@ function EditUserModal({
                   <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn(
-                        "h-full rounded-full transition-all",
+                        "h-full rounded-full transition-[width] duration-150 ease-out",
                         stats.storage_used_gb > stats.storage_limit_gb ? "bg-amber-500" : "bg-primary",
                       )}
                       style={{
@@ -993,12 +1134,73 @@ function EditUserModal({
                     />
                   </div>
                 )}
+                {(quotaStatus?.transcriptions?.limit != null ||
+                  (quotaStatus?.transcriptions?.used ?? 0) > 0) && (
+                  <>
+                    <StatRow
+                      label="Transcription jobs"
+                      value={fmtUsage(
+                        quotaStatus?.transcriptions?.used ?? 0,
+                        quotaStatus?.transcriptions?.limit ?? null,
+                      )}
+                    />
+                    {quotaStatus?.transcriptions?.limit != null && (
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-[width] duration-150 ease-out",
+                            (quotaStatus.transcriptions.used ?? 0) > quotaStatus.transcriptions.limit
+                              ? "bg-amber-500"
+                              : "bg-primary",
+                          )}
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              ((quotaStatus.transcriptions.used ?? 0) / quotaStatus.transcriptions.limit) * 100,
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+                {(quotaStatus?.processing?.limit != null || (quotaStatus?.processing?.used ?? 0) > 0) && (
+                  <>
+                    <StatRow
+                      label="Processing runs"
+                      value={fmtUsage(
+                        quotaStatus?.processing?.used ?? 0,
+                        quotaStatus?.processing?.limit ?? null,
+                      )}
+                    />
+                    {quotaStatus?.processing?.limit != null && (
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-[width] duration-150 ease-out",
+                            (quotaStatus.processing.used ?? 0) > quotaStatus.processing.limit
+                              ? "bg-amber-500"
+                              : "bg-primary",
+                          )}
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              ((quotaStatus.processing.used ?? 0) / quotaStatus.processing.limit) * 100,
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-sm text-muted-foreground">Status</span>
                   <QuotaBadge exceeding={stats.is_exceeding} />
                 </div>
               </ModalSection>
             )}
+
+            <UserActivitySection userId={user.id} />
 
             {/* Subscription */}
             <ModalSection title="Plan & limits">

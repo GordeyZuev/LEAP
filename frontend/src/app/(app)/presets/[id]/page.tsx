@@ -3,7 +3,6 @@
 import { use, useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { ArrowLeft, Save, Copy, Trash2, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
@@ -32,6 +31,7 @@ import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import { appendDisplayConfigPreviewBody } from "@/components/platforms/display-config-fields";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -370,15 +370,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           <div>
             <label className={FILTER_LABEL}>Credential</label>
             {creds.length === 0 ? (
-              <p className="mt-1 text-sm text-muted-foreground">
-                No {platform === "vk"
-                  ? "VK Video"
-                  : CREATE_PLATFORMS.find((o) => o.value === platform)?.label ?? platform}{" "}
-                credentials.{" "}
-                <Link href="/credentials" className="text-primary hover:underline">
-                  Add credentials →
-                </Link>
-              </p>
+              <CreatePlaceholder href="/credentials" label="Add credentials" />
             ) : (
               <NativeSelect
                 value={credId}

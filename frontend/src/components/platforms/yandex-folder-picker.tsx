@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { ActionButton } from "@/components/ui/action-button";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { Modal } from "@/components/ui/modal";
 
 interface YandexDiskBrowseItem {
@@ -197,13 +198,7 @@ export function YandexFolderPicker({
       )}
       {compact && browseButton}
       {!compact && !hasCredential && !disabled && (
-        <p className="text-xs text-muted-foreground">
-          Select a Yandex Disk credential first, or{" "}
-          <Link href="/credentials" className="text-primary hover:underline">
-            connect one
-          </Link>
-          .
-        </p>
+        <CreatePlaceholder className="mt-2" href="/credentials" label="Add credentials" />
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId} panelClassName="max-w-lg">

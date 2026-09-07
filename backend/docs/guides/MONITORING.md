@@ -4,7 +4,7 @@ Canonical runbook for the LEAP observability stack on the production VM.
 
 - **Logs** — Loguru JSON → Promtail → Loki → Grafana
 - **Metrics** — FastAPI `/metrics` + celery-exporter → Prometheus → Grafana
-- **Business numbers** — Postgres role `grafana_ro` (Overview, stuck recordings)
+- **Business numbers** — Postgres role `grafana_ro` (Overview, stuck recordings). Complements in-app **Usage** and **Admin → Analytics** — see [USAGE_AND_ANALYTICS.md](USAGE_AND_ANALYTICS.md).
 - **Public surface** — `https://${DOMAIN}/grafana` and `/prometheus` (nginx basic auth)
 
 Wiring lives in `docker-compose.yml` and `monitoring/`. Grafana reloads
@@ -45,12 +45,24 @@ HTTP (`api.middleware.logging.LoggingMiddleware`): one event per request.
 Skipped: `/api/v1/health/*`, `/metrics`. `user_id` is the first 8 characters.
 `X-Request-ID` is echoed so a client can correlate edge → API.
 
+Access-log levels:
+
+| Status | Level | Notes |
+| ------ | ----- | ----- |
+| 2xx / 3xx | INFO | |
+| 400, 401, 404, 422 | INFO | Expired session, missing resource, scanners, validation |
+| Other 4xx (403, 409, 413, 429, …) | WARNING | CSRF, conflict, payload, rate limit |
+| 5xx | ERROR | `exception_class` is bound on unhandled / DB / response-validation errors |
+
+The Errors dashboard WARNING pulse (`{level="WARNING"}`) is high-signal after this
+split. 401/404 access events remain queryable via `{status_code=~"401|404"}`.
+
 Celery (`api.celery_app` signals):
 
 | Signal         | Level     | Notes                                      |
 | -------------- | --------- | ------------------------------------------ |
 | `task_prerun`  | DEBUG     | Not shipped (JSON sink is INFO)            |
-| `task_postrun` | INFO/WARN | `duration_ms`, final `task_state`          |
+| `task_postrun` | INFO/DEBUG | SUCCESS and `Ignore()` (`IGNORED`) are INFO; RETRY/FAILURE are DEBUG (dedicated handlers below) |
 | `task_retry`   | WARNING   |                                            |
 | `task_failure` | ERROR     | `exception_class` + traceback              |
 

@@ -12,8 +12,10 @@ export interface PlaylistListItem {
   description: string | null;
   video_count: number;
   duration_sum: number;
+  share_token: string | null;
   share_enabled: boolean;
   poster_url: string | null;
+  poster_asset_key?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +52,8 @@ export interface PlaylistItem {
   playable: boolean;
   unavailable_reason: string | null;
   poster_url: string | null;
+  poster_fallback_url?: string | null;
+  poster_asset_key?: string | null;
   deleted: boolean;
   blank_record: boolean;
 }

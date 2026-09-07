@@ -21,7 +21,7 @@ interface PaginationProps {
 }
 
 const BTN_BASE =
-  "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-secondary-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card disabled:hover:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+  "pressable inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-secondary-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-card disabled:hover:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 
 export function Pagination({
   page,

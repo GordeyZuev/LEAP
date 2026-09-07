@@ -22,7 +22,7 @@ const features = [
   {
     icon: Share2,
     title: "Публикация на все площадки",
-    description: "Одна запись – YouTube / ВКонтакте / Яндекс.Диск и другие – одновременно.",
+    description: "Одна запись – YouTube / Яндекс.Диск и публичная ссылка LEAP – одновременно.",
   },
   {
     icon: LayoutTemplate,

@@ -138,12 +138,30 @@ class TestAudioDetectorHelpers:
         """
 
         # Act
-        periods = detector._parse_silence_detection(ffmpeg_output)
+        periods, open_start = detector._parse_silence_detection(ffmpeg_output)
 
         # Assert
         assert len(periods) == 2
         assert periods[0] == (10.5, 15.2)
         assert periods[1] == (30.0, 35.0)
+        assert open_start is None
+
+    def test_parse_trailing_silence_without_end(self):
+        """FFmpeg leaves digital silence to EOF as silence_start with no silence_end."""
+        from video_processing_module.audio_detector import AudioDetector
+
+        detector = AudioDetector()
+        ffmpeg_output = """
+        [silencedetect @ 0x123] silence_start: 0.0
+        [silencedetect @ 0x123] silence_end: 237.0 | silence_duration: 237.0
+        [silencedetect @ 0x123] silence_start: 5100.0
+        """
+        periods, open_start = detector._parse_silence_detection(ffmpeg_output)
+        assert periods == [(0.0, 237.0)]
+        assert open_start == 5100.0
+        periods.append((open_start, 17765.0))
+        assert detector._find_first_sound(periods) == 237.0
+        assert detector._find_last_sound(periods, 17765.0) == 5100.0
 
     def test_find_first_sound(self):
         """Test finding when first sound starts."""
@@ -198,6 +216,19 @@ class TestAudioDetectorHelpers:
         silence_periods = [(0.0, 100.0)]
         result = detector._find_last_sound(silence_periods, 8000.0)
         assert result == 8000.0
+
+        # Trailing digital silence to EOF (closed to duration)
+        silence_periods = [(0.0, 237.0), (5100.0, 17765.0)]
+        result = detector._find_last_sound(silence_periods, 17765.0)
+        assert result == 5100.0
+
+        # Rec 91: trailing hours closed ~0.4s before ffprobe duration (old 0.1s slack kept EOF)
+        result = detector._find_last_sound([(0.0, 147.9), (6877.9, 24654.9)], 24655.3)
+        assert result == 6877.9
+
+        # Long digital tail not quite at EOF (encoder flush / MP3 padding)
+        result = detector._find_last_sound([(0.0, 147.9), (10.0, 12.0), (6877.9, 24620.0)], 24655.3)
+        assert result == 6877.9
 
     @pytest.mark.asyncio
     async def test_get_duration(self):

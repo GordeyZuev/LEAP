@@ -12,7 +12,7 @@ from api.schemas.template.preset_metadata import display_config_defaults_payload
 router = APIRouter(prefix="/api/v1/references", tags=["References"])
 
 _LANGUAGES = [
-    {"value": "ru", "label": "Русский"},
+    {"value": "ru", "label": "Russian"},
     {"value": "en", "label": "English"},
     {"value": "auto", "label": "Auto"},
 ]

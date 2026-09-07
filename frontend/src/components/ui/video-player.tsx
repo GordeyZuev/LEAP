@@ -67,20 +67,28 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const [failure, setFailure] = useState<string | null>(null);
     const [instanceId, setInstanceId] = useState(0);
     const [helpOpen, setHelpOpen] = useState(false);
+    const playerScope = `${src}\0${resumeKey ?? ""}\0${instanceId}`;
+    const [playerScopeSeen, setPlayerScopeSeen] = useState(playerScope);
+    if (playerScopeSeen !== playerScope) {
+      setPlayerScopeSeen(playerScope);
+      setReady(false);
+      setFailure(null);
+      setHelpOpen(false);
+    }
     const localRef = useRef<HTMLVideoElement>(null);
     const playerRef = useRef<Plyr | null>(null);
     const chapterLabelRef = useRef<HTMLSpanElement | null>(null);
     const lastLabelRef = useRef<string | null>(null);
     const markersRef = useRef(markers);
-    markersRef.current = markers;
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onEndedRef = useRef(onEnded);
     const onReloadRef = useRef(onReload);
     const helpOpenRef = useRef(false);
-    helpOpenRef.current = helpOpen;
+    useEffect(() => { markersRef.current = markers; }, [markers]);
     useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
     useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
     useEffect(() => { onReloadRef.current = onReload; }, [onReload]);
+    useEffect(() => { helpOpenRef.current = helpOpen; }, [helpOpen]);
 
     useEffect(() => {
       const mq = window.matchMedia("(orientation: landscape) and (hover: none) and (max-height: 540px)");
@@ -104,9 +112,6 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       const el = localRef.current;
       if (!el) return;
 
-      setReady(false);
-      setFailure(null);
-      setHelpOpen(false);
       let cancelled = false;
       let refreshAttempted = false;
       let startupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -232,7 +237,6 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         lastLabelRef.current = null;
         player.destroy();
       };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [src, resumeKey, instanceId]);
 
     const markersKey = markerSignature(markers);

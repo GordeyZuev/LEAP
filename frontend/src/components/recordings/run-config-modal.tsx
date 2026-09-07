@@ -3,38 +3,38 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ExternalLink, Eye, Loader2, Play, Save, X } from "lucide-react";
+import { ExternalLink, Eye, Loader2, Play, Save, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
 import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
-import { FILTER_LABEL } from "@/lib/filter-field-classes";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Field } from "@/components/ui/field";
-import { NumberInput } from "@/components/ui/number-input";
-import { SegmentedField } from "@/components/ui/segmented-field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { Toggle } from "@/components/ui/toggle";
+import { Disclosure, OverrideSection, ACCORDION_SHELL } from "@/components/ui/disclosure";
+import { combinedHasJinjaVar } from "@/lib/jinja-autocomplete";
+import {
+  ProcessingFields,
+  DEFAULT_TRIMMING,
+  trimmingFromApi,
+} from "@/components/platforms/processing-fields";
 import {
   TemplateField,
   YouTubeFields,
-  VkFields,
   YandexDiskFields,
   DEFAULT_YOUTUBE_FIELDS,
-  DEFAULT_VK_FIELDS,
   DEFAULT_YANDEX_DISK_FIELDS,
   youtubeFieldsFromApi,
-  vkFieldsFromApi,
-  vkFieldsToApi,
+  youtubeFieldsToApi,
   yandexFieldsFromApi,
   LeapLookFields,
   DEFAULT_LEAP_FIELDS,
   leapFieldsFromApi,
   type LeapFieldsValue,
   type YouTubeFieldsValue,
-  type VkFieldsValue,
   type YandexDiskFieldsValue,
 } from "@/components/platforms/platform-fields";
 import {
@@ -51,7 +51,8 @@ import {
   MetadataPreviewResultBox,
   type MetadataRenderPreviewData,
 } from "@/components/platforms/metadata-render-preview";
-import { TagInput } from "@/components/ui/tag-input";
+import { ChecklistPicker } from "@/components/ui/checklist-picker";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { formatBaseTemplateLabel } from "@/lib/base-template";
 
@@ -80,7 +81,9 @@ interface RecordingConfigResponse {
       allow_errors?: boolean;
       questions_count?: number;
       vocabulary?: string[];
+      prompt?: string;
     };
+    trimming?: Record<string, unknown>;
   } | null;
   output_config: {
     auto_upload?: boolean;
@@ -144,122 +147,6 @@ export interface RunConfigModalProps {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// SectionToggle
-// ---------------------------------------------------------------------------
-
-/**
- * One override section: a switch that decides whether this run overrides the
- * template at all, plus a disclosure for the fields themselves.
- *
- * The switch is the primary control and drives the whole section — turning it on
- * expands the body, and turning it off collapses the fields back out of the way,
- * so "inherit from template" is the visible resting state.
- *
- * The body is a real `<fieldset disabled>`. It used to be styled with
- * `pointer-events-none opacity-50`, which blocks the mouse but not the keyboard:
- * Tab still reached every control in a section the user had switched off, they
- * still operated, and screen readers still announced them as enabled.
- */
-function OverrideSection({
-  title,
-  switchLabel,
-  enabled,
-  onEnabledChange,
-  open,
-  onOpenChange,
-  enabledHint,
-  disabledHint = "inherits effective config",
-  children,
-}: {
-  title: string;
-  /** Accessible name for the switch — the title reads badly with "Override" glued on. */
-  switchLabel: string;
-  enabled: boolean;
-  onEnabledChange: (v: boolean) => void;
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  enabledHint?: string;
-  disabledHint?: string;
-  children: React.ReactNode;
-}) {
-  const titleId = useId();
-  return (
-    <div className="rounded-xl border border-border bg-background">
-      <div className="flex items-center gap-3 px-4 py-3">
-        <Toggle
-          label={switchLabel}
-          labelHidden
-          checked={enabled}
-          onChange={(v) => {
-            onEnabledChange(v);
-            if (v) onOpenChange(true);
-            else onOpenChange(false);
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => onOpenChange(!open)}
-          aria-expanded={open}
-          className="flex flex-1 items-center gap-2 text-left"
-        >
-          <span id={titleId} className="text-sm font-semibold text-foreground">{title}</span>
-          <span className="text-xs text-muted-foreground">
-            {enabled ? (enabledHint ?? "overridden for this run") : disabledHint}
-          </span>
-          <ChevronDown
-            size={16}
-            className={cn("ms-auto shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-          />
-        </button>
-      </div>
-
-      {open && (
-        <fieldset
-          disabled={!enabled}
-          className="space-y-4 border-t border-border px-4 pb-4 pt-4 disabled:opacity-50"
-        >
-          <legend className="sr-only">{title}</legend>
-          {children}
-        </fieldset>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// PlatformSection — collapsible sub-accordion for per-platform metadata
-// ---------------------------------------------------------------------------
-
-function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-border bg-card">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
-      >
-        {label}
-        <ChevronDown
-          size={16}
-          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-        />
-      </button>
-      {open && (
-        <div className="space-y-3 border-t border-border px-4 pb-4 pt-3">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -297,6 +184,8 @@ export function RunConfigModal({
   const [allowErrors, setAllowErrors] = useState(false);
   const [questionsCount, setQuestionsCount] = useState(3);
   const [vocabulary, setVocabulary] = useState<string[]>([]);
+  const [prompt, setPrompt] = useState("");
+  const [trimming, setTrimming] = useState(DEFAULT_TRIMMING);
 
   // ── Output ────────────────────────────────────────────────────────────────
   const [outputEnabled, setOutputEnabled] = useState(false);
@@ -317,7 +206,6 @@ export function RunConfigModal({
   const [questionsDisplay, setQuestionsDisplay] = useState<DisplayConfig>(() => defaultQuestionsDisplay());
   const [leapFields, setLeapFields] = useState<LeapFieldsValue>({ ...DEFAULT_LEAP_FIELDS });
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
-  const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
 
   const [metadataPreview, setMetadataPreview] = useState<MetadataRenderPreviewData | null>(null);
@@ -392,7 +280,9 @@ export function RunConfigModal({
             allow_errors: allowErrors,
             questions_count: questionsCount,
             ...(vocabulary.length > 0 ? { vocabulary } : {}),
+            ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
           },
+          trimming,
         };
       }
 
@@ -432,32 +322,39 @@ export function RunConfigModal({
         if (qdPayload) meta.questions_display = qdPayload;
         if (globalThumbnail || thumbnailTouched) meta.thumbnail_name = globalThumbnail;
 
-        const yt: Record<string, unknown> = {};
-        if (ytFields.privacy) yt.privacy = ytFields.privacy;
-        if (ytFields.playlist_id) yt.playlist_id = ytFields.playlist_id;
-        if (ytFields.thumbnail_name) yt.thumbnail_name = ytFields.thumbnail_name;
-        if (ytFields.title_template) yt.title_template = ytFields.title_template;
-        if (ytFields.description_template) yt.description_template = ytFields.description_template;
-        if (ytFields.category_id) yt.category_id = ytFields.category_id;
-        if (ytFields.tags.length > 0) yt.tags = ytFields.tags;
-        if (ytFields.made_for_kids) yt.made_for_kids = true;
-        if (Object.keys(yt).length > 0) meta.youtube = yt;
-
-        const vk = vkFieldsToApi(vkFields, { sparseBools: true });
-        if (Object.keys(vk).length > 0) meta.vk = vk;
+        const yt = youtubeFieldsToApi(ytFields);
 
         const yd: Record<string, unknown> = {};
         if (ydFields.folder_path_template) yd.folder_path_template = ydFields.folder_path_template;
         if (ydFields.filename_template) yd.filename_template = ydFields.filename_template;
         if (ydFields.overwrite) yd.overwrite = true;
         if (ydFields.publish) yd.publish = true;
-        if (Object.keys(yd).length > 0) meta.yandex_disk = yd;
 
         const leap: Record<string, unknown> = {};
         if (leapFields.title_template) leap.title_template = leapFields.title_template;
         if (leapFields.description_template) leap.description_template = leapFields.description_template;
         if (leapFields.thumbnail_name) leap.thumbnail_name = leapFields.thumbnail_name;
-        if (Object.keys(leap).length > 0) meta.leap = leap;
+
+        const presetList = presetsData?.items ?? [];
+        const selectedPlatform = (platform: string) =>
+          selectedPresetIds.some((id) => presetList.find((p) => p.id === id)?.platform === platform);
+        const prevMc = (existingConfig?.metadata_config ?? {}) as Record<string, unknown>;
+        if (selectedPlatform("youtube")) {
+          if (Object.keys(yt).length > 0) meta.youtube = yt;
+        } else if (prevMc.youtube) {
+          meta.youtube = prevMc.youtube;
+        }
+        if (selectedPlatform("yandex_disk")) {
+          if (Object.keys(yd).length > 0) meta.yandex_disk = yd;
+        } else if (prevMc.yandex_disk) {
+          meta.yandex_disk = prevMc.yandex_disk;
+        }
+        if (selectedPlatform("leap")) {
+          if (Object.keys(leap).length > 0) meta.leap = leap;
+        } else if (prevMc.leap) {
+          meta.leap = prevMc.leap;
+        }
+        if (prevMc.vk) meta.vk = prevMc.vk;
 
         if (Object.keys(meta).length > 0) body.metadata_config = meta;
       }
@@ -517,6 +414,8 @@ export function RunConfigModal({
     setAllowErrors(false);
     setQuestionsCount(3);
     setVocabulary([]);
+    setPrompt("");
+    setTrimming({ ...DEFAULT_TRIMMING });
     setOutputEnabled(false);
     setOutputOpen(false);
     setAutoUpload(false);
@@ -533,7 +432,6 @@ export function RunConfigModal({
     setQuestionsDisplay(defaultQuestionsDisplay());
     setLeapFields({ ...DEFAULT_LEAP_FIELDS });
     setYtFields({ ...DEFAULT_YOUTUBE_FIELDS });
-    setVkFields({ ...DEFAULT_VK_FIELDS });
     setYdFields({ ...DEFAULT_YANDEX_DISK_FIELDS });
     setMetadataPreview(null);
     setMetadataPreviewLoading(false);
@@ -556,6 +454,10 @@ export function RunConfigModal({
       if (t.allow_errors != null) setAllowErrors(t.allow_errors);
       if (t.questions_count != null) setQuestionsCount(t.questions_count);
       if (t.vocabulary != null) setVocabulary(t.vocabulary);
+      if (typeof t.prompt === "string") setPrompt(t.prompt);
+    }
+    if (existingConfig.processing_config?.trimming) {
+      setTrimming(trimmingFromApi(existingConfig.processing_config.trimming));
     }
 
     const oc = existingConfig.output_config;
@@ -575,10 +477,13 @@ export function RunConfigModal({
       setQuestionsDisplay(fromDisplayPayload(mc.questions_display, "questions"));
       if (mc.leap) setLeapFields(leapFieldsFromApi(mc.leap));
       if (mc.youtube) setYtFields(youtubeFieldsFromApi(mc.youtube));
-      if (mc.vk) setVkFields(vkFieldsFromApi(mc.vk));
       if (mc.yandex_disk) setYdFields(yandexFieldsFromApi(mc.yandex_disk));
     }
-    if (isSave) setMetadataOpen(true);
+    if (isSave && existingConfig.has_manual_override) {
+      setProcessingEnabled(true);
+      setOutputEnabled(true);
+      setMetadataEnabled(true);
+    }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, existingConfig, isSave]);
 
@@ -607,23 +512,10 @@ export function RunConfigModal({
     });
   }
 
-  function togglePreset(id: number) {
-    setSelectedPresetIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
   const leapPresets = (presetsData?.items ?? []).filter((p) => p.platform === "leap");
-  const copyPresets = (presetsData?.items ?? []).filter((p) => p.platform !== "leap");
+  const copyPresets = (presetsData?.items ?? []).filter((p) => p.platform === "youtube" || p.platform === "yandex_disk");
   const selectedLeapId = selectedPresetIds.find((id) => leapPresets.some((p) => p.id === id)) ?? null;
   const leapLookLocked = mode === "bulk" && !outputEnabled;
-  const copyPresetsByPlatform = copyPresets.reduce<Record<string, PresetItem[]>>(
-    (acc, p) => {
-      (acc[p.platform] = acc[p.platform] ?? []).push(p);
-      return acc;
-    },
-    {},
-  );
 
   const yandexBrowseCredentialId = useMemo(() => {
     for (const pid of selectedPresetIds) {
@@ -699,23 +591,8 @@ export function RunConfigModal({
             </div>
           ) : <>
 
-          {isSave && (
-            <div className="rounded-xl border border-border bg-background px-4 py-4">
-              <ThumbnailPicker
-                label="Thumbnail"
-                value={globalThumbnail}
-                onChange={(name) => {
-                  setGlobalThumbnail(name);
-                  setThumbnailTouched(true);
-                }}
-              />
-            </div>
-          )}
-
-          {/* Bulk runs used to say only "12 recordings" — name them, so the
-              user can see what they are about to launch. */}
           {mode === "bulk" && !!recordingNames?.length && (
-            <details className="rounded-xl border border-border bg-background px-4 py-3">
+            <details className={cn(ACCORDION_SHELL, "px-4 py-3")}>
               <summary className="cursor-pointer text-sm font-medium text-secondary-foreground marker:text-muted-foreground">
                 {count} recording{count !== 1 ? "s" : ""} selected
               </summary>
@@ -729,70 +606,57 @@ export function RunConfigModal({
 
           {/* ── Template ────────────────────────────────────────────────── */}
           {!isSave && (
-          <div className="rounded-xl border border-border bg-background">
-            <button
-              type="button"
-              onClick={() => setTemplateOpen((v) => !v)}
-              aria-expanded={templateOpen}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left"
-            >
-              <span className="text-sm font-semibold text-foreground">Template</span>
-              <span className="text-xs text-muted-foreground">
-                {templateId
-                  ? templatesData?.items.find((t) => t.id === templateId)?.name ?? "selected"
-                  : boundTemplateName ?? baseTemplateLabel}
-              </span>
-              <ChevronDown
-                size={16}
-                className={cn("ms-auto shrink-0 text-muted-foreground transition-transform", templateOpen && "rotate-180")}
-              />
-            </button>
-
-            {templateOpen && (
-              <div className="space-y-4 border-t border-border px-4 pb-4 pt-4">
-                <Field label="Template to use for this run">
-                  <div className="flex items-center gap-2">
-                    <NativeSelect
-                      wrapperClassName="min-w-0 flex-1"
-                      value={templateId ?? ""}
-                      onChange={(e) => setTemplateId(e.target.value ? Number(e.target.value) : null)}
-                    >
-                      <option value="">{baseTemplateLabel}</option>
-                      {namedTemplates.map((t) => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
-                    </NativeSelect>
-                    {openTemplateId != null && (
-                      <Link
-                        href={`/templates/${openTemplateId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={cn(
-                          "inline-flex size-[2.875rem] shrink-0 items-center justify-center rounded-xl border border-border",
-                          "text-muted-foreground transition-[color,background-color,border-color,scale] duration-200 ease-out",
-                          "hover:bg-muted hover:text-secondary-foreground active:scale-[0.96]",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                        )}
-                        aria-label="Open template in new tab"
-                        title="Open template"
-                      >
-                        <ExternalLink size={16} aria-hidden />
-                      </Link>
+          <Disclosure
+            title="Template"
+            variant="main"
+            open={templateOpen}
+            onOpenChange={setTemplateOpen}
+            hint={
+              templateId
+                ? templatesData?.items.find((t) => t.id === templateId)?.name ?? "selected"
+                : boundTemplateName ?? baseTemplateLabel
+            }
+          >
+            <Field label="Template to use for this run">
+              <div className="flex items-center gap-2">
+                <NativeSelect
+                  wrapperClassName="min-w-0 flex-1"
+                  value={templateId ?? ""}
+                  onChange={(e) => setTemplateId(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">{baseTemplateLabel}</option>
+                  {namedTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </NativeSelect>
+                {openTemplateId != null && (
+                  <Link
+                    href={`/templates/${openTemplateId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      "pressable inline-flex size-[2.875rem] shrink-0 items-center justify-center rounded-xl border border-border",
+                      "text-muted-foreground hover:bg-muted hover:text-secondary-foreground",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                     )}
-                  </div>
-                </Field>
-
-                {templateId && (
-                  <Toggle
-                    label={`Permanently bind to recording${mode === "bulk" ? "s" : ""}`}
-                    hint="Otherwise the template applies to this run only."
-                    checked={bindTemplate}
-                    onChange={setBindTemplate}
-                  />
+                    aria-label="Open template in new tab"
+                    title="Open template"
+                  >
+                    <ExternalLink size={16} aria-hidden />
+                  </Link>
                 )}
               </div>
+            </Field>
+
+            {templateId && (
+              <Toggle
+                label={`Permanently bind to recording${mode === "bulk" ? "s" : ""}`}
+                hint="Otherwise the template applies to this run only."
+                checked={bindTemplate}
+                onChange={setBindTemplate}
+              />
             )}
-          </div>
+          </Disclosure>
           )}
 
           {/* ── Processing ──────────────────────────────────────────────── */}
@@ -805,63 +669,40 @@ export function RunConfigModal({
             onOpenChange={setProcessingOpen}
             enabledHint={overrideEnabledHint}
           >
-            <SegmentedField
-              label="Transcription language"
-              options={languages}
-              value={language}
-              onChange={setLanguage}
+            <ProcessingFields
+              value={{
+                enable_transcription: enableTranscription,
+                enable_topics: enableTopics,
+                enable_subtitles: enableSubtitles,
+                language,
+                granularity,
+                questions_count: questionsCount,
+                allow_errors: allowErrors,
+                vocabulary,
+                prompt,
+                trimming,
+              }}
+              onChange={(patch) => {
+                if (patch.enable_transcription != null) setEnableTranscription(patch.enable_transcription);
+                if (patch.enable_topics != null) setEnableTopics(patch.enable_topics);
+                if (patch.enable_subtitles != null) setEnableSubtitles(patch.enable_subtitles);
+                if (patch.language != null) setLanguage(patch.language);
+                if (patch.granularity != null) setGranularity(patch.granularity);
+                if (patch.questions_count != null) setQuestionsCount(patch.questions_count);
+                if (patch.allow_errors != null) setAllowErrors(patch.allow_errors);
+                if (patch.vocabulary != null) setVocabulary(patch.vocabulary);
+                if (patch.prompt != null) setPrompt(patch.prompt);
+                if (patch.trimming != null) setTrimming(patch.trimming);
+              }}
+              languages={languages}
+              granularities={granularities}
             />
-            <SegmentedField
-              label="Topic granularity"
-              options={granularities}
-              value={granularity}
-              onChange={setGranularity}
-            />
-
-            <div className="space-y-0.5">
-              <Toggle
-                label="Transcription (ASR)"
-                checked={enableTranscription}
-                onChange={setEnableTranscription}
-              />
-              <Toggle
-                label="Topic extraction (DeepSeek)"
-                checked={enableTopics}
-                onChange={setEnableTopics}
-              />
-              <Toggle
-                label="Generate subtitles (SRT/VTT)"
-                checked={enableSubtitles}
-                onChange={setEnableSubtitles}
-              />
-              <Toggle
-                label="Allow transcription errors"
-                hint="Continue if ASR returns partial errors"
-                checked={allowErrors}
-                onChange={setAllowErrors}
-              />
-            </div>
-
-            <Field label="Questions count" hint="Self-check questions (1–10)">
-              <NumberInput
-                integer
-                min={1}
-                max={10}
-                value={questionsCount}
-                onCommit={setQuestionsCount}
-                className="w-32"
-              />
-            </Field>
-
-            <Field label="Vocabulary" hint="Key terms that improve recognition accuracy">
-              <TagInput tags={vocabulary} onChange={setVocabulary} placeholder="Add term…" />
-            </Field>
           </OverrideSection>
 
-          <div className="space-y-6 rounded-xl border border-border bg-background px-4 py-4">
+          <Disclosure title="LEAP" variant="main">
             <Field
-              label="LEAP playlists"
-              hint="Add to these courses on this run. Membership is not an upload and is not stored on a look preset."
+              label="Courses"
+              hint="Add this run’s recordings to these playlists. Membership is not an upload."
             >
               <PlaylistPicker
                 mode="form"
@@ -870,53 +711,32 @@ export function RunConfigModal({
               />
             </Field>
             <Field
-              label="LEAP look"
+              label="Look"
               hint={
                 leapLookLocked
-                  ? "Bulk run uses each recording’s template look unless you override Upload a copy (that sends the same presets, including look, to every recording)."
-                  : "Reusable course/share title, description, and cover. Field overrides live under Metadata."
+                  ? "Bulk run keeps each recording’s template look unless you override Upload a copy."
+                  : "Title, description, and cover on course and share pages. Extra fields live under Metadata, LEAP look."
               }
             >
               {leapPresets.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No LEAP look presets.{" "}
-                  <Link href="/presets/new" className="text-primary hover:underline">
-                    Create one →
-                  </Link>
-                </p>
+                <CreatePlaceholder href="/presets/new" label="Add a look" />
               ) : (
-                <div className="space-y-2" role="radiogroup" aria-label="LEAP look preset">
-                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted">
-                    <input
-                      type="radio"
-                      name="run-leap-look"
-                      checked={selectedLeapId == null}
-                      onChange={() => setLeapPresetId(null)}
-                      disabled={leapLookLocked}
-                      className="accent-primary"
-                    />
-                    <span className="text-sm text-foreground">None — inherit from template</span>
-                  </label>
+                <NativeSelect
+                  ariaLabel="LEAP look preset"
+                  value={selectedLeapId ?? ""}
+                  disabled={leapLookLocked}
+                  onChange={(e) => setLeapPresetId(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">None — inherit from template</option>
                   {leapPresets.map((p) => (
-                    <label
-                      key={p.id}
-                      className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted"
-                    >
-                      <input
-                        type="radio"
-                        name="run-leap-look"
-                        checked={selectedLeapId === p.id}
-                        onChange={() => setLeapPresetId(p.id)}
-                        disabled={leapLookLocked}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm font-medium text-foreground">{p.name}</span>
-                    </label>
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
                   ))}
-                </div>
+                </NativeSelect>
               )}
             </Field>
-          </div>
+          </Disclosure>
 
           {/* ── Upload ─────────────────────────────────────────────────── */}
           <OverrideSection
@@ -931,8 +751,16 @@ export function RunConfigModal({
             <div className="space-y-0.5">
               <Toggle
                 label="Auto-upload after processing"
+                hint={
+                  copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length === 0
+                    ? "Select a YouTube or Yandex Disk preset first"
+                    : undefined
+                }
                 checked={autoUpload}
-                onChange={setAutoUpload}
+                onChange={(v) => {
+                  if (v && copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length === 0) return;
+                  setAutoUpload(v);
+                }}
               />
               <Toggle
                 label="Upload captions / subtitles"
@@ -941,38 +769,30 @@ export function RunConfigModal({
               />
             </div>
 
-            {Object.keys(copyPresetsByPlatform).length > 0 ? (
-              <fieldset className="space-y-3">
-                <legend className={cn(FILTER_LABEL, "mb-1.5")}>
-                  Presets (platforms to publish to)
-                  {copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length > 0 && (
-                    <span className="ms-1 text-primary">
-                      · {copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length} selected
-                    </span>
-                  )}
-                </legend>
-                {Object.entries(copyPresetsByPlatform).map(([platform, group]) => (
-                  <div key={platform} className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {platform}
-                    </p>
-                    <div className="space-y-0.5">
-                      {group.map((p) => (
-                        <Toggle
-                          key={p.id}
-                          label={p.name}
-                          checked={selectedPresetIds.includes(p.id)}
-                          onChange={() => togglePreset(p.id)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </fieldset>
+            {copyPresets.length > 0 ? (
+              <Field label="Presets" hint="Upload a copy of the video.">
+                <ChecklistPicker
+                  title="Select presets"
+                  ariaLabel="Upload presets"
+                  emptyLabel="No upload presets selected"
+                  searchPlaceholder="Search presets"
+                  items={copyPresets.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    hint: p.platform,
+                    group: p.platform,
+                  }))}
+                  value={selectedPresetIds.filter((id) => copyPresets.some((p) => p.id === id))}
+                  onChange={(copyIds) => {
+                    const leap = selectedPresetIds.filter((id) => leapPresets.some((p) => p.id === id));
+                    setSelectedPresetIds([...copyIds, ...leap]);
+                  }}
+                />
+              </Field>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                No upload presets configured. Add YouTube or Yandex Disk presets to enable copies.
-              </p>
+              <Field label="Presets" hint="Upload a copy of the video.">
+                <CreatePlaceholder href="/presets/new" label="Add a preset" />
+              </Field>
             )}
           </OverrideSection>
 
@@ -986,7 +806,7 @@ export function RunConfigModal({
             onOpenChange={setMetadataOpen}
             enabledHint={overrideEnabledHint}
           >
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
             <TemplateField
               label="Title template"
               value={titleTemplate}
@@ -1000,29 +820,72 @@ export function RunConfigModal({
               multiline
               placeholder={"{{ summary }}\n\n{{ topics }}"}
             />
-            {!isSave && (
             <ThumbnailPicker
-              label="Thumbnail (all platforms)"
+              label="Cover image (all platforms)"
               value={globalThumbnail}
-              onChange={setGlobalThumbnail}
+              onChange={(name) => {
+                setGlobalThumbnail(name);
+                if (isSave) setThumbnailTouched(true);
+              }}
             />
-            )}
+            {combinedHasJinjaVar("topics", titleTemplate, descriptionTemplate, leapFields.title_template, leapFields.description_template, ytFields.title_template, ytFields.description_template) ? (
             <DisplayConfigFields
-              label="Topics in description"
-              hint="How {{ topics }} renders in title/description templates"
               kind="topics"
               value={topicsDisplay}
               onChange={(patch) => setTopicsDisplay((f) => ({ ...f, ...patch }))}
             />
+            ) : null}
+            {combinedHasJinjaVar("questions", titleTemplate, descriptionTemplate, leapFields.description_template, ytFields.description_template) ? (
             <DisplayConfigFields
-              label="Questions in description"
-              hint="How {{ questions }} renders in title/description templates"
               kind="questions"
               value={questionsDisplay}
               onChange={(patch) => setQuestionsDisplay((f) => ({ ...f, ...patch }))}
             />
+            ) : null}
 
-            <div className="space-y-2">
+            {(selectedLeapId != null ||
+              copyPresets.some((p) => selectedPresetIds.includes(p.id) && (p.platform === "youtube" || p.platform === "yandex_disk"))) ? (
+            <>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Platform overrides
+            </p>
+            <div className="space-y-3">
+              {selectedLeapId != null ? (
+              <Disclosure title="LEAP look">
+                <LeapLookFields
+                  value={leapFields}
+                  onChange={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Empty fields inherit from the selected look preset.
+                </p>
+              </Disclosure>
+              ) : null}
+              {copyPresets.some((p) => selectedPresetIds.includes(p.id) && p.platform === "youtube") ? (
+              <Disclosure title="YouTube">
+                <YouTubeFields
+                  value={ytFields}
+                  onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
+                  showThumbnail
+                  showMadeForKids
+                  showExtended
+                />
+              </Disclosure>
+              ) : null}
+              {copyPresets.some((p) => selectedPresetIds.includes(p.id) && p.platform === "yandex_disk") ? (
+              <Disclosure title="Yandex Disk">
+                <YandexDiskFields
+                  value={ydFields}
+                  onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
+                  credentialId={yandexBrowseCredentialId}
+                />
+              </Disclosure>
+              ) : null}
+            </div>
+            </>
+            ) : null}
+
+            <div className="space-y-2 border-t border-border pt-4">
               <ActionButton
                 variant="secondary"
                 onClick={handleMetadataPreview}
@@ -1033,44 +896,6 @@ export function RunConfigModal({
                 Preview render
               </ActionButton>
               {metadataPreview ? <MetadataPreviewResultBox preview={metadataPreview} /> : null}
-            </div>
-
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Platform overrides
-            </p>
-            <div className="space-y-3">
-              <PlatformSection label="LEAP look">
-                <LeapLookFields
-                  value={leapFields}
-                  onChange={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
-                />
-              </PlatformSection>
-              <PlatformSection label="YouTube">
-                <YouTubeFields
-                  value={ytFields}
-                  onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
-                  showThumbnail
-                  showMadeForKids
-                />
-              </PlatformSection>
-
-              <PlatformSection label="VK">
-                <VkFields
-                  value={vkFields}
-                  onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
-                  showThumbnail
-                  showPrivacyComment
-                  showWallpost
-                />
-              </PlatformSection>
-
-              <PlatformSection label="Yandex Disk">
-                <YandexDiskFields
-                  value={ydFields}
-                  onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
-                  credentialId={yandexBrowseCredentialId}
-                />
-              </PlatformSection>
             </div>
           </OverrideSection>
 

@@ -6,7 +6,7 @@ import { FILTER_LABEL } from "@/lib/filter-field-classes";
 
 interface FieldProps {
   label: string;
-  /** Secondary line under the label, wired up via aria-describedby. */
+  /** Optional line under the label; also exposed via aria-describedby. */
   hint?: string;
   children: ReactNode;
   className?: string;
@@ -31,8 +31,14 @@ export function Field({ label, hint, children, className }: FieldProps) {
     : children;
   return (
     <div className={className}>
-      <label htmlFor={id} className={cn(FILTER_LABEL, "mb-1.5")}>{label}</label>
-      {hint && <p id={hintId} className="mb-1.5 text-xs text-muted-foreground">{hint}</p>}
+      <label htmlFor={id} className={cn(FILTER_LABEL, "mb-1.5")}>
+        {label}
+      </label>
+      {hint ? (
+        <p id={hintId} className="mb-1.5 text-xs leading-snug text-muted-foreground">
+          {hint}
+        </p>
+      ) : null}
       {control}
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Mail, ArrowLeft, RotateCcw } from "lucide-react";
@@ -11,7 +11,7 @@ import { ActionButton } from "@/components/ui/action-button";
 
 const COOLDOWN_SEC = 60;
 
-export default function VerifyEmailSentPage() {
+function VerifyEmailSentForm() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email") ?? "";
   const [manualEmail, setManualEmail] = useState("");
@@ -161,5 +161,13 @@ export default function VerifyEmailSentPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function VerifyEmailSentPage() {
+  return (
+    <Suspense fallback={<div className="min-h-full bg-background" />}>
+      <VerifyEmailSentForm />
+    </Suspense>
   );
 }

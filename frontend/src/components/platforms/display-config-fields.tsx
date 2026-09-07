@@ -10,13 +10,8 @@ import {
   type DisplayConfigKind,
 } from "@/lib/display-config-defaults";
 import { useDisplayConfigDefaults } from "@/hooks/use-references";
-import { PlatformToggle } from "@/components/platforms/platform-toggle";
-
-// ---------------------------------------------------------------------------
-// Topics / Questions display config — shared editor for preset/template
-// metadata (api/schemas/template/preset_metadata.py). Defaults from
-// GET /api/v1/references/display-config-defaults via useDisplayConfigDefaults().
-// ---------------------------------------------------------------------------
+import { Toggle } from "@/components/ui/toggle";
+import { AdvancedBlock } from "@/components/ui/disclosure";
 
 export type { DisplayConfig };
 
@@ -50,6 +45,19 @@ const SEPARATOR_OPTIONS = [
 
 type Kind = DisplayConfigKind;
 
+const DISPLAY_COPY: Record<Kind, { label: string; hint: string; extra: string }> = {
+  topics: {
+    label: "Timestamps",
+    hint: "How timestamps from {{ topics }} are written in title and description",
+    extra: "Extra timestamps settings",
+  },
+  questions: {
+    label: "Questions",
+    hint: "How {{ questions }} is written in title and description",
+    extra: "Extra questions settings",
+  },
+};
+
 function resolveNumericField(
   raw: unknown,
   field: keyof Pick<DisplayConfig, "max_count" | "min_length" | "max_length">,
@@ -61,9 +69,8 @@ function resolveNumericField(
   return fallback;
 }
 
-/** Build the API payload. When disabled, sends `{ enabled: false }` so PATCH/preview can override stored config. */
+/** Build the API payload. Always enabled: Jinja `{{ topics }}` / `{{ questions }}` gate inclusion. */
 export function toDisplayPayload(value: DisplayConfig, kind: Kind): Record<string, unknown> | undefined {
-  if (!value.enabled) return { enabled: false };
   const payload: Record<string, unknown> = {
     enabled: true,
     format: value.format,
@@ -73,11 +80,10 @@ export function toDisplayPayload(value: DisplayConfig, kind: Kind): Record<strin
     max_length: value.max_length,
   };
   if (value.prefix.trim()) payload.prefix = value.prefix;
-  if (kind === "topics") payload.show_timestamps = !!value.show_timestamps;
+  if (kind === "topics") payload.show_timestamps = value.show_timestamps !== false;
   return payload;
 }
 
-/** Attach topics/questions blocks to a render-preview request body. */
 export function appendDisplayConfigPreviewBody(
   body: Record<string, unknown>,
   topics: DisplayConfig,
@@ -89,7 +95,6 @@ export function appendDisplayConfigPreviewBody(
   if (qd) body.questions_display = qd;
 }
 
-/** Hydrate from an API object (or null) into editor state with backend effective defaults. */
 export function fromDisplayPayload(
   raw: unknown,
   kind: Kind,
@@ -99,7 +104,7 @@ export function fromDisplayPayload(
   if (!raw || typeof raw !== "object") return { ...base };
   const o = raw as Record<string, unknown>;
   return {
-    enabled: o.enabled != null ? Boolean(o.enabled) : base.enabled,
+    enabled: true,
     format: typeof o.format === "string" ? o.format : base.format,
     max_count: resolveNumericField(o.max_count, "max_count", kind, defaults),
     min_length: resolveNumericField(o.min_length, "min_length", kind, defaults),
@@ -113,29 +118,22 @@ export function fromDisplayPayload(
               ? Boolean(o.show_timestamps)
               : o.include_timestamps != null
                 ? Boolean(o.include_timestamps)
-                : !!base.show_timestamps,
+                : base.show_timestamps !== false,
         }
       : {}),
   };
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export function DisplayConfigFields({
-  label,
-  hint,
   kind,
   value,
   onChange,
 }: {
-  label: string;
-  hint?: string;
   kind: Kind;
   value: DisplayConfig;
   onChange: (patch: Partial<DisplayConfig>) => void;
 }) {
+  const copy = DISPLAY_COPY[kind];
   const { data: defaults = DISPLAY_CONFIG_PLACEHOLDER } = useDisplayConfigDefaults();
   const bounds = defaults.bounds[kind];
 
@@ -165,62 +163,59 @@ export function DisplayConfigFields({
   }
 
   return (
-    <div className="rounded-xl border border-border bg-background px-4 py-3">
-      <PlatformToggle label={label} checked={value.enabled} onChange={(v) => onChange({ enabled: v })} />
-      {hint && <p className="-mt-1 mb-1 text-[11px] text-muted-foreground">{hint}</p>}
-
-      {value.enabled && (
-        <div className="space-y-3 border-t border-border pt-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <span className={FILTER_LABEL}>Format</span>
-              <NativeSelect value={value.format} onChange={(e) => onChange({ format: e.target.value })}>
-                {FORMAT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="space-y-1">
-              <span className={FILTER_LABEL}>Separator</span>
-              <NativeSelect value={value.separator} onChange={(e) => onChange({ separator: e.target.value })}>
-                {SEPARATOR_OPTIONS.map((o) => (
-                  <option key={o.label} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {numberField("max_count", "Max count")}
-            {numberField("min_length", "Min length")}
-            {numberField("max_length", "Max length")}
-          </div>
-
-          <div className="space-y-1">
-            <span className={FILTER_LABEL}>Prefix</span>
-            <input
-              type="text"
-              value={value.prefix}
-              onChange={(e) => onChange({ prefix: e.target.value })}
-              placeholder="Optional text before the list"
-              maxLength={200}
-              className={FILTER_CONTROL}
-            />
-          </div>
-
-          {kind === "topics" && (
-            <PlatformToggle
-              label="Show timestamps"
-              checked={!!value.show_timestamps}
-              onChange={(v) => onChange({ show_timestamps: v })}
-            />
-          )}
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold text-secondary-foreground">{copy.label}</p>
+        <p className="text-xs text-muted-foreground">{copy.hint}</p>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <span className={FILTER_LABEL}>Format</span>
+          <NativeSelect value={value.format} onChange={(e) => onChange({ format: e.target.value })}>
+            {FORMAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </NativeSelect>
         </div>
-      )}
+        <div className="space-y-1">
+          <span className={FILTER_LABEL}>Separator</span>
+          <NativeSelect value={value.separator} onChange={(e) => onChange({ separator: e.target.value })}>
+            {SEPARATOR_OPTIONS.map((o) => (
+              <option key={o.label} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+      </div>
+
+      <AdvancedBlock title={copy.extra}>
+        {kind === "topics" ? (
+          <Toggle
+            label="Show timestamps"
+            checked={value.show_timestamps !== false}
+            onChange={(v) => onChange({ show_timestamps: v })}
+          />
+        ) : null}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {numberField("max_count", "Max count")}
+          {numberField("min_length", "Min length")}
+          {numberField("max_length", "Max length")}
+        </div>
+        <div className="space-y-1">
+          <span className={FILTER_LABEL}>Prefix</span>
+          <input
+            type="text"
+            value={value.prefix}
+            onChange={(e) => onChange({ prefix: e.target.value })}
+            placeholder="Optional text before the list"
+            maxLength={200}
+            className={FILTER_CONTROL}
+          />
+        </div>
+      </AdvancedBlock>
     </div>
   );
 }

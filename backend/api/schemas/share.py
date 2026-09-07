@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from api.schemas.source_extras import SourceExtrasResponse
 from models.recording import ProcessingStatus
 
 
@@ -41,7 +42,9 @@ class PublicRecordingResponse(BaseModel):
     id: int
     display_name: str
     title: str
-    duration: float
+    duration: float = Field(
+        description="Processed length in seconds when known, otherwise source length.",
+    )
     start_time: datetime
     status: ProcessingStatus
 
@@ -60,3 +63,6 @@ class PublicRecordingResponse(BaseModel):
     has_original_video: bool
     allow_video_download: bool = True
     allow_files_download: bool = True
+    # Chat / materials from ingestion (same payload as owner GET .../source-extras).
+    # Omitted when file downloads are off. Presigned URLs; not streamed via /files/.
+    source_extras: SourceExtrasResponse | None = None

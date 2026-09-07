@@ -24,11 +24,13 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useUrlListState } from "@/hooks/use-url-list-state";
@@ -205,7 +207,7 @@ export default function CredentialsPage() {
   // Disconnect state
   const [disconnectId, setDisconnectId] = useState<number | null>(null);
 
-  const { data: listData, isLoading } = useQuery<CredentialListResponse>({
+  const { data: listData, isPending } = useQuery<CredentialListResponse>({
     // Distinct from the unfiltered ["credentials-list"] lookup other pages use.
     queryKey: ["credentials-page", list.urlKey],
     queryFn: async () => {
@@ -220,7 +222,11 @@ export default function CredentialsPage() {
       const res = await apiClient.get<CredentialListResponse>(`/credentials?${p.toString()}`);
       return res.data;
     },
+    staleTime: STALE_TIME.catalog,
+    ...listQueryOptions,
   });
+
+  const showSkeleton = isInitialLoad(isPending, listData);
 
   const disconnect = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/credentials/${id}`),
@@ -424,7 +430,7 @@ export default function CredentialsPage() {
             value={list.sortBy}
             order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={list.setSort}
+            onChange={list.setSortField}
             onToggleOrder={list.toggleSortOrder}
           />
         }
@@ -436,7 +442,7 @@ export default function CredentialsPage() {
 
       {/* Table */}
       <div className={TABLE_CARD}>
-        {isLoading ? (
+        {showSkeleton ? (
           <table className="w-full min-w-[680px]">
             <tbody className={TABLE_BODY}>
               <TableRowsSkeleton rows={5} cols={5} />
@@ -459,9 +465,7 @@ export default function CredentialsPage() {
             title="No connections yet"
             description="Connect a platform account (YouTube, VK, Yandex…) so the pipeline can upload on your behalf."
             action={
-              <ActionButton onClick={openAddModal} icon={<Plus size={15} />}>
-                Add
-              </ActionButton>
+              <CreatePlaceholder className="w-full max-w-xs" label="Add credentials" onClick={openAddModal} />
             }
           />
         ) : (
@@ -595,7 +599,7 @@ export default function CredentialsPage() {
                   key={p.key}
                   type="button"
                   onClick={() => selectPlatform(p.key)}
-                  className="flex-1 py-2 rounded-xl text-xs font-medium border transition-colors active:scale-[0.96] bg-card text-secondary-foreground border-border hover:bg-muted"
+                  className="flex-1 py-2 rounded-xl text-xs font-medium border transition-colors bg-card text-secondary-foreground border-border hover:bg-muted"
                 >
                   {p.label}
                 </button>
@@ -846,7 +850,7 @@ export default function CredentialsPage() {
                       if (e.key === "Escape") closeRenameModal();
                     }}
                     placeholder="e.g. Main account, Work"
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-colors"
+                    className={CRED_FIELD_CLASS}
                   />
                 </div>
                 {renameError && (

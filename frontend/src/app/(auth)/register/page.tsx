@@ -7,6 +7,7 @@ import { apiClient } from "@/api/client";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
 import { ActionButton } from "@/components/ui/action-button";
+import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 import { extractApiError } from "@/lib/utils";
 import { firstFailedRule, isPasswordValid } from "@/lib/password-rules";
 import { PasswordRulesList } from "@/components/ui/password-rules-list";
@@ -139,6 +140,9 @@ export default function RegisterPage() {
           <Link href="/login" className="text-primary font-medium hover:underline">
             Sign in
           </Link>
+        </p>
+        <p className="mt-6 flex items-center justify-center">
+          <AgeRatingBadge />
         </p>
       </div>
     </div>

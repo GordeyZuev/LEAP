@@ -17,6 +17,7 @@ from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.dependencies import get_db_session
 from api.helpers.leap_publication import publication_looks_for_recordings
+from api.helpers.media_duration import display_duration_seconds
 from api.helpers.playlist_description import render_playlist_description
 from api.helpers.share_stats import build_share_stats_from_recording
 from api.repositories.playlist_repo import PlaylistRepository
@@ -29,6 +30,7 @@ from api.schemas.share import (
     ShareCreateResponse,
     ShareDailyPoint,
 )
+from api.services.analytics_service import AnalyticsRangeError, analytics_range_http_error, parse_analytics_range
 from api.services.playlist_service import (
     SHARE_NOT_FOUND,
     assert_public_download,
@@ -73,14 +75,14 @@ async def _track_page_view_safe(recording: RecordingModel, request: Request) -> 
     try:
         await _observability.record_page_view(recording, request)
     except Exception as exc:
-        logger.warning("share page_view tracking failed (ignored): {!r}", exc)
+        logger.info("share page_view tracking failed (ignored): {!r}", exc)
 
 
 async def _track_download_safe(recording: RecordingModel, request: Request, artifact_type: str) -> None:
     try:
         await _observability.record_download(recording, request, artifact_type)
     except Exception as exc:
-        logger.warning("share download tracking failed (ignored): {!r}", exc)
+        logger.info("share download tracking failed (ignored): {!r}", exc)
 
 
 async def _respond_page_view_beacon(recording: RecordingModel | None, request: Request) -> Response:
@@ -194,11 +196,18 @@ async def _build_public_recording_response(
         except Exception as exc:
             logger.debug("Could not render description template for share | rec=%s err=%s", recording_id, exc)
 
+    allow_files_download = bool(getattr(recording, "allow_files_download", True))
+    source_extras = None
+    if allow_files_download:
+        from api.helpers.source_extras import list_source_extras
+
+        source_extras = await list_source_extras(recording)
+
     return PublicRecordingResponse(
         id=recording.id,
         display_name=recording.display_name,
         title=pub_title,
-        duration=recording.duration,
+        duration=display_duration_seconds(recording),
         start_time=recording.start_time,
         status=recording.status,
         topic_timestamps=topic_timestamps,
@@ -210,7 +219,8 @@ async def _build_public_recording_response(
         has_processed_video=bool(recording.processed_video_path),
         has_original_video=bool(recording.local_video_path) if include_original else False,
         allow_video_download=bool(getattr(recording, "allow_video_download", True)),
-        allow_files_download=bool(getattr(recording, "allow_files_download", True)),
+        allow_files_download=allow_files_download,
+        source_extras=source_extras,
     )
 
 
@@ -280,23 +290,40 @@ async def rotate_share_link(
 @router.get("/api/v1/recordings/{recording_id}/share/analytics", response_model=ShareAnalyticsResponse)
 async def get_share_analytics(
     recording_id: int,
-    days: ShareAnalyticsDays = Query(ShareAnalyticsDays.MONTH),
+    days: ShareAnalyticsDays | None = Query(
+        None, description="Rolling window (7 or 28 days); ignored when from/to set"
+    ),
+    from_date: str | None = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
+    to_date: str | None = Query(None, alias="to", description="End date (YYYY-MM-DD)"),
     ctx: ServiceContext = Depends(get_service_context),
 ) -> ShareAnalyticsResponse:
     """Share view/download analytics for a recording. Owner only."""
-    period_days = int(days)
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
 
     repo = ShareEventRepository(ctx.session)
-    aggregates = await repo.daily_aggregates(recording.id, days=period_days)
-    downloads_by_type = await repo.downloads_by_type(recording.id, days=period_days)
-    daily = [
-        ShareDailyPoint(date=day, views=views, downloads=downloads)
-        for day, views, downloads in fill_daily_series(aggregates, days=period_days)
-    ]
+
+    if from_date and to_date:
+        try:
+            start_d, end_d, start_dt, end_dt = parse_analytics_range(from_date, to_date)
+        except AnalyticsRangeError as exc:
+            raise analytics_range_http_error(exc) from exc
+        aggregates = await repo.daily_aggregates(recording.id, from_dt=start_dt, to_dt=end_dt)
+        downloads_by_type = await repo.downloads_by_type(recording.id, from_dt=start_dt, to_dt=end_dt)
+        daily = [
+            ShareDailyPoint(date=day, views=views, downloads=downloads)
+            for day, views, downloads in fill_daily_series(aggregates, from_date=start_d, to_date=end_d)
+        ]
+    else:
+        period_days = int(days if days is not None else ShareAnalyticsDays.MONTH)
+        aggregates = await repo.daily_aggregates(recording.id, days=period_days)
+        downloads_by_type = await repo.downloads_by_type(recording.id, days=period_days)
+        daily = [
+            ShareDailyPoint(date=day, views=views, downloads=downloads)
+            for day, views, downloads in fill_daily_series(aggregates, days=period_days)
+        ]
 
     return ShareAnalyticsResponse(
         summary=build_share_stats_from_recording(recording),
@@ -461,7 +488,7 @@ async def download_share_file(
 
 def _public_playlist_items(
     playlist,
-    posters: dict[int, str] | None = None,
+    previews: dict | None = None,
     titles: dict[int, str] | None = None,
 ) -> list[PublicPlaylistItem]:
     items: list[PublicPlaylistItem] = []
@@ -477,11 +504,14 @@ def _public_playlist_items(
                 id=item.id,
                 position=item.position,
                 title=title,
-                duration=(rec.final_duration or rec.duration) if rec else 0.0,
+                duration=display_duration_seconds(rec) if rec else 0.0,
                 start_time=rec.start_time if rec else item.created_at,
                 playable=is_playable(rec) if rec else False,
                 unavailable_reason=reason,
-                poster_url=posters.get(rec.id) if posters and rec is not None else None,
+                poster_url=previews[rec.id].url if previews and rec is not None and rec.id in previews else None,
+                poster_asset_key=previews[rec.id].asset_key or None
+                if previews and rec is not None and rec.id in previews
+                else None,
             )
         )
     return items
@@ -497,11 +527,13 @@ async def get_public_playlist(
     recs = [i.recording for i in playlist.items]
     looks = await publication_looks_for_recordings(session, playlist.user_id, recs)
     titles = {rid: look.title for rid, look in looks.items()}
-    posters = await poster_url_map(session, playlist.user_id, recs, looks=looks)
+    from api.services.playlist_service import poster_preview_map
+
+    previews = await poster_preview_map(session, playlist.user_id, recs, looks=looks)
     return PublicPlaylistResponse(
         name=playlist.name,
         description=render_playlist_description(playlist.description, playlist, item_titles=titles),
-        items=_public_playlist_items(playlist, posters, titles),
+        items=_public_playlist_items(playlist, previews, titles),
     )
 
 

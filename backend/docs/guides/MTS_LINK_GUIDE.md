@@ -73,11 +73,27 @@ Sync только **находит** записи и пишет метаданн
 | Запись готова, MP4 ещё нет | `INITIALIZED` | `needs_mp4: true` |
 | Для сессии уже есть сконвертированная запись | `INITIALIZED` | `needs_mp4: false`, `download_url` в метаданных |
 
-Длительность на синке берётся из `GET /fileSystem/file/{recordId}` (поле `duration` в секундах), не из урезанного `GET /records`. Порог blank **10 минут** (`duration < 600`): обрывы на секунды и короткие «переносы» скрываются, семинары ~17 мин остаются. Blank-записи по-прежнему видны в списке с фильтром **Include blanks**.
+Длительность на синке берётся из `GET /fileSystem/file/{recordId}` (поле `duration` в секундах), не из урезанного `GET /records` и **не** из ISO `PT1H20M0S` у мероприятия (это слот в календаре).
 
-Уже существующие строки: из `backend/` `uv run python scripts/backfill_mts_link_blank.py` (просмотр), затем `--apply`.
+| Где | Что это |
+|-----|---------|
+| `source.meta.online_duration` | Длина **онлайн-записи** в плеере МТС. Sync обновляет всегда. |
+| `recordings.duration` | Исходная длина (online до скачивания, потом ffprobe MP4). Sync это не затирает, если файл уже есть. В API списка / карточки / share отдаётся `final_duration`, если он уже есть. |
+| Плеер | Длина **этого** MP4 (браузер). Если расходится с сайдбаром — в БД ещё сессия, на диске другой файл. |
+| `final_duration` | После транскрипции (таймлайн речи), не длина файла. |
 
-Статусы **`PENDING_SOURCE`** / **`PENDING_CONVERSION`** выставляет **prepare** при Run или автоматизации, не sync.
+Порог blank **10 минут** (`duration < 600`). Без файла — online-сессия. С файлом — **ffprobe MP4 в storage**, не цифра в карточке (там часто ещё длина сессии). Blank видны с **Include blanks**.
+
+Уже существующие строки (на сервере, после деплоя):
+
+```bash
+docker compose exec api uv run python scripts/backfill_mts_link_blank.py
+docker compose exec api uv run python scripts/backfill_mts_link_blank.py --apply
+```
+
+Скрипт печатает `api_duration`, `db_duration`, `file_duration` (ffprobe объекта в storage). С файлом blank берётся с **файла**, не с длинной сессии API. `--apply` записывает длительность файла в карточку.
+
+**`PENDING_CONVERSION`** выставляет только prepare (Run / автоматизация). **`PENDING_SOURCE`** — sync на **новую** карточку, если ещё нет duration и `size == 0`, либо prepare, если Run застал ту же ситуацию.
 
 `source_key` записи — `mtslink:record:{recordId}`, поэтому две онлайн-записи одной сессии не схлопываются в одну запись LEAP.
 
@@ -95,7 +111,7 @@ Sync только **находит** записи и пишет метаданн
 
 Теперь:
 
-1. **Prepare** (`api/services/mts_link_prepare.py`) — один короткий проход: готовый MP4 на сессии, `size == 0`, активная конвертация (`GET /converted-records` + reuse), или новый `POST /records/{id}/conversions`.
+1. **Prepare** (`api.services.mts_link_prepare.py`) — короткий проход: готовый MP4 на сессии; reuse конвертации; иначе заказ `POST /records/{id}/conversions`. `size == 0` сам по себе не Pending — только вместе с неизвестным `duration`.
 2. Если MP4 **ещё не готов** — запись → **`PENDING_CONVERSION`** (или **`PENDING_SOURCE`**, если запись ещё собирается), **`on_air` не ставится**, ответ Run: `awaiting_source: true`, блок `mts` с прогрессом.
 3. Пользователь или **автоматизация** снова жмёт Run / срабатывает job — prepare повторяется, пока не появится `downloadUrl`.
 4. Когда MP4 готов — prepare → `READY`, проверка квоты, **`on_air: true`**, стартует обычная цепочка download → trim → …
@@ -121,10 +137,11 @@ Sync только **находит** записи и пишет метаданн
 ### Поток prepare (кратко)
 
 1. `GET /eventsessions/{id}/converted-records` — если есть готовый MP4, outcome **READY**.
-2. Иначе `GET /records` — если `size == 0`, outcome **ASSEMBLING** → `PENDING_SOURCE`.
-3. Иначе `GET /converted-records` — reuse `waiting` / `processing` по этому `recordFile` (без второго POST).
-4. Иначе `POST /records/{id}/conversions` с `quality` / `view` из Input Source.
-5. Outcome **CONVERTING** → `PENDING_CONVERSION` до следующего Run.
+2. `GET /converted-records` (и незавершённые, и завершённые) + `GET` сохранённого `conversion_id`. Берём `completed` (**READY**, даже если в ответе нет `downloadUrl`), иначе **`processing` с наибольшим `progress`**. `canceled` / `failed` не берём.
+3. Пока есть такая джоба — **без POST**.
+4. Иначе `GET /records` + duration (meta `online_duration` или `GET /fileSystem/file`): нет записи → failed; **нет duration и `size == 0`** → **ASSEMBLING** / `PENDING_SOURCE`. Известный duration при `size == 0` — запись уже собрана, заказываем конвертацию.
+5. Иначе `POST /records/{id}/conversions`. 403 `Simultaneous conversions quantity exceeded` — ждём, не reauth.
+6. Outcome **CONVERTING** → `PENDING_CONVERSION` до следующего Run.
 
 **Длительность рендера** на стороне МТС Линк — обычно 15–25 минут (до ~2× длительности лекции). LEAP **не держит** воркер всё это время.
 
@@ -150,7 +167,7 @@ Sync только **находит** записи и пишет метаданн
 
 - Настройки имеет смысл выбрать до первого скачивания.
 - Если поменять их у уже скачанной записи, лежащий `source.mp4` не изменится. В метаданных сохраняются `conversion_quality` и `conversion_view`, с которыми он сделан, — по ним видно расхождение.
-- Если у сессии несколько рендеров (например, кто-то конвертировал вручную в ЛК), будет взят первый из списка — выбрать нужный через API нельзя.
+- Если у сессии несколько готовых MP4, prepare/download берут запись с тем же `recordId`. Без id (sync) — первый готовый URL.
 
 Перерендер по требованию и добор сопровождающих файлов к уже скачанному видео **не реализованы** — сознательно оставлено на будущее.
 
@@ -218,13 +235,25 @@ Duration probe (default): `GET /fileSystem/file/{recordId}` for each listed reco
 Онлайн-запись ещё собирается: нет `duration` в `GET /fileSystem/file`, `size == 0` **и** готового MP4 ещё нет. Если duration уже есть, `size == 0` больше не ставит Pending. Если MP4 уже есть в `converted-records`, **Run** забирает его даже при `size == 0`. Повторный sync не создаёт вторую строку: ключ `mtslink:record:{id}` уникален на пользователя (миграция `046`).
 
 **Почему запись в `PENDING_CONVERSION`?**
-Заказан или уже идёт рендер MP4 на серверах МТС Линк. **Run** (или automation) периодически пингует статус; воркер download не занят. В UI — бейдж **Converting**.
+Заказан или уже идёт рендер MP4 на серверах МТС Линк (`waiting` / `processing`). **Run** пингует статус; воркер download не занят. В UI — бейдж **Converting**. Если в meta уже `conversion_state: completed` и `conversion_progress: 100`, а статус всё ещё Converting — это баг старого prepare (`GET` конверсии без `downloadUrl`); после фикса Run должен стартовать пайплайн.
 
 **Почему `/download` отвечает 400?**
 Для MTS Link отдельный download отключён: конвертацию заказывает только **`POST /run`**. Используйте Run на карточке записи или bulk run.
 
 **Почему «скачивание» занимало часы в старых версиях?**
 Download-задача держала Celery-воркер на poll до 30 минут и ретраилась. После prepare-before-run ожидание — это статус записи и повторные короткие Run, не блокировка очереди `downloads`.
+
+**Почему в карточке ~1 ч, а в плеере несколько часов?**
+Сайдбар часто показывает `final_duration` (речь после ASR). Плеер — длину **`video.mp4`**. Если trim не срезал цифровую тишину до конца слота МТС (нет `silence_end` у FFmpeg), файл остаётся на весь слот. С **v0.10.8.3** незакрытый `silence_start` до EOF режется; уже обработанные строки нужно прогнать trim снова.
+
+**Почему в карточке 1 ч 41 мин, а в плеере несколько секунд?**
+Карточка брала `recordings.duration` с **онлайн-сессии** МТС; плеер — длину **скачанного MP4**. Это разные файлы (ранняя конвертация или чужой MP4 с той же сессии). После download длительность карточки = ffprobe MP4; `online_duration` остаётся в `source.meta`.
+
+**Почему backfill на проде ничего не пометил blank?**
+Первый прогон смотрел только API (сессии длинные). Нужен деплой с ffprobe файла: в логе `file_duration=4` и `blank=True`, затем `--apply`.
+
+**Что считается blank у MTS Link?**
+Длительность **< 10 минут** (строго меньше 600 с) у online-записи **или** у лежащего в LEAP файла. Zoom по-прежнему 20 мин или &lt; 25 МБ. В списке blank скрыты, пока не включён **Include blanks**.
 
 **Расшифровка МТС Линк используется?**
 Нет, LEAP делает свой ASR. Q&A и вебхуки МТС Линк тоже пока не используются.

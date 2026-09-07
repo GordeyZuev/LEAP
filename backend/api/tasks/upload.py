@@ -591,14 +591,13 @@ async def _async_upload_recording(
                     mt = recording.main_topics
                     topics_for_fallback = list(mt) if isinstance(mt, (list, tuple)) else [mt]
                 if topics_for_fallback:
-                    if topics_display and topics_display.get("enabled", True):
-                        topics_str = TemplateRenderer._format_topics_list(topics_for_fallback, topics_display)
-                    else:
+                    topics_str = TemplateRenderer._format_topics_list(topics_for_fallback, topics_display)
+                    if not topics_str:
                         topics_str = ", ".join(
                             str(t.get("topic", t) if isinstance(t, dict) else t) for t in topics_for_fallback[:5]
                         )
                     description += f"\n\n{topics_str}"
-                if questions_display and questions_display.get("enabled") and template_context.get("questions"):
+                if template_context.get("questions"):
                     description += f"\n\n{template_context['questions']}"
 
             description = markup_to_plain(description)

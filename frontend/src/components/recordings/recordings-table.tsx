@@ -3,10 +3,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
-import { cn, formatDate, formatDuration, stripLeadingTimestamp } from "@/lib/utils";
+import { cn, formatDate, formatDuration, stripLeadingTimestamp, collapseWhitespace } from "@/lib/utils";
 import { formatShareStatsSummary } from "@/lib/share-stats";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { RecordingPoster, RECORDING_TABLE_POSTER } from "@/components/recordings/recording-poster";
+import { CHECKBOX } from "@/lib/filter-field-classes";
 import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW, TABLE_ROW_CORNERS } from "@/lib/table-classes";
 import { type RecordingCardData } from "./recording-card";
 import { PipelineStatusButton } from "@/components/recordings/pipeline-popover";
@@ -57,6 +58,7 @@ const UPLOAD_STATE_LABEL: Record<string, string> = {
 function RowMenu({
   id,
   isSoftDeleted,
+  canRun,
   onRunWithConfig,
   onReset,
   onDelete,
@@ -64,6 +66,7 @@ function RowMenu({
 }: {
   id: number;
   isSoftDeleted: boolean;
+  canRun: boolean;
   onRunWithConfig?: (id: number) => void;
   onReset?: (id: number) => void;
   onDelete?: (id: number) => void;
@@ -98,7 +101,12 @@ function RowMenu({
       {open && (
         <div className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-xl border border-border bg-card shadow-lg animate-dropdown-in">
           {!isSoftDeleted && onRunWithConfig && (
-            <MenuBtn icon={<Settings2 size={12} />} label="Run with config" onClick={() => { setOpen(false); onRunWithConfig(id); }} />
+            <MenuBtn
+              icon={<Settings2 size={12} />}
+              label="Run with config"
+              disabled={!canRun}
+              onClick={() => { setOpen(false); onRunWithConfig(id); }}
+            />
           )}
           {!isSoftDeleted && onReset && (
             <MenuBtn icon={<RotateCcw size={12} />} label="Reset" onClick={() => { setOpen(false); onReset(id); }} />
@@ -118,13 +126,14 @@ function RowMenu({
   );
 }
 
-function MenuBtn({ icon, label, onClick, danger }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
+function MenuBtn({ icon, label, onClick, danger, disabled }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean; disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-muted",
+        "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40",
         danger ? "text-danger-fg hover:bg-danger-fg/10" : "text-secondary-foreground"
       )}
     >
@@ -140,7 +149,7 @@ function InlineNameCell({ id, name, deleted, onRename }: { id: number; name: str
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commit = useCallback(() => {
-    const t = value.trim();
+    const t = collapseWhitespace(value);
     if (t && t !== name) onRename?.(id, t);
     setEditing(false);
   }, [value, name, id, onRename]);
@@ -230,7 +239,7 @@ export function RecordingsTable({
                 checked={allSelected}
                 onChange={onToggleAll}
                 aria-label="Select all recordings on this page"
-                className="rounded accent-primary"
+                className={CHECKBOX}
               />
             </th>
             {/* Decorative column: not sortable, and an empty <th> would leave
@@ -274,7 +283,7 @@ export function RecordingsTable({
                     checked={isSelected}
                     onChange={() => onToggleSelect(r.id)}
                     aria-label={`Select ${r.display_name}`}
-                    className="rounded accent-primary"
+                    className={CHECKBOX}
                   />
                 </td>
 
@@ -284,6 +293,7 @@ export function RecordingsTable({
                     recordingId={r.id}
                     posterUrl={r.poster_url}
                     posterFallbackUrl={r.poster_fallback_url}
+                    posterAssetKey={r.poster_asset_key}
                     duration={r.duration}
                     className={RECORDING_TABLE_POSTER}
                   />
@@ -413,6 +423,7 @@ export function RecordingsTable({
                     <RowMenu
                       id={r.id}
                       isSoftDeleted={isSoftDeleted}
+                      canRun={r.can_run}
                       onRunWithConfig={onRunWithConfig}
                       onReset={onReset}
                       onDelete={onDelete}

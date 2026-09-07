@@ -6,7 +6,7 @@ import {
   useQueryClient,
   type UseMutationResult,
 } from "@tanstack/react-query";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Suspense,
   useState,
@@ -19,14 +19,16 @@ import {
 } from "react";
 import { apiClient } from "@/api/client";
 import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter, Video, LayoutGrid, List } from "lucide-react";
+import { structuralSharingPreservePosters } from "@/lib/poster-stable";
+import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { cn, extractApiError } from "@/lib/utils";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
-import { useDebounce } from "@/hooks/use-debounce";
 import { usePageSize } from "@/hooks/use-page-size";
+import { useUrlListState } from "@/hooks/use-url-list-state";
 import { useToast } from "@/hooks/use-toast";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
-import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { CHECKBOX, FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { RecordingCard, type RecordingCardData } from "@/components/recordings/recording-card";
 import { RecordingsTable } from "@/components/recordings/recordings-table";
 import { FilterBar } from "@/components/filters/filter-bar";
@@ -43,11 +45,11 @@ import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { PROCESSING_STATUS_LABEL, type ProcessingStatus } from "@/components/ui/status-badge";
 import {
-  DEBOUNCE_SEARCH,
   PER_PAGE_LARGE,
   PER_PAGE_RECORDINGS,
   PER_PAGE_RECORDINGS_OPTIONS,
@@ -102,8 +104,6 @@ const SORT_OPTIONS = [
   { value: "display_name", label: "Name" },
   { value: "status",       label: "Status" },
 ];
-
-const SORT_BY_ALLOWED = new Set<string>(SORT_OPTIONS.map((o) => o.value));
 
 const STATUS_LABEL_BY_VALUE = new Map<string, string>(STATUS_OPTIONS.map((o) => [o.value, o.label]));
 
@@ -201,6 +201,11 @@ interface RecordingsPagedResultsProps {
   hasActiveFilters: boolean;
 }
 
+const VIEW_MODE_BTN =
+  "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+const VIEW_MODE_BTN_ON = "border-primary bg-primary text-white";
+const VIEW_MODE_BTN_OFF = "border-border bg-card text-muted-foreground hover:bg-muted";
+
 function RecordingsPagedResults({
   queryParamsString,
   page,
@@ -272,22 +277,36 @@ function RecordingsPagedResults({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [pipelineMenuOpen]);
 
-  const { data, isLoading, error, refetch } = useQuery<RecordingListResponse>({
-    queryKey: ["recordings", queryParamsString, page, perPage],
+  const { data, isPending, error, refetch } = useQuery<
+    RecordingListResponse,
+    Error,
+    RecordingListResponse
+  >({
+    queryKey: ["recordings", queryParamsString, page, perPage, sortBy, sortOrder],
     queryFn: async () => {
       const p = new URLSearchParams(queryParamsString);
       p.set("page", String(page));
       p.set("per_page", String(perPage));
+      p.set("sort_by", sortBy);
+      p.set("sort_order", sortOrder);
       const res = await apiClient.get<RecordingListResponse>(`/recordings?${p.toString()}`);
       return res.data;
     },
-    staleTime: 30_000,
+    staleTime: STALE_TIME.recordings,
+    ...listQueryOptions,
+    structuralSharing: (oldData, newData) =>
+      structuralSharingPreservePosters(
+        oldData as RecordingListResponse | undefined,
+        newData as RecordingListResponse,
+      ),
     refetchInterval: (q) => {
       const items = q.state.data?.items ?? [];
       return items.some((r) => needsActivePoll(r)) ? POLL_INTERVAL_LIST : false;
     },
     refetchIntervalInBackground: false,
   });
+
+  const showSkeleton = isInitialLoad(isPending, data);
 
   // Self-correct out-of-range `page` (e.g. after deletes, shared stale links).
   useEffect(() => {
@@ -341,12 +360,7 @@ function RecordingsPagedResults({
           title="Grid view"
           aria-label="Grid view"
           aria-pressed={viewMode === "grid"}
-          className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-            viewMode === "grid"
-              ? "border-primary bg-primary text-white"
-              : "border-border bg-card text-muted-foreground hover:bg-muted"
-          )}
+          className={cn(VIEW_MODE_BTN, viewMode === "grid" ? VIEW_MODE_BTN_ON : VIEW_MODE_BTN_OFF)}
         >
           <LayoutGrid size={14} />
         </button>
@@ -356,12 +370,7 @@ function RecordingsPagedResults({
           title="Table view"
           aria-label="Table view"
           aria-pressed={viewMode === "table"}
-          className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-            viewMode === "table"
-              ? "border-primary bg-primary text-white"
-              : "border-border bg-card text-muted-foreground hover:bg-muted"
-          )}
+          className={cn(VIEW_MODE_BTN, viewMode === "table" ? VIEW_MODE_BTN_ON : VIEW_MODE_BTN_OFF)}
         >
           <List size={14} />
         </button>
@@ -378,7 +387,7 @@ function RecordingsPagedResults({
               checked={selected.size === recordings.length && recordings.length > 0}
               onChange={toggleAll}
               aria-label="Select all recordings on this page"
-              className="rounded accent-primary"
+              className={CHECKBOX}
             />
             <span className="text-sm font-medium text-primary">{selected.size} selected</span>
           </label>
@@ -426,7 +435,7 @@ function RecordingsPagedResults({
         </div>
       )}
 
-      {isLoading && viewMode === "grid" && (
+      {showSkeleton && viewMode === "grid" && (
         // Same tracks and the same internal shape as a real card — poster,
         // two title lines, meta, footer — so nothing shifts when data lands.
         <div aria-busy="true" aria-label="Loading recordings" className={cn("grid gap-4", GRID_TRACKS)}>
@@ -454,7 +463,7 @@ function RecordingsPagedResults({
         </div>
       )}
 
-      {isLoading && viewMode === "table" && (
+      {showSkeleton && viewMode === "table" && (
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <div className="border-b border-border px-4 py-3 flex items-center gap-4">
             <Skeleton className="h-4 w-4" />
@@ -477,7 +486,7 @@ function RecordingsPagedResults({
 
       {error && <ErrorState description="Failed to load recordings" onRetry={() => refetch()} />}
 
-      {!isLoading && !error && recordings.length === 0 && (
+      {!showSkeleton && !error && recordings.length === 0 && (
         <EmptyState
           icon={Video}
           title={hasActiveFilters ? "No recordings match your filters" : "No recordings yet"}
@@ -492,15 +501,13 @@ function RecordingsPagedResults({
                 Reset filters
               </ActionButton>
             ) : (
-              <ActionButton onClick={onAddVideo} icon={<Plus size={16} />}>
-                Add video
-              </ActionButton>
+              <CreatePlaceholder className="w-full max-w-xs" label="Add a video" onClick={onAddVideo} />
             )
           }
         />
       )}
 
-      {!isLoading && !error && recordings.length > 0 && viewMode === "grid" && (
+      {!showSkeleton && !error && recordings.length > 0 && viewMode === "grid" && (
         // Stretch row height; Run sits on mt-auto inside each card.
         <div className={cn("grid animate-fade-in gap-4", GRID_TRACKS)}>
           {recordings.map((rec) => (
@@ -523,7 +530,7 @@ function RecordingsPagedResults({
         </div>
       )}
 
-      {!isLoading && !error && recordings.length > 0 && viewMode === "table" && (
+      {!showSkeleton && !error && recordings.length > 0 && viewMode === "table" && (
         <RecordingsTable
           recordings={recordings}
           selected={selected}
@@ -589,7 +596,7 @@ function RecordingsPagedResults({
             type="checkbox"
             checked={resetDeleteFiles}
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
-            className="rounded border-border text-primary focus:ring-primary/30"
+            className={CHECKBOX}
           />
           Delete processed files (video, audio, transcription)
         </label>
@@ -699,22 +706,29 @@ function AdvancedFiltersSection({ filters, onPatch }: AdvancedFiltersSectionProp
 
 function RecordingsContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const qc = useQueryClient();
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
-  const urlKey = searchParams.toString();
-
-  // --- Immediate controls (search + sort + page) ---
-  const urlSearch = searchParams.get("search") ?? "";
-  const urlSortBy = (() => {
-    const raw = searchParams.get("sort_by") ?? "start_time";
-    return SORT_BY_ALLOWED.has(raw) ? raw : "start_time";
-  })();
-  const urlSortOrder: "asc" | "desc" = searchParams.get("sort_order") === "asc" ? "asc" : "desc";
-  const urlPage = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+  const list = useUrlListState({
+    defaultSortBy: "start_time",
+    defaultSortOrder: "desc",
+    allowedSortFields: SORT_OPTIONS.map((o) => o.value),
+  });
+  const {
+    urlKey,
+    setPage: setListPage,
+    resetAll: resetListFilters,
+    setSearchInput,
+    setParam,
+  } = list;
 
   // --- Selection state ---
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const selectionScope = `${list.search}\0${list.sortBy}\0${list.sortOrder}`;
+  const [selectedScope, setSelectedScope] = useState(selectionScope);
+  if (selectedScope !== selectionScope) {
+    setSelectedScope(selectionScope);
+    setSelected(new Set());
+  }
   const [addModalOpen, setAddModalOpen] = useState(false);
 
   // --- Confirm dialogs ---
@@ -752,58 +766,12 @@ function RecordingsContent() {
     PER_PAGE_RECORDINGS,
   );
 
-  // Local search input with debounce → syncs to URL
-  const [searchInput, setSearchInput] = useState(urlSearch);
-  const debouncedSearch = useDebounce(searchInput, DEBOUNCE_SEARCH);
-
-  // Sync URL → searchInput on external navigation (browser back/fwd)
-  const [prevUrlKey, setPrevUrlKey] = useState(urlKey);
-  if (urlKey !== prevUrlKey) {
-    setPrevUrlKey(urlKey);
-    setSearchInput(searchParams.get("search") ?? "");
-  }
-
-  // Sync debounced search → URL (skip if already matches)
-  const lastAppliedSearchRef = useRef(urlSearch);
-  useEffect(() => {
-    const trimmed = debouncedSearch.trim();
-    if (trimmed === lastAppliedSearchRef.current) return;
-    lastAppliedSearchRef.current = trimmed;
-    const p = new URLSearchParams(searchParams.toString());
-    if (trimmed) p.set("search", trimmed);
-    else p.delete("search");
-    p.delete("page");
-    router.replace(`?${p.toString()}`);
-    setSelected(new Set());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
-
-  function updateSort(field?: string, order?: string) {
-    const p = new URLSearchParams(searchParams.toString());
-    if (field !== undefined) p.set("sort_by", field);
-    if (order !== undefined) p.set("sort_order", order);
-    p.delete("page");
-    router.replace(`?${p.toString()}`);
-    setSelected(new Set());
-  }
-
-  const setPage = useCallback(
-    (next: number) => {
-      const p = new URLSearchParams(searchParams.toString());
-      if (next <= 1) p.delete("page");
-      else p.set("page", String(next));
-      router.replace(`?${p.toString()}`);
-    },
-    [router, searchParams],
-  );
-
-  // Changing the page size invalidates the current page number.
   const handlePerPageChange = useCallback(
     (next: number) => {
       setPerPage(next);
-      setPage(1);
+      setListPage(1);
     },
-    [setPerPage, setPage],
+    [setPerPage, setListPage],
   );
 
   // --- Current filters (read from URL) + instant-apply URL writers ---
@@ -811,13 +779,13 @@ function RecordingsContent() {
 
   const commitFilters = useCallback(
     (mutate: (p: URLSearchParams) => void) => {
-      const p = new URLSearchParams(urlKey);
+      const p = new URLSearchParams(window.location.search);
       mutate(p);
       p.delete("page");
       router.replace(`?${p.toString()}`);
       setSelected(new Set());
     },
-    [urlKey, router],
+    [router],
   );
 
   // Multi-selects commit their whole selection at once (on dropdown close).
@@ -878,7 +846,7 @@ function RecordingsContent() {
     );
   }, [urlKey]);
 
-  const hasNonDefaultSort = urlSortBy !== "start_time" || urlSortOrder === "asc";
+  const hasNonDefaultSort = list.hasNonDefaultSort;
 
   // --- Reference data ---
   const { data: templatesData } = useQuery<TemplateListResponse>({
@@ -912,11 +880,9 @@ function RecordingsContent() {
 
   // Clear search + every filter at once.
   const resetAllFilters = useCallback(() => {
-    setSearchInput("");
-    lastAppliedSearchRef.current = "";
-    router.replace("?");
+    resetListFilters();
     setSelected(new Set());
-  }, [router]);
+  }, [resetListFilters]);
 
   // --- Mutations ---
   const bulkRun = useMutation({
@@ -1066,14 +1032,13 @@ function RecordingsContent() {
     const f = filters;
     const chips: FilterChipItem[] = [];
 
-    if (urlSearch) {
+    if (list.search) {
       chips.push({
         key: "search",
-        label: `Search: "${urlSearch}"`,
+        label: `Search: "${list.search}"`,
         onRemove: () => {
-          // Clear the input too; the debounced effect would otherwise re-add it.
           setSearchInput("");
-          commitFilters((p) => p.delete("search"));
+          setParam("search", null);
         },
       });
     }
@@ -1118,7 +1083,7 @@ function RecordingsContent() {
       chips.push({ key: "include_deleted", label: "Include deleted", onRemove: () => patchFilters({ includeDeleted: false }) });
     }
     return chips;
-  }, [filters, urlSearch, templateLabel, sourceLabel, commitFilters, setMultiParam, patchFilters]);
+  }, [filters, list.search, setSearchInput, setParam, templateLabel, sourceLabel, setMultiParam, patchFilters]);
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -1142,8 +1107,8 @@ function RecordingsContent() {
         search={
           <SearchInput
             id="recordings-search"
-            value={searchInput}
-            onChange={setSearchInput}
+            value={list.searchInput}
+            onChange={list.setSearchInput}
             placeholder="Search recordings…"
           />
         }
@@ -1175,11 +1140,11 @@ function RecordingsContent() {
         ]}
         sort={
           <SortControl
-            value={urlSortBy}
-            order={urlSortOrder}
+            value={list.sortBy}
+            order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={(field) => updateSort(field)}
-            onToggleOrder={() => updateSort(undefined, urlSortOrder === "desc" ? "asc" : "desc")}
+            onChange={list.setSortField}
+            onToggleOrder={list.toggleSortOrder}
           />
         }
         onClearAll={hasActiveFilters || hasNonDefaultSort ? resetAllFilters : undefined}
@@ -1191,8 +1156,8 @@ function RecordingsContent() {
       <RecordingsPagedResults
         key={appliedKey}
         queryParamsString={appliedKey}
-        page={urlPage}
-        onPageChange={setPage}
+        page={list.page}
+        onPageChange={list.setPage}
         loadingRecordingId={loadingRecordingId}
         selected={selected}
         setSelected={setSelected}
@@ -1222,12 +1187,9 @@ function RecordingsContent() {
         perPage={perPage}
         onPerPageChange={handlePerPageChange}
         hasActiveFilters={hasActiveFilters}
-        sortBy={urlSortBy}
-        sortOrder={urlSortOrder}
-        onSort={(field) =>
-          // Same column toggles direction; a new column starts at descending.
-          updateSort(field, field === urlSortBy ? (urlSortOrder === "desc" ? "asc" : "desc") : "desc")
-        }
+        sortBy={list.sortBy}
+        sortOrder={list.sortOrder}
+        onSort={list.setSort}
       />
 
       {/* Single reset confirm */}
@@ -1248,7 +1210,7 @@ function RecordingsContent() {
             type="checkbox"
             checked={resetDeleteFiles}
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
-            className="rounded border-border text-primary focus:ring-primary/30"
+            className={CHECKBOX}
           />
           Delete processed files (video, audio, transcription)
         </label>

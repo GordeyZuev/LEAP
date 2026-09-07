@@ -10,14 +10,16 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { SectionCard } from "@/components/settings/shared";
 import { BaseTemplateBanner } from "@/components/settings/base-template-banner";
 import { AccountPanel } from "@/components/settings/account-panel";
+import { UsagePanel } from "@/components/settings/usage-panel";
 import { RetentionSection } from "@/components/settings/retention-section";
 import { SecurityPanel } from "@/components/settings/security-panel";
 import { apiClient } from "@/api/client";
 
-type Tab = "account" | "appearance" | "security";
+type Tab = "account" | "usage" | "appearance" | "security";
 
 const TABS: TabItem<Tab>[] = [
   { value: "account", label: "Account" },
+  { value: "usage", label: "Usage" },
   { value: "appearance", label: "Appearance" },
   { value: "security", label: "Security" },
 ];
@@ -70,6 +72,7 @@ function SettingsContent() {
             </SectionCard>
           </div>
         )}
+        {tab === "usage" && <UsagePanel />}
         {tab === "appearance" && (
           <SectionCard title="Appearance">
             <Field label="Theme" hint="Choose a light or dark interface, or follow your system setting.">

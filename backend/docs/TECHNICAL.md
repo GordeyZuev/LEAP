@@ -422,7 +422,7 @@ video_download_module/
 
 **Supported Sources:**
 - **Zoom API** — OAuth 2.0 / Server-to-Server, token refresh
-- **MTS Link** — org API key (`x-auth-token`); MP4 conversion via **prepare-before-run** on `POST /run` (not `POST /download`); statuses `PENDING_SOURCE` / `PENDING_CONVERSION`; see [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md)
+- **MTS Link** — org API key (`x-auth-token`); MP4 conversion via **prepare-before-run** on `POST /run` (not `POST /download`); statuses `PENDING_SOURCE` / `PENDING_CONVERSION`; blank if online or stored duration **< 10 min**; list/sidebar/share `duration` is **processed** (`final_duration`) when set, else the MP4 after download (`source.meta.online_duration` stays the MTS session). See [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md)
 - **yt-dlp** — YouTube, VK, Rutube и 1000+ сайтов (видео + плейлисты + аудио/mp3)
 - **Yandex Disk** — публичные ссылки и OAuth API для приватных файлов
 - **Local files** — загрузка через API endpoint
@@ -450,7 +450,7 @@ Companion files fetched from the source (MTS Link chat and session materials) li
 **Purpose:** FFmpeg обработка видео
 
 **Key Features:**
-- Детекция тишины (silence detection)
+- Детекция тишины (silence detection); незакрытый `silence_start` до EOF (цифровой хвост слота МТС) закрывается длительностью файла
 - Обрезка "тихих" частей
 - Удаление пустого начала и конца
 - Audio extraction для транскрибации
@@ -789,7 +789,7 @@ final = {
 |----------|-------------|
 | 🔐 **Authentication** | Register, Login, Refresh, Logout, Profile |
 | 👤 **User Management** | Profile, Config, Password, Account |
-| 👔 **Admin** | Stats, Users, Quotas |
+| 👔 **Admin** | Stats, Analytics trends, Users, Quotas |
 | 🎥 **Recordings** | CRUD, Pipeline, Batch, Add-by-URL |
 | 📋 **Templates** | CRUD, Matching, Re-match |
 | 🔑 **Credentials** | CRUD, Platform management |
@@ -884,7 +884,7 @@ DELETE /api/v1/recordings/{id}/share          # Disable (token kept, public 404)
 POST   /api/v1/recordings/{id}/share/rotate   # new UUID; previous URL 404
 
 # Public: no auth required
-POST   /api/v1/share/{token}/beacon            # anonymous page view (204)
+POST   /api/v1/share/{token}/beacon            # page view (204); CSRF skipped (sendBeacon)
 GET    /api/v1/share/{token}                  # recording metadata + AI data + rendered description
 GET    /api/v1/share/{token}/poster           # 302 to presigned poster (Open Graph / Telegram)
 GET    /api/v1/share/{token}/media?type=processed|original  # presigned video URL
@@ -895,7 +895,7 @@ GET    /api/v1/share/{token}/files/{file_type} # artifact download (srt|vtt|tran
 GET    /api/v1/share/p/{token}                 # name, description, items (no presigned URLs)
 GET    /api/v1/share/p/{token}/poster          # 302 to first item poster (Open Graph / Telegram)
 GET    /api/v1/share/p/{token}/items/{itemId}  # public item metadata (no original)
-POST   /api/v1/share/p/{token}/items/{itemId}/beacon  # page view on that recording (204)
+POST   /api/v1/share/p/{token}/items/{itemId}/beacon  # page view (204); CSRF skipped (sendBeacon)
 GET    /api/v1/share/p/{token}/items/{itemId}/media?type=processed[&download=true]
 GET    /api/v1/share/p/{token}/items/{itemId}/files/{file_type}[&inline=true]
 ```
@@ -908,14 +908,31 @@ Recording and playlist share are both **Enable / Disable / Rotate**. Disable kee
 
 ```bash
 # Owner analytics (auth required)
-GET    /api/v1/recordings/{id}/share/analytics?days=7|28
+GET    /api/v1/recordings/{id}/share/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD
+GET    /api/v1/recordings/{id}/share/analytics?days=7|28   # rolling window (legacy)
 ```
 
+#### Product analytics (auth required)
+
+Daily metrics are aggregated by **calendar day (UTC)**. Query params `from` and `to` are inclusive dates (`YYYY-MM-DD`). Maximum span **366 days**. Defaults to the last **28 days** when omitted.
+
+| Endpoint | Role | Metrics |
+|----------|------|---------|
+| `GET /api/v1/users/me/analytics` | owner | `recordings_created`, `transcription_minutes` (content length), `transcription_jobs`, uploads by platform, share views/downloads, failed recordings, breakdowns |
+| `GET /api/v1/admin/stats/analytics` | admin | platform totals + `active_users` per day (distinct users with ≥1 new recording) |
+| `GET /api/v1/admin/users/{user_id}/analytics` | admin | same shape as user analytics for one account |
+| `GET /api/v1/admin/users/{user_id}/events?from=&to=` | admin | immutable `usage_events` timeline (optional date filter) |
+
+**Labels:** `transcription_minutes` = sum of `recordings.final_duration` after `TRANSCRIBE` completed (deduped per recording per day, same logic as Grafana Overview). `transcription_jobs` = count of completed transcriptions. Monthly **quota** transcriptions use `quota_usage.transcriptions_count` via `/users/me/quota`.
+
+**Owner UI:** Settings → **Usage** reads `/users/me/quota` (eight blocks: `recordings`, `storage`, `concurrent_tasks`, `automation_jobs`, `transcriptions`, `processing`, `templates`, `credentials`) and `/users/me/analytics` for activity. See [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md).
+
 `GET /api/v1/share/{token}` returns `PublicRecordingResponse`:
-- `id`, `display_name`, `duration`, `start_time`, `status`
+- `id`, `display_name`, `duration` (processed length when `final_duration` is set, else source), `start_time`, `status`
 - `topic_timestamps`, `main_topics`, `summary`, `questions`
 - `description` — Jinja-шаблон рендерится через `ConfigResolver.resolve_metadata_config` (user defaults → template → processing_preferences)
-- `available_files` — список доступных артефактов в storage
+- `available_files` — pipeline artifacts in storage (`srt`, `vtt`, `transcript_*`)
+- `source_extras` — chat / session materials (same shape as owner `GET /recordings/{id}/source-extras`); `null` when `allow_files_download` is off. Presigned URLs; not counted on `GET /share/{token}/files/{type}`
 - `has_processed_video`, `has_original_video`
 - `allow_video_download`, `allow_files_download` — public download buttons; play remains allowed when video download is off. `download=true` on media returns **403** when forbidden. `inline=true` on files (player VTT) is always allowed.
 
@@ -924,7 +941,7 @@ The `description` field is populated by rendering the `description_template` fro
 #### Playlists (owner)
 
 ```bash
-GET/POST   /api/v1/playlists
+GET/POST   /api/v1/playlists                    # list items include share_token, share_enabled
 GET/PATCH/DELETE /api/v1/playlists/{id}
 GET/POST   /api/v1/playlists/{id}/items
 DELETE     /api/v1/playlists/{id}/items/{itemId}
@@ -933,6 +950,8 @@ POST       /api/v1/playlists/{id}/share         # Enable (mint token if empty)
 DELETE     /api/v1/playlists/{id}/share         # Disable (token kept)
 POST       /api/v1/playlists/{id}/share/rotate
 ```
+
+`GET /api/v1/playlists` list items (owner): `id`, `name`, rendered `description`, `video_count`, `duration_sum`, `share_token`, `share_enabled`, `poster_url`, `created_at`, `updated_at`. `share_token` is returned once minted, including after Disable; the public URL is live only while `share_enabled` is true. The owner Playlists grid shows **LEAP** + **Copy link** only in that live case.
 
 `output_config.playlist_ids` on a **named** template appends the recording when `template_id` is set. The base/default template is ignored. Missing playlist ids are skipped and do not fail the pipeline.
 
@@ -1109,10 +1128,10 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 - Monthly recordings, storage, concurrent tasks, automation jobs limits
 - Quota check via `check_user_quotas` dependency (Depends)
 
-**User Statistics (`GET /me/stats`):**
-- Recordings count (total, by status, by template)
-- Transcription total seconds (`final_duration`)
-- Storage usage (bytes/GB, calculated from user folder)
+**User activity analytics (`GET /users/me/analytics`):**
+- Daily time series and period summary (recordings, transcription minutes, uploads, share views)
+- Breakdowns by status and template for the selected date range
+- See [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md)
 
 ### Security Best Practices
 
@@ -1172,6 +1191,8 @@ make init-db
 # 6. API
 make api
 ```
+
+**Web client:** `frontend/` is Next.js. Motion, `.pressable`, and dialog enter/exit: [FRONTEND_UI.md](guides/FRONTEND_UI.md).
 
 ### Project Commands
 
@@ -1351,6 +1372,7 @@ psql -U postgres -d zoom_manager
 
 **Features:**
 - [TEMPLATES.md](guides/TEMPLATES.md) - Template-driven automation
+- [FRONTEND_UI.md](guides/FRONTEND_UI.md) - Next.js motion and shared press feedback
 - [OAUTH.md](guides/OAUTH.md) - OAuth integration
 - [VK_INTEGRATION.md](guides/VK_INTEGRATION.md) - VK Implicit Flow
 - [YT_DLP_GUIDE.md](guides/YT_DLP_GUIDE.md) - yt-dlp video ingestion

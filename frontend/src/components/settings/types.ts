@@ -19,21 +19,36 @@ export interface UserConfig {
   };
 }
 
+export interface SubscriptionPlanQuotas {
+  display_name: string;
+  included_recordings_per_month?: number | null;
+  included_storage_gb?: number | null;
+  max_concurrent_tasks?: number | null;
+  max_automation_jobs?: number | null;
+  max_transcriptions_per_month?: number | null;
+  max_processing_per_month?: number | null;
+  max_templates?: number | null;
+  max_credentials?: number | null;
+}
+
 export interface QuotaStatus {
   subscription?: {
-    plan: { display_name: string };
+    plan: SubscriptionPlanQuotas;
     expires_at?: string | null;
+    effective_max_recordings_per_month?: number | null;
+    effective_max_storage_gb?: number | null;
+    effective_max_concurrent_tasks?: number | null;
+    effective_max_automation_jobs?: number | null;
+    effective_max_templates?: number | null;
+    effective_max_credentials?: number | null;
   } | null;
   recordings: { used?: number | null; limit?: number | null; available?: number | null };
   storage: { used_gb?: number | null; limit_gb?: number | null; available_gb?: number | null };
-  concurrent_tasks: { used?: number | null; limit?: number | null };
-  automation_jobs: { used?: number | null; limit?: number | null };
+  concurrent_tasks: { used?: number | null; limit?: number | null; available?: number | null };
+  automation_jobs: { used?: number | null; limit?: number | null; available?: number | null };
+  transcriptions?: { used?: number | null; limit?: number | null; available?: number | null };
+  processing?: { used?: number | null; limit?: number | null; available?: number | null };
+  templates?: { used?: number | null; limit?: number | null; available?: number | null };
+  credentials?: { used?: number | null; limit?: number | null; available?: number | null };
   is_overage_enabled: boolean;
-}
-
-export interface UserStats {
-  recordings_total: number;
-  recordings_by_status: Record<string, number>;
-  transcription_total_seconds: number;
-  storage_gb: number;
 }

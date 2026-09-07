@@ -14,6 +14,7 @@ from api.schemas.auth import UserInDB
 from api.schemas.common.pagination import paginate_list
 from api.schemas.common.responses import BulkDeleteResult, BulkIdsRequest
 from api.schemas.template import (
+    MatchingRules,
     MetadataRenderPreviewResponse,
     RecordingTemplateCreate,
     RecordingTemplateResponse,
@@ -340,8 +341,9 @@ async def create_template_from_recording(
     if data.match_pattern:
         matching_rules["patterns"] = [data.match_pattern]
     else:
-        # Default: exact match
-        matching_rules["exact_matches"] = [recording.display_name]
+        collapsed = MatchingRules(exact_matches=[recording.display_name]).exact_matches
+        if collapsed:
+            matching_rules["exact_matches"] = collapsed
 
     if data.match_source_id and recording.input_source_id:
         matching_rules["source_ids"] = [recording.input_source_id]

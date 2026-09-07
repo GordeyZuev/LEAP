@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, Link2, List, Upload, RefreshCw, ScanLine, Loader2 } from "lucide-react";
-import { cn, formatDurationCompact } from "@/lib/utils";
+import { cn, collapseWhitespace, formatDurationCompact } from "@/lib/utils";
+import { CHECKBOX } from "@/lib/filter-field-classes";
 import { apiClient } from "@/api/client";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Modal } from "@/components/ui/modal";
@@ -296,7 +297,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
       const fd = new FormData();
       fd.append("file", f);
       // display_name is a required query param on POST /recordings
-      const name = displayName.trim() || f.name.replace(/\.[^/.]+$/, "");
+      const name = collapseWhitespace(displayName) || f.name.replace(/\.[^/.]+$/, "");
       return apiClient.post(`/recordings?display_name=${encodeURIComponent(name)}`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
         onUploadProgress: (evt) => {
@@ -463,7 +464,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                   type="checkbox"
                   checked={autoRun}
                   onChange={(e) => setAutoRun(e.target.checked)}
-                  className="rounded accent-primary"
+                  className={CHECKBOX}
                 />
                 Auto-run pipeline after download
               </label>
@@ -563,7 +564,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                             return next;
                           });
                         }}
-                        className="rounded accent-primary"
+                        className={CHECKBOX}
                       />
                       <span className="text-sm font-medium text-foreground flex-1">{s.name}</span>
                       <span className="text-xs text-muted-foreground">{s.source_type}</span>

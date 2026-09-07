@@ -14,7 +14,7 @@
 3. **Admin роутер** (`/api/v1/admin/stats`) для просмотра статистики
 4. **Admin dependency** - проверка роли `admin`
 5. **DEFAULT_QUOTAS** — дефолтные лимиты в коде (`config/settings.py`), не в БД
-6. **StatsService** — статистика по записям, транскрипциям, хранилищу
+6. **AnalyticsService** — activity time series for Usage / Admin charts (see [USAGE_AND_ANALYTICS.md](USAGE_AND_ANALYTICS.md))
 
 ---
 
@@ -26,32 +26,41 @@
 
 **Требует:** JWT токен
 
-**Response:**
+**Response (shape):**
 ```json
 {
   "subscription": null,
   "current_usage": {
-    "period": 202602,
+    "period": 202609,
     "recordings_count": 3,
-    "storage_bytes": 1342177280,
+    "storage_gb": 1.25,
     "concurrent_tasks_count": 0,
+    "transcriptions_count": 2,
+    "processing_count": 1,
+    "uploads_count": 4,
     "overage_recordings_count": 0,
-    "overage_cost": 0.00
+    "overage_cost": "0.00"
   },
-  "effective_quotas": {
-    "max_recordings_per_month": null,
-    "max_storage_gb": null,
-    "max_concurrent_tasks": null,
-    "max_automation_jobs": null,
-    "min_automation_interval_hours": null
-  }
+  "recordings": { "used": 3, "limit": null, "available": null },
+  "storage": { "used_gb": 1.25, "limit_gb": null, "available_gb": null },
+  "concurrent_tasks": { "used": 0, "limit": 5, "available": 5 },
+  "automation_jobs": { "used": 2, "limit": 10, "available": 8 },
+  "transcriptions": { "used": 2, "limit": null, "available": null },
+  "processing": { "used": 1, "limit": null, "available": null },
+  "templates": { "used": 4, "limit": 20, "available": 16 },
+  "credentials": { "used": 1, "limit": null, "available": null },
+  "is_overage_enabled": false,
+  "overage_cost_this_month": "0.00",
+  "overage_limit": null
 }
 ```
 
 **Ключевые поля:**
 - `subscription` — данные подписки (если есть кастомный план, иначе `null`)
-- `effective_quotas` — эффективные лимиты (`null` = безлимит). Источник: `DEFAULT_QUOTAS` из `config/settings.py`, переопределяется планом подписки и custom overrides
-- `current_usage` — использование за текущий период (YYYYMM)
+- Блоки `recordings`, `storage`, `concurrent_tasks`, `automation_jobs`, `transcriptions`, `processing`, `templates`, `credentials` — каждый `{ used, limit, available }`; `limit: null` = безлимит
+- `automation_jobs.used`, `templates.used`, `credentials.used` — live-подсчёт строк (не месячный счётчик); templates — named templates без default
+- `current_usage` — месячные счётчики за период `YYYYMM`
+- Activity-графики в UI — `GET /users/me/analytics` (см. [USAGE_AND_ANALYTICS.md](USAGE_AND_ANALYTICS.md))
 
 **Поведение без подписки:**
 - По умолчанию все пользователи получают `DEFAULT_QUOTAS` (все `null` = безлимит)
@@ -59,56 +68,13 @@
 
 ---
 
-### GET /api/v1/users/me/stats
+### GET /api/v1/users/me/analytics
 
-Получить статистику использования.
+Activity charts and period totals for Settings → Usage. See [USAGE_AND_ANALYTICS.md](USAGE_AND_ANALYTICS.md).
 
 **Требует:** JWT токен
 
-**Query Parameters:**
-- `from_date` (date, optional) — начало периода (YYYY-MM-DD)
-- `to_date` (date, optional) — конец периода (YYYY-MM-DD)
-
-**Examples:**
-```bash
-# Статистика за всё время
-GET /api/v1/users/me/stats
-
-# За конкретный период
-GET /api/v1/users/me/stats?from_date=2026-01-01&to_date=2026-01-31
-```
-
-**Response:**
-```json
-{
-  "recordings_total": 42,
-  "recordings_by_status": {
-    "READY": 30,
-    "PROCESSING": 2,
-    "DOWNLOADED": 5,
-    "INITIALIZED": 5
-  },
-  "recordings_by_template": [
-    {"template_id": 1, "template_name": "ML Lectures", "count": 20},
-    {"template_id": 3, "template_name": "Seminars", "count": 10}
-  ],
-  "transcription_total_seconds": 86400.55,
-  "storage_bytes": 5368709120,
-  "storage_gb": 5.0,
-  "period": {
-    "from_date": "2026-01-01",
-    "to_date": "2026-01-31"
-  }
-}
-```
-
-**Ключевые поля:**
-- `recordings_total` — общее количество записей
-- `recordings_by_status` — разбивка по статусам
-- `recordings_by_template` — количество обработанных записей по шаблонам (только READY)
-- `transcription_total_seconds` — сумма `final_duration` всех транскрибированных записей (в секундах)
-- `storage_bytes` / `storage_gb` — размер пользовательской папки на диске
-- `period` — период фильтрации (если передан, иначе `null` = за всё время)
+**Query Parameters:** `from`, `to` (inclusive `YYYY-MM-DD`; max 366 days)
 
 ---
 
@@ -336,7 +302,8 @@ GET /api/v1/admin/stats/quotas?period=202601
 - `subscription_plans.max_transcriptions_per_month`, `max_processing_per_month` — hard limits (NULL = безлимит).
 - `quota_usage.transcriptions_count`, `processing_count`, `uploads_count` — месячные счётчики (ключ `period` = `YYYYMM`).
 - Лимит одновременных задач (`max_concurrent_tasks`) проверяется по числу записей с `on_air=true` (drift-free), а не по хранимому счётчику.
-- `GET /me/quota` отдаёт `current_usage` (включая новые счётчики) и блоки `transcriptions`/`processing`.
+- `GET /me/quota` отдаёт `current_usage` (месячные счётчики) и восемь блоков `{ used, limit, available }` (включая live `automation_jobs`, `templates`, `credentials`).
+- Product analytics UI и API: [USAGE_AND_ANALYTICS.md](USAGE_AND_ANALYTICS.md).
 
 ---
 
@@ -347,7 +314,7 @@ GET /api/v1/admin/stats/quotas?period=202601
 ```
 api/
 ├── routers/
-│   ├── users.py           # /me/quota, /me/stats endpoints
+│   ├── users.py           # /me/quota, /me/analytics endpoints
 │   ├── admin.py           # Admin stats endpoints
 ├── auth/
 │   └── admin.py           # Admin dependency (role check)
@@ -357,10 +324,10 @@ api/
 │   ├── auth/
 │   │   └── subscription.py  # QuotaStatusResponse (subscription: ... | None)
 │   └── user/
-│       └── stats.py       # UserStatsResponse
+│       └── stats.py       # StatsPeriod, TemplateStats (shared with analytics)
 ├── services/
 │   ├── quota_service.py   # QuotaService (fallback → DEFAULT_QUOTAS)
-│   └── stats_service.py   # StatsService (recordings, transcription, storage)
+│   └── analytics_service.py  # Product analytics time series
 └── middleware/
     └── quota.py           # check_user_quotas, increment_recordings_quota
 config/
@@ -403,12 +370,8 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 curl http://localhost:8000/api/v1/users/me/quota \
   -H "Authorization: Bearer ACCESS_TOKEN"
 
-# 3. Посмотреть статистику
-curl http://localhost:8000/api/v1/users/me/stats \
-  -H "Authorization: Bearer ACCESS_TOKEN"
-
-# 4. Статистика за январь 2026
-curl "http://localhost:8000/api/v1/users/me/stats?from_date=2026-01-01&to_date=2026-01-31" \
+# 3. Activity analytics (Usage tab)
+curl "http://localhost:8000/api/v1/users/me/analytics?from=2026-01-01&to=2026-01-31" \
   -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
@@ -502,7 +465,7 @@ const quota_status = await quotaResponse.json();
 
 | Компонент | Статус | Комментарий |
 |-----------|--------|-------------|
-| Quota + Stats endpoints | ✅ Готов | 2 endpoints (/me/quota, /me/stats) |
+| Quota + analytics endpoints | ✅ Готов | `/me/quota`, `/me/analytics` |
 | Admin stats endpoints | ✅ Готов | 3 endpoints (`/overview`, `/users`, `/quotas`) |
 | Admin management endpoints | ✅ Готов | 10 endpoints (users, subscriptions, plans) — v0.10.5.0 |
 | Admin dependency | ✅ Готов | Role check |
@@ -516,13 +479,13 @@ const quota_status = await quotaResponse.json();
 
 ### Добавлено
 
-- ✅ 2 user endpoints (`/api/v1/users/me/quota`, `/api/v1/users/me/stats`)
+- ✅ User endpoints `/api/v1/users/me/quota`, `/api/v1/users/me/analytics`
 - ✅ 3 admin stats endpoints (`/overview`, `/users`, `/quotas`)
 - ✅ 10 admin management endpoints (users / subscriptions / plans) — v0.10.5.0
 - ✅ Admin dependency с проверкой роли
 - ✅ Упрощен `/api/v1/users/me` (убрана quota_status)
 - ✅ `DEFAULT_QUOTAS` в `config/settings.py` (дефолты в коде, не в БД)
-- ✅ `StatsService` для статистики пользователей
+- ✅ `AnalyticsService` для activity-графиков (см. USAGE_AND_ANALYTICS.md)
 
 ### Файлы созданы
 
@@ -534,9 +497,9 @@ const quota_status = await quotaResponse.json();
 
 ### Файлы изменены
 
-- `api/routers/users.py` - `/me/quota`, `/me/stats` endpoints
-- `api/services/stats_service.py` - StatsService
-- `api/schemas/user/stats.py` - UserStatsResponse
+- `api/routers/users.py` - `/me/quota`, `/me/analytics` endpoints
+- `api/services/analytics_service.py` - AnalyticsService
+- `api/schemas/user/stats.py` - StatsPeriod, TemplateStats
 - `api/auth/dependencies.py` - Обновлен `check_user_quotas`
 - `api/schemas/auth/response.py` - Добавлен `UserMeResponse`
 - `api/schemas/auth/__init__.py` - Обновлены экспорты

@@ -189,6 +189,8 @@ class TestListRecordings:
         mock_repo_instance.list_filtered.assert_called_once()
         call_kwargs = mock_repo_instance.list_filtered.call_args
         assert call_kwargs.kwargs.get("include_deleted") is False
+        assert call_kwargs.kwargs.get("sort_by") == "start_time"
+        assert call_kwargs.kwargs.get("sort_order") == "desc"
 
 
 @pytest.mark.unit

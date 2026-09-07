@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from api.schemas.auth.subscription import QuotaStatusResponse
-from api.schemas.user.stats import UserStatsResponse
 
 
 @pytest.mark.unit
@@ -119,86 +118,3 @@ class TestGetCurrentUserQuota:
         assert data["recordings"]["available"] is None
         assert data["is_overage_enabled"] is True
         assert float(data["overage_cost_this_month"]) == 2.5
-
-
-@pytest.mark.unit
-class TestGetUserStats:
-    """Tests for GET /api/v1/users/me/stats endpoint."""
-
-    def test_get_stats_success(self, client, mocker):
-        """Test successful retrieval of user statistics."""
-        mock_response = UserStatsResponse(
-            period=None,
-            recordings_total=10,
-            recordings_by_status={"READY": 5, "INITIALIZED": 3, "PROCESSING": 2},
-            recordings_ready_by_template=[],
-            transcription_total_seconds=7200.0,
-            storage_bytes=1073741824,
-            storage_gb=1.0,
-        )
-
-        mock_stats_cls = mocker.patch("api.routers.users.StatsService")
-        mock_instance = MagicMock()
-        mock_instance.get_user_stats = AsyncMock(return_value=mock_response)
-        mock_stats_cls.return_value = mock_instance
-
-        response = client.get("/api/v1/users/me/stats")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["recordings_total"] == 10
-        assert data["transcription_total_seconds"] == 7200.0
-        assert data["storage_gb"] == 1.0
-        assert data["period"] is None
-
-    def test_get_stats_with_date_range(self, client, mocker):
-        """Test stats filtered by date range."""
-        mock_response = UserStatsResponse(
-            period={"from": "2026-01-01", "to": "2026-01-31"},
-            recordings_total=3,
-            recordings_by_status={"READY": 3},
-            transcription_total_seconds=1800.5,
-            storage_bytes=0,
-            storage_gb=0.0,
-        )
-
-        mock_stats_cls = mocker.patch("api.routers.users.StatsService")
-        mock_instance = MagicMock()
-        mock_instance.get_user_stats = AsyncMock(return_value=mock_response)
-        mock_stats_cls.return_value = mock_instance
-
-        response = client.get("/api/v1/users/me/stats?from=2026-01-01&to=2026-01-31")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["recordings_total"] == 3
-        assert data["period"]["from"] == "2026-01-01"
-        assert data["period"]["to"] == "2026-01-31"
-
-    def test_get_stats_invalid_date_range(self, client):
-        """Test that from > to returns 400."""
-        response = client.get("/api/v1/users/me/stats?from=2026-02-01&to=2026-01-01")
-
-        assert response.status_code == 400
-
-    def test_get_stats_empty(self, client, mocker):
-        """Test stats for user with no recordings."""
-        mock_response = UserStatsResponse(
-            recordings_total=0,
-            recordings_by_status={},
-            transcription_total_seconds=0.0,
-            storage_bytes=0,
-            storage_gb=0.0,
-        )
-
-        mock_stats_cls = mocker.patch("api.routers.users.StatsService")
-        mock_instance = MagicMock()
-        mock_instance.get_user_stats = AsyncMock(return_value=mock_response)
-        mock_stats_cls.return_value = mock_instance
-
-        response = client.get("/api/v1/users/me/stats")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["recordings_total"] == 0
-        assert data["transcription_total_seconds"] == 0.0

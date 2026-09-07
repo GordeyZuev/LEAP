@@ -24,8 +24,15 @@ from api.schemas.admin import (
     UsageEventResponse,
     UserQuotaDetails,
 )
+from api.schemas.analytics import UserAnalyticsResponse
 from api.schemas.auth import SubscriptionPlanCreate, SubscriptionPlanUpdate, UserInDB
 from api.schemas.common.pagination import paginate_list
+from api.services.analytics_service import (
+    AnalyticsRangeError,
+    AnalyticsService,
+    analytics_range_http_error,
+    default_analytics_range,
+)
 from api.services.share_observability import ShareObservabilityService
 from database.audit_models import AuditAction
 from database.auth_models import (
@@ -121,6 +128,22 @@ async def get_overview_stats(
         total_share_downloads=total_share_downloads,
         active_share_links=active_share_links,
     )
+
+
+@router.get("/stats/analytics", response_model=UserAnalyticsResponse)
+async def get_platform_analytics(
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserInDB = Depends(get_current_admin),
+    from_date: str | None = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
+    to_date: str | None = Query(None, alias="to", description="End date (YYYY-MM-DD)"),
+):
+    """Platform-wide daily analytics for the admin UI."""
+    if not from_date or not to_date:
+        from_date, to_date = default_analytics_range()
+    try:
+        return await AnalyticsService(session).get_platform_analytics(from_date, to_date)
+    except AnalyticsRangeError as exc:
+        raise analytics_range_http_error(exc) from exc
 
 
 @router.get("/stats/users", response_model=AdminUserStats)
@@ -387,20 +410,51 @@ async def admin_update_user(
     return AdminUserProfile.model_validate(user)
 
 
+@router.get("/users/{user_id}/analytics", response_model=UserAnalyticsResponse)
+async def admin_get_user_analytics(
+    user_id: str,
+    session: AsyncSession = Depends(get_db_session),
+    _admin: UserInDB = Depends(get_current_admin),
+    from_date: str | None = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
+    to_date: str | None = Query(None, alias="to", description="End date (YYYY-MM-DD)"),
+):
+    """Per-user daily analytics (admin only)."""
+    user = (await session.execute(select(UserModel).where(UserModel.id == user_id))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not from_date or not to_date:
+        from_date, to_date = default_analytics_range()
+    try:
+        return await AnalyticsService(session).get_user_analytics(user_id, from_date, to_date)
+    except AnalyticsRangeError as exc:
+        raise analytics_range_http_error(exc) from exc
+
+
 @router.get("/users/{user_id}/events", response_model=list[UsageEventResponse])
 async def admin_get_user_events(
     user_id: str,
     session: AsyncSession = Depends(get_db_session),
     _admin: UserInDB = Depends(get_current_admin),
     event_type: str | None = Query(None),
+    from_date: str | None = Query(None, alias="from", description="Start date (YYYY-MM-DD)"),
+    to_date: str | None = Query(None, alias="to", description="End date (YYYY-MM-DD)"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
     """Get usage event history for a user (admin only)."""
     from api.repositories.usage_event_repo import UsageEventRepository
+    from utils.date_utils import parse_from_date_to_datetime, parse_to_date_to_datetime
+
+    from_dt = parse_from_date_to_datetime(from_date) if from_date else None
+    to_dt = parse_to_date_to_datetime(to_date) if to_date else None
 
     events = await UsageEventRepository(session).list_for_user(
-        user_id, event_type=event_type, limit=limit, offset=offset
+        user_id,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        event_type=event_type,
+        limit=limit,
+        offset=offset,
     )
     return [UsageEventResponse.model_validate(e) for e in events]
 

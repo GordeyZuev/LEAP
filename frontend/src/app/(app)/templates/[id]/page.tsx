@@ -4,7 +4,7 @@ import { use, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Eye, Copy, ChevronDown, Trash2, RefreshCw, Users, X, MoreHorizontal, Layers } from "lucide-react";
+import { ArrowLeft, Save, Eye, Copy, Trash2, RefreshCw, Users, X, MoreHorizontal, Layers } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
@@ -13,26 +13,30 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { Toggle } from "@/components/ui/toggle";
+import { Disclosure } from "@/components/ui/disclosure";
+import { combinedHasJinjaVar } from "@/lib/jinja-autocomplete";
+import {
+  ProcessingFields,
+  DEFAULT_TRIMMING,
+  trimmingFromApi,
+  type ProcessingFormFields,
+} from "@/components/platforms/processing-fields";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   TemplateField,
   YouTubeFields,
-  VkFields,
   YandexDiskFields,
   DEFAULT_YOUTUBE_FIELDS,
-  DEFAULT_VK_FIELDS,
   DEFAULT_YANDEX_DISK_FIELDS,
   youtubeFieldsFromApi,
-  vkFieldsFromApi,
-  vkFieldsToApi,
+  youtubeFieldsToApi,
   yandexFieldsFromApi,
   LeapLookFields,
   DEFAULT_LEAP_FIELDS,
   leapFieldsFromApi,
   type LeapFieldsValue,
   type YouTubeFieldsValue,
-  type VkFieldsValue,
   type YandexDiskFieldsValue,
 } from "@/components/platforms/platform-fields";
 import {
@@ -50,6 +54,9 @@ import {
 } from "@/components/platforms/display-config-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Field } from "@/components/ui/field";
+import { ChecklistPicker } from "@/components/ui/checklist-picker";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +82,8 @@ interface ProcessingConfig {
   allow_errors: boolean;
   questions_count: number;
   vocabulary: string[];
+  prompt: string;
+  trimming: ProcessingFormFields["trimming"];
 }
 
 interface MetadataConfig {
@@ -154,6 +163,8 @@ const DEFAULT_FORM: TemplateFormData = {
     allow_errors: false,
     questions_count: 3,
     vocabulary: [],
+    prompt: "",
+    trimming: { ...DEFAULT_TRIMMING },
   },
   metadata_config: {
     title_template: "",
@@ -190,7 +201,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [previewLoading, setPreviewLoading] = useState(false);
   const [leapFields, setLeapFields] = useState<LeapFieldsValue>({ ...DEFAULT_LEAP_FIELDS });
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
-  const [vkFields, setVkFields] = useState<VkFieldsValue>({ ...DEFAULT_VK_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
   const [globalThumbnail, setGlobalThumbnail] = useState("");
   const [presetDetails, setPresetDetails] = useState<Record<number, PresetDetail>>({});
@@ -210,7 +220,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       form: DEFAULT_FORM,
       leapFields: { ...DEFAULT_LEAP_FIELDS },
       ytFields: { ...DEFAULT_YOUTUBE_FIELDS },
-      vkFields: { ...DEFAULT_VK_FIELDS },
       ydFields: { ...DEFAULT_YANDEX_DISK_FIELDS },
       globalThumbnail: "",
     }),
@@ -276,6 +285,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           allow_errors: pc?.allow_errors ?? false,
           questions_count: pc?.questions_count ?? 3,
           vocabulary: pc?.vocabulary ?? [],
+          prompt: typeof pc?.prompt === "string" ? pc.prompt : "",
+          trimming: trimmingFromApi(existing.processing_config?.trimming),
         };
       })(),
       metadata_config: {
@@ -293,16 +304,14 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     };
     const newLeapFields = leapFieldsFromApi(mc?.leap);
     const newYtFields = youtubeFieldsFromApi(mc?.youtube);
-    const newVkFields = vkFieldsFromApi(mc?.vk);
     const newYdFields = yandexFieldsFromApi(mc?.yandex_disk);
     const newGlobalThumbnail = mc?.thumbnail_name ?? "";
     setForm(newForm);
     setLeapFields(newLeapFields);
     setYtFields(newYtFields);
-    setVkFields(newVkFields);
     setYdFields(newYdFields);
     setGlobalThumbnail(newGlobalThumbnail);
-    setSavedSnapshot(JSON.stringify({ form: newForm, leapFields: newLeapFields, ytFields: newYtFields, vkFields: newVkFields, ydFields: newYdFields, globalThumbnail: newGlobalThumbnail }));
+    setSavedSnapshot(JSON.stringify({ form: newForm, leapFields: newLeapFields, ytFields: newYtFields, ydFields: newYdFields, globalThumbnail: newGlobalThumbnail }));
   }, [existing]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -332,17 +341,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
   const save = useMutation({
     mutationFn: async (data: TemplateFormData) => {
-      const yt: Record<string, unknown> = {};
-      if (ytFields.privacy) yt.privacy = ytFields.privacy;
-      if (ytFields.playlist_id) yt.playlist_id = ytFields.playlist_id;
-      if (ytFields.thumbnail_name) yt.thumbnail_name = ytFields.thumbnail_name;
-      if (ytFields.title_template) yt.title_template = ytFields.title_template;
-      if (ytFields.description_template) yt.description_template = ytFields.description_template;
-      if (ytFields.category_id) yt.category_id = ytFields.category_id;
-      if (ytFields.tags.length > 0) yt.tags = ytFields.tags;
-      if (ytFields.made_for_kids) yt.made_for_kids = true;
-
-      const vk = vkFieldsToApi(vkFields, { sparseBools: true });
+      const yt = youtubeFieldsToApi(ytFields);
 
       const yd: Record<string, unknown> = {};
       if (ydFields.folder_path_template) yd.folder_path_template = ydFields.folder_path_template;
@@ -363,10 +362,27 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       if (tdPayload) metaConfig.topics_display = tdPayload;
       const qdPayload = toDisplayPayload(data.metadata_config.questions_display, "questions");
       if (qdPayload) metaConfig.questions_display = qdPayload;
-      if (Object.keys(yt).length > 0) metaConfig.youtube = yt;
-      if (Object.keys(vk).length > 0) metaConfig.vk = vk;
-      if (Object.keys(yd).length > 0) metaConfig.yandex_disk = yd;
-      if (Object.keys(leap).length > 0) metaConfig.leap = leap;
+
+      const presetList = presetsData?.items ?? [];
+      const selectedPlatform = (platform: string) =>
+        data.output_config.preset_ids.some((id) => presetList.find((p) => p.id === id)?.platform === platform);
+      const prevMc = (existing?.metadata_config ?? {}) as Record<string, unknown>;
+      if (selectedPlatform("youtube")) {
+        if (Object.keys(yt).length > 0) metaConfig.youtube = yt;
+      } else if (prevMc.youtube) {
+        metaConfig.youtube = prevMc.youtube;
+      }
+      if (selectedPlatform("yandex_disk")) {
+        if (Object.keys(yd).length > 0) metaConfig.yandex_disk = yd;
+      } else if (prevMc.yandex_disk) {
+        metaConfig.yandex_disk = prevMc.yandex_disk;
+      }
+      if (selectedPlatform("leap")) {
+        if (Object.keys(leap).length > 0) metaConfig.leap = leap;
+      } else if (prevMc.leap) {
+        metaConfig.leap = prevMc.leap;
+      }
+      if (prevMc.vk) metaConfig.vk = prevMc.vk;
       if (globalThumbnail) metaConfig.thumbnail_name = globalThumbnail;
       const hasMetadata = Object.values(metaConfig).some((v) => v != null);
 
@@ -397,7 +413,9 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             allow_errors: data.processing_config.allow_errors,
             questions_count: data.processing_config.questions_count,
             vocabulary: data.processing_config.vocabulary.length > 0 ? data.processing_config.vocabulary : undefined,
+            prompt: data.processing_config.prompt.trim() || undefined,
           },
+          trimming: data.processing_config.trimming,
         },
         metadata_config: hasMetadata ? metaConfig : undefined,
         output_config:
@@ -411,7 +429,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       return (await apiClient.patch(`/templates/${id}`, body)).data;
     },
     onSuccess: (result, savedForm) => {
-      setSavedSnapshot(JSON.stringify({ form: savedForm, leapFields, ytFields, vkFields, ydFields, globalThumbnail }));
+      setSavedSnapshot(JSON.stringify({ form: savedForm, leapFields, ytFields, ydFields, globalThumbnail }));
       qc.invalidateQueries({ queryKey: ["templates"] });
       qc.invalidateQueries({ queryKey: ["template", id] });
     },
@@ -491,9 +509,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   function setMR<K extends keyof MatchingRules>(key: K, value: MatchingRules[K]) {
     setForm((f) => ({ ...f, matching_rules: { ...f.matching_rules, [key]: value } }));
   }
-  function setPC<K extends keyof ProcessingConfig>(key: K, value: ProcessingConfig[K]) {
-    setForm((f) => ({ ...f, processing_config: { ...f.processing_config, [key]: value } }));
-  }
   function setMC<K extends keyof MetadataConfig>(key: K, value: MetadataConfig[K]) {
     setForm((f) => ({ ...f, metadata_config: { ...f.metadata_config, [key]: value } }));
   }
@@ -504,7 +519,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const sources = sourcesData?.items ?? [];
   const presets = presetsData?.items ?? [];
   const leapPresets = presets.filter((p) => p.platform === "leap");
-  const copyPresets = presets.filter((p) => p.platform !== "leap");
+  const copyPresets = presets.filter((p) => p.platform === "youtube" || p.platform === "yandex_disk");
   const selectedLeapId = form.output_config.preset_ids.find((id) => leapPresets.some((p) => p.id === id)) ?? null;
   const selectedCopyCount = form.output_config.preset_ids.filter((id) =>
     copyPresets.some((p) => p.id === id),
@@ -532,7 +547,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       : "bg-muted text-muted-foreground";
 
   const isDirty =
-    JSON.stringify({ form, leapFields, ytFields, vkFields, ydFields, globalThumbnail }) !== savedSnapshot;
+    JSON.stringify({ form, leapFields, ytFields, ydFields, globalThumbnail }) !== savedSnapshot;
 
   async function promoteTemplate(sourceId: number) {
     setBaseUpdatePending(true);
@@ -779,43 +794,31 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 placeholder="Skip if name contains…"
               />
             </Field>
+            <Toggle
+              label="Match letter case"
+              hint="ML and ml count as different names"
+              checked={form.matching_rules.case_sensitive}
+              onChange={(v) => setMR("case_sensitive", v)}
+            />
 
             {sources.length > 0 && (
               <Field label="Sources" hint="Only match recordings from these sources">
-                <div className="space-y-2">
-                  {sources.map((s) => (
-                    <label
-                      key={s.id}
-                      className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={form.matching_rules.source_ids.includes(s.id)}
-                        onChange={(e) => {
-                          const ids = e.target.checked
-                            ? [...form.matching_rules.source_ids, s.id]
-                            : form.matching_rules.source_ids.filter((x) => x !== s.id);
-                          setMR("source_ids", ids);
-                        }}
-                        className="rounded accent-primary"
-                      />
-                      <span className="flex-1 text-sm font-medium text-foreground">{s.name}</span>
-                      {s.source_type && <span className="text-xs text-muted-foreground">{s.source_type}</span>}
-                    </label>
-                  ))}
-                </div>
+                <ChecklistPicker
+                  title="Select sources"
+                  ariaLabel="Sources"
+                  emptyLabel="All sources"
+                  searchPlaceholder="Search sources"
+                  items={sources.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    hint: s.source_type,
+                    group: s.source_type,
+                  }))}
+                  value={form.matching_rules.source_ids}
+                  onChange={(ids) => setMR("source_ids", ids)}
+                />
               </Field>
             )}
-
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-secondary-foreground">
-              <input
-                type="checkbox"
-                checked={form.matching_rules.case_sensitive}
-                onChange={(e) => setMR("case_sensitive", e.target.checked)}
-                className="rounded accent-primary"
-              />
-              Case-sensitive matching
-            </label>
           </Section>
           )}
 
@@ -828,75 +831,45 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
           {/* Processing */}
           <Section title="Processing">
-            <Toggle
-              label="Enable transcription"
-              checked={form.processing_config.enable_transcription}
-              onChange={(v) => setPC("enable_transcription", v)}
+            <ProcessingFields
+              value={{
+                enable_transcription: form.processing_config.enable_transcription,
+                enable_topics: form.processing_config.enable_topics,
+                enable_subtitles: form.processing_config.enable_subtitles,
+                language: form.processing_config.transcription_language,
+                granularity: form.processing_config.granularity,
+                questions_count: form.processing_config.questions_count,
+                allow_errors: form.processing_config.allow_errors,
+                vocabulary: form.processing_config.vocabulary,
+                prompt: form.processing_config.prompt,
+                trimming: form.processing_config.trimming,
+              }}
+              onChange={(patch) =>
+                setForm((f) => {
+                  const pc = { ...f.processing_config };
+                  if (patch.enable_transcription != null) pc.enable_transcription = patch.enable_transcription;
+                  if (patch.enable_topics != null) pc.enable_topics = patch.enable_topics;
+                  if (patch.enable_subtitles != null) pc.enable_subtitles = patch.enable_subtitles;
+                  if (patch.language != null) pc.transcription_language = patch.language;
+                  if (patch.granularity != null) pc.granularity = patch.granularity;
+                  if (patch.questions_count != null) pc.questions_count = patch.questions_count;
+                  if (patch.allow_errors != null) pc.allow_errors = patch.allow_errors;
+                  if (patch.vocabulary != null) pc.vocabulary = patch.vocabulary;
+                  if (patch.prompt != null) pc.prompt = patch.prompt;
+                  if (patch.trimming != null) pc.trimming = patch.trimming;
+                  return { ...f, processing_config: pc };
+                })
+              }
+              languages={languages}
+              granularities={granularities}
             />
-            <Toggle
-              label="Extract topics"
-              checked={form.processing_config.enable_topics}
-              onChange={(v) => setPC("enable_topics", v)}
-            />
-            <Toggle
-              label="Generate subtitles"
-              checked={form.processing_config.enable_subtitles}
-              onChange={(v) => setPC("enable_subtitles", v)}
-            />
-            <Toggle
-              label="Allow transcription errors"
-              checked={form.processing_config.allow_errors}
-              onChange={(v) => setPC("allow_errors", v)}
-            />
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="Language">
-                <NativeSelect
-                  value={form.processing_config.transcription_language}
-                  onChange={(e) => setPC("transcription_language", e.target.value)}
-                >
-                  {languages.map((l) => (
-                    <option key={l.value} value={l.value}>{l.label}</option>
-                  ))}
-                </NativeSelect>
-              </Field>
-              <Field label="Topic granularity">
-                <NativeSelect
-                  value={form.processing_config.granularity}
-                  onChange={(e) => setPC("granularity", e.target.value)}
-                >
-                  {granularities.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </NativeSelect>
-              </Field>
-            </div>
-
-            <Field label="Questions count" hint="Number of comprehension questions to generate">
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={form.processing_config.questions_count}
-                onChange={(e) => setPC("questions_count", parseInt(e.target.value, 10) || 1)}
-                className="w-32 rounded-xl border border-border px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-              />
-            </Field>
-
-            <Field label="Vocabulary" hint="Domain-specific terms to improve transcription accuracy">
-              <TagInput
-                tags={form.processing_config.vocabulary}
-                onChange={(v) => setPC("vocabulary", v)}
-                placeholder="Add term…"
-              />
-            </Field>
           </Section>
 
-          {!isDefault && (
-            <Section title="LEAP playlists">
+          <Section title="LEAP">
+            {!isDefault && (
               <Field
-                label="Add matched recordings to courses"
-                hint="Membership only — not an upload. Look presets cannot attach a course; pick courses here."
+                label="Courses"
+                hint="Matched recordings are added to these playlists. This is membership, not an upload."
               >
                 <PlaylistPicker
                   mode="form"
@@ -904,100 +877,55 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   onChange={(ids) => setOC("playlist_ids", ids)}
                 />
               </Field>
-            </Section>
-          )}
-
-          <Section title="LEAP look">
+            )}
             <Field
-              label="Look preset"
-              hint="Reusable title, description, and cover for courses and share pages. Not an upload. Override fields for this template under Metadata → LEAP."
+              label="Look"
+              hint="Title, description, and cover on course and share pages. Extra fields live under Metadata, LEAP look."
             >
               {leapPresets.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No LEAP look presets yet.{" "}
-                  <Link href="/presets/new" className="text-primary hover:underline">
-                    Create one →
-                  </Link>
-                </p>
+                <CreatePlaceholder href="/presets/new" label="Add a look" />
               ) : (
-                <div className="space-y-2" role="radiogroup" aria-label="LEAP look preset">
-                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted">
-                    <input
-                      type="radio"
-                      name="leap-look-preset"
-                      checked={selectedLeapId == null}
-                      onChange={() => setLeapPresetId(null)}
-                      className="accent-primary"
-                    />
-                    <span className="text-sm text-foreground">None — use global title template</span>
-                  </label>
+                <NativeSelect
+                  ariaLabel="LEAP look preset"
+                  value={selectedLeapId ?? ""}
+                  onChange={(e) => setLeapPresetId(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">None — use global title template</option>
                   {leapPresets.map((p) => (
-                    <label
-                      key={p.id}
-                      className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted"
-                    >
-                      <input
-                        type="radio"
-                        name="leap-look-preset"
-                        checked={selectedLeapId === p.id}
-                        onChange={() => setLeapPresetId(p.id)}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm font-medium text-foreground">{p.name}</span>
-                    </label>
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
                   ))}
-                </div>
+                </NativeSelect>
               )}
             </Field>
           </Section>
 
           <Section title="Upload a copy">
             {copyPresets.length > 0 ? (
-              <Field label="Output presets" hint="YouTube and Yandex Disk presets upload a copy of the video.">
-                <div className="space-y-4">
-                  {Object.entries(
-                    copyPresets.reduce<Record<string, PresetItem[]>>((acc, p) => {
-                      (acc[p.platform] = acc[p.platform] ?? []).push(p);
-                      return acc;
-                    }, {}),
-                  ).map(([platform, group]) => (
-                    <div key={platform} className="space-y-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {platform}
-                      </p>
-                      <div className="space-y-2">
-                        {group.map((p) => (
-                          <label
-                            key={p.id}
-                            className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-border px-3 py-2.5 hover:bg-muted"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={form.output_config.preset_ids.includes(p.id)}
-                              onChange={(e) => {
-                                const ids = e.target.checked
-                                  ? [...form.output_config.preset_ids, p.id]
-                                  : form.output_config.preset_ids.filter((x) => x !== p.id);
-                                setOC("preset_ids", ids);
-                              }}
-                              className="rounded accent-primary"
-                            />
-                            <span className="flex-1 text-sm font-medium text-foreground">{p.name}</span>
-                            <span className="text-xs capitalize text-muted-foreground">{p.platform}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <Field label="Output presets" hint="Upload a copy of the video.">
+                <ChecklistPicker
+                  title="Select presets"
+                  ariaLabel="Output presets"
+                  emptyLabel="No upload presets selected"
+                  searchPlaceholder="Search presets"
+                  items={copyPresets.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    hint: p.platform,
+                    group: p.platform,
+                  }))}
+                  value={form.output_config.preset_ids.filter((id) => copyPresets.some((p) => p.id === id))}
+                  onChange={(copyIds) => {
+                    const leap = form.output_config.preset_ids.filter((id) => leapPresets.some((p) => p.id === id));
+                    setOC("preset_ids", [...copyIds, ...leap]);
+                  }}
+                />
               </Field>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                No upload presets yet.{" "}
-                <Link href="/presets/new" className="text-primary hover:underline">
-                  Create one →
-                </Link>
-              </p>
+              <Field label="Output presets" hint="Upload a copy of the video.">
+                <CreatePlaceholder href="/presets/new" label="Add a preset" />
+              </Field>
             )}
             <Toggle
               label="Auto-upload after processing"
@@ -1021,7 +949,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
           {/* Metadata */}
           <Section title="Metadata templates">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Global</p>
 
             <ThumbnailPicker
               label="Cover image (all platforms)"
@@ -1041,49 +969,51 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               value={form.metadata_config.description_template}
               onChange={(v) => setMC("description_template", v)}
               multiline
-              placeholder={"Recording from {{ date }}\n\nTopics:\n{{ topics }}"}
+              placeholder={"Recording from {{ date }}\n\nTimestamps:\n{{ topics }}"}
             />
 
+            {combinedHasJinjaVar(
+              "topics",
+              form.metadata_config.title_template,
+              form.metadata_config.description_template,
+              leapFields.title_template,
+              leapFields.description_template,
+              ytFields.title_template,
+              ytFields.description_template,
+            ) ? (
             <DisplayConfigFields
-              label="Topics in description"
-              hint="How {{ topics }} renders in title/description templates"
               kind="topics"
               value={form.metadata_config.topics_display}
               onChange={(patch) =>
                 setMC("topics_display", { ...form.metadata_config.topics_display, ...patch })
               }
             />
+            ) : null}
+            {combinedHasJinjaVar(
+              "questions",
+              form.metadata_config.title_template,
+              form.metadata_config.description_template,
+              leapFields.description_template,
+              ytFields.description_template,
+            ) ? (
             <DisplayConfigFields
-              label="Questions in description"
-              hint="How {{ questions }} renders in title/description templates"
               kind="questions"
               value={form.metadata_config.questions_display}
               onChange={(patch) =>
                 setMC("questions_display", { ...form.metadata_config.questions_display, ...patch })
               }
             />
+            ) : null}
 
-            <div className="space-y-2 border-t border-border pt-4">
-              <p className="text-xs text-muted-foreground">
-                Preview uses sample data unless a recording is selected for context.
-              </p>
-              <ActionButton
-                variant="secondary"
-                onClick={handlePreview}
-                isPending={previewLoading}
-                icon={<Eye size={15} />}
-                pendingLabel="Rendering…"
-              >
-                Preview render
-              </ActionButton>
-              {preview && <MetadataPreviewResultBox preview={preview} />}
-            </div>
-
-            <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {(selectedLeapId != null ||
+              copyPresets.some((p) => form.output_config.preset_ids.includes(p.id) && (p.platform === "youtube" || p.platform === "yandex_disk"))) ? (
+            <>
+            <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Platform overrides
             </p>
             <div className="space-y-3">
-            <PlatformSection label="LEAP look">
+            {selectedLeapId != null ? (
+            <Disclosure title="LEAP look">
               <LeapLookFields
                 value={leapFields}
                 onChange={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
@@ -1093,7 +1023,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 const tpl = leapPreset?.preset_metadata?.title_template || leapPreset?.preset_metadata?.description_template;
                 if (!leapPreset) return (
                   <p className="text-xs text-muted-foreground">
-                    Empty fields inherit from the look preset. Select a look preset above, or fill these to override without one.
+                    These fields overlay the look preset. Select a look above first — without one they are ignored.
                   </p>
                 );
                 return (
@@ -1119,63 +1049,46 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   </div>
                 );
               })()}
-            </PlatformSection>
-            <PlatformSection label="YouTube">
+            </Disclosure>
+            ) : null}
+            {copyPresets.some((p) => form.output_config.preset_ids.includes(p.id) && p.platform === "youtube") ? (
+            <Disclosure title="YouTube">
               <YouTubeFields
                 value={ytFields}
                 onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
                 showThumbnail
                 showMadeForKids
+                showExtended
               />
-              {(() => {
-                const ytPreset = form.output_config.preset_ids
-                  .map((pid) => presetDetails[pid])
-                  .find((d) => d?.platform === "youtube");
-                const tpl = ytPreset?.preset_metadata?.description_template;
-                if (!tpl) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setYtFields((f) => ({ ...f, description_template: tpl }))}
-                    className="mt-1 text-xs text-primary hover:underline"
-                  >
-                    ← Fill description from preset
-                  </button>
-                );
-              })()}
-            </PlatformSection>
-            <PlatformSection label="VK">
-              <VkFields
-                value={vkFields}
-                onChange={(patch) => setVkFields((f) => ({ ...f, ...patch }))}
-                showThumbnail
-                showPrivacyComment
-                showWallpost
-              />
-              {(() => {
-                const vkPreset = form.output_config.preset_ids
-                  .map((pid) => presetDetails[pid])
-                  .find((d) => d?.platform === "vk");
-                const tpl = vkPreset?.preset_metadata?.description_template;
-                if (!tpl) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setVkFields((f) => ({ ...f, description_template: tpl }))}
-                    className="mt-1 text-xs text-primary hover:underline"
-                  >
-                    ← Fill description from preset
-                  </button>
-                );
-              })()}
-            </PlatformSection>
-            <PlatformSection label="Yandex Disk">
+            </Disclosure>
+            ) : null}
+            {copyPresets.some((p) => form.output_config.preset_ids.includes(p.id) && p.platform === "yandex_disk") ? (
+            <Disclosure title="Yandex Disk">
               <YandexDiskFields
                 value={ydFields}
                 onChange={(patch) => setYdFields((f) => ({ ...f, ...patch }))}
                 credentialId={yandexBrowseCredentialId}
               />
-            </PlatformSection>
+            </Disclosure>
+            ) : null}
+            </div>
+            </>
+            ) : null}
+
+            <div className="space-y-2 border-t border-border pt-4">
+              <p className="text-xs text-muted-foreground">
+                Preview uses sample data unless a recording is selected for context.
+              </p>
+              <ActionButton
+                variant="secondary"
+                onClick={handlePreview}
+                isPending={previewLoading}
+                icon={<Eye size={15} />}
+                pendingLabel="Rendering…"
+              >
+                Preview render
+              </ActionButton>
+              {preview && <MetadataPreviewResultBox preview={preview} />}
             </div>
           </Section>
         </div>
@@ -1436,42 +1349,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-secondary-foreground">{title}</h2>
       {children}
-    </div>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-sm font-medium text-secondary-foreground">{label}</label>
-      {hint && <p className="mb-2 text-xs text-muted-foreground">{hint}</p>}
-      {children}
-    </div>
-  );
-}
-
-
-function PlatformSection({ label, children }: { label: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-border bg-background">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex min-h-11 w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
-      >
-        {label}
-        <ChevronDown
-          size={15}
-          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-        />
-      </button>
-      {open && (
-        <div className="space-y-3 border-t border-border px-4 pb-4 pt-3">
-          {children}
-        </div>
-      )}
     </div>
   );
 }

@@ -29,7 +29,9 @@ class PlaylistRepository:
             select(PlaylistModel)
             .options(
                 selectinload(PlaylistModel.owner),
-                selectinload(PlaylistModel.items).selectinload(PlaylistItemModel.recording),
+                selectinload(PlaylistModel.items)
+                .selectinload(PlaylistItemModel.recording)
+                .selectinload(RecordingModel.owner),
             )
             .where(PlaylistModel.share_token == token)
         )

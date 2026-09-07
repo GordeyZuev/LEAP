@@ -9,6 +9,7 @@ This guide explains **three distinct problem classes** that all look like *“th
 | Symptom | Typical cause | Where it happens |
 |--------|-----------------|------------------|
 | Output is **~12–18 min** but the lecture was much longer; `video.mp4` decodes **cleanly to EOF** and duration matches `ffprobe` | **Auto-trim by silence** (`silencedetect` on a **heavily compressed** MP3 analysis track) | **After download**, in `trim_video_task` |
+| Output is **hours long**, lecture was ~1 h; player ≠ Details (`final_duration`) | **Trailing digital silence** after an MTS calendar slot: FFmpeg `silence_start` **without** `silence_end` to EOF was dropped | `AudioDetector` closes that interval to media duration |
 | `ffprobe` shows **a long** duration, but `ffmpeg` **stops** mid-file with *“File ended prematurely”* / Opus errors; desktop players also fail | **Truncated or badly muxed source** (often **WebM/Matroska**); metadata **lies** | **Ingestion** (file on disk **before** or **independent of** trim) — download, upload to Disk, or original recorder output |
 | File “works in Chrome” but not in QuickTime / some apps; our `video.mp4` is **short** and **intentional** from trim, not corrupt | **VP9 + Opus inside `.mp4`** via **stream copy** is valid for **FFmpeg** but **poor** for some players | **After trim** (`VideoProcessor` defaults to `copy`) |
 
@@ -92,7 +93,7 @@ High-level: **Download → local path = `.../source.<ext>` (pipeline ingress) �
 ### 2.3 TRIM (`trim_video_task` + `VideoProcessor` + `AudioDetector`)
 
 - `extract_audio_full`: decodes **only the first audio stream** (`ffmpeg -map 0:a:0`) and **re-encodes** to **64 kbps, 16 kHz, mono** MP3 for ASR analysis.
-- `silencedetect` on that MP3; `AudioDetector._find_last_sound` can treat **trailing** “silence” to EOF as *end of speech* → **short `end` timestamp**.
+- `silencedetect` on that MP3. An unclosed trailing `silence_start` (no `silence_end` before EOF — typical of MTS digital silence) is treated as silence until media duration. `_find_last_sound` then uses that interval as the end of speech.
 - `trim_video`: `ffmpeg -i INPUT -ss START -t DURATION -c:v copy -c:a copy` (defaults in `ProcessingConfig`); MP4-compatible outputs also receive `-movflags +faststart -avoid_negative_ts make_zero` for browser delivery.
 - Stream-copy seeks on source keyframes: `avoid_negative_ts` removes negative timestamps but does not guarantee that video starts immediately at the requested cut point. See [VIDEO_DELIVERY.md](VIDEO_DELIVERY.md).
 
@@ -115,6 +116,11 @@ High-level: **Download → local path = `.../source.<ext>` (pipeline ingress) �
 
 - **Sign:** `video.mp4` is **consistently short**, logs show `Audio boundaries: ... - ...` and topics/transcription **duration** matches ~trim length; **no** premature EOF in decode of **`video.mp4`**.
 - **Fix levers** (product/config): `trimming.enable_trimming`, `silence_threshold`, `min_silence_duration`, padding; or **disable** trim for certain templates; optionally **run silence detection** on a **less** compressed **PCM/WAV** slice (future code change).
+
+### 3.2b — **Under-trim** (hours of digital silence after the lecture)
+
+- **Sign:** player / `ffprobe` duration is the **full calendar slot** (e.g. ~5 h); Details / `final_duration` is the **speech** (~1 h); ASR billed the long file.
+- **Cause:** trailing −90 dB has `silence_start` and no `silence_end`. Fixed in `AudioDetector` (close to EOF). Re-trim existing rows after deploy.
 
 ### 3.3 C — **Player / container compatibility** (not “LEAP broke the file”)
 

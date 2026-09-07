@@ -73,8 +73,16 @@ class PlaylistListItem(BaseModel):
     description: str | None = None
     video_count: int = 0
     duration_sum: float = 0
+    share_token: uuid.UUID | None = Field(
+        default=None,
+        description="Owner token for /share/p/{uuid}. Public GET is 404 unless share_enabled.",
+    )
     share_enabled: bool = False
     poster_url: str | None = None
+    poster_asset_key: str | None = Field(
+        None,
+        description="Stable poster identity for the cover recording; unchanged across presign refreshes.",
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -130,6 +138,14 @@ class PlaylistItemResponse(BaseModel):
     playable: bool
     unavailable_reason: str | None = None
     poster_url: str | None = None
+    poster_fallback_url: str | None = Field(
+        None,
+        description="Frame poster URL when the primary thumbnail fails to load.",
+    )
+    poster_asset_key: str | None = Field(
+        None,
+        description="Stable poster identity; unchanged when presigned URLs are refreshed.",
+    )
     deleted: bool = False
     blank_record: bool = False
 
@@ -147,6 +163,10 @@ class PublicPlaylistItem(BaseModel):
     playable: bool
     unavailable_reason: str | None = None
     poster_url: str | None = None
+    poster_asset_key: str | None = Field(
+        None,
+        description="Stable poster identity; unchanged when presigned URLs are refreshed.",
+    )
 
 
 class PublicPlaylistResponse(BaseModel):

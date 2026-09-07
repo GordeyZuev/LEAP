@@ -77,6 +77,8 @@ class AutomationJobRunModel(Base):
     recordings_found = Column(Integer, nullable=False, default=0)
     matched_count = Column(Integer, nullable=False, default=0)
     processed_count = Column(Integer, nullable=False, default=0)
+    # Snapshot of recordings started on this run: [{id, name, template_id, template_name}, ...]
+    affected_recordings = Column(JSONB, nullable=True)
 
     error = Column(Text, nullable=True)
 

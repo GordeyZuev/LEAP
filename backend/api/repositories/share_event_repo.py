@@ -58,9 +58,19 @@ class ShareEventRepository:
         self,
         recording_id: int,
         *,
-        days: int,
+        days: int | None = None,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
     ) -> list[tuple[datetime, int, int]]:
-        since = datetime.now(UTC) - timedelta(days=days)
+        if from_dt is not None and to_dt is not None:
+            since = from_dt
+            until = to_dt
+        elif days is not None:
+            since = datetime.now(UTC) - timedelta(days=days)
+            until = datetime.now(UTC)
+        else:
+            raise ValueError("daily_aggregates requires days or from_dt/to_dt")
+
         day_col = func.date_trunc("day", ShareAccessEventModel.created_at).label("day")
         views_col = func.sum(case((ShareAccessEventModel.event_type == ShareEventType.PAGE_VIEW, 1), else_=0)).label(
             "views"
@@ -74,6 +84,7 @@ class ShareEventRepository:
             .where(
                 ShareAccessEventModel.recording_id == recording_id,
                 ShareAccessEventModel.created_at >= since,
+                ShareAccessEventModel.created_at <= until,
             )
             .group_by(day_col)
             .order_by(day_col)
@@ -87,15 +98,26 @@ class ShareEventRepository:
         self,
         recording_id: int,
         *,
-        days: int,
+        days: int | None = None,
+        from_dt: datetime | None = None,
+        to_dt: datetime | None = None,
     ) -> dict[str, int]:
-        since = datetime.now(UTC) - timedelta(days=days)
+        if from_dt is not None and to_dt is not None:
+            since = from_dt
+            until = to_dt
+        elif days is not None:
+            since = datetime.now(UTC) - timedelta(days=days)
+            until = datetime.now(UTC)
+        else:
+            raise ValueError("downloads_by_type requires days or from_dt/to_dt")
+
         result = await self.session.execute(
             select(ShareAccessEventModel.artifact_type, func.count())
             .where(
                 ShareAccessEventModel.recording_id == recording_id,
                 ShareAccessEventModel.event_type == ShareEventType.FILE_DOWNLOAD,
                 ShareAccessEventModel.created_at >= since,
+                ShareAccessEventModel.created_at <= until,
                 ShareAccessEventModel.artifact_type.is_not(None),
             )
             .group_by(ShareAccessEventModel.artifact_type)

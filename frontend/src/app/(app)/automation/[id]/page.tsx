@@ -5,18 +5,28 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Save, Play, FlaskConical, Clock, Copy, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, extractApiError } from "@/lib/utils";
+import { CHECKBOX } from "@/lib/filter-field-classes";
 import { apiClient } from "@/api/client";
-import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
+import { ChecklistPicker } from "@/components/ui/checklist-picker";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { JobRunHistory } from "@/components/automation/job-run-history";
+import { AutomationPreviewPanel } from "@/components/automation/preview-panel";
+import type { AutomationPreviewResult, CeleryTaskStatus } from "@/lib/automation-run";
+import { isCeleryInFlight, RUN_JOB_CONFIRM } from "@/lib/automation-run";
 import { Toggle } from "@/components/ui/toggle";
+import { SegmentedField } from "@/components/ui/segmented-field";
+import { OverrideSection } from "@/components/ui/disclosure";
+import { ProcessingFields, DEFAULT_TRIMMING, trimmingFromApi, type TrimmingForm } from "@/components/platforms/processing-fields";
+import { useLanguages, useGranularities } from "@/hooks/use-references";
 import { PROCESSING_STATUS_LABEL } from "@/components/ui/status-badge";
 import { useTimezones } from "@/hooks/use-references";
 import { useToast } from "@/hooks/use-toast";
+import { describeCron } from "@/lib/cron-describe";
 import {
   AUTOMATION_STATUS_FILTER_OPTIONS,
   DEFAULT_AUTOMATION_STATUS_FILTER,
@@ -38,6 +48,8 @@ interface AutomationProcessingConfig {
   allow_errors: boolean;
   questions_count: number;
   vocabulary: string[];
+  prompt: string;
+  trimming: TrimmingForm;
 }
 
 interface JobForm {
@@ -104,6 +116,8 @@ const DEFAULT_PROCESSING_CONFIG: AutomationProcessingConfig = {
   allow_errors: false,
   questions_count: 5,
   vocabulary: [],
+  prompt: "",
+  trimming: { ...DEFAULT_TRIMMING },
 };
 
 const DEFAULT_FORM: JobForm = {
@@ -185,6 +199,8 @@ function apiJobToForm(job: AutomationJobApi): JobForm {
       allow_errors: (t?.allow_errors as boolean | undefined) ?? false,
       questions_count: (t?.questions_count as number | undefined) ?? 5,
       vocabulary: (t?.vocabulary as string[] | undefined) ?? [],
+      prompt: (t?.prompt as string | undefined) ?? "",
+      trimming: trimmingFromApi(pc?.trimming),
     },
   };
 }
@@ -285,8 +301,12 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
   const router = useRouter();
   const qc = useQueryClient();
   const { data: timezones = [] } = useTimezones();
+  const { data: languages = [] } = useLanguages();
+  const { data: granularities = [] } = useGranularities();
 
   const [form, setForm] = useState<JobForm>(() => ({ ...initialForm }));
+  const [processingOpen, setProcessingOpen] = useState(initialForm.processing_config_enabled);
+  const cronHuman = describeCron(form.cron_expression);
   const [nextRunAt, setNextRunAt] = useState<string | null>(initialNextRunAt);
   const { toast, show: showFeedback, dismiss: dismissToast } = useToast(5000);
 
@@ -294,7 +314,9 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [confirmRun, setConfirmRun] = useState(false);
   const [pendingHref, setPendingHref] = useState("");
+  const [dryRunTaskId, setDryRunTaskId] = useState<string | null>(null);
 
   const save = useMutation<AutomationJobApi, unknown, JobForm>({
     mutationFn: async (data: JobForm) => {
@@ -320,7 +342,9 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                 allow_errors: data.processing_config.allow_errors,
                 questions_count: data.processing_config.questions_count,
                 ...(data.processing_config.vocabulary.length > 0 ? { vocabulary: data.processing_config.vocabulary } : {}),
+                ...(data.processing_config.prompt.trim() ? { prompt: data.processing_config.prompt.trim() } : {}),
               },
+              trimming: data.processing_config.trimming,
             }
           : null,
       };
@@ -347,16 +371,43 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
 
   const runNow = useMutation({
     mutationFn: () => apiClient.post(`/automation/jobs/${jobId}/run`),
-    onSuccess: () => showFeedback("success", "Job started"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["automation-job-runs", Number(jobId)] });
+      qc.invalidateQueries({ queryKey: ["automation-jobs"] });
+      showFeedback("success", "Job started");
+    },
     onError: () => showFeedback("error", "Failed to start job"),
   });
 
   const dryRun = useMutation({
-    mutationFn: () => apiClient.post(`/automation/jobs/${jobId}/run?dry_run=true`),
-    onSuccess: () =>
-      showFeedback("info", "Dry run started — preview without real changes. Results will appear in logs.", 7000),
-    onError: () => showFeedback("error", "Failed to start dry run"),
+    mutationFn: () =>
+      apiClient.post<{ task_id: string }>(`/automation/jobs/${jobId}/run?dry_run=true`).then((r) => r.data),
+    onSuccess: (data) => {
+      setDryRunTaskId(data.task_id);
+    },
+    onError: () => showFeedback("error", "Failed to start preview"),
   });
+
+  const dryRunTask = useQuery({
+    queryKey: ["automation-dry-run-task", dryRunTaskId],
+    queryFn: async () =>
+      (await apiClient.get<CeleryTaskStatus>(`/tasks/${dryRunTaskId}`)).data,
+    enabled: !!dryRunTaskId,
+    refetchInterval: (query) => (isCeleryInFlight(query.state.data?.state) ? 1500 : false),
+  });
+
+  const dryRunTaskState = dryRunTask.data?.state;
+  const preview: AutomationPreviewResult | null =
+    dryRunTask.data?.state === "SUCCESS" && dryRunTask.data.result && dryRunTask.data.result.status !== "error"
+      ? dryRunTask.data.result
+      : null;
+  const previewError = dryRunTask.isError
+    ? extractApiError(dryRunTask.error, "Preview failed")
+    : dryRunTask.data && !isCeleryInFlight(dryRunTaskState)
+      ? dryRunTask.data.state === "FAILURE" || dryRunTask.data.error || dryRunTask.data.result?.status === "error"
+        ? dryRunTask.data.error || dryRunTask.data.result?.error || "Preview failed"
+        : null
+      : null;
 
   const copyJob = useMutation({
     mutationFn: () =>
@@ -375,15 +426,6 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
     setForm((f) => ({
       ...f,
       weekdays: f.weekdays.includes(day) ? f.weekdays.filter((d) => d !== day) : [...f.weekdays, day],
-    }));
-  }
-
-  function toggleTemplate(tid: number) {
-    setForm((f) => ({
-      ...f,
-      template_ids: f.template_ids.includes(tid)
-        ? f.template_ids.filter((x) => x !== tid)
-        : [...f.template_ids, tid],
     }));
   }
 
@@ -409,6 +451,10 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
     (form.schedule_mode !== "visual" || form.weekdays.length > 0);
 
   const isDirty = JSON.stringify(form) !== savedSnapshot;
+  const savedIsActive = (JSON.parse(savedSnapshot) as JobForm).is_active;
+  const previewPending =
+    dryRun.isPending ||
+    (!!dryRunTaskId && !dryRunTask.isError && (dryRunTask.isPending || isCeleryInFlight(dryRunTaskState)));
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
@@ -428,13 +474,28 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         <h1 className="text-lg font-semibold text-foreground flex-1 min-w-0 truncate">{headerTitle}</h1>
 
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => dryRun.mutate()} isPending={dryRun.isPending} icon={<FlaskConical size={15} />} pendingLabel="Checking…" title="Run without real changes">
+          <ActionButton
+            variant="secondary"
+            onClick={() => dryRun.mutate()}
+            isPending={previewPending}
+            icon={<FlaskConical size={15} />}
+            pendingLabel="Refreshing sources…"
+            title="Sync sources and list matching recordings without starting processing"
+          >
             Dry run
           </ActionButton>
         )}
 
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => runNow.mutate()} isPending={runNow.isPending} icon={<Play size={15} />} pendingLabel="Running…">
+          <ActionButton
+            variant="secondary"
+            onClick={() => setConfirmRun(true)}
+            isPending={runNow.isPending}
+            disabled={!savedIsActive}
+            title={savedIsActive ? undefined : "Activate and save the job to run it"}
+            icon={<Play size={15} />}
+            pendingLabel="Running…"
+          >
             Run now
           </ActionButton>
         )}
@@ -463,6 +524,10 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </ActionButton>
       </div>
 
+      {previewError && (
+        <p className="mb-5 text-sm text-red-500">{previewError}</p>
+      )}
+      {preview && <div className="mb-5"><AutomationPreviewPanel preview={preview} /></div>}
 
       <div className="space-y-5">
         {/* Basic info */}
@@ -492,27 +557,17 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-3">
           <h2 className="text-sm font-semibold text-secondary-foreground">Templates *</h2>
           {templates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No templates.{" "}
-              <Link href="/templates/new" className="text-primary hover:underline">Create →</Link>
-            </p>
+            <CreatePlaceholder href="/templates/new" label="Add a template" />
           ) : (
-            <div className="space-y-2">
-              {templates.map((t) => (
-                <label
-                  key={t.id}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-border cursor-pointer hover:bg-muted transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.template_ids.includes(t.id)}
-                    onChange={() => toggleTemplate(t.id)}
-                    className="rounded accent-primary"
-                  />
-                  <span className="text-sm font-medium text-foreground">{t.name}</span>
-                </label>
-              ))}
-            </div>
+            <ChecklistPicker
+              title="Select templates"
+              ariaLabel="Templates"
+              emptyLabel="No templates selected"
+              searchPlaceholder="Search templates"
+              items={templates.map((t) => ({ value: t.id, label: t.name }))}
+              value={form.template_ids}
+              onChange={(ids) => setForm((f) => ({ ...f, template_ids: ids }))}
+            />
           )}
           {form.template_ids.length === 0 && templates.length > 0 && (
             <p className="text-xs text-orange-500">Select at least one template</p>
@@ -560,103 +615,40 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </div>
 
         {/* Processing config */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-secondary-foreground">Processing config</h2>
-            <Toggle
-              label=""
-              checked={form.processing_config_enabled}
-              onChange={(v) => setForm((f) => ({ ...f, processing_config_enabled: v }))}
-            />
-          </div>
-          {!form.processing_config_enabled && (
-            <p className="text-xs text-muted-foreground">Template settings are used. Enable to override.</p>
-          )}
-          {form.processing_config_enabled && (
-            <div className="space-y-4">
-              <Toggle
-                label="Enable transcription"
-                checked={form.processing_config.enable_transcription}
-                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, enable_transcription: v } }))}
-              />
-              <Toggle
-                label="Extract topics"
-                checked={form.processing_config.enable_topics}
-                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, enable_topics: v } }))}
-              />
-              <Toggle
-                label="Generate subtitles"
-                checked={form.processing_config.enable_subtitles}
-                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, enable_subtitles: v } }))}
-              />
-              <F label="Language">
-                <NativeSelect
-                  value={form.processing_config.language}
-                  onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, language: e.target.value } }))}
-                >
-                  <option value="ru">Русский</option>
-                  <option value="en">English</option>
-                  <option value="auto">Auto</option>
-                </NativeSelect>
-              </F>
-              <F label="Topic granularity">
-                <NativeSelect
-                  value={form.processing_config.granularity}
-                  onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, granularity: e.target.value } }))}
-                >
-                  <option value="short">Short</option>
-                  <option value="medium">Medium</option>
-                  <option value="long">Long</option>
-                </NativeSelect>
-              </F>
-              <Toggle
-                label="Allow transcription errors"
-                checked={form.processing_config.allow_errors}
-                onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, allow_errors: v } }))}
-              />
-              <F label="Questions count" hint="0 = disabled">
-                <input
-                  type="number"
-                  min={0}
-                  max={20}
-                  value={form.processing_config.questions_count}
-                  onChange={(e) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, questions_count: parseInt(e.target.value, 10) || 0 } }))}
-                  className={cn(inp, "w-32")}
-                />
-              </F>
-              <F label="Vocabulary" hint="Domain-specific terms to improve transcription accuracy">
-                <TagInput
-                  tags={form.processing_config.vocabulary}
-                  onChange={(v) => setForm((f) => ({ ...f, processing_config: { ...f.processing_config, vocabulary: v } }))}
-                  placeholder="Add term…"
-                />
-              </F>
-            </div>
-          )}
-        </div>
+        <OverrideSection
+          title="Processing"
+          switchLabel="Override processing"
+          enabled={form.processing_config_enabled}
+          onEnabledChange={(v) => setForm((f) => ({ ...f, processing_config_enabled: v }))}
+          open={processingOpen}
+          onOpenChange={setProcessingOpen}
+          enabledHint="used instead of each recording’s template"
+          disabledHint="each recording uses its template processing"
+        >
+          <ProcessingFields
+            value={form.processing_config}
+            onChange={(patch) =>
+              setForm((f) => ({ ...f, processing_config: { ...f.processing_config, ...patch } }))
+            }
+            languages={languages}
+            granularities={granularities}
+          />
+        </OverrideSection>
 
         {/* Schedule */}
         <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
           <h2 className="text-sm font-semibold text-secondary-foreground">Schedule</h2>
 
-          {/* Mode toggle */}
-          <div className="flex gap-1 p-1 bg-muted rounded-xl w-fit">
-            {(["visual", "cron"] as ScheduleMode[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, schedule_mode: mode }))}
-                className={cn(
-                  "px-4 py-1.5 rounded-lg text-sm font-medium transition-colors",
-                  form.schedule_mode === mode
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-secondary-foreground"
-                )}
-              >
-                {mode === "visual" ? "Visual" : "Cron"}
-              </button>
-            ))}
-          </div>
+          <SegmentedField<ScheduleMode>
+            label="Schedule mode"
+            labelHidden
+            value={form.schedule_mode}
+            options={[
+              { value: "visual", label: "Visual" },
+              { value: "cron", label: "Cron" },
+            ]}
+            onChange={(mode) => setForm((f) => ({ ...f, schedule_mode: mode }))}
+          />
 
           {/* Visual mode */}
           {form.schedule_mode === "visual" && (
@@ -719,6 +711,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                     onChange={(e) => setForm((f) => ({ ...f, cron_expression: e.target.value }))}
                     placeholder="0 9 * * *"
                     className={cn(inp, "font-mono w-48")}
+                    spellCheck={false}
                   />
                 </F>
                 <F label="Timezone">
@@ -732,6 +725,9 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                   </NativeSelect>
                 </F>
               </div>
+              <p className={cn("text-sm", cronHuman ? "text-secondary-foreground" : "text-muted-foreground")}>
+                {cronHuman ?? "Enter a five-field cron expression (minute hour day month weekday)."}
+              </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {CRON_EXAMPLES.map((ex) => (
                   <button
@@ -774,7 +770,8 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
               <span className="text-sm text-secondary-foreground">days</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              ↳ recordings from <span className="font-medium">{syncStart}</span> to <span className="font-medium">{today}</span>
+              Recordings from <span className="font-medium">{syncStart}</span> to{" "}
+              <span className="font-medium">{today}</span>
             </p>
             {syncWarning && (
               <div className="flex items-start gap-1.5">
@@ -788,6 +785,22 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         {/* History is only meaningful for a job that exists. */}
         {!isNew && <JobRunHistory jobId={Number(jobId)} />}
       </div>
+
+      <ConfirmDialog
+        open={confirmRun}
+        title={RUN_JOB_CONFIRM.title}
+        description={
+          isDirty
+            ? `${RUN_JOB_CONFIRM.description} You have unsaved changes.`
+            : RUN_JOB_CONFIRM.description
+        }
+        confirmLabel={RUN_JOB_CONFIRM.confirmLabel}
+        onConfirm={() => {
+          setConfirmRun(false);
+          runNow.mutate();
+        }}
+        onCancel={() => setConfirmRun(false)}
+      />
 
       <ConfirmDialog
         open={confirmCopy}
@@ -870,7 +883,7 @@ function StatusFilterGroup({
                 type="checkbox"
                 checked={selected.includes(value)}
                 onChange={(e) => onToggle(value, e.target.checked)}
-                className="mt-0.5 rounded accent-primary"
+                className={cn("mt-0.5", CHECKBOX)}
               />
               <span className="min-w-0">
                 <span className="block text-sm text-secondary-foreground">

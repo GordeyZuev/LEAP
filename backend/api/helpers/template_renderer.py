@@ -365,7 +365,7 @@ class TemplateRenderer:
         raw = dict(config) if config else {}
         cfg = normalize_topics_display(raw)
 
-        if not cfg.get("enabled", True) or not topics:
+        if not topics:
             return ""
 
         # `include_timestamps` is the legacy field name; kept for backward compat with stored DB configs.
@@ -432,7 +432,7 @@ class TemplateRenderer:
 
         cfg = normalize_questions_display(config)
 
-        if not cfg.get("enabled", False) or not questions:
+        if not questions:
             return ""
         if not isinstance(questions, list):
             return ""
@@ -563,13 +563,7 @@ class TemplateRenderer:
         context["summary"] = summary or ""
 
         if questions_display is not None:
-            from api.schemas.template.preset_metadata import normalize_questions_display
-
-            q_cfg = normalize_questions_display(questions_display)
-            if q_cfg.get("enabled"):
-                context["questions"] = TemplateRenderer._format_questions_list(questions, q_cfg)
-            else:
-                context["questions"] = ""
+            context["questions"] = TemplateRenderer._format_questions_list(questions, questions_display)
         else:
             context["questions"] = ""
 

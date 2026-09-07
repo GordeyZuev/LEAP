@@ -28,8 +28,10 @@ export function FilterBar({ search, controls = [], sort, onClearAll, advanced, c
   return (
     <div className={FILTER_TOOLBAR}>
       {hasRow && (
-        <div className="flex flex-wrap items-end gap-x-4 gap-y-4">
-          {search && <div className="min-w-[15rem] flex-[2] basis-[12rem]">{search}</div>}
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-4 sm:gap-y-4">
+          {search && (
+            <div className="w-full min-w-0 sm:min-w-[15rem] sm:flex-[2] sm:basis-[12rem]">{search}</div>
+          )}
           {controls.map((c, i) => (
             <div key={i} className={FILTER_BAR_CONTROL}>
               {c}

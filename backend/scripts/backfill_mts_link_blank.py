@@ -3,6 +3,9 @@
 
 Uses GET /fileSystem/file/{recordId} (same as sync). Dry-run is the default.
 
+After a file is stored, blank follows ffprobe of that MP4 (not the online session
+length in UserAPI). Without a file, API duration is used.
+
     cd backend
     uv run python scripts/backfill_mts_link_blank.py
     uv run python scripts/backfill_mts_link_blank.py --apply
@@ -50,12 +53,13 @@ async def _run(args: argparse.Namespace) -> int:
         mts_link_record_id_from_source_key,
         positive_duration_seconds,
     )
+    from api.helpers.media_duration import probe_stored_media_duration
     from api.mts_link_api import MtsLinkAPIError
     from api.repositories.auth_repos import UserCredentialRepository
     from database.automation_models import AutomationJobModel  # noqa: F401
     from database.models import RecordingModel, SourceMetadataModel
     from models.mts_link_auth import create_mts_link_client, create_mts_link_credentials
-    from models.recording import SourceType
+    from models.recording import ProcessingStatus, SourceType
 
     session_maker = get_async_session_maker()
     clients: dict = {}
@@ -109,27 +113,52 @@ async def _run(args: argparse.Namespace) -> int:
                 print(f"  skip rec={rec.id} (no mts record id or input source)")
                 continue
             client = await load_client(session, source)
-            if client is None:
+            duration = None
+            if client is not None:
+                try:
+                    payload = await client.get_file(record_id)
+                    duration = positive_duration_seconds(payload.get("duration"))
+                except MtsLinkAPIError as e:
+                    print(f"  rec={rec.id} record={record_id} WARN {e}")
+            elif not rec.local_video_path:
                 print(f"  skip rec={rec.id} (no credential)")
                 continue
-            try:
-                payload = await client.get_file(record_id)
-            except MtsLinkAPIError as e:
-                print(f"  rec={rec.id} record={record_id} FAIL {e}")
-                await asyncio.sleep(_PAUSE_SECONDS)
-                continue
-            duration = positive_duration_seconds(payload.get("duration"))
-            is_blank = is_mts_link_blank(duration)
+            db_duration = positive_duration_seconds(rec.duration)
+            file_duration = None
+            if rec.local_video_path:
+                file_duration = await probe_stored_media_duration(rec.local_video_path)
+            if rec.local_video_path:
+                is_blank = is_mts_link_blank(file_duration if file_duration is not None else db_duration)
+            else:
+                is_blank = is_mts_link_blank(duration) or is_mts_link_blank(db_duration)
             print(
-                f"  rec={rec.id} record={record_id} duration={duration} "
-                f"blank={is_blank} status={rec.status} was_blank={rec.blank_record}"
+                f"  rec={rec.id} record={record_id} api_duration={duration} db_duration={db_duration} "
+                f"file_duration={file_duration} has_file={bool(rec.local_video_path)} blank={is_blank} "
+                f"status={rec.status} was_blank={rec.blank_record}"
             )
             if is_blank:
                 would_blank += 1
-            if args.apply and duration is not None:
-                rec.duration = duration
-                apply_blank_record(rec, is_blank, reason=BLANK_REASON_TOO_SHORT)
-                updated += 1
+            if args.apply:
+                if rec.local_video_path:
+                    if file_duration is not None:
+                        rec.duration = int(file_duration)
+                    if is_blank:
+                        apply_blank_record(
+                            rec,
+                            True,
+                            reason=BLANK_REASON_TOO_SHORT,
+                            force_status_skip=rec.status == ProcessingStatus.FAILED,
+                        )
+                        updated += 1
+                    elif file_duration is not None:
+                        updated += 1
+                elif is_mts_link_blank(db_duration):
+                    apply_blank_record(rec, True, reason=BLANK_REASON_TOO_SHORT)
+                    updated += 1
+                elif duration is not None:
+                    rec.duration = duration
+                    apply_blank_record(rec, is_blank, reason=BLANK_REASON_TOO_SHORT)
+                    updated += 1
             await asyncio.sleep(_PAUSE_SECONDS)
 
         if args.apply:

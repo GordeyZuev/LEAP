@@ -36,9 +36,10 @@ class TestFormatDatetimeForTemplate:
 
 @pytest.mark.unit
 class TestBuildStubValidationContext:
-    def test_default_topics_numbered_without_timestamps(self) -> None:
+    def test_default_topics_numbered_with_timestamps(self) -> None:
         ctx = build_stub_validation_context()
-        assert ctx["topics"] == "1. Topic one\n2. Topic two"
+        assert "00:00:00 — Topic one" in ctx["topics"]
+        assert "00:05:00 — Topic two" in ctx["topics"]
 
     def test_topics_display_show_timestamps(self) -> None:
         ctx = build_stub_validation_context(
@@ -51,19 +52,19 @@ class TestBuildStubValidationContext:
         assert "00:00:00 — Topic one" in ctx["topics"]
         assert "00:05:00 — Topic two" in ctx["topics"]
 
-    def test_topics_display_disabled_is_empty(self) -> None:
+    def test_topics_display_enabled_false_still_formats(self) -> None:
         ctx = build_stub_validation_context(topics_display={"enabled": False})
-        assert ctx["topics"] == ""
+        assert "00:00:00 — Topic one" in ctx["topics"]
 
-    def test_questions_display_respects_enabled(self) -> None:
+    def test_questions_display_formats_when_present(self) -> None:
         ctx = build_stub_validation_context(
             questions_display={"enabled": True, "format": "numbered_list"},
         )
         assert "1. Question one?" in ctx["questions"]
         assert "2. Question two?" in ctx["questions"]
 
-        disabled = build_stub_validation_context(questions_display={"enabled": False})
-        assert disabled["questions"] == ""
+        still_on = build_stub_validation_context(questions_display={"enabled": False})
+        assert "1. Question one?" in still_on["questions"]
 
 
 @pytest.mark.unit
@@ -196,5 +197,5 @@ class TestPrepareRecordingContext:
         )
         ctx = TemplateRenderer.prepare_recording_context(rec)
         assert ctx["topics"].count("\n") == 14
-        assert "15. Topic 14" in ctx["topics"]
-        assert "11. Topic 10" in ctx["topics"]
+        assert "15. 00:14:00 — Topic 14" in ctx["topics"]
+        assert "11. 00:10:00 — Topic 10" in ctx["topics"]

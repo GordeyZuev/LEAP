@@ -15,11 +15,11 @@ export async function generateMetadata({
   const playlist = await fetchPublicPlaylistForMetadata(token);
 
   if (!playlist) {
-    return { title: "Shared playlist — LEAP", robots: { index: false, follow: false } };
+    return { title: "Shared playlist – LEAP", robots: { index: false, follow: false } };
   }
 
   return {
-    title: `${playlist.name} — LEAP`,
+    title: `${playlist.name} – LEAP`,
     description: playlist.description ? formattedTextToPlain(playlist.description) : "Shared via LEAP",
     robots: { index: false, follow: false },
     openGraph: {

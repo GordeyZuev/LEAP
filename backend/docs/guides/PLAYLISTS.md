@@ -6,10 +6,12 @@ Limits: **200 playlists per user**, **200 items per playlist**, unique `name` pe
 
 ## Owner UI and API
 
-Sidebar **Playlists** → card grid → editor (reorder by drag). Publications on a recording can chip membership.
+Sidebar **Playlists** → card grid → editor (reorder by drag). On a recording, **Publications** groups LEAP Link and course membership; row icons sit vertically centered with the status text and actions. Membership can also show as chips in that card.
+
+**List cards** (enabled share only): **LEAP** opens `{origin}/share/p/{uuid}` in a new tab; **Copy link** copies that absolute URL. Disabled or never-enabled playlists have no list controls (enable from the editor). Poster, name, and duration go to the editor. Description and share controls sit **beside** that link (not inside it) so markdown links and the public URL stay real `<a>` elements. After Enable / Disable / Rotate, the list query is invalidated so the card matches the editor.
 
 ```bash
-GET/POST   /api/v1/playlists
+GET/POST   /api/v1/playlists                    # items: share_token, share_enabled
 GET/PATCH/DELETE /api/v1/playlists/{id}
 GET/POST   /api/v1/playlists/{id}/items
 DELETE     /api/v1/playlists/{id}/items/{itemId}
@@ -21,7 +23,7 @@ POST       /api/v1/playlists/{id}/share/rotate
 
 ## Public course link
 
-URL: `{origin}/share/p/{uuid}`.
+URL: `{origin}/share/p/{uuid}`. Owner list **LEAP** / **Copy link** use this URL only while share is enabled.
 
 | Action | Token | Public GET |
 |--------|--------|------------|

@@ -16,7 +16,7 @@ class TestNormalizeTopicsDisplay:
         assert cfg["max_count"] == 999
         assert cfg["min_length"] == 0
         assert cfg["max_length"] == 999
-        assert cfg["show_timestamps"] is False
+        assert cfg["show_timestamps"] is True
 
     def test_null_max_count_keeps_effective_default(self) -> None:
         cfg = normalize_topics_display({"max_count": None, "enabled": True})

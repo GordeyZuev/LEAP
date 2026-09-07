@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
@@ -10,7 +10,7 @@ import { ActionButton } from "@/components/ui/action-button";
 
 type State = "verifying" | "success" | "error";
 
-export default function VerifyEmailPage() {
+function VerifyEmailForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
@@ -123,5 +123,13 @@ export default function VerifyEmailPage() {
 
       </div>
     </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<div className="min-h-full bg-background" />}>
+      <VerifyEmailForm />
+    </Suspense>
   );
 }

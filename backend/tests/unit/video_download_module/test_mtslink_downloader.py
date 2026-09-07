@@ -116,6 +116,18 @@ class TestConversionHandling:
         dl.api.start_conversion.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_uses_stored_download_url_when_session_has_none(self):
+        dl = _downloader(fetch_chat=False, fetch_session_files=False)
+        dl.api.get_ready_mp4_url.return_value = None
+        meta = {**SOURCE_META, "download_url": "https://cdn/stored.mp4", "conversion_id": 9}
+
+        with _patch_video_stream(dl):
+            result = await dl.download(recording_id=42, source_meta=meta)
+
+        assert result.storage_key == "users/user_000001/recordings/42/source.mp4"
+        assert result.metadata["download_url"] == "https://cdn/stored.mp4"
+
+    @pytest.mark.asyncio
     async def test_in_flight_conversion_is_not_polled_in_download(self):
         dl = _downloader(fetch_chat=False, fetch_session_files=False)
         dl.api.get_ready_mp4_url.return_value = None

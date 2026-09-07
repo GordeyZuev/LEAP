@@ -110,19 +110,35 @@ export function useUrlListState({
     [commit],
   );
 
-  /** Same field flips direction; a new field starts at the default direction. */
-  const setSort = useCallback(
-    (field: string) => {
+  const writeSort = useCallback(
+    (field: string, nextOrder: "asc" | "desc") => {
       commit((p) => {
-        const nextOrder =
-          field === sortBy ? (sortOrder === "desc" ? "asc" : "desc") : defaultSortOrder;
         if (field === defaultSortBy) p.delete("sort_by");
         else p.set("sort_by", field);
         if (nextOrder === defaultSortOrder) p.delete("sort_order");
         else p.set("sort_order", nextOrder);
       });
     },
-    [commit, sortBy, sortOrder, defaultSortBy, defaultSortOrder],
+    [commit, defaultSortBy, defaultSortOrder],
+  );
+
+  /** Table headers: same field flips direction; a new field starts at the default. */
+  const setSort = useCallback(
+    (field: string) => {
+      const nextOrder =
+        field === sortBy ? (sortOrder === "desc" ? "asc" : "desc") : defaultSortOrder;
+      writeSort(field, nextOrder);
+    },
+    [writeSort, sortBy, sortOrder, defaultSortOrder],
+  );
+
+  /** Dropdown: picking a new field resets direction; picking the current field is a no-op. */
+  const setSortField = useCallback(
+    (field: string) => {
+      if (field === sortBy) return;
+      writeSort(field, defaultSortOrder);
+    },
+    [writeSort, sortBy, defaultSortOrder],
   );
 
   const toggleSortOrder = useCallback(() => {
@@ -162,6 +178,7 @@ export function useUrlListState({
     sortBy,
     sortOrder,
     setSort,
+    setSortField,
     toggleSortOrder,
     page,
     setPage,

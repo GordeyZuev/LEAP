@@ -8,12 +8,38 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.helpers.blank_record import BLANK_REASON_TOO_SHORT, apply_blank_record
+from api.helpers.blank_record import (
+    BLANK_REASON_TOO_SHORT,
+    apply_blank_record,
+    is_mts_link_blank,
+    positive_duration_seconds,
+    preserve_mts_recording_duration,
+)
+from api.helpers.text import collapse_whitespace
 from database.models import OutputTargetModel, RecordingModel, SourceMetadataModel
 from logger import format_details, format_status_change, get_logger
 from models.recording import ProcessingStatus, SourceType, TargetStatus
 
 logger = get_logger()
+
+RECORDING_SORT_FIELDS = frozenset({"created_at", "updated_at", "start_time", "display_name", "status"})
+DEFAULT_RECORDING_SORT = "start_time"
+UNTITLED_DISPLAY_NAME = "Untitled"
+
+
+def _normalized_display_name(display_name: str) -> str:
+    collapsed = collapse_whitespace(display_name)
+    return collapsed or UNTITLED_DISPLAY_NAME
+
+
+def _recording_order_clause(sort_by: str, sort_order: str):
+    """Primary sort plus a stable id tie-break. Nulls always sort last."""
+    field = sort_by if sort_by in RECORDING_SORT_FIELDS else DEFAULT_RECORDING_SORT
+    column = getattr(RecordingModel, field)
+    descending = sort_order == "desc"
+    primary = column.desc().nulls_last() if descending else column.asc().nulls_last()
+    tie = RecordingModel.id.desc() if descending else RecordingModel.id.asc()
+    return primary, tie
 
 
 def merge_mts_link_source_metadata(existing_meta: dict[str, Any], incoming: dict[str, Any] | None) -> dict[str, Any]:
@@ -251,7 +277,7 @@ class RecordingRepository:
         from_dt: datetime | None = None,
         to_dt: datetime | None = None,
         search: str | None = None,
-        sort_by: str = "created_at",
+        sort_by: str = DEFAULT_RECORDING_SORT,
         sort_order: str = "desc",
         page: int = 1,
         per_page: int = 20,
@@ -304,14 +330,7 @@ class RecordingRepository:
             search=search,
         )
 
-        # Sorting
-        allowed_sort_fields = {"created_at", "updated_at", "start_time", "display_name", "status"}
-        effective_sort_by = sort_by if sort_by in allowed_sort_fields else "created_at"
-        order_column = getattr(RecordingModel, effective_sort_by, RecordingModel.created_at)
-        if sort_order == "desc":
-            data_query = data_query.order_by(order_column.desc())
-        else:
-            data_query = data_query.order_by(order_column.asc())
+        data_query = data_query.order_by(*_recording_order_clause(sort_by, sort_order))
 
         # Pagination
         offset = (page - 1) * per_page
@@ -336,8 +355,8 @@ class RecordingRepository:
         from_dt: datetime | None = None,
         to_dt: datetime | None = None,
         search: str | None = None,
-        sort_by: str = "created_at",
-        sort_order: str = "asc",
+        sort_by: str = DEFAULT_RECORDING_SORT,
+        sort_order: str = "desc",
         limit: int = 50,
     ) -> list[int]:
         """Get filtered recording IDs for bulk operations."""
@@ -357,11 +376,7 @@ class RecordingRepository:
             search=search,
         )
 
-        order_column = getattr(RecordingModel, sort_by, RecordingModel.created_at)
-        if sort_order == "desc":
-            query = query.order_by(order_column.desc())
-        else:
-            query = query.order_by(order_column.asc())
+        query = query.order_by(*_recording_order_clause(sort_by, sort_order))
 
         query = query.limit(limit)
 
@@ -399,6 +414,8 @@ class RecordingRepository:
         Returns:
             Created recording
         """
+        display_name = _normalized_display_name(display_name)
+
         # Get retention settings
         retention = user_config.get("retention", {}) if isinstance(user_config, dict) else {}
         auto_expire_days = retention.get("auto_expire_days", 90)
@@ -461,6 +478,9 @@ class RecordingRepository:
         for field, value in fields.items():
             if hasattr(recording, field):
                 setattr(recording, field, value)
+
+        if isinstance(recording.display_name, str):
+            recording.display_name = _normalized_display_name(recording.display_name)
 
         recording.updated_at = datetime.now(UTC)
         await self.session.flush()
@@ -798,9 +818,15 @@ class RecordingRepository:
             if existing.status != ProcessingStatus.UPLOADED:
                 if not require_start_time_in_lookup:
                     existing.start_time = start_time
-                existing.display_name = display_name
+                existing.display_name = _normalized_display_name(display_name)
                 if duration > 0 or source_type != SourceType.MTS_LINK:
-                    existing.duration = duration
+                    if source_type == SourceType.MTS_LINK and preserve_mts_recording_duration(
+                        has_downloaded_media=bool(existing.local_video_path),
+                        existing_duration=existing.duration,
+                    ):
+                        pass
+                    else:
+                        existing.duration = duration
                 existing.video_file_size = kwargs.get("video_file_size", existing.video_file_size)
 
                 source_processing_incomplete = kwargs.get("source_processing_incomplete", False)
@@ -842,8 +868,11 @@ class RecordingRepository:
                 if "template_id" in kwargs:
                     existing.template_id = kwargs["template_id"]
 
-                if "blank_record" in kwargs:
-                    apply_blank_record(existing, bool(kwargs["blank_record"]), reason=BLANK_REASON_TOO_SHORT)
+                is_blank = bool(kwargs.get("blank_record", False))
+                if source_type == SourceType.MTS_LINK:
+                    is_blank = is_blank or is_mts_link_blank(positive_duration_seconds(existing.duration))
+                if is_blank:
+                    apply_blank_record(existing, True, reason=BLANK_REASON_TOO_SHORT)
 
                 if existing.source:
                     if existing.source.source_key != source_key:
@@ -905,6 +934,7 @@ class RecordingRepository:
         user_config: dict | None,
         kwargs: dict[str, Any],
     ) -> tuple[RecordingModel, bool]:
+        display_name = _normalized_display_name(display_name)
         is_mapped = kwargs.get("is_mapped", False)
         is_blank = kwargs.get("blank_record", False)
         source_processing_incomplete = kwargs.get("source_processing_incomplete", False)

@@ -41,7 +41,7 @@ export const DISPLAY_CONFIG_PLACEHOLDER: DisplayConfigDefaultsPayload = {
     max_length: 999,
     prefix: "",
     separator: "\n",
-    show_timestamps: false,
+    show_timestamps: true,
   },
   questions: {
     enabled: false,

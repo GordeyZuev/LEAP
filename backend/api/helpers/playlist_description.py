@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.helpers.media_duration import display_duration_seconds
 from api.helpers.template_renderer import TemplateRenderer, render_jinja
 from logger import get_logger
 
@@ -25,7 +26,7 @@ def build_playlist_description_context(
         else:
             titles.append(rec.display_name if rec is not None else "Unknown")
         if rec is not None:
-            duration += rec.final_duration or rec.duration or 0.0
+            duration += display_duration_seconds(rec)
     items_block = "\n".join(f"{i}. {title}" for i, title in enumerate(titles, start=1))
     return {
         "video_count": len(rows),

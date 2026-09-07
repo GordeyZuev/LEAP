@@ -18,6 +18,7 @@ from api.helpers.blank_record import (
     is_mts_link_blank,
     positive_duration_seconds,
 )
+from api.helpers.text import collapse_whitespace
 from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
@@ -815,7 +816,7 @@ async def _sync_mts_link_source(
                 download_url = None
                 if event_session_id:
                     try:
-                        download_url = await mts_api.get_ready_mp4_url(event_session_id)
+                        download_url = await mts_api.get_ready_mp4_url(event_session_id, record_id)
                     except MtsLinkAPIError as e:
                         logger.debug(
                             f"No converted record yet | {format_details(session_id=event_session_id, error=str(e))}"
@@ -944,6 +945,8 @@ def _find_matching_template(display_name: str, source_id: int, templates: list):
     if not templates:
         return None
 
+    display_name = collapse_whitespace(display_name)
+
     for template in templates:
         matching_rules = template.matching_rules or {}
         case_sensitive = matching_rules.get("case_sensitive", False)
@@ -990,8 +993,8 @@ async def list_sources(
     ),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
-    sort_by: str = Query("created_at", description="Sort field"),
-    sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
+    sort_by: str = Query("name", description="Sort field"),
+    sort_order: Literal["asc", "desc"] = Query("asc", description="Sort direction"),
     session: AsyncSession = Depends(get_db_session),
     current_user: UserInDB = Depends(get_current_user),
 ):

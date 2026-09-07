@@ -13,6 +13,7 @@ from sqlalchemy import select
 from api.auth.dependencies import check_user_quotas, require_feature
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
+from api.helpers.media_duration import display_duration_seconds
 from api.helpers.share_stats import build_share_stats_for_detail, build_share_stats_summary
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
@@ -79,10 +80,9 @@ from api.schemas.recording.response import (
     ProcessingStageResponse,
     RecordingListItem,
     RecordingListResponse,
-    SourceExtraFile,
-    SourceExtrasResponse,
     SourceResponse,
 )
+from api.schemas.source_extras import SourceExtrasResponse
 from api.services.config_utils import resolve_full_config
 from api.shared.enums import Granularity
 from config.settings import get_settings, storage_video_ingress_suffixes
@@ -118,7 +118,7 @@ async def _track_recordings_created(ctx: ServiceContext, recording_ids: list[int
         await ctx.session.commit()
     except Exception as exc:
         await ctx.session.rollback()
-        logger.warning(f"recording_created tracking failed (ignored): {exc!r}")
+        logger.info(f"recording_created tracking failed (ignored): {exc!r}")
 
 
 async def _track_recording_deleted(ctx: ServiceContext, recording_id: int) -> None:
@@ -130,7 +130,7 @@ async def _track_recording_deleted(ctx: ServiceContext, recording_id: int) -> No
         await ctx.session.commit()
     except Exception as exc:
         await ctx.session.rollback()
-        logger.warning(f"recording_deleted tracking failed (ignored): {exc!r}")
+        logger.info(f"recording_deleted tracking failed (ignored): {exc!r}")
 
 
 _VIDEO_MEDIA_TYPES: dict[str, str] = {
@@ -156,6 +156,12 @@ class _PosterPreview(NamedTuple):
     url: str
     source: Literal["thumbnail", "frame"]
     fallback_url: str | None = None
+    asset_key: str = ""
+
+
+def _poster_asset_key(primary_storage_key: str, fallback_storage_key: str | None = None) -> str:
+    """Stable client-side identity for poster object(s); unchanged across presign refreshes."""
+    return f"{primary_storage_key}|{fallback_storage_key or ''}"
 
 
 def _recording_poster_storage_key(recording: RecordingModel, user_slug: int | None = None) -> str | None:
@@ -243,23 +249,39 @@ async def _poster_urls(
 
     previews: dict[int, _PosterPreview] = {}
     fallback_urls: dict[int, str] = {}
-    for (rid, _key, source, is_fallback), url in zip(pairs, urls, strict=True):
+    primary_keys: dict[int, str] = {}
+    fallback_keys: dict[int, str] = {}
+    for (rid, key, source, is_fallback), url in zip(pairs, urls, strict=True):
         if is_fallback:
             fallback_urls[rid] = url
+            fallback_keys[rid] = key
         else:
             previews[rid] = _PosterPreview(url=url, source=source)
+            primary_keys[rid] = key
 
-    return {rid: preview._replace(fallback_url=fallback_urls.get(rid)) for rid, preview in previews.items()}
+    return {
+        rid: preview._replace(
+            fallback_url=fallback_urls.get(rid),
+            asset_key=_poster_asset_key(primary_keys[rid], fallback_keys.get(rid)),
+        )
+        for rid, preview in previews.items()
+    }
 
 
 def _poster_fields(previews: dict[int, _PosterPreview], recording_id: int) -> dict[str, str | None]:
     preview = previews.get(recording_id)
     if not preview:
-        return {"poster_url": None, "poster_source": None, "poster_fallback_url": None}
+        return {
+            "poster_url": None,
+            "poster_source": None,
+            "poster_fallback_url": None,
+            "poster_asset_key": None,
+        }
     return {
         "poster_url": preview.url,
         "poster_source": preview.source,
         "poster_fallback_url": preview.fallback_url,
+        "poster_asset_key": preview.asset_key or None,
     }
 
 
@@ -307,7 +329,7 @@ async def list_recordings(
     from_date: str | None = Query(None, description="Filter: start_time >= from_date (YYYY-MM-DD)"),
     to_date: str | None = Query(None, description="Filter: start_time <= to_date (YYYY-MM-DD)"),
     sort_by: Literal["created_at", "updated_at", "start_time", "display_name", "status"] = Query(
-        "created_at", description="Sort field (created_at, updated_at, start_time, display_name, status)"
+        "start_time", description="Sort field (created_at, updated_at, start_time, display_name, status)"
     ),
     sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     page: int = Query(1, ge=1),
@@ -369,7 +391,7 @@ async def list_recordings(
                 id=r.id,
                 display_name=r.display_name,
                 start_time=r.start_time,
-                duration=r.duration,
+                duration=display_duration_seconds(r),
                 status=r.status,
                 failed=r.failed,
                 failed_at_stage=r.failed_at_stage,
@@ -574,11 +596,7 @@ async def get_recording_source_extras(
     uploaded to the event. Returns time-limited URLs rather than streaming, so a large
     presentation goes straight from storage to the browser.
     """
-    import json
-
-    from config.settings import get_settings
-    from file_storage.factory import get_storage_backend
-    from file_storage.path_builder import StoragePathBuilder, to_storage_key
+    from api.helpers.source_extras import list_source_extras
 
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -588,49 +606,7 @@ async def get_recording_source_extras(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
-    builder = StoragePathBuilder()
-    user_slug = recording.owner.user_slug
-    storage = get_storage_backend()
-    expires_in = get_settings().storage.s3_presign_expires
-
-    async def _entry(key: str, name: str, size: int | None) -> SourceExtraFile | None:
-        if not await storage.exists(key):
-            return None
-        url = await storage.presigned_url(key, expires_in=expires_in, download_filename=name)
-        return SourceExtraFile(
-            name=name,
-            extension=name.rsplit(".", 1)[-1].lower() if "." in name else "file",
-            size=size,
-            url=url,
-        )
-
-    chat = await _entry(
-        to_storage_key(builder.recording_source_chat(user_slug, recording_id)),
-        f"recording-{recording_id}-chat.json",
-        None,
-    )
-
-    files: list[SourceExtraFile] = []
-    manifest_key = to_storage_key(builder.recording_source_files_manifest(user_slug, recording_id))
-    if await storage.exists(manifest_key):
-        try:
-            manifest = json.loads((await storage.load(manifest_key)).decode())
-        except (ValueError, UnicodeDecodeError) as e:
-            logger.warning(f"Unreadable source extras manifest | {format_details(rec=recording_id, error=str(e))}")
-            manifest = []
-
-        for row in manifest if isinstance(manifest, list) else []:
-            if not isinstance(row, dict) or not row.get("storage_key"):
-                continue
-            entry = await _entry(
-                str(row["storage_key"]),
-                str(row.get("name") or row.get("stored_as") or "attachment"),
-                row.get("size") if isinstance(row.get("size"), int) else None,
-            )
-            if entry:
-                files.append(entry)
-
-    return SourceExtrasResponse(chat=chat, files=files, expires_in=expires_in)
+    return await list_source_extras(recording)
 
 
 @router.get("/{recording_id}/files/{file_type}")
@@ -762,7 +738,7 @@ async def get_recording(
             id=recording.id,
             display_name=recording.display_name,
             start_time=recording.start_time,
-            duration=recording.duration,
+            duration=display_duration_seconds(recording),
             status=recording.status,
             failed=recording.failed,
             failed_at_stage=recording.failed_at_stage,
@@ -798,7 +774,7 @@ async def get_recording(
         "id": recording.id,
         "display_name": recording.display_name,
         "start_time": recording.start_time,
-        "duration": recording.duration,
+        "duration": display_duration_seconds(recording),
         "status": recording.status,
         "is_mapped": recording.is_mapped,
         "blank_record": recording.blank_record,
@@ -1041,7 +1017,7 @@ async def update_recording(
         id=recording.id,
         display_name=recording.display_name,
         start_time=recording.start_time,
-        duration=recording.duration,
+        duration=display_duration_seconds(recording),
         status=recording.status,
         failed=recording.failed,
         failed_at_stage=recording.failed_at_stage,
@@ -1753,7 +1729,9 @@ async def bulk_pause_recordings(
             celery_app.control.revoke(recording.pipeline_task_id, terminate=False)
 
         _pause_rollback = {
-            ProcessingStatus.DOWNLOADING: ProcessingStatus.INITIALIZED,
+            ProcessingStatus.DOWNLOADING: (
+                ProcessingStatus.DOWNLOADED if recording.local_video_path else ProcessingStatus.INITIALIZED
+            ),
             ProcessingStatus.PROCESSING: ProcessingStatus.DOWNLOADED,
             ProcessingStatus.UPLOADING: ProcessingStatus.PROCESSED,
         }
@@ -3278,7 +3256,9 @@ async def pause_recording(
 
     # Immediate rollback to stable status so smart_run can resume correctly
     _pause_rollback = {
-        ProcessingStatus.DOWNLOADING: ProcessingStatus.INITIALIZED,
+        ProcessingStatus.DOWNLOADING: (
+            ProcessingStatus.DOWNLOADED if recording.local_video_path else ProcessingStatus.INITIALIZED
+        ),
         ProcessingStatus.PROCESSING: ProcessingStatus.DOWNLOADED,
         ProcessingStatus.UPLOADING: ProcessingStatus.PROCESSED,
     }

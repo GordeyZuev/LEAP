@@ -13,12 +13,8 @@ export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButton
   pendingLabel?: string;
 }
 
-// Name the properties that actually change: `transition-all` makes the browser
-// watch every property and animates ones we never meant to (padding, radius).
 const BASE =
-  "flex items-center gap-2 font-medium disabled:opacity-50 " +
-  "transition-[color,background-color,border-color,box-shadow,opacity,scale] duration-200 ease-out " +
-  "active:scale-[0.96]";
+  "pressable flex items-center gap-2 font-medium disabled:opacity-50";
 
 const SIZES: Record<NonNullable<ActionButtonProps["size"]>, string> = {
   md: "px-4 py-2 rounded-xl text-sm",
@@ -35,6 +31,17 @@ const VARIANTS: Record<NonNullable<ActionButtonProps["variant"]>, string> = {
 
 const SUCCESS = "bg-green-600 text-white hover:bg-green-600";
 
+const ICON_SWAP =
+  "absolute inset-0 flex items-center justify-center " +
+  "transition-[opacity,filter,scale] duration-300 ease-[cubic-bezier(0.2,0,0,1)]";
+
+function iconSwapClass(show: boolean) {
+  return cn(
+    ICON_SWAP,
+    show ? "scale-100 opacity-100 blur-0" : "pointer-events-none scale-[0.25] opacity-0 blur-[4px]",
+  );
+}
+
 export function ActionButton({
   variant = "primary",
   size = "md",
@@ -49,6 +56,10 @@ export function ActionButton({
 }: ActionButtonProps) {
   const [justSaved, setJustSaved] = useState(false);
 
+  if (!isSuccess && justSaved) {
+    setJustSaved(false);
+  }
+
   useEffect(() => {
     if (!isSuccess) return;
     const t1 = setTimeout(() => setJustSaved(true), 0);
@@ -59,13 +70,10 @@ export function ActionButton({
   // The button owns icon sizing so one surface never mixes sizes. Both values
   // are clean divisions of lucide's 24px grid; off-grid sizes render soft.
   const iconSize = size === "sm" ? 12 : 16;
-  const iconNode = isPending
-    ? <RefreshCw size={iconSize} className="animate-spin" />
-    : justSaved
-      ? <Check size={iconSize} />
-      : isValidElement<{ size?: number }>(icon)
-        ? cloneElement(icon, { size: iconSize })
-        : icon ?? null;
+  const idleIcon = isValidElement<{ size?: number }>(icon)
+    ? cloneElement(icon, { size: iconSize })
+    : icon ?? null;
+  const showIconSlot = Boolean(idleIcon) || isPending || justSaved;
 
   const variantClass = justSaved && variant === "primary" ? SUCCESS : VARIANTS[variant];
 
@@ -76,7 +84,21 @@ export function ActionButton({
       className={cn(BASE, SIZES[size], variantClass, className)}
       {...rest}
     >
-      {iconNode}
+      {showIconSlot && (
+        <span className="relative shrink-0" style={{ width: iconSize, height: iconSize }}>
+          <span className={iconSwapClass(isPending)} aria-hidden>
+            <RefreshCw size={iconSize} className={isPending ? "animate-spin" : undefined} />
+          </span>
+          <span className={iconSwapClass(justSaved && !isPending)} aria-hidden>
+            <Check size={iconSize} />
+          </span>
+          {idleIcon != null && (
+            <span className={iconSwapClass(!isPending && !justSaved)} aria-hidden>
+              {idleIcon}
+            </span>
+          )}
+        </span>
+      )}
       {isPending && pendingLabel ? pendingLabel : children}
     </button>
   );

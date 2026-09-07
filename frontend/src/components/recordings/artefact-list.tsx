@@ -104,6 +104,42 @@ export interface ArtefactItem {
   key?: string;
 }
 
+export interface SourceExtrasLike {
+  chat?: { url: string } | null;
+  files?: { url: string; name: string; extension: string }[];
+}
+
+export function sourceExtrasToArtefacts(
+  extras: SourceExtrasLike | null | undefined,
+  resolveUrl: (url: string) => string,
+): ArtefactItem[] {
+  if (!extras) return [];
+  return [
+    ...(extras.chat
+      ? [{ type: "source_chat" as const, href: resolveUrl(extras.chat.url), key: "source_chat" }]
+      : []),
+    ...(extras.files ?? []).map((file, i) => ({
+      type: "source_file" as const,
+      href: resolveUrl(file.url),
+      label: file.name,
+      extension: file.extension,
+      key: `source_file_${i}`,
+    })),
+  ];
+}
+
+export function SourceExtrasSection({ items }: { items: ArtefactItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        From the source
+      </p>
+      <ArtefactList items={items} />
+    </div>
+  );
+}
+
 export function ArtefactList({ items }: { items: ArtefactItem[] }) {
   if (items.length === 0) return null;
 

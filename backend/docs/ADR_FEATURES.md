@@ -144,7 +144,7 @@ if job.last_run_at + min_interval > now():
 - `PATCH /automation/jobs/{id}` - update job
 - `DELETE /automation/jobs/{id}` - delete job
 - `POST /automation/jobs/{id}/run` - manual trigger
-- `POST /automation/jobs/{id}/dry-run` - preview
+- `POST /automation/jobs/{id}/run?dry_run=true` - preview (sync + match, no pipelines)
 
 **Статус:** ✅ Реализовано
 
@@ -287,7 +287,7 @@ user_subscriptions (user ← plan + custom overrides)
     ↓
 quota_usage (tracking по периодам YYYYMM)
 
-StatsService → recordings, transcription seconds, storage bytes
+AnalyticsService → daily activity time series (Settings → Usage, Admin → Analytics)
 ```
 
 ### Default Behavior
@@ -355,22 +355,24 @@ await check_recordings_quota(user_id)
 await check_storage_quota(user_id, user_slug)
 ```
 
-### User Stats
+### Product analytics (Usage / Admin)
 
-**StatsService** предоставляет статистику:
-- `recordings_total` — количество записей (фильтруется по датам)
-- `recordings_by_status` — разбивка по статусам
-- `recordings_by_template` — обработанные записи по шаблонам
-- `transcription_total_seconds` — сумма `final_duration`
-- `storage_bytes` / `storage_gb` — размер папки пользователя
+**AnalyticsService** (`api/services/analytics_service.py`) aggregates daily metrics for a date range (max 366 days):
+
+- `summary` — period totals (recordings, transcription minutes, uploads, share views, …)
+- `daily[]` — one row per calendar day (UTC)
+- `breakdown` — status/template/platform splits
+
+Legacy `GET /users/me/stats` was removed in v0.10.8.3; use **`GET /users/me/analytics`**. See [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md).
 
 ### Endpoints
 
 ```
 GET /users/me/quota - Current quota status
-GET /users/me/stats - User statistics (recordings, transcription, storage)
+GET /users/me/analytics - User activity time series (Settings → Usage)
+GET /admin/stats/analytics - Platform analytics (Admin → Analytics)
 GET /admin/stats/overview - Platform stats
-GET /admin/stats/users - User stats
+GET /admin/stats/users - Per-user quota usage table
 GET /admin/stats/quotas - Quota usage
 POST /admin/users/{id}/quota - Override quota
 ```
@@ -381,10 +383,10 @@ POST /admin/users/{id}/quota - Override quota
 - `config/settings.py` - `DEFAULT_QUOTAS` constant
 - `database/auth_models.py` - subscription & quota models (3 tables)
 - `api/services/quota_service.py` - quota logic (fallback → DEFAULT_QUOTAS)
-- `api/services/stats_service.py` - user statistics
+- `api/services/analytics_service.py` - product analytics time series
 - `api/middleware/quota.py` - enforcement checks
 - `api/routers/admin.py` - admin endpoints
-- `api/routers/users.py` - /me/quota, /me/stats
+- `api/routers/users.py` - /me/quota, /me/analytics
 
 **Статус:** ✅ Реализовано
 

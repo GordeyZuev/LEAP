@@ -92,9 +92,12 @@ export interface SubscriptionOverrides {
 
 export interface AdminSubscriptionInfo {
   user_id: string;
-  // Matches UserSubscriptionInDB: flat plan_id, no nested plan object.
   subscription: (SubscriptionOverrides & { id: number; plan_id: number }) | null;
   effective_quotas: Record<string, number | null>;
+  quota_status?: {
+    transcriptions?: { used?: number | null; limit?: number | null };
+    processing?: { used?: number | null; limit?: number | null };
+  };
 }
 
 export interface AdminUserUpdate {
@@ -130,7 +133,26 @@ export interface AdminUserStatsResponse {
   page_size: number;
 }
 
-// Users
+export async function fetchAdminUser(id: string): Promise<AdminUserProfile> {
+  const { data } = await apiClient.get(`/admin/users/${id}`);
+  return data;
+}
+
+export async function fetchAdminQuotaStats(period?: number) {
+  const { data } = await apiClient.get("/admin/stats/quotas", { params: period ? { period } : {} });
+  return data as {
+    period: number;
+    total_recordings: number;
+    total_storage_gb: number;
+    plans: {
+      plan_name: string;
+      total_users: number;
+      total_recordings: number;
+      avg_recordings_per_user: number;
+    }[];
+  };
+}
+
 export async function fetchAdminUsers(params: {
   page: number;
   page_size: number;

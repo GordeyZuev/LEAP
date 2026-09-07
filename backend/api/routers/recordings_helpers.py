@@ -10,6 +10,7 @@ from typing import Any, Literal
 from fastapi import HTTPException, status
 
 from api.core.context import ServiceContext
+from api.helpers.media_duration import display_duration_seconds
 from api.repositories.recording_repos import RecordingRepository
 from api.schemas.recording.filters import RecordingFilters as RecordingFiltersSchema
 from api.schemas.recording.operations import BulkProcessDryRunResponse, DryRunResponse
@@ -263,7 +264,7 @@ def _build_export_row(
         "id": recording.id,
         "display_name": recording.display_name,
         "start_time": recording.start_time.isoformat() if recording.start_time else None,
-        "duration": recording.duration,
+        "duration": display_duration_seconds(recording),
         "status": (getattr(recording.status, "value", recording.status) if recording.status else None),
     }
 

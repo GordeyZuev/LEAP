@@ -268,7 +268,8 @@ async def _run(args: argparse.Namespace) -> int:
         print(f"  [{i + 1}] {json.dumps(summary, ensure_ascii=False)}")
 
     extra_ids = [args.file_id] if args.file_id is not None else []
-    if extra_ids and extra_ids[0] not in {rec.get("id") for rec in records}:
+    listed_ids = {rec.get("id") for rec in records}
+    if extra_ids and extra_ids[0] not in listed_ids:
         print(f"\nAlso probing --file-id={args.file_id} (not on this /records page)")
 
     if not args.skip_duration:
@@ -298,10 +299,17 @@ async def _run(args: argparse.Namespace) -> int:
         print("\nNo online records in range. Try an earlier --from date.")
         return 0
 
-    first = records[0] if records else {}
-    event_session = first.get("eventSession") or {}
+    focus = records[0] if records else {}
+    if args.file_id is not None:
+        matched = next((rec for rec in records if rec.get("id") == args.file_id), None)
+        if matched:
+            focus = matched
+            print(f"\nFocus --file-id={args.file_id} (session + converted-records)")
+        else:
+            print(f"\nWARN --file-id={args.file_id} not in this /records page; session dump still uses first row")
+    event_session = focus.get("eventSession") or {}
     event_session_id = event_session.get("id") if isinstance(event_session, dict) else None
-    record_id = first.get("id")
+    record_id = focus.get("id")
 
     if event_session_id and not args.skip_duration:
         print(f"\n--- GET /eventsessions/{event_session_id} (files[].duration) ---")
@@ -335,7 +343,7 @@ async def _run(args: argparse.Namespace) -> int:
             print(f"WARN converted-records: {e}")
 
     if record_id:
-        print(f"\n(first record id={record_id} — use for POST /records/{{id}}/conversions in a later step)")
+        print(f"\n(focus record id={record_id} — use for POST /records/{{id}}/conversions in a later step)")
 
     if not args.skip_converted:
         print("\n--- GET /converted-records (recent conversions) ---")

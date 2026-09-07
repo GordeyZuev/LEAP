@@ -9,7 +9,6 @@ import {
   Check,
   Copy,
   Play,
-  Video,
   VideoOff,
 } from "lucide-react";
 
@@ -23,7 +22,9 @@ import {
   type PublicRecordingResponse,
 } from "@/api/share";
 import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-content-editor";
-import { ArtefactList, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
+import { resolveStorageUrl } from "@/api/client";
+import { StablePosterImage } from "@/components/recordings/recording-poster";
+import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
 import { ShareVideoDownloadButton } from "@/components/recordings/share-video-download-button";
 import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
@@ -35,6 +36,7 @@ import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { cn, formatDurationCompact, httpStatus } from "@/lib/utils";
 import { playlistResumeKey } from "@/lib/video-resume";
+import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -105,36 +107,31 @@ function nextPlayable(items: PublicPlaylistItem[], fromId: number): PublicPlayli
 
 function Thumb({
   src,
+  posterAssetKey,
   duration,
   active,
 }: {
   src: string | null;
+  posterAssetKey?: string | null;
   duration: number;
   active: boolean;
 }) {
   const dur = formatDurationCompact(duration);
   return (
-    <span
-      className={cn(
-        "relative aspect-video w-[7.5rem] shrink-0 overflow-hidden rounded-lg bg-muted",
-        "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
-      )}
-    >
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <span className="flex h-full items-center justify-center text-muted-foreground">
-          <Video size={16} strokeWidth={1.5} aria-hidden />
-        </span>
-      )}
+    <span className="relative aspect-video w-[7.5rem] shrink-0">
+      <StablePosterImage
+        posterUrl={src}
+        posterAssetKey={posterAssetKey}
+        className="h-full w-full"
+        placeholderIconSize={16}
+      />
       {dur && (
-        <span className="absolute bottom-1 end-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white">
+        <span className="pointer-events-none absolute bottom-1 end-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-medium tabular-nums text-white">
           {dur}
         </span>
       )}
       {active && (
-        <span className="absolute inset-0 flex items-center justify-center bg-black/35 text-white">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-black/35 text-white">
           <Play size={18} fill="currentColor" aria-hidden />
         </span>
       )}
@@ -222,7 +219,7 @@ export function WatchShell({ token }: { token: string }) {
   const [goneId, setGoneId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [playIntent, setPlayIntent] = useState(false);
-  const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("videos");
+  const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab | null>(null);
   const videoColRef = useRef<HTMLDivElement>(null);
   const [companionMaxH, setCompanionMaxH] = useState<number>();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -307,7 +304,7 @@ export function WatchShell({ token }: { token: string }) {
     : null;
 
   const markers: VideoPlayerMarker[] = topicTimestamps.map((t) => ({ time: t.start, label: t.topic }));
-  const hasTopicsPanel = !!(mainTopics.length || topicTimestamps.length);
+  const hasTopicsPanel = topicTimestamps.length > 0;
   const hasTranscript = transcript.length > 0;
   const hasExtraContent = !!(topicVersion?.summary || topicVersion?.questions?.length);
 
@@ -418,8 +415,8 @@ export function WatchShell({ token }: { token: string }) {
         <main className={PAGE_MAIN}>
           {watching ? (
             <div className={WATCH_GRID}>
-              <div className="min-w-0 space-y-5">
-                <Skeleton className="h-7 w-2/3 sm:w-1/2" />
+              <div className={cn(PLAYER_SHELL, "space-y-3")}>
+                <Skeleton className="h-7 w-2/3 sm:w-1/2 max-lg:mx-4 max-lg:mt-4" />
                 <div className={cn(VIDEO_PLAYER_FRAME, "animate-pulse")} />
               </div>
               <div className={cn(CARD_SHELL, "h-64 animate-pulse")} />
@@ -443,13 +440,13 @@ export function WatchShell({ token }: { token: string }) {
   const noPlayable = playableCount === 0;
 
   const sidePanelTabs: TabItem<SidePanelTab>[] = [
-    { value: "videos", label: "Videos" },
-    ...(hasTopicsPanel ? [{ value: "topics" as const, label: "Topics" }] : []),
+    ...(hasTopicsPanel ? [{ value: "topics" as const, label: "Timestamps" }] : []),
     ...(hasTranscript ? [{ value: "transcript" as const, label: "Transcript" }] : []),
+    { value: "videos", label: "Playlist" },
   ];
-  const activeTab = sidePanelTabs.some((t) => t.value === sidePanelTab)
+  const activeTab = sidePanelTab && sidePanelTabs.some((t) => t.value === sidePanelTab)
     ? sidePanelTab
-    : "videos";
+    : (sidePanelTabs[0]?.value ?? "videos");
 
   const allowVideo = recording?.allow_video_download !== false;
   const allowFiles = recording?.allow_files_download !== false;
@@ -459,8 +456,10 @@ export function WatchShell({ token }: { token: string }) {
         href: getPlaylistShareFileUrl(token, current.id, ft),
       }))
     : [];
+  const sourceExtras =
+    allowFiles && recording ? sourceExtrasToArtefacts(recording.source_extras, resolveStorageUrl) : [];
   const hasVideo = !!recording?.has_processed_video;
-  const hasFiles = artefacts.length > 0 || (hasVideo && allowVideo);
+  const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || (hasVideo && allowVideo);
 
   return (
     <div className="min-h-screen bg-background">
@@ -481,10 +480,11 @@ export function WatchShell({ token }: { token: string }) {
               <img src="/logo_symb.svg" alt="" aria-hidden="true" className="h-6 w-6" />
               <span className="text-sm font-semibold text-foreground">LEAP</span>
             </Link>
+            <AgeRatingBadge />
             {watching ? (
               <Link
                 href={`/share/p/${token}`}
-                className="hidden min-w-0 truncate text-sm text-muted-foreground hover:text-primary sm:block"
+                className="min-w-0 truncate rounded-sm text-sm text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
                 {playlist.name}
               </Link>
@@ -524,7 +524,6 @@ export function WatchShell({ token }: { token: string }) {
         {watching ? (
           <div className="space-y-5 sm:space-y-8">
             <WatchLayout
-              playlistName={playlist.name}
               token={token}
               items={items}
               current={current}
@@ -578,6 +577,7 @@ export function WatchShell({ token }: { token: string }) {
                       />
                     )}
                     <ArtefactList items={artefacts} />
+                    <SourceExtrasSection items={sourceExtras} />
                   </div>
                 </CollapsibleCard>
               )}
@@ -621,14 +621,12 @@ export function WatchShell({ token }: { token: string }) {
                   className="relative mt-4 block shrink-0 overflow-hidden rounded-xl max-md:-mx-3 max-md:rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <span className={cn(VIDEO_PLAYER_FRAME, "block bg-muted")}>
-                    {cover.poster_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={cover.poster_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full items-center justify-center text-muted-foreground">
-                        <Video size={28} strokeWidth={1.5} aria-hidden />
-                      </span>
-                    )}
+                    <StablePosterImage
+                      posterUrl={cover.poster_url}
+                      posterAssetKey={cover.poster_asset_key}
+                      className="h-full w-full rounded-none"
+                      placeholderIconSize={28}
+                    />
                   </span>
                 </Link>
               )}
@@ -656,7 +654,6 @@ export function WatchShell({ token }: { token: string }) {
 }
 
 function WatchLayout({
-  playlistName,
   token,
   items,
   current,
@@ -684,7 +681,6 @@ function WatchLayout({
   onNext,
   onNavigate,
 }: {
-  playlistName: string;
   token: string;
   items: PublicPlaylistItem[];
   current: PublicPlaylistItem | undefined;
@@ -738,19 +734,11 @@ function WatchLayout({
 
   return (
     <div className={WATCH_GRID}>
-      <div ref={videoColRef} className="min-w-0">
-        <p className="mb-2 text-sm text-muted-foreground">
-          <Link
-            href={`/share/p/${token}`}
-            className="rounded-sm hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-          >
-            {playlistName}
-          </Link>
-        </p>
-        <h1 className="mb-5 text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
-          {current?.title ?? "Video unavailable"}
-        </h1>
-        <div className={PLAYER_SHELL}>
+      <div className="min-w-0">
+        <div ref={videoColRef} className={PLAYER_SHELL}>
+          <h1 className="px-1 pb-3 text-xl font-semibold tracking-tight break-words text-foreground max-lg:px-4 max-lg:pt-4 sm:text-2xl">
+            {current?.title ?? "Video unavailable"}
+          </h1>
           {playable && current ? (
             <PlaylistVideoPlayer
               key={current.id}
@@ -847,7 +835,12 @@ function VideoList({
         const body = (
           <>
             <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted-foreground">{idx + 1}</span>
-            <Thumb src={item.poster_url} duration={item.duration} active={active && item.playable} />
+            <Thumb
+              src={item.poster_url}
+              posterAssetKey={item.poster_asset_key}
+              duration={item.duration}
+              active={active && item.playable}
+            />
             <span className="min-w-0 flex-1">
               <span className={cn("line-clamp-2 text-sm font-medium leading-snug text-foreground", !item.playable && "text-muted-foreground")}>
                 {item.title}
@@ -878,7 +871,7 @@ function VideoList({
 
   if (embedded) {
     return (
-      <div aria-label="Videos">
+      <div aria-label="Playlist videos">
         {list}
       </div>
     );

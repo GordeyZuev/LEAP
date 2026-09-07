@@ -1,6 +1,8 @@
 # Fireworks Batch API Integration
 
-**Экономия ~50% на транскрибации** через Batch API.
+**Status: superseded** – production ASR is **AssemblyAI**. This page is historical. See [FAQ.md](../FAQ.md).
+
+**Экономия ~50% на транскрибации** через Batch API (когда Fireworks был ASR-провайдером).
 
 ## ⚠️ Важно: Разница между терминами
 

@@ -40,20 +40,48 @@ def visitor_key_for_request(recording_id: int, request: Request) -> str:
 def fill_daily_series(
     aggregates: list[tuple[datetime, int, int]],
     *,
-    days: int,
+    days: int | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> list[tuple[date, int, int]]:
     """Return consecutive calendar days with zero-filled gaps."""
     counts: dict[date, tuple[int, int]] = {}
     for day_dt, views, downloads in aggregates:
         counts[day_dt.date()] = (views, downloads)
 
-    end = datetime.now(UTC).date()
-    start = end - timedelta(days=days - 1)
+    if from_date is not None and to_date is not None:
+        start, end = from_date, to_date
+    elif days is not None:
+        end = datetime.now(UTC).date()
+        start = end - timedelta(days=days - 1)
+    else:
+        raise ValueError("fill_daily_series requires days or from_date/to_date")
+
     series: list[tuple[date, int, int]] = []
     current = start
     while current <= end:
         views, downloads = counts.get(current, (0, 0))
         series.append((current, views, downloads))
+        current += timedelta(days=1)
+    return series
+
+
+def fill_daily_metrics(
+    metrics_by_date: dict[date, dict[str, float | int | None]],
+    *,
+    from_date: date,
+    to_date: date,
+    metric_keys: tuple[str, ...],
+) -> list[dict[str, date | float | int | None]]:
+    """Zero-fill consecutive calendar days for the given metric keys."""
+    series: list[dict[str, date | float | int | None]] = []
+    current = from_date
+    while current <= to_date:
+        row: dict[str, date | float | int | None] = {"date": current}
+        day_metrics = metrics_by_date.get(current, {})
+        for key in metric_keys:
+            row[key] = day_metrics.get(key, 0)
+        series.append(row)
         current += timedelta(days=1)
     return series
 
@@ -166,7 +194,7 @@ class ShareObservabilityService:
                 await session.commit()
             return True
         except Exception as exc:
-            logger.warning("share event persist failed (ignored): {!r}", exc)
+            logger.info("share event persist failed (ignored): {!r}", exc)
             return False
 
     @staticmethod

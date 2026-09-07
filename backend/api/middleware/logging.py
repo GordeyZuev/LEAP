@@ -1,4 +1,4 @@
-"""HTTP access logging middleware — one structured INFO event per request."""
+"""HTTP access logging middleware — one structured event per request."""
 
 import time
 import uuid
@@ -39,7 +39,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             start = time.perf_counter()
             try:
                 response = await call_next(request)
-            except Exception:
+            except Exception as exc:
                 if not skip:
                     duration_ms = (time.perf_counter() - start) * 1000
                     logger.bind(
@@ -47,6 +47,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                         duration_ms=round(duration_ms, 2),
                         user_id=getattr(request.state, "user_id", None),
                         client_ip=_client_ip(request),
+                        exception_class=type(exc).__name__,
                     ).exception("HTTP {} {} → 500 unhandled", method, path)
                 raise
 
@@ -60,15 +61,19 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             # for Prometheus/Loki aggregations vs the raw path.
             route = _route_template(request) or path
 
-            logger.bind(
-                status_code=response.status_code,
-                duration_ms=round(duration_ms, 2),
-                route=route,
-                user_id=getattr(request.state, "user_id", None),
-                client_ip=_client_ip(request),
-                user_agent=request.headers.get("user-agent"),
-                bytes_sent=_content_length(response),
-            ).log(
+            bind_fields = {
+                "status_code": response.status_code,
+                "duration_ms": round(duration_ms, 2),
+                "route": route,
+                "user_id": getattr(request.state, "user_id", None),
+                "client_ip": _client_ip(request),
+                "user_agent": request.headers.get("user-agent"),
+                "bytes_sent": _content_length(response),
+            }
+            exception_class = getattr(request.state, "exception_class", None)
+            if exception_class:
+                bind_fields["exception_class"] = exception_class
+            logger.bind(**bind_fields).log(
                 _level_for_status(response.status_code),
                 "HTTP {} {} → {} in {:.1f}ms",
                 method,
@@ -103,8 +108,15 @@ def _content_length(response) -> int | None:
 
 
 def _level_for_status(status_code: int) -> str:
+    """Map HTTP status to a log level.
+
+    400/401/404/422 stay INFO so Loki WARNING is reserved for things worth
+    paging on: CSRF, rate limits, conflicts, oversized bodies, and 5xx.
+    """
     if status_code >= 500:
         return "ERROR"
+    if status_code in {401, 404, 422, 400}:
+        return "INFO"
     if status_code >= 400:
         return "WARNING"
     return "INFO"

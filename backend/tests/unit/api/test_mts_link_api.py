@@ -196,10 +196,49 @@ class TestMtsLinkPayloadHelpers:
         assert unwrap_items({"data": [{"id": 2}]}) == [{"id": 2}]
         assert unwrap_items({"data": {"items": [{"id": 3}]}}) == [{"id": 3}]
         assert unwrap_items({"unexpected": 1}) == []
+        assert unwrap_items({"downloadUrl": "https://cdn/x.mp4"}) == [{"downloadUrl": "https://cdn/x.mp4"}]
 
     def test_extract_download_url_requires_ready_row(self):
         assert extract_download_url({"data": [{"state": "processing"}]}) is None
         assert extract_download_url({"data": [{"downloadUrl": "https://cdn/x.mp4"}]}) == "https://cdn/x.mp4"
+        assert extract_download_url({"downloadUrl": "https://cdn/official.mp4"}) == "https://cdn/official.mp4"
+        assert extract_download_url({"downloadUrl": "https://cdn/official.mp4"}, 42) == "https://cdn/official.mp4"
+        assert (
+            extract_download_url(
+                {
+                    "data": [
+                        {"downloadUrl": "https://cdn/a.mp4"},
+                        {"downloadUrl": "https://cdn/b.mp4"},
+                    ]
+                },
+                42,
+            )
+            is None
+        )
+
+    def test_extract_download_url_matches_record_id(self):
+        payload = {
+            "data": [
+                {"downloadUrl": "https://cdn/short.mp4", "recordFile": {"id": 1}},
+                {"downloadUrl": "https://cdn/lecture.mp4", "recordFile": {"id": 42}},
+            ]
+        }
+        assert extract_download_url(payload, 42) == "https://cdn/lecture.mp4"
+        assert extract_download_url(payload, 99) is None
+        assert extract_download_url(payload) == "https://cdn/short.mp4"
+
+    def test_extract_download_url_matches_session_file_id(self):
+        """Live GET /eventsessions/{id}/converted-records uses fileId, not recordFile."""
+        payload = [
+            {
+                "id": 9001,
+                "fileId": 1001,
+                "state": "completed",
+                "downloadUrl": "https://cdn/session.mp4",
+            }
+        ]
+        assert extract_download_url(payload, 1001) == "https://cdn/session.mp4"
+        assert extract_download_url(payload, 1002) is None
 
     def test_unwrap_conversion_jobs_reads_data_items(self):
         assert unwrap_conversion_jobs({"data": {"items": [{"id": 1}]}}) == [{"id": 1}]
@@ -216,8 +255,118 @@ class TestMtsLinkPayloadHelpers:
         ]
         picked = pick_active_conversion(rows, 10)
         assert picked is not None
+        assert picked["id"] == 5
+
+    def test_pick_active_conversion_max_processing_without_completed(self):
+        rows = [
+            {"id": 1, "state": "waiting", "progress": 0, "recordFile": {"id": 10}},
+            {"id": 2, "state": "processing", "progress": 50, "recordFile": {"id": 10}},
+            {"id": 3, "state": "processing", "progress": 81, "recordFile": {"id": 10}},
+            {"id": 4, "state": "processing", "progress": 99, "recordFile": {"id": 99}},
+        ]
+        picked = pick_active_conversion(rows, 10)
+        assert picked is not None
         assert picked["id"] == 3
+
+    def test_pick_active_conversion_processing_beats_canceled_and_waiting(self):
+        picked = pick_active_conversion(
+            [
+                {"id": 1, "state": "canceled", "progress": 0, "recordFile": {"id": 10}},
+                {"id": 2, "state": "waiting", "progress": 0, "recordFile": {"id": 10}},
+                {"id": 3, "state": "processing", "progress": 68, "recordFile": {"id": 10}},
+            ],
+            10,
+        )
+        assert picked is not None
+        assert picked["id"] == 3
+        assert picked["progress"] == 68
+
+    def test_pick_active_conversion_ignores_undocumented_stop(self):
+        assert pick_active_conversion([{"id": 1, "state": "stop", "recordFile": {"id": 10}}], 10) is None
+        assert pick_active_conversion([{"id": 1, "state": "stopped", "recordFile": {"id": 10}}], 10) is None
+        assert pick_active_conversion([{"id": 1, "state": "running", "recordFile": {"id": 10}}], 10) is None
 
     def test_pick_active_conversion_empty_when_nothing_in_flight(self):
         assert pick_active_conversion([{"id": 1, "state": "failed", "recordFile": {"id": 10}}], 10) is None
+        assert pick_active_conversion([{"id": 1, "state": "canceled", "recordFile": {"id": 10}}], 10) is None
         assert pick_active_conversion([], 10) is None
+
+    def test_pick_active_conversion_reads_bare_record_file_id(self):
+        picked = pick_active_conversion(
+            [{"id": 9, "state": "processing", "progress": 68, "recordFile": 10}],
+            10,
+        )
+        assert picked is not None
+        assert picked["id"] == 9
+
+    def test_pick_active_conversion_ignores_other_record_and_unlabeled(self):
+        assert (
+            pick_active_conversion(
+                [
+                    {"id": 1, "state": "canceled", "progress": 0, "recordFile": {"id": 10}},
+                    {"id": 2, "state": "processing", "progress": 68},
+                    {"id": 3, "state": "processing", "progress": 99, "recordFile": {"id": 99}},
+                ],
+                10,
+            )
+            is None
+        )
+
+    def test_pick_active_conversion_reads_status_field(self):
+        picked = pick_active_conversion(
+            [{"id": 9, "status": "processing", "progress": 12, "recordFile": {"id": 10}}],
+            10,
+        )
+        assert picked is not None
+        assert picked["id"] == 9
+
+    def test_pick_active_conversion_reuses_completed_without_repost(self):
+        picked = pick_active_conversion(
+            [{"id": 1, "state": "completed", "recordFile": {"id": 10}}],
+            10,
+        )
+        assert picked is not None
+        assert picked["id"] == 1
+
+    def test_prefer_keeps_further_processing_over_new_job(self):
+        from api.mts_link_api import prefer_conversion_job
+
+        picked = prefer_conversion_job(
+            {"id": 2, "state": "processing", "progress": 5},
+            {"id": 1, "state": "processing", "progress": 65},
+        )
+        assert picked is not None
+        assert picked["id"] == 1
+        assert picked["progress"] == 65
+
+    def test_prefer_same_id_keeps_list_progress(self):
+        from api.mts_link_api import prefer_conversion_job
+
+        picked = prefer_conversion_job(
+            {"id": 11, "state": "processing", "progress": 65, "recordFile": {"id": 1}},
+            {"id": 11, "state": "processing"},
+        )
+        assert picked is not None
+        assert picked["id"] == 11
+        assert picked["progress"] == 65
+
+    def test_prefer_known_without_progress_over_new_low_progress(self):
+        from api.mts_link_api import prefer_conversion_job
+
+        picked = prefer_conversion_job(
+            {"id": 22, "state": "processing", "progress": 5, "recordFile": {"id": 1}},
+            {"id": 11, "state": "processing"},
+        )
+        assert picked is not None
+        assert picked["id"] == 11
+
+    def test_conversion_busy_fields(self):
+        from api.mts_link_api import conversion_busy_fields, unwrap_data_object
+
+        payload = {
+            "error": {
+                "fieldErrors": {"currentConversionID": "6985887", "recordFileId": "6985000"},
+            }
+        }
+        assert conversion_busy_fields(payload) == ("6985887", "6985000")
+        assert unwrap_data_object({"data": {"id": 55, "state": "waiting"}})["id"] == 55

@@ -51,8 +51,8 @@ Values are prepared in `api.helpers.template_renderer.TemplateRenderer.prepare_r
 | `summary` | Plain text from transcription extract (may be empty) |
 | `themes` | Short comma-separated string from main topics |
 | `topic` | Alias of `themes` (compatibility) |
-| `topics` | Formatted block per `topics_display` settings |
-| `questions` | Formatted self-check questions if enabled |
+| `topics` | Formatted timestamps block from `topic_timestamps`, controlled by JSON `topics_display`. The editors label this **Timestamps**. Put `{{ topics }}` in the title or description to include it (and to show the Timestamps panel on template / run-config). Stored `enabled: false` does **not** empty the variable if the placeholder is present. |
+| `questions` | Formatted self-check questions per `questions_display` (UI: **Questions**) when `{{ questions }}` is in the template. Same `enabled` rule as `topics`. |
 | All `record_*` / `publish_*` date keys | Precomputed strings (see table above) |
 | `date` | Alias of `record_date` |
 
@@ -122,9 +122,13 @@ Central helper: `validate_jinja_template` / `assert_title_template_has_substitut
 
 ---
 
-## Topics list timestamps
+## Timestamps list (`{{ topics }}`)
 
-`TemplateRenderer._format_topics_list` respects **`show_timestamps`** (presets / template metadata) or **`include_timestamps`** (user `TopicsDisplayConfig`) when the former is absent — both control whether topic lines include timecodes from `topic_timestamps` data.
+JSON field remains **`topics_display`**. In the UI (template Metadata, Run/Edit configuration, YouTube/VK presets) the block is **Timestamps**: format and separator on the surface; **Show timestamps**, max/min length, and prefix under **Extra timestamps settings**. Questions use **Questions** / **Extra questions settings** (`questions_display`).
+
+`TemplateRenderer._format_topics_list` respects **`show_timestamps`** (template / preset metadata) or legacy **`include_timestamps`** when the former is absent. Both control whether each line includes a timecode from `topic_timestamps`. Default is on.
+
+Jinja autocomplete describes `topics` as “Formatted timestamps”; the inserted token is still `{{ topics }}`.
 
 ---
 
@@ -135,7 +139,7 @@ Central helper: `validate_jinja_template` / `assert_title_template_has_substitut
 | 422 on save | Template syntax; dry-run error message; title must include an allowed variable name in a `{{ ... }}` expression |
 | Empty `original_title` / wrong title | Use `{{ display_name }}` or `{{ original_title }}` (both set from the same source at upload) |
 | Date looks wrong | Owner `users.timezone`; values are local wall time, not UTC |
-| Preview differs from upload | Preview without `recording_id` uses stub data; pass `recording_id` for real values. Stub preview applies `topics_display` / `questions_display` from the request (timestamps, prefix, format) on fixed sample topics. |
+| Preview differs from upload | Preview without `recording_id` uses stub data; pass `recording_id` for real values. Stub preview applies `topics_display` / `questions_display` from the request (timecodes, prefix, format) on fixed sample timestamp lines. |
 
 ---
 
@@ -152,7 +156,7 @@ Central helper: `validate_jinja_template` / `assert_title_template_has_substitut
 ```jinja2
 {{ summary }}
 
-Topics:
+Timestamps:
 {{ topics }}
 ```
 

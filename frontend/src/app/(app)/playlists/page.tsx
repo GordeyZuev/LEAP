@@ -1,17 +1,19 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ListVideo, Plus } from "lucide-react";
+import { ExternalLink, ListVideo, Plus } from "lucide-react";
 
-import { createPlaylist, listPlaylists, type PlaylistListResponse } from "@/api/playlists";
+import { createPlaylist, listPlaylists, type PlaylistListItem, type PlaylistListResponse } from "@/api/playlists";
+import { StablePosterImage } from "@/components/recordings/recording-poster";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { ActionButton } from "@/components/ui/action-button";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { CardGridSkeleton } from "@/components/ui/list-skeleton";
@@ -25,6 +27,8 @@ import { FormattedText } from "@/components/ui/formatted-text";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { PER_PAGE_PLAYLISTS } from "@/lib/constants";
 import { PLAYLIST_JINJA_VARS } from "@/lib/formatted-text";
+import { structuralSharingPreservePosters } from "@/lib/poster-stable";
+import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { cn, extractApiError } from "@/lib/utils";
 
 const GRID_TRACKS = "grid-cols-[repeat(auto-fill,minmax(min(22rem,100%),1fr))]";
@@ -45,15 +49,101 @@ function formatPlaylistDuration(seconds: number): string {
   return `${Math.max(m, 0)}m`;
 }
 
+const SHARE_ACTION =
+  "inline-flex min-h-7 items-center gap-1 text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm";
+
+function playlistShareHref(token: string): string {
+  return `/share/p/${token}`;
+}
+
+function playlistShareUrl(token: string): string {
+  return `${window.location.origin}${playlistShareHref(token)}`;
+}
+
+function PlaylistCard({ playlist: p }: { playlist: PlaylistListItem }) {
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const publicShare = p.share_enabled && !!p.share_token;
+
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
+
+  async function onCopy(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!p.share_token) return;
+    try {
+      await navigator.clipboard.writeText(playlistShareUrl(p.share_token));
+    } catch {
+      return;
+    }
+    setCopied(true);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <article className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md">
+      <Link href={`/playlists/${p.id}`} className="flex min-w-0 flex-col">
+        <StablePosterImage
+          posterUrl={p.poster_url}
+          posterAssetKey={p.poster_asset_key}
+          className="mb-4 aspect-video w-full rounded-xl"
+          placeholderIconSize={28}
+        />
+        <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-balance text-foreground">{p.name}</h2>
+      </Link>
+      {p.description && (
+        <FormattedText
+          text={p.description}
+          className="mt-1 line-clamp-2 text-xs leading-relaxed text-pretty text-muted-foreground"
+        />
+      )}
+      <p className="mt-2 text-xs text-muted-foreground">
+        {p.video_count} {p.video_count === 1 ? "video" : "videos"}
+        {" · "}
+        {formatPlaylistDuration(p.duration_sum)}
+      </p>
+      {publicShare && p.share_token && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+          <a
+            href={playlistShareHref(p.share_token)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={SHARE_ACTION}
+          >
+            <span className="size-1.5 shrink-0 rounded-full bg-success-fg" aria-hidden />
+            <span className="sr-only">{p.name}: </span>
+            LEAP
+            <span className="sr-only"> public page (active)</span>
+            <ExternalLink size={9} strokeWidth={2} className="opacity-40" aria-hidden />
+          </a>
+          <button type="button" onClick={onCopy} className={SHARE_ACTION}>
+            {copied ? "Copied" : "Copy link"}
+            <span className="sr-only"> for {p.name}</span>
+          </button>
+        </div>
+      )}
+    </article>
+  );
+}
+
 function PlaylistsGrid({
   list,
+  onCreate,
 }: {
   list: ReturnType<typeof useUrlListState>;
+  onCreate: () => void;
 }) {
   const page = list.page;
   const onPageChange = list.setPage;
 
-  const { data, isLoading, error, refetch } = useQuery<PlaylistListResponse>({
+  const { data, isPending, error, refetch } = useQuery<
+    PlaylistListResponse,
+    Error,
+    PlaylistListResponse
+  >({
     queryKey: ["playlists", list.urlKey],
     queryFn: () =>
       listPlaylists({
@@ -63,7 +153,16 @@ function PlaylistsGrid({
         sort_by: list.sortBy,
         sort_order: list.sortOrder,
       }),
+    staleTime: STALE_TIME.catalog,
+    ...listQueryOptions,
+    structuralSharing: (oldData, newData) =>
+      structuralSharingPreservePosters(
+        oldData as PlaylistListResponse | undefined,
+        newData as PlaylistListResponse,
+      ),
   });
+
+  const showSkeleton = isInitialLoad(isPending, data);
 
   useEffect(() => {
     if (!data) return;
@@ -80,11 +179,11 @@ function PlaylistsGrid({
     <>
       <ResultCount total={data?.total} itemLabel="playlist" filtered={list.hasActiveFilters} />
 
-      {isLoading && <CardGridSkeleton />}
+      {showSkeleton && <CardGridSkeleton />}
 
       {error && <ErrorState description="Failed to load playlists" onRetry={() => void refetch()} />}
 
-      {!isLoading && !error && playlists.length === 0 && (
+      {!showSkeleton && !error && playlists.length === 0 && (
         list.hasActiveFilters ? (
           <EmptyState
             icon={ListVideo}
@@ -101,47 +200,17 @@ function PlaylistsGrid({
             icon={ListVideo}
             title="No playlists yet"
             description="Create a playlist, then add recordings from Publications."
+            action={
+              <CreatePlaceholder className="w-full max-w-xs" label="Add a playlist" onClick={onCreate} />
+            }
           />
         )
       )}
 
-      {!isLoading && !error && playlists.length > 0 && (
+      {!showSkeleton && !error && playlists.length > 0 && (
         <div className={cn("grid animate-fade-in gap-4", GRID_TRACKS)}>
           {playlists.map((p) => (
-            <Link
-              key={p.id}
-              href={`/playlists/${p.id}`}
-              className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
-            >
-              <div className="mb-4 aspect-video overflow-hidden rounded-xl bg-muted">
-                {p.poster_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.poster_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-muted-foreground">
-                    <ListVideo size={28} strokeWidth={1.5} />
-                  </div>
-                )}
-              </div>
-              <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-balance text-foreground">{p.name}</h2>
-              {p.description && (
-                <FormattedText
-                  text={p.description}
-                  className="mt-1 line-clamp-2 text-xs leading-relaxed text-pretty text-muted-foreground"
-                />
-              )}
-              <p className="mt-2 text-xs text-muted-foreground">
-                {p.video_count} {p.video_count === 1 ? "video" : "videos"}
-                {" · "}
-                {formatPlaylistDuration(p.duration_sum)}
-              </p>
-              {p.share_enabled && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-success-fg">
-                  <span className="size-1.5 rounded-full bg-success-fg" aria-hidden />
-                  Public
-                </p>
-              )}
-            </Link>
+            <PlaylistCard key={p.id} playlist={p} />
           ))}
         </div>
       )}
@@ -226,7 +295,7 @@ function PlaylistsContent() {
             value={list.sortBy}
             order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={list.setSort}
+            onChange={list.setSortField}
             onToggleOrder={list.toggleSortOrder}
           />
         }
@@ -234,7 +303,7 @@ function PlaylistsContent() {
         chips={<FilterChips chips={chips} />}
       />
 
-      <PlaylistsGrid list={list} />
+      <PlaylistsGrid list={list} onCreate={() => { setFieldError(null); setCreateOpen(true); }} />
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} label="Create playlist" panelClassName="max-w-md">
         <form

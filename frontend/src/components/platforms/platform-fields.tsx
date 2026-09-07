@@ -1,15 +1,18 @@
 "use client";
 
-import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Info } from "lucide-react";
+import { Fragment, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { applyDescriptionHotkey, DESCRIPTION_FORMAT_WHISPER, isDescriptionFormatHotkey } from "@/lib/formatted-text";
+import { applyDescriptionHotkey, isDescriptionFormatHotkey } from "@/lib/formatted-text";
 import { TagInput } from "@/components/ui/tag-input";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker";
-import { PlatformToggle } from "@/components/platforms/platform-toggle";
+import { Toggle } from "@/components/ui/toggle";
+import { AboutFormatting } from "@/components/ui/about-formatting";
+import { AdvancedBlock, ToggleGrid } from "@/components/ui/disclosure";
+import { useLanguages } from "@/hooks/use-references";
+import { insertJinjaVar, useJinjaCombobox } from "@/hooks/use-jinja-combobox";
 import {
   DisplayConfigFields,
   type DisplayConfig,
@@ -22,7 +25,7 @@ import type { DisplayConfigDefaultsPayload } from "@/lib/display-config-defaults
 import { DISPLAY_CONFIG_PLACEHOLDER } from "@/lib/display-config-defaults";
 
 // Re-exported for existing importers.
-export { PlatformToggle };
+export { Toggle as PlatformToggle };
 
 // ---------------------------------------------------------------------------
 // Jinja2 variable definitions (shown in autocomplete dropdown)
@@ -30,7 +33,7 @@ export { PlatformToggle };
 
 const JINJA_VARS: { value: string; description: string }[] = [
   { value: "display_name",       description: "Recording title" },
-  { value: "topics",             description: "All topics block" },
+  { value: "topics",             description: "Formatted timestamps" },
   { value: "summary",            description: "Text summary" },
   { value: "themes",             description: "Comma-separated themes" },
   { value: "questions",          description: "Self-check questions" },
@@ -113,33 +116,13 @@ export function TemplateField({
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fieldId = useId();
   const listboxId = useId();
-  const [acOpen, setAcOpen] = useState(false);
-  const [acQuery, setAcQuery] = useState("");
-
-  const filtered = useMemo(
-    () =>
-      JINJA_VARS.filter((v) =>
-        v.value.toLowerCase().startsWith(acQuery.toLowerCase()),
-      ),
-    [acQuery],
-  );
+  const optionIdPrefix = useId();
+  const ac = useJinjaCombobox(JINJA_VARS);
 
   useLayoutEffect(() => {
     if (!multiline || !textareaRef.current) return;
     syncMultilineHeight(textareaRef.current);
   }, [value, multiline]);
-
-  function updateAcFromCaret(text: string, caret: number) {
-    const before = text.slice(0, caret);
-    const match = before.match(/\{\{\s*(\w*)$/);
-    if (match) {
-      setAcOpen(true);
-      setAcQuery(match[1]);
-    } else {
-      setAcOpen(false);
-      setAcQuery("");
-    }
-  }
 
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const ta = e.currentTarget;
@@ -157,10 +140,47 @@ export function TemplateField({
       }
     }
     onChange(next);
-    updateAcFromCaret(next, ta.selectionStart);
+    ac.updateFromCaret(next, ta.selectionStart);
+  }
+
+  function commitInsert(varName: string) {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const { next, caret } = insertJinjaVar(value, ta.selectionStart, ta.selectionEnd, varName);
+    onChange(next);
+    ac.setAcOpen(false);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(caret, caret);
+    });
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const listOpen = ac.acOpen && ac.filtered.length > 0;
+    if (listOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        ac.moveHighlight(1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        ac.moveHighlight(-1);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        if (ac.active) {
+          e.preventDefault();
+          commitInsert(ac.active.value);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        ac.setAcOpen(false);
+        return;
+      }
+    }
     if (e.key === "Enter" && !multiline) {
       e.preventDefault();
       return;
@@ -188,26 +208,7 @@ export function TemplateField({
   }
 
   function handleBlur() {
-    blurTimer.current = setTimeout(() => setAcOpen(false), 150);
-  }
-
-  function insertVar(varName: string) {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const caret = ta.selectionStart;
-    const before = value.slice(0, caret);
-    const after = value.slice(ta.selectionEnd);
-    const newBefore = before.replace(/\{\{\s*\w*$/, `{{ ${varName} }}`);
-    const newVal = newBefore + after;
-    onChange(newVal);
-    setAcOpen(false);
-    setAcQuery("");
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-        textareaRef.current.setSelectionRange(newBefore.length, newBefore.length);
-      }
-    });
+    blurTimer.current = setTimeout(() => ac.setAcOpen(false), 150);
   }
 
   const singleLineTypography = "text-sm font-medium leading-7";
@@ -255,11 +256,15 @@ export function TemplateField({
           onKeyDown={handleKeyDown}
           onScroll={handleScroll}
           onBlur={handleBlur}
-          onSelect={(e) => updateAcFromCaret(value, e.currentTarget.selectionStart)}
+          onSelect={(e) => ac.updateFromCaret(value, e.currentTarget.selectionStart)}
           rows={multiline ? rows : 1}
           spellCheck={false}
           aria-autocomplete="list"
-          aria-controls={acOpen ? listboxId : undefined}
+          aria-expanded={ac.acOpen && ac.filtered.length > 0}
+          aria-controls={ac.acOpen && ac.filtered.length > 0 ? listboxId : undefined}
+          aria-activedescendant={
+            ac.acOpen && ac.active ? `${optionIdPrefix}-${ac.active.value}` : undefined
+          }
           placeholder={placeholder}
           className={cn(
             fieldSurface,
@@ -270,22 +275,30 @@ export function TemplateField({
           )}
         />
 
-        {acOpen && filtered.length > 0 && (
+        {ac.acOpen && ac.filtered.length > 0 && (
           <ul
             id={listboxId}
             role="listbox"
             className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-border bg-card shadow-lg"
           >
-            {filtered.map((v) => (
-              <li key={v.value} role="option" aria-selected={false}>
+            {ac.filtered.map((v) => (
+              <li
+                key={v.value}
+                id={`${optionIdPrefix}-${v.value}`}
+                role="option"
+                aria-selected={ac.active?.value === v.value}
+              >
                 <button
                   type="button"
                   onMouseDown={(e) => {
                     e.preventDefault();
                     if (blurTimer.current) clearTimeout(blurTimer.current);
-                    insertVar(v.value);
+                    commitInsert(v.value);
                   }}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted"
+                  className={cn(
+                    "flex w-full items-center gap-3 px-3 py-2 text-left",
+                    ac.active?.value === v.value ? "bg-muted" : "hover:bg-muted",
+                  )}
                 >
                   <code className="shrink-0 font-mono text-xs text-primary">{`{{ ${v.value} }}`}</code>
                   <span className="text-xs text-muted-foreground">{v.description}</span>
@@ -295,44 +308,9 @@ export function TemplateField({
           </ul>
         )}
       </div>
-      <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-        <Info size={11} className="shrink-0" />
-        Jinja2 — type <code className="font-mono">{"{{ "}</code> to autocomplete.
-        {multiline ? " Cmd/Ctrl+B, I, U, Shift+X, K (skips {{ variables }})." : null}
-      </p>
-      {multiline ? (
-        <p className="text-[10px] leading-snug text-muted-foreground/55">{DESCRIPTION_FORMAT_WHISPER}</p>
-      ) : null}
+      <AboutFormatting multiline={multiline} />
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Layout helpers — keep dense forms friendly: collapsible advanced sections and
-// a 2-column toggle grid so switches sit next to their labels.
-// ---------------------------------------------------------------------------
-
-function Disclosure({ title, children }: { title: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-border bg-background">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-secondary-foreground hover:text-foreground"
-      >
-        {title}
-        <ChevronDown size={15} className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
-      </button>
-      {open && <div className="space-y-4 border-t border-border px-4 pb-4 pt-3">{children}</div>}
-    </div>
-  );
-}
-
-/** Lay out toggle rows in two columns so the switch hugs its label. */
-function ToggleGrid({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">{children}</div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +444,7 @@ export function YouTubeFields({
   showExtended?: boolean;
   showDisplayConfig?: boolean;
 }) {
+  const { data: languages = [] } = useLanguages();
   return (
     <div className="space-y-4">
       <TemplateField
@@ -529,16 +508,31 @@ export function YouTubeFields({
         />
       </div>
       {showMadeForKids && !showExtended && (
-        <PlatformToggle
+        <Toggle
           label="Made for kids"
           checked={value.made_for_kids}
           onChange={(v) => onChange({ made_for_kids: v })}
         />
       )}
 
+      {showDisplayConfig && (
+        <>
+          <DisplayConfigFields
+            kind="topics"
+            value={value.topics_display}
+            onChange={(patch) => onChange({ topics_display: { ...value.topics_display, ...patch } })}
+          />
+          <DisplayConfigFields
+            kind="questions"
+            value={value.questions_display}
+            onChange={(patch) => onChange({ questions_display: { ...value.questions_display, ...patch } })}
+          />
+        </>
+      )}
+
       {showExtended && (
-        <Disclosure title="Advanced">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <AdvancedBlock title="Extra YouTube settings">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <span className={FILTER_LABEL}>License</span>
               <NativeSelect value={value.license} onChange={(e) => onChange({ license: e.target.value })}>
@@ -549,13 +543,15 @@ export function YouTubeFields({
             </div>
             <div className="space-y-1">
               <span className={FILTER_LABEL}>Default language</span>
-              <input
-                type="text"
+              <NativeSelect
                 value={value.default_language}
                 onChange={(e) => onChange({ default_language: e.target.value })}
-                placeholder="ru"
-                className={FILTER_CONTROL}
-              />
+              >
+                <option value="">— default —</option>
+                {languages.filter((l) => l.value !== "auto").map((l) => (
+                  <option key={l.value} value={l.value}>{l.label}</option>
+                ))}
+              </NativeSelect>
             </div>
           </div>
           <div className="space-y-1">
@@ -566,33 +562,16 @@ export function YouTubeFields({
               onChange={(e) => onChange({ publish_at: e.target.value })}
               className={FILTER_CONTROL}
             />
-            <p className="text-[11px] text-muted-foreground">Leave empty to publish per the privacy setting.</p>
+            <p className="text-xs text-muted-foreground">Leave empty to publish per the privacy setting.</p>
           </div>
           <ToggleGrid>
-            <PlatformToggle label="Embeddable" checked={value.embeddable} onChange={(v) => onChange({ embeddable: v })} />
-            <PlatformToggle label="Notify subscribers" checked={value.notify_subscribers} onChange={(v) => onChange({ notify_subscribers: v })} />
-            <PlatformToggle label="Disable comments" checked={value.disable_comments} onChange={(v) => onChange({ disable_comments: v })} />
-            <PlatformToggle label="Disable ratings" checked={value.rating_disabled} onChange={(v) => onChange({ rating_disabled: v })} />
-            <PlatformToggle label="Made for kids" checked={value.made_for_kids} onChange={(v) => onChange({ made_for_kids: v })} />
+            <Toggle label="Embeddable" checked={value.embeddable} onChange={(v) => onChange({ embeddable: v })} />
+            <Toggle label="Notify subscribers" checked={value.notify_subscribers} onChange={(v) => onChange({ notify_subscribers: v })} />
+            <Toggle label="Disable comments" checked={value.disable_comments} onChange={(v) => onChange({ disable_comments: v })} />
+            <Toggle label="Disable ratings" checked={value.rating_disabled} onChange={(v) => onChange({ rating_disabled: v })} />
+            <Toggle label="Made for kids" checked={value.made_for_kids} onChange={(v) => onChange({ made_for_kids: v })} />
           </ToggleGrid>
-        </Disclosure>
-      )}
-
-      {showDisplayConfig && (
-        <>
-          <DisplayConfigFields
-            label="Topics in description"
-            kind="topics"
-            value={value.topics_display}
-            onChange={(patch) => onChange({ topics_display: { ...value.topics_display, ...patch } })}
-          />
-          <DisplayConfigFields
-            label="Questions in description"
-            kind="questions"
-            value={value.questions_display}
-            onChange={(patch) => onChange({ questions_display: { ...value.questions_display, ...patch } })}
-          />
-        </>
+        </AdvancedBlock>
       )}
     </div>
   );
@@ -730,38 +709,36 @@ export function VkFields({
         )}
       </div>
       {showWallpost && (
-        <PlatformToggle
+        <Toggle
           label="Post to wall"
           checked={value.wallpost}
           onChange={(v) => onChange({ wallpost: v })}
         />
       )}
 
-      {showExtended && (
-        <Disclosure title="Advanced">
-          <ToggleGrid>
-            <PlatformToggle label="Loop playback" checked={value.repeat} onChange={(v) => onChange({ repeat: v })} />
-            <PlatformToggle label="VK-side compression" checked={value.compression} onChange={(v) => onChange({ compression: v })} />
-            <PlatformToggle label="Disable comments" checked={value.disable_comments} onChange={(v) => onChange({ disable_comments: v })} />
-          </ToggleGrid>
-        </Disclosure>
-      )}
-
       {showDisplayConfig && (
         <>
           <DisplayConfigFields
-            label="Topics in description"
             kind="topics"
             value={value.topics_display}
             onChange={(patch) => onChange({ topics_display: { ...value.topics_display, ...patch } })}
           />
           <DisplayConfigFields
-            label="Questions in description"
             kind="questions"
             value={value.questions_display}
             onChange={(patch) => onChange({ questions_display: { ...value.questions_display, ...patch } })}
           />
         </>
+      )}
+
+      {showExtended && (
+        <AdvancedBlock title="Extra VK settings">
+          <ToggleGrid>
+            <Toggle label="Loop playback" checked={value.repeat} onChange={(v) => onChange({ repeat: v })} />
+            <Toggle label="VK-side compression" checked={value.compression} onChange={(v) => onChange({ compression: v })} />
+            <Toggle label="Disable comments" checked={value.disable_comments} onChange={(v) => onChange({ disable_comments: v })} />
+          </ToggleGrid>
+        </AdvancedBlock>
       )}
     </div>
   );
@@ -835,7 +812,7 @@ function YandexExtraFileBlock({
 }) {
   return (
     <div className="rounded-xl border border-border bg-background px-4 py-3">
-      <PlatformToggle label={label} checked={value.enabled} onChange={(v) => onChange({ enabled: v })} />
+      <Toggle label={label} checked={value.enabled} onChange={(v) => onChange({ enabled: v })} />
       {value.enabled && (
         <div className="space-y-3 border-t border-border pt-3">
           <TemplateField
@@ -919,8 +896,21 @@ export function YandexDiskFields({
         onChange={(v) => onChange({ filename_template: v })}
         placeholder="{{ display_name }}.mp4"
       />
+      <ToggleGrid>
+        <Toggle
+          label="Overwrite existing"
+          checked={value.overwrite}
+          onChange={(v) => onChange({ overwrite: v })}
+        />
+        <Toggle
+          label="Publish publicly"
+          checked={value.publish}
+          onChange={(v) => onChange({ publish: v })}
+        />
+      </ToggleGrid>
+
       {showExtended && (
-        <>
+        <AdvancedBlock title="Extra Yandex Disk settings">
           <TemplateField
             label="Title template"
             value={value.title_template}
@@ -934,24 +924,6 @@ export function YandexDiskFields({
             multiline
             placeholder={"Recording from {{ date }}\n\n{{ topics }}"}
           />
-        </>
-      )}
-      <div className="divide-y divide-muted">
-        <PlatformToggle
-          label="Overwrite existing"
-          checked={value.overwrite}
-          onChange={(v) => onChange({ overwrite: v })}
-        />
-        <PlatformToggle
-          label="Publish publicly"
-          checked={value.publish}
-          onChange={(v) => onChange({ publish: v })}
-        />
-      </div>
-
-      {showExtended && (
-        <div className="space-y-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Extra files</p>
           <YandexExtraFileBlock
             label="Upload subtitles (.srt)"
             value={value.subtitles_srt}
@@ -977,7 +949,7 @@ export function YandexDiskFields({
             credentialId={credentialId}
             withContent
           />
-        </div>
+        </AdvancedBlock>
       )}
     </div>
   );

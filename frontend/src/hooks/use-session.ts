@@ -1,34 +1,16 @@
-import { useEffect, useState } from "react";
-
-import { apiClient } from "@/api/client";
 import { hasSessionCookie } from "@/lib/auth";
+import { useMe } from "@/lib/react-query";
 
 export type SessionStatus = "checking" | "authenticated" | "anonymous";
 
-// Verifies the session by hitting /users/me. The fast path skips the round-trip
-// when the CSRF cookie isn't even present (no session possible).
+// Session status for public entry routes (/login, landing). Waits for /users/me
+// when a cookie is present so a dead session does not bounce through /recordings.
 export function useSession(): SessionStatus {
-  const [status, setStatus] = useState<SessionStatus>("checking");
+  const hasCookie = hasSessionCookie();
+  const { isError, isPending, data } = useMe({ enabled: hasCookie });
 
-  useEffect(() => {
-    let cancelled = false;
-    async function verify() {
-      if (!hasSessionCookie()) {
-        if (!cancelled) setStatus("anonymous");
-        return;
-      }
-      try {
-        await apiClient.get("/users/me");
-        if (!cancelled) setStatus("authenticated");
-      } catch {
-        if (!cancelled) setStatus("anonymous");
-      }
-    }
-    void verify();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return status;
+  if (!hasCookie) return "anonymous";
+  if (isError) return "anonymous";
+  if (isPending && data === undefined) return "checking";
+  return "authenticated";
 }

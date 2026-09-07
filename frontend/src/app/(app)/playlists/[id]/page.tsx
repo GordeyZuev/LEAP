@@ -29,8 +29,10 @@ import {
   updatePlaylist,
   type PlaylistDetail,
   type PlaylistItem,
+  type PlaylistItemsResponse,
 } from "@/api/playlists";
 import { apiClient } from "@/api/client";
+import { structuralSharingPreservePosters } from "@/lib/poster-stable";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
@@ -46,7 +48,7 @@ import { RecordingPoster } from "@/components/recordings/recording-poster";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toast } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
-import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { CHECKBOX, FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { interpolatePlaylistDescription, PLAYLIST_JINJA_VARS } from "@/lib/formatted-text";
 import { cn, extractApiError, formatDate, httpStatus } from "@/lib/utils";
 
@@ -108,7 +110,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
     enabled: Number.isFinite(playlistId),
   });
 
-  const itemsQuery = useQuery({
+  const itemsQuery = useQuery<PlaylistItemsResponse, Error, PlaylistItemsResponse>({
     queryKey: ["playlist-items", playlistId, q, fromDate, toDate],
     queryFn: () =>
       listPlaylistItems(playlistId, {
@@ -118,6 +120,11 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
         per_page: 200,
       }),
     enabled: Number.isFinite(playlistId),
+    structuralSharing: (oldData, newData) =>
+      structuralSharingPreservePosters(
+        oldData as PlaylistItemsResponse | undefined,
+        newData as PlaylistItemsResponse,
+      ),
   });
 
   const items = itemsQuery.data?.items ?? EMPTY_ITEMS;
@@ -171,6 +178,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
     mutationFn: () => enablePlaylistShare(playlistId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      qc.invalidateQueries({ queryKey: ["playlists"] });
       show("success", "Link enabled");
     },
     onError: (e) => show("error", extractApiError(e, "Failed to enable link")),
@@ -181,6 +189,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
     onSuccess: () => {
       setDisableConfirm(false);
       qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      qc.invalidateQueries({ queryKey: ["playlists"] });
       show("success", "Link disabled");
     },
     onError: (e) => show("error", extractApiError(e, "Failed to disable link")),
@@ -191,6 +200,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
     onSuccess: () => {
       setRotateConfirm(false);
       qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
+      qc.invalidateQueries({ queryKey: ["playlists"] });
       show("success", "Link rotated");
     },
     onError: (e) => show("error", extractApiError(e, "Failed to rotate link")),
@@ -523,6 +533,8 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                   <RecordingPoster
                     recordingId={item.recording_id}
                     posterUrl={item.poster_url}
+                    posterFallbackUrl={item.poster_fallback_url}
+                    posterAssetKey={item.poster_asset_key}
                     duration={item.duration}
                     className="aspect-video w-16 shrink-0"
                   />
@@ -576,7 +588,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                         return next;
                       });
                     }}
-                    className="rounded accent-primary"
+                    className={CHECKBOX}
                   />
                   <span className="min-w-0 flex-1 truncate text-sm">{rec.display_name}</span>
                 </label>
@@ -656,11 +668,13 @@ function PlaylistAccessCard({
   return (
     <section aria-labelledby="playlist-access-heading" className={cn(CARD_SHELL, "overflow-hidden p-4")}>
       <div className="flex items-start gap-2.5">
-        {active ? (
-          <Check size={14} className="mt-0.5 shrink-0 text-success-fg" aria-hidden />
-        ) : (
-          <LinkIcon size={14} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
-        )}
+        <span className="mt-px flex h-8 w-3.5 shrink-0 items-center justify-center" aria-hidden>
+          {active ? (
+            <Check size={14} className="text-success-fg" />
+          ) : (
+            <LinkIcon size={14} className="text-muted-foreground" />
+          )}
+        </span>
         <div className="min-w-0 flex-1">
           <h2 id="playlist-access-heading" className="text-xs font-semibold text-foreground">
             LEAP Link
@@ -668,11 +682,6 @@ function PlaylistAccessCard({
           <p className={cn("text-xs", active ? "text-success-fg" : "text-muted-foreground")}>
             {active ? "Active" : "Not shared"}
           </p>
-          {publicUrl && (
-            <p className="mt-1.5 truncate font-mono text-xs text-muted-foreground" title={publicUrl}>
-              {publicUrl}
-            </p>
-          )}
           {!playlist.share_enabled && (
             <div className="mt-3">
               <ActionButton

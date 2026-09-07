@@ -6,8 +6,8 @@ import {
   FILTER_LABEL,
   FILTER_SEGMENT_ACTIVE,
   FILTER_SEGMENT_BTN,
+  FILTER_SEGMENT_CHROME,
   FILTER_SEGMENT_IDLE,
-  FILTER_SEGMENT_WRAP,
 } from "@/lib/filter-field-classes";
 
 export interface SegmentedOption<V extends string | number = string> {
@@ -28,6 +28,8 @@ interface SegmentedFieldProps<V extends string | number> {
   labelHidden?: boolean;
   disabled?: boolean;
   className?: string;
+  /** Segments share the full width (picker type filter). */
+  stretch?: boolean;
 }
 
 /**
@@ -45,17 +47,22 @@ export function SegmentedField<V extends string | number = string>({
   labelHidden = false,
   disabled = false,
   className,
+  stretch = false,
 }: SegmentedFieldProps<V>) {
   const labelId = useId();
   return (
-    <div data-segmented-field className={cn("w-fit max-w-full", className)}>
-      <span id={labelId} className={cn(FILTER_LABEL, "mb-1.5", labelHidden && "sr-only")}>
+    <div data-segmented-field className={cn(stretch ? "w-full" : "w-fit max-w-full", className)}>
+      <span id={labelId} className={cn(FILTER_LABEL, labelHidden ? "sr-only" : "mb-1.5")}>
         {label}
       </span>
       <div
         role="radiogroup"
         aria-labelledby={labelId}
-        className={cn(FILTER_SEGMENT_WRAP, disabled && "opacity-50")}
+        className={cn(
+          FILTER_SEGMENT_CHROME,
+          stretch ? "flex w-full" : "inline-flex max-w-full",
+          disabled && "opacity-50",
+        )}
       >
         {options.map((opt) => {
           const optionDisabled = disabled || opt.disabled;
@@ -69,6 +76,7 @@ export function SegmentedField<V extends string | number = string>({
               onClick={() => onChange(opt.value)}
               className={cn(
                 FILTER_SEGMENT_BTN,
+                stretch && "min-w-0 flex-1",
                 opt.badge && "inline-flex items-center gap-1.5",
                 value === opt.value ? FILTER_SEGMENT_ACTIVE : FILTER_SEGMENT_IDLE,
                 optionDisabled && "cursor-not-allowed",

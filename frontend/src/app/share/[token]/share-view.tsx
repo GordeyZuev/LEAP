@@ -19,7 +19,8 @@ import {
   type PublicRecordingResponse,
 } from "@/api/share";
 import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-content-editor";
-import { ArtefactList, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
+import { resolveStorageUrl } from "@/api/client";
+import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
 import { ShareVideoDownloadButton } from "@/components/recordings/share-video-download-button";
 import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
@@ -32,6 +33,7 @@ import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { cn, formatDate, formatDuration, httpStatus } from "@/lib/utils";
 import { recordingResumeKey } from "@/lib/video-resume";
+import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -221,7 +223,7 @@ export function ShareView({ token }: { token: string }) {
       }
     : null;
 
-  const hasTopicsPanel = !!(mainTopics.length || topicTimestamps.length);
+  const hasTopicsPanel = topicTimestamps.length > 0;
   const hasTranscript = transcript.length > 0;
   const hasExtraContent = !!(topicVersion?.summary || topicVersion?.questions?.length);
 
@@ -255,7 +257,6 @@ export function ShareView({ token }: { token: string }) {
       setCompanionMaxH(el.getBoundingClientRect().height);
     };
 
-    syncHeight();
     const raf = window.requestAnimationFrame(syncHeight);
     const observer = new ResizeObserver(syncHeight);
     observer.observe(el);
@@ -314,8 +315,15 @@ export function ShareView({ token }: { token: string }) {
           </div>
         </header>
         <main className={PAGE_MAIN}>
-          <div className="space-y-5">
-            <Skeleton className="h-7 w-2/3 sm:w-1/2" />
+          <div
+            className={cn(
+              CARD_SHELL,
+              "overflow-hidden space-y-3",
+              "max-lg:p-0",
+              "lg:p-3",
+            )}
+          >
+            <Skeleton className="h-7 w-2/3 sm:w-1/2 max-lg:mx-4 max-lg:mt-4" />
             <div className={cn(VIDEO_PLAYER_FRAME, "animate-pulse")} />
           </div>
         </main>
@@ -335,12 +343,15 @@ export function ShareView({ token }: { token: string }) {
         href: getShareFileUrl(token, ft),
       }))
     : [];
+  const sourceExtras = allowFiles
+    ? sourceExtrasToArtefacts(recording.source_extras, resolveStorageUrl)
+    : [];
 
   const onProcessedTimeline = currentVariant === "processed";
   const showCompanion = onProcessedTimeline && (hasTopicsPanel || hasTranscript);
 
   const sidePanelTabs: TabItem<SidePanelTab>[] = [];
-  if (hasTopicsPanel) sidePanelTabs.push({ value: "topics", label: "Topics" });
+  if (hasTopicsPanel) sidePanelTabs.push({ value: "topics", label: "Timestamps" });
   if (hasTranscript) sidePanelTabs.push({ value: "transcript", label: "Transcript" });
   const showCompanionTabs = sidePanelTabs.length > 1;
   const showCompanionCol = showCompanion && sidePanelTabs.length > 0;
@@ -384,20 +395,23 @@ export function ShareView({ token }: { token: string }) {
     />
   );
 
-  const hasFiles = artefacts.length > 0 || (hasVideo && allowVideo);
+  const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || (hasVideo && allowVideo);
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
         <div className={PAGE_HEADER_INNER}>
-          <Link
-            href="/"
-            className="flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo_symb.svg" alt="" aria-hidden="true" className="h-6 w-6" />
-            <span className="text-sm font-semibold text-foreground">LEAP</span>
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo_symb.svg" alt="" aria-hidden="true" className="h-6 w-6" />
+              <span className="text-sm font-semibold text-foreground">LEAP</span>
+            </Link>
+            <AgeRatingBadge />
+          </div>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Clock size={13} />
@@ -433,27 +447,9 @@ export function ShareView({ token }: { token: string }) {
       <main className={PAGE_MAIN}>
         <div className="space-y-5 sm:space-y-8">
           <div className={showCompanionCol ? WATCH_GRID : undefined}>
-            <div ref={videoColRef} className="min-w-0">
-              <h1 className="mb-5 text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
-                {recording.title || recording.display_name}
-              </h1>
-              {bothVariants && (
-                <div className="mb-5 space-y-2">
-                  <SegmentedField
-                    label="Video source"
-                    labelHidden
-                    options={VIDEO_VARIANT_OPTIONS}
-                    value={currentVariant}
-                    onChange={setVideoVariant}
-                  />
-                  {!onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
-                    <p className="text-xs text-muted-foreground">
-                      Topics and transcript follow the processed video.
-                    </p>
-                  )}
-                </div>
-              )}
+            <div className="min-w-0">
               <div
+                ref={videoColRef}
                 className={cn(
                   CARD_SHELL,
                   "overflow-hidden",
@@ -461,6 +457,25 @@ export function ShareView({ token }: { token: string }) {
                   "lg:p-3",
                 )}
               >
+                <h1 className="px-1 pb-3 text-xl font-semibold tracking-tight break-words text-foreground max-lg:px-4 max-lg:pt-4 sm:text-2xl">
+                  {recording.title || recording.display_name}
+                </h1>
+                {bothVariants && (
+                  <div className="px-1 pb-3 space-y-2 max-lg:px-4">
+                    <SegmentedField
+                      label="Video source"
+                      labelHidden
+                      options={VIDEO_VARIANT_OPTIONS}
+                      value={currentVariant}
+                      onChange={setVideoVariant}
+                    />
+                    {!onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
+                      <p className="text-xs text-muted-foreground">
+                        Timestamps and transcript follow the processed video.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {playerNode}
               </div>
             </div>
@@ -533,6 +548,7 @@ export function ShareView({ token }: { token: string }) {
                     <ShareVideoDownloadButton download={() => getShareMedia(token, currentVariant, true)} />
                   )}
                   <ArtefactList items={artefacts} />
+                  <SourceExtrasSection items={sourceExtras} />
                 </div>
               </CollapsibleCard>
             )}

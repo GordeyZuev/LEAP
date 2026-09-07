@@ -41,6 +41,11 @@ export interface PublicRecordingResponse {
   has_original_video: boolean;
   allow_video_download?: boolean;
   allow_files_download?: boolean;
+  source_extras?: {
+    chat: { name: string; extension: string; size: number | null; url: string } | null;
+    files: { name: string; extension: string; size: number | null; url: string }[];
+    expires_in: number;
+  } | null;
 }
 
 export interface PublicPlaylistItem {
@@ -52,6 +57,7 @@ export interface PublicPlaylistItem {
   playable: boolean;
   unavailable_reason: string | null;
   poster_url: string | null;
+  poster_asset_key?: string | null;
 }
 
 export interface PublicPlaylistResponse {
@@ -97,10 +103,11 @@ export async function rotateShareLink(recordingId: number): Promise<ShareCreateR
 
 export async function fetchShareAnalytics(
   recordingId: number,
-  days: 7 | 28 = 28,
+  range: { from: string; to: string } | { days: 7 | 28 },
 ): Promise<ShareAnalyticsResponse> {
+  const params = "days" in range ? { days: range.days } : { from: range.from, to: range.to };
   const res = await apiClient.get<ShareAnalyticsResponse>(`/recordings/${recordingId}/share/analytics`, {
-    params: { days },
+    params,
   });
   return res.data;
 }

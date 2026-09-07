@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.schemas.automation.filters import DEFAULT_AUTOMATION_STATUS_FILTER
+from api.schemas.automation.filters import DEFAULT_AUTOMATION_STATUS_FILTER, AutomationFilters
 from api.tasks.automation import _resolve_status_filter, _should_enqueue_recording
 from models.recording import ProcessingStatus, SourceType
 
@@ -23,8 +23,19 @@ def test_legacy_invalid_statuses_are_dropped():
 
 
 @pytest.mark.unit
+def test_non_list_status_falls_back_to_default():
+    assert _resolve_status_filter({"status": "INITIALIZED"}) == list(DEFAULT_AUTOMATION_STATUS_FILTER)
+
+
+@pytest.mark.unit
 def test_garbage_only_status_list_falls_back_to_default():
     assert _resolve_status_filter({"status": ["FAILED"]}) == list(DEFAULT_AUTOMATION_STATUS_FILTER)
+
+
+@pytest.mark.unit
+def test_pydantic_filters_drop_legacy_statuses():
+    parsed = AutomationFilters.model_validate({"status": ["INITIALIZED", "FAILED"], "exclude_blank": False})
+    assert parsed.status == ["INITIALIZED"]
 
 
 def _rec(*, status, on_air=False, on_pause=False, source_type=None, deleted=False):

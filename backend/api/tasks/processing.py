@@ -63,7 +63,7 @@ async def _track_event(
             )
             await session.commit()
     except Exception as exc:
-        logger.warning(f"usage_event '{event_type}' tracking failed (ignored): {exc!r}")
+        logger.info(f"usage_event '{event_type}' tracking failed (ignored): {exc!r}")
 
 
 # Maps a logical counter name to its repository method. Explicit (not built by
@@ -91,7 +91,7 @@ async def _increment_usage_counter(user_id: str, counter: str) -> None:
             repo = _QuotaUsageRepository(session)
             await getattr(repo, method_name)(user_id, current_period)
     except Exception as exc:
-        logger.warning(f"usage counter '{counter}' increment failed (ignored): {exc!r}")
+        logger.info(f"usage counter '{counter}' increment failed (ignored): {exc!r}")
 
 
 def _update_pipeline_completed(recording: RecordingModel) -> None:
@@ -302,11 +302,21 @@ async def _async_download_recording(
             f"Download config | {format_details(max_file_size_mb=max_file_size_mb, retry_attempts=retry_attempts)}"
         )
 
-        # Check if not already downloaded (consult storage backend, key may be S3 or LOCAL)
-        if not force and recording.status == ProcessingStatus.DOWNLOADED and recording.local_video_path:
+        # Skip network download whenever the object already exists. Pause rolls
+        # DOWNLOADING → INITIALIZED even if the file is already in storage; a
+        # later Celery retry must not treat that as "need to fetch from YouTube".
+        if not force and recording.local_video_path:
             from file_storage.factory import get_storage_backend as _get_storage
 
             if await _get_storage().exists(recording.local_video_path):
+                if recording.status in (
+                    ProcessingStatus.INITIALIZED,
+                    ProcessingStatus.SKIPPED,
+                    ProcessingStatus.DOWNLOADING,
+                ):
+                    recording.status = ProcessingStatus.DOWNLOADED
+                    await recording_repo.update(recording)
+                    await session.commit()
                 return {
                     "success": True,
                     "message": "Already downloaded",
@@ -528,6 +538,23 @@ async def _download_via_external(
     recording.status = ProcessingStatus.DOWNLOADED
     recording.downloaded_at = datetime.now(UTC)
     recording.video_file_size = result.file_size
+    if source_type == "MTS_LINK":
+        from api.helpers.blank_record import (
+            BLANK_REASON_TOO_SHORT,
+            apply_blank_record,
+            is_mts_link_blank_any,
+            positive_duration_seconds,
+        )
+
+        file_duration = positive_duration_seconds(result.duration)
+        if file_duration is None:
+            from api.helpers.media_duration import probe_stored_media_duration
+
+            file_duration = await probe_stored_media_duration(result.storage_key)
+        if file_duration is not None:
+            recording.duration = int(file_duration)
+        if is_mts_link_blank_any(file_duration, recording.duration):
+            apply_blank_record(recording, True, reason=BLANK_REASON_TOO_SHORT)
     logger.info(
         f"{format_status_change('Recording', old_status, recording.status)} | {format_details(size=result.file_size)}"
     )
@@ -744,6 +771,10 @@ async def _async_process_video(
             logger.info("Skipped: source not ready (waiting for MTS conversion)")
             return {"status": "skipped", "reason": "awaiting_mts"}
 
+        if recording.blank_record:
+            logger.info("Skipped: blank record")
+            return {"status": "skipped", "reason": "blank_record"}
+
         # Idempotency: skip if trim already completed successfully
         trim_stage = next((s for s in recording.processing_stages if s.stage_type == ProcessingStageType.TRIM), None)
         if trim_stage and trim_stage.status == ProcessingStageStatus.COMPLETED:
@@ -909,7 +940,9 @@ async def _async_process_video(
                 video_meta = await processor.get_video_info(str(local_source_video))
                 video_duration = float(video_meta["duration"])
                 if end_trim > video_duration:
-                    logger.warning(
+                    overshoot = end_trim - video_duration
+                    log = logger.warning if overshoot > 30 else logger.info
+                    log(
                         f"Trim end exceeds video duration; clamping | "
                         f"end={end_trim:.2f}s video_duration={video_duration:.2f}s"
                     )
@@ -1674,8 +1707,21 @@ def run_recording_task(
 
         self.run_async(_set_pipeline_started())
 
-        # Check blank_record
-        if recording.blank_record:
+        # Check blank_record (MTS: DB duration can be the real MP4 while API session is hours)
+        from api.helpers.blank_record import (
+            BLANK_REASON_TOO_SHORT,
+            apply_blank_record,
+            is_mts_link_blank,
+            positive_duration_seconds,
+        )
+        from models.recording import SourceType as _SourceType
+
+        mts_file_is_short = bool(
+            recording.source
+            and recording.source.source_type == _SourceType.MTS_LINK
+            and is_mts_link_blank(positive_duration_seconds(recording.duration))
+        )
+        if recording.blank_record or mts_file_is_short:
             logger.info(
                 f"Skipped: blank record | {format_details(duration=f'{recording.duration}s', size=recording.video_file_size)}"
             )
@@ -1685,8 +1731,7 @@ def run_recording_task(
                     recording_repo = RecordingRepository(session)
                     rec = await recording_repo.get_by_id(recording_id, user_id)
                     if rec:
-                        rec.status = ProcessingStatus.SKIPPED
-                        rec.failed_reason = "Blank record (too short or too small)"
+                        apply_blank_record(rec, True, reason=BLANK_REASON_TOO_SHORT, force_status_skip=True)
                         rec.on_air = False
                         rec.pipeline_task_id = None
                         await session.commit()

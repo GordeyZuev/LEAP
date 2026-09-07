@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArchiveRestore, ExternalLink, MoreHorizontal, Pause, Pencil, Play, RotateCcw, Settings2, Trash2 } from "lucide-react";
-import { cn, formatDate, stripLeadingTimestamp } from "@/lib/utils";
+import { cn, formatDate, stripLeadingTimestamp, collapseWhitespace } from "@/lib/utils";
 import { formatShareStatsSummary, type ShareStatsSummary } from "@/lib/share-stats";
 import { type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
@@ -24,6 +24,7 @@ export interface RecordingCardData {
   poster_url?: string | null;
   poster_source?: "thumbnail" | "frame" | null;
   poster_fallback_url?: string | null;
+  poster_asset_key?: string | null;
   status: ProcessingStatus;
   start_time: string;
   duration: number;
@@ -174,7 +175,7 @@ export function RecordingCard({
   }, [onRename, r.display_name]);
 
   const commitEdit = useCallback(() => {
-    const t = editName.trim();
+    const t = collapseWhitespace(editName);
     if (t && t !== r.display_name) onRename?.(r.id, t);
     setEditing(false);
   }, [editName, r.display_name, r.id, onRename]);
@@ -200,6 +201,7 @@ export function RecordingCard({
             recordingId={r.id}
             posterUrl={r.poster_url}
             posterFallbackUrl={r.poster_fallback_url}
+            posterAssetKey={r.poster_asset_key}
             duration={r.duration}
             className={RECORDING_CARD_POSTER}
           />
@@ -393,9 +395,10 @@ export function RecordingCard({
               {onRunWithConfig && (
                 <button
                   type="button"
-                  disabled={isLoading}
+                  disabled={!r.can_run || isLoading}
                   onClick={() => onRunWithConfig(r.id)}
                   title="Run with config"
+                  aria-label="Run with config"
                   className="inline-flex h-7 w-7 items-center justify-center rounded-e-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-secondary-foreground disabled:opacity-40"
                 >
                   <Settings2 size={11} />

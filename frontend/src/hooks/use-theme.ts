@@ -5,7 +5,7 @@ import { applyThemeInstantly, getStoredTheme, THEME_KEY, type ThemeMode } from "
 
 /**
  * Read/write the theme preference. The `dark` class is applied pre-paint by the
- * inline ThemeScript; this hook keeps it in sync on change and reacts to OS
+ * inline theme boot script in the root layout <head>; this hook keeps it in sync on change and reacts to OS
  * theme changes while in "system" mode.
  */
 export function useTheme() {

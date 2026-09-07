@@ -87,6 +87,15 @@ class JobListResponse(PaginatedResponse):
     items: list[AutomationJobListItem]
 
 
+class AffectedRecording(BaseModel):
+    """One recording a job run started (or would start, for preview)."""
+
+    id: int
+    name: str = ""
+    template_id: int
+    template_name: str = ""
+
+
 class JobRunItem(BaseModel):
     """One recorded execution of an automation job."""
 
@@ -103,6 +112,7 @@ class JobRunItem(BaseModel):
     matched_count: int
     processed_count: int
     error: str | None = None
+    affected_recordings: list[AffectedRecording] | None = None
 
 
 class JobRunListResponse(PaginatedResponse):
@@ -112,10 +122,14 @@ class JobRunListResponse(PaginatedResponse):
 
 
 class DryRunResult(BaseModel):
-    """Result of dry-run preview."""
+    """Celery success payload for automation.dry_run (also nested in GET /tasks/{id})."""
 
+    status: str = "success"
     job_id: int
-    estimated_new_recordings: int = Field(description="Estimated number of new recordings to sync")
-    estimated_matched_recordings: int = Field(description="Estimated number of recordings that will match templates")
-    templates_to_apply: list[int] = Field(description="Template IDs that will be applied")
-    estimated_duration_minutes: int = Field(description="Estimated total duration in minutes")
+    user_id: str | None = None
+    synced_count: int = 0
+    sources_synced: list[int] = Field(default_factory=list)
+    recordings_found: int = 0
+    matched_count: int = 0
+    unmatched_count: int = 0
+    would_process: list[AffectedRecording] = Field(default_factory=list)

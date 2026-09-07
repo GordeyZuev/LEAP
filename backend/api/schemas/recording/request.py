@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from api.schemas.common.validators import collapse_optional_display_name
 from api.schemas.processing.preferences import ProcessingPreferences
 from api.schemas.recording.filters import RecordingFilters
 from api.schemas.template.metadata_config import TemplateMetadataConfig
@@ -28,6 +29,11 @@ class AddVideoByUrlRequest(BaseModel):
     )
     template_id: int | None = Field(None, gt=0, description="Bind recording to template")
     auto_run: bool = Field(False, description="Immediately start full pipeline (download → process → upload)")
+
+    @field_validator("display_name")
+    @classmethod
+    def collapse_display_name(cls, v: str | None) -> str | None:
+        return collapse_optional_display_name(v, allow_empty=True)
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -621,6 +627,11 @@ class RecordingUpdateRequest(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=500)
     allow_video_download: bool | None = Field(None, description="Allow public video download on share pages")
     allow_files_download: bool | None = Field(None, description="Allow public file downloads on share pages")
+
+    @field_validator("display_name")
+    @classmethod
+    def collapse_display_name(cls, v: str | None) -> str | None:
+        return collapse_optional_display_name(v)
 
 
 # ============================================================================

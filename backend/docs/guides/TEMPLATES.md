@@ -475,9 +475,18 @@ POST /api/v1/templates
       "enable_transcription": true,
       "language": "ru",
       "enable_topics": true,
-      "granularity": "long"
+      "granularity": "long",
+      "questions_count": 3,
+      "prompt": null
     },
-    "transcription_vocabulary": ["NumPy", "Pandas", "Scikit-learn", "ML"]
+    "transcription_vocabulary": ["NumPy", "Pandas", "Scikit-learn", "ML"],
+    "trimming": {
+      "enable_trimming": true,
+      "silence_threshold": -40,
+      "min_silence_duration": 2,
+      "padding_before": 5,
+      "padding_after": 5
+    }
   },
   "metadata_config": {
     "title_template": "МО | {themes}",
@@ -602,7 +611,11 @@ GET /templates/{id}/stats
 
 ### Output Preset Metadata
 
-**Output Preset** содержит платформенные defaults (privacy, category, topics_display):
+Whether `{{ topics }}` / `{{ questions }}` appear in title or description templates controls whether those lists are included. The UI names them **Timestamps** and **Questions**; JSON stays `topics_display` / `questions_display`. `show_timestamps` (default on) lives under **Extra timestamps settings**. Stored `enabled: false` no longer zeros the formatted lists if the placeholder is present.
+
+Template **Processing** can set `trimming` (silence trim) and ASR `transcription.prompt` from **Extra processing settings**.
+
+**Output Preset** stores platform defaults (privacy, category, `topics_display`):
 
 ```json
 {
@@ -629,8 +642,8 @@ GET /templates/{id}/stats
 {
   "name": "ML Lectures",
   "metadata_config": {
-    "title_template": "МО | {themes}",
-    "description_template": "Лекция по машинному обучению\n\n{topics}",
+    "title_template": "МО | {{ themes }}",
+    "description_template": "Лекция по машинному обучению\n\n{{ topics }}",
     "thumbnail_name": "ml_course.png",  // Common thumbnail for all platforms
     "youtube": {
       "playlist_id": "PLxxx",

@@ -2,7 +2,7 @@
 
 import { KeyboardEvent, useState } from "react";
 import { X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, collapseWhitespace } from "@/lib/utils";
 
 interface TagInputProps {
   tags: string[] | null | undefined;
@@ -25,8 +25,8 @@ export function TagInput({
   const tags = tagsProp ?? [];
   const [input, setInput] = useState("");
 
-  function addTag(value: string) {
-    const trimmed = value.trim().replace(/,+$/, "");
+    function addTag(value: string) {
+    const trimmed = collapseWhitespace(value).replace(/,+$/, "");
     if (!trimmed || tags.includes(trimmed)) return;
     onChange([...tags, trimmed]);
     setInput("");

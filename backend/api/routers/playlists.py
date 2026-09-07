@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.helpers.leap_publication import publication_looks_for_recordings
+from api.helpers.media_duration import display_duration_seconds
 from api.helpers.playlist_description import render_playlist_description
 from api.schemas.common.pagination import paginate_list
 from api.schemas.playlist import (
@@ -23,7 +24,13 @@ from api.schemas.playlist import (
     PlaylistShareResponse,
     PlaylistUpdate,
 )
-from api.services.playlist_service import UNSET, PlaylistService, is_playable, item_unavailable_reason, poster_url_map
+from api.services.playlist_service import (
+    UNSET,
+    PlaylistService,
+    is_playable,
+    item_unavailable_reason,
+    poster_preview_map,
+)
 from database.playlist_models import PlaylistItemModel, PlaylistModel
 from logger import format_details, get_logger
 
@@ -40,7 +47,7 @@ def _counts(playlist: PlaylistModel) -> tuple[int, float]:
         rec = item.recording
         if rec is None:
             continue
-        duration += rec.final_duration or rec.duration or 0.0
+        duration += display_duration_seconds(rec)
     return len(items), duration
 
 
@@ -71,6 +78,7 @@ def _first_playable_recording(playlist: PlaylistModel):
 def _to_list_item(
     playlist: PlaylistModel,
     poster_url: str | None = None,
+    poster_asset_key: str | None = None,
     *,
     item_titles: dict[int, str] | None = None,
 ) -> PlaylistListItem:
@@ -81,8 +89,10 @@ def _to_list_item(
         description=render_playlist_description(playlist.description, playlist, item_titles=item_titles),
         video_count=video_count,
         duration_sum=duration_sum,
+        share_token=playlist.share_token,
         share_enabled=playlist.share_enabled,
         poster_url=poster_url,
+        poster_asset_key=poster_asset_key,
         created_at=playlist.created_at,
         updated_at=playlist.updated_at,
     )
@@ -91,6 +101,8 @@ def _to_list_item(
 def _to_item_response(
     item: PlaylistItemModel,
     poster_url: str | None = None,
+    poster_fallback_url: str | None = None,
+    poster_asset_key: str | None = None,
     *,
     title: str | None = None,
 ) -> PlaylistItemResponse:
@@ -104,10 +116,12 @@ def _to_item_response(
         display_name=display,
         title=title if title is not None else display,
         start_time=rec.start_time if rec else item.created_at,
-        duration=(rec.final_duration or rec.duration) if rec else 0.0,
+        duration=display_duration_seconds(rec) if rec else 0.0,
         playable=is_playable(rec) if rec else False,
         unavailable_reason=reason,
         poster_url=poster_url,
+        poster_fallback_url=poster_fallback_url,
+        poster_asset_key=poster_asset_key,
         deleted=bool(rec.deleted) if rec else True,
         blank_record=bool(rec.blank_record) if rec else False,
     )
@@ -132,12 +146,13 @@ async def list_playlists(
     listed_recs = [item.recording for p in items for item in (p.items or [])]
     looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, listed_recs)
     item_titles = {rid: look.title for rid, look in looks.items()}
-    posters = await poster_url_map(ctx.session, ctx.user_id, first_recs, looks=looks)
+    previews = await poster_preview_map(ctx.session, ctx.user_id, first_recs, looks=looks)
     return PlaylistListResponse(
         items=[
             _to_list_item(
                 p,
-                poster_url=posters.get(rec.id) if rec is not None else None,
+                poster_url=previews[rec.id].url if rec is not None and rec.id in previews else None,
+                poster_asset_key=previews[rec.id].asset_key or None if rec is not None and rec.id in previews else None,
                 item_titles=item_titles,
             )
             for p, rec in zip(items, first_recs, strict=True)
@@ -237,12 +252,14 @@ async def list_playlist_items(
     )
     recs = [i.recording for i in page_items]
     looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, recs)
-    posters = await poster_url_map(ctx.session, ctx.user_id, recs, looks=looks)
+    previews = await poster_preview_map(ctx.session, ctx.user_id, recs, looks=looks)
     return PlaylistItemsResponse(
         items=[
             _to_item_response(
                 i,
-                poster_url=posters.get(i.recording_id),
+                poster_url=previews[i.recording_id].url if i.recording_id in previews else None,
+                poster_fallback_url=previews[i.recording_id].fallback_url if i.recording_id in previews else None,
+                poster_asset_key=previews[i.recording_id].asset_key or None if i.recording_id in previews else None,
                 title=looks[i.recording_id].title if i.recording_id in looks else None,
             )
             for i in page_items
@@ -268,12 +285,18 @@ async def add_playlist_items(
     playlist = await svc.get_owned(playlist_id)
     recs = [item.recording for item in playlist.items]
     looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, recs)
-    posters = await poster_url_map(ctx.session, ctx.user_id, recs, looks=looks)
+    previews = await poster_preview_map(ctx.session, ctx.user_id, recs, looks=looks)
     by_id = {item.id: item for item in playlist.items}
     return [
         _to_item_response(
             by_id[item.id],
-            poster_url=posters.get(by_id[item.id].recording_id),
+            poster_url=previews[by_id[item.id].recording_id].url if by_id[item.id].recording_id in previews else None,
+            poster_fallback_url=previews[by_id[item.id].recording_id].fallback_url
+            if by_id[item.id].recording_id in previews
+            else None,
+            poster_asset_key=previews[by_id[item.id].recording_id].asset_key or None
+            if by_id[item.id].recording_id in previews
+            else None,
             title=looks[by_id[item.id].recording_id].title if by_id[item.id].recording_id in looks else None,
         )
         for item in created

@@ -198,17 +198,17 @@ class TemplateMetadataConfig(BaseModel):
         examples=[
             "Lecture\\n\\n{{ topics }}\\n\\n{{ questions }}\\n\\nRecorded: {{ record_date }}",
             "{{ summary }}",
-            "Topics: {{ topics }}\\n\\nDuration: {{ duration }}",
+            "Timestamps: {{ topics }}\\n\\nDuration: {{ duration }}",
         ],
     )
 
     topics_display: TopicsDisplayConfig | None = Field(
         None,
-        description="Topics display settings",
+        description="Formatting for Jinja {{ topics }} (UI: Timestamps)",
     )
     questions_display: QuestionsDisplayConfig | None = Field(
         None,
-        description="Questions display settings",
+        description="Formatting for Jinja {{ questions }} (UI: Questions)",
     )
 
     thumbnail_name: str | None = Field(

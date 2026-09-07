@@ -48,9 +48,10 @@ class TaskAccessService:
         """
         task = AsyncResult(task_id, app=celery_app)
 
-        # PENDING tasks: allow (task creator verified via API)
-        if task.state == "PENDING":
-            logger.debug(f"Task {task_id} is PENDING, skipping user_id check")
+        # PENDING / STARTED / RETRY: no stable result dict yet (track_started, retry
+        # stores the exception in info). Caller got task_id from an authenticated API.
+        if task.state in ("PENDING", "STARTED", "RETRY"):
+            logger.debug(f"Task {task_id} is {task.state}, skipping user_id check")
             return task
 
         task_user_id = TaskAccessService._extract_user_id_from_task(task)

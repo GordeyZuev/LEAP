@@ -21,8 +21,8 @@ from api.schemas.auth import (
 )
 from config.settings import DEFAULT_QUOTAS
 from database.auth_models import UserCredentialModel
+from database.automation_models import AutomationJobModel
 from database.models import RecordingModel
-from database.template_models import RecordingTemplateModel
 from file_storage.factory import get_storage_backend
 from logger import get_logger
 
@@ -194,8 +194,9 @@ class QuotaService:
         max_processing = quotas.get("max_processing_per_month")
         max_templates = quotas.get("max_templates")
         max_credentials = quotas.get("max_credentials")
-        templates_used = await self._count_rows(RecordingTemplateModel, user_id)
+        templates_used = await RecordingTemplateRepository(self.session).count_matchable_by_user(user_id)
         credentials_used = await self._count_rows(UserCredentialModel, user_id)
+        automation_jobs_used = await self._count_rows(AutomationJobModel, user_id)
 
         # Subscription info (optional)
         subscription = await self.subscription_repo.get_by_user_id(user_id)
@@ -258,9 +259,9 @@ class QuotaService:
                 "available": max_tasks - tasks_used if max_tasks is not None else None,
             },
             automation_jobs={
-                "used": 0,
+                "used": automation_jobs_used,
                 "limit": max_jobs,
-                "available": max_jobs if max_jobs is not None else None,
+                "available": max_jobs - automation_jobs_used if max_jobs is not None else None,
             },
             transcriptions={
                 "used": current_usage.transcriptions_count,
@@ -347,4 +348,14 @@ class QuotaService:
         current = await self._count_rows(UserCredentialModel, user_id)
         if current >= max_credentials:
             return False, f"Credentials limit reached: {max_credentials}"
+        return True, None
+
+    async def check_automation_jobs_quota(self, user_id: str) -> tuple[bool, str | None]:
+        """Check if user can create another automation job (total count limit)."""
+        max_jobs = (await self.get_effective_quotas(user_id)).get("max_automation_jobs")
+        if max_jobs is None:
+            return True, None
+        current = await self._count_rows(AutomationJobModel, user_id)
+        if current >= max_jobs:
+            return False, f"Automation job limit reached ({max_jobs} jobs maximum)"
         return True, None

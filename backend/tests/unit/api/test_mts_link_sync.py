@@ -192,6 +192,7 @@ class TestMtsLinkSyncUpsertFlags:
         assert "require_start_time_in_lookup=False" in src
         assert "get_file" in src
         assert "is_mts_link_blank" in src
+        assert "get_ready_mp4_url(event_session_id, record_id)" in src
 
 
 @pytest.mark.unit

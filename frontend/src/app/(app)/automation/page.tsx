@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Play, CheckCircle2, XCircle, Zap } from "lucide-react";
 import { cn, extractApiError } from "@/lib/utils";
@@ -16,14 +16,18 @@ import { FilterChips, type FilterChipItem } from "@/components/filters/filter-ch
 import { PER_PAGE_AUTOMATION } from "@/lib/constants";
 import { ActionButton } from "@/components/ui/action-button";
 import { Toast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { RUN_JOB_CONFIRM_LIST } from "@/lib/automation-run";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ErrorState } from "@/components/ui/error-state";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 
 interface AutomationJob {
   id: number;
@@ -70,6 +74,7 @@ function formatDate(iso: string | null): string {
 function AutomationContent() {
   const qc = useQueryClient();
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
+  const [runJobId, setRunJobId] = useState<number | null>(null);
 
   // Filters live in the URL so a filtered view is shareable and survives reload.
   const list = useUrlListState({
@@ -79,7 +84,7 @@ function AutomationContent() {
   });
   const statusFilter = list.getParam("status") ?? "all";
 
-  const { data, isLoading, error, refetch } = useQuery<AutomationJobListResponse>({
+  const { data, isPending, error, refetch } = useQuery<AutomationJobListResponse>({
     queryKey: ["automation-jobs", list.urlKey],
     queryFn: async () => {
       const p = new URLSearchParams();
@@ -92,7 +97,11 @@ function AutomationContent() {
       const res = await apiClient.get<AutomationJobListResponse>(`/automation/jobs?${p.toString()}`);
       return res.data;
     },
+    staleTime: STALE_TIME.catalog,
+    ...listQueryOptions,
   });
+
+  const showSkeleton = isInitialLoad(isPending, data);
 
   const runNow = useMutation({
     mutationFn: (id: number) => apiClient.post(`/automation/jobs/${id}/run`),
@@ -162,7 +171,7 @@ function AutomationContent() {
             value={list.sortBy}
             order={list.sortOrder}
             options={SORT_OPTIONS}
-            onChange={list.setSort}
+            onChange={list.setSortField}
             onToggleOrder={list.toggleSortOrder}
           />
         }
@@ -186,7 +195,7 @@ function AutomationContent() {
             </tr>
           </thead>
           <tbody className={TABLE_BODY}>
-            {isLoading && <TableRowsSkeleton rows={5} cols={6} />}
+            {showSkeleton && <TableRowsSkeleton rows={5} cols={6} />}
             {error && (
               <tr>
                 <td colSpan={6} className="p-0">
@@ -194,14 +203,14 @@ function AutomationContent() {
                 </td>
               </tr>
             )}
-            {!isLoading && !error && jobs.length === 0 && list.hasActiveFilters && (
+            {!showSkeleton && !error && jobs.length === 0 && list.hasActiveFilters && (
               <tr>
                 <td colSpan={6} className="p-0">
                   <EmptyState icon={Zap} title="No jobs match your filters" description="Try adjusting or clearing the filters above." />
                 </td>
               </tr>
             )}
-            {!isLoading && !error && jobs.length === 0 && !list.hasActiveFilters && (
+            {!showSkeleton && !error && jobs.length === 0 && !list.hasActiveFilters && (
               <tr>
                 <td colSpan={6} className="p-0">
                   <EmptyState
@@ -209,12 +218,7 @@ function AutomationContent() {
                     title="No automation jobs yet"
                     description="Automation jobs run your pipeline on a schedule. Create the first to put ingestion on autopilot."
                     action={
-                      <Link
-                        href="/automation/new"
-                        className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
-                      >
-                        <Plus size={16} /> New job
-                      </Link>
+                      <CreatePlaceholder className="w-full max-w-xs" href="/automation/new" label="Add a job" />
                     }
                   />
                 </td>
@@ -252,7 +256,9 @@ function AutomationContent() {
                     <ActionButton
                       size="sm"
                       variant="secondary"
-                      onClick={() => runNow.mutate(job.id)}
+                      onClick={() => setRunJobId(job.id)}
+                      disabled={!job.is_active}
+                      title={job.is_active ? undefined : "Activate the job to run it"}
                       isPending={runNow.isPending && runNow.variables === job.id}
                       icon={<Play size={12} />}
                       pendingLabel="Running…"
@@ -282,6 +288,18 @@ function AutomationContent() {
       {toast && (
         <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />
       )}
+
+      <ConfirmDialog
+        open={runJobId != null}
+        title={RUN_JOB_CONFIRM_LIST.title}
+        description={RUN_JOB_CONFIRM_LIST.description}
+        confirmLabel={RUN_JOB_CONFIRM_LIST.confirmLabel}
+        onConfirm={() => {
+          if (runJobId != null) runNow.mutate(runJobId);
+          setRunJobId(null);
+        }}
+        onCancel={() => setRunJobId(null)}
+      />
     </div>
   );
 }

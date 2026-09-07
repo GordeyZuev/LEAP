@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.10.8.2", description="Application version")
+    version: str = Field(default="0.10.8.3", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -979,7 +979,7 @@ DEFAULT_USER_CONFIG = {
             "format": "numbered_list",
             "separator": "\n",
             "prefix": "Темы:",
-            "show_timestamps": False,
+            "show_timestamps": True,
         },
         "questions_display": {
             "enabled": False,

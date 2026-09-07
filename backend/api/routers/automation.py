@@ -31,8 +31,8 @@ async def list_jobs(
     is_active: bool | None = Query(None, description="Filter by active flag (true/false/omitted=all)"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
-    sort_by: str = Query("created_at", description="Sort field"),
-    sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
+    sort_by: str = Query("next_run_at", description="Sort field"),
+    sort_order: Literal["asc", "desc"] = Query("asc", description="Sort direction"),
     ctx=Depends(get_service_context),
 ):
     """List user's automation jobs with pagination."""
@@ -158,7 +158,7 @@ async def trigger_job(
 ) -> TriggerJobResponse:
     """
     Manually trigger automation job.
-    Use dry_run=true to preview what will happen without executing.
+    Use dry_run=true to sync sources and list matching recordings without starting pipelines.
     """
     repo = AutomationJobRepository(ctx.session)
     job = await repo.get_by_id(job_id, ctx.user_id)
@@ -170,7 +170,7 @@ async def trigger_job(
         return TriggerJobResponse(
             task_id=str(task.id),
             mode="dry_run",
-            message="Preview mode - no changes will be made",
+            message="Preview started — sources will sync; matching recordings are listed, pipelines are not started",
         )
     task = run_automation_job_task.delay(job_id, ctx.user_id, trigger="MANUAL")
     return TriggerJobResponse(

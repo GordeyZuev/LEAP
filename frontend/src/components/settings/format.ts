@@ -7,6 +7,19 @@ export function fmtNum(n: number | null | undefined, decimals = 0): string {
   return decimals > 0 ? n.toFixed(decimals) : String(n);
 }
 
+/** Usage vs plan limit — always renders "used / limit" (∞ when unlimited). */
+export function fmtQuotaPair(
+  used: number,
+  limit: number | null | undefined,
+  options?: { unit?: string; decimals?: number },
+): string {
+  const { unit, decimals } = options ?? {};
+  const usedText = decimals != null ? used.toFixed(decimals) : COUNT_FORMATTER.format(used);
+  const limitText = fmtNum(limit, decimals ?? 0);
+  const suffix = unit ? ` ${unit}` : "";
+  return `${usedText} / ${limitText}${suffix}`;
+}
+
 export function formatMonthYear(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);

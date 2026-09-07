@@ -21,14 +21,14 @@ export function LandingHero() {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
             href="/register"
-            className="inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-all duration-200 active:scale-[0.97]"
+            className="pressable inline-flex items-center justify-center gap-2 px-6 py-2.5 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover"
           >
             Начать работу
             <ArrowRight size={15} />
           </Link>
           <Link
             href="/login"
-            className="inline-flex items-center justify-center px-6 py-2.5 text-sm font-medium border border-border text-secondary-foreground rounded-xl hover:bg-muted transition-all duration-200 active:scale-[0.97]"
+            className="pressable inline-flex items-center justify-center px-6 py-2.5 text-sm font-medium border border-border text-secondary-foreground rounded-xl hover:bg-muted"
           >
             Войти в аккаунт
           </Link>

@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation";
 import axios from "axios";
 import { apiClient } from "@/api/client";
 import { extractApiError } from "@/lib/utils";
+import { CHECKBOX } from "@/lib/filter-field-classes";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Logo } from "@/components/layout/logo";
 import { ActionButton } from "@/components/ui/action-button";
+import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -95,7 +97,7 @@ export default function LoginPage() {
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="rounded border-border accent-primary"
+                    className={CHECKBOX}
                   />
                   Stay signed in
                 </label>
@@ -130,6 +132,9 @@ export default function LoginPage() {
           <Link href="/register" className="text-primary font-medium hover:underline">
             Create one
           </Link>
+        </p>
+        <p className="mt-6 flex items-center justify-center">
+          <AgeRatingBadge />
         </p>
       </div>
     </div>

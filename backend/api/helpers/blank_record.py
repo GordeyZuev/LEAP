@@ -71,6 +71,26 @@ def is_mts_link_blank(duration_seconds: float | None) -> bool:
     )
 
 
+def is_mts_link_blank_any(*durations: float | None) -> bool:
+    """True if any known duration is under the MTS blank threshold.
+
+    Session length from UserAPI can be hours while the MP4 we stored is a few
+    seconds (stub conversion). Either side below 10 min is junk.
+    """
+    return any(is_mts_link_blank(positive_duration_seconds(d)) for d in durations)
+
+
+def preserve_mts_recording_duration(*, has_downloaded_media: bool, existing_duration: Any) -> bool:
+    """After we have an MP4 (or a short duration already in DB), sync must not replace it.
+
+    ``recordings.duration`` is what the list/sidebar show. Online session length
+    lives in ``source.meta.online_duration``.
+    """
+    if has_downloaded_media:
+        return True
+    return is_mts_link_blank(positive_duration_seconds(existing_duration))
+
+
 def mts_link_record_id_from_source_key(source_key: str | None) -> int | None:
     prefix = "mtslink:record:"
     if not source_key or not source_key.startswith(prefix):

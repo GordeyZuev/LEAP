@@ -110,7 +110,7 @@ export function Tabs<V extends string>({
               tabIndex={active ? 0 : -1}
               onClick={() => onChange(t.value)}
               className={cn(
-                "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2 text-sm font-medium transition-colors",
+                "pressable flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2 text-sm font-medium",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                 active
                   ? "bg-card text-primary shadow-sm ring-1 ring-border"

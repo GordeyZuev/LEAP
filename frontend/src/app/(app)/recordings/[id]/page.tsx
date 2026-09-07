@@ -10,6 +10,7 @@ import {
   Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2, ListVideo,
 } from "lucide-react";
 import { cn, formatDate, formatDateTimeShort, formatDuration, extractApiError, httpStatus } from "@/lib/utils";
+import { CHECKBOX } from "@/lib/filter-field-classes";
 import type { ShareStatsSummary } from "@/lib/share-stats";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
 import { apiClient, resolveStorageUrl } from "@/api/client";
@@ -24,7 +25,7 @@ import { CollapsibleCard, SectionCard } from "@/components/ui/section-card";
 import { DescriptionEditor } from "@/components/ui/description-editor";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { SegmentedField } from "@/components/ui/segmented-field";
-import { ArtefactList, type ArtefactItem } from "@/components/recordings/artefact-list";
+import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem } from "@/components/recordings/artefact-list";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { AIContentEditor } from "@/components/recordings/ai-content-editor";
 import { PlaylistPicker } from "@/components/playlists/playlist-picker";
@@ -47,7 +48,9 @@ function mtsMp4SidebarLabel(
   if (meta?.needs_mp4 !== true) return null;
   if (status === "PENDING_CONVERSION") {
     const progress = meta.conversion_progress;
-    return typeof progress === "number" ? `Converting on MTS Link (${progress}%)` : "Converting on MTS Link";
+    return typeof progress === "number" && progress > 0
+      ? `Converting on MTS Link (${progress}%)`
+      : "Converting on MTS Link";
   }
   if (status === "PENDING_SOURCE") {
     return "Assembling on MTS Link";
@@ -380,10 +383,10 @@ function PlatformOutputRow({
   const uploadDur = formatStageDuration(output.started_at, output.uploaded_at);
 
   return (
-    <div className="flex items-start gap-2.5 py-2.5">
+    <div className="flex items-center gap-2.5 py-2.5">
       <Icon
         size={14}
-        className={cn(cfg.color, "mt-0.5 shrink-0", ostatus === "UPLOADING" && "animate-spin")}
+        className={cn(cfg.color, "shrink-0", ostatus === "UPLOADING" && "animate-spin")}
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -452,8 +455,8 @@ function SharePublicationRow({
   const statusColor = active ? "text-success-fg" : "text-muted-foreground";
 
   return (
-    <div className="flex min-w-0 items-start gap-2.5 py-2.5">
-      <Icon size={14} className={cn(statusColor, "mt-0.5 shrink-0")} />
+    <div className="flex min-w-0 items-center gap-2.5 py-2.5">
+      <Icon size={14} className={cn(statusColor, "shrink-0")} />
       <div className="min-w-0 flex-1">
         <span className="text-xs font-semibold text-foreground">LEAP Link</span>
         <p className={cn("text-xs", statusColor)}>{active ? "Active" : "Not shared"}</p>
@@ -504,8 +507,8 @@ function PlaylistMembershipRow({
   onRemove: (playlist: { id: number; item_id: number }) => void;
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-2.5 border-t border-primary/10 py-2.5">
-      <ListVideo size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+    <div className="flex min-w-0 items-center gap-2.5 border-t border-primary/10 py-2.5">
+      <ListVideo size={14} className="shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <span className="text-xs font-semibold text-foreground">Playlists</span>
         {playlists.length === 0 ? (
@@ -636,6 +639,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const { data: recordingConfig, isLoading: configLoading } = useQuery<RecordingConfigResponse>({
     queryKey: ["recording-config", Number(id)],
     queryFn: async () => (await apiClient.get<RecordingConfigResponse>(`/recordings/${id}/config`)).data,
+  });
+
+  const { data: presetsList } = useQuery<{ items: { id: number; name: string }[] }>({
+    queryKey: ["presets-dropdown"],
+    queryFn: async () => (await apiClient.get<{ items: { id: number; name: string }[] }>("/presets?per_page=100")).data,
   });
 
   // Companion files saved from the source. Absent for most sources, so a failure here
@@ -998,18 +1006,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   // Chat and materials pulled from the source (MTS Link). Presigned links, so they are
   // plain download anchors rather than authenticated fetches. resolveStorageUrl matters
   // for the LOCAL backend, whose "presigned" URL is a relative API path.
-  const sourceExtras: ArtefactItem[] = [
-    ...(extras?.chat
-      ? [{ type: "source_chat" as const, href: resolveStorageUrl(extras.chat.url), key: "source_chat" }]
-      : []),
-    ...(extras?.files ?? []).map((file, i) => ({
-      type: "source_file" as const,
-      href: resolveStorageUrl(file.url),
-      label: file.name,
-      extension: file.extension,
-      key: `source_file_${i}`,
-    })),
-  ];
+  const sourceExtras: ArtefactItem[] = sourceExtrasToArtefacts(extras, resolveStorageUrl);
 
   const artefacts: ArtefactItem[] = [
     ...(hasProcessedVid ? [{ type: "video_processed" as const, onDownload: () => downloadVideo("processed") }] : []),
@@ -1036,7 +1033,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   // two branches can never drift apart. `videoTab` is already resolved to a
   // variant that exists, and this only renders when a video file is present.
   const videoPlayerNode = (
-    <div key={`${id}-${videoTab}-wrap`} className="animate-overlay-in">
+    <div key={`${id}-${videoTab}-wrap`} className="animate-page-in">
       <RecordingVideoPlayer
         ref={videoRef}
         key={`${id}-${videoTab}`}
@@ -1305,7 +1302,17 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           )}
 
           {/* Config (collapsible) */}
-          <CollapsibleCard title={RECORDING_SECTION.configuration} defaultOpen={false}>
+          <CollapsibleCard
+            title={RECORDING_SECTION.configuration}
+            defaultOpen={false}
+            badge={
+              recordingConfig?.has_manual_override ? (
+                <span className="rounded-full bg-warning-fg/10 px-2 py-0.5 text-[11px] font-semibold text-warning-fg">
+                  Override
+                </span>
+              ) : undefined
+            }
+          >
             {configLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 size={14} className="animate-spin" />
@@ -1358,11 +1365,19 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 })()}
                 {recordingConfig.output_config && (() => {
                   const o = recordingConfig.output_config!;
+                  const names = (o.preset_ids ?? []).map(
+                    (pid) => presetsList?.items.find((p) => p.id === pid)?.name ?? `#${pid}`,
+                  );
+                  const hasAny =
+                    o.auto_upload != null ||
+                    o.upload_captions != null ||
+                    (o.preset_ids?.length ?? 0) > 0;
+                  if (!hasAny) return null;
                   return (
                     <>
                       {o.auto_upload    != null && <ConfigRow label="Auto-upload"      value={o.auto_upload    ? "On" : "Off"} />}
                       {o.upload_captions != null && <ConfigRow label="Upload captions" value={o.upload_captions ? "On" : "Off"} />}
-                      {o.preset_ids?.length      ? <ConfigRow label="Presets"          value={o.preset_ids.join(", ")} /> : null}
+                      {names.length ? <ConfigRow label="Presets" value={names.join(", ")} /> : null}
                     </>
                   );
                 })()}
@@ -1377,6 +1392,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   );
                 })()}
               </dl>
+              {!recordingConfig.has_manual_override &&
+              !recordingConfig.processing_config?.transcription &&
+              !recordingConfig.output_config &&
+              !recordingConfig.metadata_config ? (
+                <p className="text-sm text-muted-foreground">Using the bound template. Edit to override.</p>
+              ) : null}
               </>
             )}
           </CollapsibleCard>
@@ -1433,6 +1454,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     disabled={!recording.can_run || isActing}
                     onClick={() => setRunConfigOpen(true)}
                     title="Run with config"
+                    aria-label="Run with config"
                     className={cn(
                       "flex w-10 shrink-0 items-center justify-center border-l transition-colors disabled:cursor-not-allowed",
                       !recording.can_run || isActing
@@ -1624,14 +1646,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 </div>
               )}
               <ArtefactList items={artefacts} />
-              {sourceExtras.length > 0 && (
-                <div className="mt-3 border-t border-border pt-3">
-                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    From the source
-                  </p>
-                  <ArtefactList items={sourceExtras} />
-                </div>
-              )}
+              <SourceExtrasSection items={sourceExtras} />
             </CollapsibleCard>
           )}
 
@@ -1655,10 +1670,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         onToast={(msg, variant) => showToast(variant === "error" ? "error" : "success", msg)}
       />
 
-      <Modal open={playlistPickerOpen} onClose={() => setPlaylistPickerOpen(false)} label="Add to playlist" panelClassName="max-w-md">
-        <div className="space-y-4 p-6">
-          <h2 className="text-sm font-semibold">Add to playlist</h2>
+      <Modal open={playlistPickerOpen} onClose={() => setPlaylistPickerOpen(false)} labelledBy="add-to-playlist-title" panelClassName="max-w-lg">
+        <div className="flex max-h-[90vh] flex-col overflow-hidden">
+          <div className="border-b border-border px-5 py-4">
+            <h2 id="add-to-playlist-title" className="text-sm font-semibold text-foreground">Add to playlist</h2>
+          </div>
           <PlaylistPicker
+            embedded
             mode="immediate"
             recordingId={recording.id}
             selectedIds={(recording.playlists ?? []).map((p) => p.id)}
@@ -1696,7 +1714,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             type="checkbox"
             checked={resetDeleteFiles}
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
-            className="rounded border-border text-primary focus:ring-primary/30"
+            className={CHECKBOX}
           />
           Delete processed files (video, audio, transcription)
         </label>
