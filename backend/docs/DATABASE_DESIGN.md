@@ -137,14 +137,14 @@ erDiagram
 
 ### Плейлисты (миграция 043)
 
-Курс записей — **не** `output_targets`. Членство в `playlist_items`. Публичная ссылка стабильная: `share_token` + `share_enabled`.
+Курс записей — членство в `playlist_items`. Публичная ссылка: `share_token` + `share_enabled`. С **048** LEAP также пишется в `output_targets` (`target_type=LEAP`) после публикации.
 
 | Таблица | Модель | Назначение |
 |---------|--------|------------|
 | `playlists` | `PlaylistModel` | `user_id`, уникальное `name` на пользователя, `description`, `share_token` (UUID, nullable), `share_enabled`, `share_created_at`; лимит 200 на пользователя |
 | `playlist_items` | `PlaylistItemModel` | `playlist_id`, `recording_id`, `position`; UNIQUE `(playlist_id, recording_id)`; лимит 200 пунктов |
 
-`output_config.playlist_ids` у **именованного** шаблона (не default) добавляет запись при bind/create/match.
+`output_config.playlist_ids` у **именованного** шаблона (не default) добавляет запись при bind/create/match; пустой список наследует `playlist_ids` leap-пресета.
 
 ---
 

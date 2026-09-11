@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CHECKBOX, FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { CHECKBOX, FILTER_CONTROL, FILTER_CONTROL_FILLED, FILTER_LABEL } from "@/lib/filter-field-classes";
 
 export interface FilterMultiSelectOption<V extends string | number = number> {
   value: V;
@@ -87,7 +87,7 @@ export function FilterMultiSelect<V extends string | number = number>({
         className={cn(
           FILTER_CONTROL,
           "flex w-full items-center justify-between gap-2 text-left font-medium",
-          n > 0 ? "border-primary bg-primary/10 text-primary" : "text-secondary-foreground"
+          n > 0 ? cn(FILTER_CONTROL_FILLED, "text-primary") : "text-secondary-foreground",
         )}
       >
         <span className="truncate">{n === 0 ? emptySummary : `${n} selected`}</span>

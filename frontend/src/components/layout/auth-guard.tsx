@@ -7,18 +7,23 @@ import { useRouter } from "next/navigation";
 import { hasSessionCookie } from "@/lib/auth";
 import { useMe } from "@/lib/react-query";
 
-// Gates the (app) section. With a session cookie we paint the shell immediately
-// and let /users/me confirm in the background — unlike useSession on /login.
-export function AuthGuard({ children }: { children: React.ReactNode }) {
+// Gates the (app) section. The server passes whether the csrf cookie was on the
+// request so the first paint matches SSR (document.cookie is empty on the server).
+export function AuthGuard({
+  children,
+  hasSession,
+}: {
+  children: React.ReactNode;
+  hasSession: boolean;
+}) {
   const router = useRouter();
-  const hasCookie = hasSessionCookie();
-  const { isError } = useMe({ enabled: hasCookie });
+  const { isError } = useMe({ enabled: hasSession });
 
   useEffect(() => {
-    if (!hasCookie || isError) router.replace("/login");
-  }, [hasCookie, isError, router]);
+    if (!hasSessionCookie() || isError) router.replace("/login");
+  }, [hasSession, isError, router]);
 
-  if (!hasCookie || isError) return null;
+  if (!hasSession || isError) return null;
 
   return <>{children}</>;
 }

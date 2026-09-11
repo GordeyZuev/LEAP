@@ -11,7 +11,6 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
-import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { Toggle } from "@/components/ui/toggle";
 import { Disclosure } from "@/components/ui/disclosure";
 import { combinedHasJinjaVar } from "@/lib/jinja-autocomplete";
@@ -32,9 +31,9 @@ import {
   youtubeFieldsFromApi,
   youtubeFieldsToApi,
   yandexFieldsFromApi,
-  LeapLookFields,
   DEFAULT_LEAP_FIELDS,
   leapFieldsFromApi,
+  LeapLookFields,
   type LeapFieldsValue,
   type YouTubeFieldsValue,
   type YandexDiskFieldsValue,
@@ -53,11 +52,17 @@ import {
   appendDisplayConfigPreviewBody,
 } from "@/components/platforms/display-config-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Field } from "@/components/ui/field";
 import { ChecklistPicker } from "@/components/ui/checklist-picker";
 import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
+import {
+  filterLeapPresets,
+  LeapFillFromPresetButton,
+  leapPresetMetadataFromApi,
+} from "@/components/platforms/leap-config-section";
+import { usePresetDetails } from "@/hooks/use-preset-details";
+import { OutputSettingsFields } from "@/components/platforms/output-settings-fields";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,6 +102,7 @@ interface OutputConfig {
   preset_ids: number[];
   playlist_ids: number[];
   auto_upload: boolean;
+  publish_leap: boolean;
   upload_captions: boolean;
 }
 
@@ -113,16 +119,6 @@ interface TemplateFormData {
 
 interface SourceItem { id: number; name: string; source_type?: string; }
 interface PresetItem { id: number; name: string; platform: string; }
-interface PresetDetail {
-  id: number;
-  platform: string;
-  credential_id?: number;
-  preset_metadata?: {
-    title_template?: string;
-    description_template?: string;
-    thumbnail_name?: string;
-  };
-}
 interface MatchPreviewRecording {
   id: number;
   display_name: string;
@@ -175,7 +171,8 @@ const DEFAULT_FORM: TemplateFormData = {
   output_config: {
     preset_ids: [],
     playlist_ids: [],
-    auto_upload: false,
+    auto_upload: true,
+    publish_leap: true,
     upload_captions: true,
   },
 };
@@ -203,7 +200,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [ytFields, setYtFields] = useState<YouTubeFieldsValue>({ ...DEFAULT_YOUTUBE_FIELDS });
   const [ydFields, setYdFields] = useState<YandexDiskFieldsValue>({ ...DEFAULT_YANDEX_DISK_FIELDS });
   const [globalThumbnail, setGlobalThumbnail] = useState("");
-  const [presetDetails, setPresetDetails] = useState<Record<number, PresetDetail>>({});
+  const presetDetails = usePresetDetails(form.output_config.preset_ids);
 
   const yandexBrowseCredentialId = useMemo(() => {
     for (const pid of form.output_config.preset_ids) {
@@ -299,6 +296,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         preset_ids: existing.output_config?.preset_ids ?? [],
         playlist_ids: existing.output_config?.playlist_ids ?? [],
         auto_upload: existing.output_config?.auto_upload ?? false,
+        publish_leap: existing.output_config?.publish_leap ?? true,
         upload_captions: existing.output_config?.upload_captions ?? true,
       },
     };
@@ -314,26 +312,6 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
     setSavedSnapshot(JSON.stringify({ form: newForm, leapFields: newLeapFields, ytFields: newYtFields, ydFields: newYdFields, globalThumbnail: newGlobalThumbnail }));
   }, [existing]);
   /* eslint-enable react-hooks/set-state-in-effect */
-
-  // Fetch full preset details for the "Fill from preset" feature.
-  // Uses allSettled so a 404 for a deleted preset doesn't break the whole batch.
-  useEffect(() => {
-    const idsToFetch = form.output_config.preset_ids.filter((id) => !presetDetails[id]);
-    if (idsToFetch.length === 0) return;
-    Promise.allSettled(
-      idsToFetch.map((pid) => apiClient.get(`/presets/${pid}`).then((r) => r.data as PresetDetail)),
-    ).then((results) => {
-      const loaded = results
-        .filter((r): r is PromiseFulfilledResult<PresetDetail> => r.status === "fulfilled")
-        .map((r) => r.value);
-      if (loaded.length === 0) return;
-      setPresetDetails((prev) => {
-        const next = { ...prev };
-        loaded.forEach((d) => { next[d.id] = d; });
-        return next;
-      });
-    });
-  }, [form.output_config.preset_ids]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
   // Mutations
@@ -353,6 +331,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       if (leapFields.title_template) leap.title_template = leapFields.title_template;
       if (leapFields.description_template) leap.description_template = leapFields.description_template;
       if (leapFields.thumbnail_name) leap.thumbnail_name = leapFields.thumbnail_name;
+      if (leapFields.auto_share !== null) leap.auto_share = leapFields.auto_share;
 
       const metaConfig: Record<string, unknown> = {
         title_template: data.metadata_config.title_template || undefined,
@@ -518,16 +497,22 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
 
   const sources = sourcesData?.items ?? [];
   const presets = presetsData?.items ?? [];
-  const leapPresets = presets.filter((p) => p.platform === "leap");
+  const leapPresets = filterLeapPresets(presets);
   const copyPresets = presets.filter((p) => p.platform === "youtube" || p.platform === "yandex_disk");
   const selectedLeapId = form.output_config.preset_ids.find((id) => leapPresets.some((p) => p.id === id)) ?? null;
+  const selectedLeapPresetMeta = useMemo(
+    () =>
+      selectedLeapId != null ? leapPresetMetadataFromApi(presetDetails[selectedLeapId]?.preset_metadata) : null,
+    [selectedLeapId, presetDetails],
+  );
   const selectedCopyCount = form.output_config.preset_ids.filter((id) =>
     copyPresets.some((p) => p.id === id),
   ).length;
 
   function setLeapPresetId(id: number | null) {
     const withoutLeap = form.output_config.preset_ids.filter((pid) => !leapPresets.some((p) => p.id === pid));
-    setOC("preset_ids", id == null ? withoutLeap : [...withoutLeap, id]);
+    const nextPresetIds = id == null ? withoutLeap : [...withoutLeap, id];
+    setOC("preset_ids", nextPresetIds);
   }
 
   // Derived status label
@@ -570,7 +555,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   function handleSaveClick() {
     if (!form.name.trim()) return;
     if (form.output_config.auto_upload && selectedCopyCount === 0) {
-      showToast("error", "Auto-upload needs a YouTube or Yandex Disk preset. A LEAP look is not an upload.");
+      showToast("error", "Auto-upload needs a YouTube or Yandex Disk preset.");
       return;
     }
     if (updateBaseOnSave && isNew) {
@@ -584,7 +569,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   async function executeSave(withPromote: boolean) {
     if (!form.name.trim()) return;
     if (form.output_config.auto_upload && selectedCopyCount === 0) {
-      showToast("error", "Auto-upload needs a YouTube or Yandex Disk preset. A LEAP look is not an upload.");
+      showToast("error", "Auto-upload needs a YouTube or Yandex Disk preset.");
       return;
     }
 
@@ -865,85 +850,33 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             />
           </Section>
 
-          <Section title="LEAP">
-            {!isDefault && (
-              <Field
-                label="Courses"
-                hint="Matched recordings are added to these playlists. This is membership, not an upload."
-              >
-                <PlaylistPicker
-                  mode="form"
-                  selectedIds={form.output_config.playlist_ids}
-                  onChange={(ids) => setOC("playlist_ids", ids)}
-                />
-              </Field>
-            )}
-            <Field
-              label="Look"
-              hint="Title, description, and cover on course and share pages. Extra fields live under Metadata, LEAP look."
-            >
-              {leapPresets.length === 0 ? (
-                <CreatePlaceholder href="/presets/new" label="Add a look" />
-              ) : (
-                <NativeSelect
-                  ariaLabel="LEAP look preset"
-                  value={selectedLeapId ?? ""}
-                  onChange={(e) => setLeapPresetId(e.target.value ? Number(e.target.value) : null)}
-                >
-                  <option value="">None — use global title template</option>
-                  {leapPresets.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </NativeSelect>
+          <Section title="Output">
+            <OutputSettingsFields
+              publishLeap={form.output_config.publish_leap}
+              onPublishLeapChange={(v) => setOC("publish_leap", v)}
+              showCourses={!isDefault}
+              playlistIds={form.output_config.playlist_ids}
+              onPlaylistIdsChange={(ids) => setOC("playlist_ids", ids)}
+              leapPresets={leapPresets}
+              selectedLeapPresetId={selectedLeapId}
+              onLeapPresetIdChange={setLeapPresetId}
+              copyPresets={copyPresets}
+              selectedCopyPresetIds={form.output_config.preset_ids.filter((id) =>
+                copyPresets.some((p) => p.id === id),
               )}
-            </Field>
-          </Section>
-
-          <Section title="Upload a copy">
-            {copyPresets.length > 0 ? (
-              <Field label="Output presets" hint="Upload a copy of the video.">
-                <ChecklistPicker
-                  title="Select presets"
-                  ariaLabel="Output presets"
-                  emptyLabel="No upload presets selected"
-                  searchPlaceholder="Search presets"
-                  items={copyPresets.map((p) => ({
-                    value: p.id,
-                    label: p.name,
-                    hint: p.platform,
-                    group: p.platform,
-                  }))}
-                  value={form.output_config.preset_ids.filter((id) => copyPresets.some((p) => p.id === id))}
-                  onChange={(copyIds) => {
-                    const leap = form.output_config.preset_ids.filter((id) => leapPresets.some((p) => p.id === id));
-                    setOC("preset_ids", [...copyIds, ...leap]);
-                  }}
-                />
-              </Field>
-            ) : (
-              <Field label="Output presets" hint="Upload a copy of the video.">
-                <CreatePlaceholder href="/presets/new" label="Add a preset" />
-              </Field>
-            )}
-            <Toggle
-              label="Auto-upload after processing"
-              checked={form.output_config.auto_upload}
-              onChange={(v) => {
-                if (v && selectedCopyCount === 0) return;
-                setOC("auto_upload", v);
+              onSelectedCopyPresetIdsChange={(copyIds) => {
+                const leap = form.output_config.preset_ids.filter((id) => leapPresets.some((p) => p.id === id));
+                setOC("preset_ids", [...copyIds, ...leap]);
               }}
-            />
-            {form.output_config.auto_upload && selectedCopyCount === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Auto-upload needs a YouTube or Yandex Disk preset. A LEAP look is not an upload.
-              </p>
-            ) : null}
-            <Toggle
-              label="Upload captions / subtitles"
-              checked={form.output_config.upload_captions}
-              onChange={(v) => setOC("upload_captions", v)}
+              autoUpload={form.output_config.auto_upload}
+              onAutoUploadChange={(v) => setOC("auto_upload", v)}
+              uploadCaptions={form.output_config.upload_captions}
+              onUploadCaptionsChange={(v) => setOC("upload_captions", v)}
+              autoUploadWarning={
+                form.output_config.auto_upload && selectedCopyCount === 0
+                  ? "Auto-upload needs a YouTube or Yandex Disk preset."
+                  : undefined
+              }
             />
           </Section>
 
@@ -1005,50 +938,30 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             />
             ) : null}
 
-            {(selectedLeapId != null ||
-              copyPresets.some((p) => form.output_config.preset_ids.includes(p.id) && (p.platform === "youtube" || p.platform === "yandex_disk"))) ? (
+            {selectedLeapId != null
+            || copyPresets.some(
+              (p) =>
+                form.output_config.preset_ids.includes(p.id)
+                && (p.platform === "youtube" || p.platform === "yandex_disk"),
+            ) ? (
             <>
             <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Platform overrides
             </p>
             <div className="space-y-3">
             {selectedLeapId != null ? (
-            <Disclosure title="LEAP look">
+            <Disclosure title="LEAP">
               <LeapLookFields
                 value={leapFields}
                 onChange={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
+                showAutoShareOverride
+                presetDefaults={selectedLeapPresetMeta}
               />
-              {(() => {
-                const leapPreset = selectedLeapId != null ? presetDetails[selectedLeapId] : undefined;
-                const tpl = leapPreset?.preset_metadata?.title_template || leapPreset?.preset_metadata?.description_template;
-                if (!leapPreset) return (
-                  <p className="text-xs text-muted-foreground">
-                    These fields overlay the look preset. Select a look above first — without one they are ignored.
-                  </p>
-                );
-                return (
-                  <div className="flex flex-col items-start gap-2">
-                    {tpl ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setLeapFields((f) => ({
-                            ...f,
-                            title_template: String(leapPreset.preset_metadata?.title_template ?? f.title_template),
-                            description_template: String(
-                              leapPreset.preset_metadata?.description_template ?? f.description_template,
-                            ),
-                            thumbnail_name: String(leapPreset.preset_metadata?.thumbnail_name ?? f.thumbnail_name),
-                          }))
-                        }
-                        className="text-xs font-medium text-primary hover:underline"
-                      >
-                        Fill from look preset
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })()}
+              <LeapFillFromPresetButton
+                metadata={selectedLeapPresetMeta}
+                onApply={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
+              />
+              <p className="text-xs text-muted-foreground">Empty fields inherit from preset.</p>
             </Disclosure>
             ) : null}
             {copyPresets.some((p) => form.output_config.preset_ids.includes(p.id) && p.platform === "youtube") ? (

@@ -127,10 +127,10 @@ async def create_thumbnail(
     content, file_ext = await _validate_and_read_file(file)
 
     try:
-        if custom_filename:
-            validated_name = validate_filename(custom_filename, strict=True)
-        else:
-            validated_name = validate_filename(file.filename, strict=False)
+        # Same sanitization as the original filename: the picker always sends
+        # custom_filename (including the seeded OS stem, which often has spaces).
+        source_name = custom_filename or file.filename or ""
+        validated_name = validate_filename(source_name, strict=False)
         final_filename = f"{validated_name}{file_ext}"
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Image as ImageIcon, Upload, X, Check, Trash2, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
-import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL, FILTER_CONTROL_FILLED, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { ActionButton } from "@/components/ui/action-button";
 import { Modal } from "@/components/ui/modal";
 
@@ -120,7 +120,7 @@ export function ThumbnailPicker({
       if (!uploadFile) return;
       const form = new FormData();
       form.append("file", uploadFile);
-      form.append("name", uploadName || uploadFile.name.replace(/\.[^.]+$/, ""));
+      form.append("custom_filename", uploadName || uploadFile.name.replace(/\.[^.]+$/, ""));
       await apiClient.post("/thumbnails", form, { headers: { "Content-Type": "multipart/form-data" } });
     },
     onSuccess: () => {
@@ -186,7 +186,11 @@ export function ThumbnailPicker({
     <div className="space-y-1">
       {label && <span className={FILTER_LABEL}>{label}</span>}
       <div
-        className={cn(FILTER_CONTROL, "flex h-auto min-h-[2.875rem] cursor-pointer items-center gap-2 p-2")}
+        className={cn(
+          FILTER_CONTROL,
+          "flex h-auto min-h-[2.875rem] cursor-pointer items-center gap-2 p-2",
+          value && FILTER_CONTROL_FILLED,
+        )}
         onClick={() => setOpen(true)}
       >
         <button

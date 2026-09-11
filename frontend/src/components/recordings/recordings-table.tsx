@@ -263,7 +263,9 @@ export function RecordingsTable({
           {recordings.map((r) => {
             const isSoftDeleted = !!r.soft_deleted_at;
             const isLoading = loadingId === r.id;
-            const uploadEntries = Object.entries(r.uploads);
+            const uploadEntries = Object.entries(r.uploads).filter(([platform]) => platform !== "leap");
+            const leapReady = r.uploads.leap?.status === "UPLOADED";
+            const shareActive = Boolean(r.share_token && r.share_enabled);
             const isSelected = selected.has(r.id);
 
             return (
@@ -327,9 +329,10 @@ export function RecordingsTable({
 
                 {/* Platforms */}
                 <td className="px-3 py-2.5">
-                  {uploadEntries.length > 0 || (r.share_token && r.share_enabled) ? (
+                  {uploadEntries.length > 0 || shareActive || leapReady ? (
                     <div className="flex flex-wrap gap-1.5">
-                      {r.share_token && r.share_enabled && (
+                      {(shareActive || leapReady) && (
+                        shareActive ? (
                         <a
                           href={`/share/${r.share_token}`}
                           target="_blank"
@@ -344,6 +347,14 @@ export function RecordingsTable({
                           LEAP
                           <ExternalLink size={9} className="opacity-60" />
                         </a>
+                        ) : (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-fg">
+                            <span className="sr-only">published</span>
+                          </span>
+                          LEAP
+                        </span>
+                        )
                       )}
                       {uploadEntries.map(([platform, info]) => {
                         const dot = (

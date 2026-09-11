@@ -2646,8 +2646,9 @@ async def _execute_smart_run(
         except _CONFIG_RESOLUTION_HTTP_ERRORS as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
-        if output_config and output_config.get("auto_upload") and output_config.get("preset_ids"):
-            await ensure_output_targets(ctx.session, recording, output_config)
+        if output_config and output_config.get("preset_ids"):
+            include_copy = bool(output_config.get("auto_upload"))
+            await ensure_output_targets(ctx.session, recording, output_config, include_copy=include_copy)
             await ctx.session.commit()
 
         # Reload to pick up freshly created targets

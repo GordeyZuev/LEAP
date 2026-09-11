@@ -100,6 +100,17 @@ export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
           { kind: "text", value: " in the app now has searchable FAQ and a 12+ age rating on public pages." },
         ],
       },
+      {
+        parts: [
+          { kind: "text", value: "Templates and " },
+          { kind: "link", label: "Run with config", href: "/recordings" },
+          {
+            kind: "text",
+            value:
+              " split LEAP and upload overrides. Leap look fields live under Metadata → Platform overrides, with preset defaults shown in the form. Selected presets and lists are highlighted in the control.",
+          },
+        ],
+      },
     ],
   },
   "0.10.8.2": {

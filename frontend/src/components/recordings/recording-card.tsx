@@ -146,7 +146,9 @@ export function RecordingCard({
   loadingId,
 }: RecordingCardProps) {
   const isLoading = loadingId === r.id;
-  const uploads = Object.entries(r.uploads);
+  const uploads = Object.entries(r.uploads).filter(([platform]) => platform !== "leap");
+  const leapReady = r.uploads.leap?.status === "UPLOADED";
+  const shareActive = Boolean(r.share_token && r.share_enabled);
   const isSoftDeleted = !!r.soft_deleted_at;
   const isProcessing = r.status === "DOWNLOADING" || r.status === "PROCESSING" || r.status === "UPLOADING";
 
@@ -308,9 +310,10 @@ export function RecordingCard({
             <span className="tabular-nums">{formatDate(r.start_time)}</span>
           </p>
 
-          {(uploads.length > 0 || (r.share_token && r.share_enabled)) && (
+          {(uploads.length > 0 || shareActive || leapReady) && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {r.share_token && r.share_enabled && (
+              {(shareActive || leapReady) && (
+                shareActive ? (
                 <a
                   href={`/share/${r.share_token}`}
                   target="_blank"
@@ -325,6 +328,14 @@ export function RecordingCard({
                   LEAP
                   <ExternalLink size={9} className="opacity-40" />
                 </a>
+                ) : (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success-fg">
+                    <span className="sr-only">published</span>
+                  </span>
+                  LEAP
+                </span>
+                )
               )}
               {uploads.map(([platform, info]) => {
                 const dotCls = UPLOAD_DOT[info.status] ?? UPLOAD_DOT["NOT_UPLOADED"];

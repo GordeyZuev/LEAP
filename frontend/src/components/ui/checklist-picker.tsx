@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { ActionButton } from "@/components/ui/action-button";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
-import { CHECKBOX, FILTER_CONTROL } from "@/lib/filter-field-classes";
+import { CHECKBOX, FILTER_CONTROL, FILTER_CONTROL_FILLED } from "@/lib/filter-field-classes";
 import { SegmentedField } from "@/components/ui/segmented-field";
 
 export interface ChecklistItem<V extends string | number = number> {
@@ -174,6 +174,7 @@ export function ChecklistPicker<V extends string | number = number>({
         .filter((it): it is ChecklistItem<V> => Boolean(it)),
     [value, items],
   );
+  const hasSelection = value.length > 0;
 
   const panel = (
     <ChecklistPickerPanel
@@ -204,6 +205,7 @@ export function ChecklistPicker<V extends string | number = number>({
         className={cn(
           FILTER_CONTROL,
           "flex h-auto min-h-[2.875rem] items-center gap-2 p-2 text-left font-medium disabled:cursor-not-allowed disabled:opacity-50",
+          hasSelection && FILTER_CONTROL_FILLED,
         )}
       >
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">

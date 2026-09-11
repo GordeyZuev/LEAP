@@ -22,6 +22,12 @@ Name transition properties. Do not use `transition-all`.
 
 `ActionButton` pending/success icons cross-fade in CSS (`opacity`, `scale` 0.25↔1, `blur(4px)`). Do not swap Lucide nodes with `display: none` if you need an exit.
 
+## Form controls
+
+- **Single select** — `NativeSelect` / `FilterSelect`. When `value` is non-empty, the trigger uses `FILTER_CONTROL_FILLED` (`border-primary/30`, `bg-primary/5`, primary label text).
+- **Multi select** — `ChecklistPicker` (and toolbar `FilterMultiSelect`) tint the whole trigger when at least one item is selected; chips inside copy presets use the same primary accent.
+- **Config editors** — template, preset, Run with config, and Edit configuration share `OverrideSection` rows and `Disclosure` platform blocks; see [TEMPLATES.md](TEMPLATES.md).
+
 ## Related
 
 - [CHANGELOG.md](../CHANGELOG.md) — dated “Frontend motion” notes

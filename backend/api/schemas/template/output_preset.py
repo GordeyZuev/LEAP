@@ -53,7 +53,7 @@ class OutputPresetBase(BaseModel):
     description: str | None = Field(None, max_length=1000, description="Preset description")
     platform: Literal["youtube", "vk", "yandex_disk", "leap"] = Field(
         ...,
-        description="youtube/vk/yandex_disk upload copies, or leap look (not an upload)",
+        description="youtube/vk/yandex_disk copies, or leap (share/courses, no credential)",
     )
 
     preset_metadata: _PresetMetaUnion = Field(..., description="Platform-specific settings")
@@ -70,7 +70,7 @@ class OutputPresetBase(BaseModel):
 
 
 class OutputPresetCreate(OutputPresetBase):
-    credential_id: int | None = Field(None, gt=0, description="Credential ID; omit for leap look presets")
+    credential_id: int | None = Field(None, gt=0, description="Credential ID; omit for leap presets")
     is_active: bool = Field(True, description="Inactive presets are skipped when publishing")
 
     @model_validator(mode="after")

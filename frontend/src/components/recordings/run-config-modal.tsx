@@ -12,7 +12,6 @@ import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
 import { Field } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
-import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { Toggle } from "@/components/ui/toggle";
 import { Disclosure, OverrideSection, ACCORDION_SHELL } from "@/components/ui/disclosure";
 import { combinedHasJinjaVar } from "@/lib/jinja-autocomplete";
@@ -30,9 +29,9 @@ import {
   youtubeFieldsFromApi,
   youtubeFieldsToApi,
   yandexFieldsFromApi,
-  LeapLookFields,
   DEFAULT_LEAP_FIELDS,
   leapFieldsFromApi,
+  LeapLookFields,
   type LeapFieldsValue,
   type YouTubeFieldsValue,
   type YandexDiskFieldsValue,
@@ -51,8 +50,14 @@ import {
   MetadataPreviewResultBox,
   type MetadataRenderPreviewData,
 } from "@/components/platforms/metadata-render-preview";
-import { ChecklistPicker } from "@/components/ui/checklist-picker";
-import { CreatePlaceholder } from "@/components/ui/create-placeholder";
+import {
+  filterLeapPresets,
+  LeapFillFromPresetButton,
+  leapPresetMetadataFromApi,
+} from "@/components/platforms/leap-config-section";
+import { usePresetDetails } from "@/hooks/use-preset-details";
+import { LeapConfigFields } from "@/components/platforms/leap-config-section";
+import { UploadCopyFields } from "@/components/platforms/upload-copy-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { formatBaseTemplateLabel } from "@/lib/base-template";
 
@@ -64,6 +69,15 @@ interface TemplateItem { id: number; name: string; is_default?: boolean }
 interface TemplateListResponse { items: TemplateItem[]; total: number }
 interface PresetItem { id: number; name: string; platform: string; credential_id?: number | null }
 interface PresetListResponse { items: PresetItem[]; total: number }
+
+function leapMetadataToApi(fields: LeapFieldsValue): Record<string, unknown> {
+  const leap: Record<string, unknown> = {};
+  if (fields.title_template) leap.title_template = fields.title_template;
+  if (fields.description_template) leap.description_template = fields.description_template;
+  if (fields.thumbnail_name) leap.thumbnail_name = fields.thumbnail_name;
+  if (fields.auto_share !== null) leap.auto_share = fields.auto_share;
+  return leap;
+}
 
 interface RecordingConfigResponse {
   recording_id: number;
@@ -90,6 +104,7 @@ interface RecordingConfigResponse {
     upload_captions?: boolean;
     preset_ids?: number[];
     playlist_ids?: number[];
+    publish_leap?: boolean;
   } | null;
   metadata_config: {
     title_template?: string;
@@ -127,6 +142,7 @@ interface RecordingConfigResponse {
       title_template?: string;
       description_template?: string;
       thumbnail_name?: string;
+      auto_share?: boolean | null;
     };
   } | null;
 }
@@ -171,7 +187,7 @@ export function RunConfigModal({
   // ── Template ──────────────────────────────────────────────────────────────
   const [templateOpen, setTemplateOpen] = useState(true);
   const [templateId, setTemplateId] = useState<number | null>(null);
-  const [bindTemplate, setBindTemplate] = useState(false);
+  const [bindTemplate, setBindTemplate] = useState(true);
 
   // ── Processing ────────────────────────────────────────────────────────────
   const [processingEnabled, setProcessingEnabled] = useState(false);
@@ -188,9 +204,12 @@ export function RunConfigModal({
   const [trimming, setTrimming] = useState(DEFAULT_TRIMMING);
 
   // ── Output ────────────────────────────────────────────────────────────────
+  const [leapOutputEnabled, setLeapOutputEnabled] = useState(false);
+  const [publishLeap, setPublishLeap] = useState(true);
   const [outputEnabled, setOutputEnabled] = useState(false);
+  const [leapOutputOpen, setLeapOutputOpen] = useState(false);
   const [outputOpen, setOutputOpen] = useState(false);
-  const [autoUpload, setAutoUpload] = useState(false);
+  const [autoUpload, setAutoUpload] = useState(true);
   const [uploadCaptions, setUploadCaptions] = useState(true);
   const [selectedPresetIds, setSelectedPresetIds] = useState<number[]>([]);
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<number[]>([]);
@@ -295,22 +314,28 @@ export function RunConfigModal({
       if (outputEnabled && autoUpload && copySelected.length === 0) {
         throw new Error("Auto-upload needs a YouTube or Yandex Disk preset");
       }
+      const hydratedIds = existingConfig?.output_config?.preset_ids ?? [];
+      const hydratedLeap = hydratedIds.filter((id) => leapPlatformIds.has(id));
+      const hydratedCopy = hydratedIds.filter((id) => !leapPlatformIds.has(id));
+      if (leapOutputEnabled) {
+        outputCfg.publish_leap = publishLeap;
+        outputCfg.playlist_ids = selectedPlaylistIds;
+      }
+
       if (outputEnabled) {
         outputCfg.auto_upload = autoUpload;
         outputCfg.upload_captions = uploadCaptions;
-        if (selectedPresetIds.length > 0) outputCfg.preset_ids = selectedPresetIds;
-      } else if (mode === "single") {
-        const hydrated = existingConfig?.output_config?.preset_ids ?? [];
-        const hydratedCopy = hydrated.filter((id) => !leapPlatformIds.has(id));
-        const hydratedLeap = hydrated.filter((id) => leapPlatformIds.has(id));
-        const leapUnchanged =
-          leapSelected.length === hydratedLeap.length && leapSelected.every((id) => hydratedLeap.includes(id));
-        if (!leapUnchanged) {
-          outputCfg.preset_ids = [...hydratedCopy, ...leapSelected];
-        }
       }
-      if (selectedPlaylistIds.length > 0) outputCfg.playlist_ids = selectedPlaylistIds;
+
+      if (leapOutputEnabled || outputEnabled) {
+        const copyIds = outputEnabled ? copySelected : hydratedCopy;
+        const leapIds = leapOutputEnabled ? leapSelected : hydratedLeap;
+        outputCfg.preset_ids = [...copyIds, ...leapIds];
+      }
+
       if (Object.keys(outputCfg).length > 0) body.output_config = outputCfg;
+
+      const presetList = presetsData?.items ?? [];
 
       if (metadataEnabled) {
         const meta: Record<string, unknown> = {};
@@ -330,12 +355,8 @@ export function RunConfigModal({
         if (ydFields.overwrite) yd.overwrite = true;
         if (ydFields.publish) yd.publish = true;
 
-        const leap: Record<string, unknown> = {};
-        if (leapFields.title_template) leap.title_template = leapFields.title_template;
-        if (leapFields.description_template) leap.description_template = leapFields.description_template;
-        if (leapFields.thumbnail_name) leap.thumbnail_name = leapFields.thumbnail_name;
+        const leap = leapMetadataToApi(leapFields);
 
-        const presetList = presetsData?.items ?? [];
         const selectedPlatform = (platform: string) =>
           selectedPresetIds.some((id) => presetList.find((p) => p.id === id)?.platform === platform);
         const prevMc = (existingConfig?.metadata_config ?? {}) as Record<string, unknown>;
@@ -403,7 +424,7 @@ export function RunConfigModal({
     /* eslint-disable react-hooks/set-state-in-effect */
     setTemplateOpen(true);
     setTemplateId(null);
-    setBindTemplate(false);
+    setBindTemplate(true);
     setProcessingEnabled(false);
     setProcessingOpen(false);
     setLanguage("ru");
@@ -416,9 +437,12 @@ export function RunConfigModal({
     setVocabulary([]);
     setPrompt("");
     setTrimming({ ...DEFAULT_TRIMMING });
+    setLeapOutputEnabled(false);
+    setPublishLeap(true);
     setOutputEnabled(false);
+    setLeapOutputOpen(false);
     setOutputOpen(false);
-    setAutoUpload(false);
+    setAutoUpload(true);
     setUploadCaptions(true);
     setSelectedPresetIds([]);
     setSelectedPlaylistIds([]);
@@ -462,6 +486,7 @@ export function RunConfigModal({
 
     const oc = existingConfig.output_config;
     if (oc) {
+      if (oc.publish_leap != null) setPublishLeap(oc.publish_leap);
       if (oc.auto_upload != null) setAutoUpload(oc.auto_upload);
       if (oc.upload_captions != null) setUploadCaptions(oc.upload_captions);
       if (oc.preset_ids) setSelectedPresetIds(oc.preset_ids);
@@ -481,6 +506,7 @@ export function RunConfigModal({
     }
     if (isSave && existingConfig.has_manual_override) {
       setProcessingEnabled(true);
+      setLeapOutputEnabled(true);
       setOutputEnabled(true);
       setMetadataEnabled(true);
     }
@@ -504,6 +530,17 @@ export function RunConfigModal({
       : null) ??
     (runMutation.isError ? (isSave ? "Failed to save" : "Failed to run") : null);
 
+  const leapPresets = filterLeapPresets(presetsData?.items ?? []);
+  const copyPresets = (presetsData?.items ?? []).filter((p) => p.platform === "youtube" || p.platform === "yandex_disk");
+  const selectedLeapId = selectedPresetIds.find((id) => leapPresets.some((p) => p.id === id)) ?? null;
+  const leapLookLocked = mode === "bulk" && !leapOutputEnabled;
+  const presetDetails = usePresetDetails(selectedPresetIds);
+  const selectedLeapPresetMeta = useMemo(
+    () =>
+      selectedLeapId != null ? leapPresetMetadataFromApi(presetDetails[selectedLeapId]?.preset_metadata) : null,
+    [selectedLeapId, presetDetails],
+  );
+
   function setLeapPresetId(id: number | null) {
     const leapIds = new Set((presetsData?.items ?? []).filter((p) => p.platform === "leap").map((p) => p.id));
     setSelectedPresetIds((prev) => {
@@ -512,20 +549,15 @@ export function RunConfigModal({
     });
   }
 
-  const leapPresets = (presetsData?.items ?? []).filter((p) => p.platform === "leap");
-  const copyPresets = (presetsData?.items ?? []).filter((p) => p.platform === "youtube" || p.platform === "yandex_disk");
-  const selectedLeapId = selectedPresetIds.find((id) => leapPresets.some((p) => p.id === id)) ?? null;
-  const leapLookLocked = mode === "bulk" && !outputEnabled;
-
   const yandexBrowseCredentialId = useMemo(() => {
     for (const pid of selectedPresetIds) {
-      const preset = presetsData?.items.find((p) => p.id === pid);
+      const preset = presetDetails[pid];
       if (preset?.platform === "yandex_disk" && preset.credential_id != null) {
         return preset.credential_id;
       }
     }
     return "" as const;
-  }, [selectedPresetIds, presetsData?.items]);
+  }, [selectedPresetIds, presetDetails]);
 
   async function handleMetadataPreview() {
     setMetadataPreviewLoading(true);
@@ -699,46 +731,35 @@ export function RunConfigModal({
             />
           </OverrideSection>
 
-          <Disclosure title="LEAP" variant="main">
-            <Field
-              label="Courses"
-              hint="Add this run’s recordings to these playlists. Membership is not an upload."
-            >
-              <PlaylistPicker
-                mode="form"
-                selectedIds={selectedPlaylistIds}
-                onChange={setSelectedPlaylistIds}
+          <OverrideSection
+            title="LEAP"
+            switchLabel="Override LEAP settings"
+            enabled={leapOutputEnabled}
+            onEnabledChange={setLeapOutputEnabled}
+            open={leapOutputOpen}
+            onOpenChange={setLeapOutputOpen}
+            enabledHint={overrideEnabledHint}
+          >
+            <Toggle
+              label="Publish to LEAP after processing"
+              checked={publishLeap}
+              onChange={setPublishLeap}
+            />
+            {publishLeap ? (
+              <LeapConfigFields
+                variant="run"
+                playlistIds={selectedPlaylistIds}
+                onPlaylistIdsChange={setSelectedPlaylistIds}
+                leapPresets={leapPresets}
+                selectedLeapPresetId={selectedLeapId}
+                onLeapPresetIdChange={setLeapPresetId}
+                lookDisabled={leapLookLocked}
               />
-            </Field>
-            <Field
-              label="Look"
-              hint={
-                leapLookLocked
-                  ? "Bulk run keeps each recording’s template look unless you override Upload a copy."
-                  : "Title, description, and cover on course and share pages. Extra fields live under Metadata, LEAP look."
-              }
-            >
-              {leapPresets.length === 0 ? (
-                <CreatePlaceholder href="/presets/new" label="Add a look" />
-              ) : (
-                <NativeSelect
-                  ariaLabel="LEAP look preset"
-                  value={selectedLeapId ?? ""}
-                  disabled={leapLookLocked}
-                  onChange={(e) => setLeapPresetId(e.target.value ? Number(e.target.value) : null)}
-                >
-                  <option value="">None — inherit from template</option>
-                  {leapPresets.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </NativeSelect>
-              )}
-            </Field>
-          </Disclosure>
+            ) : (
+              <p className="text-xs text-muted-foreground">Turn on to set look, courses, and share link.</p>
+            )}
+          </OverrideSection>
 
-          {/* ── Upload ─────────────────────────────────────────────────── */}
           <OverrideSection
             title="Upload a copy"
             switchLabel="Override upload settings"
@@ -748,52 +769,23 @@ export function RunConfigModal({
             onOpenChange={setOutputOpen}
             enabledHint={overrideEnabledHint}
           >
-            <div className="space-y-0.5">
-              <Toggle
-                label="Auto-upload after processing"
-                hint={
-                  copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length === 0
-                    ? "Select a YouTube or Yandex Disk preset first"
-                    : undefined
-                }
-                checked={autoUpload}
-                onChange={(v) => {
-                  if (v && copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length === 0) return;
-                  setAutoUpload(v);
-                }}
-              />
-              <Toggle
-                label="Upload captions / subtitles"
-                checked={uploadCaptions}
-                onChange={setUploadCaptions}
-              />
-            </div>
-
-            {copyPresets.length > 0 ? (
-              <Field label="Presets" hint="Upload a copy of the video.">
-                <ChecklistPicker
-                  title="Select presets"
-                  ariaLabel="Upload presets"
-                  emptyLabel="No upload presets selected"
-                  searchPlaceholder="Search presets"
-                  items={copyPresets.map((p) => ({
-                    value: p.id,
-                    label: p.name,
-                    hint: p.platform,
-                    group: p.platform,
-                  }))}
-                  value={selectedPresetIds.filter((id) => copyPresets.some((p) => p.id === id))}
-                  onChange={(copyIds) => {
-                    const leap = selectedPresetIds.filter((id) => leapPresets.some((p) => p.id === id));
-                    setSelectedPresetIds([...copyIds, ...leap]);
-                  }}
-                />
-              </Field>
-            ) : (
-              <Field label="Presets" hint="Upload a copy of the video.">
-                <CreatePlaceholder href="/presets/new" label="Add a preset" />
-              </Field>
-            )}
+            <UploadCopyFields
+              copyPresets={copyPresets}
+              selectedCopyPresetIds={selectedPresetIds.filter((id) => copyPresets.some((p) => p.id === id))}
+              onSelectedCopyPresetIdsChange={(copyIds) => {
+                const leap = selectedPresetIds.filter((id) => leapPresets.some((p) => p.id === id));
+                setSelectedPresetIds([...copyIds, ...leap]);
+              }}
+              autoUpload={autoUpload}
+              onAutoUploadChange={setAutoUpload}
+              uploadCaptions={uploadCaptions}
+              onUploadCaptionsChange={setUploadCaptions}
+              autoUploadHint={
+                copyPresets.filter((p) => selectedPresetIds.includes(p.id)).length === 0
+                  ? "Select an upload preset first."
+                  : undefined
+              }
+            />
           </OverrideSection>
 
           {/* ── Metadata & Platform overrides ───────────────────────────── */}
@@ -843,22 +835,28 @@ export function RunConfigModal({
             />
             ) : null}
 
-            {(selectedLeapId != null ||
-              copyPresets.some((p) => selectedPresetIds.includes(p.id) && (p.platform === "youtube" || p.platform === "yandex_disk"))) ? (
+            {selectedLeapId != null
+            || copyPresets.some(
+              (p) => selectedPresetIds.includes(p.id) && (p.platform === "youtube" || p.platform === "yandex_disk"),
+            ) ? (
             <>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Platform overrides
             </p>
             <div className="space-y-3">
               {selectedLeapId != null ? (
-              <Disclosure title="LEAP look">
+              <Disclosure title="LEAP">
                 <LeapLookFields
                   value={leapFields}
                   onChange={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
+                  showAutoShareOverride
+                  presetDefaults={selectedLeapPresetMeta}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Empty fields inherit from the selected look preset.
-                </p>
+                <LeapFillFromPresetButton
+                  metadata={selectedLeapPresetMeta}
+                  onApply={(patch) => setLeapFields((f) => ({ ...f, ...patch }))}
+                />
+                <p className="text-xs text-muted-foreground">Empty fields inherit from preset.</p>
               </Disclosure>
               ) : null}
               {copyPresets.some((p) => selectedPresetIds.includes(p.id) && p.platform === "youtube") ? (

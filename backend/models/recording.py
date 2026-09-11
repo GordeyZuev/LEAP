@@ -53,6 +53,7 @@ class TargetType(StrEnum):
     GOOGLE_DRIVE = "GOOGLE_DRIVE"
     YANDEX_DISK = "YANDEX_DISK"
     RUTUBE = "RUTUBE"
+    LEAP = "LEAP"
     OTHER = "OTHER"
 
 

@@ -4,7 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { FILTER_CONTROL } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL, FILTER_CONTROL_FILLED } from "@/lib/filter-field-classes";
 
 export interface FilterSelectOption<V extends string | number = string> {
   value: V;
@@ -136,6 +136,7 @@ export function FilterSelect<V extends string | number = string>({
   }, [open]);
 
   const selected = options.find((o) => o.value === value);
+  const hasSelection = value !== "" && value != null;
 
   function openAt(index: number) {
     setActiveIndex(index);
@@ -217,9 +218,10 @@ export function FilterSelect<V extends string | number = string>({
         }}
         className={cn(
           FILTER_CONTROL,
-          "flex w-full items-center justify-between gap-2 text-left font-medium text-secondary-foreground",
+          "flex w-full items-center justify-between gap-2 text-left font-medium",
+          hasSelection ? cn(FILTER_CONTROL_FILLED, "text-primary") : "text-secondary-foreground",
           compact && "min-h-9 px-2.5 py-1 text-xs",
-          disabled && "cursor-not-allowed opacity-50"
+          disabled && "cursor-not-allowed opacity-50",
         )}
       >
         <span className="truncate">{selected?.label ?? "—"}</span>

@@ -206,6 +206,7 @@ PLATFORM_ORDER = [
     "rutube",
     "google_drive",
     "local_storage",
+    "leap",
     "other",
 ]
 

@@ -55,7 +55,7 @@ const PLATFORM_COLORS: Record<string, string> = {
   youtube: "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-300",
   vk: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300",
   yandex_disk: "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300",
-  leap: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  leap: "bg-primary/10 text-primary",
 };
 
 const SORT_OPTIONS = [
@@ -261,8 +261,8 @@ function PresetsContent() {
             emptySummary="All platforms"
             value={platforms}
             options={[
-              ...platformOptions.filter((o) => ALLOWED_PLATFORMS.has(o.value)),
               { value: "leap", label: "LEAP" },
+              ...platformOptions.filter((o) => ALLOWED_PLATFORMS.has(o.value) && o.value !== "leap"),
             ]}
             onChange={(next) => list.setMultiParam("platform", next)}
           />,

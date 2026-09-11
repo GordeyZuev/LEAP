@@ -10,7 +10,13 @@ from api.schemas.common import BASE_MODEL_CONFIG
 def normalize_output_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     """Ensure JSONB output_config matches ``TemplateOutputConfig`` (legacy rows may omit lists)."""
     if not raw:
-        return {"preset_ids": [], "playlist_ids": [], "auto_upload": False, "upload_captions": True}
+        return {
+            "preset_ids": [],
+            "playlist_ids": [],
+            "auto_upload": False,
+            "upload_captions": True,
+            "publish_leap": True,
+        }
     out = dict(raw)
     preset_ids = out.get("preset_ids")
     if preset_ids is None or not isinstance(preset_ids, list):
@@ -28,7 +34,8 @@ class TemplateOutputConfig(BaseModel):
     Fields:
     - preset_ids: list of presets for auto-upload (empty = manual upload only)
     - playlist_ids: LEAP playlists to append matched recordings to (not a YouTube playlist)
-    - auto_upload: automatic upload after processing
+    - auto_upload: automatic copy upload after processing (YouTube / Yandex Disk)
+    - publish_leap: run LEAP publish (look, share, courses) when a leap preset is configured
     - upload_captions: upload subtitles with video (if platform supports)
     """
 
@@ -49,6 +56,11 @@ class TemplateOutputConfig(BaseModel):
     auto_upload: bool = Field(
         False,
         description="Auto-upload after processing (if False - manual upload only)",
+    )
+
+    publish_leap: bool = Field(
+        True,
+        description="Publish to LEAP after processing when a leap preset is in preset_ids",
     )
 
     upload_captions: bool = Field(

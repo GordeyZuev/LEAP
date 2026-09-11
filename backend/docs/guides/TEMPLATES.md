@@ -26,7 +26,12 @@
 - **Matching Rules** - правила сопоставления (keywords, patterns, exact matches)
 - **Processing Config** - настройки обработки (transcription, video processing)
 - **Metadata Config** - настройки метаданных (title_template, description_template, **thumbnail_name**)
-- **Output Config** - upload copies (`preset_ids`, `auto_upload`) and, on named templates, LEAP course membership (`playlist_ids`). A `platform=leap` preset in `preset_ids` is a **look** (course/share title, description, cover) — not an upload. Courses do not require copy presets. `auto_upload` requires at least one non-leap preset. At most one leap preset per `preset_ids`.
+- **Output Config** - upload copies (`preset_ids`, `auto_upload`, `upload_captions`) and LEAP (`publish_leap`, optional `platform=leap` preset in `preset_ids`, optional `playlist_ids`). A leap preset is a publication target (look, share, default playlists) — not a file copy. Copy presets are not required for LEAP. `auto_upload` requires at least one non-leap preset. At most one leap preset per `preset_ids`. Empty `playlist_ids` in the template means **inherit** playlists from the leap preset at pipeline time (the web editor keeps the field empty instead of copying preset ids into the saved JSON).
+
+**Web editor layout (template, Run with config, Edit configuration):**
+- **Output** — **Publish to LEAP**, **LEAP preset**, **LEAP playlists** (named templates only for playlists on the base/default template), then **Upload a copy** (copy presets + auto-upload).
+- **Metadata templates** — global title/description/cover, then **Platform overrides** (LEAP when a leap preset is selected, YouTube/Yandex when copy presets are selected). Leap look fields (`metadata_config.leap`) overlay the preset; unset fields inherit. Use **Fill from LEAP preset** to copy preset templates into overrides.
+- **Run / per-recording overrides** — same sections with override switches: off = omit that block and keep the effective template; on = write `processing_config`, `output_config`, or `metadata_config` for this run or recording.
 
 **⚠️ Note about `thumbnail_name`:**
 - Use **filename only** (e.g., `"ml_extra.png"`), not full path

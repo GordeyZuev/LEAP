@@ -206,6 +206,16 @@ class PlaylistService:
         if not template or template.is_default:
             return
         raw_ids = (template.output_config or {}).get("playlist_ids") or []
+        if not raw_ids:
+            from api.repositories.template_repos import OutputPresetRepository
+            from api.services.leap_publish import active_leap_from_presets, leap_meta_from_preset
+
+            preset_ids = (template.output_config or {}).get("preset_ids") or []
+            if preset_ids:
+                presets = await OutputPresetRepository(self.session).find_by_ids(list(preset_ids), self.user_id)
+                leap = active_leap_from_presets(presets)
+                if leap:
+                    raw_ids = leap_meta_from_preset(leap).get("playlist_ids") or []
         await self._add_recording_to_playlist_ids(recording, raw_ids)
 
     async def add_from_playlist_ids(self, recording: RecordingModel, playlist_ids: list[int] | None) -> None:

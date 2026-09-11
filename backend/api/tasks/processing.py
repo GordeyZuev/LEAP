@@ -1438,11 +1438,9 @@ def _launch_uploads_task(
     Returns:
         Dict with launched upload task IDs
     """
-    from api.services.config_utils import is_leap_platform
     from api.tasks.upload import platform_to_target_type, upload_enqueue_skip_reason, upload_recording_to_platform
 
-    platforms = [p for p in platforms if not is_leap_platform(p)]
-    preset_map = {k: v for k, v in preset_map.items() if not is_leap_platform(k)}
+    # leap stays in the list: it is a real target (share + playlists), not a copy upload.
 
     # Check pause flag before launching uploads
     session_maker = get_async_session_maker()
@@ -1756,8 +1754,10 @@ def run_recording_task(
         generate_subs_enabled = transcription.get("enable_subtitles", True)
 
         upload_enabled = output_config.get("auto_upload", False)
+        publish_leap = output_config.get("publish_leap", True)
         copy_preset_list = copy_presets(presets)
         platforms = [p for p in output_config.get("default_platforms", []) if not is_leap_platform(p)]
+        leap_preset = next((p for p in presets if is_leap_platform(p.platform) and p.is_active), None)
 
         granularity = transcription.get("granularity", "long")
         subtitle_formats = transcription.get("subtitle_formats", ["srt", "vtt"])
@@ -1819,27 +1819,31 @@ def run_recording_task(
             )
 
         # Build chain with optional upload callback
+        preset_map: dict[str, int] = {}
+        launch_platforms: list[str] = []
         if upload_enabled and (platforms or copy_preset_list):
-            # Add upload launcher as final callback in chain
             preset_map = {preset.platform: preset.id for preset in copy_preset_list}
+            launch_platforms = list(platforms)
+            if not launch_platforms and copy_preset_list:
+                launch_platforms = [preset.platform for preset in copy_preset_list]
 
-            if not platforms and copy_preset_list:
-                platforms = [preset.platform for preset in copy_preset_list]
+        if leap_preset and publish_leap:
+            launch_platforms = [p for p in launch_platforms if not is_leap_platform(p)]
+            launch_platforms.append("leap")
+            preset_map["leap"] = leap_preset.id
 
+        if launch_platforms:
             metadata_override = full_config.get("metadata_config", {})
-
-            # Create upload callback task
             task_chain.append(
                 _launch_uploads_task.si(
                     recording_id=recording_id,
                     user_id=user_id,
-                    platforms=platforms,
+                    platforms=launch_platforms,
                     preset_map=preset_map,
                     metadata_override=metadata_override,
                 )
             )
-
-            logger.debug(f"Added upload launcher | {format_details(platforms=platforms)}")
+            logger.debug(f"Added upload launcher | {format_details(platforms=launch_platforms)}")
 
         # Always append finalize step — clears on_air and records completion time
         task_chain.append(_finalize_pipeline_task.si(recording_id, user_id))
@@ -1871,7 +1875,7 @@ def run_recording_task(
                 "chain_id": chain_result.id,
                 "chain_tasks": len(task_chain),
                 "upload_enabled": upload_enabled,
-                "platforms": platforms if upload_enabled else [],
+                "platforms": launch_platforms,
             },
         )
 

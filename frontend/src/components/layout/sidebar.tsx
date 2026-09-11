@@ -24,7 +24,7 @@ import { useExitPresence } from "@/hooks/use-exit-presence";
 import { Logo } from "@/components/layout/logo";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { apiClient } from "@/api/client";
-import { prefetchNavList, useMe } from "@/lib/react-query";
+import { prefetchNavList } from "@/lib/react-query";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 
@@ -54,18 +54,17 @@ async function performLogout() {
 }
 
 interface SidebarProps {
+  /** From server layout — must match SSR HTML to avoid hydration mismatch. */
+  isAdmin?: boolean;
   /** Mobile drawer open state. Ignored on lg+ where the sidebar is static. */
   mobileOpen?: boolean;
   /** Called to close the mobile drawer (nav click, backdrop, route change, ESC). */
   onMobileClose?: () => void;
 }
 
-export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
+export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const qc = useQueryClient();
-  // Role gates the Admin entry. Cached under ["me"] and shared across the app.
-  const { data: me } = useMe();
-  const isAdmin = me?.role === "admin";
 
   function prefetchNav(href: string) {
     if (href === "/recordings") return;

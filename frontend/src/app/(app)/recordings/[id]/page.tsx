@@ -352,7 +352,7 @@ function deriveIngressLifecycle(recording: RecordingDetail): { phase: LifecycleP
 const TARGET_LABELS: Record<string, string> = {
   YOUTUBE:     "YouTube",
   VK:          "VK",
-  YANDEX_DISK: "Yandex Disk",
+  LEAP:          "LEAP",
 };
 
 const PLATFORM_STATUS_CONFIG: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; label: string; color: string }> = {
@@ -431,7 +431,7 @@ function PlatformOutputRow({
             icon={<Upload size={10} />}
             className="px-2 py-0.5 text-xs hover:border-primary hover:bg-primary hover:text-white"
           >
-            {output.status === "FAILED" ? "Retry" : "Upload"}
+            {output.status === "FAILED" ? "Retry" : output.target_type === "LEAP" ? "Publish" : "Upload"}
           </ActionButton>
         )}
       </div>

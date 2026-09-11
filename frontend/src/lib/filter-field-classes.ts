@@ -23,6 +23,10 @@ export const FILTER_BAR_CONTROL =
 export const FILTER_CONTROL =
   "w-full min-h-[2.875rem] px-3 py-2 rounded-xl border border-input bg-card text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/30";
 
+/** Trigger surface when a value is chosen (single- or multi-select). */
+export const FILTER_CONTROL_FILLED =
+  "border-primary/30 bg-primary/5";
+
 /** Shared chrome for the segmented (pillow) group — layout is inline vs stretch. */
 export const FILTER_SEGMENT_CHROME =
   "items-center min-h-[2.875rem] gap-0.5 rounded-xl border border-border bg-muted p-1";

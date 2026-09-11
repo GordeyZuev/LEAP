@@ -13,7 +13,6 @@ import {
   YouTubeFields,
   VkFields,
   YandexDiskFields,
-  TemplateField,
   type YouTubeFieldsValue,
   type VkFieldsValue,
   type YandexDiskFieldsValue,
@@ -26,11 +25,15 @@ import {
   youtubeFieldsToApi,
   vkFieldsToApi,
   yandexFieldsToApi,
+  LeapLookFields,
+  DEFAULT_LEAP_FIELDS,
+  leapFieldsFromApi,
+  type LeapFieldsValue,
 } from "@/components/platforms/platform-fields";
-import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import { appendDisplayConfigPreviewBody } from "@/components/platforms/display-config-fields";
-import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Field } from "@/components/ui/field";
 import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Toggle } from "@/components/ui/toggle";
@@ -41,22 +44,26 @@ import {
 
 type Platform = "youtube" | "vk" | "yandex_disk" | "leap";
 
-const CREATE_PLATFORMS: { value: Platform; label: string }[] = [
+type PlatformOption = { value: Platform; label: string; featured?: boolean };
+
+const BASE_PLATFORMS: PlatformOption[] = [
+  { value: "leap", label: "LEAP", featured: true },
   { value: "youtube", label: "YouTube" },
   { value: "yandex_disk", label: "Yandex Disk" },
-  { value: "leap", label: "LEAP look" },
 ];
 
-interface LeapFieldsValue {
-  title_template: string;
-  description_template: string;
-  thumbnail_name: string;
+function editorPlatforms(current: Platform): PlatformOption[] {
+  if (current === "vk") {
+    return [{ value: "vk", label: "VK Video" }, ...BASE_PLATFORMS];
+  }
+  return BASE_PLATFORMS;
 }
 
-const DEFAULT_LEAP_FIELDS: LeapFieldsValue = {
-  title_template: "",
-  description_template: "",
-  thumbnail_name: "",
+const PLATFORM_CHIP_LABEL: Record<Platform, string> = {
+  leap: "LEAP",
+  youtube: "YouTube",
+  vk: "VK Video",
+  yandex_disk: "Yandex Disk",
 };
 
 interface CredentialItem {
@@ -81,14 +88,7 @@ function getDefaultMeta(platform: Platform): PlatformMeta {
 function coerceMeta(platform: Platform, raw: unknown): PlatformMeta {
   if (platform === "youtube") return youtubeFieldsFromApi(raw);
   if (platform === "vk") return vkFieldsFromApi(raw);
-  if (platform === "leap") {
-    const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-    return {
-      title_template: typeof obj.title_template === "string" ? obj.title_template : "",
-      description_template: typeof obj.description_template === "string" ? obj.description_template : "",
-      thumbnail_name: typeof obj.thumbnail_name === "string" ? obj.thumbnail_name : "",
-    };
-  }
+  if (platform === "leap") return leapFieldsFromApi(raw);
   return yandexFieldsFromApi(raw);
 }
 
@@ -106,6 +106,8 @@ function serialiseMeta(platform: Platform, meta: PlatformMeta): Record<string, u
       title_template: m.title_template || undefined,
       description_template: m.description_template || undefined,
       thumbnail_name: m.thumbnail_name || undefined,
+      playlist_ids: m.playlist_ids,
+      auto_share: Boolean(m.auto_share),
     };
   }
   return yandexFieldsToApi(meta as YandexDiskFieldsValue, { includeExtended: true });
@@ -123,14 +125,14 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
 
   const [name,        setName]        = useState("");
   const [description, setDescription] = useState("");
-  const [platform,    setPlatform]    = useState<Platform>("youtube");
+  const [platform,    setPlatform]    = useState<Platform>("leap");
   const [credId,      setCredId]      = useState<number | "">("");
   const [isActive,    setIsActive]    = useState(true);
-  const [meta,        setMeta]        = useState<PlatformMeta>({ ...DEFAULT_YOUTUBE_FIELDS });
+  const [meta,        setMeta]        = useState<PlatformMeta>({ ...DEFAULT_LEAP_FIELDS });
   const { toast, show: showToast, dismiss: dismissToast } = useToast();
 
   const [savedSnapshot, setSavedSnapshot] = useState(
-    () => JSON.stringify({ name: "", description: "", credId: "", isActive: true, meta: { ...DEFAULT_YOUTUBE_FIELDS } }),
+    () => JSON.stringify({ name: "", description: "", credId: "", isActive: true, meta: { ...DEFAULT_LEAP_FIELDS } }),
   );
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -263,6 +265,13 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
   const isDirty =
     JSON.stringify({ name, description, credId, isActive, meta }) !== savedSnapshot;
 
+  const statusLabel = isActive ? "Active" : "Inactive";
+  const statusColor = isActive
+    ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
+    : "bg-muted text-muted-foreground";
+
+  const platformChoices = editorPlatforms(platform);
+
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
       {/* Header */}
@@ -281,8 +290,13 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
         <h1 className="flex-1 text-lg font-semibold text-foreground">
           {isNew ? "New preset" : (existing?.name ?? "…")}
         </h1>
-        <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-          {platform === "leap" ? "Look for courses and share — not an upload" : "Applies at upload time"}
+        <span
+          className={cn(
+            "rounded-full px-2.5 py-1 text-[11px] font-medium",
+            platform === "leap" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+          )}
+        >
+          {PLATFORM_CHIP_LABEL[platform]}
         </span>
         {!isNew && (
           <ActionButton variant="secondary" onClick={() => setConfirmCopy(true)} isPending={copyPreset.isPending} icon={<Copy size={15} />} pendingLabel="Copying…">
@@ -307,96 +321,78 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
       </div>
 
 
-      <div className="space-y-5">
-        {/* General */}
-        <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-secondary-foreground">General</h2>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1 space-y-5">
+          <Section title="General">
+            <Field label="Name *">
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={platform === "leap" ? "Course look" : "My upload preset"}
+                className={FILTER_CONTROL}
+              />
+            </Field>
 
-          <div>
-            <label className={FILTER_LABEL}>Name *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="My YouTube preset"
-              className={FILTER_CONTROL}
-            />
-          </div>
+            <Field label="Description">
+              <input
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional"
+                className={FILTER_CONTROL}
+              />
+            </Field>
 
-          <div>
-            <label className={FILTER_LABEL}>Description</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional"
-              className={FILTER_CONTROL}
-            />
-          </div>
+            <Field label="Platform">
+              <div className="flex flex-wrap gap-2">
+                {platformChoices.map((o) => {
+                  const selected = platform === o.value;
+                  return (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => changePlatform(o.value)}
+                      disabled={!isNew}
+                      className={cn(
+                        "min-w-[5.5rem] flex-1 rounded-xl border px-2 py-2 text-sm transition-colors sm:flex-none sm:min-w-[7rem]",
+                        selected
+                          ? "border-primary bg-primary font-medium text-white"
+                          : o.featured
+                            ? "border-primary/45 bg-primary/5 font-semibold tracking-wide text-primary hover:bg-primary/10"
+                            : "border-border bg-card font-medium text-secondary-foreground hover:bg-muted",
+                        !isNew && "disabled:opacity-40",
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
 
-          <Toggle
-            label="Active"
-            hint="Inactive presets stay configured but are skipped when publishing."
-            checked={isActive}
-            onChange={setIsActive}
-          />
-
-          <div>
-            <label className={FILTER_LABEL}>Platform</label>
-            <div className="mt-1 flex gap-2">
-              {(platform === "vk"
-                ? [{ value: "vk" as Platform, label: "VK Video" }, ...CREATE_PLATFORMS]
-                : CREATE_PLATFORMS
-              ).map((o) => (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => changePlatform(o.value)}
-                  disabled={!isNew}
-                  className={cn(
-                    "flex-1 rounded-xl border py-2 text-sm font-medium transition-colors",
-                    platform === o.value
-                      ? "border-primary bg-primary text-white"
-                      : "border-border bg-card text-secondary-foreground hover:bg-muted disabled:opacity-40"
-                  )}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {platform !== "leap" && (
-          <div>
-            <label className={FILTER_LABEL}>Credential</label>
-            {creds.length === 0 ? (
-              <CreatePlaceholder href="/credentials" label="Add credentials" />
-            ) : (
-              <NativeSelect
-                value={credId}
-                onChange={(e) => setCredId(Number(e.target.value) || "")}
-              >
-                <option value="">— Select credential —</option>
-                {creds.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.account_name ?? `Credential #${c.id}`}
-                  </option>
-                ))}
-              </NativeSelect>
+            {platform !== "leap" && (
+              <Field label="Credential">
+                {creds.length === 0 ? (
+                  <CreatePlaceholder href="/credentials" label="Add credentials" />
+                ) : (
+                  <NativeSelect
+                    value={credId}
+                    onChange={(e) => setCredId(Number(e.target.value) || "")}
+                  >
+                    <option value="">— Select credential —</option>
+                    {creds.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.account_name ?? `Credential #${c.id}`}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                )}
+              </Field>
             )}
-          </div>
-          )}
-          {platform === "leap" && (
-            <p className="text-sm text-muted-foreground">
-              LEAP look, not an upload. Titles on courses and share links render from this preset at read time. No credential.
-            </p>
-          )}
-        </div>
+          </Section>
 
-        {/* Platform-specific settings */}
-        <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-secondary-foreground">Platform settings</h2>
-
+          <Section title="Platform settings">
           {platform === "youtube" && (
             <YouTubeFields
               value={meta as YouTubeFieldsValue}
@@ -421,28 +417,11 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
           )}
 
           {platform === "leap" && (
-            <>
-              <TemplateField
-                label="Title template"
-                value={(meta as LeapFieldsValue).title_template}
-                onChange={(v) => patchMeta({ title_template: v })}
-                placeholder="{{ display_name }}"
-              />
-              <TemplateField
-                label="Description template"
-                value={(meta as LeapFieldsValue).description_template}
-                onChange={(v) => patchMeta({ description_template: v })}
-                multiline
-                rows={6}
-                placeholder="{{ summary }}"
-              />
-              <ThumbnailPicker
-                label="Cover image"
-                placeholder="No cover image"
-                value={(meta as LeapFieldsValue).thumbnail_name}
-                onChange={(name) => patchMeta({ thumbnail_name: name })}
-              />
-            </>
+            <LeapLookFields
+              value={meta as LeapFieldsValue}
+              onChange={patchMeta}
+              showPublish
+            />
           )}
 
           {platform === "yandex_disk" && (
@@ -466,6 +445,52 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
             </ActionButton>
             {renderPreview ? <MetadataPreviewResultBox preview={renderPreview} /> : null}
           </div>
+          </Section>
+        </div>
+
+        <div className="w-full space-y-4 lg:w-72 lg:shrink-0">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</h2>
+            <div className="mb-4 flex items-center gap-2">
+              <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium", statusColor)}>
+                {statusLabel}
+              </span>
+            </div>
+            <div className="space-y-1">
+              <div className="my-3 border-t border-border" role="separator" />
+              <Toggle
+                label="Active"
+                hint="Skipped when off."
+                checked={isActive}
+                onChange={setIsActive}
+                className="rounded-xl px-2 py-2 transition-colors hover:bg-muted"
+              />
+            </div>
+          </div>
+
+          {!isNew && existing && (
+            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Info</h2>
+              <div className="space-y-2 text-sm">
+                <InfoRow
+                  label="Created"
+                  value={new Date(existing.created_at).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                />
+                <InfoRow
+                  label="Updated"
+                  value={new Date(existing.updated_at).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -500,6 +525,24 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
       />
 
       {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <h2 className="text-sm font-semibold text-secondary-foreground">{title}</h2>
+      {children}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }

@@ -1,3 +1,83 @@
+## 2026-09-11: LEAP output and config editor polish
+
+- **Run / Edit configuration** — **LEAP** and **Upload a copy** are separate override sections (same row pattern as Processing and Metadata). `output_config` is sent only when the matching override switch is on (no silent leap/output writes).
+- **Metadata** — leap look overrides (`title_template`, `description_template`, cover, `auto_share`) are edited under **Metadata templates → Platform overrides → LEAP**, alongside YouTube and Yandex Disk. Fields preload the active leap preset (placeholders; share link shows **Same as preset (On/Off)** while `auto_share` is inherit). **Fill from LEAP preset** on template and run.
+- **Template Output** — **Publish to LEAP**, **LEAP preset**, **LEAP playlists**. An empty **LEAP playlists** list in the editor means inherit preset playlists at runtime; the UI does not copy preset `playlist_ids` into the saved template (avoids turning inherit into an explicit override).
+- **`publish_leap`** — template and run toggles; when off, the pipeline skips LEAP publication (look preset may remain in `preset_ids`).
+- **Controls** — combobox and multi-select triggers get a light primary tint when a value is selected (`FilterSelect` / `NativeSelect`, `ChecklistPicker`, cover picker).
+
+### Files
+
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `frontend/src/components/platforms/leap-config-section.tsx`
+- `frontend/src/components/platforms/output-settings-fields.tsx`
+- `frontend/src/components/platforms/platform-fields.tsx`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `frontend/src/hooks/use-preset-details.ts`
+- `frontend/src/components/filters/filter-select.tsx`
+- `frontend/src/components/ui/checklist-picker.tsx`
+- `frontend/src/lib/filter-field-classes.ts`
+
+---
+
+## 2026-09-11: Thumbnail upload rename
+
+- **Cover images** — renaming a file in the thumbnail picker now sticks. The UI sent form field `name`; `POST /api/v1/thumbnails` reads `custom_filename`, so the original filename was stored. Custom names are sanitized the same way as original filenames (spaces → `_`), so a pre-filled OS name with spaces still uploads.
+
+### Files
+
+- `frontend/src/components/platforms/thumbnail-picker.tsx`
+- `backend/api/routers/thumbnails.py`
+- `backend/tests/unit/api/test_thumbnails_upload.py`
+
+---
+
+## 2026-09-11: Hydration and theme boot
+
+- **Theme** — root layout uses `next/script` `beforeInteractive` instead of a raw `<script>` in `<head>` (React 19 does not run those on the client).
+- **App shell** — session gate reads the csrf cookie on the server so SSR matches the client; `usePathname` is behind `Suspense` so Next does not replace `AppShell` with a boundary.
+- **Sidebar Admin** — `isAdmin` comes from server `/users/me` (cookie-forwarded fetch), not client `useMe`, so the Admin link does not shift the Documentation row during hydration.
+- **Presets UI** — LEAP first (primary accent); editor layout matches templates; short copy for share link and active toggle.
+- **LEAP config** — shared `OutputSettingsFields`; `publish_leap` mirrors `auto_upload` (pipeline skips LEAP when off; look preset can stay in `preset_ids`).
+
+### Files
+
+- `frontend/src/app/layout.tsx`
+- `frontend/src/app/(app)/layout.tsx`
+- `frontend/src/components/layout/auth-guard.tsx`
+- `frontend/src/components/layout/app-shell.tsx`
+- `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/lib/fetch-me-server.ts`
+
+---
+
+## 2026-09-11: LEAP as a publication target
+
+- **LEAP preset** — `playlist_ids` and `auto_share` live on the leap preset.
+- **Publish** — after processing, a `LEAP` output target is marked uploaded so the recording can go **READY**. Publish requires a processed video (same as copy uploads).
+- **Share** — `auto_share` mints `/share/{uuid}` unless the owner already disabled an existing token. Template/Run `metadata_config.leap.auto_share` overlays the preset (`null` = inherit).
+- **Courses** — preset `playlist_ids` are the default; named template / Run `output_config.playlist_ids` replace when non-empty. Bind still appends on named templates (inherits preset list if the template list is empty).
+- **Deploy** — apply Alembic **048** (`targettype` value `LEAP`) before API/workers that create LEAP targets.
+
+### Files
+
+- `backend/alembic/versions/048_add_leap_target_type.py`
+- `backend/models/recording.py`
+- `backend/api/services/leap_publish.py`
+- `backend/api/helpers/pipeline_initializer.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/tasks/upload.py`
+- `backend/api/services/playlist_service.py`
+- `backend/api/schemas/template/preset_metadata.py`
+- `backend/api/schemas/template/metadata_config.py`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`
+- `frontend/src/components/platforms/platform-fields.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/TEMPLATES.md`
+- `backend/docs/DATABASE_DESIGN.md`
+
+---
+
 ## 2026-09-10: Automation preview and run history
 
 - **Preview (dry run)** — `POST /automation/jobs/{id}/run?dry_run=true` still returns `task_id`. The Celery task `automation.dry_run` now runs the **same source sync and matching** as a real job, then returns `would_process` (id, name, template) **without** binding, skipping unmatched, enqueue, or writing history. Poll `GET /api/v1/tasks/{task_id}`. Sync is **committed** so new catalog rows stay after preview.
@@ -667,7 +747,7 @@
 
 ## v0.10.8.3 (2026-09-09)
 
-Релиз-опора: **Usage & product analytics** — Settings → Usage (квоты `used / limit` по всем восьми лимитам + Activity с графиками и произвольным периодом до 366 дней); Admin → Analytics и Activity в карточке пользователя; share-аналитика с `from`/`to`; API analytics + live-счётчик automation jobs в `/users/me/quota`. В том же релизе: **быстрее списки**, **docs hub / FAQ / 12+**, **обрезка тишины** МТС Линк, **стабильность** (просмотры шары у залогиненного зрителя; честный Loki WARNING), **автоматизации** (Preview после синка, подтверждение Run, список записей в истории — миграция **047**). Подробности — dated-секции **2026-09-09** и **2026-09-10**; гайды: [USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md), [MONITORING.md](guides/MONITORING.md), [AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md).
+Релиз-опора: **Usage & product analytics** — Settings → Usage (квоты `used / limit` по всем восьми лимитам + Activity с графиками и произвольным периодом до 366 дней); Admin → Analytics и Activity в карточке пользователя; share-аналитика с `from`/`to`; API analytics + live-счётчик automation jobs в `/users/me/quota`. В том же релизе: **быстрее списки**, **docs hub / FAQ / 12+**, **обрезка тишины** МТС Линк, **стабильность** (просмотры шары у залогиненного зрителя; честный Loki WARNING), **автоматизации** (Preview после синка, подтверждение Run, список записей в истории — миграция **047**). **LEAP (2026-09-11):** публикация на LEAP как output target (миграция **048**), `publish_leap`, единый редактор шаблона / Run / запись (LEAP и Upload отдельно; оверрайды look — в Metadata → Platform overrides), прелоад полей из leap preset, подсветка выбранных селектов. Подробности — секции **2026-09-09** – **2026-09-11**; гайды: [USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md), [TEMPLATES.md](guides/TEMPLATES.md), [PLAYLISTS.md](guides/PLAYLISTS.md), [MONITORING.md](guides/MONITORING.md), [AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md).
 
 ---
 

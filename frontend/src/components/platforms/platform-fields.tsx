@@ -6,8 +6,10 @@ import { applyDescriptionHotkey, isDescriptionFormatHotkey } from "@/lib/formatt
 import { TagInput } from "@/components/ui/tag-input";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
+import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker";
+import { Field } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { AboutFormatting } from "@/components/ui/about-formatting";
 import { AdvancedBlock, ToggleGrid } from "@/components/ui/disclosure";
@@ -321,37 +323,99 @@ export interface LeapFieldsValue {
   title_template: string;
   description_template: string;
   thumbnail_name: string;
+  playlist_ids: number[];
+  auto_share: boolean | null;
 }
 
 export const DEFAULT_LEAP_FIELDS: LeapFieldsValue = {
   title_template: "",
   description_template: "",
   thumbnail_name: "",
+  playlist_ids: [],
+  auto_share: null,
 };
 
 export function leapFieldsFromApi(raw: unknown): LeapFieldsValue {
   const obj = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const ids = Array.isArray(obj.playlist_ids)
+    ? obj.playlist_ids.filter((n): n is number => typeof n === "number" && n > 0)
+    : [];
   return {
     title_template: typeof obj.title_template === "string" ? obj.title_template : "",
     description_template: typeof obj.description_template === "string" ? obj.description_template : "",
     thumbnail_name: typeof obj.thumbnail_name === "string" ? obj.thumbnail_name : "",
+    playlist_ids: ids,
+    auto_share: typeof obj.auto_share === "boolean" ? obj.auto_share : null,
   };
+}
+
+export interface LeapLookPresetDefaults {
+  title_template?: string;
+  description_template?: string;
+  thumbnail_name?: string;
+  auto_share?: boolean;
 }
 
 export function LeapLookFields({
   value,
   onChange,
+  showPublish = false,
+  showAutoShareOverride = false,
+  presetDefaults,
 }: {
   value: LeapFieldsValue;
   onChange: (patch: Partial<LeapFieldsValue>) => void;
+  showPublish?: boolean;
+  showAutoShareOverride?: boolean;
+  /** Resolved LEAP preset values shown when override fields are empty / inherit. */
+  presetDefaults?: LeapLookPresetDefaults | null;
 }) {
+  const presetShareOn = presetDefaults?.auto_share ?? false;
   return (
     <div className="space-y-4">
+      {showPublish ? (
+        <>
+          <Toggle
+            label="Auto-publish share link"
+            hint="On after processing unless sharing is off."
+            checked={Boolean(value.auto_share)}
+            onChange={(v) => onChange({ auto_share: v })}
+          />
+          <Field
+            label="LEAP playlists"
+            hint="Default playlists; templates and Run can replace this list."
+          >
+            <PlaylistPicker mode="form" selectedIds={value.playlist_ids} onChange={(ids) => onChange({ playlist_ids: ids })} />
+          </Field>
+        </>
+      ) : null}
+      {showAutoShareOverride ? (
+        <div className="space-y-1">
+          <span className={FILTER_LABEL}>Auto-publish share link</span>
+          <NativeSelect
+            ariaLabel="Auto-publish share link"
+            value={value.auto_share === null ? "" : value.auto_share ? "on" : "off"}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange({ auto_share: v === "" ? null : v === "on" });
+            }}
+          >
+            <option value="">
+              Same as preset ({presetShareOn ? "On" : "Off"})
+            </option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </NativeSelect>
+          <p className="text-xs text-muted-foreground">
+            Preset default is {presetShareOn ? "on" : "off"}. Choose On/Off to override.
+          </p>
+        </div>
+      ) : null}
       <TemplateField
         label="Title template"
         value={value.title_template}
         onChange={(v) => onChange({ title_template: v })}
-        placeholder="{{ display_name }}"
+        placeholder={presetDefaults?.title_template?.trim() || "{{ display_name }}"}
       />
       <TemplateField
         label="Description template"
@@ -359,11 +423,14 @@ export function LeapLookFields({
         onChange={(v) => onChange({ description_template: v })}
         multiline
         rows={6}
-        placeholder={"{{ summary }}\n\n{{ topics }}"}
+        placeholder={
+          presetDefaults?.description_template?.trim()
+          || "{{ summary }}\n\n{{ topics }}"
+        }
       />
       <ThumbnailPicker
         label="Cover image"
-        placeholder="No cover image"
+        placeholder={presetDefaults?.thumbnail_name?.trim() || "No cover image"}
         value={value.thumbnail_name}
         onChange={(name) => onChange({ thumbnail_name: name })}
       />

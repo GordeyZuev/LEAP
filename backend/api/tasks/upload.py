@@ -17,6 +17,7 @@ from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
 from api.services.config_resolver import ConfigResolver
+from api.services.config_utils import is_leap_platform
 from api.services.timing_service import TimingService
 from api.shared.exceptions import CredentialError, ResourceNotFoundError
 from api.tasks.base import UploadTask
@@ -66,6 +67,7 @@ def platform_to_target_type(platform: str) -> str:
         "vk": "VK",
         "vk_video": "VK",
         "yandex_disk": "YANDEX_DISK",
+        "leap": "LEAP",
     }
     return target_type_map.get(platform.lower(), platform.upper())
 
@@ -416,6 +418,52 @@ async def _async_upload_recording(
             target_type=target_type,
             preset_id=preset_id,
         )
+
+        if is_leap_platform(platform):
+            from api.services.config_utils import resolve_full_config
+            from api.services.leap_publish import (
+                active_leap_from_presets,
+                leap_meta_from_preset,
+                publish_leap_recording,
+            )
+            from api.services.merger import deep_merge
+
+            skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
+            if skip_reason:
+                logger.info(f"Skipped: {skip_reason.lower()}")
+                return _upload_skip_result(output_target, skip_reason)
+
+            if not recording.processed_video_path:
+                raise ResourceNotFoundError("processed video", recording_id)
+
+            _full, output_config, recording = await resolve_full_config(
+                session, recording_id, user_id, include_output_config=True
+            )
+            leap_meta: dict = {}
+            pid = preset_id or output_target.preset_id
+            if pid:
+                presets = await OutputPresetRepository(session).find_by_ids([pid], user_id)
+                leap = active_leap_from_presets(presets) if presets else None
+                if leap:
+                    leap_meta = leap_meta_from_preset(leap)
+            overlay = (_full.get("metadata_config") or {}).get("leap")
+            extra = metadata_override.get("leap") if isinstance(metadata_override, dict) else None
+            if isinstance(overlay, dict) and isinstance(extra, dict):
+                overlay = deep_merge(overlay, extra, skip_none=True)
+            elif isinstance(extra, dict):
+                overlay = extra
+            if isinstance(overlay, dict) and overlay:
+                leap_meta = deep_merge(leap_meta, overlay, skip_none=True)
+
+            result = await publish_leap_recording(
+                session,
+                recording,
+                output_config=output_config,
+                leap_meta=leap_meta,
+                preset_id=pid,
+            )
+            await session.commit()
+            return result
 
         skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
         if skip_reason:

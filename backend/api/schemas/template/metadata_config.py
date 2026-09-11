@@ -105,6 +105,10 @@ class LeapMetadataConfig(BaseModel):
         description="Override cover filename (e.g. 'python_base.png').",
         examples=["python_base.png", "ml_extra.png"],
     )
+    auto_share: bool | None = Field(
+        None,
+        description="Override leap preset auto_share (None = inherit).",
+    )
 
     @field_validator("title_template", mode="before")
     @classmethod
@@ -176,9 +180,7 @@ class TemplateMetadataConfig(BaseModel):
     vk: VKMetadataConfig | None = Field(None, description="VK-specific settings")
     youtube: YouTubeMetadataConfig | None = Field(None, description="YouTube-specific settings")
     yandex_disk: YandexDiskMetadataConfig | None = Field(None, description="Yandex Disk-specific settings")
-    leap: LeapMetadataConfig | None = Field(
-        None, description="LEAP look overrides (course/share title, description, cover)"
-    )
+    leap: LeapMetadataConfig | None = Field(None, description="LEAP target overrides (look, auto_share)")
 
     title_template: str | None = Field(
         None,

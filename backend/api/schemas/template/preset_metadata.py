@@ -332,7 +332,7 @@ class YandexDiskPresetMetadata(BaseModel):
 
 
 class LeapPresetMetadata(BaseModel):
-    """Look profile for LEAP course/share titles — not an upload target."""
+    """LEAP publication target: look, optional share link, and course membership."""
 
     model_config = BASE_MODEL_CONFIG
 
@@ -350,6 +350,14 @@ class LeapPresetMetadata(BaseModel):
         None,
         description="Cover filename only (e.g. 'python_base.png').",
         examples=["python_base.png", "ml_extra.png"],
+    )
+    playlist_ids: list[int] = Field(
+        default_factory=list,
+        description="LEAP playlist IDs to append on publish (overridable by template/Run output_config).",
+    )
+    auto_share: bool = Field(
+        False,
+        description="Mint and enable the recording share link when publishing to LEAP.",
     )
 
     @field_validator("title_template", mode="before")
@@ -373,6 +381,28 @@ class LeapPresetMetadata(BaseModel):
         if "/" in name or "\\" in name or name.startswith("."):
             raise ValueError("thumbnail_name must be a filename without path")
         return name
+
+    @field_validator("playlist_ids", mode="before")
+    @classmethod
+    def _coerce_playlist_ids(cls, v: Any) -> list[int]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            return []
+        return v
+
+    @field_validator("playlist_ids")
+    @classmethod
+    def _validate_playlist_ids(cls, v: list[int]) -> list[int]:
+        if not v:
+            return v
+        if len(v) > 10:
+            raise ValueError("Maximum 10 playlists per leap preset")
+        if any(pid <= 0 for pid in v):
+            raise ValueError("playlist_ids must be positive numbers")
+        if len(v) != len(set(v)):
+            raise ValueError("playlist_ids must be unique")
+        return v
 
 
 PresetMetadata = YouTubePresetMetadata | VKPresetMetadata | YandexDiskPresetMetadata | LeapPresetMetadata

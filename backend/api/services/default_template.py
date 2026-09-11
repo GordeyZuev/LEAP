@@ -15,7 +15,12 @@ from database.template_models import RecordingTemplateModel
 
 def upload_config_to_output(upload: dict[str, Any]) -> dict[str, Any]:
     """Map legacy user ``upload`` block to template ``output_config`` shape."""
-    result: dict[str, Any] = {"preset_ids": [], "auto_upload": False, "upload_captions": True}
+    result: dict[str, Any] = {
+        "preset_ids": [],
+        "auto_upload": False,
+        "upload_captions": True,
+        "publish_leap": True,
+    }
     if not upload:
         return result
     for key in ("auto_upload", "upload_captions", "default_platforms"):

@@ -55,6 +55,7 @@ class OutputConfigUpdate(BaseModel):
         description="Preset IDs for auto-upload (replaces existing when provided)",
     )
     auto_upload: bool | None = Field(None, description="Auto-upload after processing")
+    publish_leap: bool | None = Field(None, description="Publish to LEAP after processing")
     upload_captions: bool | None = Field(None, description="Upload subtitles with video")
     playlist_ids: list[int] | None = Field(
         None,
