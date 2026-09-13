@@ -144,7 +144,7 @@ erDiagram
 | `playlists` | `PlaylistModel` | `user_id`, уникальное `name` на пользователя, `description`, `share_token` (UUID, nullable), `share_enabled`, `share_created_at`; лимит 200 на пользователя |
 | `playlist_items` | `PlaylistItemModel` | `playlist_id`, `recording_id`, `position`; UNIQUE `(playlist_id, recording_id)`; лимит 200 пунктов |
 
-`output_config.playlist_ids` у **именованного** шаблона (не default) добавляет запись при bind/create/match; пустой список наследует `playlist_ids` leap-пресета.
+`output_config.playlist_ids` у **именованного** шаблона (не default) применяется при LEAP publish после обработки (строка в `playlist_items`); пустой список наследует `playlist_ids` leap-пресета на этапе пайплайна. Раннее добавление при bind/match снято (см. CHANGELOG **2026-09-13: LEAP playlist publish deferred**).
 
 ---
 

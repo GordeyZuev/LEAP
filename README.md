@@ -19,7 +19,7 @@
 
 **LEAP** – multi-tenant платформа с REST API и веб-интерфейсом для образовательного видео: импорт, обрезка тишины, транскрибация, темы с таймкодами, субтитры, публикация на площадки и публичные ссылки внутри LEAP.
 
-**Версия:** `v0.10.8.3` (September 2026) · **Статус:** Beta · **Возраст:** 12+
+**Версия:** `v0.10.9.0` (September 2026) · **Статус:** Beta · **Возраст:** 12+
 **Backend:** Python 3.14 · FastAPI · PostgreSQL · Redis · Celery · AssemblyAI · DeepSeek · yt-dlp · S3-compatible storage
 **Frontend:** Next.js 16 · React 19 · TypeScript 5 · Tailwind CSS 4 · TanStack Query v5 · shadcn/ui
 
@@ -126,6 +126,8 @@ Google Drive как источник и выгрузка на Rutube – в пл
 ## Последние релизы
 
 Полная история – **[CHANGELOG.md](backend/docs/CHANGELOG.md)**. Ниже только текущая линейка.
+
+**Новое в `v0.10.9.0`** – **Креденшелы:** если платформа отвергла ключ (`needs_reauth`), баннер по приложению и жёлтая метка на Credentials в сайдбаре. **Просмотр:** один плеер на share, плейлисте и записи — главы рядом с картинкой, Wide Screen без морфинга рельса, Edited / Original, Theme в Summary & questions, Created Overview. На записи Theme / главы / саммари / вопросы и overview правятся карандашом (Save / Cancel). **Автоматизации:** таблица как у Templates (Job, Schedule, Status, Actions). **Share:** Summary & questions и Files открыты сразу. Списки Recordings не расходятся с SSR из‑за grid/table в `localStorage`. **LEAP курсы:** запись попадает в плейлисты и получает share только после успешной обработки (как публикация на LEAP), не при привязке шаблона.
 
 **Новое в `v0.10.8.3`** – **Usage & analytics:** Settings → Usage — все квоты (`использовано / лимит`, включая automation jobs), Activity с графиками и своим периодом (до 366 дней); Admin → Analytics и Activity по пользователю; share-аналитика с произвольными датами. **Автоматизации:** Dry run синкает источники и показывает, какие записи обработаются, без запуска пайплайна; Run с подтверждением; в истории — какие записи уехали. **LEAP:** публикация на платформу после обработки (`publish_leap`, миграция **048**); в шаблоне и Run — отдельно LEAP и Upload, оверрайды look в Metadata → Platform overrides, подсказки из leap preset. **Стабильность:** просмотр публичной шары считается и если вы залогинены в LEAP; Grafana WARNING не заливает 401/404. Плюс: быстрее списки без «мигания»; docs hub и FAQ; обрезка «тихого хвоста» МТС Линк; переименование обложки в picker. Гайды: [`USAGE_AND_ANALYTICS.md`](backend/docs/guides/USAGE_AND_ANALYTICS.md), [`TEMPLATES.md`](backend/docs/guides/TEMPLATES.md), [`PLAYLISTS.md`](backend/docs/guides/PLAYLISTS.md), [`MONITORING.md`](backend/docs/guides/MONITORING.md), [`AUTOMATION_CELERY_BEAT.md`](backend/docs/guides/AUTOMATION_CELERY_BEAT.md).
 

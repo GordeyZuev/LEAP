@@ -11,6 +11,8 @@ import {
   YAxis,
 } from "recharts";
 
+import { CHART_TICK_STYLE, integerYTicks } from "@/components/charts/chart-axis";
+
 export interface BreakdownRow {
   label: string;
   value: number;
@@ -44,20 +46,31 @@ export function HorizontalBreakdownChart({
   height?: number;
 }) {
   const labelWidth = Math.min(160, Math.max(96, ...data.map((d) => d.label.length * 7)));
+  const xTicks = integerYTicks(Math.max(0, ...data.map((row) => row.value)));
+  const xMax = xTicks[xTicks.length - 1] ?? 1;
 
   return (
     <div className="w-full min-w-0" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 12, left: 4, bottom: 4 }}>
+      <BarChart data={data} layout="vertical" margin={{ top: 8, right: 28, left: 4, bottom: 8 }}>
         <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border/60" />
-        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} />
+        <XAxis
+          type="number"
+          allowDecimals={false}
+          tick={CHART_TICK_STYLE}
+          interval={0}
+          ticks={xTicks}
+          domain={[0, xMax]}
+          tickMargin={8}
+        />
         <YAxis
           type="category"
           dataKey="label"
           width={labelWidth}
-          tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+          tick={CHART_TICK_STYLE}
           axisLine={false}
           tickLine={false}
+          interval={0}
         />
         <Tooltip cursor={{ fill: "var(--muted)", opacity: 0.35 }} content={<BreakdownTooltip />} />
         <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={20}>

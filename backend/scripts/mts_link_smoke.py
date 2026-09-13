@@ -141,8 +141,13 @@ def _converted_duration_rows(payload) -> list[dict]:
                 "id": item.get("id"),
                 "fileId": item.get("fileId"),
                 "state": item.get("state"),
+                "typeFile": item.get("typeFile") or item.get("type"),
+                "view": item.get("view") or params.get("view"),
+                "quality": item.get("quality") or params.get("quality"),
+                "startedParameters": params or None,
                 "duration": item.get("duration") if item.get("duration") is not None else params.get("duration"),
                 "size": item.get("size"),
+                "keys": sorted(item.keys()),
             }
         )
     return rows
@@ -363,10 +368,15 @@ async def _run(args: argparse.Namespace) -> int:
             print(f"OK — {count} conversion row(s) on page 1")
             if isinstance(items, list):
                 for row in items[:3]:
+                    params = row.get("startedParameters") if isinstance(row.get("startedParameters"), dict) else {}
                     state = row.get("state")
                     es = (row.get("recordFile") or {}).get("eventSession") or {}
                     print(
                         f"  conversion id={row.get('id')} state={state!r} "
+                        f"view={row.get('view') or params.get('view')!r} "
+                        f"quality={row.get('quality') or params.get('quality')!r} "
+                        f"typeFile={row.get('typeFile') or row.get('type')!r} "
+                        f"keys={sorted(row.keys())} "
                         f"eventSession={es.get('id') if isinstance(es, dict) else None}"
                     )
         except MtsLinkAPIError as e:

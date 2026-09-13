@@ -24,6 +24,7 @@ import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { cn, extractApiError } from "@/lib/utils";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
 import { usePageSize } from "@/hooks/use-page-size";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { useToast } from "@/hooks/use-toast";
 import { Toast } from "@/components/ui/toast";
@@ -749,16 +750,13 @@ function RecordingsContent() {
   const [exportOpen, setExportOpen] = useState(false);
 
   // --- View mode (persisted in localStorage) ---
-  const [viewMode, setViewMode] = useState<"grid" | "table">(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("recordings-view-mode") as "grid" | "table") ?? "grid";
-    }
-    return "grid";
-  });
-  const handleViewModeChange = useCallback((mode: "grid" | "table") => {
-    setViewMode(mode);
-    localStorage.setItem("recordings-view-mode", mode);
-  }, []);
+  // Server snapshot is "grid" so SSR HTML matches the first client render.
+  const [viewMode, setViewMode] = useLocalStorageState<"grid" | "table">(
+    "recordings-view-mode",
+    "grid",
+    (raw) => (raw === "grid" || raw === "table" ? raw : undefined),
+  );
+  const handleViewModeChange = setViewMode;
 
   const { perPage, setPerPage } = usePageSize(
     "recordings-per-page",

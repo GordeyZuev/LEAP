@@ -11,17 +11,20 @@ const links = [
   { label: "Contact", href: "mailto:gordey.zuev@gmail.com", external: true },
 ];
 
-export function Footer() {
+const PUBLIC_LINKS = [{ label: "Contact", href: "mailto:gordey.zuev@gmail.com", external: true }];
+
+export function Footer({ variant = "app" }: { variant?: "app" | "public" }) {
+  const items = variant === "public" ? PUBLIC_LINKS : links;
   return (
     <footer className="border-t border-border bg-card">
-      <div className="px-8 py-4 flex items-center justify-center gap-3 text-xs text-muted-foreground">
+      <div className="px-8 py-4 flex flex-wrap items-center justify-center gap-3 text-xs text-muted-foreground">
         <span>© {new Date().getFullYear()} LEAP</span>
         <span className="text-gray-200">·</span>
         <AgeRatingBadge />
         <span className="text-gray-200">·</span>
         <span className="text-gray-300">v{VERSION}</span>
         <span className="text-gray-200">·</span>
-        {links.map(({ label, href, external }, i) => (
+        {items.map(({ label, href, external }, i) => (
           <Fragment key={label}>
             {external ? (
               <a href={href} className="hover:text-primary transition-colors">
@@ -32,7 +35,7 @@ export function Footer() {
                 {label}
               </Link>
             )}
-            {i < links.length - 1 && <span className="text-gray-200">·</span>}
+            {i < items.length - 1 && <span className="text-gray-200">·</span>}
           </Fragment>
         ))}
       </div>

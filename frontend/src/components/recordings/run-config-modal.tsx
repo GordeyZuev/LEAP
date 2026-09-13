@@ -160,6 +160,8 @@ export interface RunConfigModalProps {
   /** "run" launches the pipeline; "save" persists per-recording config via
    *  PATCH /config without running (single mode only). */
   submitMode?: "run" | "save";
+  /** Open this accordion when the modal appears (e.g. Add platform). */
+  focusSection?: "upload";
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +178,7 @@ export function RunConfigModal({
   recordingNames,
   onSuccess,
   submitMode = "run",
+  focusSection,
 }: RunConfigModalProps) {
   const qc = useQueryClient();
   const { show: showToast } = useToast();
@@ -441,7 +444,7 @@ export function RunConfigModal({
     setPublishLeap(true);
     setOutputEnabled(false);
     setLeapOutputOpen(false);
-    setOutputOpen(false);
+    setOutputOpen(focusSection === "upload");
     setAutoUpload(true);
     setUploadCaptions(true);
     setSelectedPresetIds([]);
@@ -462,7 +465,7 @@ export function RunConfigModal({
     /* eslint-enable react-hooks/set-state-in-effect */
     runMutation.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, focusSection]);
 
   // ── Pre-fill effective values; override toggles stay off until user enables them ──
   useEffect(() => {

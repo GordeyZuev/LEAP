@@ -26,7 +26,7 @@
 - **Matching Rules** - правила сопоставления (keywords, patterns, exact matches)
 - **Processing Config** - настройки обработки (transcription, video processing)
 - **Metadata Config** - настройки метаданных (title_template, description_template, **thumbnail_name**)
-- **Output Config** - upload copies (`preset_ids`, `auto_upload`, `upload_captions`) and LEAP (`publish_leap`, optional `platform=leap` preset in `preset_ids`, optional `playlist_ids`). A leap preset is a publication target (look, share, default playlists) — not a file copy. Copy presets are not required for LEAP. `auto_upload` requires at least one non-leap preset. At most one leap preset per `preset_ids`. Empty `playlist_ids` in the template means **inherit** playlists from the leap preset at pipeline time (the web editor keeps the field empty instead of copying preset ids into the saved JSON).
+- **Output Config** - upload copies (`preset_ids`, `auto_upload`, `upload_captions`) and LEAP (`publish_leap`, optional `platform=leap` preset in `preset_ids`, optional `playlist_ids`). A leap preset is a publication target (look, share, default playlists) — not a file copy. Copy presets are not required for LEAP. `auto_upload` requires at least one non-leap preset. At most one leap preset per `preset_ids`. Empty `playlist_ids` in the template means **inherit** playlists from the leap preset at pipeline time (the web editor keeps the field empty instead of copying preset ids into the saved JSON). **Course membership and share** are applied only when the LEAP publish step runs after successful processing (same gate as copy upload), not on template bind or rematch.
 
 **Web editor layout (template, Run with config, Edit configuration):**
 - **Output** — **Publish to LEAP**, **LEAP preset**, **LEAP playlists** (named templates only for playlists on the base/default template), then **Upload a copy** (copy presets + auto-upload).
@@ -75,8 +75,7 @@
   "exact_matches": ["Lecture: Machine Learning", "AI Course"],
   "keywords": ["ML", "AI", "neural networks"],
   "patterns": ["Лекция \\d+:.*ML", "\\[МО\\].*"],
-  "source_ids": [1, 3],
-  "match_mode": "any"  // "any" or "all"
+  "source_ids": [1, 3]
 }
 ```
 
@@ -85,10 +84,9 @@
 1. **exact_matches** - точное совпадение `display_name`
 2. **keywords** - ключевые слова (case-insensitive, substring match)
 3. **patterns** - regex паттерны
-4. **source_ids** - filter по источникам (опционально)
-5. **match_mode:**
-   - `"any"` - любое правило сработало → match
-   - `"all"` - все правила должны сработать
+4. **source_ids** - filter по источникам (опционально; **не матчит сам по себе** — нужен positive rule)
+
+Positive rules (`exact_matches`, `keywords`, `patterns`) combine with **OR** semantics. `source_ids` narrows candidates only.
 
 ### Matching Algorithm
 
@@ -111,15 +109,11 @@ def matches_template(recording: Recording, template: Template) -> bool:
         import re
         results.append(any(re.search(p, recording.display_name) for p in rules.patterns))
 
-    # Check source filter
-    if rules.source_ids:
-        results.append(recording.source_id in rules.source_ids)
+    # Check source filter (must pass when source_ids set)
+    if rules.source_ids and recording.source_id not in rules.source_ids:
+        return False
 
-    # Apply match_mode
-    if rules.match_mode == "all":
-        return all(results)
-    else:  # "any"
-        return any(results)
+    return any(results)
 ```
 
 ### Matching Strategy
@@ -472,8 +466,7 @@ POST /api/v1/templates
   "matching_rules": {
     "keywords": ["ML", "Machine Learning", "Машинное обучение"],
     "patterns": ["Лекция \\d+:.*ML"],
-    "source_ids": [1],  # Only from Zoom source 1
-    "match_mode": "any"
+    "source_ids": [1]
   },
   "processing_config": {
     "transcription": {
@@ -510,7 +503,7 @@ POST /api/v1/templates
 }
 ```
 
-**Result:** Template created, unmapped recordings auto-rematched. `playlist_ids` (≤10) on a **named** template appends the recording to those LEAP playlists when `template_id` is set; the base/default template is ignored. `playlist_ids` without `preset_ids` is valid (`auto_upload` stays false). Run can send `playlist_ids` without overriding upload; that merge does not turn off template `auto_upload` — disable upload in the template or via the Upload override.
+**Result:** Template created, unmapped recordings auto-rematched. `playlist_ids` (≤10) on a **named** template are applied to LEAP courses when LEAP publish runs after processing (not on bind/rematch); the base/default template is ignored. `playlist_ids` without `preset_ids` is valid (`auto_upload` stays false). Run can send `playlist_ids` without overriding upload; that merge does not turn off template `auto_upload` — disable upload in the template or via the Upload override.
 
 ---
 

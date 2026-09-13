@@ -25,6 +25,7 @@ import { Logo } from "@/components/layout/logo";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { apiClient } from "@/api/client";
 import { prefetchNavList } from "@/lib/react-query";
+import { useCredentialsNeedingReauth, credentialsNavAriaLabel } from "@/hooks/use-credentials-reauth";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 
@@ -65,6 +66,8 @@ interface SidebarProps {
 export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const qc = useQueryClient();
+  const { data: reauthData } = useCredentialsNeedingReauth();
+  const reauthCount = reauthData?.total ?? 0;
 
   function prefetchNav(href: string) {
     if (href === "/recordings") return;
@@ -222,18 +225,35 @@ export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: 
         <div className="mx-3 my-2 h-px bg-white/10" />
         {secondaryNav.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
+          const showReauth = href === "/credentials" && reauthCount > 0;
           return (
             <Link
               key={href}
               href={href}
-              title={effectiveCollapsed ? label : undefined}
+              title={effectiveCollapsed ? (showReauth ? credentialsNavAriaLabel(reauthCount) : label) : undefined}
+              aria-label={showReauth ? credentialsNavAriaLabel(reauthCount) : undefined}
               onClick={onMobileClose}
               onMouseEnter={() => prefetchNav(href)}
               onFocus={() => prefetchNav(href)}
               className={linkClass(active)}
             >
-              <Icon size={18} strokeWidth={1.75} className="shrink-0" />
+              {href === "/credentials" ? (
+                <span className="relative shrink-0">
+                  <Icon size={18} strokeWidth={1.75} />
+                  {showReauth && effectiveCollapsed && (
+                    <span
+                      className="pointer-events-none absolute -right-0.5 -top-0.5 size-2 rounded-full bg-amber-400"
+                      aria-hidden
+                    />
+                  )}
+                </span>
+              ) : (
+                <Icon size={18} strokeWidth={1.75} className="shrink-0" />
+              )}
               <span className={labelClass}>{label}</span>
+              {showReauth && !effectiveCollapsed && (
+                <span className="ml-auto h-2 w-3 shrink-0 rounded-full bg-amber-400" aria-hidden />
+              )}
             </Link>
           );
         })}

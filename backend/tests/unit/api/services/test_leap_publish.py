@@ -3,7 +3,13 @@
 import uuid
 from unittest.mock import MagicMock
 
-from api.services.leap_publish import effective_auto_share, effective_playlist_ids, maybe_enable_recording_share
+from api.services.leap_publish import (
+    effective_auto_share,
+    effective_playlist_ids,
+    maybe_enable_recording_share,
+    merge_leap_metadata,
+    should_enqueue_leap_publish,
+)
 
 
 def test_effective_playlist_ids_output_overrides_preset() -> None:
@@ -17,6 +23,37 @@ def test_effective_playlist_ids_inherits_preset() -> None:
 def test_effective_auto_share() -> None:
     assert effective_auto_share({"auto_share": True}) is True
     assert effective_auto_share({}) is False
+
+
+def test_should_enqueue_leap_publish_rules() -> None:
+    assert should_enqueue_leap_publish({"publish_leap": False}, {}, has_leap_look_preset=True) is False
+    assert should_enqueue_leap_publish({"publish_leap": True}, {}, has_leap_look_preset=True) is True
+    assert (
+        should_enqueue_leap_publish(
+            {"publish_leap": True, "playlist_ids": [1]},
+            {},
+            has_leap_look_preset=False,
+        )
+        is True
+    )
+    assert (
+        should_enqueue_leap_publish(
+            {"publish_leap": True},
+            {"auto_share": True},
+            has_leap_look_preset=False,
+        )
+        is True
+    )
+    assert should_enqueue_leap_publish({"publish_leap": True}, {}, has_leap_look_preset=False) is False
+
+
+def test_merge_leap_metadata_overlays_metadata_config() -> None:
+    merged = merge_leap_metadata(
+        {"playlist_ids": [1]},
+        metadata_config={"leap": {"auto_share": True}},
+    )
+    assert merged["playlist_ids"] == [1]
+    assert merged["auto_share"] is True
 
 
 def test_maybe_enable_share_mints_token() -> None:

@@ -42,6 +42,7 @@ import { FilterMultiSelect } from "@/components/filters/filter-multi-select";
 import { usePlatforms } from "@/hooks/use-references";
 import { PER_PAGE_CREDENTIALS } from "@/lib/constants";
 import { isAllowedOAuthUrl } from "@/lib/auth";
+import { CREDENTIALS_REAUTH_QUERY_KEY } from "@/hooks/use-credentials-reauth";
 
 interface CredentialItem {
   id: number;
@@ -162,6 +163,7 @@ export default function CredentialsPage() {
   const invalidateCredentials = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["credentials-page"] });
     void qc.invalidateQueries({ queryKey: ["credentials-list"] });
+    void qc.invalidateQueries({ queryKey: CREDENTIALS_REAUTH_QUERY_KEY });
   }, [qc]);
   // Only used for the OAuth scopes shown in the detail modal.
   const { data: oauthPlatforms = [] } = usePlatforms();

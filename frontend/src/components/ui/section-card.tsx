@@ -161,7 +161,7 @@ export function CollapsibleCard({
           aria-controls={bodyId}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
-          <h2 className={cn("shrink-0", TITLE[density])}>{title}</h2>
+          <h2 className={cn("min-w-0", TITLE[density])}>{title}</h2>
           {subtitle && (
             <span className="min-w-0 truncate text-sm font-medium text-foreground">{subtitle}</span>
           )}
@@ -169,8 +169,9 @@ export function CollapsibleCard({
             {badge}
             <ChevronDown
               size={15}
+              aria-hidden
               className={cn(
-                "text-muted-foreground transition-transform duration-200",
+                "text-muted-foreground motion-reduce:transition-none transition-transform duration-200 ease-out",
                 open && "rotate-180"
               )}
             />
@@ -178,13 +179,22 @@ export function CollapsibleCard({
         </button>
         {action}
       </div>
-      {/* The body wrapper is always rendered so `aria-controls` never dangles. */}
-      <div id={bodyId}>
-        {open && (
+      <div
+        id={bodyId}
+        className={cn(
+          "grid motion-reduce:transition-none transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.2,0,0,1)]",
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div
+          className={cn("overflow-hidden", !open && "min-h-0")}
+          inert={open ? undefined : true}
+          aria-hidden={!open}
+        >
           <div className={cn("min-w-0 border-t border-border", BODY_OPEN_PAD[density], bodyClassName)}>
             {children}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

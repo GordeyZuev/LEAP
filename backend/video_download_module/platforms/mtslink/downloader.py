@@ -26,8 +26,6 @@ logger = get_logger()
 
 _ATTACHMENT_TIMEOUT = httpx.Timeout(timeout=120.0, connect=30.0)
 
-_CONVERSION_DONE_STATES = {"complete", "completed", "done", "success", "finished"}
-
 # Records and their MP4 renders also show up in the session file list; they are the
 # recording itself, not an attachment.
 _SKIP_FILE_TYPES = {"record", "convertedrecord", "converted_record"}
@@ -154,14 +152,15 @@ class MtsLinkDownloader(BaseDownloader):
         event_session_id: int | str,
         source_meta: dict[str, Any],
     ) -> tuple[str, Any]:
-        """Return a fresh MP4 URL when conversion already finished (prepare owns ordering/wait)."""
-        ready_url = await self.api.get_ready_mp4_url(event_session_id, _record_id)
+        """Return a fresh MP4 URL when the requested layout is already converted."""
+        ready_url = await self.api.get_ready_mp4_url(
+            event_session_id,
+            _record_id,
+            view=self.conversion_view,
+            quality=self.conversion_quality,
+        )
         if ready_url:
             return ready_url, source_meta.get("conversion_id")
-
-        stored = source_meta.get("download_url")
-        if stored:
-            return str(stored), source_meta.get("conversion_id")
 
         raise MtsLinkConversionPendingError(
             f"MTS Link MP4 not ready for session {event_session_id}; use /run to prepare",

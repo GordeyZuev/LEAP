@@ -1,0 +1,41 @@
+{
+  "leap_template_bundle": 1,
+  "exported_at": "2026-09-13T00:00:00Z",
+  "reference": {
+    "presets": [],
+    "sources": [],
+    "playlists": []
+  },
+  "templates": [
+    {
+      "name": "Example course template",
+      "description": "Draft example for JSON import",
+      "is_draft": true,
+      "is_active": false,
+      "matching_rules": {
+        "exact_matches": ["Faculty_Subject_group 1_Teacher A.A."],
+        "keywords": ["subject keyword"]
+      },
+      "processing_config": {
+        "transcription": {
+          "enable_transcription": true,
+          "language": "ru",
+          "prompt": "Lecture on the subject. Preserve technical terms.",
+          "enable_topics": true,
+          "granularity": "long",
+          "enable_subtitles": true
+        }
+      },
+      "metadata_config": {
+        "title_template": "{{ display_name }} | {{ themes }} ({{ record_date_short }})"
+      },
+      "output_config": {
+        "preset_ids": [],
+        "playlist_ids": [],
+        "auto_upload": false,
+        "publish_leap": true,
+        "upload_captions": true
+      }
+    }
+  ]
+}

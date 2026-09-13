@@ -53,7 +53,7 @@ flowchart LR
 | `downloads` | `api.tasks.processing.download_recording` |
 | `uploads` | `api.tasks.upload.*` (`upload_recording_to_platform`, `batch_upload_recordings`) |
 | `async_operations` | `api.tasks.processing.transcribe_recording`, `extract_topics`, `generate_subtitles`, `batch_transcribe_recording`, `run_recording`, `launch_uploads`, `finalize_pipeline`; `api.tasks.template.*`; `api.tasks.sync.*`; `automation.*` (`automation.run_job`, `automation.dry_run`) |
-| `maintenance` | `maintenance.*` — `cleanup_expired_tokens`, `auto_expire_recordings`, `cleanup_recording_files`, `hard_delete_recordings`; `celery.backend_cleanup` |
+| `maintenance` | `maintenance.*` — `cleanup_expired_tokens`, `auto_expire_recordings`, `cleanup_recording_files`, `hard_delete_recordings`, `cleanup_playlist_blank_items` (manual one-off after LEAP deferral deploy); `celery.backend_cleanup` |
 
 **Зачем отдельные `downloads` и `uploads`:** изоляция сетевой полосы и долгих передач от остального I/O пайплайна (см. комментарии в `api/celery_app.py`).
 

@@ -104,6 +104,7 @@ class TestPrepareOutcomes:
             result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
 
         assert result.outcome == MtsPrepareOutcome.CONVERTING
+        assert result.ordered_view == "none"
         api.start_conversion.assert_awaited_once()
         api.get_file.assert_not_awaited()
 
@@ -222,6 +223,88 @@ class TestPrepareOutcomes:
         api.start_conversion.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_converting_when_busy_waits_on_inflight_without_view(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.list_records.return_value = [{"size": 100}]
+        api.get_ready_mp4_url.return_value = None
+        api.list_converted_records.return_value = {"data": {"items": []}}
+        api.start_conversion.side_effect = MtsLinkConversionBusyError(
+            403,
+            "simultaneous",
+            payload={"error": {"fieldErrors": {"currentConversionID": 88}}},
+        )
+        api.get_conversion_status.return_value = {"id": 88, "state": "processing", "progress": 12}
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        assert result.conversion_id == 88
+        assert result.conversion_state == "processing"
+        assert result.conversion_progress == 12
+
+    @pytest.mark.asyncio
+    async def test_busy_failed_status_waits_instead_of_failing(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.list_records.return_value = [{"size": 100}]
+        api.get_ready_mp4_url.return_value = None
+        api.list_converted_records.return_value = {"data": {"items": []}}
+        api.start_conversion.side_effect = MtsLinkConversionBusyError(
+            403,
+            "simultaneous",
+            payload={"error": {"fieldErrors": {"currentConversionID": 88}}},
+        )
+        api.get_conversion_status.return_value = {
+            "id": 88,
+            "state": "failed",
+            "startedParameters": {"view": "none"},
+        }
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        assert result.conversion_state == "waiting"
+
+    @pytest.mark.asyncio
+    async def test_inflight_with_download_url_stays_converting(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.get_ready_mp4_url.return_value = None
+        api.list_converted_records.return_value = {
+            "data": {
+                "items": [
+                    {
+                        "id": 4,
+                        "state": "processing",
+                        "progress": 40,
+                        "downloadUrl": "https://cdn/partial.mp4",
+                        "recordFile": {"id": 1},
+                    }
+                ]
+            }
+        }
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        assert result.conversion_id == 4
+        assert result.download_url is None
+        api.start_conversion.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_reuses_stored_conversion_id_instead_of_posting_again(self):
         rec = _recording(
             status=ProcessingStatus.PENDING_CONVERSION,
@@ -256,7 +339,16 @@ class TestPrepareOutcomes:
         api.list_records.return_value = [{"size": 100}]
         api.get_ready_mp4_url.return_value = None
         api.list_converted_records.return_value = {
-            "data": {"items": [{"id": 5, "state": "completed", "recordFile": {"id": 1}}]}
+            "data": {
+                "items": [
+                    {
+                        "id": 5,
+                        "state": "completed",
+                        "recordFile": {"id": 1},
+                        "startedParameters": {"view": "none", "quality": "720"},
+                    }
+                ]
+            }
         }
 
         with patch(
@@ -270,7 +362,63 @@ class TestPrepareOutcomes:
         api.start_conversion.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_ready_when_stored_conversion_is_completed_without_url(self):
+    async def test_does_not_reuse_chat_layout_when_speakers_only_requested(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.list_records.return_value = [{"size": 100}]
+        api.get_ready_mp4_url.return_value = None
+        api.list_converted_records.return_value = {
+            "data": {
+                "items": [
+                    {
+                        "id": 5,
+                        "state": "completed",
+                        "recordFile": {"id": 1},
+                        "startedParameters": {"view": "chat", "quality": "720"},
+                    }
+                ]
+            }
+        }
+        api.start_conversion.return_value = {"id": 9, "state": "waiting"}
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        api.start_conversion.assert_awaited_once()
+        assert api.start_conversion.await_args.kwargs["view"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_waits_for_inflight_job_instead_of_posting(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.get_ready_mp4_url.return_value = None
+        api.list_converted_records.return_value = {
+            "data": {
+                "items": [
+                    {"id": 2, "state": "waiting", "progress": 0, "recordFile": {"id": 1}},
+                    {"id": 4, "state": "processing", "progress": 81, "recordFile": {"id": 1}},
+                    {"id": 3, "state": "processing", "progress": 40, "recordFile": {"id": 1}},
+                ]
+            }
+        }
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        assert result.conversion_id == 4
+        assert result.conversion_progress == 81
+        api.start_conversion.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_completed_unlabeled_stored_id_orders_requested_layout(self):
         rec = _recording(
             status=ProcessingStatus.PENDING_CONVERSION,
             meta={
@@ -282,9 +430,11 @@ class TestPrepareOutcomes:
             },
         )
         api = AsyncMock()
+        api.list_records.return_value = [{"size": 100}]
         api.get_ready_mp4_url.return_value = None
         api.list_converted_records.return_value = {"data": {"items": []}}
         api.get_conversion_status.return_value = {"id": 77, "state": "completed"}
+        api.start_conversion.return_value = {"id": 9, "state": "waiting"}
 
         with patch(
             "api.services.mts_link_prepare.resolve_mts_link_context",
@@ -292,8 +442,67 @@ class TestPrepareOutcomes:
         ):
             result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
 
-        assert result.outcome == MtsPrepareOutcome.READY
-        assert result.conversion_id == 77
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        api.start_conversion.assert_awaited_once()
+        assert api.start_conversion.await_args.kwargs["view"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_completed_unlabeled_stored_id_waits_if_we_ordered_that_view(self):
+        rec = _recording(
+            status=ProcessingStatus.PENDING_CONVERSION,
+            meta={
+                "mts_record_id": 1,
+                "event_session_id": 2,
+                "needs_mp4": True,
+                "conversion_id": 9,
+                "conversion_ordered_view": "none",
+            },
+        )
+        api = AsyncMock()
+        api.get_ready_mp4_url.return_value = None
+        api.list_converted_records.return_value = {"data": {"items": []}}
+        api.get_conversion_status.return_value = {"id": 9, "state": "completed"}
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        api.start_conversion.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_does_not_replace_our_post_id_with_other_record_inflight(self):
+        rec = _recording(
+            status=ProcessingStatus.PENDING_CONVERSION,
+            meta={
+                "mts_record_id": 1,
+                "event_session_id": 2,
+                "needs_mp4": True,
+                "conversion_id": 9,
+                "conversion_ordered_view": "none",
+            },
+        )
+        api = AsyncMock()
+        api.get_ready_mp4_url.return_value = None
+        api.list_converted_records.return_value = {
+            "data": {
+                "items": [
+                    {"id": 4, "state": "processing", "progress": 81, "recordFile": {"id": 1}},
+                ]
+            }
+        }
+        api.get_conversion_status.return_value = {"id": 9, "state": "waiting", "progress": 0}
+
+        with patch(
+            "api.services.mts_link_prepare.resolve_mts_link_context",
+            new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        assert result.conversion_id == 9
         api.start_conversion.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -313,7 +522,13 @@ class TestPrepareOutcomes:
             "data": {
                 "items": [
                     {"id": 11, "state": "canceled", "progress": 0, "recordFile": {"id": 1}},
-                    {"id": 22, "state": "processing", "progress": 68, "recordFile": {"id": 1}},
+                    {
+                        "id": 22,
+                        "state": "processing",
+                        "progress": 68,
+                        "recordFile": {"id": 1},
+                        "startedParameters": {"view": "none", "quality": "720"},
+                    },
                 ]
             }
         }
@@ -375,6 +590,64 @@ class TestApplyPrepareResult:
             rec, MtsLinkPrepareResult(outcome=MtsPrepareOutcome.CONVERTING, conversion_state="processing")
         )
         assert rec.source.meta["conversion_progress"] == 65
+
+    def test_converting_clears_stale_completed_state(self):
+        rec = _recording(meta={"mts_record_id": 1, "event_session_id": 2, "conversion_state": "completed"})
+        apply_prepare_result(rec, MtsLinkPrepareResult(outcome=MtsPrepareOutcome.CONVERTING))
+        assert rec.source.meta["conversion_state"] == "waiting"
+        assert rec.status == ProcessingStatus.PENDING_CONVERSION
+
+    def test_converting_stores_ordered_view_from_our_post(self):
+        rec = _recording()
+        apply_prepare_result(
+            rec,
+            MtsLinkPrepareResult(
+                outcome=MtsPrepareOutcome.CONVERTING,
+                conversion_id=9,
+                ordered_view="none",
+            ),
+        )
+        assert rec.source.meta["conversion_ordered_view"] == "none"
+
+    def test_id_change_without_new_post_drops_ordered_view(self):
+        rec = _recording(
+            meta={
+                "mts_record_id": 1,
+                "event_session_id": 2,
+                "conversion_id": 9,
+                "conversion_ordered_view": "none",
+            }
+        )
+        apply_prepare_result(
+            rec,
+            MtsLinkPrepareResult(
+                outcome=MtsPrepareOutcome.CONVERTING,
+                conversion_id=4,
+                conversion_state="processing",
+                conversion_progress=81,
+            ),
+        )
+        assert rec.source.meta["conversion_id"] == 4
+        assert "conversion_ordered_view" not in rec.source.meta
+
+    def test_same_id_keeps_ordered_view_when_result_omits_it(self):
+        rec = _recording(
+            meta={
+                "mts_record_id": 1,
+                "event_session_id": 2,
+                "conversion_id": 9,
+                "conversion_ordered_view": "none",
+            }
+        )
+        apply_prepare_result(
+            rec,
+            MtsLinkPrepareResult(
+                outcome=MtsPrepareOutcome.CONVERTING,
+                conversion_id=9,
+                conversion_state="waiting",
+            ),
+        )
+        assert rec.source.meta["conversion_ordered_view"] == "none"
 
     def test_assembling_sets_pending_source(self):
         rec = _recording()

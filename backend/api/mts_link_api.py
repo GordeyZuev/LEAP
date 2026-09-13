@@ -78,18 +78,34 @@ def unwrap_items(payload: Any) -> list[Any]:
     return []
 
 
-def extract_download_url(converted_payload: Any, record_id: int | str | None = None) -> str | None:
+def extract_download_url(
+    converted_payload: Any,
+    record_id: int | str | None = None,
+    *,
+    view: str | None = None,
+    quality: str | None = None,
+) -> str | None:
     """Finished MP4 URL in a converted-records payload, or None if none is ready.
 
-    A row only carries ``downloadUrl`` once its conversion finished, so presence of
-    the field is the readiness signal. When ``record_id`` is set, only that online
-    record is used (a session can list several conversions).
+    ``downloadUrl`` is required. If ``state`` is present it must be ``completed``
+    (UserAPI: waiting | processing | completed | failed | canceled). When ``record_id``
+    is set, only that online record is used. When ``view`` / ``quality`` are set,
+    unlabeled rows and other layouts are skipped — UserAPI's default render is
+    ``view=chat``, which is not interchangeable with speakers-only.
     """
     want = str(record_id) if record_id is not None else None
+    require_view = view is not None
     unlabeled: list[str] = []
     had_labeled = False
     for item in unwrap_items(converted_payload):
         if not isinstance(item, dict) or not item.get("downloadUrl"):
+            continue
+        state = conversion_job_state(item)
+        if state and state != "completed":
+            continue
+        if not conversion_matches_options(
+            item, view=view, quality=quality, unlabeled="reject" if require_view else "accept"
+        ):
             continue
         url = str(item["downloadUrl"])
         if want is None:
@@ -101,13 +117,14 @@ def extract_download_url(converted_payload: Any, record_id: int | str | None = N
         had_labeled = True
         if str(file_id) == want:
             return url
-    if want is not None and not had_labeled and len(unlabeled) == 1:
+    if want is not None and not had_labeled and len(unlabeled) == 1 and not require_view:
         return unlabeled[0]
     return None
 
 
-CONVERSION_REUSABLE_STATES = frozenset({"waiting", "processing", "loaded", "completed"})
-CONVERSION_FAILED_STATES = frozenset({"failed", "canceled", "cancelled"})
+CONVERSION_INFLIGHT_STATES = frozenset({"waiting", "processing"})
+CONVERSION_REUSABLE_STATES = frozenset({"waiting", "processing", "completed"})
+CONVERSION_FAILED_STATES = frozenset({"failed", "canceled"})
 
 
 def unwrap_data_object(payload: Any) -> dict[str, Any]:
@@ -121,7 +138,8 @@ def unwrap_data_object(payload: Any) -> dict[str, Any]:
 
 
 def conversion_job_state(row: dict[str, Any]) -> str:
-    return str(row.get("state") or row.get("status") or "").lower()
+    """UserAPI field is ``state`` (waiting | processing | completed | failed | canceled)."""
+    return str(row.get("state") or "").lower()
 
 
 def conversion_progress(row: dict[str, Any]) -> int | None:
@@ -169,20 +187,113 @@ def conversion_record_file_id(row: dict[str, Any]) -> Any:
     return row.get("recordFileId") or row.get("recordFileID") or row.get("fileId") or row.get("fileID")
 
 
-def pick_active_conversion(rows: list[dict[str, Any]], record_id: int | str) -> dict[str, Any] | None:
-    """Reusable job for this record: ``completed``, else max-progress ``processing``, else queue."""
+def _nested_conversion_params(row: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for key in ("startedParameters", "parameters", "conversionParameters"):
+        raw = row.get(key)
+        if isinstance(raw, dict):
+            merged.update(raw)
+    record_file = row.get("recordFile")
+    if isinstance(record_file, dict):
+        for key in ("startedParameters", "parameters"):
+            raw = record_file.get(key)
+            if isinstance(raw, dict):
+                merged.update(raw)
+    return merged
+
+
+def conversion_started_options(row: dict[str, Any]) -> tuple[str | None, str | None]:
+    """``(view, quality)`` declared on a conversion job or converted file, if UserAPI sent them."""
+    params = _nested_conversion_params(row)
+    view = row.get("view") if row.get("view") not in (None, "") else params.get("view")
+    quality = row.get("quality") if row.get("quality") not in (None, "") else params.get("quality")
+    if _normalize_conversion_quality(quality) is None:
+        quality = params.get("converterQuality")
+    return _normalize_conversion_view(view), _normalize_conversion_quality(quality)
+
+
+def _normalize_conversion_view(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    return str(value).strip().lower()
+
+
+def _normalize_conversion_quality(value: Any) -> str | None:
+    """Map UserAPI quality tokens. Cabinet renders often send ``normal``, not 720/1080."""
+    if value is None or value == "":
+        return None
+    text = str(value).strip().lower().removesuffix("p")
+    if text in {"normal", "default", "auto"}:
+        return None
+    return text if text else None
+
+
+def conversion_matches_options(
+    row: dict[str, Any],
+    *,
+    view: str | None = None,
+    quality: str | None = None,
+    unlabeled: Literal["reject", "accept"] = "reject",
+) -> bool:
+    """True when this job is usable for the requested MP4 layout.
+
+    Layout is ``view`` (speakers-only vs chat in the picture). Live session
+    ``converted-records`` send ``startedParameters.view``; org ``GET /converted-records``
+    often does not. ``quality: normal`` is not 720/1080, so it does not block a view match.
+
+    ``unlabeled='reject'``: a missing view is not speakers-only.
+    ``unlabeled='accept'``: a conversion we already POSTed (GET status is often ``{state}``).
+    """
+    want_view = _normalize_conversion_view(view)
+    want_quality = _normalize_conversion_quality(quality)
+    if want_view is None and want_quality is None:
+        return True
+    got_view, got_quality = conversion_started_options(row)
+    if want_view is not None:
+        if got_view is None:
+            if unlabeled != "accept":
+                return False
+        elif got_view != want_view:
+            return False
+    return want_quality not in {"720", "1080"} or got_quality not in {"720", "1080"} or got_quality == want_quality
+
+
+def pick_active_conversion(
+    rows: list[dict[str, Any]],
+    record_id: int | str,
+    *,
+    view: str | None = None,
+    quality: str | None = None,
+) -> dict[str, Any] | None:
+    """Ready matching-view MP4, else furthest in-flight job for this record, else None."""
     want = str(record_id)
-    matching: list[dict[str, Any]] = []
+    same: list[dict[str, Any]] = []
     for row in rows:
         if conversion_job_state(row) not in CONVERSION_REUSABLE_STATES:
             continue
         file_id = conversion_record_file_id(row)
         if file_id is None or str(file_id) != want:
             continue
-        matching.append(row)
-    if not matching:
-        return None
-    return prefer_conversion_job(*matching)
+        same.append(row)
+
+    ready = [
+        row
+        for row in same
+        if conversion_job_state(row) == "completed"
+        and conversion_matches_options(
+            row,
+            view=view,
+            quality=quality,
+            unlabeled="reject" if view is not None else "accept",
+        )
+    ]
+    if ready:
+        return prefer_conversion_job(*ready)
+
+    inflight = [row for row in same if conversion_job_state(row) in CONVERSION_INFLIGHT_STATES]
+    if inflight:
+        return prefer_conversion_job(*inflight)
+    return None
 
 
 def prefer_conversion_job(*jobs: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -231,12 +342,15 @@ def _merge_conversion_rows(left: dict[str, Any], right: dict[str, Any]) -> dict[
         merged["progress"] = right.get("progress")
     if left.get("downloadUrl") and not right.get("downloadUrl"):
         merged["downloadUrl"] = left["downloadUrl"]
+    for key in ("startedParameters", "parameters", "conversionParameters", "view", "quality"):
+        if left.get(key) and not right.get(key):
+            merged[key] = left[key]
     return merged
 
 
 def _processing_rank(job: dict[str, Any]) -> int:
     parsed = conversion_progress(job)
-    return parsed if parsed is not None else 101
+    return parsed if parsed is not None else 0
 
 
 class MtsLinkAPI:
@@ -455,14 +569,18 @@ class MtsLinkAPI:
         self,
         event_session_id: int | str,
         record_id: int | str | None = None,
+        *,
+        view: str | None = None,
+        quality: str | None = None,
     ) -> str | None:
         """Download URL of an already converted MP4, or None if no conversion finished.
 
         Always re-read before streaming: CDN links in stored metadata go stale.
         Pass ``record_id`` when the session may have more than one online record.
+        Pass ``view`` / ``quality`` so a chat/questions render is not treated as speakers-only.
         """
         payload = await self.get_converted_records_by_event_session(event_session_id)
-        return extract_download_url(payload, record_id)
+        return extract_download_url(payload, record_id, view=view, quality=quality)
 
     async def list_converted_records(
         self,

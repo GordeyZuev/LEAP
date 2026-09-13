@@ -319,10 +319,6 @@ async def _execute_job(session, job_id: int, user_id: str) -> dict[str, Any]:
                 recording.is_mapped = True
                 await template_repo.increment_usage(matched_template)
 
-                from api.services.playlist_service import add_from_bound_template
-
-                await add_from_bound_template(session, user_id, recording)
-
         for recording in plan.unmatched:
             if recording.status not in _WAIT_STATUSES:
                 recording.status = ProcessingStatus.SKIPPED

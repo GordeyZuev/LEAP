@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowDownToLine, Loader2, Video } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ARTEFACT_ROW, ARTEFACT_ROW_DEFAULT } from "@/components/recordings/artefact-list";
 
 export function ShareVideoDownloadButton({
   download,
@@ -36,17 +37,21 @@ export function ShareVideoDownloadButton({
       type="button"
       onClick={handleDownload}
       disabled={loading}
+      aria-label={error ? "Download failed — retry" : "Download video"}
       className={cn(
-        "flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors disabled:opacity-50",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+        ARTEFACT_ROW,
         error
           ? "border-danger-fg/40 bg-danger-fg/10 text-danger-fg hover:bg-danger-fg/15"
-          : "border-primary/30 bg-primary/5 text-primary hover:bg-primary/10",
+          : ARTEFACT_ROW_DEFAULT,
+        "disabled:opacity-50",
       )}
     >
-      {loading ? <Loader2 size={13} className="animate-spin" /> : <Video size={13} />}
-      <span className="flex-1 text-left">{error ? "Download failed — retry" : "Download video"}</span>
-      <ArrowDownToLine size={11} className="shrink-0" />
+      {loading ? <Loader2 size={13} className="shrink-0 animate-spin" /> : <Video size={13} className="shrink-0" />}
+      <span className="flex-1 text-left">{error ? "Download failed — retry" : "Video"}</span>
+      {!error && (
+        <span className="shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">mp4</span>
+      )}
+      <ArrowDownToLine size={11} className={cn("shrink-0", error ? undefined : "text-muted-foreground")} />
     </button>
   );
 }

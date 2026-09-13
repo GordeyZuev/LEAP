@@ -43,6 +43,43 @@ def effective_auto_share(leap_meta: dict[str, Any] | None) -> bool:
     return bool((leap_meta or {}).get("auto_share"))
 
 
+def merge_leap_metadata(
+    base: dict[str, Any] | None,
+    *,
+    metadata_config: dict[str, Any] | None = None,
+    metadata_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Merge leap preset metadata with template/run metadata_config.leap (same rules as upload task)."""
+    from api.services.merger import deep_merge
+
+    leap_meta = dict(base or {})
+    overlay = (metadata_config or {}).get("leap") if isinstance(metadata_config, dict) else None
+    extra = metadata_override.get("leap") if isinstance(metadata_override, dict) else None
+    if isinstance(overlay, dict) and isinstance(extra, dict):
+        overlay = deep_merge(overlay, extra, skip_none=True)
+    elif isinstance(extra, dict):
+        overlay = extra
+    if isinstance(overlay, dict) and overlay:
+        leap_meta = deep_merge(leap_meta, overlay, skip_none=True)
+    return leap_meta
+
+
+def should_enqueue_leap_publish(
+    output_config: dict[str, Any] | None,
+    leap_meta: dict[str, Any] | None,
+    *,
+    has_leap_look_preset: bool,
+) -> bool:
+    """Whether to run the LEAP publish step after processing (share and/or playlists)."""
+    if not (output_config or {}).get("publish_leap", True):
+        return False
+    if has_leap_look_preset:
+        return True
+    if effective_playlist_ids(output_config, leap_meta):
+        return True
+    return bool(effective_auto_share(leap_meta))
+
+
 def _share_url(token: uuid.UUID) -> str:
     from config.settings import get_settings
 

@@ -33,7 +33,7 @@ URL: `{origin}/share/p/{uuid}`. Owner list **LEAP** / **Copy link** use this URL
 
 Recording share uses the same Enable / Disable / Rotate contract. Public recording URL is `{origin}/share/{uuid}`. Migration **044** adds `recordings.share_enabled`. Messengers (Telegram) unfurl that URL via Open Graph (`opengraph-image` + `GET /api/v1/share/{token}/poster`).
 
-The playlist **landing** (`/share/p/{uuid}`) is the course page: first-item poster (image only; the picture links to the first playable video) and a video list. Opening a video uses `/share/p/{uuid}?v={itemId}` (real navigation). Watch uses the same layout as recording share: player, companion tabs **Videos / Topics / Transcript**, then Extra content, Files, and Overview for that item. Items without processed video are listed but not playable. Course landing has no Files panel. Opening a **playable** video on watch counts as a **page view on that recording** (`POST …/items/{itemId}/beacon`, same Redis ~30 min dedup as recording share). Processing rows and the landing page do not increment views.
+The playlist **landing** (`/share/p/{uuid}`) is the course page: first-item poster (image only; the picture links to the first playable video) and a video list. Opening a video uses `/share/p/{uuid}?v={itemId}` (real navigation). Watch uses the same layout as recording share: player, companion tabs **Playlist / Chapters / Transcript**, then **Summary & questions** (generated Theme, summary, questions), Files, and **Created Overview** for that item. Items without processed video are listed but not playable. Course landing has no Files panel. Opening a **playable** video on watch counts as a **page view on that recording** (`POST …/items/{itemId}/beacon`, same Redis ~30 min dedup as recording share). Processing rows and the landing page do not increment views.
 
 ## Revoke / disable and 404
 
@@ -47,7 +47,7 @@ Playlist **description** is a Jinja string (owner GET/PATCH stores the source). 
 
 ## Templates
 
-Named templates may set `output_config.playlist_ids` (≤10). When `template_id` is set (bind / create / match), the recording is **appended**. The default/base template is ignored. Missing playlist ids are skipped. Empty override lists do not clear membership.
+Named templates may set `output_config.playlist_ids` (≤10). Course membership is applied **after successful processing**, when the LEAP publish step runs (same gate as copy uploads: processed video, not blank). Bind, match, and run start only resolve config; they do not append items early. Missing playlist ids are skipped. Empty override lists do not clear membership.
 
 Run and named templates can add a recording to LEAP courses **without** upload presets: membership is not an upload. See [TEMPLATES.md](TEMPLATES.md).
 
@@ -64,4 +64,6 @@ A leap preset is a LEAP publication target (title, description, optional cover, 
 
 Owner playlist items keep `display_name` (library name) and add `title` (publication). Public `/share/p/…` items expose publication `title` only. Add-to-playlist search still uses `display_name`. Editing the leap preset or rebinding the template changes names on the next GET.
 
-Course membership (`playlist_ids`) can be set on the **leap preset** (default), then replaced by a **named template** or **Run** `output_config.playlist_ids` when that list is non-empty. In the template editor, leave **LEAP playlists** empty to keep inheriting the preset list (do not expect the UI to pre-fill those ids into the form). Template and Run can override look fields and `auto_share` via `metadata_config.leap` under **Metadata → Platform overrides → LEAP** (not in the Output section).
+Course membership (`playlist_ids`) can be set on the **leap preset** (default), then replaced by a **named template** or **Run** `output_config.playlist_ids` when that list is non-empty (resolved at pipeline time, applied on LEAP publish). In the template editor, leave **LEAP playlists** empty to keep inheriting the preset list (do not expect the UI to pre-fill those ids into the form). Template and Run can override look fields and `auto_share` via `metadata_config.leap` under **Metadata → Platform overrides → LEAP** (not in the Output section).
+
+**Legacy cleanup:** after deploy, operators may run Celery task `maintenance.cleanup_playlist_blank_items` once to remove course items that were added before this change for blank or not-yet-processed recordings.

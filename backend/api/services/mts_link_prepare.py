@@ -11,6 +11,7 @@ from typing import Any
 from api.helpers.blank_record import positive_duration_seconds
 from api.mts_link_api import (
     CONVERSION_FAILED_STATES,
+    CONVERSION_INFLIGHT_STATES,
     MtsLinkAPI,
     MtsLinkAPIError,
     MtsLinkAuthenticationError,
@@ -18,7 +19,9 @@ from api.mts_link_api import (
     MtsLinkResponseError,
     conversion_busy_fields,
     conversion_job_state,
+    conversion_matches_options,
     conversion_progress,
+    conversion_started_options,
     pick_active_conversion,
     prefer_conversion_job,
     unwrap_conversion_jobs,
@@ -56,6 +59,7 @@ class MtsLinkPrepareResult:
     conversion_progress: int | None = None
     online_size: int | None = None
     download_url: str | None = None
+    ordered_view: str | None = None
     error: str | None = None
 
 
@@ -141,6 +145,7 @@ async def prepare_mts_link_recording(session, recording: RecordingModel, user_id
                 conversion_quality=options["conversion_quality"],
                 conversion_view=options["conversion_view"],
                 known_conversion_id=meta.get("conversion_id"),
+                known_ordered_view=meta.get("conversion_ordered_view"),
                 known_duration=meta.get("online_duration"),
             )
             await _apply_auth_side_effects(session, credential_id, result)
@@ -181,11 +186,17 @@ async def _prepare_once(
     conversion_quality: str,
     conversion_view: str,
     known_conversion_id: Any | None = None,
+    known_ordered_view: Any | None = None,
     known_duration: Any | None = None,
 ) -> MtsLinkPrepareResult:
     ready_url = None
     try:
-        ready_url = await api.get_ready_mp4_url(event_session_id, mts_record_id)
+        ready_url = await api.get_ready_mp4_url(
+            event_session_id,
+            mts_record_id,
+            view=conversion_view,
+            quality=conversion_quality,
+        )
     except MtsLinkResponseError as e:
         if e.status_code != 404:
             raise
@@ -195,7 +206,7 @@ async def _prepare_once(
             download_url=ready_url,
         )
 
-    listed = await _fetch_active_conversion(api, mts_record_id)
+    listed = await _fetch_active_conversion(api, mts_record_id, view=conversion_view, quality=conversion_quality)
     known = None
     if known_conversion_id:
         try:
@@ -205,9 +216,15 @@ async def _prepare_once(
                 return MtsLinkPrepareResult(
                     outcome=MtsPrepareOutcome.CONVERTING,
                     conversion_id=known_conversion_id,
-                    conversion_state="unknown",
                 )
-    active = prefer_conversion_job(listed, known)
+        if known is not None and not _stored_job_is_usable(
+            known,
+            view=conversion_view,
+            quality=conversion_quality,
+            ordered_view=known_ordered_view,
+        ):
+            known = None
+    active = _select_prepare_job(listed, known)
     if active is not None:
         return _from_existing_job(active, online_size=None)
 
@@ -221,7 +238,7 @@ async def _prepare_once(
     if duration is None and online_size == 0:
         return MtsLinkPrepareResult(outcome=MtsPrepareOutcome.ASSEMBLING, online_size=0)
 
-    conversion = await _start_conversion(
+    conversion, posted = await _start_conversion(
         api,
         mts_record_id,
         quality=conversion_quality,
@@ -232,10 +249,13 @@ async def _prepare_once(
             outcome=MtsPrepareOutcome.CONVERTING,
             conversion_id=known_conversion_id,
             online_size=online_size,
-            conversion_state="busy",
+            conversion_state="waiting",
         )
 
-    return _from_existing_job(conversion, online_size)
+    result = _from_existing_job(conversion, online_size)
+    if posted:
+        result.ordered_view = conversion_view
+    return result
 
 
 async def _fetch_online_size(api: MtsLinkAPI, mts_record_id: Any) -> tuple[bool, int]:
@@ -291,14 +311,20 @@ async def _list_conversions(api: MtsLinkAPI, *, is_uncompleted: bool) -> list[di
     return accumulated
 
 
-async def _fetch_active_conversion(api: MtsLinkAPI, mts_record_id: Any) -> dict[str, Any] | None:
+async def _fetch_active_conversion(
+    api: MtsLinkAPI,
+    mts_record_id: Any,
+    *,
+    view: str,
+    quality: str,
+) -> dict[str, Any] | None:
     accumulated: list[dict[str, Any]] = []
     for is_uncompleted in (True, False):
         try:
             accumulated.extend(await _list_conversions(api, is_uncompleted=is_uncompleted))
         except MtsLinkAPIError as e:
             logger.debug(f"Converted-records list unavailable | {format_details(record=mts_record_id, error=str(e))}")
-    return pick_active_conversion(accumulated, mts_record_id)
+    return pick_active_conversion(accumulated, mts_record_id, view=view, quality=quality)
 
 
 async def _start_conversion(
@@ -307,7 +333,7 @@ async def _start_conversion(
     *,
     quality: str,
     view: str,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, bool]:
     try:
         conversion = await api.start_conversion(mts_record_id, quality=quality, view=view)
     except MtsLinkConversionBusyError as e:
@@ -317,27 +343,74 @@ async def _start_conversion(
         )
         if busy_id is not None:
             known = await _fetch_conversion_by_id(api, busy_id)
-            if known is not None:
-                return known
-            return {"id": busy_id, "state": "busy"}
-        return None
+            if known is None:
+                return None, False
+            state = conversion_job_state(known)
+            if state in CONVERSION_INFLIGHT_STATES:
+                return known, False
+            if state == "completed" and conversion_matches_options(
+                known, view=view, quality=quality, unlabeled="reject"
+            ):
+                return known, False
+            return None, False
+        return None, False
 
     logger.info(
-        f"MTS Link conversion requested | {format_details(record=mts_record_id, conversion=conversion.get('id'), quality=quality)}"
+        f"MTS Link conversion requested | {format_details(record=mts_record_id, conversion=conversion.get('id'), quality=quality, view=view)}"
     )
-    return conversion
+    return conversion, True
+
+
+def _select_prepare_job(listed: dict[str, Any] | None, known: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Pick a job to wait on or reuse, without stealing another layout's conversion id.
+
+    Org ``GET /converted-records`` inflight rows often have no ``view``. Mixing them with
+    our stored POST via ``prefer_conversion_job`` replaced speakers-only ``conversion_id``
+    with a further chat job on the same record, then ``conversion_ordered_view`` made that
+    chat id look like ours.
+    """
+    if listed is not None and conversion_job_state(listed) == "completed":
+        return listed
+    if known is not None and listed is not None and str(known.get("id")) == str(listed.get("id")):
+        return prefer_conversion_job(listed, known)
+    if known is not None:
+        return known
+    return listed
+
+
+def _stored_job_is_usable(
+    job: dict[str, Any],
+    *,
+    view: str,
+    quality: str,
+    ordered_view: Any | None,
+) -> bool:
+    """Whether GET /records/conversions/{id} is this recording's requested layout.
+
+    Official status is often ``{state: completed}`` with no ``view``. That is only
+    reusable when *this* prepare previously POSTed that id with the same view
+    (``conversion_ordered_view``). A leftover cabinet/chat conversion must not block
+    a speakers-only POST — and our own completed job must not be POSTed again.
+    """
+    state = conversion_job_state(job)
+    if state in CONVERSION_INFLIGHT_STATES:
+        return conversion_matches_options(job, view=view, quality=quality, unlabeled="accept")
+    if state == "completed":
+        got_view, _ = conversion_started_options(job)
+        if got_view is None:
+            return str(ordered_view or "") == str(view)
+        return conversion_matches_options(job, view=view, quality=quality, unlabeled="reject")
+    return False
 
 
 def _from_existing_job(job: dict[str, Any], online_size: int | None) -> MtsLinkPrepareResult:
-    url = job.get("downloadUrl")
     state = conversion_job_state(job)
-    if url:
+    if state in CONVERSION_INFLIGHT_STATES:
         return MtsLinkPrepareResult(
-            outcome=MtsPrepareOutcome.READY,
+            outcome=MtsPrepareOutcome.CONVERTING,
             conversion_id=job.get("id"),
-            conversion_state=state or "completed",
-            conversion_progress=conversion_progress(job) or 100,
-            download_url=str(url),
+            conversion_state=state,
+            conversion_progress=conversion_progress(job),
             online_size=online_size,
         )
     return _conversion_result(job, online_size)
@@ -360,18 +433,28 @@ def _conversion_result(active: dict[str, Any], online_size: int | None) -> MtsLi
         )
     # GET /records/conversions/{id} is often ``{state: completed}`` with no URL.
     if state == "completed":
+        url = str(active["downloadUrl"]) if active.get("downloadUrl") else None
+        got_view, _ = conversion_started_options(active)
+        if url or got_view is not None:
+            return MtsLinkPrepareResult(
+                outcome=MtsPrepareOutcome.READY,
+                conversion_id=conversion_id,
+                conversion_state=state,
+                conversion_progress=progress,
+                download_url=url,
+                online_size=online_size,
+            )
         return MtsLinkPrepareResult(
-            outcome=MtsPrepareOutcome.READY,
+            outcome=MtsPrepareOutcome.CONVERTING,
             conversion_id=conversion_id,
-            conversion_state=state,
+            conversion_state="waiting",
             conversion_progress=progress,
-            download_url=str(active["downloadUrl"]) if active.get("downloadUrl") else None,
             online_size=online_size,
         )
     return MtsLinkPrepareResult(
         outcome=MtsPrepareOutcome.CONVERTING,
         conversion_id=conversion_id,
-        conversion_state=state,
+        conversion_state=state or "waiting",
         conversion_progress=progress,
         online_size=online_size,
     )
@@ -390,9 +473,22 @@ def apply_prepare_result(recording: RecordingModel, result: MtsLinkPrepareResult
         meta["online_size"] = result.online_size
 
     if result.conversion_id is not None:
+        previous_id = meta.get("conversion_id")
+        id_changed = previous_id is not None and str(previous_id) != str(result.conversion_id)
         meta["conversion_id"] = result.conversion_id
+        if result.ordered_view is not None:
+            meta["conversion_ordered_view"] = result.ordered_view
+        elif id_changed:
+            # Stale "we POSTed this view" must not stick to a different job (cabinet chat).
+            meta.pop("conversion_ordered_view", None)
+    elif result.ordered_view is not None:
+        meta["conversion_ordered_view"] = result.ordered_view
     if result.conversion_state is not None:
         meta["conversion_state"] = result.conversion_state
+    elif result.outcome == MtsPrepareOutcome.CONVERTING and meta.get("conversion_state") == "completed":
+        # Official GET {state: completed} means the MP4 is downloadable. If we are still
+        # converting, that leftover value is stale (session URL not visible yet).
+        meta["conversion_state"] = "waiting"
     if result.outcome == MtsPrepareOutcome.CONVERTING:
         if result.conversion_progress is not None:
             meta["conversion_progress"] = result.conversion_progress

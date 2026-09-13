@@ -1,9 +1,11 @@
 export type ThemeMode = "light" | "dark" | "system";
 
 export const THEME_KEY = "theme";
+export const THEME_DARK_COOKIE = "leap-theme-dark";
 
-/** Inline boot script — keep in sync with getStoredTheme / resolveDark. Injected in root layout <head>. */
-export const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('${THEME_KEY}')||'system';var m=window.matchMedia('(prefers-color-scheme: dark)').matches;var d=t==='dark'||(t==='system'&&m);document.documentElement.classList.toggle('dark',d);}catch(e){}})();`;
+function persistResolvedDark(dark: boolean) {
+  document.cookie = `${THEME_DARK_COOKIE}=${dark ? "1" : "0"};path=/;max-age=31536000;SameSite=Lax`;
+}
 
 /** Read the persisted preference; defaults to "system". */
 export function getStoredTheme(): ThemeMode {
@@ -24,7 +26,9 @@ export function resolveDark(mode: ThemeMode): boolean {
 /** Toggle the `dark` class on <html> to match the given mode. */
 export function applyTheme(mode: ThemeMode): void {
   if (typeof document === "undefined") return;
-  document.documentElement.classList.toggle("dark", resolveDark(mode));
+  const dark = resolveDark(mode);
+  document.documentElement.classList.toggle("dark", dark);
+  persistResolvedDark(dark);
 }
 
 /**

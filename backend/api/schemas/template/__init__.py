@@ -1,5 +1,10 @@
 """Template, config, source and preset schemas (fully typed)"""
 
+from .bundle import (
+    RecordingTemplateReplace,
+    TemplateBundleExport,
+    TemplateImportResult,
+)
 from .config import BaseConfigCreate, BaseConfigResponse, BaseConfigUpdate
 from .from_recording import TemplateFromRecordingRequest
 from .input_source import (
@@ -82,6 +87,7 @@ __all__ = [
     "QuestionsDisplayConfig",
     "RecordingTemplateCreate",
     "RecordingTemplateListResponse",
+    "RecordingTemplateReplace",
     "RecordingTemplateResponse",
     "RecordingTemplateUpdate",
     "RematchTaskResponse",
@@ -91,7 +97,9 @@ __all__ = [
     "SourceSyncTaskResponse",
     "SyncSourceResponse",
     "SyncTaskResponse",
+    "TemplateBundleExport",
     "TemplateFromRecordingRequest",
+    "TemplateImportResult",
     "TemplateListResponse",
     "TemplateMetadataConfig",
     "TemplateOutputConfig",

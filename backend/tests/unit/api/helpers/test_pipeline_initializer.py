@@ -60,3 +60,23 @@ async def test_ensure_output_targets_skips_leap_when_publish_leap_false() -> Non
     )
     assert created == []
     session.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_ensure_output_targets_creates_leap_for_playlist_ids_only(mocker) -> None:
+    session = MagicMock()
+    session.flush = AsyncMock()
+    fake = SimpleNamespace(target_type=TargetType.LEAP)
+    mocker.patch("api.helpers.pipeline_initializer.OutputTargetModel", return_value=fake)
+
+    recording = SimpleNamespace(id=9, user_id="u1", outputs=[])
+    created = await ensure_output_targets(
+        session,
+        recording,
+        {"preset_ids": [], "playlist_ids": [3], "publish_leap": True},
+        include_copy=False,
+    )
+    assert created == [fake]
+    session.add.assert_called_once_with(fake)
+    session.execute.assert_not_called()

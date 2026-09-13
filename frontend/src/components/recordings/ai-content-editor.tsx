@@ -2,9 +2,10 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, X, Plus, Code2, Loader2, Pencil, Search, Settings2 } from "lucide-react";
+import { Check, X, Plus, Code2, Loader2, Pencil, Search } from "lucide-react";
 import { cn, scrollIntoViewWithin } from "@/lib/utils";
 import { apiClient } from "@/api/client";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TemplateField } from "@/components/platforms/platform-fields";
 
 // ---------------------------------------------------------------------------
@@ -34,6 +35,10 @@ interface AIContentEditorProps {
   version: TopicVersion;
   onUpdated: () => void;
   onSeek?: (time: number) => void;
+  /** Current player time — used to seed a new chapter. */
+  getCurrentTime?: () => number;
+  /** Playback length in seconds; new chapter times must be inside (0, duration). */
+  getDuration?: () => number;
   activeChapterIdx?: number;
   readOnly?: boolean;
   /** When set, only these blocks render. Omit for the full editor layout. */
@@ -59,6 +64,15 @@ function formatTimecode(s: number) {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+function parseTimecode(value: string): number | null {
+  const parts = value.trim().split(":").map((p) => Number(p));
+  if (parts.length === 0 || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  if (parts.length === 1) return Math.floor(parts[0]);
+  if (parts.length === 2) return Math.floor(parts[0] * 60 + parts[1]);
+  if (parts.length === 3) return Math.floor(parts[0] * 3600 + parts[1] * 60 + parts[2]);
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Section label
 // ---------------------------------------------------------------------------
@@ -71,28 +85,41 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+const SEARCH_INPUT =
+  "w-full rounded-xl border border-input bg-background py-2 pl-8 pr-8 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30";
+
+const ADD_PILL =
+  "flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+
+const EDIT_AFFORDANCE =
+  "inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50";
+
+const EDIT_AFFORDANCE_HOVER =
+  "[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100";
+
 // ---------------------------------------------------------------------------
-// ChapterItem — timecode always seekable; name editable only when isManaging
+// ChapterItem — timecode always seekable; title editable via hover pencil
 // ---------------------------------------------------------------------------
 
 function ChapterItem({
   item,
   isActive,
-  isManaging,
+  canRename,
   onSeek,
   onSave,
+  onDelete,
   disabled,
   itemRef,
   wrapLabels = false,
 }: {
   item: TopicTimestamp;
   isActive: boolean;
-  isManaging: boolean;
+  canRename: boolean;
   onSeek: (t: number) => void;
   onSave: (topic: string) => void;
+  onDelete?: () => void;
   disabled?: boolean;
   itemRef?: (el: HTMLButtonElement | null) => void;
-  /** Share sidebar: wrap long chapter titles instead of clipping them. */
   wrapLabels?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -104,36 +131,112 @@ function ChapterItem({
     setEditing(false);
   }
 
-  const showEditing = editing && isManaging;
+  function cancelEdit() {
+    setDraft(item.topic);
+    setEditing(false);
+  }
 
-  // While editing, the row can't be a button — it holds a text input. Outside
-  // manage mode the whole row is one seek control, so keyboard users get the
-  // same target the pointer affordance advertises.
-  if (showEditing) {
+  function startEdit() {
+    setDraft(item.topic);
+    setEditing(true);
+  }
+
+  const dot = (
+    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
+  );
+  const time = (
+    <span
+      className={cn(
+        "w-[3.25rem] shrink-0 font-mono text-xs leading-5 tabular-nums transition-colors group-hover:text-primary",
+        isActive ? "font-semibold text-primary" : "text-muted-foreground",
+      )}
+    >
+      {formatTimecode(item.start)}
+    </span>
+  );
+
+  if (editing && canRename) {
     return (
-      <div className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5">
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
-        <span
-          className={cn(
-            "w-11 shrink-0 text-left font-mono text-xs",
-            isActive ? "font-semibold text-primary" : "text-muted-foreground"
-          )}
-        >
-          {formatTimecode(item.start)}
+      <div className="flex w-full items-start gap-3 rounded-lg px-2 py-1.5">
+        <span className="flex shrink-0 items-center gap-3 pt-1.5">
+          {dot}
+          <button
+            type="button"
+            onClick={() => onSeek(item.start)}
+            className={cn(
+              "text-left font-mono text-xs leading-5 tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+              isActive ? "font-semibold text-primary" : "text-muted-foreground hover:text-primary",
+            )}
+          >
+            {formatTimecode(item.start)}
+          </button>
         </span>
-        <input
-          autoFocus
-          aria-label="Chapter title"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); commit(); }
-            if (e.key === "Escape") { setDraft(item.topic); setEditing(false); }
-          }}
-          onBlur={commit}
-          disabled={disabled}
-          className="min-w-0 flex-1 rounded border border-input bg-card px-1.5 py-0 text-sm outline-none focus:border-primary"
-        />
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <textarea
+            autoFocus
+            aria-label="Chapter title"
+            value={draft}
+            rows={2}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commit(); }
+              if (e.key === "Escape") cancelEdit();
+            }}
+            disabled={disabled}
+            className="min-w-0 w-full resize-y rounded-lg border border-input bg-card px-2 py-1.5 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={commit}
+              disabled={disabled || !draft.trim()}
+              className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Check size={11} /> Save
+            </button>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X size={11} /> Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canRename) {
+    return (
+      <div
+        className={cn(
+          "group flex w-full rounded-lg transition-colors",
+          isActive ? "bg-primary/6" : "hover:bg-muted/20",
+        )}
+      >
+        <button
+          ref={itemRef}
+          type="button"
+          onClick={() => onSeek(item.start)}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        >
+          <span className="flex shrink-0 items-center gap-3">
+            {dot}
+            <span className={cn("w-[3.25rem] font-mono text-xs leading-5 tabular-nums transition-colors group-hover:text-primary", isActive ? "font-semibold text-primary" : "text-muted-foreground")}>
+              {formatTimecode(item.start)}
+            </span>
+          </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 text-sm leading-5",
+              wrapLabels ? "break-words" : "truncate",
+              isActive ? "font-medium text-foreground" : "text-secondary-foreground",
+            )}
+          >
+            {item.topic}
+          </span>
+        </button>
       </div>
     );
   }
@@ -141,54 +244,51 @@ function ChapterItem({
   return (
     <div
       className={cn(
-        "group flex w-full gap-3 rounded-lg transition-colors",
-        wrapLabels ? "items-start" : "items-center",
-        isActive ? "bg-primary/6" : isManaging ? "hover:bg-muted/30" : "hover:bg-muted/20"
+        "group relative flex w-full items-center rounded-lg transition-colors",
+        isActive ? "bg-primary/6" : "hover:bg-muted/20",
       )}
     >
       <button
         ref={itemRef}
         type="button"
         onClick={() => onSeek(item.start)}
-        className={cn(
-          "flex min-w-0 flex-1 gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-          wrapLabels ? "items-start" : "items-center",
-        )}
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border", wrapLabels && "mt-2")} />
-        <span
-          className={cn(
-            "shrink-0 font-mono text-xs tabular-nums transition-colors group-hover:text-primary",
-            wrapLabels ? "min-w-[3.25rem] pt-0.5" : "w-11",
-            isActive ? "font-semibold text-primary" : "text-muted-foreground"
-          )}
-        >
-          {formatTimecode(item.start)}
+        <span className="flex shrink-0 items-center gap-3">
+          {dot}
+          {time}
         </span>
         <span
           className={cn(
-            "min-w-0 flex-1 py-0.5 text-sm",
-            wrapLabels ? "break-words leading-relaxed" : "truncate",
-            isActive ? "font-medium text-foreground" : "text-secondary-foreground"
+            "min-w-0 flex-1 pe-20 text-sm leading-5 break-words",
+            isActive ? "font-medium text-foreground" : "text-secondary-foreground",
           )}
         >
           {item.topic}
         </span>
       </button>
-
-      {/* Renaming is a second action on the row, so it needs its own control
-          rather than a click handler nested inside the seek button. */}
-      {isManaging && (
+      <div className="absolute right-0.5 top-1/2 flex -translate-y-1/2">
         <button
           type="button"
-          onClick={() => { setDraft(item.topic); setEditing(true); }}
+          onClick={startEdit}
           disabled={disabled}
           aria-label={`Rename chapter “${item.topic}”`}
-          className="mr-2 shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+          className={cn(EDIT_AFFORDANCE, EDIT_AFFORDANCE_HOVER)}
         >
-          <Pencil size={12} />
+          <Pencil size={14} />
         </button>
-      )}
+        {onDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={disabled}
+            aria-label={`Delete chapter “${item.topic}”`}
+            className={cn(EDIT_AFFORDANCE, "text-muted-foreground/50 hover:text-danger-fg", EDIT_AFFORDANCE_HOVER)}
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -202,14 +302,15 @@ export function AIContentEditor({
   version,
   onUpdated,
   onSeek,
+  getCurrentTime,
+  getDuration,
   activeChapterIdx = -1,
   readOnly = false,
   sections,
   chaptersListClassName,
   embeddedInPanel = false,
 }: AIContentEditorProps) {
-  // isManaging enables all editing (text + structural controls)
-  const [isManaging, setIsManaging] = useState(false);
+  const canEdit = !readOnly;
 
   // -- local state (optimistic)
   const [mainTopics, setMainTopics] = useState<string[]>(version.main_topics ?? []);
@@ -220,6 +321,7 @@ export function AIContentEditor({
   const [editingTopicIdx, setEditingTopicIdx] = useState<number | null>(null);
   const [topicDraft, setTopicDraft] = useState("");
   const [newTopic, setNewTopic] = useState("");
+  const [addingTopic, setAddingTopic] = useState(false);
 
   // -- inline edit state (questions)
   const [editingQuestionIdx, setEditingQuestionIdx] = useState<number | null>(null);
@@ -232,11 +334,20 @@ export function AIContentEditor({
   const [summaryIsTemplate, setSummaryIsTemplate] = useState(() => hasJinja(version.summary ?? ""));
   const [renderLoading, setRenderLoading] = useState(false);
 
-  const newTopicRef = useRef<HTMLInputElement>(null);
-  const newQuestionRef = useRef<HTMLInputElement>(null);
+  const newQuestionRef = useRef<HTMLTextAreaElement>(null);
   const chaptersRef = useRef<HTMLDivElement>(null);
   const chapterItemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const [chapterQuery, setChapterQuery] = useState("");
+  const [addingChapter, setAddingChapter] = useState(false);
+  const [newChapterTime, setNewChapterTime] = useState("");
+  const [newChapterTitle, setNewChapterTitle] = useState("");
+  const [addingQuestion, setAddingQuestion] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<
+    | { kind: "chapter"; index: number }
+    | { kind: "question"; index: number }
+    | { kind: "theme"; index: number }
+    | null
+  >(null);
   const chapterNeedle = chapterQuery.trim().toLowerCase();
   const filteredChapters = useMemo(() => {
     if (!chapterNeedle) return topicTimestamps.map((item, index) => ({ item, index }));
@@ -252,6 +363,29 @@ export function AIContentEditor({
     if (activeChapterIdx < 0 || chapterQuery.trim()) return;
     scrollIntoViewWithin(chaptersRef.current, chapterItemRefs.current.get(activeChapterIdx) ?? null);
   }, [activeChapterIdx, chapterQuery]);
+
+  // Reset editor fields when the recording or version identity changes. Same-version
+  // refetch must not wipe an in-progress edit — store the key, not the payload.
+  const versionKey = `${recordingId}:${version.id ?? ""}`;
+  const [syncedVersionKey, setSyncedVersionKey] = useState(versionKey);
+  if (syncedVersionKey !== versionKey) {
+    setSyncedVersionKey(versionKey);
+    setMainTopics(version.main_topics ?? []);
+    setTopicTimestamps(version.topic_timestamps ?? []);
+    setQuestions(version.questions ?? []);
+    setEditingTopicIdx(null);
+    setAddingTopic(false);
+    setNewTopic("");
+    setEditingQuestionIdx(null);
+    setAddingQuestion(false);
+    setNewQuestion("");
+    setSummaryEditing(false);
+    setSummaryDraft(version.summary ?? "");
+    setSummaryIsTemplate(hasJinja(version.summary ?? ""));
+    setChapterQuery("");
+    setAddingChapter(false);
+    setPendingDelete(null);
+  }
 
   const updateTopics = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -275,23 +409,37 @@ export function AIContentEditor({
     updateTopics.mutate(data);
   };
 
-  const persistAsync = async (data: Record<string, unknown>) => {
+  function persistAsync(data: Record<string, unknown>) {
     if (readOnly) return;
-    await updateTopics.mutateAsync(data);
-  };
+    return updateTopics.mutateAsync(data);
+  }
 
-  // Close all edits when leaving manage mode
-  function exitManageMode() {
-    setEditingTopicIdx(null);
-    setEditingQuestionIdx(null);
-    setSummaryEditing(false);
-    setIsManaging(false);
+  function videoDuration(): number {
+    const d = getDuration?.() ?? 0;
+    return Number.isFinite(d) && d > 0 ? d : 0;
+  }
+
+  function chapterTimeError(raw: string): string | null {
+    const start = parseTimecode(raw);
+    if (start === null) return "Enter a time like 1:23";
+    const duration = videoDuration();
+    if (!(duration > 0)) return "Video duration is not available yet";
+    if (start <= 0 || start >= duration) {
+      return `Time must be after 0:00 and before ${formatTimecode(Math.floor(duration))}`;
+    }
+    return null;
   }
 
   // -- topic handlers
   function saveMainTopics(updated: string[]) {
     setMainTopics(updated);
     persist({ main_topics: updated });
+  }
+
+  function startTopicEdit(i: number) {
+    setAddingTopic(false);
+    setTopicDraft(mainTopics[i] ?? "");
+    setEditingTopicIdx(i);
   }
 
   function commitTopic(i: number) {
@@ -307,7 +455,14 @@ export function AIContentEditor({
     if (!trimmed) return;
     saveMainTopics([...mainTopics, trimmed]);
     setNewTopic("");
-    newTopicRef.current?.focus();
+    setAddingTopic(false);
+  }
+
+  function openAddTopic() {
+    if (readOnly) return;
+    setEditingTopicIdx(null);
+    setNewTopic("");
+    setAddingTopic(true);
   }
 
   // -- chapter handlers
@@ -317,9 +472,38 @@ export function AIContentEditor({
     persist({ topic_timestamps: updated });
   }
 
+  function deleteChapter(index: number) {
+    const next = topicTimestamps.filter((_, i) => i !== index);
+    setTopicTimestamps(next);
+    persist({ topic_timestamps: next });
+  }
+
+  function openAddChapter() {
+    if (readOnly) return;
+    const duration = videoDuration();
+    const now = Math.floor(getCurrentTime?.() ?? 0);
+    const seed =
+      duration > 0 ? Math.min(Math.max(now, 1), Math.max(1, Math.floor(duration) - 1)) : Math.max(now, 1);
+    setNewChapterTime(formatTimecode(seed));
+    setNewChapterTitle("");
+    setAddingChapter(true);
+  }
+
+  function addChapter() {
+    const start = parseTimecode(newChapterTime);
+    const topic = newChapterTitle.trim();
+    if (!topic || chapterTimeError(newChapterTime) || start === null) return;
+    const next = [...topicTimestamps, { topic, start }];
+    next.sort((a, b) => a.start - b.start);
+    setTopicTimestamps(next);
+    persist({ topic_timestamps: next });
+    setNewChapterTitle("");
+    setAddingChapter(false);
+  }
+
   // -- summary handlers
   function openSummaryEdit() {
-    if (!isManaging) return;
+    if (readOnly) return;
     setSummaryDraft(version.summary ?? "");
     setSummaryIsTemplate(hasJinja(version.summary ?? ""));
     setSummaryEditing(true);
@@ -368,7 +552,12 @@ export function AIContentEditor({
     if (!trimmed) return;
     saveQuestions([...questions, trimmed]);
     setNewQuestion("");
-    newQuestionRef.current?.focus();
+    setAddingQuestion(false);
+  }
+
+  function openAddQuestion() {
+    if (readOnly) return;
+    setAddingQuestion(true);
   }
 
   // -- guard
@@ -380,157 +569,185 @@ export function AIContentEditor({
   const showSection = (section: AIContentSection) =>
     !sections || sections.includes(section);
 
-  const visibleHasTopics = showSection("topics") && hasTopics;
-  const visibleHasChapters = showSection("chapters") && hasChapters;
+  const visibleHasTopics = showSection("topics") && (hasTopics || canEdit);
+  const visibleHasChapters = showSection("chapters") && (hasChapters || !readOnly);
   const visibleHasSummary = showSection("summary") && hasSummary;
-  const visibleHasQuestions = showSection("questions") && hasQuestions;
+  const visibleHasQuestions = showSection("questions") && (hasQuestions || !readOnly);
 
-  if (!visibleHasTopics && !visibleHasChapters && !visibleHasSummary && !visibleHasQuestions) return null;
+  if (readOnly && !visibleHasTopics && !visibleHasChapters && !visibleHasSummary && !visibleHasQuestions) return null;
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
-  const hideEmbeddedTopicTitle =
-    embeddedInPanel && readOnly && !isManaging;
-  const showTopicHeaderBlock =
-    !readOnly || (visibleHasTopics && !hideEmbeddedTopicTitle);
+  const hideEmbeddedTopicTitle = embeddedInPanel && readOnly;
+  const showTopicHeaderBlock = visibleHasTopics && !hideEmbeddedTopicTitle;
+
+  const deleteCopy =
+    pendingDelete?.kind === "chapter"
+      ? {
+          title: "Delete chapter?",
+          description: `“${topicTimestamps[pendingDelete.index]?.topic ?? ""}” will be removed.`,
+        }
+      : pendingDelete?.kind === "question"
+        ? {
+            title: "Delete question?",
+            description: `Question ${pendingDelete.index + 1} will be removed.`,
+          }
+        : pendingDelete?.kind === "theme"
+          ? {
+              title: "Delete theme?",
+              description: `“${mainTopics[pendingDelete.index] ?? ""}” will be removed.`,
+            }
+          : null;
 
   return (
-    <div className="space-y-4">
+    <>
+    <div className={cn("space-y-4", embeddedInPanel && "flex min-h-0 flex-1 flex-col space-y-0")}>
 
-      {/* ── Header: Manage toggle ── */}
       {showTopicHeaderBlock && (
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          {/* Topics label + main topic title */}
-          {visibleHasTopics && !hideEmbeddedTopicTitle && (
-            <>
-              {!embeddedInPanel && <SectionLabel>Topics</SectionLabel>}
-
-              {/* Primary topic title */}
-              {isManaging && editingTopicIdx === 0 ? (
-                <input
-                  autoFocus
-                  value={topicDraft}
-                  onChange={(e) => setTopicDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); commitTopic(0); }
-                    if (e.key === "Escape") setEditingTopicIdx(null);
-                  }}
-                  onBlur={() => commitTopic(0)}
-                  className="w-full rounded border border-primary bg-card px-2 py-0.5 text-base font-semibold outline-none"
-                />
-              ) : (
-                <p
-                  className={cn(
-                    "text-base font-semibold leading-snug text-foreground rounded px-1 py-0.5 -mx-1 transition-colors",
-                    embeddedInPanel && "break-words",
-                    isManaging && "cursor-text hover:bg-muted/50"
-                  )}
-                  onClick={isManaging ? () => { setTopicDraft(mainTopics[0]); setEditingTopicIdx(0); } : undefined}
-                >
-                  {mainTopics[0]}
-                </p>
-              )}
-
-              {/* Subtitle topics */}
-              {(mainTopics.length > 1 || isManaging) && (
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5 min-h-[1.25rem]">
-                  {mainTopics.slice(1).map((topic, rawIdx) => {
-                    const i = rawIdx + 1;
-                    return (
-                      <span key={i} className="flex items-center gap-0.5">
-                        {rawIdx > 0 && <span className="text-muted-foreground/40 select-none">·</span>}
-                        {isManaging && editingTopicIdx === i ? (
-                          <input
-                            autoFocus
-                            value={topicDraft}
-                            onChange={(e) => setTopicDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") { e.preventDefault(); commitTopic(i); }
-                              if (e.key === "Escape") setEditingTopicIdx(null);
-                            }}
-                            onBlur={() => commitTopic(i)}
-                            className="rounded border border-primary bg-card px-1.5 py-0 text-sm outline-none"
-                          />
-                        ) : (
-                          <span
-                            className={cn(
-                              "text-sm text-muted-foreground rounded px-1 transition-colors",
-                              isManaging && "cursor-text hover:bg-muted/50 hover:text-foreground"
-                            )}
-                            onClick={isManaging ? () => { setTopicDraft(topic); setEditingTopicIdx(i); } : undefined}
-                          >
-                            {topic}
-                          </span>
-                        )}
-                        {isManaging && editingTopicIdx !== i && (
-                          <button
-                            type="button"
-                            onClick={() => saveMainTopics(mainTopics.filter((_, j) => j !== i))}
-                            disabled={isMutating}
-                            className="text-muted-foreground/50 transition-colors hover:text-danger-fg"
-                          >
-                            <X size={10} />
-                          </button>
-                        )}
-                      </span>
-                    );
-                  })}
-                  {isManaging && (
-                    <span className="flex items-center gap-0.5">
-                      {mainTopics.length > 1 && <span className="text-muted-foreground/40 select-none">·</span>}
-                      <input
-                        ref={newTopicRef}
-                        value={newTopic}
-                        onChange={(e) => setNewTopic(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTopic(); } }}
-                        placeholder="Add…"
-                        className="w-16 rounded border border-transparent bg-transparent px-1 py-0 text-sm text-muted-foreground placeholder:text-muted-foreground/30 outline-none focus:border-border focus:text-foreground transition-colors"
+        <div>
+          {!embeddedInPanel && <SectionLabel>Theme</SectionLabel>}
+          <div className="space-y-0.5">
+            {mainTopics.map((topic, i) => {
+              const primary = i === 0;
+              if (canEdit && editingTopicIdx === i) {
+                return (
+                  <div key={i} className="rounded-lg px-2 py-1.5">
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <textarea
+                        autoFocus
+                        aria-label={primary ? "Theme" : `Theme ${i + 1}`}
+                        value={topicDraft}
+                        rows={2}
+                        onChange={(e) => setTopicDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitTopic(i); }
+                          if (e.key === "Escape") setEditingTopicIdx(null);
+                        }}
+                        disabled={isMutating}
+                        className="min-w-0 w-full resize-y rounded-lg border border-input bg-card px-2 py-1.5 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
                       />
-                      {newTopic.trim() && (
-                        <button type="button" onClick={addTopic} disabled={isMutating} className="text-primary">
-                          <Plus size={11} />
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => commitTopic(i)}
+                          disabled={isMutating || !topicDraft.trim()}
+                          className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          <Check size={11} /> Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingTopicIdx(null)}
+                          className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <X size={11} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "group relative rounded-lg px-2 py-1.5 transition-colors",
+                    canEdit && "hover:bg-muted/20",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "min-w-0 text-sm leading-relaxed break-words whitespace-pre-wrap",
+                      primary ? "font-medium text-foreground" : "text-secondary-foreground",
+                      canEdit && (primary ? "cursor-text pe-10" : "cursor-text pe-20"),
+                    )}
+                    onClick={canEdit ? () => startTopicEdit(i) : undefined}
+                    role={canEdit ? "button" : undefined}
+                    tabIndex={canEdit ? 0 : undefined}
+                    onKeyDown={
+                      canEdit
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              startTopicEdit(i);
+                            }
+                          }
+                        : undefined
+                    }
+                  >
+                    {topic}
+                  </div>
+                  {canEdit && (
+                    <div className="absolute right-0.5 top-0.5 flex">
+                      <button
+                        type="button"
+                        onClick={() => startTopicEdit(i)}
+                        disabled={isMutating}
+                        aria-label={primary ? "Edit theme" : `Edit theme “${topic}”`}
+                        className={cn(EDIT_AFFORDANCE, EDIT_AFFORDANCE_HOVER)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      {!primary && (
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete({ kind: "theme", index: i })}
+                          disabled={isMutating}
+                          aria-label={`Delete theme “${topic}”`}
+                          className={cn(EDIT_AFFORDANCE, "text-muted-foreground/50 hover:text-danger-fg", EDIT_AFFORDANCE_HOVER)}
+                        >
+                          <X size={14} />
                         </button>
                       )}
-                    </span>
+                    </div>
                   )}
                 </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Manage / Done toggle */}
-        {(version.manually_edited || !readOnly) && (
-        <div className="flex shrink-0 items-center gap-2">
-          {version.manually_edited && (
-            <span className="rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">
-              Edited
-            </span>
-          )}
-          {!readOnly && (
-            <button
-              type="button"
-              onClick={() => isManaging ? exitManageMode() : setIsManaging(true)}
-              className={cn(
-                "flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
-                isManaging
-                  ? "border-primary bg-primary/10 text-primary hover:bg-primary/15"
-                  : "border-border bg-card text-muted-foreground hover:text-foreground hover:border-foreground/20"
-              )}
-            >
-              {isManaging ? (
-                <><Check size={11} /> Done</>
+              );
+            })}
+            {canEdit && (
+              addingTopic ? (
+                <div className="flex min-w-0 flex-col gap-2 px-2 py-1.5">
+                  <textarea
+                    autoFocus
+                    aria-label="New theme"
+                    value={newTopic}
+                    rows={2}
+                    onChange={(e) => setNewTopic(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addTopic(); }
+                      if (e.key === "Escape") { setAddingTopic(false); setNewTopic(""); }
+                    }}
+                    placeholder="Theme…"
+                    className="min-w-0 w-full resize-y rounded-lg border border-input bg-card px-2 py-1.5 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={addTopic}
+                      disabled={isMutating || !newTopic.trim()}
+                      className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      <Check size={11} /> Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setAddingTopic(false); setNewTopic(""); }}
+                      className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <X size={11} /> Cancel
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <><Settings2 size={11} /> Manage</>
-              )}
-            </button>
-          )}
+                <button type="button" onClick={openAddTopic} className={ADD_PILL}>
+                  <Plus size={12} /> Add theme
+                </button>
+              )
+            )}
+          </div>
         </div>
-        )}
-      </div>
       )}
 
       {/* ── Summary ── */}
@@ -592,19 +809,40 @@ export function AIContentEditor({
               </div>
             </div>
           ) : (
-            <div
-              className={cn(
-                "rounded-lg px-2 py-1.5 -mx-2 transition-colors",
-                isManaging && "cursor-text hover:bg-muted/40"
+            <div className="group relative">
+              <div
+                className={cn(
+                  "min-w-0 rounded-lg px-2 py-1.5 -mx-2 transition-colors",
+                  !readOnly && "cursor-text hover:bg-muted/40",
+                )}
+                onClick={!readOnly ? openSummaryEdit : undefined}
+                role={!readOnly ? "button" : undefined}
+                tabIndex={!readOnly ? 0 : undefined}
+                onKeyDown={
+                  !readOnly
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openSummaryEdit();
+                        }
+                      }
+                    : undefined
+                }
+              >
+                <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed pe-10">
+                  {version.summary}
+                </p>
+              </div>
+              {!readOnly && (
+                <button
+                  type="button"
+                  aria-label="Edit summary"
+                  onClick={openSummaryEdit}
+                  className={cn("absolute right-0 top-0.5", EDIT_AFFORDANCE, EDIT_AFFORDANCE_HOVER)}
+                >
+                  <Pencil size={14} />
+                </button>
               )}
-              onClick={isManaging ? openSummaryEdit : undefined}
-              role={isManaging ? "button" : undefined}
-              tabIndex={isManaging ? 0 : undefined}
-              onKeyDown={isManaging ? (e) => { if (e.key === "Enter" || e.key === " ") openSummaryEdit(); } : undefined}
-            >
-              <p className="whitespace-pre-wrap text-sm text-foreground leading-relaxed">
-                {version.summary}
-              </p>
             </div>
           )}
         </div>
@@ -612,24 +850,31 @@ export function AIContentEditor({
 
       {/* ── Chapters ── */}
       {visibleHasChapters && (
-        <div className={cn(embeddedInPanel && "space-y-3")}>
-          {!embeddedInPanel && <SectionLabel>Chapters</SectionLabel>}
-          {embeddedInPanel && (
-            <div className="relative">
+        <div className={cn(embeddedInPanel && "flex min-h-0 flex-1 flex-col gap-3")}>
+              {!embeddedInPanel && <SectionLabel>Chapters</SectionLabel>}
+          <div
+            className={cn(
+              "flex min-h-0 flex-col gap-3",
+              embeddedInPanel && "flex-1",
+              !embeddedInPanel && topicTimestamps.length > 6 && "max-h-[min(36rem,60dvh)] overflow-hidden",
+            )}
+          >
+            {(embeddedInPanel || topicTimestamps.length > 6) && (
+            <div className="relative shrink-0">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden />
               <input
                 type="search"
-                aria-label="Search topics"
-                placeholder="Search topics…"
+                aria-label="Search chapters"
+                placeholder="Search chapters…"
                 value={chapterQuery}
                 onChange={(e) => setChapterQuery(e.target.value)}
-                className="w-full rounded-xl border border-input bg-card py-2 pl-8 pr-8 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                className={SEARCH_INPUT}
               />
               {chapterQuery && (
                 <button
                   type="button"
                   onClick={() => setChapterQuery("")}
-                  aria-label="Clear topic search"
+                  aria-label="Clear chapter search"
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <X size={13} />
@@ -637,113 +882,243 @@ export function AIContentEditor({
               )}
             </div>
           )}
-          {embeddedInPanel && chapterNeedle && (
-            <p role="status" className="text-xs text-muted-foreground">
+          {chapterNeedle && (
+            <p role="status" className="shrink-0 text-xs text-muted-foreground">
               {filteredChapters.length === 0
-                ? `No topics match “${chapterQuery.trim()}”.`
-                : `${filteredChapters.length} of ${topicTimestamps.length} topics match “${chapterQuery.trim()}”.`}
+                ? `No chapters match “${chapterQuery.trim()}”.`
+                : `${filteredChapters.length} of ${topicTimestamps.length} chapters match “${chapterQuery.trim()}”.`}
             </p>
           )}
           <div
             ref={chaptersRef}
             className={cn(
-              embeddedInPanel ? "overflow-visible" : "max-h-52 overflow-y-auto",
+              "min-h-0 overflow-y-auto",
+              embeddedInPanel || topicTimestamps.length > 6 ? "flex-1" : undefined,
               chaptersListClassName,
             )}
           >
-            {(embeddedInPanel ? filteredChapters : topicTimestamps.map((item, index) => ({ item, index }))).map(
-              ({ item, index }) => (
+            {filteredChapters.map(({ item, index }) => (
                 <ChapterItem
-                  key={`${index}-${isManaging}`}
+                  key={`${index}-${item.topic}`}
                   item={item}
                   isActive={index === activeChapterIdx}
-                  isManaging={isManaging}
+                  canRename={!readOnly}
                   onSeek={onSeek ?? (() => {})}
                   onSave={(topic) => saveChapterTopic(index, topic)}
+                  onDelete={() => setPendingDelete({ kind: "chapter", index })}
                   disabled={isMutating}
                   itemRef={(el) => {
                     if (el) chapterItemRefs.current.set(index, el);
                     else chapterItemRefs.current.delete(index);
                   }}
-                  wrapLabels={embeddedInPanel}
+                  wrapLabels
                 />
-              ),
-            )}
+            ))}
+          </div>
+          {!readOnly && (
+            addingChapter ? (
+              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-2 sm:flex-row sm:items-start">
+                <input
+                  autoFocus
+                  aria-label="Chapter time"
+                  aria-invalid={chapterTimeError(newChapterTime) != null}
+                  aria-describedby={chapterTimeError(newChapterTime) ? "chapter-time-error" : undefined}
+                  value={newChapterTime}
+                  onChange={(e) => setNewChapterTime(e.target.value)}
+                  placeholder="0:01"
+                  className="w-[5.5rem] shrink-0 rounded-lg border border-input bg-background px-2 py-1.5 font-mono text-xs tabular-nums outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                />
+                <textarea
+                  aria-label="Chapter title"
+                  value={newChapterTitle}
+                  rows={2}
+                  onChange={(e) => setNewChapterTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addChapter(); }
+                    if (e.key === "Escape") setAddingChapter(false);
+                  }}
+                  placeholder="Chapter title…"
+                  className="min-w-0 flex-1 resize-y rounded-lg border border-input bg-background px-2 py-1.5 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                />
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={addChapter}
+                    disabled={isMutating || !!chapterTimeError(newChapterTime) || !newChapterTitle.trim()}
+                    className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    <Check size={11} /> Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddingChapter(false)}
+                    className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <X size={11} /> Cancel
+                  </button>
+                </div>
+              </div>
+              {chapterTimeError(newChapterTime) && (
+                <p id="chapter-time-error" role="alert" className="text-xs text-danger-fg">
+                  {chapterTimeError(newChapterTime)}
+                </p>
+              )}
+              </div>
+            ) : (
+              <button type="button" onClick={openAddChapter} className={ADD_PILL}>
+                <Plus size={12} /> Add chapter
+              </button>
+            )
+          )}
           </div>
         </div>
       )}
 
       {/* ── Questions ── */}
-      {(visibleHasQuestions || (isManaging && showSection("questions"))) && (
+      {(visibleHasQuestions || (!readOnly && showSection("questions"))) && (
         <div>
           <SectionLabel>Questions</SectionLabel>
           <div className="space-y-0.5">
             {questions.map((q, i) => (
-              <div key={i} className="flex items-start gap-3 rounded-lg px-2 py-1.5">
+              <div key={i} className="group relative flex items-start gap-1 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted/20">
                 <span className="w-5 shrink-0 text-left text-sm text-muted-foreground tabular-nums select-none py-0.5">
                   {i + 1}.
                 </span>
-                {isManaging && editingQuestionIdx === i ? (
-                  <input
-                    autoFocus
-                    value={questionDraft}
-                    onChange={(e) => setQuestionDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { e.preventDefault(); commitQuestion(i); }
-                      if (e.key === "Escape") setEditingQuestionIdx(null);
-                    }}
-                    onBlur={() => commitQuestion(i)}
-                    className="flex-1 rounded border border-primary bg-card px-2 py-0 text-sm outline-none"
-                  />
+                {!readOnly && editingQuestionIdx === i ? (
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <textarea
+                      autoFocus
+                      aria-label={`Question ${i + 1}`}
+                      value={questionDraft}
+                      rows={3}
+                      onChange={(e) => setQuestionDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitQuestion(i); }
+                        if (e.key === "Escape") setEditingQuestionIdx(null);
+                      }}
+                      className="w-full resize-y rounded-lg border border-input bg-card px-2 py-1.5 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => commitQuestion(i)}
+                        className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                      >
+                        <Check size={11} /> Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingQuestionIdx(null)}
+                        className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <X size={11} /> Cancel
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <span
                       className={cn(
-                        "flex-1 text-sm text-foreground rounded px-1 py-0.5 transition-colors",
-                        isManaging && "cursor-text hover:bg-muted/50"
+                        "min-w-0 flex-1 text-sm text-foreground rounded px-1 py-0.5 leading-relaxed",
+                        !readOnly && "cursor-text pe-20",
                       )}
-                      onClick={isManaging ? () => { setQuestionDraft(q); setEditingQuestionIdx(i); } : undefined}
+                      onClick={!readOnly ? () => { setQuestionDraft(q); setEditingQuestionIdx(i); } : undefined}
                     >
                       {q}
                     </span>
-                    {isManaging && (
-                      <button
-                        type="button"
-                        onClick={() => saveQuestions(questions.filter((_, j) => j !== i))}
-                        disabled={isMutating}
-                        className="mt-0.5 shrink-0 text-muted-foreground/50 transition-colors hover:text-danger-fg"
-                      >
-                        <X size={12} />
-                      </button>
+                    {!readOnly && (
+                      <div className="absolute right-0.5 top-0.5 flex">
+                        <button
+                          type="button"
+                          onClick={() => { setQuestionDraft(q); setEditingQuestionIdx(i); }}
+                          aria-label={`Edit question ${i + 1}`}
+                          className={cn(EDIT_AFFORDANCE, EDIT_AFFORDANCE_HOVER)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete({ kind: "question", index: i })}
+                          disabled={isMutating}
+                          aria-label={`Delete question ${i + 1}`}
+                          className={cn(EDIT_AFFORDANCE, "text-muted-foreground/50 hover:text-danger-fg", EDIT_AFFORDANCE_HOVER)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
                     )}
                   </>
                 )}
               </div>
             ))}
 
-            {/* Add question — only in manage mode */}
-            {isManaging && (
-              <div className="flex items-center gap-1.5 px-1 pt-0.5">
-                <span className="w-5 shrink-0" />
-                <input
-                  ref={newQuestionRef}
-                  value={newQuestion}
-                  onChange={(e) => setNewQuestion(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addQuestion(); } }}
-                  placeholder="Add question…"
-                  className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-0.5 text-sm text-muted-foreground placeholder:text-muted-foreground/40 outline-none focus:border-border focus:text-foreground transition-colors"
-                />
-                {newQuestion.trim() && (
-                  <button type="button" onClick={addQuestion} disabled={isMutating} className="text-primary hover:text-primary/80">
-                    <Plus size={13} />
-                  </button>
-                )}
-              </div>
+            {!readOnly && (
+              addingQuestion ? (
+                <div className="flex items-start gap-1.5 px-1 pt-1">
+                  <span className="w-5 shrink-0" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <textarea
+                      ref={newQuestionRef}
+                      autoFocus
+                      value={newQuestion}
+                      rows={2}
+                      onChange={(e) => setNewQuestion(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addQuestion(); }
+                        if (e.key === "Escape") { setAddingQuestion(false); setNewQuestion(""); }
+                      }}
+                      placeholder="Question…"
+                      className="min-w-0 w-full resize-y rounded-lg border border-input bg-card px-2 py-1.5 text-sm leading-relaxed outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={addQuestion}
+                        disabled={isMutating || !newQuestion.trim()}
+                        className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                      >
+                        <Check size={11} /> Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setAddingQuestion(false); setNewQuestion(""); }}
+                        className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <X size={11} /> Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={openAddQuestion} className={ADD_PILL}>
+                  <Plus size={12} /> Add question
+                </button>
+              )
             )}
           </div>
         </div>
       )}
 
     </div>
+    <ConfirmDialog
+      open={pendingDelete != null}
+      title={deleteCopy?.title ?? "Delete?"}
+      description={deleteCopy?.description ?? ""}
+      confirmLabel="Delete"
+      danger
+      onConfirm={() => {
+        if (pendingDelete?.kind === "chapter") deleteChapter(pendingDelete.index);
+        if (pendingDelete?.kind === "question") {
+          saveQuestions(questions.filter((_, j) => j !== pendingDelete.index));
+        }
+        if (pendingDelete?.kind === "theme") {
+          saveMainTopics(mainTopics.filter((_, j) => j !== pendingDelete.index));
+        }
+        setPendingDelete(null);
+      }}
+      onCancel={() => setPendingDelete(null)}
+    />
+    </>
   );
 }

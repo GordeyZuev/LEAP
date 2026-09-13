@@ -17,6 +17,69 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.10.9.0": {
+    title: "Reconnect in time, watch one way, publish when ready",
+    highlights: [
+      {
+        parts: [
+          { kind: "text", value: "If YouTube, VK, or another platform drops the login, you see it everywhere: a banner, and an amber mark on " },
+          { kind: "link", label: "Credentials", href: "/credentials" },
+          {
+            kind: "text",
+            value: " in the sidebar. Reconnect before the next upload fails.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Share, course watch, and the recording page share one player: chapters next to the picture, Wide Screen that keeps the rest of the page still, and Edited / Original under the title.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Theme leads Summary & questions for viewers. On a recording, Theme, chapters, summary, questions, and Created Overview sit together — edit with the pencil, save or cancel, drop extras you do not need.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "A public share opens with summary, questions, and files already in view. Course watch is Playlist, Chapters, and Transcript.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "The " },
+          { kind: "link", label: "Automations", href: "/automation" },
+          {
+            kind: "text",
+            value: " list is as compact as Templates: job, schedule, status, actions.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "A lecture joins a LEAP " },
+          { kind: "link", label: "course", href: "/playlists" },
+          {
+            kind: "text",
+            value:
+              " and its share only when processing is done — not when you attach a template. Blank slots no longer show up early.",
+          },
+        ],
+      },
+    ],
+  },
   "0.10.8.3": {
     title: "Usage, analytics, and polish",
     highlights: [

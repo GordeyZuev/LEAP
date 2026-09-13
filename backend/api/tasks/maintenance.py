@@ -334,6 +334,43 @@ def hard_delete_recordings_task():
 
 
 @celery_app.task(
+    name="maintenance.cleanup_playlist_blank_items",
+    max_retries=settings.celery.maintenance_max_retries,
+    default_retry_delay=settings.celery.maintenance_retry_delay,
+)
+def cleanup_playlist_blank_items_task():
+    """Remove playlist items that point at blank or not-yet-playable recordings (legacy early membership)."""
+
+    from api.services.playlist_service import item_unavailable_reason
+    from database.playlist_models import PlaylistItemModel
+
+    async def _cleanup() -> int:
+        session_maker = get_async_session_maker()
+        async with session_maker() as session:
+            result = await session.execute(
+                select(PlaylistItemModel, RecordingModel).join(
+                    RecordingModel, PlaylistItemModel.recording_id == RecordingModel.id
+                )
+            )
+            removed = 0
+            for item, recording in result.all():
+                if item_unavailable_reason(recording):
+                    await session.delete(item)
+                    removed += 1
+            if removed:
+                await session.commit()
+            return removed
+
+    try:
+        deleted = asyncio.run(_cleanup())
+        logger.info(f"cleanup_playlist_blank_items: removed={deleted}")
+        return {"status": "success", "removed": deleted}
+    except Exception as e:
+        logger.error("Failed to cleanup playlist blank items: {}", str(e), exc_info=True)
+        return {"status": "error", "error": str(e)}
+
+
+@celery_app.task(
     name="maintenance.cleanup_temp_files",
     max_retries=settings.celery.maintenance_max_retries,
     default_retry_delay=settings.celery.maintenance_retry_delay,

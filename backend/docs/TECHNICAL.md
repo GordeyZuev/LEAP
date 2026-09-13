@@ -900,9 +900,9 @@ GET    /api/v1/share/p/{token}/items/{itemId}/media?type=processed[&download=tru
 GET    /api/v1/share/p/{token}/items/{itemId}/files/{file_type}[&inline=true]
 ```
 
-Course watch fetches VTT with `inline=true` for captions. Files, Extra content, and Overview on watch follow `allow_video_download` / `allow_files_download` like recording share. The landing page has no Files panel.
+Course watch fetches VTT with `inline=true` for captions. Files, Summary & questions, and Created Overview on watch follow `allow_video_download` / `allow_files_download` like recording share. The landing page has no Files panel.
 
-The public playlist **landing** (`/share/p/{uuid}` with no `v`) shows the first item’s poster (image; links to the first playable video) and the video list. Clicking a video navigates to `/share/p/{uuid}?v={itemId}` — the same watch chrome as recording share, with companion tabs Videos / Topics / Transcript, then Extra content, Files, and Overview. Items without `processed_video_path` are listed but not playable (`unavailable_reason=not_ready`). Playlist **watch** of a playable item sends `POST /share/p/{token}/items/{itemId}/beacon`, which increments the same `share_view_count` on that recording (30-minute visitor dedup, shared with the recording share page). Not-ready / blank / deleted items and the landing page do not send a countable beacon (the endpoint still returns 204). Recording share can be disabled; playlist watch still counts.
+The public playlist **landing** (`/share/p/{uuid}` with no `v`) shows the first item’s poster (image; links to the first playable video) and the video list. Clicking a video navigates to `/share/p/{uuid}?v={itemId}` — the same watch chrome as recording share, with companion tabs Playlist / Chapters / Transcript, then Summary & questions (Theme, summary, questions), Files, and Created Overview. Items without `processed_video_path` are listed but not playable (`unavailable_reason=not_ready`). Playlist **watch** of a playable item sends `POST /share/p/{token}/items/{itemId}/beacon`, which increments the same `share_view_count` on that recording (30-minute visitor dedup, shared with the recording share page). Not-ready / blank / deleted items and the landing page do not send a countable beacon (the endpoint still returns 204). Recording share can be disabled; playlist watch still counts.
 
 Recording and playlist share are both **Enable / Disable / Rotate**. Disable keeps `share_token`; public GET is **404** until Enable. Rotate mints a new UUID. Migration **044** adds `recordings.share_enabled` (backfill `true` where a token already existed).
 
@@ -953,7 +953,7 @@ POST       /api/v1/playlists/{id}/share/rotate
 
 `GET /api/v1/playlists` list items (owner): `id`, `name`, rendered `description`, `video_count`, `duration_sum`, `share_token`, `share_enabled`, `poster_url`, `created_at`, `updated_at`. `share_token` is returned once minted, including after Disable; the public URL is live only while `share_enabled` is true. The owner Playlists grid shows **LEAP** + **Copy link** only in that live case.
 
-`output_config.playlist_ids` on a **named** template appends the recording when `template_id` is set. The base/default template is ignored. Missing playlist ids are skipped and do not fail the pipeline.
+`output_config.playlist_ids` on a **named** template (or leap preset metadata) is resolved at pipeline time and applied when the **LEAP publish** step runs after successful processing (processed video, not `blank_record`). Bind/match/run do not append `playlist_items` early. Missing playlist ids are skipped and do not fail the pipeline.
 
 Playlist `description` on owner detail is the Jinja **source** (`{{ video_count }}`, `{{ duration_hm }}`, `{{ items }}`). List and public GET return the **rendered** string. Markup is applied in the UI (editor keeps marks; public look is formatted, one line at a time); uploads of recording descriptions strip marks.
 
@@ -965,8 +965,12 @@ Playlist `description` on owner detail is the Jinja **source** (`{{ video_count 
 # CRUD
 GET /api/v1/templates
 POST /api/v1/templates
+GET /api/v1/templates/export?ids=1,2   # JSON bundle export
+POST /api/v1/templates/import?dry_run=  # JSON bundle import (see guides/TEMPLATE_JSON.md)
 GET /api/v1/templates/{id}
 PATCH /api/v1/templates/{id}
+PUT /api/v1/templates/{id}               # Full replace (JSON editor)
+POST /api/v1/templates/{id}/validate-replace
 DELETE /api/v1/templates/{id}
 
 # Matching

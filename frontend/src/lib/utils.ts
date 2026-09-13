@@ -148,3 +148,14 @@ export function scrollIntoViewWithin(container: HTMLElement | null, el: HTMLElem
   if (e.top < c.top) container.scrollTop -= c.top - e.top;
   else if (e.bottom > c.bottom) container.scrollTop += e.bottom - c.bottom;
 }
+
+/** Bring the watch player back into view after a companion-tab click. */
+export function scrollPlayerIntoView(): void {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById("leap-watch-player");
+  if (!el) return;
+  const top = el.getBoundingClientRect().top;
+  if (top >= 0 && top < window.innerHeight * 0.45) return;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+}

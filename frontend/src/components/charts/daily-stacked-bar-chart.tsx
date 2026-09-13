@@ -11,6 +11,15 @@ import {
   YAxis,
 } from "recharts";
 
+import {
+  CHART_MARGIN,
+  CHART_TICK_STYLE,
+  CHART_X_PADDING,
+  integerYTicks,
+  maxStackedValue,
+  xAxisMinTickGap,
+  yAxisWidth,
+} from "@/components/charts/chart-axis";
 import { formatBucketDate, prepareStackedChartSeries } from "@/lib/chart-bucketing";
 
 const SERIES_OPACITY = [1, 0.78, 0.58, 0.42, 0.32, 0.24];
@@ -60,26 +69,35 @@ export function DailyStackedBarChart({
 }) {
   const { data: chartData, granularity } = prepareStackedChartSeries(data, seriesKeys);
   const tickFormatter = (iso: string) => formatBucketDate(iso, granularity);
+  const yTicks = integerYTicks(maxStackedValue(chartData, seriesKeys));
+  const yMax = yTicks[yTicks.length - 1] ?? 1;
 
   return (
     <div className="w-full min-w-0" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-      <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+      <BarChart data={chartData} margin={{ ...CHART_MARGIN, bottom: 12 }}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/60" />
         <XAxis
           dataKey="date"
           tickFormatter={tickFormatter}
-          tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+          tick={CHART_TICK_STYLE}
           axisLine={false}
           tickLine={false}
-          minTickGap={24}
+          minTickGap={xAxisMinTickGap(granularity)}
+          tickMargin={8}
+          interval="preserveStartEnd"
+          padding={CHART_X_PADDING}
         />
         <YAxis
-          tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+          tick={CHART_TICK_STYLE}
           axisLine={false}
           tickLine={false}
-          width={36}
+          width={yAxisWidth(yTicks)}
+          tickMargin={8}
           allowDecimals={false}
+          interval={0}
+          ticks={yTicks}
+          domain={[0, yMax]}
         />
         <Tooltip
           cursor={{ fill: "var(--muted)", opacity: 0.35 }}

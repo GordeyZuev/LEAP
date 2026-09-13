@@ -534,7 +534,7 @@ GET /api/v1/oauth/zoom/callback - Zoom OAuth callback
 ### Credentials Management
 
 ```
-GET /api/v1/credentials - List all user credentials
+GET /api/v1/credentials - List all user credentials (`needs_reauth`, `is_active`, `platform`, `search` filters)
 GET /api/v1/credentials/{platform} - Get credentials for platform
 POST /api/v1/credentials - Create credential (manual)
 PATCH /api/v1/credentials/{id} - Update credential
@@ -542,6 +542,8 @@ DELETE /api/v1/credentials/{id} - Delete (revoke) credential
 GET /api/v1/credentials/{id}/status - Check credential status
 POST /api/v1/credentials/{id}/check - Verify credentials against the platform
 ```
+
+When any credential has `needs_reauth`, the app shows a warning banner and an amber marker on **Credentials** in the sidebar so the owner does not have to open that page to notice a dead token.
 
 ### Проверка подключения
 

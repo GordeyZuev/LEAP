@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   Check,
@@ -25,15 +24,18 @@ import { ShareVideoDownloadButton } from "@/components/recordings/share-video-do
 import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
-import { CollapsibleCard, CARD_SHELL } from "@/components/ui/section-card";
+import { CollapsibleCard } from "@/components/ui/section-card";
+import { COMPANION_BODY_PINNED, COMPANION_TABS_ROW, WATCH_BELOW, WatchStage } from "@/components/ui/watch-stage";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SegmentedField } from "@/components/ui/segmented-field";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { VideoVariantSwitch } from "@/components/ui/video-variant-switch";
 import { FormattedText } from "@/components/ui/formatted-text";
-import { cn, formatDate, formatDuration, httpStatus } from "@/lib/utils";
+import { cn, formatDate, formatDuration, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
+import { lastIndexAtOrBefore } from "@/lib/playlist-playable";
 import { recordingResumeKey } from "@/lib/video-resume";
 import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
+import { useWatchTheater } from "@/hooks/use-watch-theater";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -44,33 +46,11 @@ const VideoPlayer = dynamic(
 );
 const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 
-const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-4 sm:px-8";
+const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-4 sm:px-6 lg:px-8";
 const PAGE_MAIN = cn(PAGE_SHELL, "py-4 sm:py-8");
 const PAGE_HEADER_INNER = cn(PAGE_SHELL, "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 sm:py-4");
-const WATCH_GRID =
-  "grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_26rem] 2xl:grid-cols-[minmax(0,1fr)_28rem]";
-const COMPANION_COL = "min-w-0 lg:sticky lg:top-6 lg:self-start";
-const COMPANION_PANEL = cn(CARD_SHELL, "flex min-h-0 flex-col overflow-hidden");
-const COMPANION_SHELL = "flex min-h-0 flex-1 flex-col overflow-hidden";
-const COMPANION_TOPIC = "shrink-0 border-b border-border px-5 pb-3 pt-4 text-base font-semibold leading-snug break-words text-foreground";
-const COMPANION_TABS_ROW = "shrink-0 border-b border-border px-5 pb-3 pt-3";
-const COMPANION_SECTION_LABEL =
-  "shrink-0 border-b border-border px-5 pb-3 pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground";
-const COMPANION_BODY = "min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-4";
-
-const VIDEO_VARIANT_OPTIONS = [
-  { value: "processed" as const, label: "Processed" },
-  { value: "original" as const, label: "Original" },
-];
 
 type SidePanelTab = "topics" | "transcript";
-
-function lastIndexAtOrBefore(items: { start: number }[], time: number): number {
-  for (let i = items.length - 1; i >= 0; i--) {
-    if (time >= items[i].start) return i;
-  }
-  return -1;
-}
 
 function ShareVideoPlayer({
   token,
@@ -115,7 +95,7 @@ function ShareVideoPlayer({
         role="status"
         className={cn(
           VIDEO_PLAYER_FRAME,
-          "flex flex-col items-center justify-center gap-2 bg-muted text-sm text-muted-foreground",
+          "flex flex-col items-center justify-center gap-2 rounded-none bg-muted text-sm text-muted-foreground outline-none",
         )}
       >
         <VideoOff size={18} />
@@ -134,6 +114,7 @@ function ShareVideoPlayer({
       markers={markers}
       vttBlobUrl={variant === "processed" ? vttBlobUrl : null}
       onTimeUpdate={onTimeUpdate}
+      className="rounded-none outline-none"
     />
   );
 }
@@ -167,9 +148,12 @@ export function ShareView({ token }: { token: string }) {
   const [transcript, setTranscript] = useState<TranscriptCue[]>([]);
   const [videoVariant, setVideoVariant] = useState<"processed" | "original">("processed");
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("topics");
+  const onCompanionTab = useCallback((tab: SidePanelTab) => {
+    setSidePanelTab(tab);
+    scrollPlayerIntoView();
+  }, []);
   const [copied, setCopied] = useState(false);
-  const videoColRef = useRef<HTMLDivElement>(null);
-  const [companionMaxH, setCompanionMaxH] = useState<number>();
+  const { theater, setTheater } = useWatchTheater();
   const videoRef = useRef<HTMLVideoElement>(null);
   const companionPanelId = useId();
 
@@ -225,7 +209,11 @@ export function ShareView({ token }: { token: string }) {
 
   const hasTopicsPanel = topicTimestamps.length > 0;
   const hasTranscript = transcript.length > 0;
-  const hasExtraContent = !!(topicVersion?.summary || topicVersion?.questions?.length);
+  const hasExtraContent = !!(
+    topicVersion?.summary ||
+    topicVersion?.questions?.length ||
+    topicVersion?.main_topics?.length
+  );
 
   const markers: VideoPlayerMarker[] = topicTimestamps.map((t) => ({ time: t.start, label: t.topic }));
 
@@ -241,43 +229,10 @@ export function ShareView({ token }: { token: string }) {
     if (videoRef.current) videoRef.current.currentTime = time;
   }, []);
 
-  const watchVariant: "processed" | "original" =
-    recording?.has_processed_video ? videoVariant : "original";
-  const showCompanionColumn =
-    !!recording &&
-    watchVariant === "processed" &&
-    (hasTopicsPanel || hasTranscript);
-
-  useEffect(() => {
-    if (!showCompanionColumn) return;
-    const el = videoColRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-
-    const syncHeight = () => {
-      setCompanionMaxH(el.getBoundingClientRect().height);
-    };
-
-    const raf = window.requestAnimationFrame(syncHeight);
-    const observer = new ResizeObserver(syncHeight);
-    observer.observe(el);
-    window.addEventListener("resize", syncHeight);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      observer.disconnect();
-      window.removeEventListener("resize", syncHeight);
-    };
-  }, [
-    recording?.id,
-    videoVariant,
-    showCompanionColumn,
-    recording?.has_processed_video,
-    recording?.has_original_video,
-  ]);
-
   const missing = httpStatus(error) === 404;
   if (missing) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <div className="flex min-h-[70vh] items-center justify-center bg-background px-6">
         <div className="w-full max-w-md">
           <ErrorState
             title="Link not found"
@@ -290,7 +245,7 @@ export function ShareView({ token }: { token: string }) {
 
   if (error && !recording) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <div className="flex min-h-[70vh] items-center justify-center bg-background px-6">
         <div className="w-full max-w-md">
           <ErrorState
             title="Unable to load this recording"
@@ -304,7 +259,7 @@ export function ShareView({ token }: { token: string }) {
 
   if (isPending || !recording) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="bg-background">
         <header className="border-b border-border bg-card">
           <div className={PAGE_HEADER_INNER}>
             <div className="flex items-center gap-3">
@@ -315,17 +270,10 @@ export function ShareView({ token }: { token: string }) {
           </div>
         </header>
         <main className={PAGE_MAIN}>
-          <div
-            className={cn(
-              CARD_SHELL,
-              "overflow-hidden space-y-3",
-              "max-lg:p-0",
-              "lg:p-3",
-            )}
-          >
-            <Skeleton className="h-7 w-2/3 sm:w-1/2 max-lg:mx-4 max-lg:mt-4" />
-            <div className={cn(VIDEO_PLAYER_FRAME, "animate-pulse")} />
-          </div>
+          <WatchStage
+            player={<div className={cn(VIDEO_PLAYER_FRAME, "animate-pulse")} />}
+            title={<Skeleton className="h-7 w-2/3 sm:w-1/2" />}
+          />
         </main>
       </div>
     );
@@ -348,18 +296,16 @@ export function ShareView({ token }: { token: string }) {
     : [];
 
   const onProcessedTimeline = currentVariant === "processed";
-  const showCompanion = onProcessedTimeline && (hasTopicsPanel || hasTranscript);
 
   const sidePanelTabs: TabItem<SidePanelTab>[] = [];
-  if (hasTopicsPanel) sidePanelTabs.push({ value: "topics", label: "Timestamps" });
+  if (hasTopicsPanel) sidePanelTabs.push({ value: "topics", label: "Chapters" });
   if (hasTranscript) sidePanelTabs.push({ value: "transcript", label: "Transcript" });
   const showCompanionTabs = sidePanelTabs.length > 1;
-  const showCompanionCol = showCompanion && sidePanelTabs.length > 0;
+  const showCompanionCol = sidePanelTabs.length > 0;
   const defaultSidePanelTab: SidePanelTab = hasTopicsPanel ? "topics" : "transcript";
   const activeSidePanelTab = sidePanelTabs.some((t) => t.value === sidePanelTab)
     ? sidePanelTab
     : defaultSidePanelTab;
-  const companionTopicTitle = mainTopics[0] ?? null;
 
   const companionBody =
     activeSidePanelTab === "topics" && hasTopicsPanel && topicVersion ? (
@@ -378,7 +324,7 @@ export function ShareView({ token }: { token: string }) {
         cues={transcript}
         activeIdx={activeCueIdx}
         onSeek={handleSeek}
-        listClassName="max-h-none overflow-visible"
+        listClassName="min-h-0 flex-1 overflow-y-auto"
       />
     ) : null;
 
@@ -397,172 +343,148 @@ export function ShareView({ token }: { token: string }) {
 
   const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || (hasVideo && allowVideo);
 
+  const companion = showCompanionCol ? (
+    <>
+      {showCompanionTabs ? (
+        <div className={COMPANION_TABS_ROW}>
+          <Tabs
+            items={sidePanelTabs}
+            value={activeSidePanelTab}
+            onChange={onCompanionTab}
+            label="Companion content"
+            hidePanel
+            idPrefix={companionPanelId}
+            panelId={companionPanelId}
+            tablistClassName="mb-0 -my-0"
+          >
+            {null}
+          </Tabs>
+        </div>
+      ) : (
+        <h2 className="shrink-0 border-b border-border px-5 pb-3 pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {sidePanelTabs[0]?.label}
+        </h2>
+      )}
+      {showCompanionTabs ? (
+        <div
+          role="tabpanel"
+          id={companionPanelId}
+          aria-labelledby={`${companionPanelId}-tab-${activeSidePanelTab}`}
+          className={COMPANION_BODY_PINNED}
+        >
+          {companionBody}
+        </div>
+      ) : (
+        <div className={COMPANION_BODY_PINNED}>{companionBody}</div>
+      )}
+    </>
+  ) : undefined;
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background">
       <header className="border-b border-border bg-card">
         <div className={PAGE_HEADER_INNER}>
           <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-            >
+            <span className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo_symb.svg" alt="" aria-hidden="true" className="h-6 w-6" />
               <span className="text-sm font-semibold text-foreground">LEAP</span>
-            </Link>
+            </span>
             <AgeRatingBadge />
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Clock size={13} />
-              <span>{formatDate(recording.start_time)}</span>
-              {recording.duration > 0 && (
-                <>
-                  <span aria-hidden="true" className="text-border">·</span>
-                  <span>{formatDuration(recording.duration) ?? "—"}</span>
-                </>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className={cn(
-                "flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                copied
-                  ? "border-success-fg/40 bg-success-fg/10 text-success-fg"
-                  : "border-border bg-card text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-              )}
-            >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-              {copied ? "Copied" : "Copy link"}
-            </button>
-            <span role="status" className="sr-only">
-              {copied ? "Link copied to clipboard" : ""}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={handleCopyLink}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+              copied
+                ? "border-success-fg/40 bg-success-fg/10 text-success-fg"
+                : "border-border bg-card text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+            )}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy link"}
+          </button>
+          <span role="status" className="sr-only">
+            {copied ? "Link copied to clipboard" : ""}
+          </span>
         </div>
       </header>
 
       <main className={PAGE_MAIN}>
-        <div className="space-y-5 sm:space-y-8">
-          <div className={showCompanionCol ? WATCH_GRID : undefined}>
-            <div className="min-w-0">
-              <div
-                ref={videoColRef}
-                className={cn(
-                  CARD_SHELL,
-                  "overflow-hidden",
-                  "max-lg:p-0 max-lg:[&_.rounded-xl]:rounded-2xl max-lg:[&_.outline]:outline-none",
-                  "lg:p-3",
-                )}
-              >
-                <h1 className="px-1 pb-3 text-xl font-semibold tracking-tight break-words text-foreground max-lg:px-4 max-lg:pt-4 sm:text-2xl">
-                  {recording.title || recording.display_name}
+        <WatchStage
+            player={playerNode}
+            title={
+              <div>
+                <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
+                  {recording.display_name}
                 </h1>
-                {bothVariants && (
-                  <div className="px-1 pb-3 space-y-2 max-lg:px-4">
-                    <SegmentedField
-                      label="Video source"
-                      labelHidden
-                      options={VIDEO_VARIANT_OPTIONS}
-                      value={currentVariant}
-                      onChange={setVideoVariant}
-                    />
-                    {!onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
-                      <p className="text-xs text-muted-foreground">
-                        Timestamps and transcript follow the processed video.
-                      </p>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-2">
+                    <Clock size={13} />
+                    <span>{formatDate(recording.start_time)}</span>
+                    {recording.duration > 0 && (
+                      <>
+                        <span aria-hidden="true" className="text-border">·</span>
+                        <span>{formatDuration(recording.duration) ?? "—"}</span>
+                      </>
                     )}
-                  </div>
-                )}
-                {playerNode}
-              </div>
-            </div>
-
-            {showCompanionCol && (
-              <div className={COMPANION_COL}>
-                <div
-                  className={cn(COMPANION_PANEL, companionMaxH && "lg:h-[var(--companion-h)]")}
-                  style={companionMaxH ? { ["--companion-h" as string]: `${companionMaxH}px` } : undefined}
-                >
-                  <div className={COMPANION_SHELL}>
-                    {companionTopicTitle && (
-                      <p className={COMPANION_TOPIC}>{companionTopicTitle}</p>
-                    )}
-                    {showCompanionTabs ? (
-                      <div className={COMPANION_TABS_ROW}>
-                        <Tabs
-                          items={sidePanelTabs}
-                          value={activeSidePanelTab}
-                          onChange={setSidePanelTab}
-                          label="Companion content"
-                          hidePanel
-                          idPrefix={companionPanelId}
-                          panelId={companionPanelId}
-                          tablistClassName="mb-0 -my-0"
-                        >
-                          {null}
-                        </Tabs>
-                      </div>
-                    ) : (
-                      !companionTopicTitle && (
-                        <h2 className={COMPANION_SECTION_LABEL}>{sidePanelTabs[0]?.label}</h2>
-                      )
-                    )}
-                    {showCompanionTabs ? (
-                      <div
-                        role="tabpanel"
-                        id={companionPanelId}
-                        aria-labelledby={`${companionPanelId}-tab-${activeSidePanelTab}`}
-                        className={COMPANION_BODY}
-                      >
-                        {companionBody}
-                      </div>
-                    ) : (
-                      <div className={COMPANION_BODY}>{companionBody}</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            {onProcessedTimeline && hasExtraContent && topicVersion && (
-              <CollapsibleCard title="Extra content" defaultOpen={false}>
-                <AIContentEditor
-                  recordingId={recording.id}
-                  version={topicVersion}
-                  onUpdated={() => {}}
-                  readOnly
-                  sections={["summary", "questions"]}
-                />
-              </CollapsibleCard>
-            )}
-
-            {hasFiles && (
-              <CollapsibleCard title="Files" defaultOpen={false}>
-                <div className="flex flex-col gap-2">
-                  {hasVideo && allowVideo && (
-                    <ShareVideoDownloadButton download={() => getShareMedia(token, currentVariant, true)} />
+                  </span>
+                  {bothVariants && (
+                    <>
+                      <span aria-hidden="true" className="text-border">·</span>
+                      <VideoVariantSwitch value={currentVariant} onChange={setVideoVariant} className="text-xs" />
+                    </>
                   )}
-                  <ArtefactList items={artefacts} />
-                  <SourceExtrasSection items={sourceExtras} />
                 </div>
-              </CollapsibleCard>
-            )}
+                {bothVariants && !onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Chapters and transcript follow the edited video.
+                  </p>
+                )}
+              </div>
+            }
+            theater={theater}
+            onTheaterChange={setTheater}
+            companion={companion}
+            below={
+              <div className={WATCH_BELOW}>
+                {hasExtraContent && topicVersion && (
+                  <CollapsibleCard title="Summary & questions">
+                    <AIContentEditor
+                      recordingId={recording.id}
+                      version={topicVersion}
+                      onUpdated={() => {}}
+                      readOnly
+                      sections={["topics", "summary", "questions"]}
+                    />
+                  </CollapsibleCard>
+                )}
 
-            {recording.description && (
-              <CollapsibleCard title="Overview" defaultOpen={false}>
-                <FormattedText
-                  text={recording.description}
-                  className="text-sm leading-relaxed text-foreground"
-                />
-              </CollapsibleCard>
-            )}
-          </div>
-        </div>
+                {hasFiles && (
+                  <CollapsibleCard title="Files">
+                    <div className="flex flex-col gap-2">
+                      {hasVideo && allowVideo && (
+                        <ShareVideoDownloadButton download={() => getShareMedia(token, currentVariant, true)} />
+                      )}
+                      <ArtefactList items={artefacts} />
+                      <SourceExtrasSection items={sourceExtras} />
+                    </div>
+                  </CollapsibleCard>
+                )}
+
+                {recording.description && (
+                  <CollapsibleCard title="Created Overview" defaultOpen={false}>
+                    <FormattedText
+                      text={recording.description}
+                      className="text-sm leading-relaxed text-foreground"
+                    />
+                  </CollapsibleCard>
+                )}
+              </div>
+            }
+          />
       </main>
     </div>
   );

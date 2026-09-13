@@ -136,12 +136,11 @@ docker compose exec api uv run python scripts/backfill_mts_link_blank.py --apply
 
 ### Поток prepare (кратко)
 
-1. `GET /eventsessions/{id}/converted-records` — если есть готовый MP4, outcome **READY**.
-2. `GET /converted-records` (и незавершённые, и завершённые) + `GET` сохранённого `conversion_id`. Берём `completed` (**READY**, даже если в ответе нет `downloadUrl`), иначе **`processing` с наибольшим `progress`**. `canceled` / `failed` не берём.
-3. Пока есть такая джоба — **без POST**.
-4. Иначе `GET /records` + duration (meta `online_duration` или `GET /fileSystem/file`): нет записи → failed; **нет duration и `size == 0`** → **ASSEMBLING** / `PENDING_SOURCE`. Известный duration при `size == 0` — запись уже собрана, заказываем конвертацию.
-5. Иначе `POST /records/{id}/conversions`. 403 `Simultaneous conversions quantity exceeded` — ждём, не reauth.
-6. Outcome **CONVERTING** → `PENDING_CONVERSION` до следующего Run.
+1. Нужный **готовый** MP4 (`startedParameters.view` = настройка источника, Speakers only → `none`) — **READY**, качаем.
+2. Иначе активные конвертации этой онлайн-записи (`waiting` / `processing`) — ждём **с наибольшим `progress`**, **без POST**. Чужой готовый `view=chat` не качаем.
+3. Если активных нет — `POST /records/{id}/conversions` с `view`/`quality` источника. 403 (одна конвертация на сотрудника) — ждём `waiting`/`processing` у `currentConversionID`, не reauth. Это не значение `state`.
+4. Нет самой онлайн-записи → failed; нет duration и `size == 0` → **ASSEMBLING**.
+5. Outcome **CONVERTING** → `PENDING_CONVERSION` до следующего Run.
 
 **Длительность рендера** на стороне МТС Линк — обычно 15–25 минут (до ~2× длительности лекции). LEAP **не держит** воркер всё это время.
 
@@ -159,17 +158,15 @@ docker compose exec api uv run python scripts/backfill_mts_link_blank.py --apply
 
 ---
 
-## Настройки выбираются один раз
+## Настройки конвертации
 
-`quality` и «что показывает видео» **вплавлены в MP4** в момент рендера, и API МТС Линк не сообщает, с какими настройками сделан каждый готовый файл. Поэтому в v1 всё просто: берётся любой готовый MP4 сессии, а если готового нет — заказывается конвертация с текущими настройками источника.
+`quality` и «что показывает видео» **вплавлены в MP4** в момент рендера. UserAPI при POST принимает `view`: `none` (только ведущие), `chat` (**их дефолт**), `questions`, `minichat`, … В списках готовых файлов эти поля часто лежат в `startedParameters`; если их нет, чужой MP4 сессии **не** скачиваем — заказываем свой `POST` с настройками источника.
 
 Практические следствия:
 
-- Настройки имеет смысл выбрать до первого скачивания.
-- Если поменять их у уже скачанной записи, лежащий `source.mp4` не изменится. В метаданных сохраняются `conversion_quality` и `conversion_view`, с которыми он сделан, — по ним видно расхождение.
-- Если у сессии несколько готовых MP4, prepare/download берут запись с тем же `recordId`. Без id (sync) — первый готовый URL.
-
-Перерендер по требованию и добор сопровождающих файлов к уже скачанному видео **не реализованы** — сознательно оставлено на будущее.
+- Speakers only (`view=none`) не подменяется готовым файлом «с чатом в картинке», даже если он уже есть в сессии.
+- Если поменять настройки у уже скачанной записи, лежащий `source.mp4` не изменится, пока не будет новой конвертации и повторного download.
+- В метаданных сохраняются `conversion_quality` и `conversion_view` после скачивания.
 
 ---
 

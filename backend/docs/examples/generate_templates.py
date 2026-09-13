@@ -456,8 +456,10 @@ templates = []
 for row in TEMPLATES_DATA:
     templates.append(build_template(*row))
 
-output_path = Path("docs/examples/hse_templates.json")
+bundle = {"leap_template_bundle": 1, "templates": templates}
+output_path = Path("docs/examples/template_bundle_hse.generated.json")
 with output_path.open("w", encoding="utf-8") as f:
-    json.dump(templates, f, ensure_ascii=False, indent=2)
+    json.dump(bundle, f, ensure_ascii=False, indent=2)
 
 print(f"Generated {len(templates)} templates → {output_path}")
+print("Import via POST /api/v1/templates/import or scripts/upload_templates.py")

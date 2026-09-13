@@ -11,6 +11,14 @@ import {
 } from "recharts";
 
 import {
+  CHART_MARGIN,
+  CHART_TICK_STYLE,
+  CHART_X_PADDING,
+  integerYTicks,
+  xAxisMinTickGap,
+  yAxisWidth,
+} from "@/components/charts/chart-axis";
+import {
   formatBucketDate,
   prepareDailyChartSeries,
   type ChartGranularity,
@@ -59,38 +67,47 @@ export function DailyBarChart({
   height?: number;
 }) {
   const { data: chartData, granularity } = prepareDailyChartSeries(data);
+  const yTicks = integerYTicks(Math.max(0, ...chartData.map((point) => point.value)));
+  const yMax = yTicks[yTicks.length - 1] ?? 1;
 
   return (
     <div className="w-full min-w-0" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-      <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/60" />
-        <XAxis
-          dataKey="date"
-          tickFormatter={(iso) => formatBucketDate(iso, granularity)}
-          tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-          axisLine={false}
-          tickLine={false}
-          minTickGap={24}
-        />
-        <YAxis
-          tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-          axisLine={false}
-          tickLine={false}
-          width={36}
-          allowDecimals={false}
-        />
-        <Tooltip
-          cursor={{ fill: "var(--muted)", opacity: 0.35 }}
-          content={<ChartTooltipBucketed valueLabel={valueLabel} granularity={granularity} />}
-        />
-        <Bar
-          dataKey="value"
-          fill={color}
-          radius={[4, 4, 0, 0]}
-          maxBarSize={chartData.length > 24 ? 20 : 32}
-        />
-      </BarChart>
+        <BarChart data={chartData} margin={CHART_MARGIN}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border/60" />
+          <XAxis
+            dataKey="date"
+            tickFormatter={(iso) => formatBucketDate(iso, granularity)}
+            tick={CHART_TICK_STYLE}
+            axisLine={false}
+            tickLine={false}
+            minTickGap={xAxisMinTickGap(granularity)}
+            tickMargin={8}
+            interval="preserveStartEnd"
+            padding={CHART_X_PADDING}
+          />
+          <YAxis
+            tick={CHART_TICK_STYLE}
+            axisLine={false}
+            tickLine={false}
+            width={yAxisWidth(yTicks)}
+            tickMargin={8}
+            allowDecimals={false}
+            interval={0}
+            ticks={yTicks}
+            domain={[0, yMax]}
+          />
+          <Tooltip
+            cursor={{ fill: "var(--muted)", opacity: 0.35 }}
+            content={<ChartTooltipBucketed valueLabel={valueLabel} granularity={granularity} />}
+          />
+          <Bar
+            dataKey="value"
+            fill={color}
+            radius={[4, 4, 0, 0]}
+            maxBarSize={chartData.length > 24 ? 20 : 32}
+          />
+        </BarChart>
       </ResponsiveContainer>
     </div>
   );

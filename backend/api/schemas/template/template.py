@@ -11,6 +11,7 @@ from .matching_rules import MatchingRules
 from .metadata_config import TemplateMetadataConfig
 from .output_config import TemplateOutputConfig, normalize_output_config
 from .processing_config import TemplateProcessingConfig
+from .validation import validate_template_state
 
 
 class RecordingTemplateBase(BaseModel):
@@ -54,31 +55,13 @@ class RecordingTemplateCreate(RecordingTemplateBase):
 
     @model_validator(mode="after")
     def validate_template(self) -> "RecordingTemplateCreate":
-        if not self.is_draft:
-            if not self.matching_rules:
-                raise ValueError("Non-draft template requires matching_rules")
-
-            rules = self.matching_rules
-            has_rule = (
-                (rules.exact_matches and len(rules.exact_matches) > 0)
-                or (rules.keywords and len(rules.keywords) > 0)
-                or (rules.patterns and len(rules.patterns) > 0)
-                or (rules.source_ids and len(rules.source_ids) > 0)
-            )
-
-            if not has_rule:
-                raise ValueError(
-                    "matching_rules must contain at least one rule (exact_matches, keywords, patterns or source_ids)"
-                )
-
-        if self.output_config and self.output_config.auto_upload:
-            if not self.processing_config:
-                raise ValueError("auto_upload=True requires processing_config")
-
-        if self.metadata_config and self.metadata_config.title_template:
-            if not self.output_config:
-                raise ValueError("title_template requires output_config with preset_ids")
-
+        validate_template_state(
+            is_default=False,
+            matching_rules=self.matching_rules,
+            processing_config=self.processing_config,
+            metadata_config=self.metadata_config,
+            output_config=self.output_config,
+        )
         return self
 
 

@@ -16,13 +16,21 @@ export const PLAYER_SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "?", label: "This list" },
 ];
 
-type PlayerKeysTarget = {
+export type PlayerKeyAction =
+  | { type: "seek"; seconds: number }
+  | { type: "speed"; value: number }
+  | { type: "volume"; percent: number; muted: boolean }
+  | { type: "mute"; muted: boolean }
+  | { type: "jumpPercent"; percent: number };
+
+export type PlayerKeysTarget = {
   togglePlay: () => void;
   rewind: (amount?: number) => void;
   forward: (amount?: number) => void;
   increaseVolume: (amount: number) => void;
   decreaseVolume: (amount: number) => void;
   muted: boolean;
+  volume: number;
   speed: number;
   currentTime: number;
   duration: number;
@@ -30,27 +38,51 @@ type PlayerKeysTarget = {
   toggleCaptions: () => void;
 };
 
-function shortcutsBlocked(event: KeyboardEvent): boolean {
-  if (event.isComposing) return true;
+const TEXT_ENTRY = "input, textarea, select, [contenteditable='true']";
+const ACTIVATE_TARGET = "button, a, [role='tab'], [role='menuitem']";
+const ARROW_WIDGET = "[role='tablist'], [role='menu'], [role='listbox'], [role='slider'], [role='radiogroup']";
+
+function targetClosest(event: KeyboardEvent, selector: string): boolean {
   const t = event.target;
-  if (t instanceof Element && t.closest("input, textarea, select, [contenteditable='true']")) {
+  if (!t || typeof (t as { closest?: (sel: string) => Element | null }).closest !== "function") {
+    return false;
+  }
+  return Boolean((t as Element).closest(selector));
+}
+
+export function shortcutsBlocked(event: KeyboardEvent): boolean {
+  if (event.isComposing) return true;
+  if (targetClosest(event, TEXT_ENTRY)) return true;
+  if (typeof document !== "undefined" && document.querySelector('[role="dialog"], [aria-modal="true"]')) {
     return true;
   }
-  if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return true;
   return false;
+}
+
+export function spaceActivateBlocked(event: KeyboardEvent): boolean {
+  return targetClosest(event, ACTIVATE_TARGET);
+}
+
+export function arrowWidgetBlocked(event: KeyboardEvent): boolean {
+  return targetClosest(event, ARROW_WIDGET);
 }
 
 function stepSpeed(player: PlayerKeysTarget, dir: -1 | 1) {
   const i = PLAYER_SPEEDS.findIndex((s) => s === player.speed);
   const idx = i < 0 ? PLAYER_SPEEDS.indexOf(1) : i;
   player.speed = PLAYER_SPEEDS[Math.min(PLAYER_SPEEDS.length - 1, Math.max(0, idx + dir))] ?? 1;
+  return player.speed;
+}
+
+function volumeAction(player: PlayerKeysTarget): PlayerKeyAction {
+  return { type: "volume", percent: Math.round(player.volume * 100), muted: player.muted };
 }
 
 export function handlePlayerKey(
   event: KeyboardEvent,
   player: PlayerKeysTarget,
   help: { isOpen: () => boolean; toggle: () => void; close: () => void },
-): void {
+): PlayerKeyAction | undefined {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
 
   if (event.key === "Escape") {
@@ -75,8 +107,7 @@ export function handlePlayerKey(
 
   if (shift && (key === "<" || key === ">" || key === "," || key === ".")) {
     event.preventDefault();
-    stepSpeed(player, key === "<" || key === "," ? -1 : 1);
-    return;
+    return { type: "speed", value: stepSpeed(player, key === "<" || key === "," ? -1 : 1) };
   }
 
   if (shift) return;
@@ -85,6 +116,7 @@ export function handlePlayerKey(
     case " ":
     case "k":
     case "K":
+      if (key === " " && spaceActivateBlocked(event)) return;
       event.preventDefault();
       void player.togglePlay();
       return;
@@ -92,33 +124,37 @@ export function handlePlayerKey(
     case "J":
       event.preventDefault();
       player.rewind(10);
-      return;
+      return { type: "seek", seconds: -10 };
     case "l":
     case "L":
       event.preventDefault();
       player.forward(10);
-      return;
+      return { type: "seek", seconds: 10 };
     case "ArrowLeft":
+      if (arrowWidgetBlocked(event)) return;
       event.preventDefault();
       player.rewind(5);
-      return;
+      return { type: "seek", seconds: -5 };
     case "ArrowRight":
+      if (arrowWidgetBlocked(event)) return;
       event.preventDefault();
       player.forward(5);
-      return;
+      return { type: "seek", seconds: 5 };
     case "ArrowUp":
+      if (arrowWidgetBlocked(event)) return;
       event.preventDefault();
       player.increaseVolume(0.1);
-      return;
+      return volumeAction(player);
     case "ArrowDown":
+      if (arrowWidgetBlocked(event)) return;
       event.preventDefault();
       player.decreaseVolume(0.1);
-      return;
+      return volumeAction(player);
     case "m":
     case "M":
       event.preventDefault();
       player.muted = !player.muted;
-      return;
+      return { type: "mute", muted: player.muted };
     case "f":
     case "F":
       event.preventDefault();
@@ -131,16 +167,16 @@ export function handlePlayerKey(
       return;
     case "[":
       event.preventDefault();
-      stepSpeed(player, -1);
-      return;
+      return { type: "speed", value: stepSpeed(player, -1) };
     case "]":
       event.preventDefault();
-      stepSpeed(player, 1);
-      return;
+      return { type: "speed", value: stepSpeed(player, 1) };
     default:
       if (key >= "0" && key <= "9" && player.duration) {
         event.preventDefault();
+        const percent = Number(key) * 10;
         player.currentTime = (player.duration / 10) * Number(key);
+        return { type: "jumpPercent", percent };
       }
   }
 }

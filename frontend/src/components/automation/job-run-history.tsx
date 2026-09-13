@@ -74,23 +74,20 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
       </div>
 
       <div className={TABLE_CARD}>
-        <table className="w-full min-w-[720px]">
+        <table className="w-full min-w-[560px]">
           <thead>
             <tr className="border-b border-border">
-              <SortableTh label="Started" className="px-5 py-3" />
-              <SortableTh label="Result" className="px-5 py-3" />
-              <SortableTh label="Trigger" className="px-5 py-3" />
-              <SortableTh label="Duration" className="px-5 py-3" />
-              <SortableTh label="Found" className="px-5 py-3" />
-              <SortableTh label="Matched" className="px-5 py-3" />
-              <SortableTh label="Processed" className="px-5 py-3" />
+              <SortableTh label="Started" />
+              <SortableTh label="Result" />
+              <SortableTh label="Duration" />
+              <SortableTh label="Recordings" title="Found / matched / processed" />
             </tr>
           </thead>
           <tbody className={TABLE_BODY}>
-            {isLoading && <TableRowsSkeleton rows={3} cols={7} />}
+            {isLoading && <TableRowsSkeleton rows={3} cols={4} />}
             {!isLoading && runs.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-0">
+                <td colSpan={4} className="p-0">
                   <EmptyState
                     icon={Clock}
                     title="No runs yet"
@@ -104,10 +101,10 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
               const Icon = cfg.icon;
               return (
                 <tr key={run.id} className={cn(TABLE_ROW, "cursor-pointer")} onClick={() => setSelected(run)}>
-                  <td className="whitespace-nowrap px-5 py-3 text-sm text-muted-foreground">
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-muted-foreground">
                     <button
                       type="button"
-                      className="text-left hover:text-foreground"
+                      className="w-full text-left hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelected(run);
@@ -116,24 +113,27 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
                       {formatDateTimeShort(run.started_at)}
                     </button>
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-6 py-4">
                     <span className={cn("inline-flex items-center gap-1.5 text-sm", cfg.className)}>
                       <Icon size={14} className="shrink-0" />
                       {cfg.label}
                     </span>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {run.trigger === "MANUAL" ? "Manual" : "Schedule"}
+                    </p>
                     {run.error && (
                       <p className="mt-0.5 max-w-[280px] break-words text-xs text-red-500">{run.error}</p>
                     )}
                   </td>
-                  <td className="px-5 py-3 text-sm text-muted-foreground">
-                    {run.trigger === "MANUAL" ? "Manual" : "Schedule"}
-                  </td>
-                  <td className="whitespace-nowrap px-5 py-3 tabular-nums text-sm text-muted-foreground">
+                  <td className="whitespace-nowrap px-6 py-4 tabular-nums text-sm text-muted-foreground">
                     {formatRunDuration(run.duration_seconds)}
                   </td>
-                  <td className="px-5 py-3 tabular-nums text-sm text-muted-foreground">{run.recordings_found}</td>
-                  <td className="px-5 py-3 tabular-nums text-sm text-muted-foreground">{run.matched_count}</td>
-                  <td className="px-5 py-3 tabular-nums text-sm text-secondary-foreground">{run.processed_count}</td>
+                  <td
+                    className="whitespace-nowrap px-6 py-4 tabular-nums text-sm text-secondary-foreground"
+                    title="Found / matched / processed"
+                  >
+                    {run.recordings_found} / {run.matched_count} / {run.processed_count}
+                  </td>
                 </tr>
               );
             })}

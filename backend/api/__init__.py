@@ -1,3 +1,3 @@
 """FastAPI application for LEAP"""
 
-__version__ = "0.10.8.3"
+__version__ = "0.10.9.0"

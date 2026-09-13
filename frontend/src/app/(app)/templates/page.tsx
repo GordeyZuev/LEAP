@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, FileText } from "lucide-react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, FileText, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { FilterBar } from "@/components/filters/filter-bar";
@@ -25,6 +25,10 @@ import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
 import { PER_PAGE_TEMPLATES, PER_PAGE_TEMPLATES_OPTIONS } from "@/lib/constants";
 import { BaseTemplateBanner } from "@/components/settings/base-template-banner";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
+import { ActionButton } from "@/components/ui/action-button";
+import { TemplateJsonModal } from "@/components/templates/template-json-modal";
+import { useToast } from "@/hooks/use-toast";
+import { Toast } from "@/components/ui/toast";
 
 interface TemplateListItem {
   id: number;
@@ -62,6 +66,10 @@ function formatDate(iso: string) {
 }
 
 function TemplatesContent() {
+  const qc = useQueryClient();
+  const { toast, show: showToast, dismiss: dismissToast } = useToast();
+  const [importOpen, setImportOpen] = useState(false);
+
   // Filters live in the URL so a filtered view is shareable and survives reload.
   const list = useUrlListState({
     defaultSortBy: "created_at",
@@ -96,6 +104,7 @@ function TemplatesContent() {
       p.set("sort_order", list.sortOrder);
       p.set("page", String(list.page));
       p.set("per_page", String(perPage));
+      p.set("include_drafts", "true");
       const res = await apiClient.get<TemplateListResponse>(`/templates?${p.toString()}`);
       return res.data;
     },
@@ -148,13 +157,18 @@ function TemplatesContent() {
       <PageHeader
         title="Templates"
         actions={
-          <Link
-            href="/templates/new"
-            className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
-          >
-            <Plus size={16} />
-            New template
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <ActionButton variant="secondary" onClick={() => setImportOpen(true)} icon={<Upload size={15} />}>
+              Import JSON config…
+            </ActionButton>
+            <Link
+              href="/templates/new"
+              className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+            >
+              <Plus size={16} />
+              New template
+            </Link>
+          </div>
         }
       />
 
@@ -301,6 +315,19 @@ function TemplatesContent() {
           className="mt-5"
         />
       )}
+
+      <TemplateJsonModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        mode="import"
+        initialText={`{\n  "leap_template_bundle": 1,\n  "templates": []\n}`}
+        onImportSuccess={() => {
+          showToast("success", "Templates imported");
+          qc.invalidateQueries({ queryKey: ["templates"] });
+        }}
+      />
+
+      {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismissToast} />}
     </div>
   );
 }

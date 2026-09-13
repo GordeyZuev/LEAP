@@ -1,3 +1,206 @@
+## v0.10.9.0 (2026-09-13)
+
+Релиз: **креденшелы** — баннер и жёлтая метка на Credentials, когда платформа отвергла ключ (`needs_reauth`). **Просмотр** — один плеер на share, плейлисте и записи (главы рядом с картинкой, Wide Screen без морфинга рельса, Edited/Original, Theme, Created Overview, правка карандашом на записи). **Автоматизации** — таблица как у Templates. **Share** — Summary & questions и Files открыты сразу. Списки Recordings читают grid/table после mount (без рассинхрона SSR). **LEAP courses** — membership и share после обработки (см. **2026-09-13: LEAP playlist publish deferred**). Подробности — секции **2026-09-11** – **2026-09-13**.
+
+---
+
+## 2026-09-13: MTS Link Speakers only uses matching MP4
+
+- **Layout** — 1) готовый MP4 с нужным `startedParameters.view` (Speakers only = `none`) — качаем; 2) иначе активные джобы этой записи — ждём наибольший `progress`, без POST; 3) если активных нет — `POST` с `view`/`quality` источника. Готовый `view=chat` не качаем. `quality: normal` не сравниваем с 720/1080.
+- **UserAPI `state`** — только `waiting` / `processing` / `completed` / `failed` / `canceled` (поле `state`, не `status`). `busy` — это HTTP 403, не `state`. `loaded` / `cancelled` не используем. In-flight не считаем READY даже при `downloadUrl`. 403 + GET `failed`/`canceled` не валит запись — ждём следующий Run. Pending download не оставляет в meta `conversion_state: completed`.
+- **Свой POST** — GET статуса часто `{state: completed}` без `view`. Если `conversion_ordered_view` совпадает с настройкой источника, не заказываем второй раз; чужой unlabeled completed (кабинет/чат) по-прежнему не блокирует POST. In-flight другой джобы той же записи не подменяет наш `conversion_id`. Смена `conversion_id` без нового POST сбрасывает `conversion_ordered_view`.
+
+### Files
+
+- `backend/api/mts_link_api.py`
+- `backend/api/services/mts_link_prepare.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`
+- `backend/api/routers/input_sources.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/routers/recordings.py`
+- `backend/scripts/mts_link_smoke.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/tests/unit/api/test_mts_link_api.py`
+- `backend/tests/unit/api/services/test_mts_link_prepare.py`
+
+---
+
+## 2026-09-13: Textarea resize grip
+
+- **Resize affordance** — Chromium/WebKit textareas keep `resize`, but the native corner triangle is hidden. An inset two-line grip is drawn inside the padding so it no longer sits on the rounded border. Fields with `resize-none` are unchanged. Firefox keeps the native grip.
+
+### Files
+
+- `frontend/src/app/globals.css`
+
+---
+
+## 2026-09-13: Template JSON bundle export/import
+
+- **Bundle format** — `leap_template_bundle: 1` with `templates[]` and optional `reference` (preset/source/playlist names for ids).
+- **API** — `GET /api/v1/templates/export`, `POST /api/v1/templates/import` (`dry_run`, `auto_rematch`), `PUT /api/v1/templates/{id}` full replace, `POST .../validate-replace`.
+- **UI** — Templates list: import JSON config; template detail: download / edit JSON config (modal matches app dialog patterns; link to in-app docs).
+- **Docs** — canonical JSON guide in-app (**Documentation → Templates → JSON config**); [guides/TEMPLATE_JSON.md](guides/TEMPLATE_JSON.md) for operators/API; removed legacy `docs/examples/hse_templates.json`.
+- **Validation** — JSON replace/import aligned with form: empty `matching_rules` allowed on named templates (warning only); base template accepts `null`/omit; export omits `null` fields.
+
+### Files
+
+- `backend/api/services/template_bundle_service.py`
+- `backend/api/schemas/template/bundle.py`
+- `backend/api/schemas/template/validation.py`
+- `backend/api/routers/templates.py`
+- `backend/docs/examples/template_bundle_single.json`
+- `backend/docs/examples/template_bundle_multi.json`
+- `frontend/src/lib/template-bundle.ts`
+- `frontend/src/components/templates/template-json-modal.tsx`
+- `frontend/src/app/(app)/templates/page.tsx`
+- `frontend/src/app/(app)/templates/[id]/page.tsx`
+
+---
+
+## 2026-09-13: LEAP playlist publish deferred
+
+- **Course membership** — записи попадают в LEAP-плейлисты только после успешной обработки, в `publish_leap_recording` (тот же путь, что `upload_recording_to_platform` с `platform=leap`). Ранние вызовы на bind/match/run/sync удалены.
+- **Enqueue** — `should_enqueue_leap_publish`: look preset, непустые `playlist_ids`, или `auto_share` при `publish_leap: true`; вариант A — LEAP-шаг без look preset, если заданы курсы или share.
+- **Output targets** — `ensure_output_targets` создаёт `LEAP` с `preset_id=NULL`, когда нужен publish без leap preset в `preset_ids`.
+- **Gates** — blank recordings не публикуются на LEAP (skip в leap upload).
+- **Maintenance** — `maintenance.cleanup_playlist_blank_items` удаляет legacy items для blank / not_ready; после деплоя — один ручной запуск.
+- **Pipeline** — если все шаги processing выключены, но нужен LEAP/copy upload, chain всё равно строится (`launch_uploads` → `finalize`).
+
+### Files
+
+- `backend/api/services/leap_publish.py`
+- `backend/api/helpers/pipeline_initializer.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/tasks/upload.py`
+- `backend/api/tasks/maintenance.py`
+- `backend/api/services/playlist_service.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/input_sources.py`
+- `backend/api/tasks/template.py`
+- `backend/api/tasks/automation.py`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/tests/unit/api/services/test_leap_publish.py`
+- `backend/tests/unit/api/helpers/test_pipeline_initializer.py`
+- `backend/tests/unit/api/test_playlists.py`
+- `backend/docs/TECHNICAL.md`, `backend/docs/DATABASE_DESIGN.md`, `backend/docs/guides/TEMPLATES.md`, `backend/docs/guides/CELERY_WORKERS_GUIDE.md`, `backend/docs/UPDATES.md`, `README.md`
+- `frontend/src/content/release-notes.ts`, `frontend/src/components/platforms/leap-config-section.tsx`, `frontend/src/app/(app)/docs/page.tsx`
+- `backend/api/schemas/template/output_config.py`
+- `backend/docs/guides/TEMPLATE_JSON.md`
+
+---
+
+## 2026-09-13: Credentials sidebar badge
+
+- **Sidebar** — when a credential needs reconnect, Credentials shows a solid amber pill (no count). Collapsed sidebar and the mobile menu keep the same amber dot. The count stays in the accessible name of the link.
+
+### Files
+
+- `frontend/src/components/layout/sidebar.tsx`
+- `backend/docs/guides/OAUTH.md`
+
+---
+
+## 2026-09-13: Watch layout and editing
+
+- **Share / playlist** — on a narrow page, chapters sit under the picture (before Summary and Files). **Wide Screen** expands the player across the page at the same height as the default 16:9 column (letterboxed), without morphing the chapters/transcript rail. Player well stays `muted` in both layouts. Public share and playlist pages have a footer (copyright, age rating, version, contact). **Edited / Original** is a text switch under the title. Switching Original no longer collapses the chapters column. Files rows share one download style, including **mp4** on the video. Chapter and transcript search stays pinned while the list scrolls. Companion tabs scroll the player into view. The description card is **Created Overview** (no video title in the header). Summary cards include the generated **Theme**. The recording editor loads the player only on the client so Plyr is not evaluated during SSR.
+- **Recording editor** — chapters, summary, and questions sit under the video in one card, with **Theme** at the top and the **Edited** chip on the card header. Theme editing matches the other blocks (hover pencil, Save / Cancel, Add theme row, confirm delete on extra themes). Chapter rows vertically center the marker, timecode, and title. Edit pencils appear on hover (always on touch). Add chapter (time + title, time must be inside the video) and Add question are full-width dashed rows. Chapters can be deleted (with confirm, same as questions) and edits use Save / Cancel. Created Overview edit is a hover pencil on the text. Files stay open. Publications no longer claims platforms are missing when only the LEAP link exists; **Add platform** is a full-width row under the LEAP card and opens config on Upload a copy.
+- **Collapsible cards** — opening and closing animates height (respects reduced motion).
+
+### Files
+
+- `frontend/src/components/ui/watch-stage.tsx`
+- `frontend/src/components/ui/section-card.tsx`
+- `frontend/src/components/ui/video-variant-switch.tsx`
+- `frontend/src/components/ui/video-player-frame.tsx`
+- `frontend/src/app/globals.css`
+- `frontend/src/hooks/use-watch-theater.ts`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/components/recordings/ai-content-editor.tsx`
+- `frontend/src/app/layout.tsx`
+- `frontend/src/components/layout/footer.tsx`
+- `frontend/src/lib/theme.ts`
+- `frontend/src/hooks/use-theme.ts`
+- `frontend/src/components/ui/video-player.tsx`
+- `frontend/src/components/recordings/artefact-list.tsx`
+- `frontend/src/components/recordings/share-video-download-button.tsx`
+- `frontend/src/components/recordings/transcript-panel.tsx`
+- `frontend/src/lib/utils.ts`
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `frontend/src/content/release-notes.ts`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/UPDATES.md`
+- `README.md`
+
+---
+
+## 2026-09-12: Shared watch player
+
+- **One player** — share, playlist watch, and the recording editor share `VideoPlayer` plus `WatchStage`. YouTube-style page: picture grows with the window (about 1280×720 on a large desktop), a fixed ~400px chapters/transcript rail, Summary / Files / Overview under the picture in the same column. Fullscreen is cinema.
+- **Feedback** — J/L and arrows show a stacked skip chip; speed and volume/mute show a centre HUD (including Plyr settings). `?` is a dialog with a control in the bar. Chapter ticks on the progress bar are buttons on every width.
+- **Playlist** — landing cover has a play affordance on the first playable item; watch tabs are Playlist, Chapters, Transcript; end of a video shows Play next (or End of playlist) instead of auto-advancing.
+- **Copy** — Chapters (not Timestamps); Summary & questions; public logo is not a link to `/`. Keyboard Space is not stolen from buttons, links, or tabs.
+
+### Files
+
+- `frontend/src/components/ui/video-player.tsx`
+- `frontend/src/components/ui/video-player-keys.ts`
+- `frontend/src/components/ui/watch-stage.tsx`
+- `frontend/src/lib/player-hud.ts`
+- `frontend/src/lib/playlist-playable.ts`
+- `frontend/src/app/globals.css`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/components/recordings/ai-content-editor.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/lib/playlist-playable.test.ts`
+- `frontend/src/lib/player-hud.test.ts`
+- `frontend/src/lib/video-player-keys.test.ts`
+
+---
+
+## 2026-09-11: Credential re-auth banner and share extras
+
+- **Broken credentials** — when a platform rejects a token (`needs_reauth`), a warning banner appears across the app and Credentials in the sidebar shows an amber marker. The banner names the account and links to `/credentials` sorted by status. Previously the flag was visible only on the Credentials page. Re-auth UI waits until the client has attached so it does not mismatch SSR HTML (cached query on the client vs empty markup on the server).
+- **Public share** — Summary & questions and Files on recording and playlist watch pages open by default.
+- **Recordings list** — grid/table and page size are read from `localStorage` after mount (same pattern as the collapsed sidebar), so the server HTML and the first client render stay the same.
+- **Automation list** — four columns (Job, Schedule, Status, Actions) at the same `min-w` as Templates, instead of six wide date/count columns. Run history on a job is four columns too (Started, Result, Duration, Recordings).
+
+### Files
+
+- `frontend/src/components/layout/credential-reauth-banner.tsx`
+- `frontend/src/components/layout/app-shell.tsx`
+- `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/hooks/use-credentials-reauth.ts`
+- `frontend/src/hooks/use-page-size.ts`
+- `frontend/src/app/(app)/recordings/page.tsx`
+- `frontend/src/app/(app)/credentials/page.tsx`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/(app)/automation/page.tsx`
+- `frontend/src/components/automation/job-run-history.tsx`
+- `backend/api/routers/credentials.py`
+- `backend/tests/unit/api/test_credentials_get.py`
+
+---
+
+## 2026-09-11: Analytics chart axes
+
+- **Usage / Admin charts** — Y-axis labels no longer sit off the grid or vanish on resize. Recharts was given a 4px top margin and a 36px axis, so the top tick was shifted (or dropped) when it did not fit. Charts now use explicit integer ticks, enough plot margin (including room for the last date label, e.g. `11 Sept`), and `preserveStartEnd` on the date axis.
+
+### Files
+
+- `frontend/src/components/charts/chart-axis.ts`
+- `frontend/src/components/charts/daily-bar-chart.tsx`
+- `frontend/src/components/charts/daily-stacked-bar-chart.tsx`
+- `frontend/src/components/charts/horizontal-breakdown-chart.tsx`
+
+---
+
 ## 2026-09-11: LEAP output and config editor polish
 
 - **Run / Edit configuration** — **LEAP** and **Upload a copy** are separate override sections (same row pattern as Processing and Metadata). `output_config` is sent only when the matching override switch is on (no silent leap/output writes).
@@ -56,7 +259,7 @@
 - **LEAP preset** — `playlist_ids` and `auto_share` live on the leap preset.
 - **Publish** — after processing, a `LEAP` output target is marked uploaded so the recording can go **READY**. Publish requires a processed video (same as copy uploads).
 - **Share** — `auto_share` mints `/share/{uuid}` unless the owner already disabled an existing token. Template/Run `metadata_config.leap.auto_share` overlays the preset (`null` = inherit).
-- **Courses** — preset `playlist_ids` are the default; named template / Run `output_config.playlist_ids` replace when non-empty. Bind still appends on named templates (inherits preset list if the template list is empty).
+- **Courses** — preset `playlist_ids` are the default; named template / Run `output_config.playlist_ids` replace when non-empty. *(Bind-time append superseded 2026-09-13 — see LEAP playlist publish deferred.)*
 - **Deploy** — apply Alembic **048** (`targettype` value `LEAP`) before API/workers that create LEAP targets.
 
 ### Files
@@ -959,7 +1162,7 @@
 ## 2026-09-05: Playlists and course watch
 
 - **Playlists** — ordered course of recordings (`playlists` / `playlist_items`, unique per user name, 200/200 caps). Owner REST under `/api/v1/playlists`. Public URL `{origin}/share/p/{uuid}` with stable token: Enable mints once, Disable keeps it, Rotate replaces it. Migration **043**.
-- **Template bind** — named templates may set `output_config.playlist_ids` (≤10). Recordings are appended when `template_id` is set (bind / create / match). Default/base template is ignored. Run override checkboxes add now; empty list does not clear membership.
+- **Template bind** — named templates may set `output_config.playlist_ids` (≤10). *(Superseded 2026-09-13: membership is applied on LEAP publish after processing, not on bind/match.)* Default/base template is ignored. Run override checkboxes add now; empty list does not clear membership.
 - **Download flags** — `recordings.allow_video_download` / `allow_files_download` (default true). Public play 200 vs `download=true` 403; inline VTT always. Same helper on recording share and playlist share.
 - **UI** — Playlists in the sidebar; card grid; course editor (drag to reorder); Publications chips; public WatchShell queue (no prev/next/autoplay). Course page has no Files section. Opening a course link selects the **first item by order** (`?v=` overrides). **Phone player:** compact Plyr bar, landscape fills the viewport, same pulse skeleton as desktop. Share and playlist watch: title above the player. Processed / Original is a segmented control.
 

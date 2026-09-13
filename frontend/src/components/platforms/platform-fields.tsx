@@ -237,7 +237,13 @@ export function TemplateField({
           {label}
         </label>
       )}
-      <div className="relative">
+      <div
+        className="relative"
+        role="combobox"
+        aria-expanded={ac.acOpen && ac.filtered.length > 0}
+        aria-haspopup="listbox"
+        aria-controls={ac.acOpen && ac.filtered.length > 0 ? listboxId : undefined}
+      >
         <div
           ref={overlayRef}
           aria-hidden="true"
@@ -262,7 +268,6 @@ export function TemplateField({
           rows={multiline ? rows : 1}
           spellCheck={false}
           aria-autocomplete="list"
-          aria-expanded={ac.acOpen && ac.filtered.length > 0}
           aria-controls={ac.acOpen && ac.filtered.length > 0 ? listboxId : undefined}
           aria-activedescendant={
             ac.acOpen && ac.active ? `${optionIdPrefix}-${ac.active.value}` : undefined

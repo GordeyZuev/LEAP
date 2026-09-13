@@ -1,4 +1,4 @@
-"""Playlist membership, share links, and template bind hook."""
+"""Playlist membership and share links."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.repositories.playlist_repo import PlaylistRepository
 from database.models import RecordingModel
 from database.playlist_models import MAX_ITEMS_PER_PLAYLIST, MAX_PLAYLISTS_PER_USER, PlaylistItemModel, PlaylistModel
-from database.template_models import RecordingTemplateModel
 from logger import get_logger
 
 logger = get_logger()
@@ -192,32 +191,6 @@ class PlaylistService:
         await self.session.flush()
         return playlist
 
-    async def add_from_template(self, recording: RecordingModel) -> None:
-        """Append recording to named-template playlist_ids. No-op for default template."""
-        if not recording.template_id:
-            return
-        result = await self.session.execute(
-            select(RecordingTemplateModel).where(
-                RecordingTemplateModel.id == recording.template_id,
-                RecordingTemplateModel.user_id == self.user_id,
-            )
-        )
-        template = result.scalar_one_or_none()
-        if not template or template.is_default:
-            return
-        raw_ids = (template.output_config or {}).get("playlist_ids") or []
-        if not raw_ids:
-            from api.repositories.template_repos import OutputPresetRepository
-            from api.services.leap_publish import active_leap_from_presets, leap_meta_from_preset
-
-            preset_ids = (template.output_config or {}).get("preset_ids") or []
-            if preset_ids:
-                presets = await OutputPresetRepository(self.session).find_by_ids(list(preset_ids), self.user_id)
-                leap = active_leap_from_presets(presets)
-                if leap:
-                    raw_ids = leap_meta_from_preset(leap).get("playlist_ids") or []
-        await self._add_recording_to_playlist_ids(recording, raw_ids)
-
     async def add_from_playlist_ids(self, recording: RecordingModel, playlist_ids: list[int] | None) -> None:
         if not playlist_ids:
             return
@@ -273,17 +246,3 @@ async def poster_url_map(
     """Presigned poster URLs keyed by recording id. Missing files are omitted."""
     previews = await poster_preview_map(session, user_id, recordings, looks=looks)
     return {rid: preview.url for rid, preview in previews.items() if preview.url}
-
-
-async def add_from_bound_template(session: AsyncSession, user_id: str, recording: RecordingModel) -> None:
-    """Call after template_id is newly set. Safe no-op when nothing to add."""
-    await PlaylistService(session, user_id).add_from_template(recording)
-
-
-async def add_from_output_override(
-    session: AsyncSession, user_id: str, recording: RecordingModel, output_config: dict | None
-) -> None:
-    """Add recording to playlists listed in a Run output override. Empty list is a no-op."""
-    if not output_config:
-        return
-    await PlaylistService(session, user_id).add_from_playlist_ids(recording, output_config.get("playlist_ids"))

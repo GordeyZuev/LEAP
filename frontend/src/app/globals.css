@@ -145,6 +145,7 @@ body {
 
 /* Plyr — clip only on .plyr--video; not on outer frame (cuts controls). */
 .plyr {
+  position: relative;
   --plyr-color-main: var(--primary);
   --plyr-video-background: var(--muted);
   --plyr-font-family: inherit;
@@ -160,14 +161,61 @@ body {
   height: 100%;
   width: 100%;
 }
+.plyr--video,
+.plyr__video-wrapper,
+.leap-player-frame,
+.leap-player-frame video {
+  background-color: var(--muted);
+}
 .plyr--video .plyr__controls {
   border-radius: 0 0 0.75rem 0.75rem;
+}
+
+/* Wide: grow width only. Height stays the 16:9 of the default (rail) column. */
+.leap-watch-wide {
+  container-type: inline-size;
+}
+.leap-watch-wide .leap-player-frame {
+  aspect-ratio: auto;
+  height: min(70dvh, calc((100cqi - 25rem - 1.5rem) * 9 / 16));
+}
+.leap-watch-wide .plyr__video-wrapper {
+  height: 100%;
+  padding-bottom: 0 !important;
+}
+.leap-watch-wide .plyr--video:not(.plyr--fullscreen-enabled.plyr--fullscreen-fallback),
+.leap-watch-wide .plyr--video {
+  height: 100%;
+}
+.leap-watch-wide video {
+  object-fit: contain;
+  background-color: var(--muted);
+}
+.plyr__progress {
+  position: relative;
+}
+.plyr__progress__marker {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+}
+.plyr__progress__marker:focus-visible {
+  outline: 2px solid var(--plyr-color-main);
+  outline-offset: 2px;
 }
 .plyr__chapter-label {
   overflow: hidden;
   margin-inline-start: var(--plyr-control-spacing, 10px);
   max-width: 14rem;
-  color: var(--muted-foreground);
+  color: oklch(1 0 0 / 0.82);
   font-size: var(--plyr-font-size-base, 13px);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -201,8 +249,7 @@ body {
     margin-inline: 0;
   }
   .plyr__volume input[data-plyr="volume"],
-  .plyr [data-plyr="pip"],
-  .plyr__progress__marker {
+  .plyr [data-plyr="pip"] {
     display: none !important;
   }
   .plyr--video .plyr__control {
@@ -215,6 +262,68 @@ body {
 }
 .plyr__chapter-label--hidden {
   display: none;
+}
+.plyr__leap-hud {
+  pointer-events: none;
+  position: absolute;
+  z-index: 4;
+  border-radius: 0.5rem;
+  background: oklch(0 0 0 / 0.55);
+  padding: 0.4rem 0.75rem;
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.plyr__leap-hud--center {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.plyr__leap-hud--seek-back {
+  top: 50%;
+  left: 12%;
+  transform: translateY(-50%);
+}
+.plyr__leap-hud--seek-fwd {
+  top: 50%;
+  right: 12%;
+  transform: translateY(-50%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .plyr__leap-hud-in {
+    animation: toast-in 0.15s ease-out both;
+  }
+}
+.plyr__leap-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+.plyr__leap-endcard {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: oklch(0 0 0 / 0.72);
+  padding: 1.25rem;
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  color: #fff;
+  text-align: center;
+}
+.plyr__leap-endcard h2 {
+  margin: 0;
+  max-width: 24rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.plyr__leap-endcard p {
+  margin: 0;
+  font-size: 0.8rem;
+  opacity: 0.75;
 }
 .video-player-help {
   position: absolute;
@@ -258,71 +367,32 @@ body {
   }
 }
 
-/* Phone landscape: player covers the viewport (all Plyr instances). */
-@media (orientation: landscape) and (hover: none) and (max-height: 540px) {
-  .video-fill-landscape {
-    position: fixed;
-    inset: 0;
-    z-index: 80;
-    width: 100vw;
-    height: 100dvh;
-    max-height: none;
-    aspect-ratio: auto;
-    border-radius: 0;
-    outline: none;
-    background: #000;
-  }
-  .video-fill-landscape .plyr,
-  .video-fill-landscape .plyr--video {
-    height: 100%;
-    width: 100%;
-    border-radius: 0;
-  }
-  .video-fill-landscape video {
-    height: 100%;
-    width: 100%;
-    object-fit: contain;
-    background: #000;
-  }
-  .video-fill-landscape .plyr--video {
-    --plyr-control-spacing: 2px;
-    --plyr-control-icon-size: 18px;
-    --plyr-range-thumb-height: 16px;
-    --plyr-range-track-height: 5px;
-  }
-  .video-fill-landscape .plyr--video .plyr__controls {
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.15rem 0;
-    padding: 0.35rem 0.4rem max(0.5rem, env(safe-area-inset-bottom));
-    border-radius: 0;
-  }
-  .video-fill-landscape .plyr__progress__container {
-    flex: 1 0 100%;
-    order: -1;
-    min-width: 100%;
-    margin-inline: 0;
-  }
-  .video-fill-landscape .plyr__volume input[data-plyr="volume"],
-  .video-fill-landscape .plyr [data-plyr="pip"],
-  .video-fill-landscape .plyr__progress__marker,
-  .video-fill-landscape .plyr__chapter-label {
-    display: none !important;
-  }
-  .video-fill-landscape .plyr--video .plyr__control {
-    padding: 0.7rem;
-  }
-}
-body.video-landscape-lock {
-  overflow: hidden;
-}
-
 select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.75rem center;
   padding-right: 2.25rem;
+}
+
+/* Native ::-webkit-resizer sits on the border-box corner and cuts rounded
+   strokes. Keep resize; hide that glyph and draw an inset one instead.
+   Firefox has no ::-webkit-resizer — leave its native grip alone. */
+@supports selector(::-webkit-resizer) {
+  textarea:not(.resize-none) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%236b7280' stroke-width='1.25' stroke-linecap='round'%3E%3Cpath d='m5 11 6-6'/%3E%3Cpath d='m8 11 3-3'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px bottom 10px;
+    background-size: 10px 10px;
+  }
+  .dark textarea:not(.resize-none) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%2398a2b0' stroke-width='1.25' stroke-linecap='round'%3E%3Cpath d='m5 11 6-6'/%3E%3Cpath d='m8 11 3-3'/%3E%3C/svg%3E");
+  }
+  textarea:not(.resize-none)::-webkit-resizer {
+    background: transparent;
+    border: 0;
+    opacity: 0;
+  }
 }
 
 @keyframes toast-in {

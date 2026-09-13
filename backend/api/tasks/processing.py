@@ -13,6 +13,7 @@ from api.observability import track_pipeline_stage
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository
 from api.services.config_utils import copy_presets, is_leap_platform, resolve_full_config
+from api.services.leap_publish import leap_meta_from_preset, merge_leap_metadata, should_enqueue_leap_publish
 from api.services.quota_service import QuotaExceededError
 from api.services.timing_service import TimingService
 from api.tasks.base import BaseTask, ProcessingTask
@@ -512,7 +513,7 @@ async def _download_via_external(
         logger.info("MTS Link MP4 is still converting; parking recording until it is ready")
         apply_prepare_result(
             recording,
-            MtsLinkPrepareResult(outcome=MtsPrepareOutcome.CONVERTING),
+            MtsLinkPrepareResult(outcome=MtsPrepareOutcome.CONVERTING, conversion_state="waiting"),
         )
         recording.on_air = False
         recording.pipeline_task_id = None
@@ -1754,10 +1755,19 @@ def run_recording_task(
         generate_subs_enabled = transcription.get("enable_subtitles", True)
 
         upload_enabled = output_config.get("auto_upload", False)
-        publish_leap = output_config.get("publish_leap", True)
         copy_preset_list = copy_presets(presets)
         platforms = [p for p in output_config.get("default_platforms", []) if not is_leap_platform(p)]
         leap_preset = next((p for p in presets if is_leap_platform(p.platform) and p.is_active), None)
+        metadata_config = full_config.get("metadata_config")
+        leap_meta = merge_leap_metadata(
+            leap_meta_from_preset(leap_preset) if leap_preset else None,
+            metadata_config=metadata_config if isinstance(metadata_config, dict) else None,
+        )
+        enqueue_leap = should_enqueue_leap_publish(
+            output_config,
+            leap_meta,
+            has_leap_look_preset=leap_preset is not None,
+        )
 
         granularity = transcription.get("granularity", "long")
         subtitle_formats = transcription.get("subtitle_formats", ["srt", "vtt"])
@@ -1797,7 +1807,21 @@ def run_recording_task(
                 # Single task - just append normally
                 task_chain.append(parallel_after_transcribe[0])
 
-        if not task_chain:
+        preset_map: dict[str, int] = {}
+        launch_platforms: list[str] = []
+        if upload_enabled and (platforms or copy_preset_list):
+            preset_map = {preset.platform: preset.id for preset in copy_preset_list}
+            launch_platforms = list(platforms)
+            if not launch_platforms and copy_preset_list:
+                launch_platforms = [preset.platform for preset in copy_preset_list]
+
+        if enqueue_leap:
+            launch_platforms = [p for p in launch_platforms if not is_leap_platform(p)]
+            launch_platforms.append("leap")
+            if leap_preset:
+                preset_map["leap"] = leap_preset.id
+
+        if not task_chain and not launch_platforms:
             logger.warning("No processing steps enabled")
 
             # Clear on_air since no chain will run _finalize_pipeline_task.
@@ -1817,20 +1841,6 @@ def run_recording_task(
                 recording_id=recording_id,
                 result={"message": "No processing steps enabled"},
             )
-
-        # Build chain with optional upload callback
-        preset_map: dict[str, int] = {}
-        launch_platforms: list[str] = []
-        if upload_enabled and (platforms or copy_preset_list):
-            preset_map = {preset.platform: preset.id for preset in copy_preset_list}
-            launch_platforms = list(platforms)
-            if not launch_platforms and copy_preset_list:
-                launch_platforms = [preset.platform for preset in copy_preset_list]
-
-        if leap_preset and publish_leap:
-            launch_platforms = [p for p in launch_platforms if not is_leap_platform(p)]
-            launch_platforms.append("leap")
-            preset_map["leap"] = leap_preset.id
 
         if launch_platforms:
             metadata_override = full_config.get("metadata_config", {})

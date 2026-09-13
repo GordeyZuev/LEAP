@@ -140,9 +140,17 @@ function Section({
   );
 }
 
-function Sub({ title, children }: { title: string; children: React.ReactNode }) {
+function Sub({
+  title,
+  children,
+  id,
+}: {
+  title: string;
+  children: React.ReactNode;
+  id?: string;
+}) {
   return (
-    <div className="space-y-3">
+    <div id={id} className={id ? "scroll-mt-24 space-y-3" : "space-y-3"}>
       <H>{title}</H>
       <div className="space-y-3">{children}</div>
     </div>
@@ -246,6 +254,24 @@ export default function DocsPage() {
     }
     emptyRef.current?.classList.toggle("hidden", found > 0 || !needle);
   }, [query]);
+
+  useEffect(() => {
+    function openTemplatesJsonDocAnchor() {
+      const hash = window.location.hash.replace("#", "");
+      if (hash !== "templates-json-config") return;
+      const section = document.getElementById("templates");
+      const toggle = section?.querySelector<HTMLButtonElement>("button[aria-expanded]");
+      if (toggle?.getAttribute("aria-expanded") === "false") {
+        toggle.click();
+      }
+      window.setTimeout(() => {
+        document.getElementById(hash)?.scrollIntoView({ block: "start" });
+      }, 0);
+    }
+    openTemplatesJsonDocAnchor();
+    window.addEventListener("hashchange", openTemplatesJsonDocAnchor);
+    return () => window.removeEventListener("hashchange", openTemplatesJsonDocAnchor);
+  }, []);
 
   return (
     <div className="mx-auto min-h-full max-w-3xl px-5 py-6 sm:px-8 sm:py-8">
@@ -522,11 +548,11 @@ export default function DocsPage() {
               A playlist is a course: an ordered list of recordings with one public link
               (<code className="text-xs">/share/p/…</code>). Create one under <strong>Playlists</strong>,
               then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
-              Named templates and Run can append recordings to LEAP playlists without upload presets – this is membership, not a YouTube upload.
+              Named templates and Run can assign LEAP courses without copy-upload presets – membership is applied after processing finishes (same moment as LEAP publication), not when you bind a template. Manual add from the playlist editor or Publications still adds immediately.
               Enable / Disable / Rotate work like recording share. Deleting a playlist kills the link; recordings stay.
-              The landing page is a cover image and the video list (no Play button). Opening a video goes to watch
-              (<code className="text-xs">?v=</code>): player, companion (Timestamps, Transcript, Playlist), then Extra content,
-              Files, and Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags.
+              The landing page is a cover with a play control and the video list. Opening a video goes to watch
+              (<code className="text-xs">?v=</code>): player, companion (Playlist, Chapters, Transcript), then Summary & questions
+              (Theme, summary, questions), Files, and Created Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags.
               Opening a playable video counts as a view on that recording.
               Playlist descriptions can use <code className="text-xs">{"{{ video_count }}"}</code>,{" "}
               <code className="text-xs">{"{{ duration_hm }}"}</code>, and <code className="text-xs">{"{{ items }}"}</code>.
@@ -540,8 +566,8 @@ export default function DocsPage() {
               Click <strong>Run</strong> on the recording page (or select several on the list and bulk-run).
               The Run dialog shows the effective config merged from your templates. Override toggles are{" "}
               <strong>off by default</strong> – expand a section and enable it only when you need a one-time change.
-              LEAP playlists are always visible: checking a course appends the recording without turning on upload.
-              Look (title, description, cover) is in the same LEAP block; it is not an upload.
+              LEAP playlists are always visible in Run: selecting courses writes output config; the recording joins those courses after processing when Publish to LEAP is on, without turning on copy upload.
+              Look (title, description, cover) is under Metadata → Platform overrides; it is not an upload.
             </P>
             <Tip>
               You can pick a different template for a single run without changing the recording&apos;s linked template.
@@ -756,6 +782,152 @@ export default function DocsPage() {
                 <><strong>{"{{ questions }}"}</strong> – self-check questions if generated.</>,
                 <><strong>{"{{ duration_hm }}"}</strong> – duration (e.g. 1:05:03).</>,
                 <><strong>{"{{ title }}"}</strong> – the already-rendered title (handy inside the description body).</>,
+              ]}
+            />
+          </Sub>
+          <Sub title="JSON config (import / edit)" id="templates-json-config">
+            <P>
+              Advanced editing without clicking through every field. Same validation rules as the form — JSON is not
+              stricter.
+            </P>
+            <List
+              items={[
+                <>
+                  <strong>Download JSON config</strong> – template page, <strong>More</strong> menu. Full bundle with{" "}
+                  <code className="text-xs">reference</code> (preset/source names for ids). Good for backup.
+                </>,
+                <>
+                  <strong>Edit JSON config</strong> – same menu. Full-replace editor with <strong>Download this</strong>{" "}
+                  (current buffer), <strong>Format JSON</strong>, then <strong>Validate</strong> and <strong>Save</strong>.
+                </>,
+                <>
+                  <strong>Import JSON config</strong> – Templates list header. One or many templates; optional rematch
+                  after import.
+                </>,
+              ]}
+            />
+            <Note>
+              The form saves with <strong>patch</strong> (partial updates). JSON edit saves with <strong>replace</strong>:
+              every top-level block you send overwrites what is stored; use <code className="text-xs">null</code> to
+              clear a section. Download first for a safe round-trip.
+            </Note>
+          </Sub>
+          <Sub title="JSON — file shapes">
+            <P>
+              <strong>Import / download</strong> use a bundle envelope:
+            </P>
+            <div className="overflow-x-auto rounded-xl border border-border bg-muted p-4">
+              <pre className="font-mono text-xs leading-relaxed text-foreground">
+{`{
+  "leap_template_bundle": 1,
+  "reference": { "presets": [...], "sources": [...], "playlists": [...] },
+  "templates": [ { "name": "...", ... } ]
+}`}
+              </pre>
+            </div>
+            <P>
+              <code className="text-xs">reference</code> is for humans only (names next to ids). Import ignores it.
+              Import also accepts <code className="text-xs">{"{ \"templates\": [...] }"}</code> or a single template
+              object.
+            </P>
+            <P>
+              <strong>Edit JSON</strong> shows only the inner template body (like{" "}
+              <code className="text-xs">name</code>, <code className="text-xs">processing_config</code>, …). Base
+              template editor omits <code className="text-xs">matching_rules</code> in the file for readability; Save
+              still sends <code className="text-xs">null</code> to the API. Pasting a full bundle in Edit is rejected —
+              use Import on the Templates list instead.
+            </P>
+          </Sub>
+          <Sub title="JSON — sections inside a template">
+            <List
+              items={[
+                <>
+                  <code className="text-xs">processing_config</code> – transcription, trim, vocabulary (same as{" "}
+                  <strong>Processing</strong> in the form).
+                </>,
+                <>
+                  <code className="text-xs">metadata_config</code> – global Jinja title/description, topics/questions
+                  display, thumbnail; optional nested <code className="text-xs">youtube</code>,{" "}
+                  <code className="text-xs">vk</code>, <code className="text-xs">yandex_disk</code>,{" "}
+                  <code className="text-xs">leap</code> overrides.
+                </>,
+                <>
+                  <code className="text-xs">output_config</code> – <code className="text-xs">preset_ids</code>,{" "}
+                  <code className="text-xs">auto_upload</code>, <code className="text-xs">upload_captions</code>,{" "}
+                  <code className="text-xs">publish_leap</code>, <code className="text-xs">playlist_ids</code> (see{" "}
+                  <strong>Presets</strong> for what preset ids mean).
+                </>,
+                <>
+                  <code className="text-xs">matching_rules</code> – named templates only; never on the base template.
+                </>,
+              ]}
+            />
+          </Sub>
+          <Sub title="JSON — metadata: global vs platform blocks">
+            <P>
+              Top-level <code className="text-xs">title_template</code>,{" "}
+              <code className="text-xs">description_template</code>,{" "}
+              <code className="text-xs">topics_display</code>, <code className="text-xs">questions_display</code>, and{" "}
+              <code className="text-xs">thumbnail_name</code> apply everywhere unless a platform overrides them.
+            </P>
+            <List
+              items={[
+                <>
+                  <strong>youtube</strong> / <strong>vk</strong> / <strong>yandex_disk</strong> – optional overrides
+                  when that copy preset is selected (privacy, playlist on YouTube preset, Disk folder, etc.). An empty{" "}
+                  <code className="text-xs">{"{}"}</code> means “no template-level override — use the preset”.
+                </>,
+                <>
+                  <strong>leap</strong> – optional overrides for LEAP publication look (
+                  <code className="text-xs">title_template</code>, <code className="text-xs">description_template</code>
+                  , <code className="text-xs">thumbnail_name</code>, <code className="text-xs">auto_share</code>). If
+                  missing, LEAP uses global metadata and/or the leap preset defaults.
+                </>,
+              ]}
+            />
+            <Tip>
+              LEAP is not only <code className="text-xs">metadata_config.leap</code>. Turn publication on with{" "}
+              <code className="text-xs">output_config.publish_leap</code>. LEAP courses use{" "}
+              <code className="text-xs">output_config.playlist_ids</code> (empty list = inherit from the leap preset).
+              Copy upload presets live in <code className="text-xs">preset_ids</code> (YouTube, VK, Disk). At most one
+              leap preset in that list. YouTube channel playlists stay on the YouTube preset, not{" "}
+              <code className="text-xs">playlist_ids</code>.
+            </Tip>
+          </Sub>
+          <Sub title="JSON — matching rules">
+            <List
+              items={[
+                <>
+                  <strong>Base template</strong> – omit <code className="text-xs">matching_rules</code> or{" "}
+                  <code className="text-xs">null</code>. Non-empty rules are rejected.
+                </>,
+                <>
+                  <strong>Named template</strong> – may leave rules empty (same as a blank form). Validate shows a{" "}
+                  <strong>warning</strong>: auto-link will not run until you add keywords, patterns, exact names, or
+                  source filters.
+                </>,
+                <>
+                  <strong>source_ids alone</strong> – allowed in JSON but warned: runtime matching still needs keywords,
+                  patterns, or exact names.
+                </>,
+              ]}
+            />
+          </Sub>
+          <Sub title="JSON — validate, warnings, and errors">
+            <P>
+              Always use <strong>Validate</strong> before Save or Import. Warnings do not block save; errors do.
+            </P>
+            <List
+              items={[
+                <>Legacy single-brace placeholders — use Jinja2 only, e.g. {"{{ record_date_short }}"}.</>,
+                <>
+                  <code className="text-xs">auto_upload: true</code> requires{" "}
+                  <code className="text-xs">processing_config</code> and at least one non-LEAP preset in{" "}
+                  <code className="text-xs">preset_ids</code>.
+                </>,
+                <>Unknown or inactive preset ids — fix ids or pick presets that exist on your account.</>,
+                <>Duplicate template names in one import file — rename or set <code className="text-xs">id</code> to update.</>,
+                <>Base template cannot be drafted or deactivated via JSON.</>,
               ]}
             />
           </Sub>

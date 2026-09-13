@@ -172,43 +172,13 @@ class TestPlaylistService:
         assert playlist.share_enabled is True
 
     @pytest.mark.asyncio
-    async def test_add_from_template_inherits_leap_playlist_ids(self) -> None:
+    async def test_add_from_playlist_ids_delegates(self) -> None:
         session = AsyncMock()
-        template = MagicMock()
-        template.is_default = False
-        template.output_config = {"preset_ids": [9], "playlist_ids": []}
-        result = MagicMock()
-        result.scalar_one_or_none.return_value = template
-        session.execute = AsyncMock(return_value=result)
-        leap = MagicMock()
-        leap.platform = "leap"
-        leap.is_active = True
-        leap.preset_metadata = {"playlist_ids": [4, 5]}
-        rec = create_mock_recording(template_id=5)
-        svc = PlaylistService(session, "user_123")
-        with (
-            patch("api.repositories.template_repos.OutputPresetRepository") as repo_cls,
-            patch.object(svc, "_add_recording_to_playlist_ids", new=AsyncMock()) as add,
-        ):
-            repo_cls.return_value.find_by_ids = AsyncMock(return_value=[leap])
-            await svc.add_from_template(rec)
-            add.assert_awaited_once()
-            assert add.await_args.args[1] == [4, 5]
-
-    @pytest.mark.asyncio
-    async def test_add_from_template_skips_default(self) -> None:
-        session = AsyncMock()
-        template = MagicMock()
-        template.is_default = True
-        template.output_config = {"playlist_ids": [1]}
-        result = MagicMock()
-        result.scalar_one_or_none.return_value = template
-        session.execute = AsyncMock(return_value=result)
-        rec = create_mock_recording(template_id=5)
+        rec = create_mock_recording()
         svc = PlaylistService(session, "user_123")
         with patch.object(svc, "_add_recording_to_playlist_ids", new=AsyncMock()) as add:
-            await svc.add_from_template(rec)
-            add.assert_not_called()
+            await svc.add_from_playlist_ids(rec, [1, 2])
+            add.assert_awaited_once_with(rec, [1, 2])
 
 
 @pytest.mark.unit

@@ -39,6 +39,7 @@ Root product overview: repository [`README.md`](../../README.md).
 - [guides/PLAYLISTS.md](guides/PLAYLISTS.md) – course playlists, public `/share/p/{uuid}`, Enable / Disable / Rotate
 - [guides/TEMPLATES.md](guides/TEMPLATES.md)
 - [guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md](guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md)
+- [guides/TEMPLATE_JSON.md](guides/TEMPLATE_JSON.md) – export/import JSON bundles, PUT full replace
 - [guides/JINJA_METADATA_TEMPLATES.md](guides/JINJA_METADATA_TEMPLATES.md) – Jinja variables, Timestamps vs `topics_display`, preview API
 - [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) – browser playback, presigned URLs, MP4 faststart
 - [guides/FRONTEND_UI.md](guides/FRONTEND_UI.md) – motion, `.pressable`, reduced-motion

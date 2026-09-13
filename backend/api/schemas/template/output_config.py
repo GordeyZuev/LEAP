@@ -33,9 +33,9 @@ class TemplateOutputConfig(BaseModel):
 
     Fields:
     - preset_ids: list of presets for auto-upload (empty = manual upload only)
-    - playlist_ids: LEAP playlists to append matched recordings to (not a YouTube playlist)
+    - playlist_ids: LEAP course playlists (applied on LEAP publish after processing; not a YouTube playlist)
     - auto_upload: automatic copy upload after processing (YouTube / Yandex Disk)
-    - publish_leap: run LEAP publish (look, share, courses) when a leap preset is configured
+    - publish_leap: run LEAP publish after processing when a leap preset, playlists, or share is configured
     - upload_captions: upload subtitles with video (if platform supports)
     """
 
@@ -49,7 +49,7 @@ class TemplateOutputConfig(BaseModel):
 
     playlist_ids: list[int] = Field(
         default_factory=list,
-        description="LEAP playlist IDs to append recordings to when this template is bound",
+        description="LEAP playlist IDs applied when LEAP publish runs after processing",
         examples=[[], [1], [1, 2]],
     )
 
@@ -60,7 +60,7 @@ class TemplateOutputConfig(BaseModel):
 
     publish_leap: bool = Field(
         True,
-        description="Publish to LEAP after processing when a leap preset is in preset_ids",
+        description="Publish to LEAP after processing (look preset, playlist_ids, or auto_share)",
     )
 
     upload_captions: bool = Field(

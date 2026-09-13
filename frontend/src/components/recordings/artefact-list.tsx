@@ -36,7 +36,7 @@ export type ArtefactType =
 
 export const ARTEFACT_META: Record<
   ArtefactType,
-  { label: string; extension: string; icon: ReactNode; accented?: boolean }
+  { label: string; extension: string; icon: ReactNode }
 > = {
   // The player above has Processed/Original tabs, so the video rows name their
   // variant explicitly — otherwise "download" is ambiguous about which cut it saves.
@@ -48,19 +48,16 @@ export const ARTEFACT_META: Record<
     label: "Transcript – full data",
     extension: "json",
     icon: <FileCode size={13} className="shrink-0" />,
-    accented: true,
   },
   transcript_txt: {
     label: "Transcript – by segment",
     extension: "txt",
     icon: <FileText size={13} className="shrink-0" />,
-    accented: true,
   },
   transcript_words: {
     label: "Transcript – by word",
     extension: "txt",
     icon: <AlignLeft size={13} className="shrink-0" />,
-    accented: true,
   },
   description_txt: { label: "Description", extension: "txt", icon: <FileDown size={13} className="shrink-0" /> },
   // Companion files that came from the source, not from the pipeline. Their labels and
@@ -78,18 +75,12 @@ export function getShareArtifactLabel(type: string): string {
   return meta.label;
 }
 
-const ROW =
+export const ARTEFACT_ROW =
   "flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 
-const ROW_DEFAULT =
+export const ARTEFACT_ROW_DEFAULT =
   "border-border bg-background text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary";
-
-// Files worth reaching for first (full transcript exports) get a resting-state
-// blue tint instead of only revealing color on hover, so they read as the
-// primary action in the list rather than looking identical to every download.
-const ROW_ACCENTED =
-  "border-primary/30 bg-primary/5 font-semibold text-primary hover:border-primary/50 hover:bg-primary/10";
 
 export interface ArtefactItem {
   type: ArtefactType;
@@ -149,20 +140,15 @@ export function ArtefactList({ items }: { items: ArtefactItem[] }) {
         const base = ARTEFACT_META[item.type];
         if (!base) return null;
         const meta = { ...base, label: item.label ?? base.label, extension: item.extension ?? base.extension };
-        const rowClass = cn(ROW, meta.accented ? ROW_ACCENTED : ROW_DEFAULT);
+        const rowClass = cn(ARTEFACT_ROW, ARTEFACT_ROW_DEFAULT);
         const inner = (
           <>
             {meta.icon}
             <span className="flex-1 text-left">{meta.label}</span>
-            <span
-              className={cn(
-                "shrink-0 text-[10px] font-semibold uppercase",
-                meta.accented ? "text-primary/70" : "text-muted-foreground"
-              )}
-            >
+            <span className="shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">
               {meta.extension}
             </span>
-            <ArrowDownToLine size={11} className={cn("shrink-0", meta.accented ? "text-primary" : "text-muted-foreground")} />
+            <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
           </>
         );
         const rowKey = item.key ?? item.type;

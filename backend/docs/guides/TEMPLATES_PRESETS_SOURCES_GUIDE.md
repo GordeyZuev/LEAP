@@ -254,14 +254,14 @@ Templates connect **matching rules** to **processing**, **publish metadata**, an
 | `description` | up to 1000 chars |
 | `is_draft` | Drafts are not auto-matched |
 | `is_active` | Enabled |
-| `matching_rules` | Required for non-draft (see validation) |
+| `matching_rules` | Optional; base template must not have rules (see [TEMPLATE_JSON.md](TEMPLATE_JSON.md)) |
 | `processing_config` | Transcription, topics, subtitles |
 | `metadata_config` | Title/description templates, thumbnails, per-platform overrides |
 | `output_config` | `preset_ids`, `auto_upload`, `upload_captions` |
 
 **Create validation (`RecordingTemplateCreate`):**
 
-- Non-draft → `matching_rules` present and at least one of: non-empty `exact_matches`, `keywords`, `patterns`, or `source_ids`.
+- Named templates may omit or leave `matching_rules` empty (same as the form). JSON import / `validate-replace` warn `empty_matching_rules` on active non-draft. Base template must not have matching rules.
 - `output_config.auto_upload == true` → `processing_config` required.
 - `metadata_config.title_template` set → `output_config` with `preset_ids` required.
 
@@ -308,9 +308,9 @@ Thumbnail precedence (from schema docstring):
 
 Blocks: `vk`, `youtube`, `yandex_disk` (`folder_path_template`, `filename_template`, optional `overwrite`, `publish`). Jinja filters `split_path` and `part` apply to path templates (see Yandex Disk guide).
 
-**Common template variables** in descriptions: `{display_name}`, `{themes}`, `{topic}`, `{topics}`, `{topics_list}`, `{summary}`, `{questions}`, `{record_time}`, `{publish_time}`, `{date}`, `{duration}`; date styles like `{record_time:DD.MM.YY}`.
+**Jinja variables** — see [JINJA_METADATA_TEMPLATES.md](JINJA_METADATA_TEMPLATES.md) (`{{ display_name }}`, `{{ themes }}`, `{{ record_date_short }}`, …). Legacy single-brace placeholders are rejected.
 
-**`title_template` API validation:** the string must contain at least one of: `{display_name}`, `{themes}`, `{topic}`, `{date}`, `{record_time}`, `{duration}` (`TemplateMetadataConfig.validate_title_template`). A title containing only `{summary}` or `{topics}` without those tokens **fails** validation.
+**`title_template` API validation:** must contain at least one allowed variable (e.g. `{{ display_name }}`, `{{ themes }}`, `{{ record_date_short }}`, `{{ duration }}`).
 
 ### Output config (`TemplateOutputConfig`)
 
@@ -405,9 +405,13 @@ Router prefixes in code:
 |--------|------|-------|
 | GET | `/api/v1/templates` | `include_drafts`, `is_active`, name search |
 | POST | `/api/v1/templates` | Query `auto_rematch` (default true) |
+| GET | `/api/v1/templates/export` | Query `ids=1,2,3` — JSON bundle |
+| POST | `/api/v1/templates/import` | Query `dry_run`, `auto_rematch` — see [TEMPLATE_JSON.md](TEMPLATE_JSON.md) |
 | POST | `/api/v1/templates/from-recording/{recording_id}` | `TemplateFromRecordingRequest` |
 | GET | `/api/v1/templates/{template_id}` | |
-| PATCH | `/api/v1/templates/{template_id}` | |
+| PUT | `/api/v1/templates/{template_id}` | Full replace (JSON editor) |
+| POST | `/api/v1/templates/{template_id}/validate-replace` | Validate PUT body |
+| PATCH | `/api/v1/templates/{template_id}` | Partial update (form UI) |
 | DELETE | `/api/v1/templates/{template_id}` | |
 | POST | `/api/v1/templates/bulk/delete` | |
 | GET | `/api/v1/templates/{template_id}/stats` | |

@@ -1,13 +1,14 @@
 "use client";
 
 import { use, useState, useRef, useEffect, useCallback, useMemo, forwardRef, type ComponentType, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
   CheckCircle2, XCircle, Clock, Loader2, RotateCcw, Settings2, ArchiveRestore, FilePlus2,
-  Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2, ListVideo,
+  Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2, ListVideo, Plus,
 } from "lucide-react";
 import { cn, formatDate, formatDateTimeShort, formatDuration, extractApiError, httpStatus } from "@/lib/utils";
 import { CHECKBOX } from "@/lib/filter-field-classes";
@@ -24,7 +25,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { CollapsibleCard, SectionCard } from "@/components/ui/section-card";
 import { DescriptionEditor } from "@/components/ui/description-editor";
 import { FormattedText } from "@/components/ui/formatted-text";
-import { SegmentedField } from "@/components/ui/segmented-field";
+import { VideoVariantSwitch } from "@/components/ui/video-variant-switch";
 import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem } from "@/components/recordings/artefact-list";
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { AIContentEditor } from "@/components/recordings/ai-content-editor";
@@ -34,12 +35,18 @@ import { ShareModal } from "@/components/recordings/share-modal";
 import { ShareStatsLine } from "@/components/recordings/share-stats-line";
 import { TemplateField } from "@/components/platforms/platform-fields";
 import { POLL_INTERVAL_DETAIL, needsActivePoll } from "@/lib/constants";
-import { VideoPlayer, type VideoPlayerMarker } from "@/components/ui/video-player";
+import type { VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
+import { WatchStage } from "@/components/ui/watch-stage";
 import { recordingResumeKey } from "@/lib/video-resume";
 import { Toast } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+
+const VideoPlayer = dynamic(
+  () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
+  { ssr: false, loading: () => <VideoPlayerLoading /> },
+);
 
 function mtsMp4SidebarLabel(
   status: string,
@@ -295,8 +302,8 @@ const DETAIL_SIDEBAR = "order-first w-full min-w-0 space-y-6 lg:order-none lg:w-
 /** Section labels — one source for cards and the loading shell. */
 const RECORDING_SECTION = {
   video: "Video",
-  description: "Overview",
-  chapters: "Chapters & summary",
+  description: "Created Overview",
+  chapters: "Chapters",
   configuration: "Configuration",
   controlPanel: "Control panel",
   details: "Details",
@@ -311,11 +318,6 @@ const PUBLICATION_LINK =
   "inline-flex min-h-7 items-center gap-0.5 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm";
 const PUBLICATION_TEXT_ACTION =
   "inline-flex min-h-7 items-center text-xs font-medium text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm";
-
-const VIDEO_VARIANT_OPTIONS = [
-  { value: "processed" as const, label: "Processed" },
-  { value: "original" as const, label: "Original" },
-];
 
 type LifecyclePhase = "pending" | "active" | "done" | "failed" | "skipped";
 
@@ -592,6 +594,7 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
       vttBlobUrl={vttBlobUrl}
       markers={markers}
       onTimeUpdate={onTimeUpdate}
+      className="rounded-none outline-none"
     />
   );
 });
@@ -612,6 +615,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [resetDeleteFiles, setResetDeleteFiles] = useState(false);
   const [runConfigOpen, setRunConfigOpen] = useState(false);
   const [configEditOpen, setConfigEditOpen] = useState(false);
+  const [configEditFocus, setConfigEditFocus] = useState<"upload" | undefined>(undefined);
+  const [configOpen, setConfigOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [mediaDownloadError, setMediaDownloadError] = useState<string | null>(null);
   const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
@@ -842,12 +847,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     return metadataConfig?.description_template ?? null;
   }, [hasMetadataTemplates, savedDescription, metadataConfig?.description_template]);
 
-  const titleTemplateSource = useMemo(() => {
-    if (!hasMetadataTemplates) return null;
-    if (savedDescription) return null;
-    return metadataConfig?.title_template ?? null;
-  }, [hasMetadataTemplates, savedDescription, metadataConfig?.title_template]);
-
   const { data: queriedDescription, isLoading: descriptionQueryLoading } = useQuery({
     queryKey: ["recording", id, "rendered-description", descriptionTemplateSource],
     queryFn: async () => {
@@ -860,20 +859,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     staleTime: 60_000,
   });
 
-  const { data: queriedTitle, isLoading: titleQueryLoading } = useQuery({
-    queryKey: ["recording", id, "rendered-title", titleTemplateSource],
-    queryFn: async () => {
-      const res = await apiClient.post(`/recordings/${id}/topics/render`, {
-        template: titleTemplateSource!,
-      });
-      return (res.data as { rendered: string }).rendered;
-    },
-    enabled: Boolean(titleTemplateSource),
-    staleTime: 60_000,
-  });
-
   const displayDescription = directDescription ?? queriedDescription ?? null;
-  const descriptionLoading = descriptionQueryLoading || titleQueryLoading;
+  const descriptionLoading = descriptionQueryLoading;
 
   const handleTimeUpdate = useCallback((ct: number) => {
     const idx = topicTimestamps.findLastIndex((t) => t.start <= ct);
@@ -892,9 +879,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       (videoTabChoice === "original" && hasOriginalVid))
       ? videoTabChoice
       : defaultVideoTab;
-
-  // AI content (topics, summary, questions) is tied to the processed video timeline.
-  const showTopics = !!activeTopicVersion && videoTab === "processed";
 
   const isActing = run.isPending || pause.isPending || deleteRec.isPending || resetRec.isPending || restoreRec.isPending;
   const isSoftDeleted = !!recording?.soft_deleted_at;
@@ -1136,80 +1120,76 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         {/* ════ MAIN COLUMN ════ */}
         <div className={DETAIL_MAIN}>
 
-          {/* Video */}
-          <SectionCard title={RECORDING_SECTION.video} density="compact">
-            {!hasVideoFiles ? (
-              <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl bg-muted">
-                <VideoOff size={22} className="text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Video not available yet</p>
-              </div>
-            ) : hasProcessedVid && hasOriginalVid ? (
-              <div className="space-y-4">
-                <SegmentedField
-                  label="Video source"
-                  labelHidden
-                  options={VIDEO_VARIANT_OPTIONS}
-                  value={videoTab}
-                  onChange={setVideoTabChoice}
-                />
-                {videoPlayerNode}
-              </div>
-            ) : (
-              videoPlayerNode
-            )}
-          </SectionCard>
-
-          {/* Chapters & summary — the generated content is what the page is for,
-              so it sits directly under the player, ahead of the description.
-              Open by default: the chapter list is the page's most useful
-              control, and the player's chapter-following writes into refs that
-              only exist while this card is expanded. */}
-          {showTopics && activeTopicVersion && (
-            <CollapsibleCard title={RECORDING_SECTION.chapters} defaultOpen>
-              <AIContentEditor
-                recordingId={Number(id)}
-                version={activeTopicVersion}
-                onUpdated={() => {
-                  qc.invalidateQueries({ queryKey: ["recording", id] });
-                }}
-                onSeek={(t) => {
-                  if (videoRef.current) {
-                    videoRef.current.currentTime = t;
-                    videoRef.current.play().catch(() => {});
-                  }
-                }}
-                activeChapterIdx={activeChapterIdx}
-              />
-            </CollapsibleCard>
-          )}
-
-          {/* Overview. The subtitle carries only the rendered upload title:
-              falling back to display_name would just repeat the <h1> above. */}
-          {(displayDescription || queriedTitle || descriptionLoading) && (
-            <CollapsibleCard
-              title={RECORDING_SECTION.description}
-              subtitle={queriedTitle && queriedTitle !== recording.display_name ? queriedTitle : undefined}
-              open={!descCollapsed}
-              onOpenChange={(open) => setDescCollapsed(!open)}
-              action={
-                !descCollapsed && !descEditing && !descriptionLoading ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const raw = activeTopicVersion?.description
-                        ?? recordingConfig?.metadata_config?.description_template
-                        ?? displayDescription
-                        ?? "";
-                      setDescDraft(raw);
-                      setDescIsTemplate(raw.includes("{{"));
-                      setDescEditing(true);
-                    }}
-                    className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-                  >
-                    <Pencil size={11} /> Edit
-                  </button>
+          {/* Video + chapters */}
+          {!hasVideoFiles ? (
+            <WatchStage
+              player={
+                <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-muted">
+                  <VideoOff size={22} className="text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Video not available yet</p>
+                </div>
+              }
+            />
+          ) : (
+            <WatchStage
+              player={videoPlayerNode}
+              toolbar={
+                hasProcessedVid && hasOriginalVid ? (
+                  <div className="space-y-1.5">
+                    <VideoVariantSwitch value={videoTab} onChange={setVideoTabChoice} />
+                    {videoTab === "original" && !!activeTopicVersion && (
+                      <p className="text-xs text-muted-foreground">
+                        Chapters follow the edited video.
+                      </p>
+                    )}
+                  </div>
                 ) : undefined
               }
+              below={
+                activeTopicVersion ? (
+                  <CollapsibleCard
+                    title="Chapters, summary & questions"
+                    badge={
+                      activeTopicVersion.manually_edited ? (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary">
+                          Edited
+                        </span>
+                      ) : undefined
+                    }
+                  >
+                    <AIContentEditor
+                      recordingId={Number(id)}
+                      version={activeTopicVersion}
+                      onUpdated={() => {
+                        qc.invalidateQueries({ queryKey: ["recording", id] });
+                      }}
+                      onSeek={(t) => {
+                        if (videoRef.current) {
+                          videoRef.current.currentTime = t;
+                          videoRef.current.play().catch(() => {});
+                        }
+                      }}
+                      getCurrentTime={() => videoRef.current?.currentTime ?? 0}
+                      getDuration={() => {
+                        const fromPlayer = videoRef.current?.duration;
+                        if (fromPlayer && Number.isFinite(fromPlayer) && fromPlayer > 0) return fromPlayer;
+                        return recording.duration ?? 0;
+                      }}
+                      activeChapterIdx={activeChapterIdx}
+                      sections={["topics", "chapters", "summary", "questions"]}
+                    />
+                  </CollapsibleCard>
+                ) : undefined
+              }
+            />
+          )}
+
+          {/* Created Overview is the rendered description, not the video title. */}
+          {(displayDescription || descriptionLoading) && (
+            <CollapsibleCard
+              title={RECORDING_SECTION.description}
+              open={!descCollapsed}
+              onOpenChange={(open) => setDescCollapsed(!open)}
             >
               {descriptionLoading ? (
                 <div className="space-y-2">
@@ -1293,10 +1273,30 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   </div>
                 </div>
               ) : (
-                <FormattedText
-                  text={displayDescription ?? ""}
-                  className="max-w-prose text-sm leading-relaxed text-foreground"
-                />
+                <div className="group relative">
+                  <div className="min-w-0 rounded-lg px-2 py-1.5 -mx-2 transition-colors hover:bg-muted/40">
+                    <FormattedText
+                      text={displayDescription ?? ""}
+                      className="max-w-prose text-sm leading-relaxed text-foreground pe-10"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Edit overview"
+                    onClick={() => {
+                      const raw = activeTopicVersion?.description
+                        ?? recordingConfig?.metadata_config?.description_template
+                        ?? displayDescription
+                        ?? "";
+                      setDescDraft(raw);
+                      setDescIsTemplate(raw.includes("{{"));
+                      setDescEditing(true);
+                    }}
+                    className="absolute right-0 top-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus-visible:opacity-100"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </div>
               )}
             </CollapsibleCard>
           )}
@@ -1304,7 +1304,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           {/* Config (collapsible) */}
           <CollapsibleCard
             title={RECORDING_SECTION.configuration}
-            defaultOpen={false}
+            open={configOpen}
+            onOpenChange={setConfigOpen}
             badge={
               recordingConfig?.has_manual_override ? (
                 <span className="rounded-full bg-warning-fg/10 px-2 py-0.5 text-[11px] font-semibold text-warning-fg">
@@ -1584,11 +1585,6 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               ) : undefined
             }
           >
-            {recording.outputs.length === 0 && (
-              <p className="mb-2 text-xs text-muted-foreground">
-                No platforms configured. Add presets and run the recording.
-              </p>
-            )}
             <div className="space-y-4">
               <div className="min-w-0 rounded-xl border border-primary/20 bg-primary/[0.04] px-3">
                 <SharePublicationRow
@@ -1610,6 +1606,19 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   }}
                 />
               </div>
+              {recording.outputs.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfigOpen(true);
+                    setConfigEditFocus("upload");
+                    setConfigEditOpen(true);
+                  }}
+                  className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-border px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                >
+                  <Plus size={12} /> Add platform
+                </button>
+              )}
               {recording.outputs.length > 0 && (
                 <div>
                   <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1634,12 +1643,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
           {/* Files — also shown when only source companions survive, e.g. after a
               reset removed the video, so those files stay reachable. */}
           {(artefacts.length > 0 || sourceExtras.length > 0) && (
-            <CollapsibleCard title={RECORDING_SECTION.files} defaultOpen={false}>
-              {hasVideoFiles && (
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Processed is the pipeline output; original is the source file as ingested.
-                </p>
-              )}
+            <CollapsibleCard title={RECORDING_SECTION.files}>
               {mediaDownloadError && (
                 <div role="alert" className="mb-2 rounded-lg border border-danger-fg/20 bg-danger-fg/10 px-3 py-2 text-xs text-danger-fg">
                   {mediaDownloadError}
@@ -1731,11 +1735,15 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
 
       <RunConfigModal
         open={configEditOpen}
-        onClose={() => setConfigEditOpen(false)}
+        onClose={() => {
+          setConfigEditOpen(false);
+          setConfigEditFocus(undefined);
+        }}
         mode="single"
         submitMode="save"
         recordingId={Number(id)}
         recordingName={recording.display_name}
+        focusSection={configEditFocus}
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ["recording", id] });
           qc.invalidateQueries({ queryKey: ["recording-config", Number(id)] });
@@ -1875,22 +1883,9 @@ function RecordingDetailSkeleton() {
 
       <div className={cn(DETAIL_COLUMNS, "pointer-events-none")}>
         <div className={DETAIL_MAIN}>
-          <SectionCard title={RECORDING_SECTION.video} density="compact">
-            <Skeleton className="aspect-video w-full rounded-xl" />
-          </SectionCard>
-
-          <CollapsibleCard title={RECORDING_SECTION.chapters} open>
-            <div className="space-y-3">
-              <Skeleton className="h-3 w-2/5" />
-              <Skeleton className="h-3 w-full" />
-              <Skeleton className="h-3 w-4/5" />
-              <div className="space-y-2 pt-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-8 w-full rounded-lg" />
-                ))}
-              </div>
-            </div>
-          </CollapsibleCard>
+          <WatchStage
+            player={<Skeleton className="aspect-video w-full" />}
+          />
 
           <CollapsibleCard title={RECORDING_SECTION.description} open={false}>
             <div className="space-y-2">

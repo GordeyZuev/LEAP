@@ -105,8 +105,8 @@ export function TranscriptPanel({
   if (cues.length === 0) return null;
 
   return (
-    <div className="space-y-3">
-      <div className="relative">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="relative shrink-0">
         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input
           type="search"
@@ -114,7 +114,7 @@ export function TranscriptPanel({
           placeholder="Search transcript…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full rounded-xl border border-input bg-card py-2 pl-8 pr-8 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+          className="w-full rounded-xl border border-input bg-background py-2 pl-8 pr-8 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
         />
         {query && (
           <button
@@ -129,14 +129,14 @@ export function TranscriptPanel({
       </div>
 
       {query.trim() && (
-        <p role="status" className="text-xs text-muted-foreground">
+        <p role="status" className="shrink-0 text-xs text-muted-foreground">
           {filtered.length === 0
             ? `No lines match “${query.trim()}”.`
             : `${filtered.length} of ${cues.length} lines match “${query.trim()}”.`}
         </p>
       )}
 
-      <div ref={listRef} className={cn("max-h-[28rem] overflow-y-auto", listClassName)}>
+      <div ref={listRef} className={cn("min-h-0 flex-1 overflow-y-auto", listClassName)}>
         {filtered.map(({ cue, i }) => {
           const isActive = i === activeIdx && !query.trim();
           return (

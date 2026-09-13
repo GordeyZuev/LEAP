@@ -85,6 +85,7 @@ interface OverviewStats {
 // ---------------------------------------------------------------------------
 
 const PAGE_SIZE = 50;
+const EMPTY_USERS: AdminUserProfile[] = [];
 
 type AdminUserSortField =
   | "email"
@@ -355,7 +356,7 @@ function AdminDashboard() {
 
   const ov = overviewQuery.data;
   const plans = plansQuery.data ?? [];
-  const users = usersQuery.data?.users ?? [];
+  const users = usersQuery.data?.users ?? EMPTY_USERS;
   const total = usersQuery.data?.total_count ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 

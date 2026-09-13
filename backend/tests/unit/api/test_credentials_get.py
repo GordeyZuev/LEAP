@@ -15,6 +15,7 @@ def _make_mock_credential(**kwargs):
         "platform": "youtube",
         "account_name": "test@example.com",
         "is_active": True,
+        "needs_reauth": False,
         "last_used_at": None,
         "created_at": datetime.now(UTC),
         "updated_at": datetime.now(UTC),
@@ -114,6 +115,26 @@ class TestListCredentials:
         data = response.json()
         assert data["total"] == 2
         assert {item["platform"] for item in data["items"]} == {"youtube", "zoom"}
+
+    def test_list_credentials_filtered_by_needs_reauth(self, client, mocker, mock_user):  # noqa: ARG002
+        """The app shell banner asks only for credentials the platform rejected."""
+        mock_repo = mocker.patch("api.routers.credentials.UserCredentialRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.find_by_user = AsyncMock(
+            return_value=[
+                _make_mock_credential(id=1, platform="youtube", needs_reauth=False),
+                _make_mock_credential(id=2, platform="zoom", needs_reauth=True),
+            ]
+        )
+        mock_repo.return_value = mock_repo_instance
+
+        response = client.get("/api/v1/credentials/?needs_reauth=true")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["items"][0]["platform"] == "zoom"
+        assert data["items"][0]["needs_reauth"] is True
 
     def test_list_credentials_search_matches_account_name(self, client, mocker, mock_user):  # noqa: ARG002
         """Search runs over the whole result set, not just the current page."""

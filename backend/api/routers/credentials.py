@@ -72,6 +72,10 @@ async def list_credentials(
     ),
     search: str | None = Query(None, description="Search substring in account name or platform (case-insensitive)"),
     is_active: bool | None = Query(None, description="Filter by active flag (true/false/omitted=all)"),
+    needs_reauth: bool | None = Query(
+        None,
+        description="Filter by whether the platform rejected the credentials (true/false/omitted=all)",
+    ),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     sort_by: str = Query("created_at", description="Sort field"),
@@ -89,6 +93,8 @@ async def list_credentials(
         credentials = [c for c in credentials if str(c.platform).lower() in wanted]
     if is_active is not None:
         credentials = [c for c in credentials if bool(c.is_active) is is_active]
+    if needs_reauth is not None:
+        credentials = [c for c in credentials if bool(c.needs_reauth) is needs_reauth]
     credentials = filter_by_search(credentials, search, CREDENTIAL_SEARCH_FIELDS)
 
     items, total, total_pages = paginate_list(

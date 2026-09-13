@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
 /**
  * Page size for a list, remembered per list in localStorage.
@@ -10,19 +10,9 @@ import { useCallback, useState } from "react";
  * the grid/table toggle lives) rather than in a shareable link.
  */
 export function usePageSize(storageKey: string, options: number[], fallback: number) {
-  const [perPage, setPerPageState] = useState<number>(() => {
-    if (typeof window === "undefined") return fallback;
-    const stored = Number(localStorage.getItem(storageKey));
-    return options.includes(stored) ? stored : fallback;
+  const [perPage, setPerPage] = useLocalStorageState(storageKey, fallback, (raw) => {
+    const stored = Number(raw);
+    return options.includes(stored) ? stored : undefined;
   });
-
-  const setPerPage = useCallback(
-    (next: number) => {
-      setPerPageState(next);
-      localStorage.setItem(storageKey, String(next));
-    },
-    [storageKey],
-  );
-
   return { perPage, setPerPage };
 }

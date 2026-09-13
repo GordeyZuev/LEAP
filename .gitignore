@@ -109,6 +109,7 @@ backend/docs/hidden/*
 VKR/
 
 # --- Local-only personal files (do not commit) ---
+leap-test-114/
 .cursor/
 dubl.tex
 finalplan.md

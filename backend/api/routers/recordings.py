@@ -1259,9 +1259,6 @@ async def add_video_by_url(
         template = await template_repo.find_by_id(data.template_id, ctx.user_id)
         if template:
             await template_repo.increment_usage(template)
-            from api.services.playlist_service import add_from_bound_template
-
-            await add_from_bound_template(ctx.session, ctx.user_id, recording)
 
     await ctx.session.commit()
 
@@ -1358,11 +1355,6 @@ async def add_playlist_by_url(
                 created_count += 1
             else:
                 updated_count += 1
-
-            if data.template_id:
-                from api.services.playlist_service import add_from_bound_template
-
-                await add_from_bound_template(ctx.session, ctx.user_id, recording)
 
             created_recordings.append(
                 {
@@ -1498,13 +1490,6 @@ async def bulk_run_recordings(
                 if recording.status == ProcessingStatus.SKIPPED:
                     recording.status = ProcessingStatus.INITIALIZED
                 await template_repo.increment_usage(template)
-                from api.services.playlist_service import add_from_bound_template
-
-                await add_from_bound_template(ctx.session, ctx.user_id, recording)
-
-            from api.services.playlist_service import add_from_output_override
-
-            await add_from_output_override(ctx.session, ctx.user_id, recording, data.output_config)
 
             # Smart run: determine action by current status
             result = await _execute_smart_run(
@@ -2392,16 +2377,6 @@ async def run_recording(
 
         await ctx.session.commit()
         logger.info(f"Bound template | {format_details(template=config.template_id, rec=recording_id)}")
-        from api.services.playlist_service import add_from_bound_template
-
-        await add_from_bound_template(ctx.session, ctx.user_id, recording)
-        await ctx.session.commit()
-
-    from api.services.playlist_service import add_from_output_override
-
-    await add_from_output_override(ctx.session, ctx.user_id, recording, config.output_config)
-    if config.output_config and config.output_config.get("playlist_ids"):
-        await ctx.session.commit()
 
     manual_override = _build_override_from_flexible(config)
 
@@ -2646,9 +2621,15 @@ async def _execute_smart_run(
         except _CONFIG_RESOLUTION_HTTP_ERRORS as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
-        if output_config and output_config.get("preset_ids"):
+        if output_config:
             include_copy = bool(output_config.get("auto_upload"))
-            await ensure_output_targets(ctx.session, recording, output_config, include_copy=include_copy)
+            await ensure_output_targets(
+                ctx.session,
+                recording,
+                output_config,
+                include_copy=include_copy,
+                metadata_config=full_config.get("metadata_config"),
+            )
             await ctx.session.commit()
 
         # Reload to pick up freshly created targets
@@ -3382,7 +3363,13 @@ async def reset_recording(
         recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
         if recording.source and isinstance(recording.source.meta, dict):
             meta = dict(recording.source.meta)
-            for key in ("conversion_id", "conversion_state", "conversion_progress", "mts_prepare_checked_at"):
+            for key in (
+                "conversion_id",
+                "conversion_state",
+                "conversion_progress",
+                "conversion_ordered_view",
+                "mts_prepare_checked_at",
+            ):
                 meta.pop(key, None)
             meta["needs_mp4"] = True
             recording.source.meta = meta
@@ -3460,9 +3447,6 @@ async def bind_template_to_recording(
     if recording.status == ProcessingStatus.SKIPPED:
         recording.status = ProcessingStatus.INITIALIZED
 
-    from api.services.playlist_service import add_from_bound_template
-
-    await add_from_bound_template(ctx.session, ctx.user_id, recording)
     await ctx.session.commit()
 
     logger.info(

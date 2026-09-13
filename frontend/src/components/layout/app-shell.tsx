@@ -8,6 +8,8 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Footer } from "@/components/layout/footer";
 import { Logo } from "@/components/layout/logo";
 import { ReleaseNotesGate } from "@/components/layout/release-notes-gate";
+import { CredentialReauthBanner } from "@/components/layout/credential-reauth-banner";
+import { navigationMenuAriaLabel, useCredentialsNeedingReauth } from "@/hooks/use-credentials-reauth";
 
 function PathKeyedMain({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -31,6 +33,8 @@ export function AppShell({
   isAdmin?: boolean;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const { data: reauthData } = useCredentialsNeedingReauth();
+  const reauthCount = reauthData?.total ?? 0;
 
   return (
     <div className="flex h-full">
@@ -48,10 +52,16 @@ export function AppShell({
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
-            aria-label="Open navigation menu"
-            className="pressable rounded-lg p-1.5 text-secondary-foreground hover:bg-muted hover:text-foreground"
+            aria-label={navigationMenuAriaLabel(reauthCount)}
+            className="pressable relative rounded-lg p-1.5 text-secondary-foreground hover:bg-muted hover:text-foreground"
           >
             <Menu size={22} />
+            {reauthCount > 0 && (
+              <span
+                className="pointer-events-none absolute right-1 top-1 size-2 rounded-full bg-amber-500"
+                aria-hidden
+              />
+            )}
           </button>
           <Link href="/recordings" aria-label="LEAP — recordings" className="flex items-center gap-2">
             <Logo size={20} />
@@ -60,6 +70,9 @@ export function AppShell({
         </header>
         <main className="flex-1 overflow-auto bg-background">
           <div className="flex min-h-full flex-col">
+            <Suspense fallback={null}>
+              <CredentialReauthBanner />
+            </Suspense>
             <Suspense fallback={<div className="flex-1">{children}</div>}>
               <PathKeyedMain>{children}</PathKeyedMain>
             </Suspense>

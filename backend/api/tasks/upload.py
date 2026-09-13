@@ -424,14 +424,18 @@ async def _async_upload_recording(
             from api.services.leap_publish import (
                 active_leap_from_presets,
                 leap_meta_from_preset,
+                merge_leap_metadata,
                 publish_leap_recording,
             )
-            from api.services.merger import deep_merge
 
             skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
             if skip_reason:
                 logger.info(f"Skipped: {skip_reason.lower()}")
                 return _upload_skip_result(output_target, skip_reason)
+
+            if recording.blank_record:
+                logger.info("Skipped: blank record")
+                return {"success": True, "skipped": True, "reason": "Blank recording"}
 
             if not recording.processed_video_path:
                 raise ResourceNotFoundError("processed video", recording_id)
@@ -439,21 +443,18 @@ async def _async_upload_recording(
             _full, output_config, recording = await resolve_full_config(
                 session, recording_id, user_id, include_output_config=True
             )
-            leap_meta: dict = {}
             pid = preset_id or output_target.preset_id
+            leap_meta: dict = {}
             if pid:
                 presets = await OutputPresetRepository(session).find_by_ids([pid], user_id)
                 leap = active_leap_from_presets(presets) if presets else None
                 if leap:
                     leap_meta = leap_meta_from_preset(leap)
-            overlay = (_full.get("metadata_config") or {}).get("leap")
-            extra = metadata_override.get("leap") if isinstance(metadata_override, dict) else None
-            if isinstance(overlay, dict) and isinstance(extra, dict):
-                overlay = deep_merge(overlay, extra, skip_none=True)
-            elif isinstance(extra, dict):
-                overlay = extra
-            if isinstance(overlay, dict) and overlay:
-                leap_meta = deep_merge(leap_meta, overlay, skip_none=True)
+            leap_meta = merge_leap_metadata(
+                leap_meta,
+                metadata_config=_full.get("metadata_config"),
+                metadata_override=metadata_override,
+            )
 
             result = await publish_leap_recording(
                 session,

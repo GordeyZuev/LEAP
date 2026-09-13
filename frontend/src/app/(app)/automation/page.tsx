@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { Suspense, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Play, CheckCircle2, XCircle, Zap } from "lucide-react";
-import { cn, extractApiError } from "@/lib/utils";
+import { Plus, Play, Zap } from "lucide-react";
+import { cn, extractApiError, formatDateTimeShort } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { useUrlListState } from "@/hooks/use-url-list-state";
@@ -51,24 +51,23 @@ interface AutomationJobListResponse {
 const SORT_OPTIONS = [
   { value: "name",        label: "Name" },
   { value: "last_run_at", label: "Last run" },
-  { value: "next_run_at", label: "Next run" },
+  { value: "next_run_at", label: "Schedule" },
   { value: "run_count",   label: "Run count" },
   { value: "created_at",  label: "Created" },
 ];
 
 const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  const isCurrentYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleString("ru-RU", {
-    day: "numeric",
-    month: "short",
-    ...(isCurrentYear ? {} : { year: "numeric" }),
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function runCountLabel(count: number): string {
+  return count === 1 ? "1 run" : `${count} runs`;
+}
+
+function jobMetaLine(job: AutomationJob): string {
+  const parts = [
+    job.run_count > 0 ? runCountLabel(job.run_count) : null,
+    job.description?.trim() || null,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function AutomationContent() {
@@ -181,38 +180,37 @@ function AutomationContent() {
 
       <ResultCount total={data?.total} itemLabel="job" filtered={list.hasActiveFilters} />
 
-      {/* Table */}
+      {/* Table — four columns, same density as Templates, so the card does not
+          force a wide min-width and a horizontal scroll on a typical laptop. */}
       <div className={TABLE_CARD}>
-        <table className="w-full min-w-[760px]">
+        <table className="w-full min-w-[640px]">
           <thead>
             <tr className="border-b border-border">
-              <SortableTh sticky className="px-6 py-3" label="Job" field="name" {...sortProps} />
-              <SortableTh sticky className="px-6 py-3" label="Last run" field="last_run_at" {...sortProps} />
-              <SortableTh sticky className="px-6 py-3" label="Next run" field="next_run_at" {...sortProps} />
-              <SortableTh sticky className="px-6 py-3" label="Runs" field="run_count" {...sortProps} />
-              <SortableTh sticky className="px-6 py-3" label="Status" />
-              <SortableTh sticky className="px-6 py-3 text-right" label="Actions" />
+              <SortableTh label="Job" field="name" {...sortProps} />
+              <SortableTh label="Schedule" field="next_run_at" {...sortProps} />
+              <SortableTh label="Status" />
+              <SortableTh className="text-right" label="Actions" />
             </tr>
           </thead>
           <tbody className={TABLE_BODY}>
-            {showSkeleton && <TableRowsSkeleton rows={5} cols={6} />}
+            {showSkeleton && <TableRowsSkeleton rows={5} cols={4} />}
             {error && (
               <tr>
-                <td colSpan={6} className="p-0">
+                <td colSpan={4} className="p-0">
                   <ErrorState description="Failed to load jobs" onRetry={() => refetch()} />
                 </td>
               </tr>
             )}
             {!showSkeleton && !error && jobs.length === 0 && list.hasActiveFilters && (
               <tr>
-                <td colSpan={6} className="p-0">
+                <td colSpan={4} className="p-0">
                   <EmptyState icon={Zap} title="No jobs match your filters" description="Try adjusting or clearing the filters above." />
                 </td>
               </tr>
             )}
             {!showSkeleton && !error && jobs.length === 0 && !list.hasActiveFilters && (
               <tr>
-                <td colSpan={6} className="p-0">
+                <td colSpan={4} className="p-0">
                   <EmptyState
                     icon={Zap}
                     title="No automation jobs yet"
@@ -224,7 +222,9 @@ function AutomationContent() {
                 </td>
               </tr>
             )}
-            {jobs.map((job) => (
+            {jobs.map((job) => {
+              const meta = jobMetaLine(job);
+              return (
               <tr key={job.id} className={TABLE_ROW}>
                 <td className="px-6 py-4">
                   <Link
@@ -233,21 +233,31 @@ function AutomationContent() {
                   >
                     {job.name}
                   </Link>
-                  {job.description && (
-                    <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">{job.description}</p>
+                  {meta && (
+                    <p className="mt-0.5 max-w-xs truncate text-xs text-muted-foreground">
+                      {meta}
+                    </p>
                   )}
                 </td>
-                <td className="px-6 py-4 text-sm text-muted-foreground">{formatDate(job.last_run_at)}</td>
-                <td className="px-6 py-4 text-sm text-secondary-foreground font-medium">{formatDate(job.next_run_at)}</td>
-                <td className="px-6 py-4 text-sm text-muted-foreground">{job.run_count}</td>
+                <td className="whitespace-nowrap px-6 py-4">
+                  <p className="text-sm font-medium text-secondary-foreground">
+                    {formatDateTimeShort(job.next_run_at)}
+                  </p>
+                  {job.last_run_at && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Last {formatDateTimeShort(job.last_run_at)}
+                    </p>
+                  )}
+                </td>
                 <td className="px-6 py-4">
                   <span
                     className={cn(
-                      "inline-flex items-center gap-1.5 text-sm",
-                      job.is_active ? "text-green-600" : "text-muted-foreground"
+                      "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+                      job.is_active
+                        ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
+                        : "bg-muted text-muted-foreground",
                     )}
                   >
-                    {job.is_active ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
                     {job.is_active ? "Active" : "Inactive"}
                   </span>
                 </td>
@@ -269,7 +279,8 @@ function AutomationContent() {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -4,7 +4,20 @@ import { use, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Eye, Copy, Trash2, RefreshCw, Users, X, MoreHorizontal, Layers } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  Eye,
+  Copy,
+  Trash2,
+  RefreshCw,
+  Users,
+  X,
+  MoreHorizontal,
+  Layers,
+  Download,
+  FileJson,
+} from "lucide-react";
 import { apiClient } from "@/api/client";
 import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
@@ -54,7 +67,6 @@ import {
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { Field } from "@/components/ui/field";
 import { ChecklistPicker } from "@/components/ui/checklist-picker";
-import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import {
   filterLeapPresets,
@@ -63,6 +75,8 @@ import {
 } from "@/components/platforms/leap-config-section";
 import { usePresetDetails } from "@/hooks/use-preset-details";
 import { OutputSettingsFields } from "@/components/platforms/output-settings-fields";
+import { TemplateJsonModal } from "@/components/templates/template-json-modal";
+import { downloadBundle, formatReplaceEditorJson, slugifyFilename, type TemplateBundle } from "@/lib/template-bundle";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -235,6 +249,9 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [matchPreviewOpen, setMatchPreviewOpen] = useState(false);
   const [matchPreviewData, setMatchPreviewData] = useState<MatchPreviewResponse | null>(null);
   const [matchPreviewLoading, setMatchPreviewLoading] = useState(false);
+  const [jsonModalOpen, setJsonModalOpen] = useState(false);
+  const [jsonModalInitial, setJsonModalInitial] = useState("");
+  const [jsonModalMode, setJsonModalMode] = useState<"import" | "edit">("edit");
 
   const { data: existing } = useQuery({
     queryKey: ["template", id],
@@ -454,6 +471,32 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       setMatchPreviewOpen(false);
     } finally {
       setMatchPreviewLoading(false);
+    }
+  }
+
+  async function handleDownloadJson() {
+    setHeaderMenuOpen(false);
+    try {
+      const res = await apiClient.get<TemplateBundle>(`/templates/export?ids=${id}`);
+      const name = slugifyFilename(existing?.name ?? "template");
+      downloadBundle(`${name}-template.json`, res.data);
+    } catch {
+      showToast("error", "Failed to export JSON");
+    }
+  }
+
+  async function handleOpenEditJson() {
+    setHeaderMenuOpen(false);
+    if (isDirty && !window.confirm("Unsaved form changes will be discarded when JSON is saved. Open editor anyway?")) {
+      return;
+    }
+    try {
+      const res = await apiClient.get<TemplateBundle>(`/templates/export?ids=${id}`);
+      setJsonModalInitial(formatReplaceEditorJson(res.data));
+      setJsonModalMode("edit");
+      setJsonModalOpen(true);
+    } catch {
+      showToast("error", "Failed to load template JSON");
     }
   }
 
@@ -687,6 +730,16 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                     setPromoteMode("instant");
                     setConfirmPromote(true);
                   }}
+                />
+                <TemplateHeaderMenuItem
+                  icon={Download}
+                  label="Download JSON config"
+                  onClick={() => void handleDownloadJson()}
+                />
+                <TemplateHeaderMenuItem
+                  icon={FileJson}
+                  label="Edit JSON config…"
+                  onClick={() => void handleOpenEditJson()}
                 />
                 <TemplateHeaderMenuItem
                   icon={Users}
@@ -1222,6 +1275,22 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             </div>
           </div>
       </Modal>
+
+      {!isNew && (
+        <TemplateJsonModal
+          open={jsonModalOpen}
+          onClose={() => setJsonModalOpen(false)}
+          mode={jsonModalMode}
+          initialText={jsonModalInitial}
+          templateId={Number(id)}
+          downloadBasename={slugifyFilename(existing?.name ?? "template")}
+          onReplaceSuccess={() => {
+            showToast("success", "Template updated from JSON");
+            qc.invalidateQueries({ queryKey: ["template", id] });
+            qc.invalidateQueries({ queryKey: ["templates"] });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -70,8 +70,8 @@ export function LeapConfigFields({
   const hasLeapPresets = leapPresets.length > 0;
   const playlistHint =
     variant === "template"
-      ? "Adds recordings to these LEAP playlists. Leave empty to use the preset’s playlists."
-      : "Replaces template playlists when LEAP output is overridden.";
+      ? "After processing, adds recordings to these LEAP courses. Leave empty to use the preset’s playlists."
+      : "After processing, replaces template courses when LEAP output is overridden.";
 
   const presetHint =
     !hasLeapPresets

@@ -17,11 +17,15 @@ from api.schemas.template import (
     MatchingRules,
     MetadataRenderPreviewResponse,
     RecordingTemplateCreate,
+    RecordingTemplateReplace,
     RecordingTemplateResponse,
     RecordingTemplateUpdate,
+    TemplateBundleExport,
+    TemplateImportResult,
     TemplateListResponse,
     TemplateRenderPreviewRequest,
 )
+from api.schemas.template.bundle import TemplateImportWarningItem, ValidateReplaceResponse
 from api.schemas.template.from_recording import TemplateFromRecordingRequest
 from api.schemas.template.operations import (
     RematchTaskResponse,
@@ -29,6 +33,7 @@ from api.schemas.template.operations import (
     TemplatePreviewResponse,
     TemplateStatsResponse,
 )
+from api.schemas.template.validation import matching_rules_has_content
 from api.services.config_utils import InvalidOutputPresetsError, validate_effective_output_config
 from api.services.quota_service import QuotaService
 from logger import format_details, get_logger, short_task_id, short_user_id
@@ -213,6 +218,88 @@ async def preview_template_metadata_render(
         rendered_folder_path=rendered.get("folder_path"),
         rendered_filename=rendered.get("filename"),
     )
+
+
+def _parse_template_ids_param(ids: str) -> list[int]:
+    parts = [p.strip() for p in ids.split(",") if p.strip()]
+    if not parts:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ids query parameter is required")
+    parsed: list[int] = []
+    for part in parts:
+        try:
+            value = int(part)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid template id: {part}",
+            ) from exc
+        if value <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid template id: {part}",
+            )
+        parsed.append(value)
+    return list(dict.fromkeys(parsed))
+
+
+@router.get("/export", response_model=TemplateBundleExport, response_model_exclude_none=True)
+async def export_templates_bundle(
+    ids: str = Query(..., description="Comma-separated template ids"),
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Export one or more templates as a JSON bundle with reference hints."""
+    from api.services.template_bundle_service import TemplateBundleError, export_templates_bundle as build_export
+
+    template_ids = _parse_template_ids_param(ids)
+    try:
+        return await build_export(session, current_user.id, template_ids)
+    except TemplateBundleError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/import", response_model=TemplateImportResult)
+async def import_templates_bundle(
+    body: dict[str, Any] = Body(...),
+    dry_run: bool = Query(False, description="Validate only; do not persist"),
+    auto_rematch: bool = Query(False, description="Queue rematch for affected active templates after import"),
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Import a template JSON bundle (create or update by optional template id)."""
+    from api.services.template_bundle_service import import_templates_bundle as run_import
+
+    result = await run_import(session, current_user.id, body, dry_run=dry_run)
+    if not result.ok:
+        await session.rollback()
+        return result
+
+    if dry_run:
+        return result
+
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    if auto_rematch:
+        from api.tasks.template import rematch_recordings_task
+
+        repo = RecordingTemplateRepository(session)
+        rematch_ids: set[int] = set()
+        for entry in result.created + result.updated:
+            template = await repo.find_by_id(entry.id, current_user.id)
+            if template and template.is_active and not template.is_draft and not template.is_default:
+                rematch_ids.add(template.id)
+        for template_id in rematch_ids:
+            rematch_recordings_task.delay(
+                template_id=template_id,
+                user_id=current_user.id,
+                only_unmapped=True,
+            )
+
+    return result
 
 
 @router.post("", response_model=RecordingTemplateResponse, status_code=status.HTTP_201_CREATED)
@@ -451,6 +538,65 @@ async def get_template(
     return template
 
 
+@router.put("/{template_id}", response_model=RecordingTemplateResponse)
+async def replace_template_endpoint(
+    template_id: int,
+    data: RecordingTemplateReplace,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Replace template configuration in full (JSON editor)."""
+    from api.services.template_bundle_service import TemplateBundleError, replace_template
+
+    try:
+        template = await replace_template(session, current_user.id, template_id, data)
+    except TemplateBundleError as exc:
+        message = str(exc)
+        status_code = status.HTTP_409_CONFLICT if "already exists" in message else status.HTTP_422_UNPROCESSABLE_ENTITY
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
+    await session.commit()
+    await session.refresh(template)
+    return template
+
+
+@router.post("/{template_id}/validate-replace", response_model=ValidateReplaceResponse)
+async def validate_replace_template(
+    template_id: int,
+    data: RecordingTemplateReplace,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """Validate a full replace payload without saving."""
+    repo = RecordingTemplateRepository(session)
+    template = await repo.find_by_id(template_id, current_user.id)
+    if not template:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Template {template_id} not found")
+
+    errors: list[str] = []
+    if template.is_default and (data.is_active is False or data.is_draft is True):
+        errors.append("Cannot deactivate or draft the default (base) template")
+    if template.is_default and matching_rules_has_content(data.matching_rules):
+        errors.append("Default template cannot have matching rules")
+
+    try:
+        data.validate_business_rules(is_default=template.is_default)
+    except ValueError as exc:
+        errors.append(str(exc))
+
+    output_dump = data.output_config.model_dump(exclude_none=True) if data.output_config else None
+    try:
+        await validate_effective_output_config(session, current_user.id, output_dump or {})
+    except InvalidOutputPresetsError as exc:
+        errors.append(str(exc))
+
+    warnings = [
+        TemplateImportWarningItem(index=0, code=code, msg=msg)
+        for code, msg in data.warnings(is_default=template.is_default)
+    ]
+    return ValidateReplaceResponse(ok=len(errors) == 0, errors=errors, warnings=warnings)
+
+
 @router.patch("/{template_id}", response_model=RecordingTemplateResponse)
 async def update_template(
     template_id: int,
@@ -471,7 +617,7 @@ async def update_template(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot deactivate or draft the default (base) template",
             )
-        if data.matching_rules is not None:
+        if matching_rules_has_content(data.matching_rules):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Default template cannot have matching rules",

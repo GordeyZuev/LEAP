@@ -1,0 +1,35 @@
+{
+  "leap_template_bundle": 1,
+  "templates": [
+    {
+      "name": "Batch A draft",
+      "is_draft": true,
+      "is_active": false,
+      "matching_rules": {
+        "patterns": ["Course A.*group 1"]
+      },
+      "processing_config": {
+        "transcription": {
+          "language": "ru"
+        }
+      },
+      "metadata_config": null,
+      "output_config": null
+    },
+    {
+      "name": "Batch B draft",
+      "is_draft": true,
+      "is_active": false,
+      "matching_rules": {
+        "patterns": ["Course B.*group 2"]
+      },
+      "processing_config": {
+        "transcription": {
+          "language": "ru"
+        }
+      },
+      "metadata_config": null,
+      "output_config": null
+    }
+  ]
+}
