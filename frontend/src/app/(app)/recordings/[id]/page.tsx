@@ -112,6 +112,7 @@ interface TopicTimestamp {
   topic: string;
   start: number;
   end?: number;
+  type?: string;
 }
 
 interface TopicVersion {
@@ -667,12 +668,63 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       return res.data;
     },
     staleTime: 10_000,
+  });
+
+  interface PipelineStatusPayload {
+    id: number;
+    status: ProcessingStatus;
+    on_air: boolean;
+    on_pause: boolean;
+    failed: boolean;
+    failed_at_stage: string | null;
+    failed_reason: string | null;
+    processing_stages: RecordingDetail["processing_stages"];
+  }
+
+  const { data: pipelineStatus } = useQuery({
+    queryKey: ["recording-pipeline-status", id],
+    queryFn: async () => {
+      const res = await apiClient.get<PipelineStatusPayload>(`/recordings/${id}/pipeline-status`);
+      return res.data;
+    },
+    enabled: !!recording && needsActivePoll(recording),
     refetchInterval: (q) => {
-      const d = q.state.data;
-      return d && needsActivePoll(d) ? POLL_INTERVAL_DETAIL : false;
+      const snap = q.state.data;
+      const active = snap ? needsActivePoll(snap) : recording && needsActivePoll(recording);
+      return active ? POLL_INTERVAL_DETAIL : false;
     },
     refetchIntervalInBackground: false,
   });
+
+  const lastTopicsStageStatus = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!pipelineStatus) return;
+    qc.setQueryData<RecordingDetail>(["recording", id], (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        status: pipelineStatus.status,
+        on_air: pipelineStatus.on_air,
+        on_pause: pipelineStatus.on_pause,
+        failed: pipelineStatus.failed,
+        failed_at_stage: pipelineStatus.failed_at_stage,
+        failed_reason: pipelineStatus.failed_reason,
+        processing_stages: pipelineStatus.processing_stages,
+      };
+    });
+    const topicsStatus =
+      pipelineStatus.processing_stages.find((s) => normalizeStageType(s.stage_type) === "EXTRACT_TOPICS")?.status ??
+      null;
+    if (
+      topicsStatus &&
+      topicsStatus !== lastTopicsStageStatus.current &&
+      (topicsStatus === "COMPLETED" || topicsStatus === "FAILED")
+    ) {
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+    }
+    lastTopicsStageStatus.current = topicsStatus;
+  }, [pipelineStatus, id, qc]);
 
   useQuery({
     queryKey: ["recording-media", id, "processed"],
@@ -799,6 +851,15 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     },
   });
 
+  const retryTopics = useMutation({
+    mutationFn: () => apiClient.post(`/recordings/${id}/topics`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recording", id] });
+      showToast("success", "Topic extraction started");
+    },
+    onError: (e) => showToast("error", extractApiError(e, "Topic extraction failed")),
+  });
+
   useEffect(() => {
     if (!recording?.subtitles?.vtt?.exists) return;
     let cancelled = false;
@@ -831,6 +892,12 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     () => activeTopicVersion?.topic_timestamps ?? [],
     [activeTopicVersion]
   );
+
+  const topicsStage = recording?.processing_stages?.find(
+    (s) => normalizeStageType(s.stage_type) === "EXTRACT_TOPICS",
+  );
+  const topicsFailed = topicsStage?.status === "FAILED" || topicsStage?.failed;
+  const showRetryTopics = Boolean(topicsFailed || (recording?.topics?.exists && topicTimestamps.length === 0));
 
   const savedDescription = activeTopicVersion?.description;
   const directDescription =
@@ -1163,6 +1230,8 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       onUpdated={() => {
                         qc.invalidateQueries({ queryKey: ["recording", id] });
                       }}
+                      onRetryExtraction={() => retryTopics.mutate()}
+                      retryExtractionPending={retryTopics.isPending}
                       onSeek={(t) => {
                         if (videoRef.current) {
                           videoRef.current.currentTime = t;
@@ -1179,6 +1248,23 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       sections={["topics", "chapters", "summary", "questions"]}
                     />
                   </CollapsibleCard>
+                ) : showRetryTopics ? (
+                  <div className="rounded-2xl border border-border bg-card px-5 py-4 shadow-sm">
+                    <p className="mb-2 text-xs text-muted-foreground">No chapters yet. Retry extraction or add them.</p>
+                    <button
+                      type="button"
+                      onClick={() => retryTopics.mutate()}
+                      disabled={retryTopics.isPending}
+                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+                    >
+                      {retryTopics.isPending ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <RotateCcw size={12} />
+                      )}
+                      Retry topics
+                    </button>
+                  </div>
                 ) : undefined
               }
             />

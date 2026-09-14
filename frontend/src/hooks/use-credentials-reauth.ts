@@ -49,8 +49,8 @@ export function useCredentialsNeedingReauth() {
       );
       return res.data;
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
     enabled: isClient,
   });
 

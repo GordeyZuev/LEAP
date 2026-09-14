@@ -17,6 +17,53 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.10.9.1": {
+    title: "Faster lists, watch, Run, and reliable chapters",
+    highlights: [
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Public share and course watch reach video sooner: one player request can include play and subtitle URLs, with fewer round-trips before playback starts.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "The " },
+          { kind: "link", label: "Recordings", href: "/recordings" },
+          {
+            kind: "text",
+            value: " and Playlists lists load faster in the editor, including poster thumbnails on large catalogs.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Run queues the pipeline immediately instead of waiting on MTS Link inside the browser request. While a recording processes, the detail page polls a lightweight status endpoint.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "If chapter extraction comes back empty, the lecture is not marked done and is not sent to platforms. On the ",
+          },
+          { kind: "link", label: "recording", href: "/recordings" },
+          {
+            kind: "text",
+            value: " page you can retry topics; lecture breaks still show as their own chapter.",
+          },
+        ],
+      },
+    ],
+  },
   "0.10.9.0": {
     title: "Reconnect in time, watch one way, publish when ready",
     highlights: [

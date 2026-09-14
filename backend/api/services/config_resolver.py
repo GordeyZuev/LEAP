@@ -113,6 +113,7 @@ class ResolveContext:
     preview_template_id: int | None = None
     manual_override: dict[str, Any] | None = None
     include_layers: bool = False
+    user_config: dict[str, Any] | None = None
 
 
 class ConfigResolver:
@@ -127,7 +128,7 @@ class ConfigResolver:
     async def resolve(self, ctx: ResolveContext) -> ResolvedConfig:
         """Resolve processing, metadata, and output with unified merge order."""
         layers: list[ConfigLayer] = []
-        user_config = await self._get_user_config(ctx.user_id)
+        user_config = ctx.user_config if ctx.user_config is not None else await self._get_user_config(ctx.user_id)
 
         default_tpl = await self.template_repo.find_default_by_user(ctx.user_id)
         bound_tpl: RecordingTemplateModel | None = None

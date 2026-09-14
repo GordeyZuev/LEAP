@@ -28,7 +28,7 @@ def _tz_name(tz) -> str:
     return getattr(tz, "zone", None) or getattr(tz, "key", None) or str(tz)
 
 
-@classmethod  # type: ignore[misc]
+@classmethod
 def _patched_crontab_from_schedule(cls, session, schedule):
     # _orig_* are int in Celery 5.6+; DB columns are VARCHAR — cast to str.
     spec = {
@@ -88,12 +88,12 @@ def _event_changed(_mapper, connection, target) -> None:
         _update_changed_impl(connection)
 
 
-@classmethod  # type: ignore[misc]
+@classmethod
 def _patched_update_changed(_cls, _mapper, connection, _target) -> None:
     _update_changed_impl(connection)
 
 
-@classmethod  # type: ignore[misc]
+@classmethod
 def _patched_last_change(_cls, session):
     row = session.get(_csm_models.PeriodicTaskChanged, 1)
     return row.last_update if row else None
@@ -312,7 +312,7 @@ def task_postrun_handler(task_id, task, *, state, **_kwargs):
     try:
         client = _publish_redis()
         for queue in QUEUES_TRACKED:
-            client.zrem(f"{ENQUEUE_KEY_PREFIX}{queue}", task_id)
+            client.zrem(f"{ENQUEUE_KEY_PREFIX}{queue}", str(task_id))
     except Exception as err:
         logger.debug("Failed to clear enqueue time after task {}: {}", task_id, err)
 
@@ -365,6 +365,13 @@ def _publish_redis() -> redis.Redis:
     return _publish_redis_client
 
 
+@worker_process_init.connect
+def _reset_publish_redis(**_kwargs):
+    """Drop inherited Redis sockets after prefork (connections are not fork-safe)."""
+    global _publish_redis_client
+    _publish_redis_client = None
+
+
 @before_task_publish.connect
 def _record_enqueue_time(_sender=None, headers=None, properties=None, routing_key=None, **_kw):
     task_id = (headers or {}).get("id") or (properties or {}).get("correlation_id")
@@ -372,7 +379,7 @@ def _record_enqueue_time(_sender=None, headers=None, properties=None, routing_ke
         return
     queue = routing_key or "celery"
     try:
-        _publish_redis().zadd(f"{ENQUEUE_KEY_PREFIX}{queue}", {task_id: time.time()})
+        _publish_redis().zadd(f"{ENQUEUE_KEY_PREFIX}{queue}", {str(task_id): time.time()})
     except Exception as exc:
         logger.debug("Failed to record enqueue time for {}: {}", task_id, exc)
 
@@ -382,6 +389,6 @@ def _clear_enqueue_time(task_id, _task, *_args, **_kwargs):
     try:
         client = _publish_redis()
         for queue in QUEUES_TRACKED:
-            client.zrem(f"{ENQUEUE_KEY_PREFIX}{queue}", task_id)
+            client.zrem(f"{ENQUEUE_KEY_PREFIX}{queue}", str(task_id))
     except Exception as exc:
         logger.debug("Failed to clear enqueue time for {}: {}", task_id, exc)

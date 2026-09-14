@@ -1,3 +1,78 @@
+## v0.10.9.1 (2026-09-15)
+
+Релиз: **производительность API и публичного просмотра** — быстрее списки и watch, Run не блокируется на MTS Link в HTTP. **Главы лекции** — пустой ответ модели больше не считается успехом и не уводит запись на выгрузку; на карточке можно заново запросить темы. Подробности — секции **2026-09-14: API latency** и **2026-09-15: DeepSeek topics**.
+
+### Smoke / verify (после деплоя)
+
+1. **CI:** `cd backend && make lint && make typecheck && make tests-mock`; `cd frontend && pnpm lint && pnpm exec tsc --noEmit`.
+2. **Контракт API (unit):** `pytest tests/unit/api/test_latency_api_contract.py -q`.
+3. **Редактор:** `GET /api/v1/recordings?compact=true` — в items пустой `processing_stages`; при активном пайплайне `GET /recordings/{id}/pipeline-status` обновляет статус без `detailed=true` каждые 3s.
+4. **Share / курс:** `GET /share/{token}?view=player` и `GET /share/p/{token}/items/{id}?view=player` — в ответе `play_url` и `vtt_url`; воспроизведение без лишнего `GET …/media`; `GET …/files/vtt?inline=true` → **302** на S3.
+5. **Run (MTS):** `POST /recordings/{id}/run` отвечает быстро с `task_id`; prepare MTS — в worker (`celery-async.log`, секция `mts_prepare` в метриках).
+6. **Grafana:** панель **4xx errors by route**; p95 per-route не упирается в bucket 10s на `/run` и тяжёлых list/share.
+7. **Главы:** `pytest tests/unit/deepseek_module/test_topic_extractor.py -q`. На карточке записи без глав — **Retry topics**; после успеха Theme / Chapters / Questions заполняются без ручного reload. Пустой ответ модели → стейдж Topics **FAILED**, выгрузка не стартует. Если в env задан `DEEPSEEK_TIMEOUT`, он должен быть не меньше 900.
+
+---
+
+## 2026-09-15: DeepSeek topics — fail-loud + JSON Output
+
+- **Пустой extract больше не COMPLETED** — timeout/пустой `content`/`choices`, битый JSON и 0 глав поднимают ошибку, стейдж `EXTRACT_TOPICS` падает, пайплайн не идёт в upload. Celery ретраит (кроме 401/402).
+- **JSON Output** — `response_format: json_object`, модель по умолчанию `deepseek-flash`, thinking disabled, `user_id` = `user_slug`. Смысловые правила глав (факты, терминология, merge похожих, длительность, чеклист) сохранены; из промпта убран только markdown-контракт для regex.
+- **Паузы** — детект по `TOPIC_MIN_PAUSE_MINUTES` в Python: массив `pauses` и глава `type=pause` (Перерыв/Break), не через промпт.
+- **Retry** — `POST /topics` и bulk всегда `force=True`; granularity из конфига записи, если не передан override. В редакторе кнопка **Retry topics**. После COMPLETED/FAILED стейджа детальная страница заново грузит `extracted.json`.
+- **Клиент** — `DEEPSEEK_TIMEOUT` по умолчанию 900s (лимит старта очереди DeepSeek 900s; меньше — ранний abort и повторный запрос в ту же очередь).
+
+### Files
+
+- `backend/deepseek_module/topic_extractor.py`, `prompts.py`, `config.py`
+- `backend/api/tasks/processing.py`, `backend/api/routers/recordings.py`
+- `backend/api/schemas/recording/request.py`, `backend/config/settings.py`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`, `frontend/src/components/recordings/ai-content-editor.tsx`
+- `frontend/src/content/release-notes.ts`
+- `README.md`, `backend/docs/UPDATES.md`, `backend/docs/TECHNICAL.md`
+- `backend/tests/unit/deepseek_module/test_topic_extractor.py`
+- `backend/pyproject.toml` (`error-on-warning = false` — `ty check` still runs; warn-level rules no longer fail CI)
+- `backend/api/celery_app.py` (unused `type: ignore[misc]` on classmethods)
+- `backend/api/observability/metrics.py` (`ty` `not-iterable` on Redis list/zrange)
+
+---
+
+## 2026-09-14: API latency — share player, list posters, run dispatch
+
+- **Posters** — `GET /recordings` and public playlist share no longer call `ConfigResolver.resolve_metadata_config` per row when `publication_looks` already supplies `thumbnail_name`; thumbnail HEAD lookups are memoized per request.
+- **Share watch** — `GET /share/.../items/{id}?view=player` returns `play_url` / `vtt_url` (presigned); inline subtitle/files routes redirect to S3 instead of proxying bytes; playlist page hydrates React Query from server metadata fetch. Player view still lists artifact files and `source_extras` (skips only heavy description/extracted paths).
+- **Media** — presigned video URLs skip redundant S3 `exists` when the storage key is already set; S3 client reuse within `shared_operations()` scopes.
+- **Editor** — `GET /recordings?compact=true` omits per-stage pipeline arrays from list items; `GET /recordings/{id}/pipeline-status` for lightweight polling; credentials reauth poll interval 5m.
+- **Run** — `POST /recordings/{id}/run` no longer blocks on MTS Link prepare in HTTP (worker-only, same as Celery entry).
+- **Playlists** — owner list uses SQL pagination instead of loading all playlists into memory.
+- **Observability** — HTTP histogram buckets extended past 10s; `leap_handler_section_duration_seconds`; Grafana panel for 4xx by route.
+
+### Files
+
+- `backend/api/routers/recordings.py`, `backend/api/routers/share.py`, `backend/api/routers/playlists.py`
+- `backend/api/repositories/playlist_repo.py`, `backend/file_storage/backends/s3.py`
+- `backend/api/observability/metrics.py`, `monitoring/dashboards/leap_api.json`
+- `frontend/src/api/share.ts`, `frontend/src/app/share/**`, `frontend/src/app/(app)/recordings/**`
+- `backend/tests/unit/api/test_poster_urls_batch.py`
+- `backend/tests/unit/api/test_latency_api_contract.py`
+
+---
+
+## 2026-09-14: Queue age tracker ignores Beat leftovers
+
+- **Oldest task age** — Grafana `leap_queue_oldest_task_age_seconds` no longer treats Redis `leap:enq:*` leftovers as a live backlog. Beat (DatabaseScheduler) can record a task id that the worker never executes; scrape now drops members that are not in the broker list (after a 30s publish race window) in addition to the 7-day cap. Prefork workers reset the enqueue Redis client after fork.
+- **Ops** — empty `maintenance` / `celery` lists with a 7-day red line were tracker ghosts (`cleanup_recording_files` still succeeds). After deploy, the panel goes to 0 on the next `/metrics` scrape; no Redis `DEL` required.
+
+### Files
+
+- `backend/api/observability/metrics.py`
+- `backend/api/celery_app.py`
+- `backend/tests/unit/api/observability/test_queue_age.py`
+- `backend/docs/guides/MONITORING.md`
+- `monitoring/dashboards/leap_celery.json`
+
+---
+
 ## v0.10.9.0 (2026-09-13)
 
 Релиз: **креденшелы** — баннер и жёлтая метка на Credentials, когда платформа отвергла ключ (`needs_reauth`). **Просмотр** — один плеер на share, плейлисте и записи (главы рядом с картинкой, Wide Screen без морфинга рельса, Edited/Original, Theme, Created Overview, правка карандашом на записи). **Автоматизации** — таблица как у Templates. **Share** — Summary & questions и Files открыты сразу. Списки Recordings читают grid/table после mount (без рассинхрона SSR). **LEAP courses** — membership и share после обработки (см. **2026-09-13: LEAP playlist publish deferred**). Подробности — секции **2026-09-11** – **2026-09-13**.

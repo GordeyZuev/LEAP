@@ -7,6 +7,7 @@ from api.observability.metrics import (
     share_downloads_total,
     share_page_views_total,
     track_external_api,
+    track_handler_section,
     track_pipeline_stage,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "share_downloads_total",
     "share_page_views_total",
     "track_external_api",
+    "track_handler_section",
     "track_pipeline_stage",
 ]

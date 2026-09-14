@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Check, X, Plus, Code2, Loader2, Pencil, Search } from "lucide-react";
+import { Check, X, Plus, Code2, Loader2, Pencil, Search, RotateCcw } from "lucide-react";
 import { cn, scrollIntoViewWithin } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -16,6 +16,7 @@ export interface TopicTimestamp {
   topic: string;
   start: number;
   end?: number;
+  type?: string;
 }
 
 export interface TopicVersion {
@@ -40,6 +41,9 @@ interface AIContentEditorProps {
   /** Playback length in seconds; new chapter times must be inside (0, duration). */
   getDuration?: () => number;
   activeChapterIdx?: number;
+  /** Owner editor: re-run DeepSeek when extraction failed or returned no chapters. */
+  onRetryExtraction?: () => void;
+  retryExtractionPending?: boolean;
   readOnly?: boolean;
   /** When set, only these blocks render. Omit for the full editor layout. */
   sections?: AIContentSection[];
@@ -309,6 +313,8 @@ export function AIContentEditor({
   sections,
   chaptersListClassName,
   embeddedInPanel = false,
+  onRetryExtraction,
+  retryExtractionPending = false,
 }: AIContentEditorProps) {
   const canEdit = !readOnly;
 
@@ -604,6 +610,27 @@ export function AIContentEditor({
   return (
     <>
     <div className={cn("space-y-4", embeddedInPanel && "flex min-h-0 flex-1 flex-col space-y-0")}>
+
+      {canEdit && !hasChapters && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <p>No chapters yet. Retry extraction or add them.</p>
+          {onRetryExtraction ? (
+            <button
+              type="button"
+              onClick={onRetryExtraction}
+              disabled={retryExtractionPending}
+              className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 font-medium text-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+            >
+              {retryExtractionPending ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <RotateCcw size={12} />
+              )}
+              Retry topics
+            </button>
+          ) : null}
+        </div>
+      )}
 
       {showTopicHeaderBlock && (
         <div>

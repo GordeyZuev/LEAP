@@ -198,13 +198,18 @@ async def resolve_full_config(
                 f"Recording is bound to template {recording.template_id} but template not found"
             )
 
-    resolver = ConfigResolver(session)
-    resolved = await resolver.resolve(
-        ResolveContext(user_id=user_id, recording=recording, manual_override=manual_override)
-    )
-
     user_config_repo = UserConfigRepository(session)
     user_config = await user_config_repo.get_effective_config(user_id)
+
+    resolver = ConfigResolver(session)
+    resolved = await resolver.resolve(
+        ResolveContext(
+            user_id=user_id,
+            recording=recording,
+            manual_override=manual_override,
+            user_config=user_config,
+        )
+    )
 
     import copy
 

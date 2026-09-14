@@ -1,7 +1,11 @@
 """S3-compatible object storage backend (AWS S3, Yandex Object Storage, MinIO)."""
 
+import contextlib
+import contextvars
 import mimetypes
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import aioboto3
 from botocore.exceptions import ClientError
@@ -10,6 +14,8 @@ from file_storage.backends.base import StorageBackend
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+_shared_s3_client: contextvars.ContextVar[Any | None] = contextvars.ContextVar("shared_s3_client", default=None)
 
 
 def _upload_extra_args(path: str) -> dict[str, str]:
@@ -59,15 +65,38 @@ class S3StorageBackend(StorageBackend):
         """Return an async S3 client context manager."""
         return self._session.client("s3", endpoint_url=self.endpoint_url)
 
+    @contextlib.asynccontextmanager
+    async def shared_operations(self) -> AsyncIterator[None]:
+        """Reuse one S3 client for nested storage calls within a request handler."""
+        existing = _shared_s3_client.get()
+        if existing is not None:
+            yield
+            return
+        async with self._client() as s3:
+            token = _shared_s3_client.set(s3)
+            try:
+                yield
+            finally:
+                _shared_s3_client.reset(token)
+
+    @contextlib.asynccontextmanager
+    async def _open_client(self) -> AsyncIterator[Any]:
+        shared = _shared_s3_client.get()
+        if shared is not None:
+            yield shared
+            return
+        async with self._client() as s3:
+            yield s3
+
     async def save(self, path: str, content: bytes) -> str:
         key = self._key(path)
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             await s3.put_object(Bucket=self.bucket, Key=key, Body=content, **_upload_extra_args(path))
         return path
 
     async def load(self, path: str) -> bytes:
         key = self._key(path)
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             try:
                 response = await s3.get_object(Bucket=self.bucket, Key=key)
             except ClientError as e:
@@ -78,7 +107,7 @@ class S3StorageBackend(StorageBackend):
 
     async def delete(self, path: str) -> bool:
         key = self._key(path)
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             # Check existence first so we return False for missing keys.
             try:
                 await s3.head_object(Bucket=self.bucket, Key=key)
@@ -91,7 +120,7 @@ class S3StorageBackend(StorageBackend):
 
     async def exists(self, path: str) -> bool:
         key = self._key(path)
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             try:
                 await s3.head_object(Bucket=self.bucket, Key=key)
                 return True
@@ -102,7 +131,7 @@ class S3StorageBackend(StorageBackend):
 
     async def get_size(self, path: str) -> int:
         key = self._key(path)
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             try:
                 response = await s3.head_object(Bucket=self.bucket, Key=key)
             except ClientError as e:
@@ -114,7 +143,7 @@ class S3StorageBackend(StorageBackend):
     async def save_file(self, path: str, local_path: Path) -> str:
         """Upload a local file using multipart (automatic for large files)."""
         key = self._key(path)
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             extra_args = _upload_extra_args(path)
             kwargs = {"ExtraArgs": extra_args} if extra_args else {}
             await s3.upload_file(str(local_path), self.bucket, key, **kwargs)
@@ -124,7 +153,7 @@ class S3StorageBackend(StorageBackend):
         """Download via streaming multipart download."""
         key = self._key(path)
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             try:
                 await s3.download_file(self.bucket, key, str(local_path))
             except ClientError as e:
@@ -132,13 +161,22 @@ class S3StorageBackend(StorageBackend):
                     raise FileNotFoundError(f"S3 key not found: {key}") from e
                 raise
 
-    async def presigned_url(self, path: str, expires_in: int = 3600, *, download_filename: str | None = None) -> str:
+    async def presigned_url(
+        self,
+        path: str,
+        expires_in: int = 3600,
+        *,
+        download_filename: str | None = None,
+        inline: bool = False,
+    ) -> str:
         """Generate a time-limited GET URL for direct browser access."""
         key = self._key(path)
         params: dict = {"Bucket": self.bucket, "Key": key}
         if download_filename:
             params["ResponseContentDisposition"] = f'attachment; filename="{download_filename}"'
-        async with self._client() as s3:
+        elif inline:
+            params["ResponseContentDisposition"] = "inline"
+        async with self._open_client() as s3:
             return await s3.generate_presigned_url(
                 "get_object",
                 Params=params,
@@ -154,7 +192,7 @@ class S3StorageBackend(StorageBackend):
         """
         if not paths:
             return []
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             return [
                 await s3.generate_presigned_url(
                     "get_object",
@@ -170,7 +208,7 @@ class S3StorageBackend(StorageBackend):
         keys: list[str] = []
         prefix_strip = f"{self.prefix}/" if self.prefix else ""
 
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             continuation_token: str | None = None
             while True:
                 params = {"Bucket": self.bucket, "Prefix": full_prefix}
@@ -195,7 +233,7 @@ class S3StorageBackend(StorageBackend):
         """
         full_prefix = self._key(prefix)
         total = 0
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             continuation_token: str | None = None
             while True:
                 params: dict = {"Bucket": self.bucket, "Prefix": full_prefix}
@@ -211,5 +249,5 @@ class S3StorageBackend(StorageBackend):
 
     async def health_check(self) -> None:
         """Verify the bucket is reachable. head_bucket = single HEAD request."""
-        async with self._client() as s3:
+        async with self._open_client() as s3:
             await s3.head_bucket(Bucket=self.bucket)

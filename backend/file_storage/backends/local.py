@@ -107,13 +107,20 @@ class LocalStorageBackend(StorageBackend):
         local_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(full_path), str(local_path))
 
-    async def presigned_url(self, path: str, expires_in: int = 3600, *, download_filename: str | None = None) -> str:  # noqa: ARG002
+    async def presigned_url(
+        self,
+        path: str,
+        expires_in: int = 3600,
+        *,
+        download_filename: str | None = None,
+        inline: bool = False,
+    ) -> str:
         """For LOCAL backend, return a backend-served streaming endpoint URL.
 
-        ``expires_in`` is unused for the local case — the endpoint enforces
-        access via the regular auth dependencies. Kept for interface parity
-        with the S3 backend so callers can use the same code path.
+        ``expires_in``, ``download_filename``, and ``inline`` are unused locally —
+        kept for interface parity with the S3 backend.
         """
+        _ = (expires_in, download_filename, inline)
         return f"/api/v1/storage/stream?key={path}"
 
     async def list_keys(self, prefix: str) -> list[str]:

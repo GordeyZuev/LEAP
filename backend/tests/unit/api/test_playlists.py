@@ -196,8 +196,8 @@ class TestPlaylistOwnerApi:
         pl = _playlist(name="Algorp", token=token, enabled=True)
         pl.id = 3
         mocker.patch(
-            "api.services.playlist_service.PlaylistRepository.list_by_user",
-            new=AsyncMock(return_value=[pl]),
+            "api.services.playlist_service.PlaylistRepository.list_page",
+            new=AsyncMock(return_value=([pl], 1)),
         )
         response = client.get("/api/v1/playlists")
         assert response.status_code == 200
@@ -217,6 +217,28 @@ def _storage_ok(mocker) -> None:
 
 @pytest.mark.unit
 class TestShareDownloadFlags:
+    def test_share_file_inline_redirects_to_presigned(self, client, mocker) -> None:
+        from contextlib import asynccontextmanager
+
+        rec = create_mock_recording(record_id=8, processed_video_path="k.mp4")
+        rec.owner = MagicMock(user_slug=1)
+        mocker.patch("api.routers.share._get_recording_by_share_token", new=AsyncMock(return_value=rec))
+        storage = MagicMock()
+
+        @asynccontextmanager
+        async def _shared():
+            yield
+
+        storage.shared_operations = _shared
+        storage.presigned_url = AsyncMock(return_value="https://cdn.example/sub.vtt")
+        mocker.patch("file_storage.factory.get_storage_backend", return_value=storage)
+        response = client.get(f"/api/v1/share/{uuid.uuid4()}/files/vtt?inline=true", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["location"] == "https://cdn.example/sub.vtt"
+        storage.presigned_url.assert_awaited_once()
+        call_kwargs = storage.presigned_url.await_args.kwargs
+        assert call_kwargs.get("inline") is True
+
     def test_recording_media_play_200_when_download_off(self, client, mocker) -> None:
         rec = create_mock_recording(record_id=8, processed_video_path="k.mp4", allow_video_download=False)
         rec.local_video_path = None

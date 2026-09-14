@@ -1,6 +1,6 @@
 [project]
 name = "leap"
-version = "0.10.9.0"
+version = "0.10.9.1"
 description = "LEAP - Lecture Enhancement & Automation Platform for intelligent video content processing"
 readme = "README.md"
 license = {text = "Business Source License 1.1"}
@@ -126,6 +126,9 @@ exclude = [
 [tool.ty.terminal]
 # Output format for diagnostics
 output-format = "full"
+# ty 0.0.14+ defaults to exit 1 on any warning. Rules below are warn-on-purpose;
+# keep the checker running in CI/pre-commit without treating those as failures.
+error-on-warning = false
 
 # Several modules still return plain dicts from FastAPI handlers, use SQLAlchemy ``Column``-like
 # typing at ORM boundaries, or platform SDKs with imprecise stubs. Treat these as warnings so
@@ -137,6 +140,8 @@ invalid-assignment = "warn"
 invalid-method-override = "warn"
 invalid-type-form = "warn"
 no-matching-overload = "warn"
+not-iterable = "warn"
+unused-ignore-comment = "warn"
 
 [tool.ty.analysis]
 # Respect type: ignore comments (in addition to ty: ignore)

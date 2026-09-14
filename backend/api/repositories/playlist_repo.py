@@ -46,6 +46,36 @@ class PlaylistRepository:
         )
         return list(result.scalars().unique().all())
 
+    async def list_page(
+        self,
+        user_id: str,
+        *,
+        q: str | None,
+        page: int,
+        per_page: int,
+        sort_by: str = "updated_at",
+        sort_order: str = "desc",
+    ) -> tuple[list[PlaylistModel], int]:
+        """Paginated playlists for a user (SQL offset/limit)."""
+        base = select(PlaylistModel).where(PlaylistModel.user_id == user_id)
+        if q and q.strip():
+            base = base.where(PlaylistModel.name.ilike(f"%{q.strip()}%"))
+
+        count_stmt = select(func.count()).select_from(base.subquery())
+        total = int((await self.session.execute(count_stmt)).scalar_one())
+
+        order_col = getattr(PlaylistModel, sort_by, PlaylistModel.updated_at)
+        order = order_col.desc() if sort_order == "desc" else order_col.asc()
+        offset = (page - 1) * per_page
+        data_stmt = (
+            base.options(selectinload(PlaylistModel.items).selectinload(PlaylistItemModel.recording))
+            .order_by(order)
+            .offset(offset)
+            .limit(per_page)
+        )
+        result = await self.session.execute(data_stmt)
+        return list(result.scalars().unique().all()), total
+
     async def count_by_user(self, user_id: str) -> int:
         result = await self.session.execute(
             select(func.count()).select_from(PlaylistModel).where(PlaylistModel.user_id == user_id)

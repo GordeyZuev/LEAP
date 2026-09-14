@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import cast
 
 import redis
 from fastapi import FastAPI
@@ -62,11 +64,80 @@ share_downloads_total = Counter(
     labelnames=("artifact_type",),
 )
 
+# Hot-path sections inside handlers (poster batching, share item build, MTS prepare).
+handler_section_duration_seconds = Histogram(
+    "leap_handler_section_duration_seconds",
+    "Time spent in named handler subsections.",
+    labelnames=("section",),
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+
 _QUEUES_TRACKED = ("downloads", "uploads", "async_operations", "processing_cpu", "maintenance", "celery")
 QUEUES_TRACKED = _QUEUES_TRACKED
 ENQUEUE_KEY_PREFIX = "leap:enq:"
 # Drop tracker members older than this — leftover ZSET rows, not a live backlog.
 _STALE_ENQUEUE_SECONDS = 7 * 24 * 3600
+# Beat/worker task-id mismatch leaves ZSET rows after the broker message is gone.
+# Keep very new members (publish vs LLEN race); drop the rest if they are not pending.
+_ORPHAN_ENQUEUE_SECONDS = 30
+_BROKER_SCAN_LIMIT = 500
+
+
+def _task_id_from_broker_payload(raw: object) -> str | None:
+    """Extract a Celery task id from a Redis-broker list payload."""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    headers = payload.get("headers")
+    if isinstance(headers, dict) and headers.get("id"):
+        return str(headers["id"])
+    properties = payload.get("properties")
+    if isinstance(properties, dict) and properties.get("correlation_id"):
+        return str(properties["correlation_id"])
+    return None
+
+
+def prune_enqueue_tracker(client: redis.Redis, queue: str, now: float) -> float:
+    """Drop tracker leftovers and return the oldest still-pending age in seconds.
+
+    Beat can zadd a task id that the worker never sees (DatabaseScheduler vs the
+    executed id). Those rows are not in the broker list. Members younger than
+    `_ORPHAN_ENQUEUE_SECONDS` are kept so a scrape between zadd and LPUSH is not
+    dropped. When the list has messages we cannot parse, the ZSET is left as-is.
+    """
+    key = f"{ENQUEUE_KEY_PREFIX}{queue}"
+    client.zremrangebyscore(key, 0, now - _STALE_ENQUEUE_SECONDS)
+
+    # redis-py types Redis commands as sync | Awaitable; this collector is sync-only.
+    llen = int(cast("int", client.llen(queue)) or 0)
+    pending_ids: set[str] = set()
+    if llen:
+        raw_items = cast("list[object]", client.lrange(queue, 0, min(llen, _BROKER_SCAN_LIMIT) - 1) or [])
+        for raw in raw_items:
+            task_id = _task_id_from_broker_payload(raw)
+            if task_id:
+                pending_ids.add(task_id)
+
+    members = cast("list[tuple[object, float]]", client.zrange(key, 0, -1, withscores=True) or [])
+    for member, score in members:
+        member_s = str(member)
+        age = now - float(score)
+        if age < _ORPHAN_ENQUEUE_SECONDS:
+            continue
+        if llen == 0 or (pending_ids and member_s not in pending_ids):
+            client.zrem(key, member)
+
+    oldest = cast("list[tuple[object, float]]", client.zrange(key, 0, 0, withscores=True) or [])
+    if not oldest:
+        return 0.0
+    return max(0.0, now - float(oldest[0][1]))
 
 
 class _QueueAgeCollector:
@@ -95,11 +166,7 @@ class _QueueAgeCollector:
             client = self._redis()
             now = time.time()
             for queue in _QUEUES_TRACKED:
-                key = f"{ENQUEUE_KEY_PREFIX}{queue}"
-                client.zremrangebyscore(key, 0, now - _STALE_ENQUEUE_SECONDS)
-                oldest = client.zrange(key, 0, 0, withscores=True)
-                age = max(0.0, now - oldest[0][1]) if oldest else 0.0  # type: ignore[index]
-                gauge.add_metric([queue], age)
+                gauge.add_metric([queue], prune_enqueue_tracker(client, queue, now))
         except Exception as exc:
             logger.warning("Queue age collector failed: {}", exc)
         yield gauge
@@ -125,6 +192,16 @@ def track_pipeline_stage(stage: str, platform: str = "n/a") -> Iterator[None]:
     finally:
         elapsed = time.perf_counter() - start
         pipeline_stage_duration_seconds.labels(stage=stage, platform=platform, status=status).observe(elapsed)
+
+
+@contextmanager
+def track_handler_section(section: str) -> Iterator[None]:
+    """Time a subsection of a request handler (for latency breakdown in Grafana)."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        handler_section_duration_seconds.labels(section=section).observe(time.perf_counter() - start)
 
 
 @contextmanager
@@ -192,8 +269,8 @@ def setup_prometheus(app: FastAPI, *, enabled: bool) -> None:
     instrumentator.add(
         metrics.default(
             metric_namespace="leap",
-            latency_lowr_buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
-            latency_highr_buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0),
+            latency_lowr_buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+            latency_highr_buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
         )
     )
     instrumentator.add(metrics.request_size(metric_namespace="leap"))

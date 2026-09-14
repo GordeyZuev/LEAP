@@ -290,6 +290,7 @@ function RecordingsPagedResults({
       p.set("per_page", String(perPage));
       p.set("sort_by", sortBy);
       p.set("sort_order", sortOrder);
+      p.set("compact", "true");
       const res = await apiClient.get<RecordingListResponse>(`/recordings?${p.toString()}`);
       return res.data;
     },
@@ -848,19 +849,21 @@ function RecordingsContent() {
 
   // --- Reference data ---
   const { data: templatesData } = useQuery<TemplateListResponse>({
-    queryKey: ["templates-dropdown"],
+    queryKey: ["templates", "", PER_PAGE_LARGE],
     queryFn: async () => {
       const res = await apiClient.get<TemplateListResponse>(`/templates?per_page=${PER_PAGE_LARGE}`);
       return res.data;
     },
+    staleTime: STALE_TIME.catalog,
   });
 
   const { data: sourcesData } = useQuery<SourceListResponse>({
-    queryKey: ["sources-dropdown"],
+    queryKey: ["sources", ""],
     queryFn: async () => {
       const res = await apiClient.get<SourceListResponse>(`/sources?per_page=${PER_PAGE_LARGE}`);
       return res.data;
     },
+    staleTime: STALE_TIME.catalog,
   });
 
   const templateOptions = useMemo<FilterMultiSelectOption[]>(

@@ -1,6 +1,8 @@
 """Abstract storage backend interface"""
 
+import contextlib
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import aiofiles
@@ -52,13 +54,21 @@ class StorageBackend(ABC):
         async with aiofiles.open(local_path, "wb") as f:
             await f.write(content)
 
-    async def presigned_url(self, path: str, expires_in: int = 3600, *, download_filename: str | None = None) -> str:
+    async def presigned_url(
+        self,
+        path: str,
+        expires_in: int = 3600,
+        *,
+        download_filename: str | None = None,
+        inline: bool = False,
+    ) -> str:
         """Generate a time-limited URL for direct client access.
 
         S3 backends return a real presigned URL. LOCAL backend returns an internal
         backend-served URL (frontend code stays identical).
         ``download_filename``: if set, the URL forces a file download with that name
         (sets ResponseContentDisposition=attachment on S3; ignored for local).
+        ``inline``: when true, S3 sets Content-Disposition inline (e.g. VTT in player).
         """
         raise NotImplementedError("This backend does not support presigned URLs")
 
@@ -97,6 +107,11 @@ class StorageBackend(ABC):
     async def health_check(self) -> None:
         """Verify the backend is reachable. Raises on failure."""
         raise NotImplementedError("This backend does not implement health_check")
+
+    @contextlib.asynccontextmanager
+    async def shared_operations(self) -> AsyncIterator[None]:
+        """Optional scope to reuse one connection for nested storage calls."""
+        yield
 
 
 class StorageQuotaExceededError(Exception):

@@ -595,10 +595,56 @@
     },
     {
       "type": "row",
-      "title": "5xx",
+      "title": "4xx",
       "gridPos": {
         "x": 0,
         "y": 24,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "4xx errors by route",
+      "description": "Client errors (404 share/media, auth, validation). Investigate before tuning latency.",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (handler) (rate(leap_http_requests_total{status=~\"4..\"}[$__rate_interval]))",
+          "legendFormat": "{{handler}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "5xx",
+      "gridPos": {
+        "x": 0,
+        "y": 33,
         "w": 24,
         "h": 1
       },
@@ -611,7 +657,7 @@
       "description": "HTTP 5xx only. Pipeline / Celery errors are on LEAP Errors & Logs. Empty means no server HTTP errors.",
       "gridPos": {
         "x": 0,
-        "y": 25,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -654,7 +700,7 @@
       "description": "HTTP access log lines with status 5xx. Empty is healthy. Application ERROR logs are on the Errors dashboard.",
       "gridPos": {
         "x": 12,
-        "y": 25,
+        "y": 34,
         "w": 12,
         "h": 8
       },

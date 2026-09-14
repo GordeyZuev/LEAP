@@ -80,6 +80,7 @@ from api.schemas.recording.response import (
     ProcessingStageResponse,
     RecordingListItem,
     RecordingListResponse,
+    RecordingPipelineStatusResponse,
     SourceResponse,
 )
 from api.schemas.source_extras import SourceExtrasResponse
@@ -198,6 +199,8 @@ async def _poster_urls(
     Uses configured thumbnail from resolved metadata when the file exists;
     otherwise falls back to the lazy ``poster.jpg`` frame extract.
     """
+    from api.helpers.leap_publication import publication_looks_for_recordings
+    from api.observability import track_handler_section
     from api.services.config_resolver import ConfigResolver, extract_thumbnail_name_from_metadata
     from config.settings import get_settings
     from database.auth_models import UserModel
@@ -207,65 +210,83 @@ async def _poster_urls(
     if not recordings:
         return {}
 
-    slug_row = await session.execute(select(UserModel.user_slug).where(UserModel.id == user_id))
-    raw_slug = slug_row.scalar_one_or_none()
-    user_slug = raw_slug if isinstance(raw_slug, int) else None
+    with track_handler_section("poster_urls"):
+        slug_row = await session.execute(select(UserModel.user_slug).where(UserModel.id == user_id))
+        raw_slug = slug_row.scalar_one_or_none()
+        user_slug = raw_slug if isinstance(raw_slug, int) else None
 
-    config_resolver = ConfigResolver(session)
-    thumbnail_manager = get_thumbnail_manager()
-    # (recording_id, storage_key, source, is_fallback_for_same_recording)
-    pairs: list[tuple[int, str, Literal["thumbnail", "frame"], bool]] = []
+        if looks is None:
+            looks = await publication_looks_for_recordings(session, user_id, recordings)
 
-    for recording in recordings:
-        metadata = await config_resolver.resolve_metadata_config(recording, user_id)
-        look_thumb = None
-        if looks and recording.id in looks:
-            look_thumb = getattr(looks[recording.id], "thumbnail_name", None)
-        thumbnail_name = look_thumb or extract_thumbnail_name_from_metadata(metadata)
-        poster_key = _recording_poster_storage_key(recording, user_slug)
+        config_resolver = ConfigResolver(session)
+        thumbnail_manager = get_thumbnail_manager()
+        thumb_key_cache: dict[tuple[int, str], str | None] = {}
 
-        if thumbnail_name and user_slug is not None:
-            thumb_key = await thumbnail_manager.get_thumbnail_key(
-                user_slug=user_slug,
-                thumbnail_name=thumbnail_name,
-                fallback_to_template=True,
+        async def cached_thumbnail_key(name: str) -> str | None:
+            if user_slug is None:
+                return None
+            cache_key = (user_slug, name)
+            if cache_key not in thumb_key_cache:
+                thumb_key_cache[cache_key] = await thumbnail_manager.get_thumbnail_key(
+                    user_slug=user_slug,
+                    thumbnail_name=name,
+                    fallback_to_template=True,
+                )
+            return thumb_key_cache[cache_key]
+
+        # (recording_id, storage_key, source, is_fallback_for_same_recording)
+        pairs: list[tuple[int, str, Literal["thumbnail", "frame"], bool]] = []
+
+        for recording in recordings:
+            look_thumb = None
+            if looks and recording.id in looks:
+                look_thumb = getattr(looks[recording.id], "thumbnail_name", None)
+            thumbnail_name = look_thumb
+            if not thumbnail_name:
+                metadata = await config_resolver.resolve_metadata_config(recording, user_id)
+                thumbnail_name = extract_thumbnail_name_from_metadata(metadata)
+            poster_key = _recording_poster_storage_key(recording, user_slug)
+
+            if thumbnail_name and user_slug is not None:
+                thumb_key = await cached_thumbnail_key(thumbnail_name)
+                if thumb_key:
+                    pairs.append((recording.id, thumb_key, "thumbnail", False))
+                    if poster_key:
+                        pairs.append((recording.id, poster_key, "frame", True))
+                    continue
+
+            if poster_key:
+                pairs.append((recording.id, poster_key, "frame", False))
+
+        if not pairs:
+            return {}
+
+        storage = get_storage_backend()
+        async with storage.shared_operations():
+            urls = await storage.presigned_urls(
+                [key for _, key, _, _ in pairs],
+                expires_in=get_settings().storage.s3_presign_expires,
             )
-            if thumb_key:
-                pairs.append((recording.id, thumb_key, "thumbnail", False))
-                if poster_key:
-                    pairs.append((recording.id, poster_key, "frame", True))
-                continue
 
-        if poster_key:
-            pairs.append((recording.id, poster_key, "frame", False))
+        previews: dict[int, _PosterPreview] = {}
+        fallback_urls: dict[int, str] = {}
+        primary_keys: dict[int, str] = {}
+        fallback_keys: dict[int, str] = {}
+        for (rid, key, source, is_fallback), url in zip(pairs, urls, strict=True):
+            if is_fallback:
+                fallback_urls[rid] = url
+                fallback_keys[rid] = key
+            else:
+                previews[rid] = _PosterPreview(url=url, source=source)
+                primary_keys[rid] = key
 
-    if not pairs:
-        return {}
-
-    urls = await get_storage_backend().presigned_urls(
-        [key for _, key, _, _ in pairs],
-        expires_in=get_settings().storage.s3_presign_expires,
-    )
-
-    previews: dict[int, _PosterPreview] = {}
-    fallback_urls: dict[int, str] = {}
-    primary_keys: dict[int, str] = {}
-    fallback_keys: dict[int, str] = {}
-    for (rid, key, source, is_fallback), url in zip(pairs, urls, strict=True):
-        if is_fallback:
-            fallback_urls[rid] = url
-            fallback_keys[rid] = key
-        else:
-            previews[rid] = _PosterPreview(url=url, source=source)
-            primary_keys[rid] = key
-
-    return {
-        rid: preview._replace(
-            fallback_url=fallback_urls.get(rid),
-            asset_key=_poster_asset_key(primary_keys[rid], fallback_keys.get(rid)),
-        )
-        for rid, preview in previews.items()
-    }
+        return {
+            rid: preview._replace(
+                fallback_url=fallback_urls.get(rid),
+                asset_key=_poster_asset_key(primary_keys[rid], fallback_keys.get(rid)),
+            )
+            for rid, preview in previews.items()
+        }
 
 
 def _poster_fields(previews: dict[int, _PosterPreview], recording_id: int) -> dict[str, str | None]:
@@ -334,6 +355,10 @@ async def list_recordings(
     sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    compact: bool = Query(
+        False,
+        description="Omit per-stage pipeline detail from list items (lighter JSON for grid views)",
+    ),
     ctx: ServiceContext = Depends(get_service_context),
 ):
     """Get paginated list of recordings with filtering, search and sorting."""
@@ -402,7 +427,7 @@ async def list_recordings(
                 template_name=r.template.name if r.template else None,
                 source=_build_source_info(r),
                 uploads=_build_uploads_dict(r.outputs),
-                processing_stages=_build_processing_stages(r.processing_stages),
+                processing_stages=_build_processing_stages(r.processing_stages) if not compact else [],
                 deleted=r.deleted,
                 deleted_at=r.deleted_at,
                 delete_state=r.delete_state,
@@ -493,6 +518,31 @@ async def export_recordings(
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid format")
 
 
+@router.get("/{recording_id}/pipeline-status", response_model=RecordingPipelineStatusResponse)
+async def get_recording_pipeline_status(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> RecordingPipelineStatusResponse:
+    """Lightweight pipeline state for polling without loading transcription artifacts from storage."""
+    recording_repo = RecordingRepository(ctx.session)
+    recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Recording {recording_id} not found or you don't have access",
+        )
+    return RecordingPipelineStatusResponse(
+        id=recording.id,
+        status=recording.status,
+        on_air=bool(recording.on_air),
+        on_pause=bool(recording.on_pause),
+        failed=bool(recording.failed),
+        failed_at_stage=recording.failed_at_stage,
+        failed_reason=recording.failed_reason,
+        processing_stages=_build_processing_stages(recording.processing_stages),
+    )
+
+
 @router.get("/{recording_id}/media")
 async def get_recording_media(
     recording_id: int,
@@ -535,15 +585,10 @@ async def get_recording_media(
         )
 
     storage = get_storage_backend()
-    if not await storage.exists(storage_key):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Video file not available for this recording",
-        )
-
     expires_in = get_settings().storage.s3_presign_expires
     dl_filename = f"recording-{recording.id}.mp4" if download else None
-    url = await storage.presigned_url(storage_key, expires_in=expires_in, download_filename=dl_filename)
+    async with storage.shared_operations():
+        url = await storage.presigned_url(storage_key, expires_in=expires_in, download_filename=dl_filename)
     return {"url": url, "expires_in": expires_in}
 
 
@@ -1936,8 +1981,9 @@ async def bulk_extract_topics(
             task = extract_topics_task.delay(
                 recording_id=recording_id,
                 user_id=ctx.user_id,
-                granularity=data.granularity,
+                granularity=data.granularity.value if data.granularity is not None else None,
                 version_id=data.version_id,
+                force=True,
             )
 
             tasks.append(
@@ -2383,57 +2429,12 @@ async def run_recording(
     return await _execute_smart_run(recording, recording_id, ctx, manual_override)
 
 
-async def _awaiting_mts_response(
-    recording_id: int,
-    recording,
-    result,
-) -> RecordingOperationResponse:
-    from api.services.mts_link_prepare import MtsPrepareOutcome, mts_prepare_response_fields
-
-    messages = {
-        MtsPrepareOutcome.ASSEMBLING: "MTS Link is still assembling the recording",
-        MtsPrepareOutcome.CONVERTING: "MTS Link is still converting; run again or wait for automation",
-        MtsPrepareOutcome.FAILED: recording.failed_reason or "MTS Link prepare failed",
-    }
-    return RecordingOperationResponse(
-        success=result.outcome != MtsPrepareOutcome.FAILED,
-        recording_id=recording_id,
-        task_id=None,
-        awaiting_source=result.outcome in (MtsPrepareOutcome.ASSEMBLING, MtsPrepareOutcome.CONVERTING),
-        recording_status=recording.status,
-        message=messages.get(result.outcome, "MTS Link prepare completed"),
-        mts=mts_prepare_response_fields(result),
-    )
-
-
 async def _check_processing_quota_or_raise(ctx: ServiceContext) -> None:
     from api.services.quota_service import QuotaService
 
     allowed, err = await QuotaService(ctx.session).check_processing_quota(ctx.user_id)
     if not allowed:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=err)
-
-
-async def _mts_prepare_before_pipeline(recording, recording_id: int, ctx: ServiceContext):
-    """Run MTS prepare when needed. Returns response if pipeline must not start."""
-    from api.services.mts_link_prepare import (
-        MtsPrepareOutcome,
-        apply_prepare_result,
-        prepare_mts_link_recording,
-        recording_needs_mts_prepare,
-        should_skip_mts_prepare,
-    )
-
-    if not recording_needs_mts_prepare(recording) or should_skip_mts_prepare(recording):
-        return None
-
-    result = await prepare_mts_link_recording(ctx.session, recording, ctx.user_id)
-    apply_prepare_result(recording, result)
-    await ctx.session.commit()
-
-    if result.outcome != MtsPrepareOutcome.READY:
-        return await _awaiting_mts_response(recording_id, recording, result)
-    return None
 
 
 async def _dispatch_full_pipeline(
@@ -2545,11 +2546,8 @@ async def _execute_smart_run(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     # 1. Fresh start: INITIALIZED, SKIPPED, or MTS pending → full pipeline
+    # MTS prepare runs inside the Celery task (not in HTTP) so /run returns quickly.
     if current_status in _fresh_start_statuses:
-        awaiting = await _mts_prepare_before_pipeline(recording, recording_id, ctx)
-        if awaiting is not None:
-            return awaiting
-
         logger.info(f"Smart run: starting full pipeline | {format_details(rec=recording_id, status=current_status)}")
         return await _dispatch_full_pipeline(
             recording,
@@ -2864,7 +2862,10 @@ async def upload_recording(
 @router.post("/{recording_id}/topics", response_model=RecordingOperationResponse)
 async def extract_topics(
     recording_id: int,
-    granularity: Granularity = Query(Granularity.LONG, description="Topics granularity: short, medium, or long"),
+    granularity: Granularity | None = Query(
+        None,
+        description="Topics granularity: short, medium, or long (omit = recording config)",
+    ),
     version_id: str | None = Query(None, description="Version ID (optional)"),
     ctx: ServiceContext = Depends(get_service_context),
     _feat: UserInDB = Depends(require_feature("can_process_video")),
@@ -2887,18 +2888,19 @@ async def extract_topics(
 
     transcription_manager = get_transcription_manager()
     user_slug = recording.owner.user_slug
-    if not transcription_manager.has_master(recording_id, user_slug):
+    if not await transcription_manager.has_master(recording_id, user_slug):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No transcription found. Please run /transcribe first.",
         )
 
-    # Start async task
+    gran = granularity.value if granularity is not None else None
     task = extract_topics_task.delay(
         recording_id=recording_id,
         user_id=ctx.user_id,
-        granularity=granularity,
+        granularity=gran,
         version_id=version_id,
+        force=True,
     )
 
     logger.info(
@@ -3024,7 +3026,7 @@ async def generate_subtitles(
 
     transcription_manager = get_transcription_manager()
     user_slug = recording.owner.user_slug
-    if not transcription_manager.has_master(recording_id, user_slug):
+    if not await transcription_manager.has_master(recording_id, user_slug):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No transcription found. Please run /transcribe first.",

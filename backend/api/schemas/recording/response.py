@@ -50,6 +50,19 @@ class OutputTargetResponse(BaseModel):
         return None
 
 
+class RecordingPipelineStatusResponse(BaseModel):
+    """Lightweight recording state for UI polling (no S3 artifact loads)."""
+
+    id: int
+    status: ProcessingStatus
+    on_air: bool
+    on_pause: bool
+    failed: bool
+    failed_at_stage: str | None = None
+    failed_reason: str | None = None
+    processing_stages: list["ProcessingStageResponse"] = Field(default_factory=list)
+
+
 class ProcessingStageResponse(BaseModel):
     """Processing stage status."""
 

@@ -450,8 +450,9 @@ class BulkTranscribeRequest(BulkOperationRequest):
 class BulkTopicsRequest(BulkOperationRequest):
     """Bulk topic extraction from transcriptions."""
 
-    granularity: Granularity = Field(
-        Granularity.LONG, description="Extraction mode: short (large), medium, or long (detailed)"
+    granularity: Granularity | None = Field(
+        None,
+        description="Override granularity; omit to use the recording's resolved config",
     )
     version_id: str | None = Field(None, description="Version ID (if not specified, generated automatically)")
 

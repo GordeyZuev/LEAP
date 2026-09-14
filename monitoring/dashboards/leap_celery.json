@@ -202,7 +202,7 @@
     {
       "type": "timeseries",
       "title": "Oldest task age per queue",
-      "description": "Age of the oldest pending task from Redis leap:enq:* (not broker length). Members older than 7 days are dropped as tracker leftovers. Yellow >5min, red >15min.",
+      "description": "Age of the oldest pending task from Redis leap:enq:* (not broker length). Leftovers older than 7 days, and orphans not in the broker list (≥30s), are dropped. Yellow >5min, red >15min.",
       "gridPos": {"x": 12, "y": 7, "w": 12, "h": 9},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "targets": [

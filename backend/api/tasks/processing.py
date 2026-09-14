@@ -5,6 +5,7 @@ from pathlib import Path
 
 from celery import chain, group
 from celery.exceptions import Ignore, SoftTimeLimitExceeded
+from openai import APIStatusError, AuthenticationError
 
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
@@ -1896,6 +1897,22 @@ def run_recording_task(
         _ctx.__exit__(None, None, None)
 
 
+def _should_skip_completed_topics(recording, *, force: bool) -> bool:
+    """Skip extract only when the stage completed with at least one lecture chapter."""
+    if force:
+        return False
+    from models.recording import ProcessingStageStatus, ProcessingStageType
+
+    topics_stage = next(
+        (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.EXTRACT_TOPICS),
+        None,
+    )
+    if not topics_stage or topics_stage.status != ProcessingStageStatus.COMPLETED:
+        return False
+    timestamps = recording.topic_timestamps or []
+    return any(not (isinstance(ts, dict) and ts.get("type") == "pause") for ts in timestamps)
+
+
 @celery_app.task(
     bind=True,
     base=ProcessingTask,
@@ -1907,8 +1924,9 @@ def extract_topics_task(
     self,
     recording_id: int,
     user_id: str,
-    granularity: str = "long",
+    granularity: str | None = None,
     version_id: str | None = None,
+    force: bool = False,
 ) -> dict:
     """
     Extract topics from existing transcription (only admin credentials).
@@ -1918,11 +1936,9 @@ def extract_topics_task(
     Args:
         recording_id: ID of recording
         user_id: ID of user
-        granularity: Extraction mode ("short" | "medium" | "long")
+        granularity: Extraction mode ("short" | "medium" | "long"); None = resolved config
         version_id: ID of version (if None, generated automatically)
-
-    Returns:
-        Results of topic extraction
+        force: Re-extract even if EXTRACT_TOPICS already completed with chapters
     """
     with logger.contextualize(
         task_id=short_task_id(self.request.id),
@@ -1935,7 +1951,9 @@ def extract_topics_task(
             self.update_progress(user_id, 10, "Initializing topic extraction...", step="extract_topics")
 
             with track_pipeline_stage("extract_topics"):
-                result = self.run_async(_async_extract_topics(self, recording_id, user_id, granularity, version_id))
+                result = self.run_async(
+                    _async_extract_topics(self, recording_id, user_id, granularity, version_id, force)
+                )
 
             return self.build_result(
                 user_id=user_id,
@@ -1948,13 +1966,29 @@ def extract_topics_task(
             logger.error("Soft time limit exceeded")
             raise self.retry(countdown=settings.celery.processing_retry_delay, exc=SoftTimeLimitExceeded())
 
+        except AuthenticationError:
+            logger.error("DeepSeek authentication failed", exc_info=True)
+            raise
+
+        except APIStatusError as exc:
+            if exc.status_code in (401, 402):
+                logger.error(f"DeepSeek client error {exc.status_code}: {exc!r}", exc_info=True)
+                raise
+            logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
+            raise self.retry(exc=exc)
+
         except Exception as exc:
             logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
             raise self.retry(exc=exc)
 
 
 async def _async_extract_topics(
-    task_self, recording_id: int, user_id: str, granularity: str, version_id: str | None
+    task_self,
+    recording_id: int,
+    user_id: str,
+    granularity: str | None,
+    version_id: str | None,
+    force: bool = False,
 ) -> dict:
     """Async function for extracting topics via DeepSeek. Failure raises — no fallback."""
     session_maker = get_async_session_maker()
@@ -1979,11 +2013,14 @@ async def _async_extract_topics(
             logger.info("Skipped: blank record")
             return {"status": "skipped", "reason": "blank_record"}
 
-        # Idempotency: skip if topics already extracted successfully
-        topics_stage = next(
-            (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.EXTRACT_TOPICS), None
-        )
-        if topics_stage and topics_stage.status == ProcessingStageStatus.COMPLETED:
+        from api.helpers.failure_reset import reset_recording_failure, should_reset_on_retry
+
+        if should_reset_on_retry(recording, "extract_topics"):
+            reset_recording_failure(recording, "extract_topics")
+            await recording_repo.update(recording)
+            await session.commit()
+
+        if _should_skip_completed_topics(recording, force=force):
             logger.info("Skipped: topic extraction already completed")
             return {"status": "skipped", "reason": "already_completed"}
 
@@ -2012,12 +2049,13 @@ async def _async_extract_topics(
         master = await transcription_manager.load_master(recording_id, user_slug)
         transcript_language = master.get("language") or "ru"
 
-        # Get questions_count from resolved config (transcription.questions_count, default 3)
         from api.services.config_utils import resolve_full_config
 
         full_config, _ = await resolve_full_config(session, recording_id, user_id, None)
         transcription_config = full_config.get("transcription", {})
         questions_count = max(1, min(10, int(transcription_config.get("questions_count", 3))))
+        if not granularity:
+            granularity = str(transcription_config.get("granularity") or "long")
 
         task_self.update_progress(user_id, 30, "Starting topic extraction...", step="extract_topics")
 
@@ -2050,12 +2088,20 @@ async def _async_extract_topics(
                 granularity=granularity,
                 language=transcript_language,
                 questions_count=questions_count,
+                user_id=str(user_slug),
             )
             model_used = "deepseek"
             logger.info("Topics extracted with deepseek")
 
             if not topics_result:
                 raise ValueError("Failed to extract topics: no result returned")
+            lecture_chapters = [
+                ts
+                for ts in (topics_result.get("topic_timestamps") or [])
+                if not (isinstance(ts, dict) and ts.get("type") == "pause")
+            ]
+            if not lecture_chapters:
+                raise ValueError("Failed to extract topics: no chapters returned")
 
             task_self.update_progress(user_id, 80, "Saving topics...", step="extract_topics")
 
@@ -2091,9 +2137,6 @@ async def _async_extract_topics(
                 user_slug=user_slug,
             )
 
-            # Clean up local segments temp file used by DeepSeek.
-            segments_path.unlink(missing_ok=True)
-
             # Update recording in DB (active version)
             recording.topic_timestamps = topics_result.get("topic_timestamps", [])
             recording.main_topics = topics_result.get("main_topics", [])
@@ -2128,6 +2171,8 @@ async def _async_extract_topics(
             await timing_service.fail_stage(timing, str(e))
             await session.commit()
             raise
+        finally:
+            segments_path.unlink(missing_ok=True)
 
 
 @celery_app.task(

@@ -1,126 +1,105 @@
-SYSTEM_PROMPT = "Ты — самый лучший аналитик учебных материалов. Анализируй транскрипции и выделяй структуру видео."
-
-SYSTEM_PROMPT_EN = (
-    "You are an expert analyst of educational content. Analyze transcripts and extract the video structure."
+SYSTEM_PROMPT = (
+    "Ты — аналитик учебных материалов. Анализируй транскрипции и выделяй структуру видео. "
+    "Ответ — один json-объект по схеме из запроса: без markdown, без комментариев, без лишних ключей."
 )
 
-TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию видео и выдели структуру:{context_line}{pauses_instruction}
+SYSTEM_PROMPT_EN = (
+    "You are an expert analyst of educational content. Analyze transcripts and extract the video structure. "
+    "Reply with one json object matching the requested schema: no markdown, no commentary, no extra keys."
+)
 
-## САММАРИ ВИДЕО
+# Injected via .format({json_example}); braces in this string are not template fields.
+JSON_EXAMPLE = """{
+  "summary": "Brief overview of what the lecture covered.",
+  "main_topic": "SQL joins",
+  "chapters": [
+    {"start": "00:05:10", "title": "Inner join syntax"},
+    {"start": "00:18:40", "title": "Outer join pitfalls"}
+  ],
+  "questions": ["How does an inner join differ from a left join?"]
+}"""
 
+TOPIC_EXTRACTION_PROMPT = """Проанализируй транскрипцию видео и выдели структуру. Верни json-объект той же схемы, что в примере.{context_line}
+
+Пример json:
+{json_example}
+
+## Саммари
 Краткое содержание в 2–4 предложения: что обсуждалось, основные идеи. Язык: {summary_language}.
 
-## ОСНОВНАЯ ТЕМА ВИДЕО
+## Основная тема
+Ровно одна тема, {main_topic_min_words}–{main_topic_max_words} слов, не более.{recording_topic_hint}
 
-Выведи РОВНО ОДНУ тему (2–8 слов, не более):{recording_topic_hint}
+## Главы ({min_topics}–{max_topics})
 
-Название темы
+Каждая глава: start строго HH:MM:SS (три части) и title. Без markdown в значениях.
 
-Примеры: "Stable Diffusion", "Архитектура трансформеров", "SQL и ORM в Python"
-
-## ДЕТАЛИЗИРОВАННЫЕ ТОПИКИ ({min_topics}-{max_topics} топиков)
-
-СТРОГИЙ ФОРМАТ ВЫВОДА (обязательно):
-- Каждая тема — отдельная строка, которая НАЧИНАЕТСЯ с таймкода: [HH:MM:SS] - Название топика
-- Без markdown: НЕ используй *, -, •, нумерацию (1.), вложенные списки и отступы перед таймкодом
-- Без префиксов вроде «Топик 1:» — только [HH:MM:SS] - и название
-
-Правильно:
-[00:05:10] - Подключение к API GigaChat
-[00:12:30] - Анализ тональности отзывов
-
-Неправильно (так НЕ пиши):
-* [00:05:10] - Подключение к API
-- [00:05:10] - Подключение к API
-1. [00:05:10] - Подключение к API
-
-КРИТИЧЕСКИЕ ПРАВИЛА:
-1. Количество: РОВНО {min_topics}-{max_topics} топиков. Если больше — объедини похожие.
+Критические правила:
+1. Количество: {min_topics}–{max_topics} глав. Если больше — объедини похожие.
 2. Длительность: {duration_rule}
-3. Если тема <{duration_min} минут — ОБЯЗАТЕЛЬНО объедини с соседней.
-4. Если тема >{duration_max} минут — ОБЯЗАТЕЛЬНО {split_instruction}
-5. Минимальный шаг между темами: {min_spacing_minutes:.1f} минут.
-6. Названия: 3–6 слов, информативные, на русском или английском (по терминологии).
+3. Если глава <{duration_min} минут — обязательно объедини с соседней.
+4. Если глава >{duration_max} минут — обязательно {split_instruction}
+5. Минимальный шаг между главами: {min_spacing_minutes:.1f} минут.
+6. Названия: 3–6 слов, информативные, на русском или английском (по терминологии лекции).
 7. Хронологический порядок.
-8. Только фактические темы из транскрипции.
-9. ВАЖНО: Используй РЕАЛЬНЫЕ временные метки из транскрипции [HH:MM:SS], не придумывай свои.
+8. Только фактические темы из транскрипции, не выдумывай.
+9. Используй реальные временные метки из транскрипции HH:MM:SS, не придумывай свои.
 
-Перед отправкой проверь: каждая строка темы начинается с «[», количество тем, длительность каждой ({duration_range} мин), перерывы >=8 мин.
-Если нарушено — переразметь до полного соответствия.
+Перед отправкой проверь: число глав, длительность каждой ({duration_range} мин), хронология, факты из текста.
+Если нарушено — переразметь до соответствия.
 
-## ВОПРОСЫ ДЛЯ САМОПРОВЕРКИ
-
-Сформулируй вопросы для самопроверки. Количество: {questions_count}. Критерии:
-- Опираться на ключевые идеи из транскрипции
-- Открытая форма (что? как? почему?)
-- Покрывать разные части материала
-- Язык: {summary_language}
-
-Формат: по одному вопросу на строку с номером (1. 2. 3.)
+## Вопросы для самопроверки
+Количество: {questions_count}. Критерии:
+- опираться на ключевые идеи из транскрипции
+- открытая форма (что? как? почему?)
+- покрывать разные части материала
+- язык: {summary_language}
 
 Транскрипция:
 {transcript}
 """
 
-TOPIC_EXTRACTION_PROMPT_EN = """Analyze the video transcript and extract its structure:{context_line}{pauses_instruction}
+TOPIC_EXTRACTION_PROMPT_EN = """Analyze the video transcript and extract its structure. Return a json object with the same schema as the example.{context_line}
 
-## VIDEO SUMMARY
+Example json:
+{json_example}
 
+## Summary
 Brief summary in 2–4 sentences: what was discussed and the main ideas. Language: {summary_language}.
 
-## MAIN VIDEO TOPIC
+## Main topic
+Exactly one topic, {main_topic_min_words}–{main_topic_max_words} words, no more.{recording_topic_hint}
 
-Output EXACTLY ONE topic (2–8 words, no more):{recording_topic_hint}
+## Chapters ({min_topics}–{max_topics})
 
-Topic title
+Each chapter: start must be HH:MM:SS (three parts) and title. No markdown inside values.
 
-Examples: "Stable Diffusion", "Transformer architecture", "SQL and ORM in Python"
-
-## DETAILED TOPICS ({min_topics}-{max_topics} topics)
-
-STRICT OUTPUT FORMAT (required):
-- One topic per line; each line MUST START with the timestamp: [HH:MM:SS] - Topic title
-- No markdown: do NOT use *, -, •, numbering (1.), nested lists, or indentation before the timestamp
-- No prefixes like "Topic 1:" — only [HH:MM:SS] - and the title
-
-Correct:
-[00:05:10] - GigaChat API setup
-[00:12:30] - Review sentiment analysis
-
-Wrong (do NOT write like this):
-* [00:05:10] - GigaChat API setup
-- [00:05:10] - GigaChat API setup
-1. [00:05:10] - GigaChat API setup
-
-CRITICAL RULES:
-1. Count: EXACTLY {min_topics}-{max_topics} topics. If more — merge similar ones.
+Critical rules:
+1. Count: {min_topics}–{max_topics} chapters. If more — merge similar ones.
 2. Duration: {duration_rule}
-3. If a topic is <{duration_min} minutes — MUST merge with a neighbor.
-4. If a topic is >{duration_max} minutes — MUST {split_instruction}
-5. Minimum spacing between topics: {min_spacing_minutes:.1f} minutes.
-6. Titles: 3–6 words, informative, in Russian or English as appropriate for terminology.
+3. If a chapter is <{duration_min} minutes — must merge with a neighbor.
+4. If a chapter is >{duration_max} minutes — must {split_instruction}
+5. Minimum spacing between chapters: {min_spacing_minutes:.1f} minutes.
+6. Titles: 3–6 words, informative, in Russian or English as used in the lecture terminology.
 7. Chronological order.
-8. Only factual topics from the transcript.
-9. IMPORTANT: Use REAL timestamps from the transcript [HH:MM:SS]; do not invent times.
+8. Only factual topics from the transcript; do not invent.
+9. Use real transcript timestamps HH:MM:SS; do not invent times.
 
-Before sending, verify: every topic line starts with "[", topic count, each topic duration ({duration_range} min), gaps >=8 min.
-If violated — relabel until fully compliant.
+Before sending, verify: chapter count, each chapter duration ({duration_range} min), chronology, facts from the text.
+If violated — relabel until compliant.
 
-## SELF-CHECK QUESTIONS
-
-Write self-check questions. Count: {questions_count}. Criteria:
-- Grounded in key ideas from the transcript
-- Open-ended (what? how? why?)
-- Cover different parts of the material
-- Language: {summary_language}
-
-Format: one question per line with a number (1. 2. 3.)
+## Self-check questions
+Count: {questions_count}. Criteria:
+- grounded in key ideas from the transcript
+- open-ended (what? how? why?)
+- cover different parts of the material
+- language: {summary_language}
 
 Transcript:
 {transcript}
 """
 
-# Keys match Granularity enum. Prompt text derived in topic_extractor from duration_min/max.
+# Keys match Granularity enum. split_instruction is generated in code (RU/EN).
 GRANULARITY_CONFIG = {
     "short": {
         "duration_min": 5,
@@ -139,8 +118,6 @@ GRANULARITY_CONFIG = {
     "long": {
         "duration_min": 3,
         "duration_max": 12,
-        "split_instruction": "разбей на 2–3 темы",
-        "split_instruction_en": "split into 2–3 topics",
         "spacing_min": 4,
         "spacing_max": 6,
         "spacing_factor": 0.05,

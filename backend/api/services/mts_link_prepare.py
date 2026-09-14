@@ -122,6 +122,13 @@ async def resolve_mts_link_context(session, recording: RecordingModel, user_id: 
 
 async def prepare_mts_link_recording(session, recording: RecordingModel, user_id: str) -> MtsLinkPrepareResult:
     """Ping MTS Link and order or reuse conversion; does not set on_air."""
+    from api.observability import track_handler_section
+
+    with track_handler_section("mts_prepare"):
+        return await _prepare_mts_link_recording_impl(session, recording, user_id)
+
+
+async def _prepare_mts_link_recording_impl(session, recording: RecordingModel, user_id: str) -> MtsLinkPrepareResult:
     if not recording_needs_mts_prepare(recording):
         return MtsLinkPrepareResult(outcome=MtsPrepareOutcome.READY)
 

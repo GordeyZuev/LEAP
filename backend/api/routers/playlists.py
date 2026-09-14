@@ -137,11 +137,17 @@ async def list_playlists(
     ctx: ServiceContext = Depends(get_service_context),
 ) -> PlaylistListResponse:
     svc = PlaylistService(ctx.session, ctx.user_id)
-    playlists = await svc.repo.list_by_user(ctx.user_id)
-    if q and q.strip():
-        needle = q.strip().lower()
-        playlists = [p for p in playlists if needle in p.name.lower()]
-    items, total, total_pages = paginate_list(playlists, page, per_page, sort_by, sort_order, PLAYLIST_SORT_FIELDS)
+    sort_field = sort_by if sort_by in PLAYLIST_SORT_FIELDS else "updated_at"
+    playlists, total = await svc.repo.list_page(
+        ctx.user_id,
+        q=q,
+        page=page,
+        per_page=per_page,
+        sort_by=sort_field,
+        sort_order=sort_order,
+    )
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    items = playlists
     first_recs = [_first_playable_recording(p) for p in items]
     listed_recs = [item.recording for p in items for item in (p.items or [])]
     looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, listed_recs)

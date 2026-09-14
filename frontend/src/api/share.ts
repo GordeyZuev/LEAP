@@ -46,6 +46,9 @@ export interface PublicRecordingResponse {
     files: { name: string; extension: string; size: number | null; url: string }[];
     expires_in: number;
   } | null;
+  play_url?: string | null;
+  vtt_url?: string | null;
+  media_expires_in?: number | null;
 }
 
 export interface PublicPlaylistItem {
@@ -131,8 +134,13 @@ export async function sendPlaylistSharePageBeacon(token: string, itemId: number)
 
 // --- Public endpoints (no auth required) ---
 
-export async function getPublicRecording(token: string): Promise<PublicRecordingResponse> {
-  const res = await publicClient.get<PublicRecordingResponse>(`/share/${token}`);
+export async function getPublicRecording(
+  token: string,
+  view: "full" | "player" = "full",
+): Promise<PublicRecordingResponse> {
+  const res = await publicClient.get<PublicRecordingResponse>(`/share/${token}`, {
+    params: view === "player" ? { view: "player" } : {},
+  });
   return res.data;
 }
 
@@ -157,8 +165,14 @@ export async function getPublicPlaylist(token: string): Promise<PublicPlaylistRe
   return res.data;
 }
 
-export async function getPublicPlaylistItem(token: string, itemId: number): Promise<PublicRecordingResponse> {
-  const res = await publicClient.get<PublicRecordingResponse>(`/share/p/${token}/items/${itemId}`);
+export async function getPublicPlaylistItem(
+  token: string,
+  itemId: number,
+  view: "full" | "player" = "full",
+): Promise<PublicRecordingResponse> {
+  const res = await publicClient.get<PublicRecordingResponse>(`/share/p/${token}/items/${itemId}`, {
+    params: view === "player" ? { view: "player" } : {},
+  });
   return res.data;
 }
 

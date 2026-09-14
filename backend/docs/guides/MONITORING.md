@@ -96,8 +96,9 @@ Do not add `request_id` / `recording_id` / `user_id` as labels.
 | Metric                                      | Labels                    |
 | ------------------------------------------- | ------------------------- |
 | `leap_http_requests_total`                  | `method, handler, status` |
-| `leap_http_request_duration_seconds_bucket` | `method, handler`         |
+| `leap_http_request_duration_seconds_bucket` | `method, handler` (buckets include 30s, 60s, 120s, 300s, 600s on the high-res histogram) |
 | `leap_http_requests_inprogress`             | `method, handler`         |
+| `leap_handler_section_duration_seconds`     | `section` (`poster_urls`, `share_public_recording`, `mts_prepare`, …) |
 
 ### Celery (`celery_exporter:9808`)
 
@@ -111,7 +112,7 @@ Useful series: `celery_queue_length`, `celery_task_*_total`,
 | Metric                                        | Notes                                                                 |
 | --------------------------------------------- | --------------------------------------------------------------------- |
 | `leap_pipeline_stage_duration_seconds`        | `track_pipeline_stage()` in processing/upload tasks                   |
-| `leap_queue_oldest_task_age_seconds`          | Redis `leap:enq:<queue>`; stale members (>7d) dropped on scrape       |
+| `leap_queue_oldest_task_age_seconds`          | Redis `leap:enq:<queue>`; scrape drops >7d leftovers and orphans not in the broker list (≥30s) |
 | `leap_external_api_duration_seconds`          | Defined; **not wired** — do not add Grafana panels until wrappers exist |
 
 ### Health
@@ -184,7 +185,7 @@ leap_queue_oldest_task_age_seconds
 | Slowest-routes table is empty                | Too few requests in range for a stable p95 | v3 uses ≥3 requests over `$__range`                                 |
 | Loki exception table empty                   | Query parsed JSON `exception_class`        | Use label `{exception_class=~".+"}` (task_failure only)             |
 | Share downloads legend in the thousands      | `increase[1d]` + legend `sum` on overlap   | Overview v6 reads `share_access_events` by calendar day             |
-| Oldest task age is weeks with queue depth 0  | Stale `leap:enq:*` ZSET member             | Prerun/postrun zrem all queues; scrape drops members older than 7d  |
+| Oldest task age is weeks with queue depth 0  | Stale `leap:enq:*` ZSET member (Beat id ≠ worker id) | Scrape drops members older than 7d **and** orphans not in the broker list (≥30s) |
 | MTS pending fills Errors dashboard           | Logged ERROR + Celery retry                | Pending conversion is INFO and does not retry                       |
 | Loki panels empty                            | App not writing `structured.json`                  | Check `JSON_LOG_FILE` in the container                              |
 | `leap-api` Prometheus target DOWN            | `/metrics` off                                     | `MONITORING_PROMETHEUS_ENABLED=true` on **api**                     |

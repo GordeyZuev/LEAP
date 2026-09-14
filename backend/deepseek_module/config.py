@@ -25,7 +25,7 @@ class DeepSeekConfig(BaseSettings):
 
     api_key: str = Field(..., description="DeepSeek API key")
     model: str = Field(
-        default="deepseek-chat",
+        default="deepseek-flash",
         description="DeepSeek model to use",
     )
     base_url: str = Field(
@@ -79,7 +79,7 @@ class DeepSeekConfig(BaseSettings):
     )
 
     timeout: float = Field(
-        default=120.0,
+        default=900.0,
         ge=1.0,
         description="Request timeout in seconds",
     )
@@ -140,11 +140,17 @@ class DeepSeekConfig(BaseSettings):
             logger.error("DeepSeek config validation failed: {}", e)
             raise
 
-    def to_request_params(self) -> dict[str, Any]:
+    def to_request_params(self, *, user_id: str | None = None) -> dict[str, Any]:
         """Build params dict for chat.completions.create()."""
+        extra_body: dict[str, Any] = {"thinking": {"type": "disabled"}}
+        if user_id:
+            extra_body["user_id"] = user_id
+
         params: dict[str, Any] = {
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "response_format": {"type": "json_object"},
+            "extra_body": extra_body,
         }
 
         if self.top_p is not None:

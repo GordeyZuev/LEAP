@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.10.9.0", description="Application version")
+    version: str = Field(default="0.10.9.1", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -742,7 +742,7 @@ class DeepSeekSettings(BaseSettings):
         extra="ignore",
     )
 
-    model: str = Field(default="deepseek-chat", description="Model id")
+    model: str = Field(default="deepseek-flash", description="Model id")
     base_url: str = Field(default="https://api.deepseek.com/v1", description="API base URL")
     temperature: float = Field(default=0.0, ge=0.0, le=2.0, description="Temperature")
     max_tokens: int = Field(default=8000, ge=100, le=8192, description="Max tokens")
@@ -755,7 +755,7 @@ class DeepSeekSettings(BaseSettings):
         description="Reasoning effort",
     )
     seed: int | None = Field(default=None, description="Random seed")
-    timeout: float = Field(default=120.0, ge=1.0, description="Request timeout seconds")
+    timeout: float = Field(default=900.0, ge=1.0, description="Request timeout seconds")
 
     @field_validator("base_url")
     @classmethod

@@ -502,14 +502,16 @@ FireworksTranscriptionService (fireworks_module/service.py)
 
 ### 🧠 DeepSeek Module (`deepseek_module/`)
 
-**Purpose:** Извлечение тем и структурирование контента
+**Purpose:** Извлечение тем и структурирование контента (Chat Completions, JSON Output).
 
 **Key Features:**
-- Определение основных тем (main topics)
-- Генерация детализированных тем с таймкодами
-- Автоматическое определение перерывов (паузы ≥8 минут)
-- Динамический расчёт количества тем по длительности
-- Поддержка двух провайдеров: DeepSeek, Fireworks DeepSeek
+- Модель по умолчанию `deepseek-flash`
+- `response_format: json_object`: summary, main_topic, chapters, questions
+- Thinking выключен; `user_id` = tenant `user_slug` (KV-cache isolation)
+- Перерывы (`TOPIC_MIN_PAUSE_MINUTES`) детектятся в Python и пишутся в `pauses` + главы `type=pause`
+- Пустой ответ / timeout / 0 глав — ошибка стейджа, не COMPLETED
+- Клиентский таймаут `DEEPSEEK_TIMEOUT` (по умолчанию 900s) не короче лимита старта очереди DeepSeek
+- Динамический расчёт количества глав по длительности и granularity
 
 **Output:** `extracted.json` с версионированием (v1, v2, ...)
 
@@ -521,13 +523,14 @@ FireworksTranscriptionService (fireworks_module/service.py)
   "versions": [
     {
       "id": "v1",
-      "model": "deepseek-chat",
-      "main_topics": ["ML", "Neural Networks", "Backpropagation"],
-      "detailed_topics": [
-        {"time": "00:05:30", "title": "Introduction to ML"},
-        {"time": "00:15:45", "title": "Neural Network Basics"}
+      "model": "deepseek",
+      "main_topics": ["SQL joins"],
+      "topic_timestamps": [
+        {"topic": "Inner join syntax", "start": 310, "end": 945},
+        {"topic": "Перерыв", "start": 3600, "end": 4200, "type": "pause"}
       ],
-      "breaks": [{"time": "01:30:00", "duration_minutes": 10}]
+      "pauses": [{"start": 3600, "end": 4200, "duration_minutes": 10}],
+      "questions": ["How does an inner join differ from a left join?"]
     }
   ]
 }
@@ -822,6 +825,9 @@ POST /api/v1/recordings/add-playlist   # Playlist/channel by URL (yt-dlp)
 POST /api/v1/sources + sync            # Yandex Disk public link (InputSource)
 
 # Full pipeline
+GET  /api/v1/recordings?compact=true           # list: omits per-stage processing_stages arrays (lighter cards)
+GET  /api/v1/recordings/{id}/pipeline-status # poll-friendly status + stages (no S3 artifact load)
+
 POST /api/v1/recordings/{id}/run
 
 # Media & artifacts (authenticated; tenant-scoped)
@@ -885,7 +891,7 @@ POST   /api/v1/recordings/{id}/share/rotate   # new UUID; previous URL 404
 
 # Public: no auth required
 POST   /api/v1/share/{token}/beacon            # page view (204); CSRF skipped (sendBeacon)
-GET    /api/v1/share/{token}                  # recording metadata + AI data + rendered description
+GET    /api/v1/share/{token}[?view=full|player]  # full metadata (default) or player payload with play_url / vtt_url
 GET    /api/v1/share/{token}/poster           # 302 to presigned poster (Open Graph / Telegram)
 GET    /api/v1/share/{token}/media?type=processed|original  # presigned video URL
 GET    /api/v1/share/{token}/media?type=processed&download=true  # download URL (tracked)
@@ -894,13 +900,13 @@ GET    /api/v1/share/{token}/files/{file_type} # artifact download (srt|vtt|tran
 # Playlist (course) public share — same 404 text when disabled or unknown
 GET    /api/v1/share/p/{token}                 # name, description, items (no presigned URLs)
 GET    /api/v1/share/p/{token}/poster          # 302 to first item poster (Open Graph / Telegram)
-GET    /api/v1/share/p/{token}/items/{itemId}  # public item metadata (no original)
+GET    /api/v1/share/p/{token}/items/{itemId}[?view=full|player]  # full metadata or player payload (play_url, vtt_url)
 POST   /api/v1/share/p/{token}/items/{itemId}/beacon  # page view (204); CSRF skipped (sendBeacon)
 GET    /api/v1/share/p/{token}/items/{itemId}/media?type=processed[&download=true]
 GET    /api/v1/share/p/{token}/items/{itemId}/files/{file_type}[&inline=true]
 ```
 
-Course watch fetches VTT with `inline=true` for captions. Files, Summary & questions, and Created Overview on watch follow `allow_video_download` / `allow_files_download` like recording share. The landing page has no Files panel.
+Course watch fetches VTT via presigned URL (`vtt_url` on `view=player`, or `GET …/files/vtt?inline=true` → **302** to S3; not proxied through API bytes). Files, Summary & questions, and Created Overview on watch follow `allow_video_download` / `allow_files_download` like recording share. The landing page has no Files panel.
 
 The public playlist **landing** (`/share/p/{uuid}` with no `v`) shows the first item’s poster (image; links to the first playable video) and the video list. Clicking a video navigates to `/share/p/{uuid}?v={itemId}` — the same watch chrome as recording share, with companion tabs Playlist / Chapters / Transcript, then Summary & questions (Theme, summary, questions), Files, and Created Overview. Items without `processed_video_path` are listed but not playable (`unavailable_reason=not_ready`). Playlist **watch** of a playable item sends `POST /share/p/{token}/items/{itemId}/beacon`, which increments the same `share_view_count` on that recording (30-minute visitor dedup, shared with the recording share page). Not-ready / blank / deleted items and the landing page do not send a countable beacon (the endpoint still returns 204). Recording share can be disabled; playlist watch still counts.
 
@@ -935,6 +941,7 @@ Daily metrics are aggregated by **calendar day (UTC)**. Query params `from` and 
 - `source_extras` — chat / session materials (same shape as owner `GET /recordings/{id}/source-extras`); `null` when `allow_files_download` is off. Presigned URLs; not counted on `GET /share/{token}/files/{type}`
 - `has_processed_video`, `has_original_video`
 - `allow_video_download`, `allow_files_download` — public download buttons; play remains allowed when video download is off. `download=true` on media returns **403** when forbidden. `inline=true` on files (player VTT) is always allowed.
+- `view=player` adds `play_url`, `vtt_url`, `media_expires_in` when processed video exists (presigned; no extra `/media` round-trip required).
 
 The `description` field is populated by rendering the `description_template` from the resolved metadata config. If no template is configured, the field is `null`. Owner/share UIs render description markup (`**bold**`, `*italic*`, `++underline++`, `~~strike~~`, `[label](https://…)`). Platform uploads strip those marks (`markup_to_plain`) after Jinja.
 

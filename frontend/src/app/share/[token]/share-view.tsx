@@ -56,6 +56,7 @@ function ShareVideoPlayer({
   token,
   recordingId,
   variant,
+  processedPlayUrl,
   markers,
   vttBlobUrl,
   videoRef,
@@ -65,31 +66,35 @@ function ShareVideoPlayer({
   token: string;
   recordingId: number;
   variant: "processed" | "original";
+  processedPlayUrl?: string | null;
   markers: VideoPlayerMarker[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTimeUpdate?: (time: number) => void;
   onMediaMissing?: () => void;
 }) {
+  const presetUrl = variant === "processed" ? processedPlayUrl : null;
   const { data: videoUrl, isLoading, isError, refetch, error } = useQuery({
     queryKey: ["share-media", token, variant],
     queryFn: async () => {
       const res = await getShareMedia(token, variant);
       return res.url;
     },
+    enabled: !presetUrl,
     staleTime: MEDIA_URL_STALE_MS,
     retry: false,
   });
+  const resolvedUrl = presetUrl ?? videoUrl;
 
   useEffect(() => {
     if (httpStatus(error) === 404) onMediaMissing?.();
   }, [error, onMediaMissing]);
 
-  if (isLoading) {
+  if (!presetUrl && isLoading) {
     return <VideoPlayerLoading />;
   }
 
-  if (isError || !videoUrl) {
+  if ((!presetUrl && isError) || !resolvedUrl) {
     return (
       <div
         role="status"
@@ -108,7 +113,7 @@ function ShareVideoPlayer({
     <VideoPlayer
       key={variant}
       ref={videoRef}
-      src={videoUrl}
+      src={resolvedUrl}
       resumeKey={recordingResumeKey(String(recordingId), variant)}
       onReload={() => refetch()}
       markers={markers}
@@ -127,14 +132,7 @@ export function ShareView({ token }: { token: string }) {
     refetch,
   } = useQuery<PublicRecordingResponse>({
     queryKey: ["share-recording", token],
-    queryFn: () => getPublicRecording(token),
-    retry: false,
-  });
-
-  useQuery({
-    queryKey: ["share-media", token, "processed"],
-    queryFn: async () => (await getShareMedia(token, "processed")).url,
-    staleTime: MEDIA_URL_STALE_MS,
+    queryFn: () => getPublicRecording(token, "player"),
     retry: false,
   });
 
@@ -168,11 +166,13 @@ export function ShareView({ token }: { token: string }) {
     void refetch();
   }, [refetch]);
 
+  const vttFetchUrl = recording?.vtt_url ?? null;
   useEffect(() => {
     if (!recording?.available_files.includes("vtt")) return;
+    const url = vttFetchUrl ?? getShareFileUrl(token, "vtt", true);
     let cancelled = false;
     let objectUrl: string | null = null;
-    fetch(getShareFileUrl(token, "vtt", true))
+    fetch(url)
       .then((r) => r.text())
       .then((text) => {
         if (cancelled) return;
@@ -187,7 +187,7 @@ export function ShareView({ token }: { token: string }) {
       setVttBlobUrl(null);
       setTranscript([]);
     };
-  }, [token, recording?.available_files]);
+  }, [token, recording?.available_files, vttFetchUrl]);
 
   const topicTimestamps = useMemo(
     () => (Array.isArray(recording?.topic_timestamps) ? (recording!.topic_timestamps as { topic: string; start: number }[]) : []),
@@ -333,6 +333,7 @@ export function ShareView({ token }: { token: string }) {
       token={token}
       recordingId={recording.id}
       variant={currentVariant}
+      processedPlayUrl={recording.play_url}
       markers={onProcessedTimeline ? markers : []}
       vttBlobUrl={onProcessedTimeline ? vttBlobUrl : null}
       videoRef={videoRef}

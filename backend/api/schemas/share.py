@@ -66,3 +66,8 @@ class PublicRecordingResponse(BaseModel):
     # Chat / materials from ingestion (same payload as owner GET .../source-extras).
     # Omitted when file downloads are off. Presigned URLs; not streamed via /files/.
     source_extras: SourceExtrasResponse | None = None
+
+    # Populated when ``view=player`` — avoids a separate /media round-trip.
+    play_url: str | None = None
+    vtt_url: str | None = None
+    media_expires_in: int | None = None

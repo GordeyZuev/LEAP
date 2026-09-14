@@ -115,6 +115,7 @@ function Thumb({
 function PlaylistVideoPlayer({
   token,
   itemId,
+  playUrl,
   markers,
   vttBlobUrl,
   videoRef,
@@ -125,6 +126,7 @@ function PlaylistVideoPlayer({
 }: {
   token: string;
   itemId: number;
+  playUrl?: string | null;
   markers: VideoPlayerMarker[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -139,17 +141,19 @@ function PlaylistVideoPlayer({
       const res = await getPlaylistShareMedia(token, itemId);
       return res.url;
     },
+    enabled: !playUrl,
     staleTime: MEDIA_URL_STALE_MS,
     retry: false,
   });
+  const resolvedUrl = playUrl ?? videoUrl;
 
   useEffect(() => {
     const status = httpStatus(error);
     if (status === 404) onGone?.();
   }, [error, onGone]);
 
-  if (isLoading) return <VideoPlayerLoading />;
-  if (isError || !videoUrl) {
+  if (!playUrl && isLoading) return <VideoPlayerLoading />;
+  if ((!playUrl && isError) || !resolvedUrl) {
     return (
       <div
         role="status"
@@ -167,7 +171,7 @@ function PlaylistVideoPlayer({
   return (
     <VideoPlayer
       ref={videoRef}
-      src={videoUrl}
+      src={resolvedUrl}
       resumeKey={playlistResumeKey(token, itemId)}
       onReload={() => refetch()}
       markers={markers}
@@ -180,7 +184,13 @@ function PlaylistVideoPlayer({
   );
 }
 
-export function WatchShell({ token }: { token: string }) {
+export function WatchShell({
+  token,
+  initialPlaylist,
+}: {
+  token: string;
+  initialPlaylist?: import("@/api/share").PublicPlaylistResponse | null;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedId = Number(searchParams.get("v") || 0) || null;
@@ -193,6 +203,8 @@ export function WatchShell({ token }: { token: string }) {
   } = useQuery({
     queryKey: ["public-playlist", token],
     queryFn: () => getPublicPlaylist(token),
+    initialData: initialPlaylist ?? undefined,
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
@@ -225,7 +237,7 @@ export function WatchShell({ token }: { token: string }) {
 
   const { data: recording, error: itemError } = useQuery<PublicRecordingResponse>({
     queryKey: ["public-playlist-item", token, current?.id],
-    queryFn: () => getPublicPlaylistItem(token, current!.id),
+    queryFn: () => getPublicPlaylistItem(token, current!.id, "player"),
     enabled: watching && !!current?.playable,
     retry: false,
   });
@@ -244,11 +256,13 @@ export function WatchShell({ token }: { token: string }) {
 
   const currentId = current?.id;
   const availableFiles = recording?.available_files;
+  const vttFetchUrl = recording?.vtt_url ?? null;
   useEffect(() => {
     if (!availableFiles?.includes("vtt") || !currentId) return;
+    const url = vttFetchUrl ?? getPlaylistShareFileUrl(token, currentId, "vtt", true);
     let cancelled = false;
     let objectUrl: string | null = null;
-    fetch(getPlaylistShareFileUrl(token, currentId, "vtt", true))
+    fetch(url)
       .then((r) => r.text())
       .then((text) => {
         if (cancelled) return;
@@ -263,7 +277,7 @@ export function WatchShell({ token }: { token: string }) {
       setVttBlobUrl(null);
       setTranscript([]);
     };
-  }, [token, currentId, availableFiles]);
+  }, [token, currentId, availableFiles, vttFetchUrl]);
 
   const topicTimestamps = useMemo(
     () => (Array.isArray(recording?.topic_timestamps) ? (recording!.topic_timestamps as { topic: string; start: number }[]) : []),
@@ -505,6 +519,7 @@ export function WatchShell({ token }: { token: string }) {
               activeChapterIdx={activeChapterIdx}
               activeCueIdx={activeCueIdx}
               recordingId={recording?.id}
+              playUrl={recording?.play_url ?? null}
               onSeek={handleSeek}
               onTimeUpdate={handleTimeUpdate}
               onGone={handleMediaMissing}
@@ -638,6 +653,7 @@ function WatchLayout({
   activeChapterIdx,
   activeCueIdx,
   recordingId,
+  playUrl,
   onSeek,
   onTimeUpdate,
   onGone,
@@ -666,6 +682,7 @@ function WatchLayout({
   activeChapterIdx: number;
   activeCueIdx: number;
   recordingId: number | undefined;
+  playUrl: string | null;
   onSeek: (time: number) => void;
   onTimeUpdate: (time: number) => void;
   onGone: () => void;
@@ -741,6 +758,7 @@ function WatchLayout({
       key={current.id}
       token={token}
       itemId={current.id}
+      playUrl={playUrl}
       markers={markers}
       vttBlobUrl={vttBlobUrl}
       videoRef={videoRef}

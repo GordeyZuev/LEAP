@@ -33,9 +33,10 @@ export async function generateMetadata({
 
 export default async function PlaylistSharePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+  const initialPlaylist = await fetchPublicPlaylistForMetadata(token);
   return (
     <Suspense fallback={null}>
-      <WatchShell token={token} />
+      <WatchShell token={token} initialPlaylist={initialPlaylist} />
     </Suspense>
   );
 }
