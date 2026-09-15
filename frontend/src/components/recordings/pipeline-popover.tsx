@@ -41,6 +41,7 @@ interface PipelineStatusButtonProps {
   /** Human label of the failed stage; forwarded to the badge. */
   failedStage?: string | null;
   stages?: PipelineStage[];
+  onAir?: boolean;
   size?: "default" | "control";
   className?: string;
 }
@@ -52,7 +53,15 @@ interface PipelineStatusButtonProps {
  * handling and no touch path — and which was nevertheless the only place in the
  * app where a stage's failure reason was rendered.
  */
-export function PipelineStatusButton({ status, failed, failedStage, stages, size = "default", className }: PipelineStatusButtonProps) {
+export function PipelineStatusButton({
+  status,
+  failed,
+  failedStage,
+  stages,
+  onAir,
+  size = "default",
+  className,
+}: PipelineStatusButtonProps) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<Coords | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -107,8 +116,13 @@ export function PipelineStatusButton({ status, failed, failedStage, stages, size
     };
   }, [open, close]);
 
+  const displayStatus: ProcessingStatus =
+    onAir && !failed && !hasStages && status === "READY" ? "PROCESSING" : status;
+
   if (!hasStages) {
-    return <StatusBadge status={status} failed={failed} failedStage={failedStage} size={size} className={className} />;
+    return (
+      <StatusBadge status={displayStatus} failed={failed} failedStage={failedStage} size={size} className={className} />
+    );
   }
 
   const summary = pipelineSummary(ordered);

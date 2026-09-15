@@ -5,12 +5,14 @@ import {
   type UseQueryOptions,
 } from "@tanstack/react-query";
 
+import { listChannels } from "@/api/channels";
 import { listPlaylists } from "@/api/playlists";
 import { apiClient } from "@/api/client";
 import type { UserMe } from "@/components/settings/types";
 import {
   PER_PAGE_AUTOMATION,
   PER_PAGE_CREDENTIALS,
+  PER_PAGE_CHANNELS,
   PER_PAGE_PLAYLISTS,
   PER_PAGE_PRESETS,
   PER_PAGE_SOURCES,
@@ -68,6 +70,19 @@ export function prefetchNavList(qc: QueryClient, href: string): void {
           listPlaylists({
             page: 1,
             per_page: PER_PAGE_PLAYLISTS,
+            sort_by: "updated_at",
+            sort_order: "desc",
+          }),
+        ...catalogPrefetch,
+      });
+      break;
+    case "/channels":
+      void qc.prefetchQuery({
+        queryKey: ["channels", "", 1, "updated_at", "desc"],
+        queryFn: () =>
+          listChannels({
+            page: 1,
+            per_page: PER_PAGE_CHANNELS,
             sort_by: "updated_at",
             sort_order: "desc",
           }),

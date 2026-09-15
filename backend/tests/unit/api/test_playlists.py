@@ -89,6 +89,7 @@ def _playlist(*, name="Course", user_id="user_123", items=None, token=None, enab
     pl.share_created_at = now if token else None
     pl.created_at = now
     pl.updated_at = now
+    pl.cover_key = None
     return pl
 
 
@@ -199,6 +200,17 @@ class TestPlaylistOwnerApi:
             "api.services.playlist_service.PlaylistRepository.list_page",
             new=AsyncMock(return_value=([pl], 1)),
         )
+        mocker.patch(
+            "api.services.playlist_service.PlaylistRepository.aggregate_stats",
+            new=AsyncMock(return_value={3: (0, 0.0)}),
+        )
+        mocker.patch(
+            "api.services.playlist_service.PlaylistRepository.first_playable_recordings",
+            new=AsyncMock(return_value={}),
+        )
+        mocker.patch("api.routers.playlists.presign_storage_keys", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.playlists.publication_looks_for_recordings", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.playlists.poster_preview_map", new=AsyncMock(return_value={}))
         response = client.get("/api/v1/playlists")
         assert response.status_code == 200
         assert response.json()["total"] == 1
@@ -217,27 +229,20 @@ def _storage_ok(mocker) -> None:
 
 @pytest.mark.unit
 class TestShareDownloadFlags:
-    def test_share_file_inline_redirects_to_presigned(self, client, mocker) -> None:
-        from contextlib import asynccontextmanager
-
+    def test_share_file_inline_streams_body(self, client, mocker) -> None:
         rec = create_mock_recording(record_id=8, processed_video_path="k.mp4")
         rec.owner = MagicMock(user_slug=1)
         mocker.patch("api.routers.share._get_recording_by_share_token", new=AsyncMock(return_value=rec))
         storage = MagicMock()
-
-        @asynccontextmanager
-        async def _shared():
-            yield
-
-        storage.shared_operations = _shared
-        storage.presigned_url = AsyncMock(return_value="https://cdn.example/sub.vtt")
+        storage.exists = AsyncMock(return_value=True)
+        storage.load = AsyncMock(return_value=b"WEBVTT\n")
         mocker.patch("file_storage.factory.get_storage_backend", return_value=storage)
         response = client.get(f"/api/v1/share/{uuid.uuid4()}/files/vtt?inline=true", follow_redirects=False)
-        assert response.status_code == 302
-        assert response.headers["location"] == "https://cdn.example/sub.vtt"
-        storage.presigned_url.assert_awaited_once()
-        call_kwargs = storage.presigned_url.await_args.kwargs
-        assert call_kwargs.get("inline") is True
+        assert response.status_code == 200
+        assert response.content == b"WEBVTT\n"
+        assert "text/vtt" in response.headers["content-type"]
+        storage.presigned_url.assert_not_called()
+        storage.load.assert_awaited_once()
 
     def test_recording_media_play_200_when_download_off(self, client, mocker) -> None:
         rec = create_mock_recording(record_id=8, processed_video_path="k.mp4", allow_video_download=False)

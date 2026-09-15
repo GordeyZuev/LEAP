@@ -425,6 +425,7 @@ export function RecordingCard({
               failed={r.failed}
               failedStage={formatFailedStage(r.failed_at_stage)}
               stages={r.processing_stages}
+              onAir={r.on_air}
               size="control"
               className="min-w-0 shrink overflow-hidden"
             />

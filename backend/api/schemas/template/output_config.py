@@ -13,6 +13,7 @@ def normalize_output_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         return {
             "preset_ids": [],
             "playlist_ids": [],
+            "channel_ids": [],
             "auto_upload": False,
             "upload_captions": True,
             "publish_leap": True,
@@ -24,6 +25,9 @@ def normalize_output_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     playlist_ids = out.get("playlist_ids")
     if playlist_ids is None or not isinstance(playlist_ids, list):
         out["playlist_ids"] = []
+    channel_ids = out.get("channel_ids")
+    if channel_ids is None or not isinstance(channel_ids, list):
+        out["channel_ids"] = []
     return out
 
 
@@ -50,6 +54,12 @@ class TemplateOutputConfig(BaseModel):
     playlist_ids: list[int] = Field(
         default_factory=list,
         description="LEAP playlist IDs applied when LEAP publish runs after processing",
+        examples=[[], [1], [1, 2]],
+    )
+
+    channel_ids: list[int] = Field(
+        default_factory=list,
+        description="LEAP channel IDs: recording is appended to Videos after processing",
         examples=[[], [1], [1, 2]],
     )
 
@@ -115,6 +125,28 @@ class TemplateOutputConfig(BaseModel):
             raise ValueError("playlist_ids must be positive numbers")
         if len(v) != len(set(v)):
             raise ValueError("playlist_ids must be unique")
+        return v
+
+    @field_validator("channel_ids", mode="before")
+    @classmethod
+    def coerce_channel_ids(cls, v: Any) -> list[int]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            return []
+        return v
+
+    @field_validator("channel_ids")
+    @classmethod
+    def validate_channel_ids(cls, v: list[int]) -> list[int]:
+        if not v:
+            return v
+        if len(v) > 10:
+            raise ValueError("Maximum 10 channels per template")
+        if any(pid <= 0 for pid in v):
+            raise ValueError("channel_ids must be positive numbers")
+        if len(v) != len(set(v)):
+            raise ValueError("channel_ids must be unique")
         return v
 
     @model_validator(mode="after")

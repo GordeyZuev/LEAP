@@ -198,7 +198,7 @@ async def test_execute_job_enqueues_matched_recordings():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_execute_job_marks_unmatched_skipped():
+async def test_execute_job_leaves_unmatched_status_unchanged():
     rec = SimpleNamespace(
         id=3,
         display_name="B",
@@ -236,8 +236,10 @@ async def test_execute_job_marks_unmatched_skipped():
         patch("api.tasks.automation.get_next_run_time", return_value=datetime(2026, 9, 11, tzinfo=UTC)),
     ):
         run_task.delay = MagicMock()
-        await _execute_job(session, 5, "u1")
+        result = await _execute_job(session, 5, "u1")
 
-    assert rec.status == ProcessingStatus.SKIPPED
-    assert rec.failed_reason == "No matching template"
+    assert rec.status == ProcessingStatus.INITIALIZED
+    assert rec.failed_reason is None
+    assert result["unmatched_count"] == 1
+    assert result["processed_count"] == 0
     run_task.delay.assert_not_called()

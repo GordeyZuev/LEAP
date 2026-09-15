@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.helpers.leap_publication import _as_int_ids, _leap_look_meta, render_publication_title
+from api.helpers.leap_publication import _as_int_ids, _leap_look_meta, _look_thumbnail, render_publication_title
 
 
 @pytest.mark.unit
@@ -62,3 +62,11 @@ def test_leap_look_meta_requires_active_preset() -> None:
     merged = _leap_look_meta(leap, overlay)
     assert merged is not None
     assert merged["title_template"] == "{{ display_name }} · leftover"
+
+
+@pytest.mark.unit
+def test_look_thumbnail_prefers_leap_then_template() -> None:
+    assert _look_thumbnail({"thumbnail_name": "leap.png"}, {"thumbnail_name": "tpl.png"}) == "leap.png"
+    assert _look_thumbnail(None, {"thumbnail_name": "tpl.png"}) == "tpl.png"
+    assert _look_thumbnail({"thumbnail_name": "  "}, {"youtube": {"thumbnail_name": "yt.png"}}) == "yt.png"
+    assert _look_thumbnail(None, {}) is None

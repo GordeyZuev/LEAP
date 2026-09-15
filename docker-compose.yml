@@ -163,7 +163,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          # 4 uvicorn workers + prometheus multiproc; was 75% of 2G in prod idle.
+          memory: 3G
           cpus: '2.0'
 
   celery_worker:
@@ -352,6 +353,25 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  node_exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: leap_node_exporter
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+    expose:
+      - "9100"
     deploy:
       resources:
         limits:

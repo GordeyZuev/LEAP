@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
+from api.helpers.image_upload import presign_storage_keys, read_image_upload
 from api.helpers.leap_publication import publication_looks_for_recordings
 from api.helpers.media_duration import display_duration_seconds
-from api.helpers.playlist_description import render_playlist_description
+from api.helpers.playlist_description import description_needs_item_titles, render_playlist_description
 from api.schemas.common.pagination import paginate_list
 from api.schemas.playlist import (
     PlaylistAddItemsRequest,
@@ -51,7 +52,12 @@ def _counts(playlist: PlaylistModel) -> tuple[int, float]:
     return len(items), duration
 
 
-def _to_response(playlist: PlaylistModel) -> PlaylistResponse:
+def _to_response(
+    playlist: PlaylistModel,
+    *,
+    poster_url: str | None = None,
+    poster_asset_key: str | None = None,
+) -> PlaylistResponse:
     video_count, duration_sum = _counts(playlist)
     return PlaylistResponse(
         id=playlist.id,
@@ -62,16 +68,21 @@ def _to_response(playlist: PlaylistModel) -> PlaylistResponse:
         share_token=playlist.share_token,
         share_enabled=playlist.share_enabled,
         share_created_at=playlist.share_created_at,
+        has_custom_cover=bool(playlist.cover_key),
+        poster_url=poster_url,
+        poster_asset_key=poster_asset_key or playlist.cover_key,
         created_at=playlist.created_at,
         updated_at=playlist.updated_at,
     )
 
 
 def _first_playable_recording(playlist: PlaylistModel):
+    """First lecture in course order (not blank/deleted). Auto cover uses this recording's poster."""
     for item in sorted(playlist.items or [], key=lambda i: i.position):
         rec = item.recording
-        if rec is not None and is_playable(rec):
-            return rec
+        if rec is None or rec.deleted or rec.delete_state != "active" or rec.blank_record:
+            continue
+        return rec
     return None
 
 
@@ -80,19 +91,32 @@ def _to_list_item(
     poster_url: str | None = None,
     poster_asset_key: str | None = None,
     *,
+    has_custom_cover: bool = False,
     item_titles: dict[int, str] | None = None,
+    video_count: int | None = None,
+    duration_sum: float | None = None,
+    ordered_titles: list[str] | None = None,
 ) -> PlaylistListItem:
-    video_count, duration_sum = _counts(playlist)
+    if video_count is None or duration_sum is None:
+        video_count, duration_sum = _counts(playlist)
     return PlaylistListItem(
         id=playlist.id,
         name=playlist.name,
-        description=render_playlist_description(playlist.description, playlist, item_titles=item_titles),
+        description=render_playlist_description(
+            playlist.description,
+            playlist,
+            item_titles=item_titles,
+            video_count=video_count,
+            duration_sum=duration_sum,
+            ordered_titles=ordered_titles,
+        ),
         video_count=video_count,
         duration_sum=duration_sum,
         share_token=playlist.share_token,
         share_enabled=playlist.share_enabled,
         poster_url=poster_url,
         poster_asset_key=poster_asset_key,
+        has_custom_cover=has_custom_cover,
         created_at=playlist.created_at,
         updated_at=playlist.updated_at,
     )
@@ -147,22 +171,42 @@ async def list_playlists(
         sort_order=sort_order,
     )
     total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
-    items = playlists
-    first_recs = [_first_playable_recording(p) for p in items]
-    listed_recs = [item.recording for p in items for item in (p.items or [])]
-    looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, listed_recs)
-    item_titles = {rid: look.title for rid, look in looks.items()}
-    previews = await poster_preview_map(ctx.session, ctx.user_id, first_recs, looks=looks)
-    return PlaylistListResponse(
-        items=[
+    ids = [p.id for p in playlists]
+    stats = await svc.repo.aggregate_stats(ids)
+    first_by_id = await svc.repo.first_playable_recordings(ids)
+    cover_urls = await presign_storage_keys([p.cover_key for p in playlists])
+    recs_for_poster = [first_by_id[p.id] for p in playlists if not p.cover_key and p.id in first_by_id]
+    looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, recs_for_poster)
+    previews = await poster_preview_map(ctx.session, ctx.user_id, recs_for_poster, looks=looks)
+    jinja_ids = [p.id for p in playlists if description_needs_item_titles(p.description)]
+    titles_by_pl = await svc.repo.item_titles_by_playlist(jinja_ids) if jinja_ids else {}
+    out = []
+    for p in playlists:
+        video_count, duration_sum = stats.get(p.id, (0, 0.0))
+        poster_url = None
+        poster_asset_key = None
+        if p.cover_key:
+            poster_url = cover_urls.get(p.cover_key)
+            poster_asset_key = p.cover_key
+        else:
+            rec = first_by_id.get(p.id)
+            if rec is not None and rec.id in previews:
+                poster_url = previews[rec.id].url
+                poster_asset_key = previews[rec.id].asset_key or None
+        ordered_titles = [name for _rid, name in titles_by_pl[p.id]] if p.id in titles_by_pl else None
+        out.append(
             _to_list_item(
                 p,
-                poster_url=previews[rec.id].url if rec is not None and rec.id in previews else None,
-                poster_asset_key=previews[rec.id].asset_key or None if rec is not None and rec.id in previews else None,
-                item_titles=item_titles,
+                poster_url=poster_url,
+                poster_asset_key=poster_asset_key,
+                has_custom_cover=bool(p.cover_key),
+                video_count=video_count,
+                duration_sum=duration_sum,
+                ordered_titles=ordered_titles,
             )
-            for p, rec in zip(items, first_recs, strict=True)
-        ],
+        )
+    return PlaylistListResponse(
+        items=out,
         page=page,
         per_page=per_page,
         total=total,
@@ -183,6 +227,21 @@ async def create_playlist(
     return _to_response(playlist)
 
 
+async def _owner_cover_preview(playlist: PlaylistModel, ctx: ServiceContext) -> tuple[str | None, str | None]:
+    if playlist.cover_key:
+        urls = await presign_storage_keys([playlist.cover_key])
+        return urls.get(playlist.cover_key), playlist.cover_key
+    rec = _first_playable_recording(playlist)
+    if rec is None:
+        return None, None
+    looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, [rec])
+    previews = await poster_preview_map(ctx.session, ctx.user_id, [rec], looks=looks)
+    preview = previews.get(rec.id)
+    if preview is None:
+        return None, None
+    return preview.url, preview.asset_key or None
+
+
 @router.get("/{playlist_id}", response_model=PlaylistResponse)
 async def get_playlist(
     playlist_id: int,
@@ -190,7 +249,8 @@ async def get_playlist(
 ) -> PlaylistResponse:
     svc = PlaylistService(ctx.session, ctx.user_id)
     playlist = await svc.get_owned(playlist_id)
-    return _to_response(playlist)
+    poster_url, poster_asset_key = await _owner_cover_preview(playlist, ctx)
+    return _to_response(playlist, poster_url=poster_url, poster_asset_key=poster_asset_key)
 
 
 @router.patch("/{playlist_id}", response_model=PlaylistResponse)
@@ -208,7 +268,37 @@ async def update_playlist(
         description=dumped.get("description", UNSET),
     )
     await ctx.session.commit()
-    return _to_response(playlist)
+    poster_url, poster_asset_key = await _owner_cover_preview(playlist, ctx)
+    return _to_response(playlist, poster_url=poster_url, poster_asset_key=poster_asset_key)
+
+
+@router.post("/{playlist_id}/cover", response_model=PlaylistResponse)
+async def upload_playlist_cover(
+    playlist_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+    file: UploadFile = File(...),
+) -> PlaylistResponse:
+    content, suffix = await read_image_upload(file)
+    svc = PlaylistService(ctx.session, ctx.user_id)
+    playlist = await svc.get_owned(playlist_id)
+    await svc.set_cover(playlist, user_slug=ctx.user_slug, content=content, suffix=suffix)
+    await ctx.session.commit()
+    poster_url, poster_asset_key = await _owner_cover_preview(playlist, ctx)
+    return _to_response(playlist, poster_url=poster_url, poster_asset_key=poster_asset_key)
+
+
+@router.delete("/{playlist_id}/cover", response_model=PlaylistResponse)
+async def delete_playlist_cover(
+    playlist_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> PlaylistResponse:
+    svc = PlaylistService(ctx.session, ctx.user_id)
+    playlist = await svc.get_owned(playlist_id)
+    await svc.clear_cover(playlist)
+    await ctx.session.commit()
+    playlist = await svc.get_owned(playlist_id)
+    poster_url, poster_asset_key = await _owner_cover_preview(playlist, ctx)
+    return _to_response(playlist, poster_url=poster_url, poster_asset_key=poster_asset_key)
 
 
 @router.delete("/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -371,3 +461,54 @@ async def rotate_playlist_share(
     if playlist.share_token is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to rotate share link")
     return PlaylistShareResponse(share_token=playlist.share_token, share_enabled=True)
+
+
+@router.get("/{playlist_id}/channels")
+async def list_playlist_channels(
+    playlist_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    from api.repositories.channel_repo import ChannelRepository
+    from api.schemas.channel import ChannelSummary
+
+    svc = PlaylistService(ctx.session, ctx.user_id)
+    await svc.get_owned(playlist_id)
+    rows = await ChannelRepository(ctx.session).summaries_for_playlist(playlist_id, ctx.user_id)
+    return [ChannelSummary(id=ch.id, name=ch.name, slug=ch.slug, membership_id=mid) for ch, mid in rows]
+
+
+@router.get("/{playlist_id}/share/analytics")
+async def get_playlist_share_analytics(
+    playlist_id: int,
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    ctx: ServiceContext = Depends(get_service_context),
+):
+    from api.services.analytics_service import (
+        AnalyticsRangeError,
+        analytics_range_http_error,
+        default_analytics_range,
+        parse_analytics_range,
+    )
+    from api.services.share_observability import build_catalog_analytics
+
+    svc = PlaylistService(ctx.session, ctx.user_id)
+    await svc.get_owned(playlist_id)
+    if not from_date or not to_date:
+        from_date, to_date = default_analytics_range()
+    try:
+        start_d, end_d, start_dt, end_dt = parse_analytics_range(from_date, to_date)
+    except AnalyticsRangeError as exc:
+        raise analytics_range_http_error(exc) from exc
+    items = await svc.repo.list_items(playlist_id)
+    recording_ids = [i.recording_id for i in items]
+    return await build_catalog_analytics(
+        ctx.session,
+        recording_ids=recording_ids,
+        from_date=start_d,
+        to_date=end_d,
+        from_dt=start_dt,
+        to_dt=end_dt,
+        owner_user_id=ctx.user_id,
+        playlist_id=playlist_id,
+    )

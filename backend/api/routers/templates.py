@@ -937,13 +937,13 @@ async def rematch_template_recordings(
     if not template.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Template {template_id} is not active. Cannot re-match.",
+            detail="This template is not active. Activate it before rematching recordings.",
         )
 
     if template.is_draft:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Template {template_id} is draft. Cannot re-match.",
+            detail="This template is a draft. Turn off Draft and activate it before rematching.",
         )
 
     # Start background task

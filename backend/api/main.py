@@ -28,6 +28,7 @@ from api.routers import (
     admin,
     auth,
     automation,
+    channels,
     config,
     credentials,
     health,
@@ -94,6 +95,7 @@ app.include_router(credentials.router)
 
 app.include_router(recordings.router)
 app.include_router(playlists.router)
+app.include_router(channels.router)
 app.include_router(templates.router)
 app.include_router(input_sources.router)
 app.include_router(output_presets.router)

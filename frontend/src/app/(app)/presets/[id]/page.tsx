@@ -107,6 +107,7 @@ function serialiseMeta(platform: Platform, meta: PlatformMeta): Record<string, u
       description_template: m.description_template || undefined,
       thumbnail_name: m.thumbnail_name || undefined,
       playlist_ids: m.playlist_ids,
+      channel_ids: m.channel_ids,
       auto_share: Boolean(m.auto_share),
     };
   }

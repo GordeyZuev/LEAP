@@ -37,6 +37,7 @@ Root product overview: repository [`README.md`](../../README.md).
 - [FAQ.md](FAQ.md)
 - [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md) – Settings → Usage, quotas, activity charts, admin analytics, share stats (v0.10.8.3)
 - [guides/PLAYLISTS.md](guides/PLAYLISTS.md) – course playlists, public `/share/p/{uuid}`, Enable / Disable / Rotate
+- [guides/CHANNELS.md](guides/CHANNELS.md) – `/c/{slug}` hubs, M:N playlists, Playlists then Videos, Enable / Disable
 - [guides/TEMPLATES.md](guides/TEMPLATES.md)
 - [guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md](guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md)
 - [guides/TEMPLATE_JSON.md](guides/TEMPLATE_JSON.md) – export/import JSON bundles, PUT full replace

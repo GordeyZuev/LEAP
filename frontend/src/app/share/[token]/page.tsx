@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 
 import { fetchPublicRecordingForMetadata } from "@/api/share";
@@ -47,5 +48,9 @@ export async function generateMetadata({
 
 export default async function SharePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  return <ShareView token={token} />;
+  return (
+    <Suspense fallback={null}>
+      <ShareView token={token} />
+    </Suspense>
+  );
 }

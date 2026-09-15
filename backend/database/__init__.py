@@ -7,6 +7,7 @@ from .auth_models import (
     UserModel,
     UserSubscriptionModel,
 )
+from .channel_models import ChannelModel, ChannelPlaylistModel, ChannelVideoModel
 from .config import DatabaseConfig
 from .config_models import UserConfigModel
 from .manager import DatabaseManager
@@ -31,6 +32,9 @@ __all__ = [
     "AuditAction",
     "Base",
     "BaseConfigModel",
+    "ChannelModel",
+    "ChannelPlaylistModel",
+    "ChannelVideoModel",
     "DatabaseConfig",
     "DatabaseManager",
     "InputSourceModel",

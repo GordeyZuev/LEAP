@@ -55,3 +55,11 @@ class TestNormalizeOutputConfig:
             TemplateOutputConfig.model_validate({"playlist_ids": [1, 1]})
         with pytest.raises(ValueError, match="Maximum 10"):
             TemplateOutputConfig.model_validate({"playlist_ids": list(range(1, 12))})
+
+    def test_channel_ids_unique_and_capped(self) -> None:
+        cfg = TemplateOutputConfig.model_validate({"channel_ids": [1, 2]})
+        assert cfg.channel_ids == [1, 2]
+        with pytest.raises(ValueError, match="unique"):
+            TemplateOutputConfig.model_validate({"channel_ids": [1, 1]})
+        with pytest.raises(ValueError, match="Maximum 10"):
+            TemplateOutputConfig.model_validate({"channel_ids": list(range(1, 12))})

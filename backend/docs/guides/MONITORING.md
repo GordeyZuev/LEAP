@@ -23,13 +23,13 @@ changes land without a manual step.
 ┌──────────────┐    scrape           ┌────────────┐   query  ┌─────────┐
 │  api:8000    │ ──────────────────► │ prometheus │ ───────► │ grafana │
 └──────────────┘                     └────────────┘          └─────────┘
-                                           ▲
-                  Redis events             │
-┌──────────────┐  ──────────────► ┌──────────────────┐
-│   celery     │                  │ celery_exporter  │
-└──────────────┘                  └──────────────────┘
-                                           ▲
-Postgres (grafana_ro) ─────────────────────┘
+       ▲                                   ▲
+       │                                   │
+┌──────────────┐  Redis events    ┌──────────────────┐   ┌───────────────┐
+│   celery     │ ───────────────► │ celery_exporter  │   │ node_exporter │
+└──────────────┘                  └──────────────────┘   │ (host RAM/CPU)│
+                                                         └───────────────┘
+Postgres (grafana_ro) ────────────────────────────────────────────┘
 ```
 
 `PROMETHEUS_MULTIPROC_DIR` is a shared tmpfs. API and Celery workers write
@@ -38,6 +38,24 @@ stage duration is visible in Prometheus.
 
 Loki chunks live in Object Storage (90 days). Prometheus TSDB is local (30 days).
 A dashboard window wider than 30 days is empty by design.
+
+**Host (VM)** — `node_exporter` exposes RAM, CPU, and root disk to Prometheus. The container bind-mounts host `/` at `/host` and uses `--path.rootfs=/host`, but filesystem metrics still label the root volume as **`mountpoint="/"`** (not `/host`). Overview disk panel filters `mountpoint="/"`.
+Overview → **Host (VM)** row. Manual checks: `free -h`, `docker stats --no-stream`.
+
+### Log and analytics timezones
+
+- Application and Celery log timestamps in Loki are **UTC** (container time).
+- Grafana uses the browser timezone unless you change the picker; align UTC when correlating with DB.
+- **Grafana CSV export:** the `Time` column is often **ingestion/query time**, not the timestamp inside the log line — use the timestamp in the **Line** field for the event.
+- In-app **Usage / Admin → Analytics** buckets by **UTC calendar days** — see [USAGE_AND_ANALYTICS.md](USAGE_AND_ANALYTICS.md) (for MSK, «today» on charts starts at 03:00 local).
+
+### Capacity heuristics (single VM)
+
+| Signal | Action |
+| ------ | ------ |
+| `leap_api` memory **>90%** of compose limit | Already 3G limit; reduce uvicorn workers or raise limit |
+| Host memory available **<15%** (Overview) | Check `docker stats`; consider fewer concurrent FFmpeg jobs |
+| Root disk free **<10 GiB** | `docker system df`, Prometheus retention, logs on `/` |
 
 ## Logs
 
@@ -175,6 +193,7 @@ leap_queue_oldest_task_age_seconds
 | `LOKI_S3_BUCKET` + access keys  | —                           | Loki object storage                  |
 | `GRAFANA_RO_PASSWORD`           | —                           | Postgres datasource                  |
 | `GRAFANA_USER` / `GRAFANA_PASSWORD` | `admin`                 | Grafana login (htpasswd uses the same password) |
+| `CELERY_DEEPSEEK_TRANSIENT_RETRY_DELAY` | `900`               | Celery countdown for transient DeepSeek queue timeouts (`extract_topics`) |
 
 ## Failure modes
 
@@ -190,6 +209,7 @@ leap_queue_oldest_task_age_seconds
 | Loki panels empty                            | App not writing `structured.json`                  | Check `JSON_LOG_FILE` in the container                              |
 | `leap-api` Prometheus target DOWN            | `/metrics` off                                     | `MONITORING_PROMETHEUS_ENABLED=true` on **api**                     |
 | `celery_queue_length` always 0               | Workers not sending events                         | `-E` + `worker_send_task_events=True` (already in compose)          |
+| Host (VM) panels **No data**                 | `node_exporter` down, stale dashboard JSON, or CPU panel before 5m of scrapes | `up{job="node"}`; memory: `100*node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes`; disk: `node_filesystem_avail_bytes{mountpoint="/"}` (not `/host`); `git pull` + `docker compose restart grafana` |
 | `leap_celery_worker` Docker **unhealthy**    | Healthcheck script can fail while tasks still run  | Confirm with `docker compose logs celery_worker`; do not trust the badge alone |
 | External API Grafana panels                  | Removed — `track_external_api()` is unused         | Wire the helper before adding panels back                           |
 

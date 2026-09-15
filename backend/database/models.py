@@ -116,6 +116,7 @@ class RecordingModel(Base):
     share_download_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     share_last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     share_last_downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    share_artifact_files: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
 
     # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

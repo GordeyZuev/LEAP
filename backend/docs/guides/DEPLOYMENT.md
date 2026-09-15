@@ -461,3 +461,5 @@ MinIO console: http://localhost:9001 (minioadmin / minioadmin).
 | Lockbox `leap-prod-secrets` | All production credentials, fetched at boot |
 | VM disk `backend/storage/temp/` | Ephemeral FFmpeg/ASR scratch — Beat-cleaned hourly |
 | VM disk `backend/logs/` | Application logs → Promtail → Loki → Grafana |
+
+**Bucket CORS (public watch):** allow `GET` from the production frontend origin on `leap-platform-storage` so the player can fetch presigned **VTT** in the browser. `<video>` does not set `crossOrigin`; playback works without bucket CORS. If VTT CORS fails, the client falls back to the share files API and attaches a blob URL.

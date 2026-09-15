@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -57,3 +57,36 @@ async def test_record_page_view_skips_without_owner() -> None:
     service = ShareObservabilityService()
     counted = await service.record_page_view(recording, _FakeRequest())
     assert counted is False
+
+
+@pytest.mark.asyncio
+async def test_catalog_analytics_includes_downloads_by_type(mocker) -> None:
+    from datetime import date
+
+    from api.services.share_observability import build_catalog_analytics
+
+    repo = MagicMock()
+    repo.daily_aggregates_for_recordings = AsyncMock(return_value=[])
+    repo.daily_opens = AsyncMock(return_value=[])
+    repo.totals_for_recordings = AsyncMock(return_value=(1, 3))
+    repo.total_opens = AsyncMock(return_value=0)
+    repo.downloads_by_type_for_recordings = AsyncMock(return_value={"video": 3})
+    mocker.patch("api.services.share_observability.ShareEventRepository", return_value=repo)
+    engagement = MagicMock()
+    engagement.build_summary = AsyncMock(return_value=None)
+    mocker.patch("api.services.share_engagement.ShareEngagementService", return_value=engagement)
+
+    start = date(2026, 9, 1)
+    end = date(2026, 9, 2)
+    result = await build_catalog_analytics(
+        MagicMock(),
+        recording_ids=[1, 2],
+        from_date=start,
+        to_date=end,
+        from_dt=datetime(2026, 9, 1, tzinfo=UTC),
+        to_dt=datetime(2026, 9, 2, 23, 59, tzinfo=UTC),
+        owner_user_id="u1",
+        channel_id=9,
+    )
+    assert result.downloads_by_type == {"video": 3}
+    repo.downloads_by_type_for_recordings.assert_awaited_once()

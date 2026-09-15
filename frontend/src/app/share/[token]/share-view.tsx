@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Check,
@@ -21,7 +23,7 @@ import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-c
 import { resolveStorageUrl } from "@/api/client";
 import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
 import { ShareVideoDownloadButton } from "@/components/recordings/share-video-download-button";
-import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
+import { TranscriptPanel } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
 import { CollapsibleCard } from "@/components/ui/section-card";
@@ -29,13 +31,17 @@ import { COMPANION_BODY_PINNED, COMPANION_TABS_ROW, WATCH_BELOW, WatchStage } fr
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
-import { VideoVariantSwitch } from "@/components/ui/video-variant-switch";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { cn, formatDate, formatDuration, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
 import { lastIndexAtOrBefore } from "@/lib/playlist-playable";
 import { recordingResumeKey } from "@/lib/video-resume";
 import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
+import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
+import { useShareEngagement } from "@/hooks/use-share-engagement";
+import { useShareVtt } from "@/hooks/use-share-vtt";
 import { useWatchTheater } from "@/hooks/use-watch-theater";
+import type { ChapterSeekSource } from "@/lib/share-engagement";
+import { WatchVideoVariantChrome } from "@/components/ui/watch-video-variant-chrome";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -57,23 +63,33 @@ function ShareVideoPlayer({
   recordingId,
   variant,
   processedPlayUrl,
+  originalPlayUrl,
+  mediaExpiresIn,
+  onItemRefetch,
   markers,
   vttBlobUrl,
   videoRef,
   onTimeUpdate,
   onMediaMissing,
+  onMarkerSeek,
+  onEnded,
 }: {
   token: string;
   recordingId: number;
   variant: "processed" | "original";
   processedPlayUrl?: string | null;
+  originalPlayUrl?: string | null;
+  mediaExpiresIn?: number | null;
+  onItemRefetch: () => void;
   markers: VideoPlayerMarker[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTimeUpdate?: (time: number) => void;
   onMediaMissing?: () => void;
+  onMarkerSeek?: (time: number, label: string) => void;
+  onEnded?: () => void;
 }) {
-  const presetUrl = variant === "processed" ? processedPlayUrl : null;
+  const presetUrl = variant === "processed" ? processedPlayUrl : originalPlayUrl;
   const { data: videoUrl, isLoading, isError, refetch, error } = useQuery({
     queryKey: ["share-media", token, variant],
     queryFn: async () => {
@@ -85,6 +101,12 @@ function ShareVideoPlayer({
     retry: false,
   });
   const resolvedUrl = presetUrl ?? videoUrl;
+
+  usePresignedMediaRefresh({
+    expiresIn: mediaExpiresIn,
+    enabled: Boolean(presetUrl),
+    onRefresh: onItemRefetch,
+  });
 
   useEffect(() => {
     if (httpStatus(error) === 404) onMediaMissing?.();
@@ -115,16 +137,27 @@ function ShareVideoPlayer({
       ref={videoRef}
       src={resolvedUrl}
       resumeKey={recordingResumeKey(String(recordingId), variant)}
-      onReload={() => refetch()}
+      onReload={() => {
+        onItemRefetch();
+        void refetch();
+      }}
       markers={markers}
       vttBlobUrl={variant === "processed" ? vttBlobUrl : null}
       onTimeUpdate={onTimeUpdate}
+      onMarkerSeek={onMarkerSeek}
+      onEnded={onEnded}
       className="rounded-none outline-none"
     />
   );
 }
 
 export function ShareView({ token }: { token: string }) {
+  const fromSlug = useSearchParams().get("from");
+  const engagementPath = useMemo(() => {
+    const q = fromSlug ? `?from=${encodeURIComponent(fromSlug)}` : "";
+    return `/share/${token}/engagement${q}`;
+  }, [token, fromSlug]);
+  const { track, flush } = useShareEngagement(engagementPath);
   const {
     data: recording,
     error,
@@ -142,8 +175,6 @@ export function ShareView({ token }: { token: string }) {
 
   const [activeChapterIdx, setActiveChapterIdx] = useState(-1);
   const [activeCueIdx, setActiveCueIdx] = useState(-1);
-  const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
-  const [transcript, setTranscript] = useState<TranscriptCue[]>([]);
   const [videoVariant, setVideoVariant] = useState<"processed" | "original">("processed");
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("topics");
   const onCompanionTab = useCallback((tab: SidePanelTab) => {
@@ -153,6 +184,8 @@ export function ShareView({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);
   const { theater, setTheater } = useWatchTheater();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const durationFallbackRef = useRef(0);
+  const positionRef = useRef(0);
   const companionPanelId = useId();
 
   const handleCopyLink = useCallback(() => {
@@ -166,28 +199,18 @@ export function ShareView({ token }: { token: string }) {
     void refetch();
   }, [refetch]);
 
-  const vttFetchUrl = recording?.vtt_url ?? null;
-  useEffect(() => {
-    if (!recording?.available_files.includes("vtt")) return;
-    const url = vttFetchUrl ?? getShareFileUrl(token, "vtt", true);
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    fetch(url)
-      .then((r) => r.text())
-      .then((text) => {
-        if (cancelled) return;
-        setTranscript(parseVtt(text));
-        objectUrl = URL.createObjectURL(new Blob([text], { type: "text/vtt" }));
-        setVttBlobUrl(objectUrl);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      setVttBlobUrl(null);
-      setTranscript([]);
-    };
-  }, [token, recording?.available_files, vttFetchUrl]);
+  const vttFallback = recording?.available_files?.includes("vtt")
+    ? getShareFileUrl(token, "vtt", true)
+    : null;
+  const { vttBlobUrl, transcript } = useShareVtt({
+    enabled: Boolean(recording?.vtt_url || vttFallback),
+    vttUrl: recording?.vtt_url,
+    fallbackUrl: vttFallback,
+  });
+
+  const refetchPlayer = useCallback(() => {
+    void refetch();
+  }, [refetch]);
 
   const topicTimestamps = useMemo(
     () => (Array.isArray(recording?.topic_timestamps) ? (recording!.topic_timestamps as { topic: string; start: number }[]) : []),
@@ -219,6 +242,7 @@ export function ShareView({ token }: { token: string }) {
 
   const handleTimeUpdate = useCallback(
     (time: number) => {
+      positionRef.current = time;
       setActiveChapterIdx(lastIndexAtOrBefore(topicTimestamps, time));
       setActiveCueIdx(lastIndexAtOrBefore(transcript, time));
     },
@@ -226,8 +250,61 @@ export function ShareView({ token }: { token: string }) {
   );
 
   const handleSeek = useCallback((time: number) => {
+    positionRef.current = time;
     if (videoRef.current) videoRef.current.currentTime = time;
   }, []);
+
+  const chapterLabelAt = useCallback(
+    (time: number) => {
+      const idx = lastIndexAtOrBefore(topicTimestamps, time);
+      if (idx >= 0) return topicTimestamps[idx]!.topic;
+      return `${Math.floor(time)}s`;
+    },
+    [topicTimestamps],
+  );
+
+  const seekWithEngagement = useCallback(
+    (time: number, source: ChapterSeekSource) => {
+      handleSeek(time);
+      track("chapter_seek", {
+        source,
+        time_sec: Math.floor(time),
+        label: chapterLabelAt(time),
+      });
+    },
+    [chapterLabelAt, handleSeek, track],
+  );
+
+  useEffect(() => {
+    if (recording?.duration) {
+      durationFallbackRef.current = recording.duration;
+    }
+  }, [recording?.duration]);
+
+  useEffect(() => {
+    const recordingId = recording?.id;
+    if (!recordingId) return;
+    positionRef.current = 0;
+    const snapPlayback = () => {
+      const el = videoRef.current;
+      if (!el) return;
+      if (Number.isFinite(el.currentTime)) positionRef.current = el.currentTime;
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        durationFallbackRef.current = el.duration;
+      }
+    };
+    snapPlayback();
+    const timer = window.setInterval(snapPlayback, 250);
+    return () => {
+      window.clearInterval(timer);
+      const duration = Math.floor(durationFallbackRef.current);
+      const position = Math.floor(positionRef.current);
+      if (duration > 0) {
+        track("watch_exit", { position_sec: Math.min(position, duration), duration_sec: duration });
+        flush();
+      }
+    };
+  }, [recording?.id, track, flush]);
 
   const missing = httpStatus(error) === 404;
   if (missing) {
@@ -280,8 +357,14 @@ export function ShareView({ token }: { token: string }) {
   }
 
   const hasVideo = recording.has_processed_video || recording.has_original_video;
-  const bothVariants = recording.has_processed_video && recording.has_original_video;
-  const currentVariant: "processed" | "original" = recording.has_processed_video ? videoVariant : "original";
+  const bothVariants = Boolean(
+    recording.has_processed_video && recording.has_original_video && recording.original_play_url,
+  );
+  const currentVariant: "processed" | "original" = recording.has_processed_video
+    ? bothVariants
+      ? videoVariant
+      : "processed"
+    : "original";
 
   const allowVideo = recording.allow_video_download !== false;
   const allowFiles = recording.allow_files_download !== false;
@@ -313,7 +396,7 @@ export function ShareView({ token }: { token: string }) {
         recordingId={recording.id}
         version={topicVersion}
         onUpdated={() => {}}
-        onSeek={handleSeek}
+        onSeek={(time) => seekWithEngagement(time, "sidebar")}
         activeChapterIdx={activeChapterIdx}
         readOnly
         sections={["chapters"]}
@@ -323,7 +406,7 @@ export function ShareView({ token }: { token: string }) {
       <TranscriptPanel
         cues={transcript}
         activeIdx={activeCueIdx}
-        onSeek={handleSeek}
+        onSeek={(time) => seekWithEngagement(time, "transcript")}
         listClassName="min-h-0 flex-1 overflow-y-auto"
       />
     ) : null;
@@ -334,11 +417,23 @@ export function ShareView({ token }: { token: string }) {
       recordingId={recording.id}
       variant={currentVariant}
       processedPlayUrl={recording.play_url}
+      originalPlayUrl={recording.original_play_url}
+      mediaExpiresIn={recording.media_expires_in}
+      onItemRefetch={refetchPlayer}
       markers={onProcessedTimeline ? markers : []}
       vttBlobUrl={onProcessedTimeline ? vttBlobUrl : null}
       videoRef={videoRef}
       onTimeUpdate={handleTimeUpdate}
       onMediaMissing={handleMediaMissing}
+      onMarkerSeek={(time, label) => {
+        handleSeek(time);
+        track("chapter_seek", {
+          source: "marker",
+          time_sec: Math.floor(time),
+          label,
+        });
+      }}
+      onEnded={() => track("playback_complete", {})}
     />
   );
 
@@ -418,6 +513,11 @@ export function ShareView({ token }: { token: string }) {
             player={playerNode}
             title={
               <div>
+                {fromSlug && (
+                  <Link href={`/c/${fromSlug}`} className="mb-2 inline-flex text-sm text-muted-foreground hover:text-foreground">
+                    ← {fromSlug}
+                  </Link>
+                )}
                 <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
                   {recording.display_name}
                 </h1>
@@ -432,18 +532,13 @@ export function ShareView({ token }: { token: string }) {
                       </>
                     )}
                   </span>
-                  {bothVariants && (
-                    <>
-                      <span aria-hidden="true" className="text-border">·</span>
-                      <VideoVariantSwitch value={currentVariant} onChange={setVideoVariant} className="text-xs" />
-                    </>
-                  )}
                 </div>
-                {bothVariants && !onProcessedTimeline && (hasTopicsPanel || hasTranscript) && (
-                  <p className="mt-1.5 text-xs text-muted-foreground">
-                    Chapters and transcript follow the edited video.
-                  </p>
-                )}
+                <WatchVideoVariantChrome
+                  bothVariants={bothVariants}
+                  variant={currentVariant}
+                  onVariantChange={setVideoVariant}
+                  showTimelineHint={!onProcessedTimeline && (hasTopicsPanel || hasTranscript)}
+                />
               </div>
             }
             theater={theater}

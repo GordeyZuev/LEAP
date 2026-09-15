@@ -1,6 +1,6 @@
 # Usage, quotas, and product analytics
 
-**Product release:** v0.10.8.3 (September 2026)
+**Product release:** v0.11.0.0 (September 2026)
 
 This guide is the canonical reference for **in-app usage observability**: what users and admins see in the web UI, how it maps to API responses, and how it relates to `usage_events`, `quota_usage`, and share counters.
 
@@ -68,10 +68,16 @@ Activity totals come from **`GET /api/v1/users/me/analytics`**.
 
 ## 4. Share analytics (owner)
 
-- **Manage share** on a recording: views and downloads over time.
+| Surface | Path | What you see |
+| --- | --- | --- |
+| **Recording** | Manage share (recording page) | Views, downloads, **Engagement** (popular chapters, completion, typical stop point) |
+| **Course (playlist)** | `/playlists/{id}?tab=analytics` | Opens, views, downloads, **Engagement** (chapters, completion, navigation between lectures) |
+| **Channel** | `/channels/{id}?tab=analytics` | Same catalog aggregates + **Engagement** across channel videos |
+
 - Supports **`from` / `to`** (presets 7 / 28 / 90 days) or legacy rolling `days=7|28`.
-- API: `GET /api/v1/recordings/{id}/share/analytics`.
-- Public beacons and download routes are unchanged; see [TECHNICAL.md](../TECHNICAL.md) (Share analytics).
+- Same share analytics API as views/downloads; engagement metrics use the selected date range.
+- Course and channel analytics include **downloads by file type** for lectures currently in the catalog (same `FILE_DOWNLOAD` events as the daily chart).
+- Counting runs on public watch pages only (single share and lecture inside a course); not mixed into Settings → Usage or Admin → Analytics.
 - A viewer who is **signed in to LEAP** still increments share views: `navigator.sendBeacon` cannot send a CSRF header, so those POSTs are exempt. Owner Enable / Disable / Rotate still require CSRF.
 
 ---
@@ -104,6 +110,7 @@ All endpoints require auth. Dates are inclusive `YYYY-MM-DD` (UTC day boundaries
 | **`quota_usage`** | Monthly counters (`period` = `YYYYMM`): recordings, transcriptions, processing, uploads |
 | **`usage_events`** | Immutable audit log for admin timeline (`recording_created`, `processing_started`, …) |
 | **`share_access_events`** + recording counters | Share views/downloads |
+| **`share_engagement_events`** (migration **053**) | Anonymous engagement on public watch (chapters, completion, navigation, stop point) |
 | **Live counts** | Storage (S3), concurrent tasks (`on_air`), automation jobs, templates, credentials |
 
 Tracking hooks are **best-effort**: a failed counter write is logged and does not fail the user operation.

@@ -36,6 +36,20 @@ class DeepSeekError(Exception):
     """DeepSeek API or parse failure. Empty extract must not be treated as success."""
 
 
+def is_transient_deepseek_error(exc: DeepSeekError) -> bool:
+    """True when Celery should retry after a delay (DeepSeek queue / capacity)."""
+    msg = str(exc).casefold()
+    return "900-second" in msg or "try again later" in msg
+
+
+def _format_api_error_payload(api_error: object) -> str:
+    if isinstance(api_error, dict):
+        message = api_error.get("message")
+        if message:
+            return str(message)
+    return str(api_error)
+
+
 def _get_granularity_config(granularity: Granularity) -> dict:
     """Return config for granularity. Falls back to LONG if key missing."""
     return GRANULARITY_CONFIG.get(granularity.value, GRANULARITY_CONFIG[Granularity.LONG.value])
@@ -384,9 +398,9 @@ class TopicExtractor:
         )
         api_error = getattr(response, "error", None)
         if api_error:
-            raise DeepSeekError(f"DeepSeek API error: {api_error}")
+            raise DeepSeekError(f"DeepSeek API error: {_format_api_error_payload(api_error)}")
         if not getattr(response, "choices", None):
-            raise DeepSeekError(f"Unexpected DeepSeek API response: type={type(response)}, value={response}")
+            raise DeepSeekError(f"Unexpected DeepSeek API response: empty choices, type={type(response).__name__}")
 
         message = response.choices[0].message
         raw_content = getattr(message, "content", None)

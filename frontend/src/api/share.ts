@@ -48,8 +48,11 @@ export interface PublicRecordingResponse {
   } | null;
   play_url?: string | null;
   vtt_url?: string | null;
+  original_play_url?: string | null;
   media_expires_in?: number | null;
 }
+
+export type PublicPlaylistView = "full" | "catalog";
 
 export interface PublicPlaylistItem {
   id: number;
@@ -78,12 +81,29 @@ export interface ShareDailyPoint {
   date: string;
   views: number;
   downloads: number;
+  opens?: number;
 }
 
 export interface ShareAnalyticsResponse {
   summary: ShareStatsSummary;
   daily: ShareDailyPoint[];
   downloads_by_type: Record<string, number>;
+  engagement?: ShareEngagementSummary | null;
+}
+
+export interface ShareEngagementChapterRow {
+  label: string;
+  count: number;
+  by_source: Record<string, number>;
+}
+
+export interface ShareEngagementSummary {
+  chapter_seeks_top: ShareEngagementChapterRow[];
+  completion_rate: number | null;
+  completion_count: number;
+  view_count_in_range: number;
+  playlist_navigate_by_from?: Record<string, number> | null;
+  watch_exit_median_ratio: number | null;
 }
 
 export type { ShareStatsSummary };
@@ -124,12 +144,87 @@ async function sendPublicBeacon(apiPath: string): Promise<void> {
   await publicClient.post(apiPath);
 }
 
+export async function sendPublicEngagementBeacon(
+  apiPath: string,
+  body: { session_id: string; events: { name: string; payload: Record<string, unknown> }[] },
+): Promise<void> {
+  const url = `${API_URL}/api/v1${apiPath}`;
+  const json = JSON.stringify(body);
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    const blob = new Blob([json], { type: "application/json" });
+    if (navigator.sendBeacon(url, blob)) return;
+  }
+  await publicClient.post(apiPath, body, {
+    headers: { "Content-Type": "application/json" },
+    withCredentials: true,
+  });
+}
+
+function fromQuery(): string {
+  if (typeof window === "undefined") return "";
+  const from = new URLSearchParams(window.location.search).get("from");
+  return from ? `?from=${encodeURIComponent(from)}` : "";
+}
+
 export async function sendSharePageBeacon(token: string): Promise<void> {
-  await sendPublicBeacon(`/share/${token}/beacon`);
+  await sendPublicBeacon(`/share/${token}/beacon${fromQuery()}`);
 }
 
 export async function sendPlaylistSharePageBeacon(token: string, itemId: number): Promise<void> {
-  await sendPublicBeacon(`/share/p/${token}/items/${itemId}/beacon`);
+  await sendPublicBeacon(`/share/p/${token}/items/${itemId}/beacon${fromQuery()}`);
+}
+
+export async function sendPlaylistLandingBeacon(token: string): Promise<void> {
+  await sendPublicBeacon(`/share/p/${token}/beacon`);
+}
+
+export async function sendChannelPageBeacon(slug: string): Promise<void> {
+  await sendPublicBeacon(`/c/${slug}/beacon`);
+}
+
+export interface PublicChannelVideo {
+  title: string;
+  duration: number;
+  start_time?: string | null;
+  poster_url: string | null;
+  poster_asset_key?: string | null;
+  share_token: string;
+  blurb?: string | null;
+}
+
+export interface PublicChannelPlaylist {
+  name: string;
+  video_count: number;
+  duration_sum: number;
+  poster_url: string | null;
+  poster_asset_key?: string | null;
+  share_token: string;
+  blurb?: string | null;
+}
+
+export interface PublicChannelResponse {
+  name: string;
+  slug: string;
+  description: string | null;
+  banner_url: string | null;
+  videos: PublicChannelVideo[];
+  playlists: PublicChannelPlaylist[];
+}
+
+export async function getPublicChannel(slug: string): Promise<PublicChannelResponse> {
+  const res = await publicClient.get<PublicChannelResponse>(`/c/${slug}`);
+  return res.data;
+}
+
+export async function fetchPublicChannelForMetadata(slug: string): Promise<PublicChannelResponse | null> {
+  try {
+    const { data } = await axios.get<PublicChannelResponse>(`${serverApiBase()}/api/v1/c/${slug}`, {
+      timeout: 4000,
+    });
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 // --- Public endpoints (no auth required) ---
@@ -160,8 +255,13 @@ export function getShareFileUrl(token: string, fileType: string, inline = false)
   return inline ? `${url}?inline=true` : url;
 }
 
-export async function getPublicPlaylist(token: string): Promise<PublicPlaylistResponse> {
-  const res = await publicClient.get<PublicPlaylistResponse>(`/share/p/${token}`);
+export async function getPublicPlaylist(
+  token: string,
+  view: PublicPlaylistView = "full",
+): Promise<PublicPlaylistResponse> {
+  const res = await publicClient.get<PublicPlaylistResponse>(`/share/p/${token}`, {
+    params: view === "catalog" ? { view: "catalog" } : {},
+  });
   return res.data;
 }
 
@@ -180,9 +280,10 @@ export async function getPlaylistShareMedia(
   token: string,
   itemId: number,
   download = false,
+  type: "processed" | "original" = "processed",
 ): Promise<ShareMediaResponse> {
   const res = await publicClient.get<ShareMediaResponse>(`/share/p/${token}/items/${itemId}/media`, {
-    params: { type: "processed", ...(download ? { download: true } : {}) },
+    params: { type, ...(download ? { download: true } : {}) },
   });
   return res.data;
 }
@@ -192,9 +293,13 @@ export function getPlaylistShareFileUrl(token: string, itemId: number, fileType:
   return inline ? `${url}?inline=true` : url;
 }
 
-export async function fetchPublicPlaylistForMetadata(token: string): Promise<PublicPlaylistResponse | null> {
+export async function fetchPublicPlaylistForMetadata(
+  token: string,
+  view: PublicPlaylistView = "full",
+): Promise<PublicPlaylistResponse | null> {
   try {
-    const res = await fetch(`${serverApiBase()}/api/v1/share/p/${token}`, {
+    const qs = view === "catalog" ? "?view=catalog" : "";
+    const res = await fetch(`${serverApiBase()}/api/v1/share/p/${token}${qs}`, {
       next: { revalidate: 300 },
     });
     if (!res.ok) return null;

@@ -37,6 +37,14 @@ class StoragePathBuilder:
     def user_thumbnails_dir(self, user_slug: int) -> Path:
         return self.user_root(user_slug) / "thumbnails"
 
+    def playlist_cover(self, user_slug: int, playlist_id: int, suffix: str) -> Path:
+        suf = suffix if suffix.startswith(".") else f".{suffix}"
+        return self.user_root(user_slug) / "playlist-covers" / f"{playlist_id}{suf}"
+
+    def channel_banner(self, user_slug: int, channel_id: int, suffix: str) -> Path:
+        suf = suffix if suffix.startswith(".") else f".{suffix}"
+        return self.user_root(user_slug) / "channel-banners" / f"{channel_id}{suf}"
+
     def recording_root(self, user_slug: int, recording_id: int) -> Path:
         """Get recording root: storage/users/user_000001/recordings/74"""
         return self.user_root(user_slug) / "recordings" / str(recording_id)

@@ -444,14 +444,16 @@ export default function DocsPage() {
           </Sub>
           <Sub title="Is VK supported?">
             <P>
-              No. VK is not a destination. Publish to YouTube, Yandex Disk, or a LEAP share/course link.
+              No. VK is not a destination. Publish to YouTube, Yandex Disk, or a LEAP share, course, or channel
+              page.
             </P>
           </Sub>
           <Sub title="How do share links and playlists work?">
             <P>
               A recording has one public URL: Enable / Disable (same URL) / Rotate (new URL). A playlist is an
-              ordered course with <code className="text-xs">/share/p/…</code>. Look LEAP is membership and
-              appearance, not an upload. Details in <strong>Recordings</strong> below.
+              ordered course with <code className="text-xs">/share/p/…</code>. A channel is a hub at{" "}
+              <code className="text-xs">/c/…</code> (search, sort, grid or list). Look LEAP is membership and
+              appearance, not an upload.
             </P>
           </Sub>
           <Sub title="Which speech engine does LEAP use?">
@@ -547,11 +549,12 @@ export default function DocsPage() {
             <P>
               A playlist is a course: an ordered list of recordings with one public link
               (<code className="text-xs">/share/p/…</code>). Create one under <strong>Playlists</strong>,
-              then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
+              optionally upload a custom cover, and attach it to one or more <strong>Channels</strong>.
+              Then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
               Named templates and Run can assign LEAP courses without copy-upload presets – membership is applied after processing finishes (same moment as LEAP publication), not when you bind a template. Manual add from the playlist editor or Publications still adds immediately.
               Enable / Disable / Rotate work like recording share. Deleting a playlist kills the link; recordings stay.
               The landing page is a cover with a play control and the video list. Opening a video goes to watch
-              (<code className="text-xs">?v=</code>): player, companion (Playlist, Chapters, Transcript), then Summary & questions
+              (<code className="text-xs">?v=</code>): player, companion (Chapters, Transcript, Playlist), then Summary & questions
               (Theme, summary, questions), Files, and Created Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags.
               Opening a playable video counts as a view on that recording.
               Playlist descriptions can use <code className="text-xs">{"{{ video_count }}"}</code>,{" "}
@@ -559,6 +562,16 @@ export default function DocsPage() {
               Cmd or Ctrl with B, I, U, K, and Shift+X formats the selection and skips Jinja variables.
               The field keeps the marks; Public look is what visitors see. Formatting stays on one line;
               YouTube descriptions are sent as plain text.
+            </P>
+          </Sub>
+          <Sub title="Channels">
+            <P>
+              A channel is a public hub at <code className="text-xs">/c/slug</code> with Playlists then Videos.
+              Enable when the showcase is ready; Disable keeps the same address. Changing the slug 404s the old URL
+              (no redirect). Viewers can search, sort, and switch grid or list; list rows show date, duration, and a
+              short blurb. Cards open the existing lecture and course players. Hidden items stay in the editor until
+              share is on. Templates can add a recording to Videos after processing; that does not enable the share
+              link.
             </P>
           </Sub>
           <Sub title="Running a recording">

@@ -61,6 +61,10 @@ class OutputConfigUpdate(BaseModel):
         None,
         description="LEAP playlist IDs (replaces existing when provided; does not change membership by itself)",
     )
+    channel_ids: list[int] | None = Field(
+        None,
+        description="LEAP channel IDs (replaces existing when provided)",
+    )
 
     @field_validator("preset_ids")
     @classmethod
@@ -86,6 +90,19 @@ class OutputConfigUpdate(BaseModel):
             raise ValueError("playlist_ids must be positive numbers")
         if len(v) != len(set(v)):
             raise ValueError("playlist_ids must be unique")
+        return v
+
+    @field_validator("channel_ids")
+    @classmethod
+    def validate_channel_ids(cls, v: list[int] | None) -> list[int] | None:
+        if v is None:
+            return None
+        if len(v) > 10:
+            raise ValueError("Maximum 10 channels per recording")
+        if any(pid <= 0 for pid in v):
+            raise ValueError("channel_ids must be positive numbers")
+        if len(v) != len(set(v)):
+            raise ValueError("channel_ids must be unique")
         return v
 
 

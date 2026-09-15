@@ -1,16 +1,161 @@
+## v0.11.0.0 (2026-09-16)
+
+Релиз: **каналы** и удобнее **публичный просмотр**; **аналитика вовлечённости** на share, курсе и канале (главы, досмотры, переходы между лекциями). Миграции **049–053** накатить до кода (**053** — данные вовлечённости). Подробности — **2026-09-15: Channels**, **2026-09-16: Public watch engagement analytics**, **2026-09-16: Public watch latency & player UX**, **2026-09-16: DeepSeek topics retry and host metrics**.
+
+---
+
+## 2026-09-16: YouTube download — Deno + yt-dlp-ejs
+
+- **403 googlevideo** — `youtube.com` с YC открывался, `videoplayback` (itag 18) отдавал Forbidden: в URL не было nsig (`n=`). В образе не было JS runtime; PyPI-пакет yt-dlp ставился **без** extra `default`, то есть без **yt-dlp-ejs**.
+- **Deno 2.9.6** в `backend/Dockerfile` (`denoland/deno:bin-2.9.6` → `/usr/local/bin/deno`) — дефолтный runtime yt-dlp (минимум 2.3.0).
+- **yt-dlp 2026.8.19** с extra **`[default]`** (тянет `yt-dlp-ejs==0.8.0`). Одно без другого не считает challenge.
+- **Deploy:** пересобрать **`leap-backend`**, `docker compose up -d api celery_worker`. Проверка: `python -m yt_dlp -v` → `JS runtimes: deno` (не `none`), затем скачать тестовый URL и retry застрявшей записи.
+
+### Файлы
+
+- `backend/Dockerfile`, `backend/pyproject.toml`, `backend/uv.lock`, `backend/requirements.txt`
+- `backend/docs/guides/YT_DLP_GUIDE.md`
+
+---
+
+## 2026-09-16: Automation does not SKIPPED unmatched recordings
+
+- **Job match miss** — `automation.run_job` no longer sets `SKIPPED` / `failed_reason="No matching template"` when a recording in the sync window does not match this job’s templates. Status stays as-is so another job, rematch, or a later template on the same job can still pick it up. `unmatched_count` remains on the run payload. Dry-run was already non-mutating.
+
+### Файлы
+
+- `backend/api/tasks/automation.py`
+- `backend/tests/unit/api/tasks/test_automation_preview.py`
+- `backend/docs/guides/AUTOMATION_CELERY_BEAT.md`
+
+---
+
+## 2026-09-16: Catalog downloads by type, channel picker, rematch errors
+
+- **Downloads by file type** on course and channel analytics now uses the same file-download events as the daily chart (was always empty while bars still showed downloads).
+- **Channel picker** (template, recording, course) selects existing channels; **New channel** opens Channels → create (name + slug). No inline create without a public URL.
+- **Rematch** — inactive/draft templates show the API reason in the toast and the menu item is disabled until the template is active.
+
+### Файлы
+
+- `backend/api/repositories/share_event_repo.py`, `backend/api/services/share_observability.py`
+- `backend/api/services/channel_service.py`, `backend/api/routers/templates.py`
+- `frontend/src/components/playlists/channel-picker.tsx`, `frontend/src/components/ui/checklist-picker.tsx`, `frontend/src/app/(app)/channels/page.tsx`, `frontend/src/app/(app)/templates/[id]/page.tsx`
+- `backend/docs/guides/CHANNELS.md`, `backend/docs/guides/USAGE_AND_ANALYTICS.md`, `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-16: DeepSeek topics retry and host metrics
+
+- **DeepSeek API error payload** — `response.error` с `choices=None` поднимает `DeepSeekError` с текстом `message` (без dict-repr и Loguru `KeyError` на `{message}`).
+- **Transient queue timeout** — сообщения вида «900-second timeout limit» / «try again later» → Celery retry с **`CELERY_DEEPSEEK_TRANSIENT_RETRY_DELAY`** (default **900s**), не с `CELERY_PROCESSING_RETRY_DELAY` (180s). Прочие `DeepSeekError` — fail stage без retry.
+- **Compose** — `api` memory limit **2G → 3G**; сервис **`node_exporter`** + scrape в Prometheus; Overview: host RAM available %, CPU busy %, disk free on `/`.
+- **Grafana Overview (Host row)** — disk PromQL `mountpoint="/"` (с `--path.rootfs=/host` метки не `/host`); у stat-панелей убран `reduceOptions.fields`, из‑за которого memory могла быть **No data** при живом Prometheus.
+- **Deploy:** собрать и выкатить **`leap-backend`** + `docker compose up -d api celery_worker node_exporter prometheus grafana`. Если в Loki ещё `topic_extractor:435/466` и `KeyError: "'message'"` — prod на старом образе; после деплоя при необходимости **force** re-extract topics для застрявших записей.
+
+### Файлы
+
+- `backend/deepseek_module/topic_extractor.py`, `backend/deepseek_module/__init__.py`, `backend/api/tasks/processing.py`, `backend/config/settings.py`
+- `backend/tests/unit/deepseek_module/test_topic_extractor.py`
+- `backend/tests/unit/api/tasks/test_extract_topics_deepseek_retry.py`
+- `docker-compose.yml`, `monitoring/prometheus.yml`, `monitoring/dashboards/leap_overview.json`, `backend/docs/guides/MONITORING.md`, `backend/.env.example`
+
+---
+
+## 2026-09-16: Public watch engagement analytics
+
+- **Для владельца** — в той же аналитике, что просмотры и скачивания: какие главы открывают чаще, как часто досматривают до конца, где обычно останавливаются, как ходят по курсу (список, обложка, автопереход, прямая ссылка). Блок **Engagement** в управлении ссылкой на лекции и на вкладке **Analytics** у курса и канала; не дублируется в Settings → Usage и Admin → Analytics.
+- **Для зрителя** — счётчик работает на публичных страницах просмотра (одиночная ссылка и лекция в курсе), без отдельного входа и без сторонней аналитики.
+- **Деплой:** `alembic upgrade head` → **053** до выкладки API.
+
+### Файлы
+
+- `backend/alembic/versions/053_share_engagement_events.py`, `backend/api/services/share_engagement.py`, `backend/api/repositories/share_engagement_repo.py`
+- `backend/api/routers/share.py`, `backend/api/auth/csrf.py`, `backend/database/share_models.py`
+- `frontend/src/lib/share-engagement.ts`, `frontend/src/hooks/use-share-engagement.ts`, `frontend/src/app/share/[token]/share-view.tsx`, `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/components/recordings/share-analytics-panel.tsx`
+
+---
+
+## 2026-09-16: Public watch latency & player UX
+
+- **`GET /share/p/{token}?view=catalog`** — метаданные курса без presign постеров на каждый item (`poster_url=null`); landing по-прежнему `view=full`.
+- **`recordings.share_artifact_files`** (Alembic **052**) — кэш списка `available_files`; обновление после `generate_subtitles`; share читает колонку без S3 HEAD, fallback `exists` если `NULL`.
+- **Player payload** — `original_play_url` на `view=player`; playlist item с **`include_original=true`**; **Edited / Original** только если source-ключ **отличается** от processed (один и тот же ключ — не вторая версия).
+- **Frontend** — `cache()` на SSR fetch плейлиста; watch тянет catalog + item-first; `useShareVtt` грузит `vtt_url` даже если кэш `available_files` без `vtt`; при CORS на бакете — fallback `GET .../files/vtt?inline=true` **телом** (не 302 на S3); presign refresh; prefetch следующего item; opt-in autoplay next; список записей (`compact=true`) — бейдж пайплайна по `on_air` без stages.
+
+### Deploy / smoke
+
+1. `alembic upgrade head` → **052** до API/workers.
+2. Cold watch `?v=` на курсе ~30 items: один `view=catalog` + `items/{id}?view=player`, не full+posters.
+3. Playlist watch с source+processed: переключатель под заголовком; смена 3 items без flash «unavailable».
+4. Длинная сессия: video не падает до истечения presign (refetch item).
+5. `pytest tests/unit/api/test_latency_api_contract.py -q`.
+
+### Файлы
+
+- `backend/alembic/versions/052_add_share_artifact_files.py`, `backend/api/helpers/share_artifacts.py`, `backend/api/routers/share.py`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`, `frontend/src/hooks/use-share-vtt.ts`, `frontend/src/hooks/use-presigned-media.ts`
+
+---
+
 ## v0.10.9.1 (2026-09-15)
 
 Релиз: **производительность API и публичного просмотра** — быстрее списки и watch, Run не блокируется на MTS Link в HTTP. **Главы лекции** — пустой ответ модели больше не считается успехом и не уводит запись на выгрузку; на карточке можно заново запросить темы. Подробности — секции **2026-09-14: API latency** и **2026-09-15: DeepSeek topics**.
 
+---
+
+## 2026-09-15: Channel catalog cards
+
+- **Публичные видео** — на `/c/{slug}` заголовок это `display_name` записи, не шаблон публикации; рядом дата и **Copy link**.
+- **Паспарту** — карточки канала в списке владельца совпадают с курсами: внутренний отступ, скруглённый баннер с outline, без нижней линии под LEAP / Copy link. Та же оболочка на публичной сетке видео и плейлистов.
+- **Баннер** — короткий полноширинный стрип как channel art на YouTube (`3:1` → `6:1`), не `21:9`. Публичная шапка канала совпадает с watch: LEAP, 12+, Copy link, `max-w-[110rem]`.
+- **Описание канала** — на всю ширину колонки; длинный текст с затуханием и **Show more**. Источник до 4000 символов.
+- **Каталог зрителя** — поиск, сортировка (порядок канала / дата / имя / длительность) и сетка или список. В списке — дата, длительность, число видео и короткий **blurb** (`main_topics` записи или описание курса). Публичный `GET /c/{slug}` не читает `extracted.json`. Вкладки: сначала **Playlists**, потом **Videos**.
+- **Баннер в настройках** — превью на всю ширину колонки, кнопки Upload / Remove под ним, в одну линию с полями ниже.
+- **Постеры** — карточки снова берут обложку из шаблона / override, если у LEAP look нет своей. Автообложка курса — первое видео в порядке курса.
+- **Watch** — на курсе вкладки компаньона: **Chapters**, **Transcript**, **Playlist**. `view=player` снова отдаёт summary и questions из extracted.json.
+
+### Файлы
+
+- `backend/api/schemas/channel.py`, `backend/api/routers/channels.py`
+- `frontend/src/app/c/[slug]/channel-view.tsx`, `frontend/src/app/c/[slug]/layout.tsx`, `frontend/src/app/(app)/channels/page.tsx`
+- `frontend/src/components/ui/formatted-text.tsx`
+- `frontend/src/components/share/public-share-header.tsx`
+- `backend/api/helpers/catalog_blurb.py`, `backend/api/routers/channels.py`, `backend/api/schemas/channel.py`
+- `frontend/src/components/playlists/playlist-stack-poster.tsx`
+
+---
+
+## 2026-09-15: Channels, playlist covers, catalog analytics
+
+- **Обложка курса** — `playlists.cover_key` (Alembic **049**). `POST/DELETE /playlists/{id}/cover`. Список плейлистов считает `COUNT`/`SUM` и первый постер батчем, без `selectinload` всех items.
+- **Каналы** — Alembic **050**: `channels` (глобально уникальный `slug` 5–64, `a-z0-9` / `-` / `_`), `channel_videos`, `channel_playlists` (M:N). Публичный URL `/c/{slug}`. Enable/Disable без Rotate; смена slug сразу 404 без 301. Disable slug не освобождает. Лимиты 20 / 200 / 200.
+- **Витрина** — зритель видит только share-enabled (+ playable на Videos). Редактор показывает Hidden с причиной и ссылкой на Enable. Курс `/share/p/{uuid}` не меняется.
+- **Шаблоны** — `channel_ids` inherit/replace как `playlist_ids`; leap_publish append на Videos, share сам не включает.
+- **Аналитика** — Alembic **051**: `recording_id` nullable, `playlist_id`/`channel_id`. Opens лендинга канала и курса; Views/Downloads по текущему составу одним `IN`. Beacon `POST /c/{slug}/beacon` и `POST /share/p/{token}/beacon`. Владелец: вкладка Analytics (`?tab=analytics`) у канала и курса.
+
+### Файлы
+
+- `backend/alembic/versions/049_add_playlist_cover_key.py`, `050_add_channels.py`, `051_share_events_channel_playlist.py`
+- `backend/database/channel_models.py`, `backend/api/routers/channels.py`, `backend/api/services/channel_service.py`
+- `backend/api/helpers/channel_slug.py`, `backend/api/helpers/channel_description.py`, `backend/api/auth/csrf.py`
+- `backend/api/repositories/playlist_repo.py`, `backend/api/routers/playlists.py`
+- `frontend/src/app/(app)/channels/`, `frontend/src/app/c/[slug]/`
+- `backend/docs/guides/CHANNELS.md`
+
+---
+
 ### Smoke / verify (после деплоя)
 
-1. **CI:** `cd backend && make lint && make typecheck && make tests-mock`; `cd frontend && pnpm lint && pnpm exec tsc --noEmit`.
-2. **Контракт API (unit):** `pytest tests/unit/api/test_latency_api_contract.py -q`.
-3. **Редактор:** `GET /api/v1/recordings?compact=true` — в items пустой `processing_stages`; при активном пайплайне `GET /recordings/{id}/pipeline-status` обновляет статус без `detailed=true` каждые 3s.
-4. **Share / курс:** `GET /share/{token}?view=player` и `GET /share/p/{token}/items/{id}?view=player` — в ответе `play_url` и `vtt_url`; воспроизведение без лишнего `GET …/media`; `GET …/files/vtt?inline=true` → **302** на S3.
-5. **Run (MTS):** `POST /recordings/{id}/run` отвечает быстро с `task_id`; prepare MTS — в worker (`celery-async.log`, секция `mts_prepare` в метриках).
-6. **Grafana:** панель **4xx errors by route**; p95 per-route не упирается в bucket 10s на `/run` и тяжёлых list/share.
-7. **Главы:** `pytest tests/unit/deepseek_module/test_topic_extractor.py -q`. На карточке записи без глав — **Retry topics**; после успеха Theme / Chapters / Questions заполняются без ручного reload. Пустой ответ модели → стейдж Topics **FAILED**, выгрузка не стартует. Если в env задан `DEEPSEEK_TIMEOUT`, он должен быть не меньше 900.
+1. **Каналы (v0.11.0.0):** миграции **049–051** до кода. Owner: `/channels` создать, Enable, публичный `/c/{slug}` (Videos/Playlists, поиск, сетка/список). Disable → 404. Смена slug → старый URL 404. Шаблон `channel_ids` → запись на Videos после обработки, share off. `pytest tests/unit/api/test_channels.py tests/unit/api/helpers/test_catalog_blurb.py -q`.
+2. **CI:** `cd backend && make lint && make typecheck && make tests-mock`; `cd frontend && pnpm lint && pnpm exec tsc --noEmit`.
+3. **Контракт API (unit):** `pytest tests/unit/api/test_latency_api_contract.py -q`.
+4. **Редактор:** `GET /api/v1/recordings?compact=true` — в items пустой `processing_stages`; при активном пайплайне `GET /recordings/{id}/pipeline-status` обновляет статус без `detailed=true` каждые 3s.
+5. **Share / курс:** `GET /share/{token}?view=player` и `GET /share/p/{token}/items/{id}?view=player` — в ответе `play_url` и `vtt_url`; воспроизведение без лишнего `GET …/media`; `GET …/files/vtt?inline=true` отдаёт тело VTT (не 302 на S3).
+6. **Run (MTS):** `POST /recordings/{id}/run` отвечает быстро с `task_id`; prepare MTS — в worker (`celery-async.log`, секция `mts_prepare` в метриках).
+7. **Grafana:** панель **4xx errors by route**; p95 per-route не упирается в bucket 10s на `/run` и тяжёлых list/share.
+8. **Главы:** `pytest tests/unit/deepseek_module/test_topic_extractor.py -q`. На карточке записи без глав — **Retry topics**; после успеха Theme / Chapters / Questions заполняются без ручного reload. Пустой ответ модели → стейдж Topics **FAILED**, выгрузка не стартует. Если в env задан `DEEPSEEK_TIMEOUT`, он должен быть не меньше 900.
 
 ---
 

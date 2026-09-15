@@ -36,6 +36,7 @@ class PlaylistModel(Base):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_key: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     share_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     share_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     share_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

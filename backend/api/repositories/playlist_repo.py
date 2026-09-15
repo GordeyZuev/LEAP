@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 
 from database.models import RecordingModel
 from database.playlist_models import PlaylistItemModel, PlaylistModel
@@ -67,14 +67,76 @@ class PlaylistRepository:
         order_col = getattr(PlaylistModel, sort_by, PlaylistModel.updated_at)
         order = order_col.desc() if sort_order == "desc" else order_col.asc()
         offset = (page - 1) * per_page
-        data_stmt = (
-            base.options(selectinload(PlaylistModel.items).selectinload(PlaylistItemModel.recording))
-            .order_by(order)
-            .offset(offset)
-            .limit(per_page)
-        )
+        data_stmt = base.order_by(order).offset(offset).limit(per_page)
         result = await self.session.execute(data_stmt)
         return list(result.scalars().unique().all()), total
+
+    async def aggregate_stats(self, playlist_ids: list[int]) -> dict[int, tuple[int, float]]:
+        """Return playlist_id -> (item_count, duration_sum) without hydrating items."""
+        if not playlist_ids:
+            return {}
+        duration = func.coalesce(RecordingModel.final_duration, RecordingModel.duration, 0.0)
+        result = await self.session.execute(
+            select(
+                PlaylistItemModel.playlist_id,
+                func.count(PlaylistItemModel.id),
+                func.coalesce(func.sum(duration), 0.0),
+            )
+            .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
+            .where(PlaylistItemModel.playlist_id.in_(playlist_ids))
+            .group_by(PlaylistItemModel.playlist_id)
+        )
+        return {int(pid): (int(count), float(total)) for pid, count, total in result.all()}
+
+    async def first_playable_recordings(self, playlist_ids: list[int]) -> dict[int, RecordingModel]:
+        """First course item per playlist (watch order), one query. Used for auto cover."""
+        if not playlist_ids:
+            return {}
+        playable = (
+            RecordingModel.deleted.is_(False)
+            & (RecordingModel.delete_state == "active")
+            & (RecordingModel.blank_record.is_(False))
+        )
+        ranked = (
+            select(
+                PlaylistItemModel.playlist_id.label("playlist_id"),
+                PlaylistItemModel.recording_id.label("recording_id"),
+                func.row_number()
+                .over(partition_by=PlaylistItemModel.playlist_id, order_by=PlaylistItemModel.position)
+                .label("rn"),
+            )
+            .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
+            .where(PlaylistItemModel.playlist_id.in_(playlist_ids), playable)
+        ).subquery()
+        result = await self.session.execute(
+            select(ranked.c.playlist_id, RecordingModel)
+            .join(RecordingModel, RecordingModel.id == ranked.c.recording_id)
+            .where(ranked.c.rn == 1)
+            .options(
+                noload(RecordingModel.owner),
+                noload(RecordingModel.input_source),
+                noload(RecordingModel.template),
+                noload(RecordingModel.source),
+                noload(RecordingModel.outputs),
+                noload(RecordingModel.processing_stages),
+            )
+        )
+        return {int(pid): rec for pid, rec in result.all()}
+
+    async def item_titles_by_playlist(self, playlist_ids: list[int]) -> dict[int, list[tuple[int, str]]]:
+        """Ordered (recording_id, display_name) per playlist for Jinja {{ items }}."""
+        if not playlist_ids:
+            return {}
+        result = await self.session.execute(
+            select(PlaylistItemModel.playlist_id, RecordingModel.id, RecordingModel.display_name)
+            .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
+            .where(PlaylistItemModel.playlist_id.in_(playlist_ids))
+            .order_by(PlaylistItemModel.playlist_id, PlaylistItemModel.position)
+        )
+        out: dict[int, list[tuple[int, str]]] = {}
+        for playlist_id, rec_id, name in result.all():
+            out.setdefault(int(playlist_id), []).append((int(rec_id), str(name)))
+        return out
 
     async def count_by_user(self, user_id: str) -> int:
         result = await self.session.execute(

@@ -17,6 +17,58 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.11.0.0": {
+    title: "Channels: a public home for your program",
+    highlights: [
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "A channel is a public page for the whole program: videos and courses, a short banner, and an about. Turn the same link on or off; if you change the address, the old page disappears.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "Build the catalog in " },
+          { kind: "link", label: "Channels", href: "/channels" },
+          {
+            kind: "text",
+            value:
+              " — pick recordings and courses; viewers only see items you have shared. When someone opens the public page, it counts in Analytics, same as a share link.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Viewers can search, sort, and switch grid or list. List rows show date, duration, and a short line from lecture topics or the course description.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Courses can use their own cover. After processing, a template can add the lecture to channel Videos the same way it adds it to a course — it does not turn the lecture public link on by itself.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Course watch opens sooner, keeps the player when you jump to the next lecture, and offers Edited / Original under the title — same as a single share link. You can turn on play next automatically.",
+          },
+        ],
+      },
+    ],
+  },
   "0.10.9.1": {
     title: "Faster lists, watch, Run, and reliable chapters",
     highlights: [

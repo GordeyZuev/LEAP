@@ -27,6 +27,11 @@ export const apiClient = axios.create({
 const MUTATING_METHODS = new Set<string>(["post", "put", "patch", "delete"]);
 
 apiClient.interceptors.request.use((config) => {
+  // Instance default is application/json; FormData must drop it so the browser
+  // sets multipart/form-data with a boundary. Otherwise FastAPI never sees `file`.
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    config.headers.delete("Content-Type");
+  }
   // Mutating requests need the CSRF header for the double-submit defence.
   // The backend ignores the header on Bearer-authenticated requests, so it's
   // safe to always attach when we have one.

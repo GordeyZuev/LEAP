@@ -183,10 +183,10 @@ Scheduled and manual runs use **`automation.run_job`** (`run_automation_job_task
 1. Load active, non-draft templates for `template_ids`.
 2. Derive **sources to sync** from template `matching_rules.source_ids`: if any template omits or empties `source_ids`, **all** active user sources with credentials are synced; otherwise only listed IDs.
 3. For each source, call `_sync_single_source` (same path as manual sync) over `sync_days`.
-4. Load recordings in the window, apply `filters`, match templates (`_find_matching_template`), enqueue `run_recording_task` with automation overrides where applicable.
+4. Load recordings in the window, apply `filters`, match templates (`_find_matching_template`), enqueue `run_recording_task` with automation overrides where applicable. Recordings that do not match this job’s templates are left unchanged (not forced to `SKIPPED`).
 5. Update job stats and `next_run_at` (from `get_next_run_time` + `schedule_to_cron`). Persist `affected_recordings` on the history row.
 
-Shared helper `_sync_and_match` does steps 1–4 (sync + match only). Dry run (`automation.dry_run`) calls `_preview_job`: same helper, then **commits** the sync (catalog rows stay) and returns `would_process` **without** bind / SKIPPED unmatched / enqueue / `mark_run` / history.
+Shared helper `_sync_and_match` does steps 1–4 (sync + match only). Dry run (`automation.dry_run`) calls `_preview_job`: same helper, then **commits** the sync (catalog rows stay) and returns `would_process` **without** bind / enqueue / `mark_run` / history.
 
 ---
 

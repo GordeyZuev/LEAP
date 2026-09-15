@@ -5,6 +5,7 @@ export interface ShareStatsSummary {
   download_count: number;
   last_viewed_at: string | null;
   last_downloaded_at: string | null;
+  open_count?: number;
 }
 
 export function lastShareActivity(summary: ShareStatsSummary): string | null {

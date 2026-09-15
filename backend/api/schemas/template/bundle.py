@@ -40,12 +40,22 @@ class BundleReferencePlaylist(BaseModel):
     missing: bool = False
 
 
+class BundleReferenceChannel(BaseModel):
+    model_config = BASE_MODEL_CONFIG
+
+    id: int
+    name: str | None = None
+    slug: str | None = None
+    missing: bool = False
+
+
 class BundleReference(BaseModel):
     model_config = BASE_MODEL_CONFIG
 
     presets: list[BundleReferencePreset] = Field(default_factory=list)
     sources: list[BundleReferenceSource] = Field(default_factory=list)
     playlists: list[BundleReferencePlaylist] = Field(default_factory=list)
+    channels: list[BundleReferenceChannel] = Field(default_factory=list)
 
 
 class TemplateBundleExportItem(BaseModel):

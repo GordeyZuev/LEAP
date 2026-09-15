@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Video,
   ListVideo,
+  Radio,
   FileText,
   Settings2,
   Database,
@@ -32,6 +33,7 @@ const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 const primaryNav = [
   { href: "/recordings", label: "Recordings", icon: Video },
   { href: "/playlists", label: "Playlists", icon: ListVideo },
+  { href: "/channels", label: "Channels", icon: Radio },
 ];
 
 const secondaryNav = [

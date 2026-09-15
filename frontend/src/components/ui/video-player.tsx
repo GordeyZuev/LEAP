@@ -25,6 +25,8 @@ interface VideoPlayerProps {
   onTimeUpdate?: (currentTime: number) => void;
   /** Fired once when playback reaches the end. */
   onEnded?: () => void;
+  /** Fired when user clicks a progress-bar chapter marker. */
+  onMarkerSeek?: (time: number, label: string) => void;
   /** Refresh a signed media URL after an expiry or transport failure. */
   onReload?: () => void | Promise<unknown>;
   /** Layered on the Plyr container (fullscreen-safe): playlist end card, etc. */
@@ -37,7 +39,11 @@ function markerSignature(markers?: VideoPlayerMarker[]): string {
   return markers.map((m) => `${m.time}\t${m.label}`).join("\n");
 }
 
-function syncMarkers(player: Plyr, markers: VideoPlayerMarker[] | undefined) {
+function syncMarkers(
+  player: Plyr,
+  markers: VideoPlayerMarker[] | undefined,
+  onMarkerSeek?: (time: number, label: string) => void,
+) {
   const bar = player.elements.container?.querySelector(".plyr__progress");
   if (!bar) return;
   bar.querySelectorAll(".plyr__progress__marker").forEach((n: Element) => n.remove());
@@ -54,6 +60,7 @@ function syncMarkers(player: Plyr, markers: VideoPlayerMarker[] | undefined) {
       event.preventDefault();
       event.stopPropagation();
       player.currentTime = m.time;
+      onMarkerSeek?.(m.time, m.label);
     });
     bar.appendChild(btn);
   });
@@ -102,7 +109,7 @@ function liveHud(view: HudView): string {
 
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   function VideoPlayer(
-    { src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onReload, overlay, className },
+    { src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onMarkerSeek, onReload, overlay, className },
     forwardedRef,
   ) {
     const [ready, setReady] = useState(false);
@@ -128,6 +135,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const markersRef = useRef(markers);
     const onTimeUpdateRef = useRef(onTimeUpdate);
     const onEndedRef = useRef(onEnded);
+    const onMarkerSeekRef = useRef(onMarkerSeek);
     const onReloadRef = useRef(onReload);
     const helpOpenRef = useRef(false);
     const overlayRef = useRef(Boolean(overlay));
@@ -138,6 +146,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     useEffect(() => { markersRef.current = markers; }, [markers]);
     useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
     useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
+    useEffect(() => { onMarkerSeekRef.current = onMarkerSeek; }, [onMarkerSeek]);
     useEffect(() => { onReloadRef.current = onReload; }, [onReload]);
     useEffect(() => { helpOpenRef.current = helpOpen; }, [helpOpen]);
     useEffect(() => { overlayRef.current = Boolean(overlay); }, [overlay]);
@@ -328,7 +337,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       const player = playerRef.current;
       if (!player || !ready) return;
       const apply = () => {
-        syncMarkers(player, markersRef.current);
+        syncMarkers(player, markersRef.current, (time, label) => onMarkerSeekRef.current?.(time, label));
         const list = markersRef.current;
         if (list?.length) {
           chapterLabelRef.current = ensureChapterLabel(player);
@@ -411,6 +420,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                   type="button"
                   onClick={() => {
                     setFailure(null);
+                    void onReloadRef.current?.();
                     setInstanceId((n) => n + 1);
                   }}
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"

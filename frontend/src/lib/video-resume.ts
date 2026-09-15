@@ -7,8 +7,12 @@ export function recordingResumeKey(recordingId: string, variant: "processed" | "
   return `${PREFIX}recording:${recordingId}:${variant}`;
 }
 
-export function playlistResumeKey(token: string, itemId: number): string {
-  return `${PREFIX}playlist:${token}:${itemId}`;
+export function playlistResumeKey(
+  token: string,
+  itemId: number,
+  variant: "processed" | "original" = "processed",
+): string {
+  return `${PREFIX}playlist:${token}:${itemId}:${variant}`;
 }
 
 export function readResumeTime(key: string): number | null {

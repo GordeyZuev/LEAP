@@ -8,7 +8,7 @@ Limits: **200 playlists per user**, **200 items per playlist**, unique `name` pe
 
 Sidebar **Playlists** → card grid → editor (reorder by drag). On a recording, **Publications** groups LEAP Link and course membership; row icons sit vertically centered with the status text and actions. Membership can also show as chips in that card.
 
-**List cards** (enabled share only): **LEAP** opens `{origin}/share/p/{uuid}` in a new tab; **Copy link** copies that absolute URL. Disabled or never-enabled playlists have no list controls (enable from the editor). Poster, name, and duration go to the editor. Description and share controls sit **beside** that link (not inside it) so markdown links and the public URL stay real `<a>` elements. After Enable / Disable / Rotate, the list query is invalidated so the card matches the editor.
+**List cards** (enabled share only): **LEAP** opens `{origin}/share/p/{uuid}` in a new tab; **Copy link** copies that absolute URL. Disabled or never-enabled playlists have no list controls (enable from the editor). Poster is a custom `cover_key` when set, otherwise the first playable lecture. Name and duration go to the editor. Attach the course to one or more **Channels** from the editor or a recording.
 
 ```bash
 GET/POST   /api/v1/playlists                    # items: share_token, share_enabled
@@ -33,7 +33,7 @@ URL: `{origin}/share/p/{uuid}`. Owner list **LEAP** / **Copy link** use this URL
 
 Recording share uses the same Enable / Disable / Rotate contract. Public recording URL is `{origin}/share/{uuid}`. Migration **044** adds `recordings.share_enabled`. Messengers (Telegram) unfurl that URL via Open Graph (`opengraph-image` + `GET /api/v1/share/{token}/poster`).
 
-The playlist **landing** (`/share/p/{uuid}`) is the course page: first-item poster (image only; the picture links to the first playable video) and a video list. Opening a video uses `/share/p/{uuid}?v={itemId}` (real navigation). Watch uses the same layout as recording share: player, companion tabs **Playlist / Chapters / Transcript**, then **Summary & questions** (generated Theme, summary, questions), Files, and **Created Overview** for that item. Items without processed video are listed but not playable. Course landing has no Files panel. Opening a **playable** video on watch counts as a **page view on that recording** (`POST …/items/{itemId}/beacon`, same Redis ~30 min dedup as recording share). Processing rows and the landing page do not increment views.
+The playlist **landing** (`/share/p/{uuid}`) is the course page: first-item poster (image only; the picture links to the first playable video) and a video list. Opening a video uses `/share/p/{uuid}?v={itemId}` (real navigation). Watch uses the same layout as recording share: player, companion tabs **Chapters / Transcript / Playlist**, then **Summary & questions** (generated Theme, summary, questions), Files, and **Created Overview** for that item. Items without processed video are listed but not playable. Course landing has no Files panel. Opening a **playable** video on watch counts as a **page view on that recording** (`POST …/items/{itemId}/beacon`, same Redis ~30 min dedup as recording share). Processing rows and the landing page do not increment views.
 
 ## Revoke / disable and 404
 
@@ -47,7 +47,7 @@ Playlist **description** is a Jinja string (owner GET/PATCH stores the source). 
 
 ## Templates
 
-Named templates may set `output_config.playlist_ids` (≤10). Course membership is applied **after successful processing**, when the LEAP publish step runs (same gate as copy uploads: processed video, not blank). Bind, match, and run start only resolve config; they do not append items early. Missing playlist ids are skipped. Empty override lists do not clear membership.
+Named templates may set `output_config.playlist_ids` (≤10) and `output_config.channel_ids`. Course membership and channel **Videos** membership are applied **after successful processing**, when the LEAP publish step runs (same gate as copy uploads: processed video, not blank). Bind, match, and run start only resolve config; they do not append items early. Missing ids are skipped. Empty override lists do not clear membership. Channels: [CHANNELS.md](CHANNELS.md).
 
 Run and named templates can add a recording to LEAP courses **without** upload presets: membership is not an upload. See [TEMPLATES.md](TEMPLATES.md).
 

@@ -143,6 +143,7 @@ async def build_reference(
     preset_ids: set[int] = set()
     source_ids: set[int] = set()
     playlist_ids: set[int] = set()
+    channel_ids: set[int] = set()
 
     for item in items:
         output = item.output_config.model_dump() if item.output_config else {}
@@ -152,6 +153,9 @@ async def build_reference(
         for plid in output.get("playlist_ids") or []:
             if isinstance(plid, int) and plid > 0:
                 playlist_ids.add(plid)
+        for cid in output.get("channel_ids") or []:
+            if isinstance(cid, int) and cid > 0:
+                channel_ids.add(cid)
         rules = item.matching_rules
         if rules and rules.source_ids:
             for sid in rules.source_ids:
@@ -167,6 +171,9 @@ async def build_reference(
             for plid in meta.get("playlist_ids") or []:
                 if isinstance(plid, int) and plid > 0:
                     playlist_ids.add(plid)
+            for cid in meta.get("channel_ids") or []:
+                if isinstance(cid, int) and cid > 0:
+                    channel_ids.add(cid)
 
     source_repo = InputSourceRepository(session)
     sources_out: list[BundleReferenceSource] = []
@@ -203,7 +210,30 @@ async def build_reference(
                 BundleReferencePlaylist(id=plid, name=pl.name if pl else None, missing=pl is None),
             )
 
-    return BundleReference(presets=presets_out, sources=sources_out, playlists=playlists_out)
+    from api.schemas.template.bundle import BundleReferenceChannel
+    from database.channel_models import ChannelModel
+
+    channels_out: list[BundleReferenceChannel] = []
+    if channel_ids:
+        ch_result = await session.execute(
+            select(ChannelModel).where(
+                ChannelModel.id.in_(list(channel_ids)),
+                ChannelModel.user_id == user_id,
+            )
+        )
+        channels_by_id = {c.id: c for c in ch_result.scalars().all()}
+        for cid in sorted(channel_ids):
+            ch = channels_by_id.get(cid)
+            channels_out.append(
+                BundleReferenceChannel(
+                    id=cid,
+                    name=ch.name if ch else None,
+                    slug=ch.slug if ch else None,
+                    missing=ch is None,
+                ),
+            )
+
+    return BundleReference(presets=presets_out, sources=sources_out, playlists=playlists_out, channels=channels_out)
 
 
 async def export_templates_bundle(session: AsyncSession, user_id: str, template_ids: list[int]) -> TemplateBundleExport:

@@ -1,4 +1,5 @@
 import { apiClient } from "@/api/client";
+import type { ShareAnalyticsResponse } from "@/api/share";
 
 export interface PlaylistSummary {
   id: number;
@@ -37,6 +38,9 @@ export interface PlaylistDetail {
   share_token: string | null;
   share_enabled: boolean;
   share_created_at: string | null;
+  has_custom_cover?: boolean;
+  poster_url?: string | null;
+  poster_asset_key?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -136,5 +140,32 @@ export async function disablePlaylistShare(id: number): Promise<void> {
 
 export async function rotatePlaylistShare(id: number): Promise<PlaylistShareResponse> {
   const res = await apiClient.post<PlaylistShareResponse>(`/playlists/${id}/share/rotate`);
+  return res.data;
+}
+
+export async function uploadPlaylistCover(id: number, file: File): Promise<PlaylistDetail> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiClient.post<PlaylistDetail>(`/playlists/${id}/cover`, form);
+  return res.data;
+}
+
+export async function deletePlaylistCover(id: number): Promise<PlaylistDetail> {
+  const res = await apiClient.delete<PlaylistDetail>(`/playlists/${id}/cover`);
+  return res.data;
+}
+
+export async function listPlaylistChannels(id: number) {
+  const res = await apiClient.get<{ id: number; name: string; slug: string; membership_id: number }[]>(
+    `/playlists/${id}/channels`,
+  );
+  return res.data;
+}
+
+export async function fetchPlaylistShareAnalytics(
+  playlistId: number,
+  range: { from: string; to: string },
+): Promise<ShareAnalyticsResponse> {
+  const res = await apiClient.get<ShareAnalyticsResponse>(`/playlists/${playlistId}/share/analytics`, { params: range });
   return res.data;
 }

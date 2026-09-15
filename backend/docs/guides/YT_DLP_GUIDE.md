@@ -422,7 +422,7 @@ Cookies применяются к скачиванию и извлечению �
 - Видео приватное или удалено
 - Платформа не поддерживается yt-dlp
 - Geo-ограничения
-- **YouTube блокирует как бота** — настройте cookies (см. выше)
+- **YouTube HTTP 403 на videoplayback** — нужен JS runtime + EJS в образе, не cookies (см. ниже)
 - Проверьте URL вручную: `yt-dlp --simulate URL`
 
 ### Что если видео в плейлисте недоступно?
@@ -445,15 +445,32 @@ Cookies применяются к скачиванию и извлечению �
 
 В директории `storage/users/user_XXXXXX/recordings/{recording_id}/source.mp4`. Структура идентична Zoom-записям.
 
-### Как обновить yt-dlp?
+### YouTube: HTTP 403 на скачивании
+
+Метаданные (`youtube.com`) могут открываться, а `googlevideo.com/videoplayback` отдавать **403**. Типичный лог: URL без параметра `n=` (nsig). Нужны **оба** компонента из [EJS](https://github.com/yt-dlp/yt-dlp/wiki/EJS):
+
+1. **JS runtime** — в Docker-образе **Deno** (`denoland/deno:bin-2.9.6`). Без него `JS runtimes: none`.
+2. **Скрипты yt-dlp-ejs** — extra `yt-dlp[default]` в `pyproject.toml` (не голый `yt-dlp`). Deno сам по себе скрипты не содержит.
+
+Cookies и ретраи Celery это не лечат. После пересборки образа:
 
 ```bash
-uv pip install --upgrade yt-dlp
-# или
-pip install --upgrade yt-dlp
+docker compose exec celery_worker python -m yt_dlp -v -f 18 -o /tmp/yt-test.mp4 "URL"
 ```
 
-> Рекомендуется регулярно обновлять yt-dlp — платформы часто меняют API, и новые версии содержат исправления.
+Ожидается `JS runtimes: deno` и `n=` в playback-URL.
+
+### Как обновить yt-dlp?
+
+Из `backend/`:
+
+```bash
+uv lock --upgrade-package yt-dlp
+uv export --frozen --no-default-groups --no-hashes -o requirements.txt
+uv sync
+```
+
+Держите extra **`[default]`**. Образ пересобирается с `uv.lock`. YouTube часто меняет player/SABR — не держите pin старше ~90 дней.
 
 ### Поддерживает ли система ограничение скорости скачивания?
 

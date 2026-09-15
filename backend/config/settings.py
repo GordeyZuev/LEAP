@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.10.9.1", description="Application version")
+    version: str = Field(default="0.11.0.0", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -201,6 +201,11 @@ class CelerySettings(BaseSettings):
 
     processing_max_retries: int = Field(default=2, ge=0, description="Max retries for processing tasks")
     processing_retry_delay: int = Field(default=180, ge=0, description="Retry delay for processing tasks (seconds)")
+    deepseek_transient_retry_delay: int = Field(
+        default=900,
+        ge=0,
+        description="Retry delay when DeepSeek returns queue/capacity timeout (seconds)",
+    )
 
     upload_max_retries: int = Field(default=5, ge=0, description="Max retries for upload tasks")
     upload_retry_delay: int = Field(default=600, ge=0, description="Retry delay for upload tasks (seconds)")

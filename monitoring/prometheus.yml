@@ -24,6 +24,12 @@ scrape_configs:
         labels:
           service: celery
 
+  - job_name: node
+    static_configs:
+      - targets: ["node_exporter:9100"]
+        labels:
+          service: host
+
   # Self-scrape — metrics_path mirrors --web.route-prefix from docker-compose.
   - job_name: prometheus
     metrics_path: /prometheus/metrics

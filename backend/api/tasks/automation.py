@@ -31,17 +31,6 @@ def _resolve_status_filter(filters: dict) -> list[str] | None:
     return sanitize_automation_status_filter(filters.get("status"))
 
 
-_WAIT_STATUSES = frozenset(
-    {
-        ProcessingStatus.PENDING_SOURCE,
-        ProcessingStatus.PENDING_CONVERSION,
-        ProcessingStatus.DOWNLOADING,
-        ProcessingStatus.PROCESSING,
-        ProcessingStatus.UPLOADING,
-    }
-)
-
-
 def _is_mts_link(recording: RecordingModel) -> bool:
     source = recording.source
     return source is not None and source.source_type == SourceType.MTS_LINK
@@ -192,7 +181,7 @@ async def _sync_sources(session, job_id: int, user_id: str, sources_to_sync, day
 
 
 async def _sync_and_match(session, job, user_id: str) -> _MatchPlan | dict[str, Any]:
-    """Sync sources and match recordings. Does not bind, skip unmatched, enqueue, mark_run, or commit."""
+    """Sync sources and match recordings. Does not bind, enqueue, mark_run, or commit."""
     from api.routers.input_sources import _find_matching_template
 
     job_id = job.id
@@ -319,15 +308,6 @@ async def _execute_job(session, job_id: int, user_id: str) -> dict[str, Any]:
                 recording.is_mapped = True
                 await template_repo.increment_usage(matched_template)
 
-        for recording in plan.unmatched:
-            if recording.status not in _WAIT_STATUSES:
-                recording.status = ProcessingStatus.SKIPPED
-                recording.failed_reason = "No matching template"
-            logger.debug(
-                f"Job {job_id}: Recording {recording.id} has no matching template"
-                + (" - left in wait status" if recording.status in _WAIT_STATUSES else " - SKIPPED")
-            )
-
         await session.commit()
 
         processed_recordings = []
@@ -405,7 +385,7 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
     default_retry_delay=settings.celery.automation_retry_delay,
 )
 def dry_run_automation_job_task(self, job_id: int, user_id: str):
-    """Sync sources and match recordings without binding, skipping, or starting pipelines."""
+    """Sync sources and match recordings without binding or starting pipelines."""
 
     self.update_progress(user_id, 5, "Syncing sources…")
 

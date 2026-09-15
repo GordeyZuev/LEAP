@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   Copy,
@@ -17,6 +17,7 @@ import {
   getPlaylistShareMedia,
   getPublicPlaylist,
   getPublicPlaylistItem,
+  sendPlaylistLandingBeacon,
   sendPlaylistSharePageBeacon,
   type PublicPlaylistItem,
   type PublicRecordingResponse,
@@ -26,7 +27,7 @@ import { resolveStorageUrl } from "@/api/client";
 import { StablePosterImage } from "@/components/recordings/recording-poster";
 import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
 import { ShareVideoDownloadButton } from "@/components/recordings/share-video-download-button";
-import { TranscriptPanel, parseVtt, type TranscriptCue } from "@/components/recordings/transcript-panel";
+import { TranscriptPanel, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
 import { CARD_SHELL, CollapsibleCard } from "@/components/ui/section-card";
@@ -35,9 +36,16 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { FormattedText } from "@/components/ui/formatted-text";
+import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
+import { useShareEngagement } from "@/hooks/use-share-engagement";
+import { useShareVtt } from "@/hooks/use-share-vtt";
 import { useWatchTheater } from "@/hooks/use-watch-theater";
+import { WatchVideoVariantChrome } from "@/components/ui/watch-video-variant-chrome";
+import { readPlaylistAutoplayNext, writePlaylistAutoplayNext } from "@/lib/playlist-autoplay";
 import { cn, formatDurationCompact, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
 import { firstPlayable, lastIndexAtOrBefore, nextPlayable } from "@/lib/playlist-playable";
+import type { ChapterSeekSource, PlaylistNavFrom } from "@/lib/share-engagement";
+import { trackPlaylistNavigateDeduped } from "@/lib/share-engagement";
 import { playlistResumeKey } from "@/lib/video-resume";
 import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 
@@ -48,6 +56,7 @@ const VideoPlayer = dynamic(
 
 const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 const EMPTY_ITEMS: PublicPlaylistItem[] = [];
+const NAV_FROM_KEY = "leap:playlist-nav-from";
 
 function formatPlaylistDuration(seconds: number): string {
   if (!seconds || seconds < 0) return "0m";
@@ -115,45 +124,64 @@ function Thumb({
 function PlaylistVideoPlayer({
   token,
   itemId,
-  playUrl,
+  variant,
+  processedPlayUrl,
+  originalPlayUrl,
+  mediaExpiresIn,
+  itemFetching,
+  onItemRefetch,
   markers,
   vttBlobUrl,
   videoRef,
   onTimeUpdate,
   onGone,
   onEnded,
+  onMarkerSeek,
   overlay,
 }: {
   token: string;
   itemId: number;
-  playUrl?: string | null;
+  variant: "processed" | "original";
+  processedPlayUrl?: string | null;
+  originalPlayUrl?: string | null;
+  mediaExpiresIn?: number | null;
+  itemFetching: boolean;
+  onItemRefetch: () => void;
   markers: VideoPlayerMarker[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTimeUpdate?: (time: number) => void;
   onGone?: () => void;
   onEnded?: () => void;
+  onMarkerSeek?: (time: number, label: string) => void;
   overlay?: React.ReactNode;
 }) {
+  const presetUrl = variant === "processed" ? processedPlayUrl : originalPlayUrl;
   const { data: videoUrl, isLoading, isError, refetch, error } = useQuery({
-    queryKey: ["playlist-share-media", token, itemId],
+    queryKey: ["playlist-share-media", token, itemId, variant],
     queryFn: async () => {
-      const res = await getPlaylistShareMedia(token, itemId);
+      const res = await getPlaylistShareMedia(token, itemId, false, variant);
       return res.url;
     },
-    enabled: !playUrl,
+    enabled: !presetUrl && !itemFetching,
     staleTime: MEDIA_URL_STALE_MS,
     retry: false,
   });
-  const resolvedUrl = playUrl ?? videoUrl;
+  const resolvedUrl = presetUrl ?? videoUrl;
+
+  usePresignedMediaRefresh({
+    expiresIn: mediaExpiresIn,
+    enabled: Boolean(presetUrl),
+    onRefresh: onItemRefetch,
+  });
 
   useEffect(() => {
     const status = httpStatus(error);
     if (status === 404) onGone?.();
   }, [error, onGone]);
 
-  if (!playUrl && isLoading) return <VideoPlayerLoading />;
-  if ((!playUrl && isError) || !resolvedUrl) {
+  if (itemFetching || (!presetUrl && isLoading)) return <VideoPlayerLoading />;
+  if ((!presetUrl && isError) || !resolvedUrl) {
     return (
       <div
         role="status"
@@ -170,14 +198,19 @@ function PlaylistVideoPlayer({
 
   return (
     <VideoPlayer
+      key={`${itemId}-${variant}`}
       ref={videoRef}
       src={resolvedUrl}
-      resumeKey={playlistResumeKey(token, itemId)}
-      onReload={() => refetch()}
+      resumeKey={playlistResumeKey(token, itemId, variant)}
+      onReload={() => {
+        onItemRefetch();
+        void refetch();
+      }}
       markers={markers}
-      vttBlobUrl={vttBlobUrl}
+      vttBlobUrl={variant === "processed" ? vttBlobUrl : null}
       onTimeUpdate={onTimeUpdate}
       onEnded={onEnded}
+      onMarkerSeek={onMarkerSeek}
       overlay={overlay}
       className="rounded-none outline-none"
     />
@@ -187,13 +220,25 @@ function PlaylistVideoPlayer({
 export function WatchShell({
   token,
   initialPlaylist,
+  initialView = "full",
 }: {
   token: string;
   initialPlaylist?: import("@/api/share").PublicPlaylistResponse | null;
+  initialView?: "full" | "catalog";
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const requestedId = Number(searchParams.get("v") || 0) || null;
+  const fromSlug = searchParams.get("from");
+  const engagementPath = useMemo(() => {
+    if (!requestedId) return null;
+    const q = fromSlug ? `?from=${encodeURIComponent(fromSlug)}` : "";
+    return `/share/p/${token}/items/${requestedId}/engagement${q}`;
+  }, [token, requestedId, fromSlug]);
+  const { track, flush } = useShareEngagement(engagementPath);
+  const watching = requestedId != null;
+  const playlistView = watching ? "catalog" : "full";
 
   const {
     data: playlist,
@@ -201,9 +246,10 @@ export function WatchShell({
     isPending,
     refetch,
   } = useQuery({
-    queryKey: ["public-playlist", token],
-    queryFn: () => getPublicPlaylist(token),
-    initialData: initialPlaylist ?? undefined,
+    queryKey: ["public-playlist", token, playlistView],
+    queryFn: () => getPublicPlaylist(token, playlistView),
+    initialData: playlistView === initialView ? (initialPlaylist ?? undefined) : undefined,
+    placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
@@ -214,10 +260,11 @@ export function WatchShell({
   const [endedId, setEndedId] = useState<number | null>(null);
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const durationFallbackRef = useRef(0);
+  const positionRef = useRef(0);
   const companionPanelId = useId();
 
   const items = playlist?.items ?? EMPTY_ITEMS;
-  const watching = requestedId != null;
   const current = useMemo(() => {
     if (!watching || !items.length) return undefined;
     return items.find((i) => i.id === requestedId);
@@ -231,16 +278,40 @@ export function WatchShell({
   }, [refetch]);
 
   useEffect(() => {
+    if (!playlist) return;
+    if (requestedId) return;
+    void sendPlaylistLandingBeacon(token).catch(() => {});
+  }, [token, playlist, requestedId]);
+
+  useEffect(() => {
     if (!watching || !current?.playable) return;
     void sendPlaylistSharePageBeacon(token, current.id).catch(() => {});
   }, [token, watching, current?.id, current?.playable]);
 
-  const { data: recording, error: itemError } = useQuery<PublicRecordingResponse>({
+  const [videoVariant, setVideoVariant] = useState<"processed" | "original">("processed");
+  const [variantItemId, setVariantItemId] = useState(current?.id);
+  if (current?.id !== variantItemId) {
+    setVariantItemId(current?.id);
+    setVideoVariant("processed");
+  }
+
+  const {
+    data: recording,
+    error: itemError,
+    isFetching: itemFetching,
+    isPlaceholderData,
+    refetch: refetchItem,
+  } = useQuery<PublicRecordingResponse>({
     queryKey: ["public-playlist-item", token, current?.id],
     queryFn: () => getPublicPlaylistItem(token, current!.id, "player"),
     enabled: watching && !!current?.playable,
+    placeholderData: keepPreviousData,
     retry: false,
   });
+
+  const refetchItemPlayer = useCallback(() => {
+    void refetchItem();
+  }, [refetchItem]);
 
   useEffect(() => {
     if (httpStatus(itemError) !== 404) return;
@@ -249,54 +320,47 @@ export function WatchShell({
     });
   }, [itemError, refetch, current?.id]);
 
-  const [vttBlobUrl, setVttBlobUrl] = useState<string | null>(null);
-  const [transcript, setTranscript] = useState<TranscriptCue[]>([]);
   const [activeChapterIdx, setActiveChapterIdx] = useState(-1);
   const [activeCueIdx, setActiveCueIdx] = useState(-1);
 
+  const itemRecording = recording && !isPlaceholderData ? recording : undefined;
   const currentId = current?.id;
-  const availableFiles = recording?.available_files;
-  const vttFetchUrl = recording?.vtt_url ?? null;
-  useEffect(() => {
-    if (!availableFiles?.includes("vtt") || !currentId) return;
-    const url = vttFetchUrl ?? getPlaylistShareFileUrl(token, currentId, "vtt", true);
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    fetch(url)
-      .then((r) => r.text())
-      .then((text) => {
-        if (cancelled) return;
-        setTranscript(parseVtt(text));
-        objectUrl = URL.createObjectURL(new Blob([text], { type: "text/vtt" }));
-        setVttBlobUrl(objectUrl);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      setVttBlobUrl(null);
-      setTranscript([]);
-    };
-  }, [token, currentId, availableFiles, vttFetchUrl]);
+  const vttFallback =
+    currentId && itemRecording?.available_files?.includes("vtt")
+      ? getPlaylistShareFileUrl(token, currentId, "vtt", true)
+      : null;
+  const { vttBlobUrl, transcript } = useShareVtt({
+    enabled: Boolean(itemRecording?.vtt_url || vttFallback),
+    vttUrl: itemRecording?.vtt_url,
+    fallbackUrl: vttFallback,
+  });
 
   const topicTimestamps = useMemo(
-    () => (Array.isArray(recording?.topic_timestamps) ? (recording!.topic_timestamps as { topic: string; start: number }[]) : []),
-    [recording],
+    () =>
+      Array.isArray(itemRecording?.topic_timestamps)
+        ? (itemRecording!.topic_timestamps as { topic: string; start: number }[])
+        : [],
+    [itemRecording],
   );
   const mainTopics = useMemo(
-    () => (Array.isArray(recording?.main_topics) ? (recording!.main_topics as string[]) : []),
-    [recording],
+    () => (Array.isArray(itemRecording?.main_topics) ? (itemRecording!.main_topics as string[]) : []),
+    [itemRecording],
   );
-  const topicVersion: TopicVersion | null = recording
+  const topicVersion: TopicVersion | null = itemRecording
     ? {
         main_topics: mainTopics,
         topic_timestamps: topicTimestamps,
-        summary: recording.summary ?? undefined,
-        questions: recording.questions ?? undefined,
+        summary: itemRecording.summary ?? undefined,
+        questions: itemRecording.questions ?? undefined,
       }
     : null;
-
+  const bothVariants = Boolean(
+    itemRecording?.has_processed_video && itemRecording?.has_original_video && itemRecording.original_play_url,
+  );
+  const playVariant = bothVariants ? videoVariant : "processed";
+  const onProcessedTimeline = playVariant === "processed";
   const markers: VideoPlayerMarker[] = topicTimestamps.map((t) => ({ time: t.start, label: t.topic }));
+  const playerMarkers = onProcessedTimeline ? markers : [];
   const hasTopicsPanel = topicTimestamps.length > 0;
   const hasTranscript = transcript.length > 0;
   const hasExtraContent = !!(
@@ -307,6 +371,7 @@ export function WatchShell({
 
   const handleTimeUpdate = useCallback(
     (time: number) => {
+      positionRef.current = time;
       setActiveChapterIdx(lastIndexAtOrBefore(topicTimestamps, time));
       setActiveCueIdx(lastIndexAtOrBefore(transcript, time));
     },
@@ -314,24 +379,109 @@ export function WatchShell({
   );
 
   const handleSeek = useCallback((time: number) => {
+    positionRef.current = time;
     if (videoRef.current) videoRef.current.currentTime = time;
   }, []);
 
-  const nextItem = current ? nextPlayable(items, current.id) : firstPlayable(items);
-  const durationSum = items.reduce((sum, item) => sum + (item.duration || 0), 0);
-  const ended = endedId !== null && endedId === current?.id;
+  const chapterLabelAt = useCallback(
+    (time: number) => {
+      const idx = lastIndexAtOrBefore(topicTimestamps, time);
+      if (idx >= 0) return topicTimestamps[idx]!.topic;
+      return `${Math.floor(time)}s`;
+    },
+    [topicTimestamps],
+  );
+
+  const seekWithEngagement = useCallback(
+    (time: number, source: ChapterSeekSource) => {
+      handleSeek(time);
+      track("chapter_seek", {
+        source,
+        time_sec: Math.floor(time),
+        label: chapterLabelAt(time),
+      });
+    },
+    [chapterLabelAt, handleSeek, track],
+  );
+
+  useEffect(() => {
+    if (!watching || !current?.playable) return;
+    let from: PlaylistNavFrom = "url";
+    try {
+      const pending = window.sessionStorage.getItem(NAV_FROM_KEY);
+      if (pending === "sidebar" || pending === "landing" || pending === "autoplay" || pending === "url") {
+        from = pending;
+        window.sessionStorage.removeItem(NAV_FROM_KEY);
+      }
+    } catch {
+      /* private mode */
+    }
+    trackPlaylistNavigateDeduped(
+      track,
+      `${token}:${current.id}:${from}`,
+      { to_item_id: current.id, from },
+    );
+  }, [watching, current?.id, current?.playable, track, token]);
+
+  useEffect(() => {
+    if (itemRecording?.duration) {
+      durationFallbackRef.current = itemRecording.duration;
+    }
+  }, [itemRecording?.duration]);
+
+  useEffect(() => {
+    if (!watching || !itemRecording?.id) return;
+    positionRef.current = 0;
+    const snapPlayback = () => {
+      const el = videoRef.current;
+      if (!el) return;
+      if (Number.isFinite(el.currentTime)) positionRef.current = el.currentTime;
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        durationFallbackRef.current = el.duration;
+      }
+    };
+    snapPlayback();
+    const timer = window.setInterval(snapPlayback, 250);
+    return () => {
+      window.clearInterval(timer);
+      const duration = Math.floor(durationFallbackRef.current);
+      const position = Math.floor(positionRef.current);
+      if (duration > 0) {
+        track("watch_exit", { position_sec: Math.min(position, duration), duration_sec: duration });
+        flush();
+      }
+    };
+  }, [watching, itemRecording?.id, track, flush]);
 
   function watchUrl(itemId: number) {
     return `/share/p/${token}?v=${itemId}`;
   }
 
-  function goTo(item: PublicPlaylistItem | undefined, play = true) {
+  function goTo(item: PublicPlaylistItem | undefined, play = true, from: PlaylistNavFrom = "sidebar") {
     if (!item) return;
+    try {
+      window.sessionStorage.setItem(NAV_FROM_KEY, from);
+    } catch {
+      /* ignore */
+    }
+    flush();
     setGoneId(null);
     setEndedId(null);
     if (play) setPlayIntent(true);
     router.push(watchUrl(item.id));
   }
+
+  const nextItem = current ? nextPlayable(items, current.id) : firstPlayable(items);
+  const durationSum = items.reduce((sum, item) => sum + (item.duration || 0), 0);
+  const ended = endedId !== null && endedId === current?.id;
+
+  useEffect(() => {
+    if (!recording || !nextItem) return;
+    void queryClient.prefetchQuery({
+      queryKey: ["public-playlist-item", token, nextItem.id],
+      queryFn: () => getPublicPlaylistItem(token, nextItem.id, "player"),
+    });
+  }, [recording, nextItem, token, queryClient]);
 
   const shouldAutoplay = watching && playIntent;
 
@@ -416,25 +566,25 @@ export function WatchShell({
   const noPlayable = playableCount === 0;
 
   const sidePanelTabs: TabItem<SidePanelTab>[] = [
-    { value: "videos", label: "Playlist" },
     ...(hasTopicsPanel ? [{ value: "topics" as const, label: "Chapters" }] : []),
     ...(hasTranscript ? [{ value: "transcript" as const, label: "Transcript" }] : []),
+    { value: "videos", label: "Playlist" },
   ];
   const activeTab = sidePanelTab && sidePanelTabs.some((t) => t.value === sidePanelTab)
     ? sidePanelTab
     : (sidePanelTabs[0]?.value ?? "videos");
 
-  const allowVideo = recording?.allow_video_download !== false;
-  const allowFiles = recording?.allow_files_download !== false;
-  const artefacts: ArtefactItem[] = allowFiles && recording && current
-    ? recording.available_files.map((ft) => ({
+  const allowVideo = itemRecording?.allow_video_download !== false;
+  const allowFiles = itemRecording?.allow_files_download !== false;
+  const artefacts: ArtefactItem[] = allowFiles && itemRecording && current
+    ? itemRecording.available_files.map((ft) => ({
         type: ft as ArtefactType,
         href: getPlaylistShareFileUrl(token, current.id, ft),
       }))
     : [];
   const sourceExtras =
-    allowFiles && recording ? sourceExtrasToArtefacts(recording.source_extras, resolveStorageUrl) : [];
-  const hasVideo = !!recording?.has_processed_video;
+    allowFiles && itemRecording ? sourceExtrasToArtefacts(itemRecording.source_extras, resolveStorageUrl) : [];
+  const hasVideo = !!itemRecording?.has_processed_video;
   const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || (hasVideo && allowVideo);
 
   return (
@@ -497,12 +647,13 @@ export function WatchShell({
         {watching ? (
           <WatchLayout
               token={token}
+              fromSlug={fromSlug}
               items={items}
               current={current}
               gone={gone}
               ended={ended}
               nextItem={nextItem}
-              markers={markers}
+              markers={playerMarkers}
               vttBlobUrl={vttBlobUrl}
               videoRef={videoRef}
               companionPanelId={companionPanelId}
@@ -514,17 +665,45 @@ export function WatchShell({
               }}
               topicVersion={topicVersion}
               hasTopicsPanel={hasTopicsPanel}
-              hasTranscript={hasTranscript}
+              hasTranscript={hasTranscript && onProcessedTimeline}
               transcript={transcript}
               activeChapterIdx={activeChapterIdx}
               activeCueIdx={activeCueIdx}
-              recordingId={recording?.id}
-              playUrl={recording?.play_url ?? null}
-              onSeek={handleSeek}
+              recordingId={itemRecording?.id}
+              recordingTitle={itemRecording?.title ?? current?.title}
+              processedPlayUrl={itemRecording?.play_url}
+              originalPlayUrl={itemRecording?.original_play_url}
+              mediaExpiresIn={itemRecording?.media_expires_in}
+              itemFetching={itemFetching && !itemRecording}
+              onItemRefetch={refetchItemPlayer}
+              videoVariant={playVariant}
+              onVideoVariantChange={setVideoVariant}
+              bothVariants={bothVariants}
+              onProcessedTimeline={onProcessedTimeline}
+              onSeek={(time) => {
+                const source: ChapterSeekSource = activeTab === "transcript" ? "transcript" : "sidebar";
+                seekWithEngagement(time, source);
+              }}
+              onMarkerSeek={(time, label) => {
+                handleSeek(time);
+                track("chapter_seek", {
+                  source: "marker",
+                  time_sec: Math.floor(time),
+                  label,
+                });
+              }}
+              onItemSelect={(item) => goTo(item, true, "sidebar")}
               onTimeUpdate={handleTimeUpdate}
               onGone={handleMediaMissing}
-              onEnded={() => setEndedId(current?.id ?? null)}
-              onNext={() => goTo(nextItem, true)}
+              onEnded={() => {
+                track("playback_complete", {});
+                if (readPlaylistAutoplayNext() && nextItem) {
+                  goTo(nextItem, true, "autoplay");
+                  return;
+                }
+                setEndedId(current?.id ?? null);
+              }}
+              onNext={() => goTo(nextItem, true, "sidebar")}
               onNavigate={() => {
                 setGoneId(null);
                 setEndedId(null);
@@ -535,8 +714,8 @@ export function WatchShell({
                   {hasExtraContent && topicVersion && (
                     <CollapsibleCard title="Summary & questions">
                       <AIContentEditor
-                        key={recording?.id ?? 0}
-                        recordingId={recording?.id ?? 0}
+                        key={itemRecording?.id ?? 0}
+                        recordingId={itemRecording?.id ?? 0}
                         version={topicVersion}
                         onUpdated={() => {}}
                         readOnly
@@ -550,7 +729,7 @@ export function WatchShell({
                       <div className="flex flex-col gap-2">
                         {hasVideo && allowVideo && (
                           <ShareVideoDownloadButton
-                            download={() => getPlaylistShareMedia(token, current.id, true)}
+                            download={() => getPlaylistShareMedia(token, current.id, true, playVariant)}
                           />
                         )}
                         <ArtefactList items={artefacts} />
@@ -559,10 +738,10 @@ export function WatchShell({
                     </CollapsibleCard>
                   )}
 
-                  {recording?.description && (
+                  {itemRecording?.description && (
                     <CollapsibleCard title="Created Overview" defaultOpen={false}>
                       <FormattedText
-                        text={recording.description}
+                        text={itemRecording.description}
                         className="text-sm leading-relaxed text-foreground"
                       />
                     </CollapsibleCard>
@@ -574,6 +753,11 @@ export function WatchShell({
           <div className={PLAYLIST_GRID}>
             <section className={PLAYLIST_PLAQUE}>
               <h1 className="shrink-0 text-xl font-semibold tracking-tight break-words text-foreground">
+                {fromSlug ? (
+                  <Link href={`/c/${fromSlug}`} className="mb-2 block text-sm font-normal text-muted-foreground hover:text-foreground">
+                    ← {fromSlug}
+                  </Link>
+                ) : null}
                 {playlist.name}
               </h1>
               <p className="mt-1.5 shrink-0 text-sm text-muted-foreground">
@@ -594,7 +778,14 @@ export function WatchShell({
               ) : (
                 <Link
                   href={watchUrl(startAt.id)}
-                  onClick={() => setPlayIntent(true)}
+                  onClick={() => {
+                    setPlayIntent(true);
+                    try {
+                      window.sessionStorage.setItem(NAV_FROM_KEY, "landing");
+                    } catch {
+                      /* private mode */
+                    }
+                  }}
                   aria-label={`Play ${startAt.title}`}
                   className="relative mt-4 block overflow-hidden rounded-xl max-md:-mx-3 max-md:rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
@@ -624,7 +815,13 @@ export function WatchShell({
               ) : null}
             </section>
 
-            <VideoList token={token} items={items} currentId={null} onNavigate={() => setPlayIntent(true)} />
+            <VideoList
+              token={token}
+              items={items}
+              currentId={null}
+              onNavigate={() => setPlayIntent(true)}
+              onItemSelect={(item) => goTo(item, true, "landing")}
+            />
           </div>
         )}
       </main>
@@ -634,6 +831,7 @@ export function WatchShell({
 
 function WatchLayout({
   token,
+  fromSlug,
   items,
   current,
   gone,
@@ -653,8 +851,19 @@ function WatchLayout({
   activeChapterIdx,
   activeCueIdx,
   recordingId,
-  playUrl,
+  recordingTitle,
+  processedPlayUrl,
+  originalPlayUrl,
+  mediaExpiresIn,
+  itemFetching,
+  onItemRefetch,
+  videoVariant,
+  onVideoVariantChange,
+  bothVariants,
+  onProcessedTimeline,
   onSeek,
+  onMarkerSeek,
+  onItemSelect,
   onTimeUpdate,
   onGone,
   onEnded,
@@ -663,6 +872,7 @@ function WatchLayout({
   below,
 }: {
   token: string;
+  fromSlug: string | null;
   items: PublicPlaylistItem[];
   current: PublicPlaylistItem | undefined;
   gone: boolean;
@@ -682,8 +892,19 @@ function WatchLayout({
   activeChapterIdx: number;
   activeCueIdx: number;
   recordingId: number | undefined;
-  playUrl: string | null;
+  recordingTitle?: string;
+  processedPlayUrl?: string | null;
+  originalPlayUrl?: string | null;
+  mediaExpiresIn?: number | null;
+  itemFetching: boolean;
+  onItemRefetch: () => void;
+  videoVariant: "processed" | "original";
+  onVideoVariantChange: (v: "processed" | "original") => void;
+  bothVariants: boolean;
+  onProcessedTimeline: boolean;
   onSeek: (time: number) => void;
+  onMarkerSeek: (time: number, label: string) => void;
+  onItemSelect: (item: PublicPlaylistItem) => void;
   onTimeUpdate: (time: number) => void;
   onGone: () => void;
   onEnded: () => void;
@@ -692,11 +913,19 @@ function WatchLayout({
   below?: React.ReactNode;
 }) {
   const { theater, setTheater } = useWatchTheater();
+  const [autoplayNext, setAutoplayNext] = useState(readPlaylistAutoplayNext);
   const playable = !!current?.playable && !gone;
   const showEndCard = playable && ended;
   const companionBody =
     activeTab === "videos" ? (
-      <VideoList token={token} items={items} currentId={current?.id ?? null} onNavigate={onNavigate} embedded />
+      <VideoList
+        token={token}
+        items={items}
+        currentId={current?.id ?? null}
+        onNavigate={onNavigate}
+        onItemSelect={onItemSelect}
+        embedded
+      />
     ) : activeTab === "topics" && hasTopicsPanel && topicVersion ? (
       <AIContentEditor
         key={recordingId ?? 0}
@@ -738,6 +967,18 @@ function WatchLayout({
         <>
           <p>Up next</p>
           <h2>{nextItem.title}</h2>
+          <label className="flex items-center gap-2 text-xs text-white/90">
+            <input
+              type="checkbox"
+              checked={autoplayNext}
+              onChange={(e) => {
+                setAutoplayNext(e.target.checked);
+                writePlaylistAutoplayNext(e.target.checked);
+              }}
+              className="rounded border-white/40"
+            />
+            Play next automatically
+          </label>
           <button
             type="button"
             autoFocus
@@ -755,16 +996,21 @@ function WatchLayout({
 
   const player = playable && current ? (
     <PlaylistVideoPlayer
-      key={current.id}
       token={token}
       itemId={current.id}
-      playUrl={playUrl}
+      variant={videoVariant}
+      processedPlayUrl={processedPlayUrl}
+      originalPlayUrl={originalPlayUrl}
+      mediaExpiresIn={mediaExpiresIn}
+      itemFetching={itemFetching}
+      onItemRefetch={onItemRefetch}
       markers={markers}
       vttBlobUrl={vttBlobUrl}
       videoRef={videoRef}
       onTimeUpdate={onTimeUpdate}
       onGone={onGone}
       onEnded={onEnded}
+      onMarkerSeek={onMarkerSeek}
       overlay={overlay}
     />
   ) : (
@@ -789,9 +1035,22 @@ function WatchLayout({
     <WatchStage
       player={player}
       title={
-        <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
-          {current?.title ?? "Video unavailable"}
-        </h1>
+        <div>
+          {fromSlug ? (
+            <Link href={`/c/${fromSlug}`} className="mb-2 block text-sm font-normal text-muted-foreground hover:text-foreground">
+              ← {fromSlug}
+            </Link>
+          ) : null}
+          <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
+            {recordingTitle ?? current?.title ?? "Video unavailable"}
+          </h1>
+          <WatchVideoVariantChrome
+            bothVariants={bothVariants}
+            variant={videoVariant}
+            onVariantChange={onVideoVariantChange}
+            showTimelineHint={!onProcessedTimeline && (hasTopicsPanel || hasTranscript)}
+          />
+        </div>
       }
       theater={theater}
       onTheaterChange={setTheater}
@@ -840,6 +1099,7 @@ function VideoList({
   items,
   currentId,
   onNavigate,
+  onItemSelect,
   sticky = false,
   embedded = false,
 }: {
@@ -847,6 +1107,7 @@ function VideoList({
   items: PublicPlaylistItem[];
   currentId: number | null;
   onNavigate?: () => void;
+  onItemSelect?: (item: PublicPlaylistItem) => void;
   sticky?: boolean;
   embedded?: boolean;
 }) {
@@ -882,14 +1143,28 @@ function VideoList({
         return (
           <li key={item.id}>
             {item.playable ? (
-              <Link
-                href={`/share/p/${token}?v=${item.id}`}
-                aria-current={active ? "true" : undefined}
-                onClick={onNavigate}
-                className={rowClass}
-              >
-                {body}
-              </Link>
+              onItemSelect ? (
+                <button
+                  type="button"
+                  aria-current={active ? "true" : undefined}
+                  onClick={() => {
+                    onNavigate?.();
+                    onItemSelect(item);
+                  }}
+                  className={rowClass}
+                >
+                  {body}
+                </button>
+              ) : (
+                <Link
+                  href={`/share/p/${token}?v=${item.id}`}
+                  aria-current={active ? "true" : undefined}
+                  onClick={onNavigate}
+                  className={rowClass}
+                >
+                  {body}
+                </Link>
+              )
             ) : (
               <span className={rowClass}>{body}</span>
             )}

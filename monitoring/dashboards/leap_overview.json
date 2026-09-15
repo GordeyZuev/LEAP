@@ -211,6 +211,68 @@
       "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(failed_at_stage, 'unknown') AS stage, COUNT(*) AS failures FROM recordings WHERE failed AND failed_at > NOW() - INTERVAL '24 hours' GROUP BY 1 ORDER BY 2 DESC;"}],
       "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "fixed", "fixedColor": "red"}}},
       "options": {"orientation": "horizontal", "xField": "stage", "showValue": "always", "legend": {"displayMode": "hidden"}}
+    },
+    {"type": "row", "title": "Host (VM)", "gridPos": {"x": 0, "y": 45, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "stat",
+      "title": "Host memory available",
+      "description": "Share of RAM available on the VM (node_exporter). Investigate if below 15%.",
+      "gridPos": {"x": 0, "y": 46, "w": 8, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+          "legendFormat": " "
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 15},
+              {"color": "green", "value": 25}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Host CPU busy",
+      "description": "Non-idle CPU over the last 5 minutes.",
+      "gridPos": {"x": 8, "y": 46, "w": 8, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": " "
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "percent", "decimals": 0, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}}}
+    },
+    {
+      "type": "stat",
+      "title": "Root disk free",
+      "description": "Available space on / (boot volume).",
+      "gridPos": {"x": 16, "y": 46, "w": 8, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay|rootfs\"}",
+          "legendFormat": " "
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "bytes", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 10737418240}, {"color": "green", "value": 21474836480}]}}}
     }
   ],
   "refresh": "1m",
@@ -222,5 +284,5 @@
   "timezone": "",
   "title": "LEAP Overview",
   "uid": "leap-overview",
-  "version": 6
+  "version": 8
 }

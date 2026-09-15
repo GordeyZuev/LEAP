@@ -13,6 +13,8 @@ export interface OutputSettingsFieldsProps {
   showCourses?: boolean;
   playlistIds: number[];
   onPlaylistIdsChange: (ids: number[]) => void;
+  channelIds?: number[];
+  onChannelIdsChange?: (ids: number[]) => void;
   leapPresets: LeapPresetOption[];
   selectedLeapPresetId: number | null;
   onLeapPresetIdChange: (id: number | null) => void;
@@ -33,6 +35,8 @@ export function OutputSettingsFields({
   showCourses = true,
   playlistIds,
   onPlaylistIdsChange,
+  channelIds = [],
+  onChannelIdsChange,
   leapPresets,
   selectedLeapPresetId,
   onLeapPresetIdChange,
@@ -60,6 +64,8 @@ export function OutputSettingsFields({
             showCourses={showCourses}
             playlistIds={playlistIds}
             onPlaylistIdsChange={onPlaylistIdsChange}
+            channelIds={channelIds}
+            onChannelIdsChange={onChannelIdsChange}
             leapPresets={leapPresets}
             selectedLeapPresetId={selectedLeapPresetId}
             onLeapPresetIdChange={onLeapPresetIdChange}

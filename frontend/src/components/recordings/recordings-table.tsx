@@ -315,7 +315,13 @@ export function RecordingsTable({
 
                 {/* Status dot */}
                 <td className="px-3 py-2.5">
-                  <PipelineStatusButton status={r.status} failed={r.failed} failedStage={formatFailedStage(r.failed_at_stage)} stages={r.processing_stages} />
+                  <PipelineStatusButton
+                    status={r.status}
+                    failed={r.failed}
+                    failedStage={formatFailedStage(r.failed_at_stage)}
+                    stages={r.processing_stages}
+                    onAir={r.on_air}
+                  />
                 </td>
 
                 {/* Source */}

@@ -21,7 +21,7 @@ from api.tasks.base import BaseTask, ProcessingTask
 from assemblyai_module import EmptyTranscriptError
 from config.settings import get_settings
 from database.models import RecordingModel
-from deepseek_module import DeepSeekConfig, TopicExtractor
+from deepseek_module import DeepSeekConfig, DeepSeekError, TopicExtractor, is_transient_deepseek_error
 from file_storage.path_builder import StoragePathBuilder
 from logger import format_details, format_status_change, get_logger, short_task_id, short_user_id
 from models import MeetingRecording, ProcessingStageStatus, ProcessingStageType, ProcessingStatus
@@ -1977,6 +1977,15 @@ def extract_topics_task(
             logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
             raise self.retry(exc=exc)
 
+        except DeepSeekError as exc:
+            logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
+            if is_transient_deepseek_error(exc):
+                raise self.retry(
+                    countdown=settings.celery.deepseek_transient_retry_delay,
+                    exc=exc,
+                )
+            raise
+
         except Exception as exc:
             logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
             raise self.retry(exc=exc)
@@ -2307,6 +2316,22 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
 
             await recording_repo.update(recording)
             await session.commit()
+
+            try:
+                from api.helpers.share_artifacts import refresh_share_artifact_files
+                from file_storage.factory import get_storage_backend
+
+                storage = get_storage_backend()
+                await refresh_share_artifact_files(
+                    session,
+                    recording,
+                    user_slug=user_slug,
+                    storage=storage,
+                )
+                await recording_repo.update(recording)
+                await session.commit()
+            except Exception as exc:
+                logger.info("share_artifact_files refresh failed (ignored): {!r}", exc)
 
             logger.info(
                 f"{format_status_change('Stage SUBTITLES', ProcessingStageStatus.IN_PROGRESS, ProcessingStageStatus.COMPLETED)}"

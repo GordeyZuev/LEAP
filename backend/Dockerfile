@@ -12,6 +12,11 @@ RUN apt-get update && apt-get install -y \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp YouTube JS challenges (nsig). Without a runtime on PATH, googlevideo
+# returns HTTP 403. Deno is yt-dlp's default (min 2.3.0); pin the official binary image.
+# EJS solver scripts come from the yt-dlp[default] extra (yt-dlp-ejs), not from Deno.
+COPY --from=denoland/deno:bin-2.9.6 /deno /usr/local/bin/deno
+
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
 COPY pyproject.toml uv.lock ./

@@ -8,7 +8,12 @@ import pytest
 from api.shared.enums import Granularity
 from deepseek_module.config import DeepSeekConfig
 from deepseek_module.prompts import JSON_EXAMPLE, TOPIC_EXTRACTION_PROMPT, TOPIC_EXTRACTION_PROMPT_EN
-from deepseek_module.topic_extractor import DeepSeekError, TopicExtractor, _sanitize_user_id
+from deepseek_module.topic_extractor import (
+    DeepSeekError,
+    TopicExtractor,
+    _sanitize_user_id,
+    is_transient_deepseek_error,
+)
 from models.recording import ProcessingStageStatus, ProcessingStageType
 
 
@@ -157,12 +162,42 @@ async def test_analyze_raises_on_api_error_payload() -> None:
         usage=None,
     )
     ext.client.chat.completions.create = AsyncMock(return_value=response)
-    with pytest.raises(DeepSeekError, match="DeepSeek API error"):
+    with pytest.raises(DeepSeekError, match="900-second timeout limit"):
         await ext._analyze_full_transcript(
             "00:00:01 hello",
             total_duration=60,
             segments=[{"start": 0, "end": 60, "text": "hello"}],
         )
+
+
+@pytest.mark.unit
+def test_is_transient_deepseek_error_queue_timeout() -> None:
+    exc = DeepSeekError(
+        "DeepSeek API error: We were unable to start processing your request within the "
+        "900-second timeout limit. Please try again later."
+    )
+    assert is_transient_deepseek_error(exc) is True
+
+
+@pytest.mark.unit
+def test_is_transient_deepseek_error_try_again_later() -> None:
+    exc = DeepSeekError("DeepSeek API error: Server overloaded. Please try again later.")
+    assert is_transient_deepseek_error(exc) is True
+
+
+@pytest.mark.unit
+def test_is_transient_deepseek_error_parse_failure() -> None:
+    assert is_transient_deepseek_error(DeepSeekError("DeepSeek JSON parse failed: Expecting value")) is False
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_analyze_raises_on_empty_choices_without_api_error() -> None:
+    ext = _extractor()
+    response = SimpleNamespace(error=None, choices=None, usage=None)
+    ext.client.chat.completions.create = AsyncMock(return_value=response)
+    with pytest.raises(DeepSeekError, match="empty choices"):
+        await ext._analyze_full_transcript("00:00:01 hello", total_duration=60, segments=[])
 
 
 @pytest.mark.unit

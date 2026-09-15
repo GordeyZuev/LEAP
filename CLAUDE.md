@@ -87,8 +87,9 @@ Fireworks ASR / platform SDKs.
   orphans hourly.
 - **Frontend video** uses presigned URLs from `GET /api/v1/recordings/{id}/media`
   (`{ url, expires_in }`). Don't proxy video bytes through the API.
-- **CORS** on the bucket must allow GET from the production frontend origin so
-  presigned URLs play in `<video>`.
+- **CORS** on the bucket should allow GET from the production frontend origin so
+  the player can fetch presigned **VTT**. `<video>` does not set `crossOrigin`;
+  playback works without bucket CORS. VTT fetch can fall back to the share files API.
 
 ---
 
