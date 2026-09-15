@@ -47,9 +47,11 @@ Import also accepts `{ "templates": [...] }` or a **single template object** (wr
 | `matching_rules` | See [Matching rules vs form editor](#matching-rules-vs-form-editor) |
 | `processing_config` | Nested `transcription` (+ optional `trimming`, `transcription_vocabulary`) |
 | `metadata_config` | Jinja title/description + optional `youtube` / `vk` / `yandex_disk` / `leap` |
-| `output_config` | `preset_ids`, `playlist_ids` (LEAP courses), `auto_upload`, `publish_leap`, `upload_captions` |
+| `output_config` | `preset_ids`, `playlist_ids` (LEAP courses), `channel_ids` (LEAP channel Videos), `auto_upload`, `publish_leap`, `upload_captions` |
 
 **LEAP playlists:** `output_config.playlist_ids` are applied when **LEAP publish** runs after successful processing (not on bind/import). Empty list → inherit playlists from the **leap** preset in `preset_ids` at pipeline time. **YouTube** playlist ids live on the **preset** (`playlist_id`), not here.
+
+**LEAP channels:** `output_config.channel_ids` append the recording to those channels’ **Videos** tab on the same LEAP publish step. Empty list inherits from the leap preset. Share is **not** enabled automatically. See [CHANNELS.md](CHANNELS.md).
 
 **PUT / full replace:** Send **all** config keys explicitly (`null` clears JSONB). Omitted keys are not “leave unchanged” — use Download → edit → Save for safe round-trip.
 

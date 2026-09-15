@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from api.schemas.channel import ChannelSummary
 from api.schemas.common.pagination import PaginatedResponse
 from api.schemas.playlist import PlaylistSummary
 from api.schemas.share import ShareStatsSummary
@@ -385,6 +386,7 @@ class DetailedRecordingResponse(RecordingResponse):
     processing_stages_detailed: list[dict] | None = None
     uploads: dict | None = None
     playlists: list[PlaylistSummary] = Field(default_factory=list)
+    channels: list[ChannelSummary] = Field(default_factory=list)
 
 
 class RunRecordingResponse(BaseModel):

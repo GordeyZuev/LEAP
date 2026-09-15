@@ -89,6 +89,7 @@ def _playlist(*, name="Course", user_id="user_123", items=None, token=None, enab
     pl.share_created_at = now if token else None
     pl.created_at = now
     pl.updated_at = now
+    pl.cover_key = None
     return pl
 
 
@@ -199,6 +200,17 @@ class TestPlaylistOwnerApi:
             "api.services.playlist_service.PlaylistRepository.list_page",
             new=AsyncMock(return_value=([pl], 1)),
         )
+        mocker.patch(
+            "api.services.playlist_service.PlaylistRepository.aggregate_stats",
+            new=AsyncMock(return_value={3: (0, 0.0)}),
+        )
+        mocker.patch(
+            "api.services.playlist_service.PlaylistRepository.first_playable_recordings",
+            new=AsyncMock(return_value={}),
+        )
+        mocker.patch("api.routers.playlists.presign_storage_keys", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.playlists.publication_looks_for_recordings", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.playlists.poster_preview_map", new=AsyncMock(return_value={}))
         response = client.get("/api/v1/playlists")
         assert response.status_code == 200
         assert response.json()["total"] == 1

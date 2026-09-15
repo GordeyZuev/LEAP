@@ -187,24 +187,23 @@ async def _build_public_recording_response(
         main_topics = recording.main_topics
         active_version: dict | None = None
 
-        needs_extracted = not player_mode or not (topic_timestamps or main_topics)
+        # Summary/questions live in extracted.json, not on the recording row.
         tx_manager = get_transcription_manager()
-        if needs_extracted:
-            try:
-                if await tx_manager.has_extracted(recording_id, user_slug):
-                    active_version = await tx_manager.get_active_extracted(recording_id, user_slug)
-                    if active_version:
-                        summary = active_version.get("summary") or None
-                        questions = active_version.get("questions") or None
-                        raw_desc = active_version.get("description") or None
-                        if raw_desc and "{{" not in raw_desc:
-                            description = raw_desc
-                        if active_version.get("topic_timestamps"):
-                            topic_timestamps = active_version["topic_timestamps"]
-                        if active_version.get("main_topics"):
-                            main_topics = active_version["main_topics"]
-            except Exception as exc:
-                logger.debug("Could not load extracted for share | rec=%s err=%s", recording_id, exc)
+        try:
+            if await tx_manager.has_extracted(recording_id, user_slug):
+                active_version = await tx_manager.get_active_extracted(recording_id, user_slug)
+                if active_version:
+                    summary = active_version.get("summary") or None
+                    questions = active_version.get("questions") or None
+                    raw_desc = active_version.get("description") or None
+                    if raw_desc and "{{" not in raw_desc:
+                        description = raw_desc
+                    if active_version.get("topic_timestamps"):
+                        topic_timestamps = active_version["topic_timestamps"]
+                    if active_version.get("main_topics"):
+                        main_topics = active_version["main_topics"]
+        except Exception as exc:
+            logger.debug("Could not load extracted for share | rec=%s err=%s", recording_id, exc)
 
         looks = await publication_looks_for_recordings(session, recording.owner.id, [recording])
         look = looks.get(recording.id)
@@ -559,6 +558,25 @@ def _public_playlist_items(
     return items
 
 
+@router.post("/api/v1/share/p/{share_token}/beacon", status_code=status.HTTP_204_NO_CONTENT)
+async def playlist_landing_beacon(
+    share_token: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+) -> Response:
+    try:
+        playlist = await _get_enabled_playlist(share_token, session)
+    except HTTPException:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    try:
+        await _observability.record_surface_view(
+            owner_user_id=playlist.user_id, request=request, playlist_id=playlist.id
+        )
+    except Exception as exc:
+        logger.info("playlist landing beacon failed (ignored): {!r}", exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/api/v1/share/p/{share_token}", response_model=PublicPlaylistResponse)
 async def get_public_playlist(
     share_token: uuid.UUID,
@@ -584,8 +602,15 @@ async def get_playlist_share_poster(
     share_token: uuid.UUID,
     session: AsyncSession = Depends(get_db_session),
 ) -> RedirectResponse:
-    """Poster of the first playlist item that has one."""
+    """Poster of the custom cover, else the first playlist item that has one."""
     playlist = await _get_enabled_playlist(share_token, session)
+    if playlist.cover_key:
+        from api.helpers.image_upload import presign_storage_keys
+
+        urls = await presign_storage_keys([playlist.cover_key])
+        url = urls.get(playlist.cover_key)
+        if url:
+            return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
     ordered = [i.recording for i in sorted(playlist.items, key=lambda i: i.position)]
     return await _redirect_to_poster(session, playlist.user_id, ordered)
 

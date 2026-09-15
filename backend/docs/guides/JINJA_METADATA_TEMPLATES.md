@@ -74,6 +74,18 @@ LEAP playlist `description` (not YouTube `playlist_id`) is Jinja with a **separa
 
 Inline format marks are stripped **after** Jinja on YouTube/VK/Yandex upload (`markup_to_plain`). They stay in the stored string for LEAP UI (the editor shows marks; Public look / share is formatted). Marks do not span newlines. A `*` inside a substituted `{{ items }}` title can render as italic.
 
+## Channel descriptions
+
+Channel `description` uses a **separate** context (same Jinja sandbox). Owner GET/PATCH stores the source; public `/c/{slug}` renders it. Public counts are **visible** videos/playlists only.
+
+| Variable | Notes |
+|----------|--------|
+| `video_count` | Videos tab (public: share-enabled playable) |
+| `playlist_count` | Playlists tab (public: share-enabled) |
+| `duration_hm` | Sum of Videos-tab durations |
+| `items` | Numbered video titles (`1. …`) |
+| `playlists` | Numbered playlist names (`1. …`) |
+
 ## Two-step render (title → description)
 
 1. Render `title_template` → string `title`.

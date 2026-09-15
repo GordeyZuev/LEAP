@@ -83,6 +83,7 @@ class PlaylistListItem(BaseModel):
         None,
         description="Stable poster identity for the cover recording; unchanged across presign refreshes.",
     )
+    has_custom_cover: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -108,6 +109,9 @@ class PlaylistResponse(BaseModel):
     share_token: uuid.UUID | None = None
     share_enabled: bool = False
     share_created_at: datetime | None = None
+    has_custom_cover: bool = False
+    poster_url: str | None = None
+    poster_asset_key: str | None = None
     created_at: datetime
     updated_at: datetime
 

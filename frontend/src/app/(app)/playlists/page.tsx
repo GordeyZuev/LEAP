@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, ListVideo, Plus } from "lucide-react";
 
 import { createPlaylist, listPlaylists, type PlaylistListItem, type PlaylistListResponse } from "@/api/playlists";
-import { StablePosterImage } from "@/components/recordings/recording-poster";
+import { PlaylistStackPoster } from "@/components/playlists/playlist-stack-poster";
 import { FilterBar } from "@/components/filters/filter-bar";
 import { SearchInput } from "@/components/filters/search-input";
 import { SortControl } from "@/components/filters/sort-control";
@@ -86,10 +86,12 @@ function PlaylistCard({ playlist: p }: { playlist: PlaylistListItem }) {
   return (
     <article className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md">
       <Link href={`/playlists/${p.id}`} className="flex min-w-0 flex-col">
-        <StablePosterImage
+        <PlaylistStackPoster
           posterUrl={p.poster_url}
           posterAssetKey={p.poster_asset_key}
-          className="mb-4 aspect-video w-full rounded-xl"
+          videoCount={p.video_count}
+          wrapperClassName="mb-4"
+          className="aspect-video w-full rounded-xl"
           placeholderIconSize={28}
         />
         <h2 className="line-clamp-2 text-sm font-semibold leading-snug text-balance text-foreground">{p.name}</h2>

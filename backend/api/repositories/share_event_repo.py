@@ -17,14 +17,18 @@ class ShareEventRepository:
     async def create(
         self,
         *,
-        recording_id: int,
         owner_user_id: str,
         event_type: str,
+        recording_id: int | None = None,
+        playlist_id: int | None = None,
+        channel_id: int | None = None,
         visitor_key: str = "",
         artifact_type: str | None = None,
     ) -> ShareAccessEventModel:
         event = ShareAccessEventModel(
             recording_id=recording_id,
+            playlist_id=playlist_id,
+            channel_id=channel_id,
             owner_user_id=owner_user_id,
             event_type=event_type,
             visitor_key=visitor_key,
@@ -123,3 +127,83 @@ class ShareEventRepository:
             .group_by(ShareAccessEventModel.artifact_type)
         )
         return {str(artifact_type): int(count) for artifact_type, count in result.all()}
+
+    async def daily_opens(
+        self,
+        *,
+        channel_id: int | None = None,
+        playlist_id: int | None = None,
+        from_dt: datetime,
+        to_dt: datetime,
+    ) -> list[tuple[datetime, int]]:
+        cond = [
+            ShareAccessEventModel.event_type == ShareEventType.PAGE_VIEW,
+            ShareAccessEventModel.recording_id.is_(None),
+            ShareAccessEventModel.created_at >= from_dt,
+            ShareAccessEventModel.created_at <= to_dt,
+        ]
+        if channel_id is not None:
+            cond.append(ShareAccessEventModel.channel_id == channel_id)
+        if playlist_id is not None:
+            cond.append(ShareAccessEventModel.playlist_id == playlist_id)
+        day_col = func.date_trunc("day", ShareAccessEventModel.created_at).label("day")
+        result = await self.session.execute(
+            select(day_col, func.count()).where(*cond).group_by(day_col).order_by(day_col)
+        )
+        return [(day, int(n or 0)) for day, n in result.all()]
+
+    async def daily_aggregates_for_recordings(
+        self,
+        recording_ids: list[int],
+        *,
+        from_dt: datetime,
+        to_dt: datetime,
+    ) -> list[tuple[datetime, int, int]]:
+        if not recording_ids:
+            return []
+        day_col = func.date_trunc("day", ShareAccessEventModel.created_at).label("day")
+        views_col = func.sum(case((ShareAccessEventModel.event_type == ShareEventType.PAGE_VIEW, 1), else_=0)).label(
+            "views"
+        )
+        downloads_col = func.sum(
+            case((ShareAccessEventModel.event_type == ShareEventType.FILE_DOWNLOAD, 1), else_=0)
+        ).label("downloads")
+        result = await self.session.execute(
+            select(day_col, views_col, downloads_col)
+            .where(
+                ShareAccessEventModel.recording_id.in_(recording_ids),
+                ShareAccessEventModel.created_at >= from_dt,
+                ShareAccessEventModel.created_at <= to_dt,
+            )
+            .group_by(day_col)
+            .order_by(day_col)
+        )
+        return [(day, int(views or 0), int(downloads or 0)) for day, views, downloads in result.all()]
+
+    async def totals_for_recordings(self, recording_ids: list[int]) -> tuple[int, int]:
+        if not recording_ids:
+            return 0, 0
+        result = await self.session.execute(
+            select(
+                func.coalesce(
+                    func.sum(case((ShareAccessEventModel.event_type == ShareEventType.PAGE_VIEW, 1), else_=0)), 0
+                ),
+                func.coalesce(
+                    func.sum(case((ShareAccessEventModel.event_type == ShareEventType.FILE_DOWNLOAD, 1), else_=0)), 0
+                ),
+            ).where(ShareAccessEventModel.recording_id.in_(recording_ids))
+        )
+        views, downloads = result.one()
+        return int(views or 0), int(downloads or 0)
+
+    async def total_opens(self, *, channel_id: int | None = None, playlist_id: int | None = None) -> int:
+        cond = [
+            ShareAccessEventModel.event_type == ShareEventType.PAGE_VIEW,
+            ShareAccessEventModel.recording_id.is_(None),
+        ]
+        if channel_id is not None:
+            cond.append(ShareAccessEventModel.channel_id == channel_id)
+        if playlist_id is not None:
+            cond.append(ShareAccessEventModel.playlist_id == playlist_id)
+        result = await self.session.execute(select(func.count()).where(*cond))
+        return int(result.scalar_one() or 0)

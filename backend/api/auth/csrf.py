@@ -19,7 +19,7 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 # share analytics for logged-in viewers. The routes only increment counters.
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 _PUBLIC_SHARE_BEACON = re.compile(
-    rf"^/api/v1/share/(?:p/{_UUID}/items/\d+|{_UUID})/beacon/?$",
+    rf"^/api/v1/(?:share/(?:p/{_UUID}(?:/items/\d+)?|{_UUID})/beacon|c/[a-z0-9_-]+/beacon)/?$",
 )
 
 

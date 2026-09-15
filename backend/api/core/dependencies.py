@@ -18,4 +18,4 @@ def get_service_context(
 
     Centralizes access to session, user_id and config_helper.
     """
-    return ServiceContext.create(session=session, user_id=current_user.id)
+    return ServiceContext.create(session=session, user_id=current_user.id, user_slug=current_user.user_slug)

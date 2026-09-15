@@ -17,6 +17,7 @@ import {
   getPlaylistShareMedia,
   getPublicPlaylist,
   getPublicPlaylistItem,
+  sendPlaylistLandingBeacon,
   sendPlaylistSharePageBeacon,
   type PublicPlaylistItem,
   type PublicRecordingResponse,
@@ -194,6 +195,7 @@ export function WatchShell({
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedId = Number(searchParams.get("v") || 0) || null;
+  const fromSlug = searchParams.get("from");
 
   const {
     data: playlist,
@@ -229,6 +231,12 @@ export function WatchShell({
   const handleMediaMissing = useCallback(() => {
     void refetch();
   }, [refetch]);
+
+  useEffect(() => {
+    if (!playlist) return;
+    if (requestedId) return;
+    void sendPlaylistLandingBeacon(token).catch(() => {});
+  }, [token, playlist, requestedId]);
 
   useEffect(() => {
     if (!watching || !current?.playable) return;
@@ -416,9 +424,9 @@ export function WatchShell({
   const noPlayable = playableCount === 0;
 
   const sidePanelTabs: TabItem<SidePanelTab>[] = [
-    { value: "videos", label: "Playlist" },
     ...(hasTopicsPanel ? [{ value: "topics" as const, label: "Chapters" }] : []),
     ...(hasTranscript ? [{ value: "transcript" as const, label: "Transcript" }] : []),
+    { value: "videos", label: "Playlist" },
   ];
   const activeTab = sidePanelTab && sidePanelTabs.some((t) => t.value === sidePanelTab)
     ? sidePanelTab
@@ -497,6 +505,7 @@ export function WatchShell({
         {watching ? (
           <WatchLayout
               token={token}
+              fromSlug={fromSlug}
               items={items}
               current={current}
               gone={gone}
@@ -574,6 +583,11 @@ export function WatchShell({
           <div className={PLAYLIST_GRID}>
             <section className={PLAYLIST_PLAQUE}>
               <h1 className="shrink-0 text-xl font-semibold tracking-tight break-words text-foreground">
+                {fromSlug ? (
+                  <Link href={`/c/${fromSlug}`} className="mb-2 block text-sm font-normal text-muted-foreground hover:text-foreground">
+                    ← {fromSlug}
+                  </Link>
+                ) : null}
                 {playlist.name}
               </h1>
               <p className="mt-1.5 shrink-0 text-sm text-muted-foreground">
@@ -634,6 +648,7 @@ export function WatchShell({
 
 function WatchLayout({
   token,
+  fromSlug,
   items,
   current,
   gone,
@@ -663,6 +678,7 @@ function WatchLayout({
   below,
 }: {
   token: string;
+  fromSlug: string | null;
   items: PublicPlaylistItem[];
   current: PublicPlaylistItem | undefined;
   gone: boolean;
@@ -790,6 +806,11 @@ function WatchLayout({
       player={player}
       title={
         <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
+          {fromSlug ? (
+            <Link href={`/c/${fromSlug}`} className="mb-2 block text-sm font-normal text-muted-foreground hover:text-foreground">
+              ← {fromSlug}
+            </Link>
+          ) : null}
           {current?.title ?? "Video unavailable"}
         </h1>
       }

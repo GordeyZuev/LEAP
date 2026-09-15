@@ -179,3 +179,44 @@ class TestSharePlayerView:
         assert body["play_url"] == "https://cdn.example/video.mp4"
         assert body["vtt_url"] == "https://cdn.example/sub.vtt"
         assert storage.presigned_url.await_count >= 2
+        tx.has_extracted.assert_awaited()
+
+    def test_player_view_loads_summary_and_questions_from_extracted(self, client, mocker) -> None:
+        rec = create_mock_recording(record_id=8, processed_video_path="users/u/8/video.mp4")
+        rec.owner = MagicMock(user_slug=1)
+        rec.deleted = False
+        rec.delete_state = "active"
+        rec.topic_timestamps = [{"topic": "Intro", "start": 0}]
+        rec.main_topics = ["Intro"]
+        rec.allow_files_download = False
+        rec.allow_video_download = True
+
+        mocker.patch("api.routers.share._get_recording_by_share_token", new=AsyncMock(return_value=rec))
+        storage = MagicMock()
+
+        @asynccontextmanager
+        async def _shared():
+            yield
+
+        storage.shared_operations = _shared
+        storage.exists = AsyncMock(return_value=False)
+        storage.presigned_url = AsyncMock(return_value="https://cdn.example/video.mp4")
+        mocker.patch("file_storage.factory.get_storage_backend", return_value=storage)
+        mocker.patch(
+            "api.helpers.leap_publication.publication_looks_for_recordings",
+            new=AsyncMock(return_value={8: MagicMock(title="T", description_template=None, thumbnail_name=None)}),
+        )
+        tx = MagicMock()
+        tx.has_extracted = AsyncMock(return_value=True)
+        tx.get_active_extracted = AsyncMock(
+            return_value={"summary": "A lecture summary.", "questions": ["What is a tree?"]}
+        )
+        mocker.patch("transcription_module.manager.get_transcription_manager", return_value=tx)
+
+        response = client.get(f"/api/v1/share/{uuid.uuid4()}?view=player")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["summary"] == "A lecture summary."
+        assert body["questions"] == ["What is a tree?"]
+        tx.get_active_extracted.assert_awaited()

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from api.helpers.channel_description import render_channel_description
 from api.helpers.description_markup import markup_to_plain
 from api.helpers.playlist_description import build_playlist_description_context, render_playlist_description
 
@@ -57,3 +58,17 @@ class TestPlaylistDescriptionJinja:
         playlist = SimpleNamespace(id=1, items=[SimpleNamespace(position=0, recording=rec)])
         out = render_playlist_description("{{ items }}", playlist, item_titles={9: "Published title"})
         assert out == "1. Published title"
+
+
+@pytest.mark.unit
+class TestChannelDescriptionJinja:
+    def test_render_counts_and_lists(self) -> None:
+        out = render_channel_description(
+            "{{ video_count }} / {{ playlist_count }} | {{ items }} | {{ playlists }}",
+            video_count=1,
+            playlist_count=1,
+            duration_sum=65,
+            video_titles=["Intro"],
+            playlist_names=["Course"],
+        )
+        assert out == "1 / 1 | 1. Intro | 1. Course"

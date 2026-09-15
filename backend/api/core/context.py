@@ -22,6 +22,7 @@ class ServiceContext:
 
     session: AsyncSession
     user_id: str
+    user_slug: int = 0
 
     def __post_init__(self):
         """Lazy init for config_helper."""
@@ -37,6 +38,6 @@ class ServiceContext:
         return self._config_helper
 
     @classmethod
-    def create(cls, session: AsyncSession, user_id: str) -> "ServiceContext":
+    def create(cls, session: AsyncSession, user_id: str, user_slug: int = 0) -> "ServiceContext":
         """Create context instance."""
-        return cls(session=session, user_id=user_id)
+        return cls(session=session, user_id=user_id, user_slug=user_slug)

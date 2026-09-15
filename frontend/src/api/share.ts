@@ -78,6 +78,7 @@ export interface ShareDailyPoint {
   date: string;
   views: number;
   downloads: number;
+  opens?: number;
 }
 
 export interface ShareAnalyticsResponse {
@@ -124,12 +125,71 @@ async function sendPublicBeacon(apiPath: string): Promise<void> {
   await publicClient.post(apiPath);
 }
 
+function fromQuery(): string {
+  if (typeof window === "undefined") return "";
+  const from = new URLSearchParams(window.location.search).get("from");
+  return from ? `?from=${encodeURIComponent(from)}` : "";
+}
+
 export async function sendSharePageBeacon(token: string): Promise<void> {
-  await sendPublicBeacon(`/share/${token}/beacon`);
+  await sendPublicBeacon(`/share/${token}/beacon${fromQuery()}`);
 }
 
 export async function sendPlaylistSharePageBeacon(token: string, itemId: number): Promise<void> {
-  await sendPublicBeacon(`/share/p/${token}/items/${itemId}/beacon`);
+  await sendPublicBeacon(`/share/p/${token}/items/${itemId}/beacon${fromQuery()}`);
+}
+
+export async function sendPlaylistLandingBeacon(token: string): Promise<void> {
+  await sendPublicBeacon(`/share/p/${token}/beacon`);
+}
+
+export async function sendChannelPageBeacon(slug: string): Promise<void> {
+  await sendPublicBeacon(`/c/${slug}/beacon`);
+}
+
+export interface PublicChannelVideo {
+  title: string;
+  duration: number;
+  start_time?: string | null;
+  poster_url: string | null;
+  poster_asset_key?: string | null;
+  share_token: string;
+  blurb?: string | null;
+}
+
+export interface PublicChannelPlaylist {
+  name: string;
+  video_count: number;
+  duration_sum: number;
+  poster_url: string | null;
+  poster_asset_key?: string | null;
+  share_token: string;
+  blurb?: string | null;
+}
+
+export interface PublicChannelResponse {
+  name: string;
+  slug: string;
+  description: string | null;
+  banner_url: string | null;
+  videos: PublicChannelVideo[];
+  playlists: PublicChannelPlaylist[];
+}
+
+export async function getPublicChannel(slug: string): Promise<PublicChannelResponse> {
+  const res = await publicClient.get<PublicChannelResponse>(`/c/${slug}`);
+  return res.data;
+}
+
+export async function fetchPublicChannelForMetadata(slug: string): Promise<PublicChannelResponse | null> {
+  try {
+    const { data } = await axios.get<PublicChannelResponse>(`${serverApiBase()}/api/v1/c/${slug}`, {
+      timeout: 4000,
+    });
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 // --- Public endpoints (no auth required) ---

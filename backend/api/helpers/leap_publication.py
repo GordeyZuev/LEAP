@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.helpers.template_renderer import TemplateRenderer, render_jinja
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.template_repos import OutputPresetRepository, RecordingTemplateRepository
+from api.services.config_resolver import extract_thumbnail_name_from_metadata
 from api.services.config_utils import is_leap_platform
 from api.services.default_template import upload_config_to_output
 from api.services.merger import deep_merge
@@ -26,6 +27,15 @@ class PublicationLook:
     title: str
     description_template: str | None
     thumbnail_name: str | None
+
+
+def _look_thumbnail(look_meta: dict[str, Any] | None, metadata: dict[str, Any]) -> str | None:
+    """LEAP look cover first, then template / recording thumbnail_name (and YT/VK)."""
+    if look_meta:
+        raw = look_meta.get("thumbnail_name")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return extract_thumbnail_name_from_metadata(metadata)
 
 
 def _coerce_positive_int(item: Any) -> int | None:
@@ -219,13 +229,10 @@ async def publication_looks_for_recordings(
             else None,
         )
         desc_t = None
-        thumb = None
         if look_meta:
             raw_desc = look_meta.get("description_template")
             if isinstance(raw_desc, str) and raw_desc.strip():
                 desc_t = raw_desc
-            raw_thumb = look_meta.get("thumbnail_name")
-            if isinstance(raw_thumb, str) and raw_thumb.strip():
-                thumb = raw_thumb.strip()
+        thumb = _look_thumbnail(look_meta, metadata if isinstance(metadata, dict) else {})
         looks[rec.id] = PublicationLook(title=title, description_template=desc_t, thumbnail_name=thumb)
     return looks

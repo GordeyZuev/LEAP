@@ -24,6 +24,7 @@ export function DescriptionEditor({
   rows = 5,
   variables = [],
   hint,
+  maxLength,
   className,
 }: {
   id?: string;
@@ -34,6 +35,7 @@ export function DescriptionEditor({
   rows?: number;
   variables?: JinjaVar[];
   hint?: string;
+  maxLength?: number;
   className?: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -118,6 +120,7 @@ export function DescriptionEditor({
           ref={textareaRef}
           id={fieldId}
           value={value}
+          maxLength={maxLength}
           onChange={(e) => {
             onChange(e.target.value);
             ac.updateFromCaret(e.target.value, e.target.selectionStart);
@@ -174,6 +177,11 @@ export function DescriptionEditor({
         )}
       </div>
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      {maxLength != null ? (
+        <p className="text-xs text-muted-foreground">
+          {value.length} / {maxLength}
+        </p>
+      ) : null}
       <AboutFormatting multiline />
     </div>
   );

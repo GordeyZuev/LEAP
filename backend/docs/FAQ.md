@@ -48,11 +48,10 @@ Connect with an organization API key (Credentials → Manual). Lecturers to sync
 ## How do share links and playlists work?
 
 - Recording: one public URL. Enable / Disable (same URL) / Rotate (new URL).
-- Playlist: an ordered course with `/share/p/{uuid}`. Opening a video goes to the watch layout. Descriptions can use `{{ video_count }}`, `{{ duration_hm }}`, `{{ items }}`.
-- Views still count if the visitor is signed in to LEAP (the public page uses `sendBeacon`).
-- Look LEAP (title, description, cover) is not an upload destination.
+- Playlist: an ordered course with `/share/p/{uuid}`. Opening a video goes to the watch layout. Descriptions can use `{{ video_count }}`, `{{ duration_hm }}`, `{{ items }}`. Optional custom cover.
+- Channel: public hub `/c/{slug}` with Playlists then Videos. Viewers can search, sort, and switch grid/list. Enable / Disable (same slug). Rename slug immediately 404s the old URL. Viewers only see share-enabled items.
 
-Details: [guides/PLAYLISTS.md](guides/PLAYLISTS.md).
+Details: [guides/PLAYLISTS.md](guides/PLAYLISTS.md), [guides/CHANNELS.md](guides/CHANNELS.md).
 
 ## Why is there a 12+ mark?
 
@@ -76,7 +75,7 @@ Concept: [guides/QUOTAS.md](guides/QUOTAS.md). In-app **Settings → Usage** and
 
 ## Is VK a destination?
 
-No. VK upload is not supported. Current destinations are YouTube, Yandex Disk, and a LEAP share/course link.
+No. VK upload is not supported. Current destinations are YouTube, Yandex Disk, and LEAP share, course, and channel pages.
 
 ## Google Drive / Rutube upload?
 

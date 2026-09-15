@@ -8,7 +8,7 @@ import Link from "next/link";
 import {
   ArrowLeft, Play, Pause, Trash2, Upload, ExternalLink,
   CheckCircle2, XCircle, Clock, Loader2, RotateCcw, Settings2, ArchiveRestore, FilePlus2,
-  Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2, ListVideo, Plus,
+  Link2, Unlink, Pencil, VideoOff, Search, Share2, Check, X, Code2, ListVideo, Plus, Radio,
 } from "lucide-react";
 import { cn, formatDate, formatDateTimeShort, formatDuration, extractApiError, httpStatus } from "@/lib/utils";
 import { CHECKBOX } from "@/lib/filter-field-classes";
@@ -30,7 +30,9 @@ import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type Artefa
 import { RunConfigModal } from "@/components/recordings/run-config-modal";
 import { AIContentEditor } from "@/components/recordings/ai-content-editor";
 import { PlaylistPicker } from "@/components/playlists/playlist-picker";
+import { ChannelPicker } from "@/components/playlists/channel-picker";
 import { removePlaylistItem } from "@/api/playlists";
+import { removeChannelVideo } from "@/api/channels";
 import { ShareModal } from "@/components/recordings/share-modal";
 import { ShareStatsLine } from "@/components/recordings/share-stats-line";
 import { TemplateField } from "@/components/platforms/platform-fields";
@@ -192,6 +194,7 @@ interface RecordingDetail {
   allow_video_download?: boolean;
   allow_files_download?: boolean;
   playlists?: { id: number; name: string; item_id: number }[];
+  channels?: { id: number; name: string; slug: string; membership_id: number }[];
 }
 
 interface RecordingConfigResponse {
@@ -551,6 +554,52 @@ function PlaylistMembershipRow({
   );
 }
 
+function ChannelMembershipRow({
+  channels,
+  onAdd,
+  onRemove,
+}: {
+  channels: { id: number; name: string; slug: string; membership_id: number }[];
+  onAdd: () => void;
+  onRemove: (channel: { id: number }) => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-2.5 border-t border-primary/10 py-2.5">
+      <Radio size={14} className="shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <span className="text-xs font-semibold text-foreground">Channels</span>
+        {channels.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Not on any channel</p>
+        ) : (
+          <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
+            {channels.map((c) => (
+              <span
+                key={c.id}
+                className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-primary/20 bg-primary/5 py-1 pl-3 pr-1.5 text-xs font-medium text-primary"
+              >
+                <Link href={`/channels/${c.id}`} className="min-w-0 truncate hover:underline">
+                  {c.name}
+                </Link>
+                <button
+                  type="button"
+                  aria-label={`Remove from ${c.name}`}
+                  onClick={() => onRemove(c)}
+                  className="rounded-full p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <ActionButton size="sm" variant="secondary" onClick={onAdd} className="shrink-0 px-2 py-0.5 text-xs">
+        Add
+      </ActionButton>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // RecordingVideoPlayer
 // ---------------------------------------------------------------------------
@@ -626,6 +675,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const [bindTemplateSearch, setBindTemplateSearch] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
+  const [channelPickerOpen, setChannelPickerOpen] = useState(false);
   const [downloadFlags, setDownloadFlags] = useState<{
     allow_video_download?: boolean;
     allow_files_download?: boolean;
@@ -1688,7 +1738,20 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                         qc.invalidateQueries({ queryKey: ["playlists"] });
                         showToast("success", "Removed from playlist");
                       })
-                      .catch((e) => showToast("error", extractApiError(e, "Failed to remove from playlist")));
+                      .catch((e) => showToast("error", extractApiError(e, "Could not remove from playlist")));
+                  }}
+                />
+                <ChannelMembershipRow
+                  channels={recording.channels ?? []}
+                  onAdd={() => setChannelPickerOpen(true)}
+                  onRemove={(c) => {
+                    void removeChannelVideo(c.id, recording.id)
+                      .then(() => {
+                        qc.invalidateQueries({ queryKey: ["recording", id] });
+                        qc.invalidateQueries({ queryKey: ["channels"] });
+                        showToast("success", "Removed from channel");
+                      })
+                      .catch((e) => showToast("error", extractApiError(e, "Could not remove from channel")));
                   }}
                 />
               </div>
@@ -1771,6 +1834,24 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             recordingId={recording.id}
             selectedIds={(recording.playlists ?? []).map((p) => p.id)}
             membershipItemIds={Object.fromEntries((recording.playlists ?? []).map((p) => [p.id, p.item_id]))}
+            onChange={() => {
+              qc.invalidateQueries({ queryKey: ["recording", id] });
+            }}
+            onToast={(msg, variant) => showToast(variant === "error" ? "error" : "success", msg)}
+          />
+        </div>
+      </Modal>
+
+      <Modal open={channelPickerOpen} onClose={() => setChannelPickerOpen(false)} labelledBy="add-to-channel-title" panelClassName="max-w-lg">
+        <div className="flex max-h-[90vh] flex-col overflow-hidden">
+          <div className="border-b border-border px-5 py-4">
+            <h2 id="add-to-channel-title" className="text-sm font-semibold text-foreground">Add to channel</h2>
+          </div>
+          <ChannelPicker
+            embedded
+            mode="immediate"
+            recordingId={recording.id}
+            selectedIds={(recording.channels ?? []).map((c) => c.id)}
             onChange={() => {
               qc.invalidateQueries({ queryKey: ["recording", id] });
             }}

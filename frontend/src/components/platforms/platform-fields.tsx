@@ -7,6 +7,7 @@ import { TagInput } from "@/components/ui/tag-input";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { NativeSelect } from "@/components/ui/native-select";
 import { PlaylistPicker } from "@/components/playlists/playlist-picker";
+import { ChannelPicker } from "@/components/playlists/channel-picker";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker";
 import { Field } from "@/components/ui/field";
@@ -329,6 +330,7 @@ export interface LeapFieldsValue {
   description_template: string;
   thumbnail_name: string;
   playlist_ids: number[];
+  channel_ids: number[];
   auto_share: boolean | null;
 }
 
@@ -337,6 +339,7 @@ export const DEFAULT_LEAP_FIELDS: LeapFieldsValue = {
   description_template: "",
   thumbnail_name: "",
   playlist_ids: [],
+  channel_ids: [],
   auto_share: null,
 };
 
@@ -345,11 +348,15 @@ export function leapFieldsFromApi(raw: unknown): LeapFieldsValue {
   const ids = Array.isArray(obj.playlist_ids)
     ? obj.playlist_ids.filter((n): n is number => typeof n === "number" && n > 0)
     : [];
+  const channelIds = Array.isArray(obj.channel_ids)
+    ? obj.channel_ids.filter((n): n is number => typeof n === "number" && n > 0)
+    : [];
   return {
     title_template: typeof obj.title_template === "string" ? obj.title_template : "",
     description_template: typeof obj.description_template === "string" ? obj.description_template : "",
     thumbnail_name: typeof obj.thumbnail_name === "string" ? obj.thumbnail_name : "",
     playlist_ids: ids,
+    channel_ids: channelIds,
     auto_share: typeof obj.auto_share === "boolean" ? obj.auto_share : null,
   };
 }
@@ -391,6 +398,12 @@ export function LeapLookFields({
             hint="Default playlists; templates and Run can replace this list."
           >
             <PlaylistPicker mode="form" selectedIds={value.playlist_ids} onChange={(ids) => onChange({ playlist_ids: ids })} />
+          </Field>
+          <Field
+            label="LEAP channels"
+            hint="After processing the recording is added to the Videos tab. Viewers need a share link (auto_share or Enable). Empty = inherit from this preset."
+          >
+            <ChannelPicker mode="form" selectedIds={value.channel_ids} onChange={(ids) => onChange({ channel_ids: ids })} />
           </Field>
         </>
       ) : null}

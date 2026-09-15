@@ -34,6 +34,7 @@
 | Шаблоны и источники/пресеты | `recording_templates`, `input_sources`, `output_presets` |
 | Обработка записей | `recordings`, `source_metadata`, `output_targets`, `processing_stages`, `stage_timings` |
 | Плейлисты | `playlists`, `playlist_items` |
+| Каналы | `channels`, `channel_videos`, `channel_playlists` |
 | Автоматизация | `automation_jobs` |
 | Celery Beat (django-celery-beat–совместимая схема) | `celery_interval_schedule`, `celery_crontab_schedule`, `celery_solar_schedule`, `celery_periodic_task_changed`, `celery_periodic_task` |
 
@@ -73,7 +74,11 @@ erDiagram
     recordings ||--o{ processing_stages : has
     recordings ||--o{ stage_timings : has
     users ||--o{ playlists : owns
+    users ||--o{ channels : owns
     playlists ||--o{ playlist_items : contains
+    channels ||--o{ channel_videos : videos
+    channels ||--o{ channel_playlists : playlists
+    playlists ||--o{ channel_playlists : channels
     recordings ||--o{ playlist_items : listed
 
     user_credentials ||--o{ input_sources : uses
@@ -141,8 +146,11 @@ erDiagram
 
 | Таблица | Модель | Назначение |
 |---------|--------|------------|
-| `playlists` | `PlaylistModel` | `user_id`, уникальное `name` на пользователя, `description`, `share_token` (UUID, nullable), `share_enabled`, `share_created_at`; лимит 200 на пользователя |
+| `playlists` | `PlaylistModel` | `user_id`, уникальное `name` на пользователя, `description`, `cover_key` (nullable, **049**), `share_token`, `share_enabled`, `share_created_at`; лимит 200 на пользователя |
 | `playlist_items` | `PlaylistItemModel` | `playlist_id`, `recording_id`, `position`; UNIQUE `(playlist_id, recording_id)`; лимит 200 пунктов |
+| `channels` | `ChannelModel` | `user_id`, уникальное `name` на пользователя, глобально уникальный `slug`, `description`, `share_enabled`, `banner_key`; лимит 20 на пользователя (**050**) |
+| `channel_videos` | `ChannelVideoModel` | UNIQUE `(channel_id, recording_id)`, `position`; лимит 200 |
+| `channel_playlists` | `ChannelPlaylistModel` | UNIQUE `(channel_id, playlist_id)` — один плейлист во многих каналах; `position` в каждом канале; лимит 200 слотов на канал |
 
 `output_config.playlist_ids` у **именованного** шаблона (не default) применяется при LEAP publish после обработки (строка в `playlist_items`); пустой список наследует `playlist_ids` leap-пресета на этапе пайплайна. Раннее добавление при bind/match снято (см. CHANGELOG **2026-09-13: LEAP playlist publish deferred**).
 

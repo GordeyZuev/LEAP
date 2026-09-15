@@ -355,6 +355,10 @@ class LeapPresetMetadata(BaseModel):
         default_factory=list,
         description="LEAP playlist IDs to append on publish (overridable by template/Run output_config).",
     )
+    channel_ids: list[int] = Field(
+        default_factory=list,
+        description="LEAP channel IDs to append the recording on Videos (overridable by template/Run).",
+    )
     auto_share: bool = Field(
         False,
         description="Mint and enable the recording share link when publishing to LEAP.",
@@ -402,6 +406,28 @@ class LeapPresetMetadata(BaseModel):
             raise ValueError("playlist_ids must be positive numbers")
         if len(v) != len(set(v)):
             raise ValueError("playlist_ids must be unique")
+        return v
+
+    @field_validator("channel_ids", mode="before")
+    @classmethod
+    def _coerce_channel_ids(cls, v: Any) -> list[int]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            return []
+        return v
+
+    @field_validator("channel_ids")
+    @classmethod
+    def _validate_channel_ids(cls, v: list[int]) -> list[int]:
+        if not v:
+            return v
+        if len(v) > 10:
+            raise ValueError("Maximum 10 channels per leap preset")
+        if any(pid <= 0 for pid in v):
+            raise ValueError("channel_ids must be positive numbers")
+        if len(v) != len(set(v)):
+            raise ValueError("channel_ids must be unique")
         return v
 
 

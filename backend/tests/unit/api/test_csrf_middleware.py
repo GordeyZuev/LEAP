@@ -37,6 +37,14 @@ def csrf_client():
     def playlist_beacon(token: str, item_id: int):
         return Response(status_code=204)
 
+    @app.post("/api/v1/share/p/{token}/beacon")
+    def playlist_landing_beacon(token: str):
+        return Response(status_code=204)
+
+    @app.post("/api/v1/c/{slug}/beacon")
+    def channel_beacon(slug: str):
+        return Response(status_code=204)
+
     @app.post("/api/v1/recordings/{recording_id}/share/rotate")
     def recording_share_rotate(recording_id: int):
         return {"ok": True}
@@ -110,7 +118,14 @@ class TestCSRFMiddleware:
         r = csrf_client.post("/api/v1/share/86bf7e22-18c1-4285-bfef-fa4ca8e1dae4/beacon")
         assert r.status_code == 204
 
-    def test_playlist_item_beacon_skips_csrf_with_session_cookie(self, csrf_client):
+    def test_playlist_landing_and_channel_beacon_skip_csrf(self, csrf_client):
+        csrf_client.cookies.set("access_token", "dummy")
+        r = csrf_client.post("/api/v1/share/p/86bf7e22-18c1-4285-bfef-fa4ca8e1dae4/beacon")
+        assert r.status_code == 204
+        r = csrf_client.post("/api/v1/c/proga/beacon")
+        assert r.status_code == 204
+        r = csrf_client.post("/api/v1/c/my_course/beacon")
+        assert r.status_code == 204
         csrf_client.cookies.set("access_token", "dummy")
         r = csrf_client.post("/api/v1/share/p/86bf7e22-18c1-4285-bfef-fa4ca8e1dae4/items/1/beacon")
         assert r.status_code == 204

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, use, useMemo, useState } from "react";
+import { Suspense, use, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,14 +19,17 @@ import {
 import {
   addPlaylistItems,
   deletePlaylist,
+  deletePlaylistCover,
   disablePlaylistShare,
   enablePlaylistShare,
   getPlaylist,
+  listPlaylistChannels,
   listPlaylistItems,
   removePlaylistItem,
   reorderPlaylistItems,
   rotatePlaylistShare,
   updatePlaylist,
+  uploadPlaylistCover,
   type PlaylistDetail,
   type PlaylistItem,
   type PlaylistItemsResponse,
@@ -43,8 +46,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { Modal } from "@/components/ui/modal";
+import { PageHeader } from "@/components/ui/page-header";
 import { CARD_SHELL, SectionCard } from "@/components/ui/section-card";
-import { RecordingPoster } from "@/components/recordings/recording-poster";
+import { Tabs, type TabItem } from "@/components/ui/tabs";
+import { ChannelPicker } from "@/components/playlists/channel-picker";
+import { ShareAnalyticsPanel } from "@/components/recordings/share-analytics-panel";
+import { ShareAnalyticsPlaque } from "@/components/share/share-analytics-plaque";
+import { RecordingPoster, StablePosterImage } from "@/components/recordings/recording-poster";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toast } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
@@ -63,6 +71,13 @@ const ACCESS_ACTION =
   "inline-flex min-h-7 items-center text-xs font-medium text-muted-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-sm";
 
 const EMPTY_ITEMS: PlaylistItem[] = [];
+
+type PageTab = "content" | "playlist" | "analytics";
+const PAGE_TABS: TabItem<PageTab>[] = [
+  { value: "content", label: "Content" },
+  { value: "playlist", label: "Settings" },
+  { value: "analytics", label: "Analytics" },
+];
 
 interface RecordingPick {
   id: number;
@@ -90,6 +105,15 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   const q = sp.get("q") ?? "";
   const fromDate = sp.get("from_date") ?? "";
   const toDate = sp.get("to_date") ?? "";
+  const rawPage = sp.get("tab");
+  const pageTab: PageTab = rawPage === "playlist" || rawPage === "analytics" ? rawPage : "content";
+  const goPage = useCallback((next: PageTab) => {
+    const p = new URLSearchParams(window.location.search);
+    if (next === "content") p.delete("tab");
+    else p.set("tab", next);
+    const qs = p.toString();
+    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+  }, [router]);
 
   const [nameEditing, setNameEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -346,7 +370,12 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       >
         <ArrowLeft size={14} /> Playlists
       </Link>
-
+      <PageHeader
+        title={playlist.name}
+        description={`${playlist.video_count} videos`}
+      />
+      <Tabs items={PAGE_TABS} value={pageTab} onChange={goPage} label="Playlist sections">
+        {pageTab === "playlist" && (
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] xl:grid-cols-[minmax(0,1fr)_20rem]">
         <section className={cn(CARD_SHELL, "min-w-0 p-5")}>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -416,9 +445,79 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
               </div>
             )}
           </div>
+
+          <div className="mt-5">
+            <p className="text-xs font-medium text-muted-foreground">Cover</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Auto is the first lecture. Custom is an image you upload.
+            </p>
+            <div
+              className={cn(
+                "mt-2 aspect-video w-full max-w-sm overflow-hidden rounded-xl border border-border bg-muted",
+                "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
+              )}
+            >
+              {playlist.poster_url ? (
+                <StablePosterImage
+                  posterUrl={playlist.poster_url}
+                  posterAssetKey={playlist.poster_asset_key}
+                  className="h-full w-full"
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No cover</div>
+              )}
+            </div>
+            <div role="group" aria-label="Cover source" className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                aria-pressed={!playlist.has_custom_cover}
+                className={cn(
+                  "inline-flex min-h-8 items-center rounded-xl border px-3 text-xs font-medium",
+                  !playlist.has_custom_cover
+                    ? "border-primary bg-primary text-white"
+                    : "border-border bg-card text-secondary-foreground hover:bg-muted",
+                )}
+                onClick={() => {
+                  if (!playlist.has_custom_cover) return;
+                  void deletePlaylistCover(playlistId).then(() => {
+                    void qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
+                    void qc.invalidateQueries({ queryKey: ["playlists"] });
+                  });
+                }}
+              >
+                Auto
+              </button>
+              <label
+                className={cn(
+                  "pressable inline-flex min-h-8 cursor-pointer items-center rounded-xl border px-3 text-xs font-medium",
+                  playlist.has_custom_cover
+                    ? "border-primary bg-primary text-white"
+                    : "border-border bg-card text-secondary-foreground hover:bg-muted",
+                )}
+              >
+                {playlist.has_custom_cover ? "Replace" : "Custom"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    void uploadPlaylistCover(playlistId, file).then(() => {
+                      void qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
+                      void qc.invalidateQueries({ queryKey: ["playlists"] });
+                    });
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <PlaylistChannelsBlock playlistId={playlistId} />
         </section>
 
-        <aside className="min-w-0 lg:col-start-2 lg:row-span-2 lg:sticky lg:top-6 lg:self-start">
+        <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
           <PlaylistAccessCard
             playlist={playlist}
             publicUrl={publicUrl}
@@ -429,13 +528,21 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
             onDisable={() => setDisableConfirm(true)}
             onRotate={() => setRotateConfirm(true)}
           />
+          <ShareAnalyticsPlaque
+            subject={{ kind: "playlist", id: playlistId }}
+            onOpenDetails={() => goPage("analytics")}
+          />
         </aside>
+      </div>
+        )}
+        {pageTab === "content" && (
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] xl:grid-cols-[minmax(0,1fr)_20rem]">
 
         <SectionCard
           title="Videos"
           description={canDrag ? "Drag to change the watch order." : "Clear filters to reorder."}
           density="compact"
-          className="min-w-0 lg:col-start-1"
+          className="min-w-0"
           action={
             <ActionButton size="sm" variant="secondary" icon={<Plus size={12} />} onClick={() => setAddOpen(true)}>
               Add recordings
@@ -564,7 +671,34 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
           </ul>
         )}
       </SectionCard>
+        <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
+          <PlaylistAccessCard
+            playlist={playlist}
+            publicUrl={publicUrl}
+            copied={copied}
+            enablePending={enableShare.isPending}
+            onCopy={() => void copyLink()}
+            onEnable={() => enableShare.mutate()}
+            onDisable={() => setDisableConfirm(true)}
+            onRotate={() => setRotateConfirm(true)}
+          />
+          <ShareAnalyticsPlaque
+            subject={{ kind: "playlist", id: playlistId }}
+            onOpenDetails={() => goPage("analytics")}
+          />
+        </aside>
       </div>
+        )}
+        {pageTab === "analytics" && (
+          <ShareAnalyticsPanel
+            subject={{ kind: "playlist", id: playlistId }}
+            open
+            hideHeading
+            showRevokedBanner={!playlist.share_enabled}
+            viewsHint="Views of lectures currently in this course."
+          />
+        )}
+      </Tabs>
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} label="Add recordings" panelClassName="max-w-lg">
         <div className="space-y-4 p-6">
@@ -640,6 +774,26 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       />
 
       {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismiss} />}
+    </div>
+  );
+}
+
+function PlaylistChannelsBlock({ playlistId }: { playlistId: number }) {
+  const { data } = useQuery({
+    queryKey: ["playlist-channels", playlistId],
+    queryFn: () => listPlaylistChannels(playlistId),
+  });
+  const ids = (data ?? []).map((c) => c.id);
+  return (
+    <div className="mt-5">
+      <p className="mb-2 text-xs font-medium text-muted-foreground">Channels</p>
+      <ChannelPicker
+        mode="immediate"
+        playlistId={playlistId}
+        selectedIds={ids}
+        onChange={() => undefined}
+        embedded
+      />
     </div>
   );
 }

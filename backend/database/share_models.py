@@ -36,7 +36,15 @@ class ShareAccessEventModel(Base):
     )
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=lambda: str(ULID()))
-    recording_id: Mapped[int] = mapped_column(Integer, ForeignKey("recordings.id", ondelete="CASCADE"), nullable=False)
+    recording_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("recordings.id", ondelete="CASCADE"), nullable=True
+    )
+    playlist_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=True
+    )
+    channel_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("channels.id", ondelete="CASCADE"), nullable=True
+    )
     owner_user_id: Mapped[str] = mapped_column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     artifact_type: Mapped[str | None] = mapped_column(String(32), nullable=True)

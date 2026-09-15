@@ -11,6 +11,10 @@ export const PER_PAGE_RECORDINGS = 20;
 export const PER_PAGE_RECORDINGS_OPTIONS = [20, 50, 100];
 export const PER_PAGE_PRESETS = 24;
 export const PER_PAGE_PLAYLISTS = 24;
+export const PER_PAGE_CHANNELS = 24;
+
+/** YouTube-style channel art: short strip, taller on phones so it stays readable. */
+export const CHANNEL_BANNER_ASPECT = "aspect-[3/1] sm:aspect-[4/1] lg:aspect-[6/1]";
 export const PER_PAGE_TEMPLATES = 20;
 export const PER_PAGE_TEMPLATES_OPTIONS = [20, 50, 100];
 export const PER_PAGE_SOURCES = 24;

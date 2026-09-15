@@ -1016,16 +1016,21 @@ async def get_recording(
 
             uploads[platform] = upload_info
 
+    from api.repositories.channel_repo import ChannelRepository
     from api.repositories.playlist_repo import PlaylistRepository
+    from api.schemas.channel import ChannelSummary
     from api.schemas.playlist import PlaylistSummary
 
     playlist_rows = await PlaylistRepository(ctx.session).summaries_for_recording(recording.id, ctx.user_id)
     playlists = [PlaylistSummary(id=p.id, name=p.name, item_id=item_id) for p, item_id in playlist_rows]
+    channel_rows = await ChannelRepository(ctx.session).summaries_for_recording(recording.id, ctx.user_id)
+    channels = [ChannelSummary(id=ch.id, name=ch.name, slug=ch.slug, membership_id=mid) for ch, mid in channel_rows]
 
     # Create response model
     return DetailedRecordingResponse(
         **base_data,
         playlists=playlists,
+        channels=channels,
         videos=videos if videos else None,
         audio=audio_info if audio_info else None,
         transcription=transcription_data,

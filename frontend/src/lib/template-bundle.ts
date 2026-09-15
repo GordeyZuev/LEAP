@@ -21,10 +21,18 @@ export interface BundleReferencePlaylist {
   missing?: boolean;
 }
 
+export interface BundleReferenceChannel {
+  id: number;
+  name: string | null;
+  slug?: string | null;
+  missing?: boolean;
+}
+
 export interface BundleReference {
   presets: BundleReferencePreset[];
   sources: BundleReferenceSource[];
   playlists: BundleReferencePlaylist[];
+  channels?: BundleReferenceChannel[];
 }
 
 export interface TemplateBundleItem {

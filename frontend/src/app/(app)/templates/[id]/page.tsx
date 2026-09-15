@@ -115,6 +115,7 @@ interface MetadataConfig {
 interface OutputConfig {
   preset_ids: number[];
   playlist_ids: number[];
+  channel_ids: number[];
   auto_upload: boolean;
   publish_leap: boolean;
   upload_captions: boolean;
@@ -185,6 +186,7 @@ const DEFAULT_FORM: TemplateFormData = {
   output_config: {
     preset_ids: [],
     playlist_ids: [],
+    channel_ids: [],
     auto_upload: true,
     publish_leap: true,
     upload_captions: true,
@@ -312,6 +314,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
       output_config: {
         preset_ids: existing.output_config?.preset_ids ?? [],
         playlist_ids: existing.output_config?.playlist_ids ?? [],
+        channel_ids: existing.output_config?.channel_ids ?? [],
         auto_upload: existing.output_config?.auto_upload ?? false,
         publish_leap: existing.output_config?.publish_leap ?? true,
         upload_captions: existing.output_config?.upload_captions ?? true,
@@ -418,6 +421,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           data.output_config.preset_ids.length > 0
           || data.output_config.auto_upload
           || data.output_config.playlist_ids.length > 0
+          || data.output_config.channel_ids.length > 0
             ? data.output_config
             : undefined,
       };
@@ -910,6 +914,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               showCourses={!isDefault}
               playlistIds={form.output_config.playlist_ids}
               onPlaylistIdsChange={(ids) => setOC("playlist_ids", ids)}
+              channelIds={form.output_config.channel_ids}
+              onChannelIdsChange={(ids) => setOC("channel_ids", ids)}
               leapPresets={leapPresets}
               selectedLeapPresetId={selectedLeapId}
               onLeapPresetIdChange={setLeapPresetId}

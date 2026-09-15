@@ -20,6 +20,7 @@ class ShareCreateResponse(BaseModel):
 class ShareStatsSummary(BaseModel):
     view_count: int = 0
     download_count: int = 0
+    open_count: int = 0
     last_viewed_at: datetime | None = None
     last_downloaded_at: datetime | None = None
 
@@ -28,6 +29,7 @@ class ShareDailyPoint(BaseModel):
     date: date
     views: int = 0
     downloads: int = 0
+    opens: int = 0
 
 
 class ShareAnalyticsResponse(BaseModel):

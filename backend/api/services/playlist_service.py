@@ -99,8 +99,35 @@ class PlaylistService:
         return playlist
 
     async def delete(self, playlist: PlaylistModel) -> None:
+        cover_key = playlist.cover_key
         await self.session.delete(playlist)
         await self.session.flush()
+        from api.helpers.image_upload import delete_key_silent
+
+        await delete_key_silent(cover_key)
+
+    async def set_cover(self, playlist: PlaylistModel, *, user_slug: int, content: bytes, suffix: str) -> str:
+        from api.helpers.image_upload import delete_key_silent, save_bytes
+        from file_storage.path_builder import StoragePathBuilder, to_storage_key
+
+        key = to_storage_key(StoragePathBuilder().playlist_cover(user_slug, playlist.id, suffix))
+        old = playlist.cover_key
+        await save_bytes(key, content)
+        playlist.cover_key = key
+        playlist.updated_at = datetime.now(UTC)
+        await self.session.flush()
+        if old and old != key:
+            await delete_key_silent(old)
+        return key
+
+    async def clear_cover(self, playlist: PlaylistModel) -> None:
+        from api.helpers.image_upload import delete_key_silent
+
+        old = playlist.cover_key
+        playlist.cover_key = None
+        playlist.updated_at = datetime.now(UTC)
+        await self.session.flush()
+        await delete_key_silent(old)
 
     async def add_items(self, playlist: PlaylistModel, recording_ids: list[int]) -> list[PlaylistItemModel]:
         """Append recordings. Duplicates and missing ids are skipped / 404 as specified."""

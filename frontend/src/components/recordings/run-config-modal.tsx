@@ -104,6 +104,7 @@ interface RecordingConfigResponse {
     upload_captions?: boolean;
     preset_ids?: number[];
     playlist_ids?: number[];
+    channel_ids?: number[];
     publish_leap?: boolean;
   } | null;
   metadata_config: {
@@ -216,6 +217,7 @@ export function RunConfigModal({
   const [uploadCaptions, setUploadCaptions] = useState(true);
   const [selectedPresetIds, setSelectedPresetIds] = useState<number[]>([]);
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<number[]>([]);
+  const [selectedChannelIds, setSelectedChannelIds] = useState<number[]>([]);
 
   // ── Metadata ──────────────────────────────────────────────────────────────
   const [metadataEnabled, setMetadataEnabled] = useState(false);
@@ -323,6 +325,7 @@ export function RunConfigModal({
       if (leapOutputEnabled) {
         outputCfg.publish_leap = publishLeap;
         outputCfg.playlist_ids = selectedPlaylistIds;
+        outputCfg.channel_ids = selectedChannelIds;
       }
 
       if (outputEnabled) {
@@ -494,6 +497,7 @@ export function RunConfigModal({
       if (oc.upload_captions != null) setUploadCaptions(oc.upload_captions);
       if (oc.preset_ids) setSelectedPresetIds(oc.preset_ids);
       if (oc.playlist_ids) setSelectedPlaylistIds(oc.playlist_ids);
+      if (oc.channel_ids) setSelectedChannelIds(oc.channel_ids);
     }
 
     const mc = existingConfig.metadata_config;
@@ -753,6 +757,8 @@ export function RunConfigModal({
                 variant="run"
                 playlistIds={selectedPlaylistIds}
                 onPlaylistIdsChange={setSelectedPlaylistIds}
+                channelIds={selectedChannelIds}
+                onChannelIdsChange={setSelectedChannelIds}
                 leapPresets={leapPresets}
                 selectedLeapPresetId={selectedLeapId}
                 onLeapPresetIdChange={setLeapPresetId}

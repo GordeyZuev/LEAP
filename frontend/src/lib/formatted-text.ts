@@ -13,6 +13,14 @@ export const PLAYLIST_JINJA_VARS: { value: string; description: string }[] = [
   { value: "items", description: "Numbered list of video titles" },
 ];
 
+export const CHANNEL_JINJA_VARS: { value: string; description: string }[] = [
+  { value: "video_count", description: "Number of videos" },
+  { value: "playlist_count", description: "Number of playlists" },
+  { value: "duration_hm", description: "Total duration of videos (M:SS or H:MM:SS)" },
+  { value: "items", description: "Numbered list of video titles" },
+  { value: "playlists", description: "Numbered list of playlist names" },
+];
+
 export type FormattedNode =
   | { type: "text"; value: string }
   | { type: "jinja"; value: string }
@@ -302,4 +310,25 @@ export function interpolatePlaylistDescription(
     out = out.replace(/\{\{\s*items\s*\}\}/g, items);
   }
   return out;
+}
+
+export function interpolateChannelDescription(
+  raw: string,
+  ctx: {
+    videoCount: number;
+    playlistCount: number;
+    durationSeconds: number;
+    videoTitles: string[];
+    playlistNames: string[];
+  },
+): string {
+  const durationHm = formatDurationHm(ctx.durationSeconds);
+  const items = ctx.videoTitles.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const playlists = ctx.playlistNames.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  return raw
+    .replace(/\{\{\s*video_count\s*\}\}/g, String(ctx.videoCount))
+    .replace(/\{\{\s*playlist_count\s*\}\}/g, String(ctx.playlistCount))
+    .replace(/\{\{\s*duration_hm\s*\}\}/g, durationHm)
+    .replace(/\{\{\s*items\s*\}\}/g, items)
+    .replace(/\{\{\s*playlists\s*\}\}/g, playlists);
 }

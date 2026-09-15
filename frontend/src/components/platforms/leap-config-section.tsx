@@ -4,6 +4,7 @@ import { Field } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { PlaylistPicker } from "@/components/playlists/playlist-picker";
+import { ChannelPicker } from "@/components/playlists/channel-picker";
 import type { LeapFieldsValue } from "@/components/platforms/platform-fields";
 
 export type LeapConfigVariant = "template" | "run";
@@ -19,6 +20,7 @@ export interface LeapPresetMetadata {
   thumbnail_name?: string;
   auto_share?: boolean;
   playlist_ids?: number[];
+  channel_ids?: number[];
 }
 
 export function leapPresetMetadataFromApi(raw: unknown): LeapPresetMetadata {
@@ -26,12 +28,16 @@ export function leapPresetMetadataFromApi(raw: unknown): LeapPresetMetadata {
   const playlistIds = Array.isArray(obj.playlist_ids)
     ? obj.playlist_ids.filter((n): n is number => typeof n === "number" && n > 0)
     : [];
+  const channelIds = Array.isArray(obj.channel_ids)
+    ? obj.channel_ids.filter((n): n is number => typeof n === "number" && n > 0)
+    : [];
   return {
     title_template: typeof obj.title_template === "string" ? obj.title_template : undefined,
     description_template: typeof obj.description_template === "string" ? obj.description_template : undefined,
     thumbnail_name: typeof obj.thumbnail_name === "string" ? obj.thumbnail_name : undefined,
     auto_share: typeof obj.auto_share === "boolean" ? obj.auto_share : undefined,
     playlist_ids: playlistIds.length > 0 ? playlistIds : undefined,
+    channel_ids: channelIds.length > 0 ? channelIds : undefined,
   };
 }
 
@@ -44,6 +50,8 @@ export interface LeapConfigFieldsProps {
   showCourses?: boolean;
   playlistIds: number[];
   onPlaylistIdsChange: (ids: number[]) => void;
+  channelIds?: number[];
+  onChannelIdsChange?: (ids: number[]) => void;
   leapPresets: LeapPresetOption[];
   selectedLeapPresetId: number | null;
   onLeapPresetIdChange: (id: number | null) => void;
@@ -59,6 +67,8 @@ export function LeapConfigFields({
   showCourses = true,
   playlistIds,
   onPlaylistIdsChange,
+  channelIds = [],
+  onChannelIdsChange,
   leapPresets,
   selectedLeapPresetId,
   onLeapPresetIdChange,
@@ -72,6 +82,10 @@ export function LeapConfigFields({
     variant === "template"
       ? "After processing, adds recordings to these LEAP courses. Leave empty to use the preset’s playlists."
       : "After processing, replaces template courses when LEAP output is overridden.";
+  const channelHint =
+    variant === "template"
+      ? "After processing the recording is added to the Videos tab. Viewers see it only if the recording has a share link (LEAP auto_share or Enable link). Empty list = same as the preset."
+      : "Replaces template channels when LEAP output is overridden. Empty = inherit.";
 
   const presetHint =
     !hasLeapPresets
@@ -104,10 +118,17 @@ export function LeapConfigFields({
         )}
       </Field>
 
-      {showCourses && hasLeapPresets ? (
-        <Field label="LEAP playlists" hint={playlistHint}>
-          <PlaylistPicker mode="form" selectedIds={playlistIds} onChange={onPlaylistIdsChange} />
-        </Field>
+      {showCourses ? (
+        <>
+          <Field label="LEAP playlists" hint={playlistHint}>
+            <PlaylistPicker mode="form" selectedIds={playlistIds} onChange={onPlaylistIdsChange} />
+          </Field>
+          {onChannelIdsChange ? (
+            <Field label="LEAP channels" hint={channelHint}>
+              <ChannelPicker mode="form" selectedIds={channelIds} onChange={onChannelIdsChange} />
+            </Field>
+          ) : null}
+        </>
       ) : null}
     </>
   );

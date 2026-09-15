@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 from api.services.leap_publish import (
     effective_auto_share,
+    effective_channel_ids,
     effective_playlist_ids,
     maybe_enable_recording_share,
     merge_leap_metadata,
@@ -25,6 +26,11 @@ def test_effective_auto_share() -> None:
     assert effective_auto_share({}) is False
 
 
+def test_effective_channel_ids_inherits_preset() -> None:
+    assert effective_channel_ids({"channel_ids": []}, {"channel_ids": [9]}) == [9]
+    assert effective_channel_ids({"channel_ids": [4]}, {"channel_ids": [9]}) == [4]
+
+
 def test_should_enqueue_leap_publish_rules() -> None:
     assert should_enqueue_leap_publish({"publish_leap": False}, {}, has_leap_look_preset=True) is False
     assert should_enqueue_leap_publish({"publish_leap": True}, {}, has_leap_look_preset=True) is True
@@ -40,6 +46,14 @@ def test_should_enqueue_leap_publish_rules() -> None:
         should_enqueue_leap_publish(
             {"publish_leap": True},
             {"auto_share": True},
+            has_leap_look_preset=False,
+        )
+        is True
+    )
+    assert (
+        should_enqueue_leap_publish(
+            {"publish_leap": True, "channel_ids": [2]},
+            {},
             has_leap_look_preset=False,
         )
         is True

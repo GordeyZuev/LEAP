@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Check,
@@ -125,6 +127,7 @@ function ShareVideoPlayer({
 }
 
 export function ShareView({ token }: { token: string }) {
+  const fromSlug = useSearchParams().get("from");
   const {
     data: recording,
     error,
@@ -418,6 +421,11 @@ export function ShareView({ token }: { token: string }) {
             player={playerNode}
             title={
               <div>
+                {fromSlug && (
+                  <Link href={`/c/${fromSlug}`} className="mb-2 inline-flex text-sm text-muted-foreground hover:text-foreground">
+                    ← {fromSlug}
+                  </Link>
+                )}
                 <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
                   {recording.display_name}
                 </h1>

@@ -8,6 +8,8 @@ import {
   fetchShareAnalytics,
   type ShareAnalyticsResponse,
 } from "@/api/share";
+import { fetchChannelShareAnalytics } from "@/api/channels";
+import { fetchPlaylistShareAnalytics } from "@/api/playlists";
 import { getShareArtifactLabel } from "@/components/recordings/artefact-list";
 import { AnalyticsSummaryCards } from "@/components/charts/analytics-summary-cards";
 import { ChartCard } from "@/components/charts/chart-card";
@@ -27,9 +29,9 @@ import { formatRelative } from "@/lib/utils";
 
 function sumDailyMetric(
   daily: ShareAnalyticsResponse["daily"],
-  key: "views" | "downloads",
+  key: "views" | "downloads" | "opens",
 ): number {
-  return daily.reduce((sum, point) => sum + point[key], 0);
+  return daily.reduce((sum, point) => sum + (point[key] ?? 0), 0);
 }
 
 function analyticsErrorMessage(error: unknown): string {
@@ -43,13 +45,20 @@ function analyticsErrorMessage(error: unknown): string {
 
 export function ShareAnalyticsPanel({
   recordingId,
+  subject,
   open,
   showRevokedBanner,
+  viewsHint,
+  hideHeading,
 }: {
-  recordingId: number;
+  recordingId?: number;
+  subject?: { kind: "recording" | "playlist" | "channel"; id: number };
   open: boolean;
   showRevokedBanner: boolean;
+  viewsHint?: string;
+  hideHeading?: boolean;
 }) {
+  const resolved = subject ?? (recordingId != null ? { kind: "recording" as const, id: recordingId } : null);
   const [range, setRangeState] = useState<AnalyticsDateRange>(() => defaultAnalyticsRange());
   const [preset, setPreset] = useState<DateRangePreset>("28d");
   const validationError = validateRange(range.from, range.to);
@@ -64,10 +73,16 @@ export function ShareAnalyticsPanel({
     setRange(presetRange(p), p);
   };
 
-  const { data, isPending, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ["share-analytics", recordingId, range.from, range.to],
-    queryFn: () => fetchShareAnalytics(recordingId, { from: range.from, to: range.to }),
-    enabled: open && recordingId > 0 && isValid,
+  const { data, isPending, isError, error, refetch, isFetching } = useQuery<ShareAnalyticsResponse>({
+    queryKey: ["share-analytics", resolved?.kind, resolved?.id, range.from, range.to],
+    queryFn: () => {
+      if (!resolved) throw new Error("missing subject");
+      const rangeArg = { from: range.from, to: range.to };
+      if (resolved.kind === "playlist") return fetchPlaylistShareAnalytics(resolved.id, rangeArg);
+      if (resolved.kind === "channel") return fetchChannelShareAnalytics(resolved.id, rangeArg);
+      return fetchShareAnalytics(resolved.id, rangeArg);
+    },
+    enabled: open && !!resolved && resolved.id > 0 && isValid,
     staleTime: 30_000,
     refetchOnMount: "always",
   });
@@ -80,6 +95,8 @@ export function ShareAnalyticsPanel({
 
   const periodViews = data ? sumDailyMetric(data.daily, "views") : 0;
   const periodDownloads = data ? sumDailyMetric(data.daily, "downloads") : 0;
+  const periodOpens = data ? sumDailyMetric(data.daily, "opens") : 0;
+  const showOpens = resolved?.kind === "channel" || resolved?.kind === "playlist";
 
   const viewsChart = data?.daily.map((point) => ({ date: point.date, value: point.views })) ?? [];
   const downloadsChart = data?.daily.map((point) => ({ date: point.date, value: point.downloads })) ?? [];
@@ -92,12 +109,16 @@ export function ShareAnalyticsPanel({
         </p>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {!hideHeading && (
         <div>
           <h3 className="text-sm font-semibold text-foreground">Analytics</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Anonymous views and file downloads</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {resolved?.kind === "channel" || resolved?.kind === "playlist"
+              ? "Opens of this page, plus views and downloads of lectures in the current set"
+              : "Anonymous views and file downloads"}
+          </p>
         </div>
-      </div>
+      )}
 
       <DateRangeFilter
         range={range}
@@ -137,7 +158,12 @@ export function ShareAnalyticsPanel({
         <div className="space-y-5">
           <AnalyticsSummaryCards
             items={[
-              { label: "Views", value: String(periodViews), hint: "Selected period" },
+              ...(showOpens ? [{ label: "Opens", value: String(periodOpens), hint: "Landing page" }] : []),
+              {
+                label: "Views",
+                value: String(periodViews),
+                hint: viewsHint ?? "Selected period",
+              },
               { label: "Downloads", value: String(periodDownloads), hint: "Selected period" },
             ]}
           />
@@ -181,7 +207,8 @@ export function ShareAnalyticsPanel({
               <p>Last download · {formatRelative(data.summary.last_downloaded_at)}</p>
             )}
             <p className="tabular-nums">
-              All time · {data.summary.view_count} views · {data.summary.download_count} downloads
+              All time · {showOpens ? `${data.summary.open_count ?? 0} opens · ` : ""}
+              {data.summary.view_count} views · {data.summary.download_count} downloads
             </p>
           </div>
         </div>

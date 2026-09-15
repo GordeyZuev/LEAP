@@ -64,6 +64,14 @@ def merge_leap_metadata(
     return leap_meta
 
 
+def effective_channel_ids(output_config: dict[str, Any] | None, leap_meta: dict[str, Any] | None) -> list[int]:
+    """Template/Run channel_ids replace; otherwise inherit from the leap preset."""
+    from_output = _as_int_ids((output_config or {}).get("channel_ids"))
+    if from_output:
+        return from_output
+    return _as_int_ids((leap_meta or {}).get("channel_ids"))
+
+
 def should_enqueue_leap_publish(
     output_config: dict[str, Any] | None,
     leap_meta: dict[str, Any] | None,
@@ -76,6 +84,8 @@ def should_enqueue_leap_publish(
     if has_leap_look_preset:
         return True
     if effective_playlist_ids(output_config, leap_meta):
+        return True
+    if effective_channel_ids(output_config, leap_meta):
         return True
     return bool(effective_auto_share(leap_meta))
 
@@ -116,6 +126,12 @@ async def publish_leap_recording(
     if playlist_ids:
         await PlaylistService(session, recording.user_id).add_from_playlist_ids(recording, playlist_ids)
 
+    channel_ids = effective_channel_ids(output_config, leap_meta)
+    if channel_ids:
+        from api.services.channel_service import ChannelService
+
+        await ChannelService(session, recording.user_id).add_videos_from_ids(recording, channel_ids)
+
     auto_share = effective_auto_share(leap_meta)
     share_url = maybe_enable_recording_share(recording, auto_share=auto_share)
     video_id = str(recording.share_token) if recording.share_token and recording.share_enabled else "leap"
@@ -127,12 +143,13 @@ async def publish_leap_recording(
         preset_id,
         video_id=video_id,
         video_url=share_url or "",
-        target_meta={"playlist_ids": playlist_ids, "auto_share": auto_share},
+        target_meta={"playlist_ids": playlist_ids, "channel_ids": channel_ids, "auto_share": auto_share},
     )
     logger.info(
-        "LEAP published | rec={} playlists={} auto_share={} share={}",
+        "leap published | rec={} playlists={} channels={} auto_share={} share={}",
         recording.id,
         playlist_ids,
+        channel_ids,
         auto_share,
         bool(share_url),
     )
@@ -141,6 +158,7 @@ async def publish_leap_recording(
         "video_id": video_id,
         "video_url": share_url or "",
         "playlist_ids": playlist_ids,
+        "channel_ids": channel_ids,
         "skipped": False,
     }
 
