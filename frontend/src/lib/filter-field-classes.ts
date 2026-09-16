@@ -20,8 +20,12 @@ export const FILTER_BAR_CONTROL =
 // Controls use `border-input`, not `border-border`. The two tokens carry the
 // same hue but different jobs: `border` is a hairline divider, `input` is the
 // boundary that tells the user a field is editable and has to clear 3:1.
+export const FILTER_CONTROL_CHROME =
+  "w-full min-h-[2.875rem] px-3 py-2 rounded-xl border border-input bg-card text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/30";
+
 export const FILTER_CONTROL =
-  "w-full min-h-[2.875rem] px-3 py-2 rounded-xl border border-input bg-card text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/30";
+  FILTER_CONTROL_CHROME +
+  " transition-[color,background-color,border-color,box-shadow] duration-200 ease-[cubic-bezier(0.33,1,0.68,1)]";
 
 /** Trigger surface when a value is chosen (single- or multi-select). */
 export const FILTER_CONTROL_FILLED =
@@ -32,7 +36,7 @@ export const FILTER_SEGMENT_CHROME =
   "items-center min-h-[2.875rem] gap-0.5 rounded-xl border border-border bg-muted p-1";
 
 export const FILTER_SEGMENT_BTN =
-  "shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-center text-sm font-medium transition-[color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+  "pressable shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-center text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 
 export const FILTER_SEGMENT_ACTIVE =
   "bg-card text-foreground shadow-sm ring-1 ring-border";

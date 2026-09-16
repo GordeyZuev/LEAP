@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, use, useCallback, useMemo, useState } from "react";
+import { Suspense, use, useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -35,15 +35,18 @@ import {
   type PlaylistItemsResponse,
 } from "@/api/playlists";
 import { apiClient } from "@/api/client";
+import { LEAP_CATALOG_CAP, PER_PAGE_RECORDINGS_PICKER } from "@/lib/constants";
+import { PLAYLIST_VIDEO_SORT, sortPlaylistItems, type PlaylistVideoSort } from "@/lib/playlist-catalog";
 import { structuralSharingPreservePosters } from "@/lib/poster-stable";
-import { FilterBar } from "@/components/filters/filter-bar";
-import { SearchInput } from "@/components/filters/search-input";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
+import { OrderSelect, ownerOrderOptions } from "@/components/filters/order-select";
+import { SearchInput } from "@/components/filters/search-input";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DescriptionEditor } from "@/components/ui/description-editor";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { Field } from "@/components/ui/field";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/ui/page-header";
@@ -127,6 +130,21 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   const [copied, setCopied] = useState(false);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
+  const [itemOrder, setItemOrder] = useState<PlaylistVideoSort>("order");
+  const [orderBusy, setOrderBusy] = useState(false);
+  const orderBusyRef = useRef(false);
+
+  function beginOrder(): boolean {
+    if (orderBusyRef.current) return false;
+    orderBusyRef.current = true;
+    setOrderBusy(true);
+    return true;
+  }
+
+  function endOrder() {
+    orderBusyRef.current = false;
+    setOrderBusy(false);
+  }
 
   const { data: playlist, isLoading, error, refetch } = useQuery({
     queryKey: ["playlist", playlistId],
@@ -141,7 +159,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
         q: q || undefined,
         from_date: fromDate || undefined,
         to_date: toDate || undefined,
-        per_page: 200,
+        per_page: LEAP_CATALOG_CAP,
       }),
     enabled: Number.isFinite(playlistId),
     structuralSharing: (oldData, newData) =>
@@ -159,11 +177,11 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
     queryFn: async () => {
       const p = new URLSearchParams();
       if (addSearch) p.set("search", addSearch);
-      p.set("per_page", "50");
+      p.set("per_page", String(PER_PAGE_RECORDINGS_PICKER));
       p.set("sort_by", "start_time");
       p.set("sort_order", "desc");
-      const res = await apiClient.get<{ items: RecordingPick[] }>(`/recordings?${p.toString()}`);
-      return res.data.items;
+      const res = await apiClient.get<{ items: RecordingPick[]; total: number }>(`/recordings?${p.toString()}`);
+      return res.data;
     },
     enabled: addOpen,
   });
@@ -233,6 +251,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   const removeItem = useMutation({
     mutationFn: (itemId: number) => removePlaylistItem(playlistId, itemId),
     onSuccess: () => {
+      setItemOrder("order");
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
       qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
     },
@@ -247,28 +266,73 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
       qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
       show("success", "Recordings added");
+      setItemOrder("order");
     },
     onError: (e) => show("error", extractApiError(e, "Failed to add recordings")),
   });
 
-  async function persistOrder(ids: number[]) {
+  async function persistOrder(ids: number[]): Promise<boolean> {
     try {
       await reorderPlaylistItems(playlistId, ids);
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
+      return true;
     } catch (e) {
+      setItemOrder("order");
       show("error", extractApiError(e, "Item set does not match the playlist. Refresh and try again."));
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
+      return false;
+    }
+  }
+
+  async function applyItemOrder(sort: PlaylistVideoSort) {
+    if (sort === "order") return;
+    if (!beginOrder()) return;
+    try {
+      const full = await listPlaylistItems(playlistId, { per_page: LEAP_CATALOG_CAP });
+      if (full.items.length < 2) return;
+      const sorted = sortPlaylistItems(
+        full.items.map((item) => ({ ...item, title: item.title || item.display_name })),
+        sort,
+      );
+      qc.setQueryData(
+        ["playlist-items", playlistId, q, fromDate, toDate],
+        (old: PlaylistItemsResponse | undefined) => {
+          if (!old?.items) return old;
+          const byId = new Map(old.items.map((row) => [row.id, row]));
+          const next = sorted
+            .map((row, i) => {
+              const cur = byId.get(row.id);
+              return cur ? { ...cur, position: i } : null;
+            })
+            .filter((row): row is PlaylistItem => row != null);
+          if (next.length !== old.items.length) return old;
+          return { ...old, items: next };
+        },
+      );
+      const ok = await persistOrder(sorted.map((item) => item.id));
+      if (ok) show("success", "Watch order updated");
+    } catch (e) {
+      show("error", extractApiError(e, "Could not update order."));
+      qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
+    } finally {
+      endOrder();
     }
   }
 
   async function move(item: PlaylistItem, dir: -1 | 1) {
-    const full = await listPlaylistItems(playlistId, { per_page: 200 });
-    const ids = full.items.map((i) => i.id);
-    const idx = ids.indexOf(item.id);
-    const next = idx + dir;
-    if (idx < 0 || next < 0 || next >= ids.length) return;
-    [ids[idx], ids[next]] = [ids[next], ids[idx]];
-    await persistOrder(ids);
+    if (!beginOrder()) return;
+    try {
+      const full = await listPlaylistItems(playlistId, { per_page: LEAP_CATALOG_CAP });
+      const ids = full.items.map((i) => i.id);
+      const idx = ids.indexOf(item.id);
+      const next = idx + dir;
+      if (idx < 0 || next < 0 || next >= ids.length) return;
+      [ids[idx], ids[next]] = [ids[next], ids[idx]];
+      setItemOrder("order");
+      await persistOrder(ids);
+    } finally {
+      endOrder();
+    }
   }
 
   async function dropOn(targetId: number, sourceFromEvent?: number) {
@@ -276,27 +340,33 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
     setDraggingId(null);
     setOverId(null);
     if (!sourceId || sourceId === targetId) return;
-    const full = await listPlaylistItems(playlistId, { per_page: 200 });
-    const ids = full.items.map((i) => i.id);
-    const from = ids.indexOf(sourceId);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    ids.splice(from, 1);
-    ids.splice(to, 0, sourceId);
-    qc.setQueryData(
-      ["playlist-items", playlistId, q, fromDate, toDate],
-      (old: { items: PlaylistItem[] } | undefined) => {
-        if (!old?.items) return old;
-        const next = [...old.items];
-        const a = next.findIndex((i) => i.id === sourceId);
-        const b = next.findIndex((i) => i.id === targetId);
-        if (a < 0 || b < 0) return old;
-        const [moved] = next.splice(a, 1);
-        next.splice(b, 0, moved);
-        return { ...old, items: next };
-      },
-    );
-    await persistOrder(ids);
+    if (!beginOrder()) return;
+    try {
+      const full = await listPlaylistItems(playlistId, { per_page: LEAP_CATALOG_CAP });
+      const ids = full.items.map((i) => i.id);
+      const from = ids.indexOf(sourceId);
+      const to = ids.indexOf(targetId);
+      if (from < 0 || to < 0) return;
+      ids.splice(from, 1);
+      ids.splice(to, 0, sourceId);
+      setItemOrder("order");
+      qc.setQueryData(
+        ["playlist-items", playlistId, q, fromDate, toDate],
+        (old: { items: PlaylistItem[] } | undefined) => {
+          if (!old?.items) return old;
+          const next = [...old.items];
+          const a = next.findIndex((i) => i.id === sourceId);
+          const b = next.findIndex((i) => i.id === targetId);
+          if (a < 0 || b < 0) return old;
+          const [moved] = next.splice(a, 1);
+          next.splice(b, 0, moved);
+          return { ...old, items: next.map((row, i) => ({ ...row, position: i })) };
+        },
+      );
+      await persistOrder(ids);
+    } finally {
+      endOrder();
+    }
   }
 
   const destroy = useMutation({
@@ -354,12 +424,13 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   }
 
   const descriptionValue = descDraft ?? playlist.description ?? "";
-  const canDrag = !q && !fromDate && !toDate;
+  const filtered = Boolean(q || fromDate || toDate);
+  const canDrag = !filtered && !orderBusy;
   const descriptionPreview = interpolatePlaylistDescription(descriptionValue, {
     videoCount: playlist.video_count,
     durationSeconds: playlist.duration_sum,
-    titles: canDrag ? items.map((i) => i.title || i.display_name) : [],
-    substituteItems: canDrag,
+    titles: filtered ? [] : items.map((i) => i.title || i.display_name),
+    substituteItems: !filtered,
   });
 
   return (
@@ -376,9 +447,10 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       />
       <Tabs items={PAGE_TABS} value={pageTab} onChange={goPage} label="Playlist sections">
         {pageTab === "playlist" && (
+      <>
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] xl:grid-cols-[minmax(0,1fr)_20rem]">
         <section className={cn(CARD_SHELL, "min-w-0 p-5")}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap items-start gap-3">
             {nameEditing ? (
               <form
                 className="flex min-w-0 flex-1 items-center gap-2"
@@ -413,9 +485,6 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                 </button>
               </div>
             )}
-            <ActionButton variant="secondary" icon={<Trash2 size={14} />} onClick={() => setDeleteConfirm(true)}>
-              Delete
-            </ActionButton>
           </div>
 
           <div className="mt-4">
@@ -447,74 +516,77 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
           </div>
 
           <div className="mt-5">
-            <p className="text-xs font-medium text-muted-foreground">Cover</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className={FILTER_LABEL}>Cover</p>
+            <p className="mb-1.5 text-xs leading-snug text-muted-foreground">
               Auto is the first lecture. Custom is an image you upload.
             </p>
-            <div
-              className={cn(
-                "mt-2 aspect-video w-full max-w-sm overflow-hidden rounded-xl border border-border bg-muted",
-                "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
-              )}
-            >
-              {playlist.poster_url ? (
-                <StablePosterImage
-                  posterUrl={playlist.poster_url}
-                  posterAssetKey={playlist.poster_asset_key}
-                  className="h-full w-full"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No cover</div>
-              )}
-            </div>
-            <div role="group" aria-label="Cover source" className="mt-2 flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                aria-pressed={!playlist.has_custom_cover}
+              <div
                 className={cn(
-                  "inline-flex min-h-8 items-center rounded-xl border px-3 text-xs font-medium",
-                  !playlist.has_custom_cover
-                    ? "border-primary bg-primary text-white"
-                    : "border-border bg-card text-secondary-foreground hover:bg-muted",
-                )}
-                onClick={() => {
-                  if (!playlist.has_custom_cover) return;
-                  void deletePlaylistCover(playlistId).then(() => {
-                    void qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
-                    void qc.invalidateQueries({ queryKey: ["playlists"] });
-                  });
-                }}
-              >
-                Auto
-              </button>
-              <label
-                className={cn(
-                  "pressable inline-flex min-h-8 cursor-pointer items-center rounded-xl border px-3 text-xs font-medium",
-                  playlist.has_custom_cover
-                    ? "border-primary bg-primary text-white"
-                    : "border-border bg-card text-secondary-foreground hover:bg-muted",
+                  "aspect-video w-full max-w-sm overflow-hidden rounded-xl border border-border bg-muted",
+                  "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
                 )}
               >
-                {playlist.has_custom_cover ? "Replace" : "Custom"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    void uploadPlaylistCover(playlistId, file).then(() => {
+                {playlist.poster_url ? (
+                  <StablePosterImage
+                    posterUrl={playlist.poster_url}
+                    posterAssetKey={playlist.poster_asset_key}
+                    className="h-full w-full"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No cover</div>
+                )}
+              </div>
+              <div role="group" aria-label="Cover source" className="mt-2 flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  aria-pressed={!playlist.has_custom_cover}
+                  className={cn(
+                    "pressable inline-flex min-h-8 items-center rounded-xl border px-3 text-xs font-medium",
+                    !playlist.has_custom_cover
+                      ? "border-primary bg-primary text-white"
+                      : "border-border bg-card text-secondary-foreground hover:bg-muted",
+                  )}
+                  onClick={() => {
+                    if (!playlist.has_custom_cover) return;
+                    void deletePlaylistCover(playlistId).then(() => {
                       void qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
                       void qc.invalidateQueries({ queryKey: ["playlists"] });
                     });
-                    e.target.value = "";
                   }}
-                />
-              </label>
-            </div>
+                >
+                  Auto
+                </button>
+                <label
+                  className={cn(
+                    "pressable inline-flex min-h-8 cursor-pointer items-center rounded-xl border px-3 text-xs font-medium",
+                    playlist.has_custom_cover
+                      ? "border-primary bg-primary text-white"
+                      : "border-border bg-card text-secondary-foreground hover:bg-muted",
+                  )}
+                >
+                  {playlist.has_custom_cover ? "Replace" : "Custom"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      void uploadPlaylistCover(playlistId, file).then(() => {
+                        void qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
+                        void qc.invalidateQueries({ queryKey: ["playlists"] });
+                      });
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
           </div>
 
-          <PlaylistChannelsBlock playlistId={playlistId} />
+          <PlaylistChannelsBlock
+            playlistId={playlistId}
+            onToast={(message, variant) => show(variant === "error" ? "error" : "success", message)}
+          />
         </section>
 
         <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
@@ -534,13 +606,24 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
           />
         </aside>
       </div>
+      <div className="mt-8 border-t border-border pt-5">
+        <ActionButton
+          variant="danger"
+          size="sm"
+          icon={<Trash2 size={14} />}
+          onClick={() => setDeleteConfirm(true)}
+        >
+          Delete playlist
+        </ActionButton>
+      </div>
+      </>
         )}
         {pageTab === "content" && (
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] xl:grid-cols-[minmax(0,1fr)_20rem]">
 
         <SectionCard
           title="Videos"
-          description={canDrag ? "Drag to change the watch order." : "Clear filters to reorder."}
+          description={filtered ? "Clear filters to drag or change order." : undefined}
           density="compact"
           className="min-w-0"
           action={
@@ -549,27 +632,50 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
             </ActionButton>
           }
         >
-        <FilterBar
-          search={
+        {(items.length > 0 || q || fromDate || toDate) && (
+        <div className="mb-4 space-y-3">
+          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-4">
             <SearchInput
               id="playlist-items-search"
+              className="min-w-0 sm:min-w-[15rem] sm:flex-[2]"
               value={q}
               onChange={(v) => setFilter("q", v)}
               placeholder="By recording name…"
             />
-          }
-          controls={[
-            <div key="dates">
-              <span className={FILTER_LABEL}>Recording start date</span>
+            <div>
+              <span className={FILTER_LABEL}>Dates</span>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <input type="date" aria-label="From date" value={fromDate} onChange={(e) => setFilter("from_date", e.target.value)} className={cn(FILTER_CONTROL, "min-w-0 sm:max-w-[11rem]")} />
+                <input
+                  type="date"
+                  aria-label="From date"
+                  value={fromDate}
+                  onChange={(e) => setFilter("from_date", e.target.value)}
+                  className={cn(FILTER_CONTROL, "w-[11rem] max-w-full")}
+                />
                 <span className="text-muted-foreground">—</span>
-                <input type="date" aria-label="To date" value={toDate} onChange={(e) => setFilter("to_date", e.target.value)} className={cn(FILTER_CONTROL, "min-w-0 sm:max-w-[11rem]")} />
+                <input
+                  type="date"
+                  aria-label="To date"
+                  value={toDate}
+                  onChange={(e) => setFilter("to_date", e.target.value)}
+                  className={cn(FILTER_CONTROL, "w-[11rem] max-w-full")}
+                />
               </div>
-            </div>,
-          ]}
-          chips={<FilterChips chips={chips} />}
-        />
+            </div>
+            {items.length >= 2 || filtered ? (
+            <OrderSelect
+              label="Order"
+              className="min-w-0 sm:ml-auto sm:w-[15rem]"
+              value={itemOrder}
+              options={ownerOrderOptions(PLAYLIST_VIDEO_SORT)}
+              onChange={applyItemOrder}
+              disabled={orderBusy || itemsQuery.isLoading || filtered}
+            />
+            ) : null}
+          </div>
+          <FilterChips chips={chips} />
+        </div>
+        )}
 
         {itemsQuery.isLoading && <p className="text-xs text-muted-foreground">Loading videos…</p>}
         {!itemsQuery.isLoading && items.length === 0 && (
@@ -588,7 +694,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
         )}
         {items.length > 0 && (
           <ul className="divide-y divide-border">
-            {items.map((item, index) => (
+            {items.map((item) => (
               <li
                 key={item.id}
                 onDragOver={
@@ -636,7 +742,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                       <GripVertical size={16} />
                     </button>
                   )}
-                  <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted-foreground">{index + 1}</span>
+                  <span className="w-7 shrink-0 text-center text-xs tabular-nums text-muted-foreground">{item.position + 1}</span>
                   <RecordingPoster
                     recordingId={item.recording_id}
                     posterUrl={item.poster_url}
@@ -705,11 +811,11 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
           <h2 className="text-sm font-semibold">Add recordings</h2>
           <SearchInput id="add-recordings" value={addSearch} onChange={setAddSearch} placeholder="Search recordings…" />
           <div className="max-h-80 space-y-2 overflow-y-auto">
-            {(recordingsQuery.data ?? []).map((rec) => {
+            {(recordingsQuery.data?.items ?? []).map((rec) => {
               const already = inPlaylist.has(rec.id);
               const checked = already || addSelected.has(rec.id);
               return (
-                <label key={rec.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3">
+                <label key={rec.id} className="pressable pressable-block flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -729,6 +835,11 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
               );
             })}
           </div>
+          {recordingsQuery.data && recordingsQuery.data.total > recordingsQuery.data.items.length ? (
+            <p className="text-xs text-muted-foreground">
+              Showing {recordingsQuery.data.items.length} of {recordingsQuery.data.total}. Search to find the rest.
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             <ActionButton variant="secondary" onClick={() => setAddOpen(false)}>Cancel</ActionButton>
             <ActionButton
@@ -778,23 +889,32 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   );
 }
 
-function PlaylistChannelsBlock({ playlistId }: { playlistId: number }) {
+function PlaylistChannelsBlock({
+  playlistId,
+  onToast,
+}: {
+  playlistId: number;
+  onToast: (message: string, variant?: "success" | "error") => void;
+}) {
   const { data } = useQuery({
     queryKey: ["playlist-channels", playlistId],
     queryFn: () => listPlaylistChannels(playlistId),
   });
   const ids = (data ?? []).map((c) => c.id);
   return (
-    <div className="mt-5">
-      <p className="mb-2 text-xs font-medium text-muted-foreground">Channels</p>
+    <Field
+      label="Channels"
+      hint="This course can appear on one or more public channels."
+      className="mt-5"
+    >
       <ChannelPicker
         mode="immediate"
         playlistId={playlistId}
         selectedIds={ids}
         onChange={() => undefined}
-        embedded
+        onToast={onToast}
       />
-    </div>
+    </Field>
   );
 }
 

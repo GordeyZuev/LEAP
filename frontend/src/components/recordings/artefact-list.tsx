@@ -7,6 +7,7 @@ import {
   FileCode,
   FileDown,
   FileText,
+  Lock,
   MessagesSquare,
   Paperclip,
   Video,
@@ -75,12 +76,61 @@ export function getShareArtifactLabel(type: string): string {
   return meta.label;
 }
 
+const ARTEFACT_ROW_CHROME =
+  "flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium";
+
 export const ARTEFACT_ROW =
-  "flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+  `${ARTEFACT_ROW_CHROME} pressable pressable-fixed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30`;
 
 export const ARTEFACT_ROW_DEFAULT =
   "border-border bg-background text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary";
+
+/** Same chrome as a download row, without hover/focus — it is not a control. */
+const ARTEFACT_ROW_LOCKED_SHELL = `relative isolate ${ARTEFACT_ROW_CHROME} cursor-default overflow-hidden border-border bg-background`;
+
+function ArtefactRowSlots({
+  icon,
+  label,
+  extension,
+}: {
+  icon: ReactNode;
+  label: string;
+  extension: string;
+}) {
+  return (
+    <>
+      {icon}
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      <span className="shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">{extension}</span>
+      <ArrowDownToLine size={13} className="shrink-0 text-muted-foreground" />
+    </>
+  );
+}
+
+/** Same download row, faded, with a centered lock overlay on the row surface. */
+export function LockedArtefactRow({
+  icon,
+  label,
+  extension,
+}: {
+  icon: ReactNode;
+  label: string;
+  extension: string;
+}) {
+  return (
+    <div aria-label={`${label}, download locked`} className={ARTEFACT_ROW_LOCKED_SHELL}>
+      <div className="flex min-w-0 w-full items-center gap-2 text-secondary-foreground opacity-30" aria-hidden>
+        <ArtefactRowSlots icon={icon} label={label} extension={extension} />
+      </div>
+      <span className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center">
+        <span className="inline-flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 bg-background px-2.5 py-0.5 font-medium text-foreground">
+          <Lock size={13} className="shrink-0" aria-hidden />
+          <span className="whitespace-nowrap">Download locked</span>
+        </span>
+      </span>
+    </div>
+  );
+}
 
 export interface ArtefactItem {
   type: ArtefactType;
@@ -93,6 +143,8 @@ export interface ArtefactItem {
   extension?: string;
   /** Needed when several rows share a type, e.g. multiple session materials. */
   key?: string;
+  /** Public share: download is turned off; row stays visible with a lock. */
+  locked?: boolean;
 }
 
 export interface SourceExtrasLike {
@@ -140,18 +192,19 @@ export function ArtefactList({ items }: { items: ArtefactItem[] }) {
         const base = ARTEFACT_META[item.type];
         if (!base) return null;
         const meta = { ...base, label: item.label ?? base.label, extension: item.extension ?? base.extension };
-        const rowClass = cn(ARTEFACT_ROW, ARTEFACT_ROW_DEFAULT);
-        const inner = (
-          <>
-            {meta.icon}
-            <span className="flex-1 text-left">{meta.label}</span>
-            <span className="shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">
-              {meta.extension}
-            </span>
-            <ArrowDownToLine size={11} className="shrink-0 text-muted-foreground" />
-          </>
-        );
         const rowKey = item.key ?? item.type;
+        if (item.locked) {
+          return (
+            <LockedArtefactRow
+              key={rowKey}
+              icon={meta.icon}
+              label={meta.label}
+              extension={meta.extension}
+            />
+          );
+        }
+        const rowClass = cn(ARTEFACT_ROW, ARTEFACT_ROW_DEFAULT);
+        const inner = <ArtefactRowSlots icon={meta.icon} label={meta.label} extension={meta.extension} />;
         return item.href ? (
           <a key={rowKey} href={item.href} download className={rowClass}>
             {inner}

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ChevronRight, FileText } from "lucide-react";
 import { formatBaseTemplateLabel } from "@/lib/base-template";
+import { CARD_CHEVRON, CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
+import { cn } from "@/lib/utils";
 
 interface BaseTemplateBannerProps {
   template?: { id: number; name: string } | null;
@@ -12,7 +14,7 @@ interface BaseTemplateBannerProps {
 export function BaseTemplateBanner({ template, loading }: BaseTemplateBannerProps) {
   if (loading) {
     return (
-      <div className="h-[4.25rem] animate-pulse rounded-2xl border border-border bg-card shadow-sm" />
+      <div className={cn("h-[4.25rem] animate-pulse", CARD_SHELL)} />
     );
   }
 
@@ -23,7 +25,7 @@ export function BaseTemplateBanner({ template, loading }: BaseTemplateBannerProp
   return (
     <Link
       href={`/templates/${template.id}`}
-      className="group flex items-center gap-4 rounded-2xl border border-border bg-card px-5 py-4 shadow-sm transition-colors hover:border-primary/30 hover:bg-muted/30"
+      className={cn("group flex items-center gap-4 px-5 py-4", CARD_SHELL, CARD_INTERACTIVE)}
     >
       <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
         <FileText size={18} aria-hidden />
@@ -39,7 +41,7 @@ export function BaseTemplateBanner({ template, loading }: BaseTemplateBannerProp
       </span>
       <ChevronRight
         size={16}
-        className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
+        className={CARD_CHEVRON}
         aria-hidden
       />
     </Link>

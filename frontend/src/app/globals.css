@@ -439,14 +439,65 @@ select {
     animation: progress-stripe 1.6s linear infinite;
   }
 
-  /* Shared press feedback for primary/chrome buttons — not filter segments. */
+  /* Buttons and tiles: 2% squeeze (the usual tactile range is 2–4%; 1% is
+     invisible, 4%+ hops). Press keeps the same scale and only darkens. */
   .pressable {
-    transition-property: color, background-color, border-color, opacity, scale;
-    transition-duration: 150ms;
-    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+    position: relative;
+    isolation: isolate;
+    transition-property: color, background-color, border-color, opacity, scale, box-shadow, width, margin;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
   }
-  .pressable:active:not(:disabled) {
-    scale: 0.96;
+  .pressable::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: oklch(0 0 0 / 0.06);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  .dark .pressable::after {
+    background: oklch(0 0 0 / 0.18);
+  }
+  .pressable:hover:not(:disabled) {
+    scale: 0.98;
+  }
+  .pressable:active:not(:disabled)::after {
+    opacity: 1;
+  }
+  /* Nested controls inside a tile: wash only, so scales don’t multiply. */
+  .pressable-group .pressable:hover:not(:disabled),
+  .pressable-group .pressable:active:not(:disabled) {
+    scale: 1;
+  }
+  /* Full-width rows: 2% scale reads as a hop. Keep the press wash only. */
+  .pressable-block:hover:not(:disabled),
+  .pressable-block:active:not(:disabled) {
+    scale: 1;
+  }
+  /* File plaques: 3px per side, not 2% of a long row. */
+  .pressable.pressable-fixed:hover:not(:disabled),
+  .pressable.pressable-fixed:active:not(:disabled) {
+    scale: 1;
+    width: calc(100% - 6px);
+    margin-inline: 3px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pressable,
+    .pressable::after {
+      transition-duration: 0.01ms;
+    }
+    .pressable:hover:not(:disabled),
+    .pressable:active:not(:disabled) {
+      scale: 1;
+    }
+    .pressable.pressable-fixed:hover:not(:disabled),
+    .pressable.pressable-fixed:active:not(:disabled) {
+      width: 100%;
+      margin-inline: 0;
+    }
   }
 }
 

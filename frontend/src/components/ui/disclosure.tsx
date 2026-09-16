@@ -60,7 +60,7 @@ export function Disclosure({
           size={16}
           aria-hidden
           className={cn(
-            "ms-auto shrink-0 text-muted-foreground motion-reduce:transition-none transition-transform",
+            "ms-auto shrink-0 text-muted-foreground motion-reduce:transition-none transition-transform duration-200 ease-out",
             open && "rotate-180",
           )}
         />
@@ -155,7 +155,7 @@ export function OverrideSection({
             size={16}
             aria-hidden
             className={cn(
-              "ms-auto shrink-0 text-muted-foreground motion-reduce:transition-none transition-transform",
+              "ms-auto shrink-0 text-muted-foreground motion-reduce:transition-none transition-transform duration-200 ease-out",
               open && "rotate-180",
             )}
           />

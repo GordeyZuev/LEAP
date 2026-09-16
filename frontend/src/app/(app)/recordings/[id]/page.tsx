@@ -15,7 +15,7 @@ import { CHECKBOX } from "@/lib/filter-field-classes";
 import type { ShareStatsSummary } from "@/lib/share-stats";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
 import { apiClient, resolveStorageUrl } from "@/api/client";
-import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
+import { StatusBadge, displayProcessingStatus, type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { CANONICAL_STAGE_ORDER, PipelineStageList, formatFailedStage, normalizeStageType } from "@/components/recordings/pipeline-stages";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -1210,9 +1210,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             </button>
           </div>
         )}
-        <StatusBadge status={recording.status} failed={recording.failed} failedStage={formatFailedStage(recording.failed_at_stage)} />
+        <StatusBadge
+          status={displayProcessingStatus(recording.status, { onAir: recording.on_air, failed: recording.failed })}
+          failed={recording.failed}
+          failedStage={formatFailedStage(recording.failed_at_stage)}
+        />
       </div>
-      {recording.on_air && (
+      {recording.on_air && !recording.failed && (
         <ProgressBar variant="indeterminate" className="mt-2 mb-1" />
       )}
 
@@ -1305,7 +1309,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                       type="button"
                       onClick={() => retryTopics.mutate()}
                       disabled={retryTopics.isPending}
-                      className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
+                      className="pressable inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50"
                     >
                       {retryTopics.isPending ? (
                         <Loader2 size={12} className="animate-spin" />
@@ -1563,7 +1567,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               <div className="space-y-3">
                 {/* Run / Run with config */}
                 <div className={cn(
-                  "flex overflow-hidden rounded-xl border",
+                  "pressable pressable-block flex overflow-hidden rounded-xl border",
                   !recording.can_run || isActing
                     ? "border-border opacity-60"
                     : "border-primary"
@@ -1620,33 +1624,37 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 {/* Secondary actions. One column until the labels fit side by
                     side — at 320px two columns leave ~75px for the text. */}
                 <div className={CONTROL_PANEL_ACTION_GRID}>
-                  <button
-                    type="button"
+                  <ActionButton
+                    size="sm"
+                    variant="secondary"
                     onClick={() => { setCreateTemplateName(recording.display_name); setCreateTemplateOpen(true); }}
-                    className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                    icon={<FilePlus2 />}
+                    className="w-full justify-center"
                   >
-                    <FilePlus2 size={12} />
                     New template
-                  </button>
+                  </ActionButton>
                   {(recordingConfig?.is_mapped ?? recording.is_mapped) ? (
-                    <button
-                      type="button"
+                    <ActionButton
+                      size="sm"
+                      variant="secondary"
                       onClick={() => unbindTemplate.mutate()}
                       disabled={unbindTemplate.isPending}
-                      className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:opacity-50"
+                      isPending={unbindTemplate.isPending}
+                      icon={<Unlink />}
+                      className="w-full justify-center"
                     >
-                      {unbindTemplate.isPending ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
                       Unlink
-                    </button>
+                    </ActionButton>
                   ) : (
-                    <button
-                      type="button"
+                    <ActionButton
+                      size="sm"
+                      variant="secondary"
                       onClick={() => setBindTemplateOpen(true)}
-                      className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                      icon={<Link2 />}
+                      className="w-full justify-center"
                     >
-                      <Link2 size={12} />
                       Link template
-                    </button>
+                    </ActionButton>
                   )}
                 </div>
 
@@ -1654,24 +1662,25 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     Delete is not one mis-click away from "Link template". */}
                 <div className="space-y-1.5 border-t border-border pt-3">
                   <div className={CONTROL_PANEL_ACTION_GRID}>
-                    <button
-                      type="button"
+                    <ActionButton
+                      size="sm"
+                      variant="secondary"
                       disabled={isActing}
                       onClick={() => setResetConfirm(true)}
-                      className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-secondary-foreground transition-colors hover:border-foreground/20 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      isPending={resetRec.isPending}
+                      icon={<RotateCcw size={12} />}
                     >
-                      {resetRec.isPending ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
                       Reset
-                    </button>
-                    <button
-                      type="button"
+                    </ActionButton>
+                    <ActionButton
+                      size="sm"
+                      variant="danger"
                       disabled={isActing}
                       onClick={() => setDeleteConfirm(true)}
-                      className="flex items-center gap-1.5 rounded-xl border border-danger-fg/40 bg-card px-3 py-2 text-xs font-medium text-danger-fg transition-colors hover:bg-danger-fg/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      icon={<Trash2 size={12} />}
                     >
-                      <Trash2 size={12} />
                       Delete
-                    </button>
+                    </ActionButton>
                   </div>
                 </div>
               </div>
@@ -1763,7 +1772,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     setConfigEditFocus("upload");
                     setConfigEditOpen(true);
                   }}
-                  className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-border px-3 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  className="pressable pressable-block flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-border px-3 py-2.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <Plus size={12} /> Add platform
                 </button>
@@ -1958,7 +1967,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                   type="button"
                   disabled={bindTemplate.isPending}
                   onClick={() => { bindTemplate.mutate(t.id); setBindTemplateSearch(""); }}
-                  className="flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-sm font-medium text-foreground transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50"
+                  className="pressable pressable-block flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-left text-sm font-medium text-foreground hover:border-primary hover:bg-primary/5 disabled:opacity-50"
                 >
                   <span className="min-w-0 truncate">{t.name}</span>
                   <Link2 size={13} className="shrink-0 text-muted-foreground" />

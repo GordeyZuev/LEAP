@@ -30,12 +30,14 @@ export function extractApiError(err: unknown, fallback = "Request failed"): stri
 
 // Date formatting — single canonical surface so the whole app shows
 // consistent date/time strings. en-GB picks the "5 May 2026" form which works
-// well next to both English and Russian UI chrome.
+// well next to both English and Russian UI chrome. Europe/Moscow matches
+// lecture `start_time` and keeps SSR (UTC hosts) in lockstep with the browser.
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",
   year: "numeric",
+  timeZone: "Europe/Moscow",
 });
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
@@ -44,6 +46,7 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
   hour: "2-digit",
   minute: "2-digit",
+  timeZone: "Europe/Moscow",
 });
 
 const DATE_TIME_SHORT_FORMATTER = new Intl.DateTimeFormat("en-GB", {
@@ -51,6 +54,7 @@ const DATE_TIME_SHORT_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   month: "short",
   hour: "2-digit",
   minute: "2-digit",
+  timeZone: "Europe/Moscow",
 });
 
 export function formatDate(iso: string | null | undefined): string {

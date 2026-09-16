@@ -60,11 +60,16 @@ class AutomationJobRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    _NULLABLE_ON_UPDATE = frozenset({"processing_config", "filters", "description"})
+
     async def update(self, job: AutomationJobModel, updates: dict) -> AutomationJobModel:
-        """Update automation job."""
+        """Update automation job. None is applied for nullable JSON/text fields."""
         for key, value in updates.items():
-            if value is not None and hasattr(job, key):
-                setattr(job, key, value)
+            if not hasattr(job, key):
+                continue
+            if value is None and key not in self._NULLABLE_ON_UPDATE:
+                continue
+            setattr(job, key, value)
         job.updated_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(job)
@@ -101,6 +106,79 @@ class AutomationJobRunRepository:
         await self._prune(run.job_id)
         await self.session.commit()
         return run
+
+    async def create_running(
+        self,
+        *,
+        job_id: int,
+        user_id: str,
+        trigger: str,
+        started_at: datetime,
+    ) -> AutomationJobRunModel:
+        """Open an in-flight row. Unique index allows one RUNNING per job."""
+        run = AutomationJobRunModel(
+            job_id=job_id,
+            user_id=user_id,
+            status="RUNNING",
+            trigger=trigger,
+            started_at=started_at,
+            finished_at=None,
+            synced_count=0,
+            recordings_found=0,
+            matched_count=0,
+            processed_count=0,
+        )
+        self.session.add(run)
+        await self.session.commit()
+        await self.session.refresh(run)
+        return run
+
+    async def has_running(self, job_id: int) -> bool:
+        stmt = (
+            select(AutomationJobRunModel.id)
+            .where(
+                AutomationJobRunModel.job_id == job_id,
+                AutomationJobRunModel.status == "RUNNING",
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none() is not None
+
+    async def running_job_ids(self, user_id: str) -> set[int]:
+        stmt = select(AutomationJobRunModel.job_id).where(
+            AutomationJobRunModel.user_id == user_id,
+            AutomationJobRunModel.status == "RUNNING",
+        )
+        return set((await self.session.execute(stmt)).scalars().all())
+
+    async def finish(
+        self,
+        run: AutomationJobRunModel,
+        *,
+        status: str,
+        finished_at: datetime,
+        duration_seconds: int,
+        synced_count: int,
+        recordings_found: int,
+        matched_count: int,
+        processed_count: int,
+        error: str | None,
+        affected_recordings: list | None,
+    ) -> None:
+        row = await self.session.get(AutomationJobRunModel, run.id)
+        if row is None:
+            return
+        row.status = status
+        row.finished_at = finished_at
+        row.duration_seconds = duration_seconds
+        row.synced_count = synced_count
+        row.recordings_found = recordings_found
+        row.matched_count = matched_count
+        row.processed_count = processed_count
+        row.error = error
+        row.affected_recordings = affected_recordings
+        await self._prune(row.job_id)
+        await self.session.commit()
 
     async def _prune(self, job_id: int) -> None:
         stmt = (

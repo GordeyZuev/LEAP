@@ -854,6 +854,10 @@ POST /api/v1/recordings/bulk/run
 POST /api/v1/recordings/bulk/upload
 ```
 
+#### Automation jobs
+
+See [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md). Inclusive last-N days use the **job timezone**. Preview: `POST /api/v1/automation/jobs/{id}/run?dry_run=true` (no source sync unless `sync=true`). Execute **409** if the job is inactive or already `RUNNING`. `sync_config.sync_days` null matches all catalog rows; provider sync is still last 30 days when enabled.
+
 #### Authentication & Sessions
 
 ```bash
@@ -906,9 +910,9 @@ GET    /api/v1/share/p/{token}/items/{itemId}/media?type=processed|original[&dow
 GET    /api/v1/share/p/{token}/items/{itemId}/files/{file_type}[&inline=true]
 ```
 
-Course watch fetches VTT via presigned URL (`vtt_url` on `view=player`). If that fetch fails (bucket CORS), the client loads `GET …/files/vtt?inline=true`, which **streams VTT through the API** (not a 302 to S3) and attaches a blob URL. Files, Summary & questions, and Created Overview on watch follow `allow_video_download` / `allow_files_download` like recording share. The landing page has no Files panel.
+Course watch fetches VTT via presigned URL (`vtt_url` on `view=player`). If that fetch fails (bucket CORS), the client loads `GET …/files/vtt?inline=true`, which **streams VTT through the API** (not a 302 to S3) and attaches a blob URL. Files, Summary & questions, and Created Overview on watch follow `allow_video_download` / `allow_files_download` like recording share (locked rows, not hidden). The landing page has no Files panel.
 
-The public playlist **landing** (`/share/p/{uuid}` with no `v`) shows the first item’s poster (image; links to the first playable video) and the video list. Clicking a video navigates to `/share/p/{uuid}?v={itemId}` — the same watch chrome as recording share, with companion tabs Playlist / Chapters / Transcript, then Summary & questions (Theme, summary, questions), Files, and Created Overview. Items without `processed_video_path` are listed but not playable (`unavailable_reason=not_ready`). Playlist **watch** of a playable item sends `POST /share/p/{token}/items/{itemId}/beacon`, which increments the same `share_view_count` on that recording (30-minute visitor dedup, shared with the recording share page). Not-ready / blank / deleted items and the landing page do not send a countable beacon (the endpoint still returns 204). Recording share can be disabled; playlist watch still counts.
+The public playlist **landing** (`/share/p/{uuid}` with no `v`) shows the first item’s poster (image; links to the first playable video) and the video list. The list is client-filtered (`?q=`) and client-sorted (`?sort=order|newest|oldest|name|duration`, default playlist order; `newest`/`oldest` are lecture `start_time`); lists longer than 24 videos paginate (`?page=`). `?from={slug}` from a channel is preserved. A course is at most **200** items, so this GET is the full catalog (not paginated — a page would hide search matches). Watch uses `view=catalog` to skip poster presigns. Clicking a video navigates to `/share/p/{uuid}?v={itemId}` — the same watch chrome as recording share, with companion tabs Playlist / Chapters / Transcript, then Summary & questions (Theme, summary, questions), Files, and Created Overview. Watch playlist search does not change autoplay order. Items without `processed_video_path` are listed but not playable (`unavailable_reason=not_ready`). Playlist **watch** of a playable item sends `POST /share/p/{token}/items/{itemId}/beacon`, which increments the same `share_view_count` on that recording (30-minute visitor dedup, shared with the recording share page). Not-ready / blank / deleted items and the landing page do not send a countable beacon (the endpoint still returns 204). Recording share can be disabled; playlist watch still counts.
 
 Recording and playlist share are both **Enable / Disable / Rotate**. Disable keeps `share_token`; public GET is **404** until Enable. Rotate mints a new UUID. Migration **044** adds `recordings.share_enabled` (backfill `true` where a token already existed).
 
@@ -934,13 +938,13 @@ Daily metrics are aggregated by **calendar day (UTC)**. Query params `from` and 
 **Owner UI:** Settings → **Usage** reads `/users/me/quota` (eight blocks: `recordings`, `storage`, `concurrent_tasks`, `automation_jobs`, `transcriptions`, `processing`, `templates`, `credentials`) and `/users/me/analytics` for activity. See [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md).
 
 `GET /api/v1/share/{token}` returns `PublicRecordingResponse`:
-- `id`, `display_name`, `duration` (processed length when `final_duration` is set, else source), `start_time`, `status`
+- `id`, `display_name` (source/Zoom name), `title` (rendered LEAP publication look / `title_template`, else `display_name`), `duration` (processed length when `final_duration` is set, else source), `start_time`, `status`
 - `topic_timestamps`, `main_topics`, `summary`, `questions`
 - `description` — Jinja-шаблон рендерится через `ConfigResolver.resolve_metadata_config` (user defaults → template → processing_preferences)
 - `available_files` — pipeline artifacts in storage (`srt`, `vtt`, `transcript_*`)
 - `source_extras` — chat / session materials (same shape as owner `GET /recordings/{id}/source-extras`); `null` when `allow_files_download` is off. Presigned URLs; not counted on `GET /share/{token}/files/{type}`
 - `has_processed_video`, `has_original_video`
-- `allow_video_download`, `allow_files_download` — public download buttons; play remains allowed when video download is off. `download=true` on media returns **403** when forbidden. `inline=true` on files (player VTT) is always allowed.
+- `allow_video_download`, `allow_files_download` — public Files keeps the video and pipeline artifact rows when a flag is off (lock, not hidden). Play remains allowed when video download is off. `download=true` on media returns **403** when forbidden. `inline=true` on files (player VTT) is always allowed.
 - `view=player` adds `play_url`, `vtt_url`, `original_play_url` (when source video exists), `media_expires_in` when processed video exists (presigned; no extra `/media` round-trip required).
 - `recordings.share_artifact_files` (JSONB) caches `available_files` for share; refreshed after subtitle generation; null → legacy `exists` scan.
 
@@ -982,11 +986,11 @@ GET        /api/v1/c/{slug}
 POST       /api/v1/c/{slug}/beacon
 ```
 
-Public channel 404 if missing or `share_enabled` is false (`SHARE_NOT_FOUND`). Videos/playlists on the public payload are already share-visible. Each public video has `title` = recording `display_name`, `duration`, `start_time`, poster fields, `share_token`, and optional `blurb` from DB `main_topics` (not `extracted.json`). Playlists include optional `blurb` from the rendered description. Guide: [CHANNELS.md](guides/CHANNELS.md).
+Public channel 404 if missing or `share_enabled` is false (`SHARE_NOT_FOUND`). Videos/playlists on the public payload are already share-visible (at most 200 each; one GET, client search/sort, UI pages of 24). Each public video has `title` = recording `display_name`, `duration`, `start_time`, poster fields, `share_token`, and optional `blurb` from DB `main_topics` (not `extracted.json`). Playlists include optional `blurb` from the rendered description. Guide: [CHANNELS.md](guides/CHANNELS.md).
 
 `output_config.channel_ids` inherits like `playlist_ids` (empty = preset). Leap publish appends to Videos only.
 
-`GET /api/v1/playlists` list items (owner): `id`, `name`, rendered `description`, `video_count`, `duration_sum`, `share_token`, `share_enabled`, `poster_url`, `has_custom_cover`, `created_at`, `updated_at`. `share_token` is returned once minted, including after Disable; the public URL is live only while `share_enabled` is true. The owner Playlists grid shows **LEAP** + **Copy link** only in that live case.
+`GET /api/v1/playlists` list items (owner): `id`, `name`, rendered `description`, `video_count`, `duration_sum`, `share_token`, `share_enabled`, `poster_url`, `has_custom_cover`, `created_at`, `updated_at`. `share_token` is returned once minted, including after Disable; the public URL is live only while `share_enabled` is true. The owner Playlists grid shows **LEAP** + **Copy link** only in that live case. List `per_page` max is **200** (same as the playlists-per-user cap) so pickers can load every course.
 
 `output_config.playlist_ids` on a **named** template (or leap preset metadata) is resolved at pipeline time and applied when the **LEAP publish** step runs after successful processing (processed video, not `blank_record`). Bind/match/run do not append `playlist_items` early. Missing playlist ids are skipped and do not fail the pipeline.
 

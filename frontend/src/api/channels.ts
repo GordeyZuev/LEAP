@@ -40,6 +40,7 @@ export interface ChannelVideoRow {
   recording_id: number;
   position: number;
   title: string;
+  start_time?: string | null;
   duration: number;
   share_enabled: boolean;
   playable: boolean;

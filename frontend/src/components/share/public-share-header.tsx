@@ -13,6 +13,13 @@ export const PUBLIC_PAGE_HEADER_INNER = cn(
   "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 sm:py-4",
 );
 
+export const COPY_LINK_CHIP =
+  "pressable flex min-h-9 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+export const COPY_LINK_CHIP_COPIED = "border-success-fg/40 bg-success-fg/10 text-success-fg";
+export const COPY_LINK_CHIP_IDLE =
+  "border-border bg-card text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary";
+
 /**
  * Public share chrome: LEAP mark, 12+, optional context, Copy link.
  * Same shell as recording and playlist watch.
@@ -55,13 +62,7 @@ export function PublicShareHeader({ children }: { children?: ReactNode }) {
           type="button"
           suppressHydrationWarning
           onClick={() => void onCopy()}
-          className={cn(
-            "flex min-h-9 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-            copied
-              ? "border-success-fg/40 bg-success-fg/10 text-success-fg"
-              : "border-border bg-card text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary",
-          )}
+          className={cn(COPY_LINK_CHIP, copied ? COPY_LINK_CHIP_COPIED : COPY_LINK_CHIP_IDLE)}
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? "Copied" : "Copy link"}

@@ -1,6 +1,6 @@
 # Usage, quotas, and product analytics
 
-**Product release:** v0.11.0.0 (September 2026)
+**Product release:** v0.11.0.1 (September 2026)
 
 This guide is the canonical reference for **in-app usage observability**: what users and admins see in the web UI, how it maps to API responses, and how it relates to `usage_events`, `quota_usage`, and share counters.
 

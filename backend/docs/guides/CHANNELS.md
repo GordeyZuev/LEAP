@@ -4,6 +4,8 @@ A **channel** is a public hub (`/c/{slug}`) with two tabs: **Playlists** (course
 
 Limits: **20 channels per user**, **200 videos** and **200 playlists** per channel. A playlist may belong to many channels (M:N). Schema: `channels`, `channel_videos`, `channel_playlists` (migration **050**). Covers: `playlists.cover_key` (**049**). Analytics subjects: `share_access_events.playlist_id` / `channel_id` (**051**).
 
+The public hub is one GET of those capped lists (client search/sort, then UI pages of 24 when the filtered list is long). Owner Channels grid is SQL-paginated. Membership editors fetch one page of 200 (the cap) so drag-reorder and **Order** (playlists: name A–Z, most videos, longest first; videos: newest/oldest lecture, name, duration) write the full id set. That stored order is the public “Channel order”.
+
 ## Slug and availability
 
 Public URL: `{origin}/c/{slug}`. Slug is **globally unique**, 5–64 chars, `a-z0-9`, hyphen, and underscore. It can be changed (PATCH); the old URL **404**s (no redirect). **Enable / Disable** — Disable keeps the slug; delete frees it. There is no UUID token and no Rotate. Template and recording pickers select existing channels; new ones are created on the Channels page (name + slug).
@@ -34,6 +36,6 @@ POST       /api/v1/c/{slug}/beacon
 
 Owner `GET /channels/{id}` is metadata plus counts. Tab membership is `GET …/videos` and `GET …/playlists`. Description Jinja: `video_count`, `playlist_count`, `duration_hm`, `items`, `playlists` (see [JINJA_METADATA_TEMPLATES.md](JINJA_METADATA_TEMPLATES.md)). Description source is at most **4000** characters. The public page shows **four lines** with a light fade, then **Show more**. List view includes a two-line **blurb**: video `main_topics` from the recording row, playlist description (Jinja rendered with counts, not the full `{{ items }}` list). Viewers can search (title and blurb), sort (channel order / date / name / duration), and switch grid or list (`?q=` `?sort=` `?view=`). Banner upload is `multipart/form-data` field `file`.
 
-Owner UI: **Content** / **Settings** / **Analytics** (`?tab=`). Compact analytics plaque with **View analytics**. Playlist rows can copy `/share/p/{token}` when the course is shared. `/channels/{id}/analytics` redirects to `?tab=analytics`. Public `/c/{slug}` uses the same header as share watch (LEAP, 12+, Copy link) and a short YouTube-style banner strip (`3:1` / `4:1` / `6:1`).
+Owner UI: **Content** / **Settings** / **Analytics** (`?tab=`). Compact analytics plaque with **View analytics**. Playlist rows can copy `/share/p/{token}` when the course is shared. `/channels/{id}/analytics` redirects to `?tab=analytics`. Public `/c/{slug}` uses the same header as share watch (LEAP, 12+, Copy link). The banner is the full uploaded image below the `lg` breakpoint (no crop) and a `6:1` cover strip on large screens.
 
 Playlist custom cover: `POST/DELETE /api/v1/playlists/{id}/cover`. Owner playlist list uses SQL aggregates and batched posters (not `selectinload` of all items).

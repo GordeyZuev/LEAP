@@ -203,7 +203,7 @@ interface RecordingsPagedResultsProps {
 }
 
 const VIEW_MODE_BTN =
-  "flex h-8 w-8 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+  "pressable flex h-8 w-8 items-center justify-center rounded-lg border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 const VIEW_MODE_BTN_ON = "border-primary bg-primary text-white";
 const VIEW_MODE_BTN_OFF = "border-border bg-card text-muted-foreground hover:bg-muted";
 
@@ -405,7 +405,7 @@ function RecordingsPagedResults({
               type="button"
               onClick={() => setPipelineMenuOpen((v) => !v)}
               disabled={isBulkLoading}
-              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-50"
+              className="pressable flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50"
             >
               Run step…
               <ChevronDown size={12} className={cn("transition-transform", pipelineMenuOpen && "rotate-180")} />
@@ -433,7 +433,7 @@ function RecordingsPagedResults({
             )}
           </div>
 
-          <ActionButton size="sm" variant="secondary" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto border-danger-fg/65 text-danger-fg hover:bg-danger-fg/10">Delete</ActionButton>
+          <ActionButton size="sm" variant="danger" onClick={() => setDeleteConfirm(true)} disabled={isBulkLoading} icon={<Trash2 size={13} />} className="ml-auto">Delete</ActionButton>
         </div>
       )}
 

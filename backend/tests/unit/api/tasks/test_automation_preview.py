@@ -99,7 +99,7 @@ async def test_preview_job_commits_after_successful_match():
     job = SimpleNamespace(id=7)
 
     with patch("api.tasks.automation._sync_and_match", new_callable=AsyncMock, return_value=plan):
-        payload = await _preview_job(session, job, "u1")
+        payload = await _preview_job(session, job, "u1", sync=False)
 
     session.commit.assert_awaited()
     assert payload["would_process"][0]["id"] == 1
@@ -118,7 +118,7 @@ async def test_preview_job_skips_commit_on_match_error():
         new_callable=AsyncMock,
         return_value={"status": "error", "error": "No active templates", "user_id": "u1"},
     ):
-        result = await _preview_job(session, job, "u1")
+        result = await _preview_job(session, job, "u1", sync=False)
 
     assert result["status"] == "error"
     session.commit.assert_not_called()
@@ -135,7 +135,7 @@ async def test_execute_inactive_job_skips_without_sync():
         patch("api.tasks.automation.AutomationJobRepository", return_value=repo),
         patch("api.tasks.automation._sync_and_match", new_callable=AsyncMock) as sync_match,
     ):
-        result = await _execute_job(session, 1, "u1")
+        result = await _execute_job(session, 1, "u1", sync=True)
 
     assert result["status"] == "skipped"
     sync_match.assert_not_called()
@@ -186,7 +186,7 @@ async def test_execute_job_enqueues_matched_recordings():
         patch("api.tasks.automation.get_next_run_time", return_value=datetime(2026, 9, 11, tzinfo=UTC)),
     ):
         run_task.delay = delay
-        result = await _execute_job(session, 5, "u1")
+        result = await _execute_job(session, 5, "u1", sync=True)
 
     delay.assert_called_once()
     assert result["processed_count"] == 1
@@ -236,7 +236,7 @@ async def test_execute_job_leaves_unmatched_status_unchanged():
         patch("api.tasks.automation.get_next_run_time", return_value=datetime(2026, 9, 11, tzinfo=UTC)),
     ):
         run_task.delay = MagicMock()
-        result = await _execute_job(session, 5, "u1")
+        result = await _execute_job(session, 5, "u1", sync=True)
 
     assert rec.status == ProcessingStatus.INITIALIZED
     assert rec.failed_reason is None

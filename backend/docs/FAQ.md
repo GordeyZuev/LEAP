@@ -43,12 +43,12 @@ Queues are split (`downloads`, `processing_cpu`, `async_operations`, `uploads`, 
 
 ## What about MTS Link?
 
-Connect with an organization API key (Credentials → Manual). Lecturers to sync are emails on the source. LEAP requests MP4 conversion when you **Run**, not via a separate download button. Recordings shorter than 10 minutes are marked blank and skipped. Chat and session files can come along with the video. Guide: [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md).
+Connect with an organization API key (Credentials → Manual). Lecturers to sync are emails on the source. LEAP requests MP4 conversion when you **Run**, not via a separate download button. Recordings shorter than 10 minutes are marked blank and skipped. **Date** on the card is the event start (`startsAt`), not when the recording file appeared after the lecture. Chat and session files can come along with the video. Guide: [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md).
 
 ## How do share links and playlists work?
 
 - Recording: one public URL. Enable / Disable (same URL) / Rotate (new URL).
-- Playlist: an ordered course with `/share/p/{uuid}`. Opening a video goes to the watch layout. Descriptions can use `{{ video_count }}`, `{{ duration_hm }}`, `{{ items }}`. Optional custom cover.
+- Playlist: an ordered course with `/share/p/{uuid}`. The landing page can search and sort like a channel’s Videos tab (default is course order). Opening a video goes to the watch layout. Descriptions can use `{{ video_count }}`, `{{ duration_hm }}`, `{{ items }}`. Optional custom cover.
 - Channel: public hub `/c/{slug}` with Playlists then Videos. Viewers can search, sort, and switch grid/list. Enable / Disable (same slug). Rename slug immediately 404s the old URL. Viewers only see share-enabled items.
 
 Details: [guides/PLAYLISTS.md](guides/PLAYLISTS.md), [guides/CHANNELS.md](guides/CHANNELS.md).

@@ -12,9 +12,14 @@ export const PER_PAGE_RECORDINGS_OPTIONS = [20, 50, 100];
 export const PER_PAGE_PRESETS = 24;
 export const PER_PAGE_PLAYLISTS = 24;
 export const PER_PAGE_CHANNELS = 24;
+/** Product cap: playlists/user, items/playlist, videos or playlists per channel. */
+export const LEAP_CATALOG_CAP = 200;
+/** Recordings picker: API `per_page` ceiling. Search finds the rest. */
+export const PER_PAGE_RECORDINGS_PICKER = 100;
 
-/** YouTube-style channel art: short strip, taller on phones so it stays readable. */
-export const CHANNEL_BANNER_ASPECT = "aspect-[3/1] sm:aspect-[4/1] lg:aspect-[6/1]";
+/** Channel art: full file below lg (no crop); 6:1 cover strip on large screens. */
+export const CHANNEL_BANNER_FRAME = "w-full overflow-hidden bg-muted lg:aspect-[6/1]";
+export const CHANNEL_BANNER_IMG = "block h-auto w-full lg:h-full lg:object-cover";
 export const PER_PAGE_TEMPLATES = 20;
 export const PER_PAGE_TEMPLATES_OPTIONS = [20, 50, 100];
 export const PER_PAGE_SOURCES = 24;

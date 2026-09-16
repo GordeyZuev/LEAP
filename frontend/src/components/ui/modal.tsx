@@ -194,7 +194,7 @@ export function Modal({
       aria-hidden={!open || undefined}
       className={cn(
         "fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm lg:left-[var(--app-sidebar-width,0px)]",
-        "transition-opacity duration-150 ease-out",
+        "transition-opacity duration-200 ease-[cubic-bezier(0.33,1,0.68,1)]",
         visible ? "opacity-100" : "opacity-0",
         className,
       )}
@@ -213,8 +213,8 @@ export function Modal({
           onClick={(e) => e.stopPropagation()}
           className={cn(
             "outline-none w-full max-w-md shrink-0 rounded-2xl bg-card shadow-xl",
-            "transition-[opacity,transform] duration-150 ease-out",
-            visible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-3",
+            "transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.33,1,0.68,1)]",
+            visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1",
             panelClassName,
           )}
         >

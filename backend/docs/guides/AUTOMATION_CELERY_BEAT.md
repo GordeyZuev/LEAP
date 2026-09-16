@@ -152,8 +152,10 @@ Cron: `0 */N * * *` with `1 <= N <= 24`.
 | `name` | Required; unique per user |
 | `template_ids` | Non-empty; templates validated (active, not draft) |
 | `schedule` | Discriminated union above |
-| `sync_config.sync_days` | 1–30, default `2` |
-| `filters` | Optional; `AutomationFilters` defaults: `status=["INITIALIZED"]`, `exclude_blank=true` |
+| `sync_config.sync_days` | 1–30 inclusive local calendar days in the job timezone (today counts). `null` = match all rows already in LEAP |
+| `sync_config.max_recordings` | Optional cap on full pipelines per run; MTS wait pings are not capped. `null` = unlimited |
+| `sync_config.sync_on_run` | Default `true`. Refresh Zoom/MTS before matching |
+| `filters` | Optional; `AutomationFilters` defaults: MTS-aware statuses (`INITIALIZED`, `PENDING_CONVERSION`, `PENDING_SOURCE`), `exclude_blank=true` |
 | `processing_config` | Optional dict override for pipeline |
 
 Full Pydantic models: `api/schemas/automation/job.py`.
@@ -169,10 +171,10 @@ Full Pydantic models: `api/schemas/automation/job.py`.
 | `GET` | `/api/v1/automation/jobs/{job_id}` | Full job |
 | `PATCH` | `/api/v1/automation/jobs/{job_id}` | Updates → `sync_job_to_beat` |
 | `DELETE` | `/api/v1/automation/jobs/{job_id}` | `remove_job_from_beat` then delete row |
-| `GET` | `/api/v1/automation/jobs/{job_id}/runs` | History; items include `affected_recordings` (null on rows from before migration **047**) |
-| `POST` | `/api/v1/automation/jobs/{job_id}/run` | `dry_run=true` → `automation.dry_run`; else `automation.run_job` |
+| `GET` | `/api/v1/automation/jobs/{job_id}/runs` | History; `RUNNING` until finished; `affected_recordings` null before **047** |
+| `POST` | `/api/v1/automation/jobs/{job_id}/run` | `dry_run=true` → `automation.dry_run` (default **no** source sync); `sync=true\|false` optional. Execute **409** if inactive or already `RUNNING` |
 
-**Manual / dry-run:** response is `TriggerJobResponse` (`task_id`, `mode`, `message`). Preview and execution are **async Celery tasks**. Poll **`GET /api/v1/tasks/{task_id}`** — on SUCCESS, dry-run `result` is `would_process` plus counts. HTTP does not return the preview body.
+**Manual / preview:** response is `TriggerJobResponse` (`task_id`, `mode`, `message`). Poll **`GET /api/v1/tasks/{task_id}`** — preview `result` is `would_process` plus counts. HTTP does not return the preview body.
 
 ---
 
@@ -180,13 +182,13 @@ Full Pydantic models: `api/schemas/automation/job.py`.
 
 Scheduled and manual runs use **`automation.run_job`** (`run_automation_job_task`):
 
-1. Load active, non-draft templates for `template_ids`.
-2. Derive **sources to sync** from template `matching_rules.source_ids`: if any template omits or empties `source_ids`, **all** active user sources with credentials are synced; otherwise only listed IDs.
-3. For each source, call `_sync_single_source` (same path as manual sync) over `sync_days`.
-4. Load recordings in the window, apply `filters`, match templates (`_find_matching_template`), enqueue `run_recording_task` with automation overrides where applicable. Recordings that do not match this job’s templates are left unchanged (not forced to `SKIPPED`).
-5. Update job stats and `next_run_at` (from `get_next_run_time` + `schedule_to_cron`). Persist `affected_recordings` on the history row.
+1. Load active, non-draft templates in **`job.template_ids` order** (first match wins).
+2. If sync is on: derive sources from template `matching_rules.source_ids` (empty → all credentialed sources) and call `_sync_single_source` with the **same** inclusive `from`/`to` dates as matching (last 30 days when the match window is unbounded).
+3. Load recordings in the **job-timezone calendar window** (`start_time` inclusive), apply `filters`, match templates (`_find_matching_template`). Unmatched rows are left unchanged.
+4. Enqueue `run_recording_task` (wait statuses always; `max_recordings` caps other pipelines, newest first).
+5. Update job stats and persist a history row (`RUNNING` → `SUCCESS`/`FAILED`/`SKIPPED`). Migration **054**.
 
-Shared helper `_sync_and_match` does steps 1–4 (sync + match only). Dry run (`automation.dry_run`) calls `_preview_job`: same helper, then **commits** the sync (catalog rows stay) and returns `would_process` **without** bind / enqueue / `mark_run` / history.
+Shared helper `_sync_and_match` does sync (optional) + match. Preview (`automation.dry_run`) uses the same helper, **commits** only so catalog rows from a requested sync survive, and does not bind, enqueue, or write history.
 
 ---
 

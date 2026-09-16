@@ -252,6 +252,7 @@ async def list_channel_videos(
                 recording_id=row.recording_id,
                 position=row.position,
                 title=title,
+                start_time=rec.start_time if rec else None,
                 duration=display_duration_seconds(rec) if rec else 0.0,
                 share_enabled=share_on,
                 playable=playable,

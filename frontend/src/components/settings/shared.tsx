@@ -40,7 +40,7 @@ export function Collapsible({
         </span>
         <ChevronDown
           size={16}
-          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+          className={cn("shrink-0 text-muted-foreground motion-reduce:transition-none transition-transform duration-200 ease-out", open && "rotate-180")}
         />
       </button>
       {open && <div className="space-y-4 border-t border-border px-4 pb-4 pt-4">{children}</div>}

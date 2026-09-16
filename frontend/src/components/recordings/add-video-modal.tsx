@@ -422,7 +422,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                       onClick={() => void refetchPreview()}
                       disabled={!previewReady || previewLoading}
                       title="Refresh preview"
-                      className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-border text-xs font-medium text-secondary-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                      className="pressable flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-border text-xs font-medium text-secondary-foreground hover:bg-muted disabled:opacity-50"
                     >
                       {previewLoading
                         ? <Loader2 size={14} className="animate-spin" />
@@ -477,7 +477,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
                 <label className="block text-sm font-medium text-secondary-foreground mb-1.5">Video file</label>
                 <div
                   className={cn(
-                    "border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors",
+                    "pressable pressable-block border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer",
                     isDragging
                       ? "border-primary bg-primary/10"
                       : file
@@ -552,7 +552,7 @@ export function AddVideoModal({ open, onClose }: AddVideoModalProps) {
               ) : (
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {sourcesData.items.filter((s) => s.is_active).map((s) => (
-                    <label key={s.id} className="flex items-center gap-3 p-3 rounded-xl border border-border cursor-pointer hover:bg-muted transition-colors">
+                    <label key={s.id} className="pressable pressable-block flex items-center gap-3 p-3 rounded-xl border border-border cursor-pointer hover:bg-muted">
                       <input
                         type="checkbox"
                         checked={selectedSources.has(s.id)}

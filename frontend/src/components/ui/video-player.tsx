@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { forwardRef, memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, RotateCcw } from "lucide-react";
 import Plyr from "plyr";
@@ -107,6 +107,42 @@ function liveHud(view: HudView): string {
   return view.muted ? "Muted" : `Volume ${view.percent}%`;
 }
 
+/**
+ * Plyr rewrites DOM around the media node. Keep that tree inside a memoized
+ * empty mount: React must not own <video>, or ready/HUD setState pulls it
+ * out of `.plyr` and the controls never return.
+ * Video + Plyr share one effect so Retry/src remount cannot race two cleanups.
+ */
+const PlyrMount = memo(function PlyrMount({
+  src,
+  setRef,
+  attach,
+}: {
+  src: string;
+  setRef: (el: HTMLVideoElement | null) => void;
+  attach: (el: HTMLVideoElement) => () => void;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const el = document.createElement("video");
+    el.src = src;
+    el.preload = "metadata";
+    el.playsInline = true;
+    el.className = "block h-full w-full";
+    root.appendChild(el);
+    setRef(el);
+    const detach = attach(el);
+    return () => {
+      detach();
+      setRef(null);
+      root.replaceChildren();
+    };
+  }, [src, setRef, attach]);
+  return <div ref={rootRef} className="h-full w-full" />;
+});
+
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   function VideoPlayer(
     { src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onMarkerSeek, onReload, overlay, className },
@@ -170,10 +206,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    useEffect(() => {
-      const el = localRef.current;
-      if (!el) return;
-
+    const attach = useCallback((el: HTMLVideoElement) => {
       let cancelled = false;
       let refreshAttempted = false;
       let startupTimer: ReturnType<typeof setTimeout> | null = null;
@@ -330,7 +363,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         lastLabelRef.current = null;
         player.destroy();
       };
-    }, [src, resumeKey, instanceId, pushHud]);
+    }, [resumeKey, pushHud]);
 
     const markersKey = markerSignature(markers);
     useEffect(() => {
@@ -371,13 +404,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
     return (
       <div className={cn(VIDEO_PLAYER_FRAME, "motion-safe:animate-page-in", className)}>
-        <video
-          ref={setRef}
-          src={src}
-          preload="metadata"
-          playsInline
-          className="block h-full w-full"
-        />
+        <PlyrMount key={playerScope} src={src} setRef={setRef} attach={attach} />
         {host && createPortal(
           <>
             {hudBits && !overlay && (

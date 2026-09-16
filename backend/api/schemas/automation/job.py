@@ -11,9 +11,21 @@ from .schedule import Schedule
 
 
 class SyncConfig(BaseModel):
-    """Configuration for source synchronization."""
+    """Configuration for source synchronization and matching window."""
 
-    sync_days: int = Field(default=2, ge=1, le=30, description="Sync recordings from last N days")
+    sync_days: int | None = Field(
+        default=2,
+        ge=1,
+        le=30,
+        description="Inclusive last N calendar days in the job timezone. Null = match all rows; API sync still last 30 days when enabled.",
+    )
+    max_recordings: int | None = Field(
+        default=None,
+        ge=1,
+        le=5000,
+        description="Max full pipelines to start per run. Null = unlimited. MTS wait pings are not capped.",
+    )
+    sync_on_run: bool = Field(default=True, description="Refresh sources from Zoom/MTS before matching")
 
 
 class AutomationJobCreate(BaseModel):
@@ -57,6 +69,7 @@ class AutomationJobListItem(BaseModel):
     run_count: int
     created_at: datetime
     updated_at: datetime
+    is_running: bool = False
 
 
 class AutomationJobResponse(BaseModel):
@@ -79,6 +92,7 @@ class AutomationJobResponse(BaseModel):
     run_count: int
     created_at: datetime
     updated_at: datetime
+    is_running: bool = False
 
 
 class JobListResponse(PaginatedResponse):
@@ -102,10 +116,10 @@ class JobRunItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    status: str = Field(description="SUCCESS | FAILED | SKIPPED")
+    status: str = Field(description="RUNNING | SUCCESS | FAILED | SKIPPED")
     trigger: str = Field(description="SCHEDULE | MANUAL")
     started_at: datetime
-    finished_at: datetime
+    finished_at: datetime | None = None
     duration_seconds: int | None = None
     synced_count: int
     recordings_found: int

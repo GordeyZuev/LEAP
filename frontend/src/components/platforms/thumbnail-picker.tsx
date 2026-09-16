@@ -280,7 +280,7 @@ export function ThumbnailPicker({
                   <div
                     key={t.name}
                     className={cn(
-                      "group relative cursor-pointer rounded-xl border-2 transition-colors",
+                      "pressable group relative cursor-pointer rounded-xl border-2",
                       value === t.name ? "border-primary" : "border-border hover:border-primary/50",
                     )}
                     onClick={() => {
@@ -330,7 +330,7 @@ export function ThumbnailPicker({
               onDrop={handleDrop}
               onClick={() => fileRef.current?.click()}
               className={cn(
-                "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-5 transition-colors",
+                "pressable pressable-block flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-5",
                 isDragging
                   ? "border-primary bg-primary/5"
                   : uploadFile

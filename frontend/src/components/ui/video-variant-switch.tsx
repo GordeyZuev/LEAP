@@ -38,7 +38,8 @@ export function VideoVariantSwitch({
               aria-checked={selected}
               onClick={() => onChange(opt.value)}
               className={cn(
-                "pressable rounded-sm py-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                "pressable rounded-sm py-0.5",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                 selected
                   ? "font-medium text-foreground"
                   : "text-muted-foreground hover:text-foreground",

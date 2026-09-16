@@ -451,7 +451,8 @@ export default function DocsPage() {
           <Sub title="How do share links and playlists work?">
             <P>
               A recording has one public URL: Enable / Disable (same URL) / Rotate (new URL). A playlist is an
-              ordered course with <code className="text-xs">/share/p/…</code>. A channel is a hub at{" "}
+              ordered course with <code className="text-xs">/share/p/…</code> (landing can search and sort like a
+              channel’s Videos tab). A channel is a hub at{" "}
               <code className="text-xs">/c/…</code> (search, sort, grid or list). Look LEAP is membership and
               appearance, not an upload.
             </P>
@@ -466,6 +467,11 @@ export default function DocsPage() {
             <P>
               Events shorter than 10 minutes are treated as empty slots and skipped. Longer lectures: LEAP
               asks MTS Link for an MP4 when you click <strong>Run</strong>, not through a separate download action.
+            </P>
+          </Sub>
+          <Sub title="What date does an MTS Link lecture show?">
+            <P>
+              Date is the lecture’s start in MTS Link, not the time the recording file appeared after the event.
             </P>
           </Sub>
           <Sub title="Why is there a 12+ mark?">
@@ -541,8 +547,8 @@ export default function DocsPage() {
               the player refreshes it automatically and shows Retry if recovery is not possible.
               View counts stay on the recording (anonymous page opens, deduped ~30 minutes
               per visitor). Opening a playable video from a playlist counts as a view on that recording
-              (same window); the playlist landing and processing rows do not. Download buttons on the public page
-              can be hidden per recording – playback itself cannot be copy-proof.
+              (same window); the playlist landing and processing rows do not. Download flags on the public page
+              leave video and file rows visible with a lock – playback itself cannot be copy-proof.
             </P>
           </Sub>
           <Sub title="Playlists">
@@ -551,11 +557,12 @@ export default function DocsPage() {
               (<code className="text-xs">/share/p/…</code>). Create one under <strong>Playlists</strong>,
               optionally upload a custom cover, and attach it to one or more <strong>Channels</strong>.
               Then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
+              On Content, <strong>Order</strong> (newest or oldest lecture, name, duration) writes the watch order; drag also works. That stored sequence is the public playlist order.
               Named templates and Run can assign LEAP courses without copy-upload presets – membership is applied after processing finishes (same moment as LEAP publication), not when you bind a template. Manual add from the playlist editor or Publications still adds immediately.
               Enable / Disable / Rotate work like recording share. Deleting a playlist kills the link; recordings stay.
-              The landing page is a cover with a play control and the video list. Opening a video goes to watch
-              (<code className="text-xs">?v=</code>): player, companion (Chapters, Transcript, Playlist), then Summary & questions
-              (Theme, summary, questions), Files, and Created Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags.
+              The landing page is a cover with a play control and the video list (search and sort, like a channel’s Videos tab; default order is the course order). Opening a video goes to watch
+              (<code className="text-xs">?v=</code>): player, companion (Chapters, Transcript, Playlist — the playlist tab can search), then Summary & questions
+              (Theme, summary, questions), Files, and Created Overview for that item. Landing has no Files panel; watch follows the recording&apos;s download flags (locked rows when download is off).
               Opening a playable video counts as a view on that recording.
               Playlist descriptions can use <code className="text-xs">{"{{ video_count }}"}</code>,{" "}
               <code className="text-xs">{"{{ duration_hm }}"}</code>, and <code className="text-xs">{"{{ items }}"}</code>.
@@ -570,7 +577,8 @@ export default function DocsPage() {
               Enable when the showcase is ready; Disable keeps the same address. Changing the slug 404s the old URL
               (no redirect). Viewers can search, sort, and switch grid or list; list rows show date, duration, and a
               short blurb. Cards open the existing lecture and course players. Hidden items stay in the editor until
-              share is on. Templates can add a recording to Videos after processing; that does not enable the share
+              share is on. On Content, <strong>Order</strong> (or drag) writes the public channel order.
+              Templates can add a recording to Videos after processing; that does not enable the share
               link.
             </P>
           </Sub>

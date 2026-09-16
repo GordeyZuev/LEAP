@@ -23,6 +23,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { DescriptionEditor } from "@/components/ui/description-editor";
 import { Field } from "@/components/ui/field";
+import { CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { PER_PAGE_PLAYLISTS } from "@/lib/constants";
@@ -84,7 +85,7 @@ function PlaylistCard({ playlist: p }: { playlist: PlaylistListItem }) {
   }
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md">
+    <article className={cn("flex flex-col overflow-hidden p-5", CARD_SHELL, CARD_INTERACTIVE)}>
       <Link href={`/playlists/${p.id}`} className="flex min-w-0 flex-col">
         <PlaylistStackPoster
           posterUrl={p.poster_url}

@@ -9,6 +9,7 @@ from api.helpers.beat_sync import remove_job_from_beat, sync_job_to_beat
 from api.repositories.automation_repos import AutomationJobRepository, AutomationJobRunRepository
 from api.schemas.automation import (
     AutomationJobCreate,
+    AutomationJobListItem,
     AutomationJobResponse,
     AutomationJobUpdate,
     JobListResponse,
@@ -43,9 +44,14 @@ async def list_jobs(
     jobs = filter_by_search(jobs, search, JOB_SEARCH_FIELDS)
 
     items, total, total_pages = paginate_list(jobs, page, per_page, sort_by, sort_order, JOB_SORT_FIELDS)
+    running_ids = await AutomationJobRunRepository(ctx.session).running_job_ids(ctx.user_id)
+    listed = []
+    for job in items:
+        row = AutomationJobListItem.model_validate(job)
+        listed.append(row.model_copy(update={"is_running": job.id in running_ids}))
 
     return JobListResponse(
-        items=items,
+        items=listed,
         page=page,
         per_page=per_page,
         total=total,
@@ -77,7 +83,8 @@ async def get_job(
     job = await repo.get_by_id(job_id, ctx.user_id)
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation job not found")
-    return job
+    running = await AutomationJobRunRepository(ctx.session).has_running(job_id)
+    return AutomationJobResponse.model_validate(job).model_copy(update={"is_running": running})
 
 
 @router.patch("/{job_id}", response_model=AutomationJobResponse)
@@ -154,11 +161,15 @@ async def copy_job(
 async def trigger_job(
     job_id: int,
     dry_run: bool = Query(False, description="Preview mode without execution"),
+    sync: bool | None = Query(
+        None,
+        description="Refresh sources before matching. Preview defaults to false; execute defaults to the job sync_on_run flag.",
+    ),
     ctx=Depends(get_service_context),
 ) -> TriggerJobResponse:
     """
     Manually trigger automation job.
-    Use dry_run=true to sync sources and list matching recordings without starting pipelines.
+    Use dry_run=true to list matching recordings without starting pipelines.
     """
     repo = AutomationJobRepository(ctx.session)
     job = await repo.get_by_id(job_id, ctx.user_id)
@@ -166,13 +177,29 @@ async def trigger_job(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation job not found")
 
     if dry_run:
-        task = dry_run_automation_job_task.delay(job_id, ctx.user_id)
+        do_sync = False if sync is None else sync
+        task = dry_run_automation_job_task.delay(job_id, ctx.user_id, do_sync)
         return TriggerJobResponse(
             task_id=str(task.id),
             mode="dry_run",
-            message="Preview started — sources will sync; matching recordings are listed, pipelines are not started",
+            message=(
+                "Preview started — matching recordings already in LEAP"
+                if not do_sync
+                else "Preview started — sources will refresh, then matching recordings are listed"
+            ),
         )
-    task = run_automation_job_task.delay(job_id, ctx.user_id, trigger="MANUAL")
+
+    if not job.is_active:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Activate the job to run it")
+    if await AutomationJobRunRepository(ctx.session).has_running(job_id):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Job is already running")
+
+    do_sync = sync
+    task = (
+        run_automation_job_task.delay(job_id, ctx.user_id, trigger="MANUAL", sync=do_sync)
+        if do_sync is not None
+        else run_automation_job_task.delay(job_id, ctx.user_id, trigger="MANUAL")
+    )
     return TriggerJobResponse(
         task_id=str(task.id),
         mode="execute",

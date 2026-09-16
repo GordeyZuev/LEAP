@@ -72,7 +72,8 @@ export function Toggle({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "pressable relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full",
+          "relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full",
+          "transition-colors duration-200 ease-[cubic-bezier(0.33,1,0.68,1)]",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
           "disabled:cursor-not-allowed",
           checked ? TRACK_ON[tone] : "bg-foreground/20",
@@ -80,7 +81,7 @@ export function Toggle({
       >
         <span
           className={cn(
-            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 ease-out",
+            "inline-block h-4 w-4 transform rounded-full bg-white shadow motion-reduce:transition-none transition-transform duration-200 ease-[cubic-bezier(0.33,1,0.68,1)]",
             checked ? "translate-x-6" : "translate-x-1",
           )}
         />

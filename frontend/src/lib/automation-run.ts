@@ -29,14 +29,14 @@ export interface CeleryTaskStatus {
 export const RUN_JOB_CONFIRM = {
   title: "Run this job?",
   description:
-    "Sources sync for the job’s search window, then matching recordings start processing. Unsaved edits on this page are ignored.",
+    "Matching recordings start processing. Unsaved edits on this page are ignored. Refresh sources if you need the latest catalog from Zoom or MTS.",
   confirmLabel: "Run job",
 } as const;
 
 export const RUN_JOB_CONFIRM_LIST = {
   title: "Run this job?",
   description:
-    "Sources sync for the job’s search window, then matching recordings start processing.",
+    "Matching recordings start processing using this job’s saved settings (including whether sources refresh first).",
   confirmLabel: "Run job",
 } as const;
 

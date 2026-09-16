@@ -54,7 +54,7 @@ export function DateRangeFilter({
             type="button"
             onClick={() => onPresetChange(p.id)}
             className={cn(
-              "min-h-8 flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:flex-none sm:px-3",
+              "pressable min-h-8 flex-1 rounded-md px-2.5 py-1.5 text-xs font-medium sm:flex-none sm:px-3",
               preset === p.id
                 ? "bg-card text-foreground shadow-sm ring-1 ring-border"
                 : "text-muted-foreground hover:bg-card/60 hover:text-foreground",

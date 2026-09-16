@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ME_QUERY_KEY, useMe } from "@/lib/react-query";
-import { Save } from "lucide-react";
+import { Save, Shield } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { extractApiError } from "@/lib/utils";
 import { FILTER_CONTROL } from "@/lib/filter-field-classes";
@@ -79,10 +80,20 @@ export function AccountPanel() {
                   {planName}
                 </span>
               )}
-              {roleLabel && (
-                <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-secondary-foreground">
-                  {roleLabel}
-                </span>
+              {userData.role === "admin" ? (
+                <Link
+                  href="/admin"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs font-medium text-secondary-foreground hover:bg-primary/10 hover:text-primary"
+                >
+                  <Shield size={12} strokeWidth={2} className="shrink-0" />
+                  Admin
+                </Link>
+              ) : (
+                roleLabel && (
+                  <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-secondary-foreground">
+                    {roleLabel}
+                  </span>
+                )
               )}
             </div>
           </div>

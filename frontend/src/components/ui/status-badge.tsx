@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ProcessingStatus =
@@ -46,6 +47,23 @@ const STATUS_CONFIG: Record<ProcessingStatus, { label: string; className: string
   EXPIRED:       { label: PROCESSING_STATUS_LABEL.EXPIRED,     className: "bg-muted text-muted-foreground" },
 };
 
+const LIVE_STATUSES = new Set<ProcessingStatus>([
+  "PENDING_CONVERSION",
+  "DOWNLOADING",
+  "PROCESSING",
+  "UPLOADING",
+]);
+
+/** When the pipeline is still on_air, don't show a terminal label like Ready. */
+export function displayProcessingStatus(
+  status: ProcessingStatus,
+  opts: { onAir?: boolean; failed?: boolean } = {},
+): ProcessingStatus {
+  if (opts.failed || !opts.onAir) return status;
+  if (LIVE_STATUSES.has(status)) return status;
+  return "PROCESSING";
+}
+
 interface StatusBadgeProps {
   status: ProcessingStatus;
   failed: boolean;
@@ -78,7 +96,7 @@ export function StatusBadge({ status, failed, failedStage, size = "default", cla
   const cfg = STATUS_CONFIG[status] ?? { label: status, className: "bg-muted text-muted-foreground" };
   return (
     <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full text-xs font-medium", sizeCls, cfg.className, className)}>
-      {cfg.pulse && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
+      {cfg.pulse && <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden />}
       {cfg.label}
     </span>
   );

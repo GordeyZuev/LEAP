@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Clock, SkipForward, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Loader2, SkipForward, XCircle } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { cn, formatDateTimeShort } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -38,6 +38,7 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string; 
   SUCCESS: { icon: CheckCircle2, label: "Success", className: "text-green-600" },
   FAILED: { icon: XCircle, label: "Failed", className: "text-red-600" },
   SKIPPED: { icon: SkipForward, label: "Skipped", className: "text-muted-foreground" },
+  RUNNING: { icon: Loader2, label: "Running", className: "text-primary" },
 };
 
 function formatRunDuration(seconds: number | null): string {
@@ -59,6 +60,8 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
     queryKey: ["automation-job-runs", jobId],
     queryFn: async () =>
       (await apiClient.get<JobRunListResponse>(`/automation/jobs/${jobId}/runs?per_page=20`)).data,
+    refetchInterval: (query) =>
+      (query.state.data?.items ?? []).some((run) => run.status === "RUNNING") ? 2000 : false,
   });
 
   const runs = data?.items ?? [];
@@ -115,7 +118,7 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
                   </td>
                   <td className="px-6 py-4">
                     <span className={cn("inline-flex items-center gap-1.5 text-sm", cfg.className)}>
-                      <Icon size={14} className="shrink-0" />
+                      <Icon size={14} className={cn("shrink-0", run.status === "RUNNING" && "animate-spin")} />
                       {cfg.label}
                     </span>
                     <p className="mt-0.5 text-xs text-muted-foreground">
@@ -145,7 +148,7 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
         open={selected != null}
         onClose={() => setSelected(null)}
         labelledBy="run-detail-title"
-        panelClassName="max-w-lg"
+        panelClassName="max-w-3xl"
       >
         {selected && (
           <div className="p-6 space-y-4">

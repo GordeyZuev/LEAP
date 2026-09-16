@@ -20,6 +20,8 @@ import type { AutomationPreviewResult, CeleryTaskStatus } from "@/lib/automation
 import { isCeleryInFlight, RUN_JOB_CONFIRM } from "@/lib/automation-run";
 import { Toggle } from "@/components/ui/toggle";
 import { SegmentedField } from "@/components/ui/segmented-field";
+import { CARD_SHELL } from "@/components/ui/section-card";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import { OverrideSection } from "@/components/ui/disclosure";
 import { ProcessingFields, DEFAULT_TRIMMING, trimmingFromApi, type TrimmingForm } from "@/components/platforms/processing-fields";
 import { useLanguages, useGranularities } from "@/hooks/use-references";
@@ -61,7 +63,9 @@ interface JobForm {
   time: string;
   timezone: string;
   cron_expression: string;
-  sync_days: number;
+  sync_days: number | null;
+  max_recordings: number | null;
+  sync_on_run: boolean;
   is_active: boolean;
   filters: AutomationFilters;
   processing_config_enabled: boolean;
@@ -89,9 +93,10 @@ interface AutomationJobApi {
   description?: string | null;
   template_ids?: number[];
   schedule?: ApiSchedule;
-  sync_config?: { sync_days?: number };
+  sync_config?: { sync_days?: number | null; max_recordings?: number | null; sync_on_run?: boolean };
   is_active?: boolean;
   next_run_at?: string | null;
+  is_running?: boolean;
   updated_at?: string;
   filters?: { exclude_blank?: boolean; status?: string[] } | null;
   processing_config?: Record<string, unknown> | null;
@@ -130,8 +135,10 @@ const DEFAULT_FORM: JobForm = {
   timezone: "Europe/Moscow",
   cron_expression: "0 9 * * *",
   sync_days: 2,
+  max_recordings: null,
+  sync_on_run: true,
   is_active: true,
-  filters: { exclude_blank: false, status: [...DEFAULT_AUTOMATION_STATUS_FILTER] },
+  filters: { exclude_blank: true, status: [...DEFAULT_AUTOMATION_STATUS_FILTER] },
   processing_config_enabled: false,
   processing_config: { ...DEFAULT_PROCESSING_CONFIG },
 };
@@ -183,10 +190,12 @@ function apiJobToForm(job: AutomationJobApi): JobForm {
     time,
     timezone,
     cron_expression,
-    sync_days: job.sync_config?.sync_days ?? 2,
+    sync_days: job.sync_config && "sync_days" in job.sync_config ? (job.sync_config.sync_days ?? null) : 2,
+    max_recordings: job.sync_config?.max_recordings ?? null,
+    sync_on_run: job.sync_config?.sync_on_run !== false,
     is_active: job.is_active ?? true,
     filters: {
-      exclude_blank: job.filters?.exclude_blank ?? false,
+      exclude_blank: job.filters?.exclude_blank ?? true,
       status: sanitizeStatusFilter(job.filters?.status),
     },
     processing_config_enabled: !!pc,
@@ -232,11 +241,12 @@ function formatNextRun(iso: string): string {
 
 function formatSyncWindowStart(days: number): string {
   const d = new Date();
-  d.setDate(d.getDate() - days);
+  d.setDate(d.getDate() - (days - 1));
   return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 }
 
 function getSyncDaysWarning(f: JobForm): string | null {
+  if (f.sync_days == null) return null;
   if (f.schedule_mode !== "visual" || f.weekdays.length < 2) return null;
   const sorted = [...f.weekdays].sort((a, b) => a - b);
   let maxGap = 0;
@@ -317,6 +327,8 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
   const [confirmRun, setConfirmRun] = useState(false);
   const [pendingHref, setPendingHref] = useState("");
   const [dryRunTaskId, setDryRunTaskId] = useState<string | null>(null);
+  const [previewRefreshSources, setPreviewRefreshSources] = useState(false);
+  const [runRefreshSources, setRunRefreshSources] = useState(initialForm.sync_on_run);
 
   const save = useMutation<AutomationJobApi, unknown, JobForm>({
     mutationFn: async (data: JobForm) => {
@@ -325,7 +337,11 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         description: data.description || undefined,
         template_ids: data.template_ids,
         schedule: formToSchedule(data),
-        sync_config: { sync_days: data.sync_days },
+        sync_config: {
+          sync_days: data.sync_days,
+          max_recordings: data.max_recordings,
+          sync_on_run: data.sync_on_run,
+        },
         is_active: data.is_active,
         filters: {
           exclude_blank: data.filters.exclude_blank,
@@ -370,18 +386,24 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
   });
 
   const runNow = useMutation({
-    mutationFn: () => apiClient.post(`/automation/jobs/${jobId}/run`),
+    mutationFn: () =>
+      apiClient.post(`/automation/jobs/${jobId}/run?sync=${runRefreshSources ? "true" : "false"}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["automation-job-runs", Number(jobId)] });
       qc.invalidateQueries({ queryKey: ["automation-jobs"] });
+      qc.invalidateQueries({ queryKey: ["automation-job", jobId] });
       showFeedback("success", "Job started");
     },
-    onError: () => showFeedback("error", "Failed to start job"),
+    onError: (err: unknown) => showFeedback("error", extractApiError(err, "Failed to start job")),
   });
 
   const dryRun = useMutation({
     mutationFn: () =>
-      apiClient.post<{ task_id: string }>(`/automation/jobs/${jobId}/run?dry_run=true`).then((r) => r.data),
+      apiClient
+        .post<{ task_id: string }>(
+          `/automation/jobs/${jobId}/run?dry_run=true&sync=${previewRefreshSources ? "true" : "false"}`,
+        )
+        .then((r) => r.data),
     onSuccess: (data) => {
       setDryRunTaskId(data.task_id);
     },
@@ -441,9 +463,20 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
     });
   }
 
+  const runsQuery = useQuery({
+    queryKey: ["automation-job-runs", Number(jobId)],
+    queryFn: async () =>
+      (await apiClient.get<{ items: { status: string }[] }>(`/automation/jobs/${jobId}/runs?per_page=5`)).data,
+    enabled: !isNew,
+    refetchInterval: (query) =>
+      (query.state.data?.items ?? []).some((run) => run.status === "RUNNING") ? 2000 : false,
+  });
+  const jobIsRunning = (runsQuery.data?.items ?? []).some((run) => run.status === "RUNNING");
+
   const syncWarning = getSyncDaysWarning(form);
   const today = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
-  const syncStart = formatSyncWindowStart(form.sync_days);
+  const syncStart = form.sync_days == null ? null : formatSyncWindowStart(form.sync_days);
+  const tzLabel = timezones.find((t) => t.value === form.timezone)?.label ?? form.timezone;
 
   const canSave =
     !!form.name &&
@@ -479,20 +512,29 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
             onClick={() => dryRun.mutate()}
             isPending={previewPending}
             icon={<FlaskConical size={15} />}
-            pendingLabel="Refreshing sources…"
-            title="Sync sources and list matching recordings without starting processing"
+            pendingLabel={previewRefreshSources ? "Refreshing sources…" : "Matching…"}
+            title="List matching recordings without starting processing"
           >
-            Dry run
+            Preview
           </ActionButton>
         )}
 
         {!isNew && (
           <ActionButton
             variant="secondary"
-            onClick={() => setConfirmRun(true)}
-            isPending={runNow.isPending}
-            disabled={!savedIsActive}
-            title={savedIsActive ? undefined : "Activate and save the job to run it"}
+            onClick={() => {
+              setRunRefreshSources(form.sync_on_run);
+              setConfirmRun(true);
+            }}
+            isPending={runNow.isPending || jobIsRunning}
+            disabled={!savedIsActive || jobIsRunning}
+            title={
+              jobIsRunning
+                ? "This job is already running"
+                : savedIsActive
+                  ? undefined
+                  : "Activate and save the job to run it"
+            }
             icon={<Play size={15} />}
             pendingLabel="Running…"
           >
@@ -507,7 +549,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         )}
 
         {!isNew && (
-          <ActionButton variant="secondary" onClick={() => setConfirmDelete(true)} isPending={deleteJob.isPending} icon={<Trash2 size={15} />} title="Delete job" className="border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10">
+          <ActionButton variant="danger" onClick={() => setConfirmDelete(true)} isPending={deleteJob.isPending} icon={<Trash2 size={15} />} title="Delete job">
             Delete
           </ActionButton>
         )}
@@ -524,14 +566,29 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </ActionButton>
       </div>
 
+      {jobIsRunning && (
+        <div className="mb-5 space-y-2" aria-live="polite">
+          <p className="text-sm text-secondary-foreground">Job is running…</p>
+          <ProgressBar variant="indeterminate" />
+        </div>
+      )}
       {previewError && (
         <p className="mb-5 text-sm text-red-500">{previewError}</p>
       )}
-      {preview && <div className="mb-5"><AutomationPreviewPanel preview={preview} /></div>}
+      {(previewPending || preview) && (
+        <div className="mb-5">
+          <AutomationPreviewPanel
+            preview={preview}
+            pending={previewPending}
+            statusLabel={dryRunTask.data?.status}
+            progress={dryRunTask.data?.progress}
+          />
+        </div>
+      )}
 
       <div className="space-y-5">
         {/* Basic info */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
+        <div className={cn(CARD_SHELL, "p-5 space-y-4")}>
           <F label="Name *">
             <input
               type="text"
@@ -554,7 +611,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </div>
 
         {/* Templates */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-3">
+        <div className={cn(CARD_SHELL, "p-5 space-y-3")}>
           <h2 className="text-sm font-semibold text-secondary-foreground">Templates *</h2>
           {templates.length === 0 ? (
             <CreatePlaceholder href="/templates/new" label="Add a template" />
@@ -575,7 +632,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </div>
 
         {/* Filters */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
+        <div className={cn(CARD_SHELL, "p-5 space-y-4")}>
           <h2 className="text-sm font-semibold text-secondary-foreground">Filters</h2>
           <Toggle
             label="Exclude blank recordings"
@@ -636,7 +693,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
         </OverrideSection>
 
         {/* Schedule */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm p-5 space-y-4">
+        <div className={cn(CARD_SHELL, "p-5 space-y-4")}>
           <h2 className="text-sm font-semibold text-secondary-foreground">Schedule</h2>
 
           <SegmentedField<ScheduleMode>
@@ -734,7 +791,7 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
                     key={ex.expr}
                     type="button"
                     onClick={() => setForm((f) => ({ ...f, cron_expression: ex.expr }))}
-                    className="text-left px-3 py-2 rounded-xl border border-border hover:bg-muted transition-colors"
+                    className="pressable pressable-block text-left px-3 py-2 rounded-xl border border-border hover:bg-muted"
                   >
                     <code className="text-xs font-mono text-primary">{ex.expr}</code>
                     <p className="text-xs text-muted-foreground mt-0.5">{ex.desc}</p>
@@ -753,31 +810,83 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
               </p>
             </div>
           )}
+        </div>
 
-          {/* Sync window */}
-          <div className="border-t border-border pt-4 space-y-2">
-            <label className="block text-sm font-medium text-secondary-foreground">Recording search window</label>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-secondary-foreground">Last</span>
+        <div className={cn(CARD_SHELL, "p-5 space-y-4")}>
+          <h2 className="text-sm font-semibold text-secondary-foreground">Matching</h2>
+          <SegmentedField<"last" | "all">
+            label="Search window"
+            value={form.sync_days == null ? "all" : "last"}
+            stretch
+            options={[
+              { value: "last", label: "Last N days" },
+              { value: "all", label: "All" },
+            ]}
+            onChange={(mode) =>
+              setForm((f) => ({ ...f, sync_days: mode === "all" ? null : (f.sync_days ?? 2) }))
+            }
+          />
+          {form.sync_days != null ? (
+            <F
+              label="Days"
+              hint={`Including today: ${syncStart} – ${today} (${tzLabel})`}
+            >
               <input
                 type="number"
                 min={1}
                 max={30}
                 value={form.sync_days}
-                onChange={(e) => setForm((f) => ({ ...f, sync_days: parseInt(e.target.value, 10) || 2 }))}
-                className={cn(inp, "w-20")}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  setForm((f) => ({
+                    ...f,
+                    sync_days: Number.isFinite(n) && n >= 1 ? Math.min(30, n) : 1,
+                  }));
+                }}
+                className={cn(inp, "w-24")}
               />
-              <span className="text-sm text-secondary-foreground">days</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Recordings from <span className="font-medium">{syncStart}</span> to{" "}
-              <span className="font-medium">{today}</span>
+            </F>
+          ) : (
+            <p className="text-xs leading-snug text-muted-foreground">
+              Every recording already in LEAP, after filters. Source refresh still covers the last 30 days.
             </p>
-            {syncWarning && (
-              <div className="flex items-start gap-1.5">
-                <span className="text-amber-500 text-xs mt-px shrink-0">⚠</span>
-                <p className="text-xs text-amber-600">{syncWarning}</p>
-              </div>
+          )}
+          {syncWarning && (
+            <p className="text-xs leading-snug text-amber-600">{syncWarning}</p>
+          )}
+          <F
+            label="Start at most"
+            hint="Leave empty for no limit. Converting MTS recordings are not counted."
+          >
+            <input
+              type="number"
+              min={1}
+              placeholder="Unlimited"
+              value={form.max_recordings ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                setForm((f) => ({
+                  ...f,
+                  max_recordings: raw === "" ? null : Math.max(1, parseInt(raw, 10) || 1),
+                }));
+              }}
+              className={cn(inp, "w-32")}
+            />
+          </F>
+          <div className="space-y-1">
+            <Toggle
+              label="Refresh sources on run"
+              hint="Saved. Used by the schedule and Run now."
+              checked={form.sync_on_run}
+              onChange={(v) => setForm((f) => ({ ...f, sync_on_run: v }))}
+            />
+            {!isNew && (
+              <Toggle
+                label="Refresh sources before preview"
+                hint="Not saved. Off matches recordings already in LEAP."
+                checked={previewRefreshSources}
+                onChange={setPreviewRefreshSources}
+              />
             )}
           </div>
         </div>
@@ -800,7 +909,14 @@ function AutomationJobEditor({ jobId, isNew, initialForm, initialNextRunAt, temp
           runNow.mutate();
         }}
         onCancel={() => setConfirmRun(false)}
-      />
+      >
+        <Toggle
+          label="Refresh sources first"
+          hint="Uses Zoom and MTS for the search window. Off matches recordings already in LEAP."
+          checked={runRefreshSources}
+          onChange={setRunRefreshSources}
+        />
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={confirmCopy}

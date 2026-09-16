@@ -3,6 +3,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.helpers.automation_window import resolve_job_timezone
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron, validate_min_interval
 from api.repositories.automation_repos import AutomationJobRepository
 from api.repositories.template_repos import RecordingTemplateRepository
@@ -72,7 +73,7 @@ class AutomationService:
     async def prepare_job_data(self, job_data: dict) -> dict:
         """Prepare job data with calculated next_run_at."""
         cron_expr, _human = schedule_to_cron(job_data["schedule"])
-        timezone = job_data["schedule"].get("timezone", "Europe/Moscow")
+        timezone = resolve_job_timezone(job_data["schedule"])
         next_run = get_next_run_time(cron_expr, timezone)
 
         job_data["next_run_at"] = next_run
@@ -149,7 +150,7 @@ class AutomationService:
             await self.validate_schedule(updates["schedule"], quota)
 
             cron_expr, _ = schedule_to_cron(updates["schedule"])
-            timezone = updates["schedule"].get("timezone", "Europe/Moscow")
+            timezone = resolve_job_timezone(updates["schedule"])
             updates["next_run_at"] = get_next_run_time(cron_expr, timezone)
 
         if "template_ids" in updates:

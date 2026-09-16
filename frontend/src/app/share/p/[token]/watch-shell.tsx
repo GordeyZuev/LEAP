@@ -7,7 +7,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
+  Clock,
   Copy,
+  ListVideo,
   Play,
   VideoOff,
 } from "lucide-react";
@@ -30,24 +32,41 @@ import { ShareVideoDownloadButton } from "@/components/recordings/share-video-do
 import { TranscriptPanel, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
+import { FilterSelect } from "@/components/filters/filter-select";
+import { SearchInput } from "@/components/filters/search-input";
 import { CARD_SHELL, CollapsibleCard } from "@/components/ui/section-card";
 import { COMPANION_BODY, COMPANION_BODY_PINNED, COMPANION_TABS_ROW, WATCH_BELOW, WatchStage } from "@/components/ui/watch-stage";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { Pagination } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { FormattedText } from "@/components/ui/formatted-text";
+import { FILTER_LABEL } from "@/lib/filter-field-classes";
 import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
 import { useShareEngagement } from "@/hooks/use-share-engagement";
 import { useShareVtt } from "@/hooks/use-share-vtt";
 import { useWatchTheater } from "@/hooks/use-watch-theater";
 import { WatchVideoVariantChrome } from "@/components/ui/watch-video-variant-chrome";
 import { readPlaylistAutoplayNext, writePlaylistAutoplayNext } from "@/lib/playlist-autoplay";
-import { cn, formatDurationCompact, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
+import { cn, formatDate, formatDuration, formatDurationCompact, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
+import {
+  catalogPlaylistItems,
+  parsePlaylistVideoSort,
+  PLAYLIST_VIDEO_SORT,
+  type PlaylistVideoSort,
+} from "@/lib/playlist-catalog";
 import { firstPlayable, lastIndexAtOrBefore, nextPlayable } from "@/lib/playlist-playable";
+import { paginateItems, parseCatalogPage, CATALOG_PAGE_SIZE } from "@/lib/catalog-page";
 import type { ChapterSeekSource, PlaylistNavFrom } from "@/lib/share-engagement";
 import { trackPlaylistNavigateDeduped } from "@/lib/share-engagement";
 import { playlistResumeKey } from "@/lib/video-resume";
 import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
+import {
+  COPY_LINK_CHIP,
+  COPY_LINK_CHIP_COPIED,
+  COPY_LINK_CHIP_IDLE,
+} from "@/components/share/public-share-header";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -57,6 +76,25 @@ const VideoPlayer = dynamic(
 const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 const EMPTY_ITEMS: PublicPlaylistItem[] = [];
 const NAV_FROM_KEY = "leap:playlist-nav-from";
+
+function playlistWatchHref(token: string, itemId: number, fromSlug: string | null): string {
+  const p = new URLSearchParams();
+  p.set("v", String(itemId));
+  if (fromSlug) p.set("from", fromSlug);
+  return `/share/p/${token}?${p.toString()}`;
+}
+
+function writeLandingParams(next: { q: string; sort: PlaylistVideoSort; page: number }) {
+  const url = new URL(window.location.href);
+  if (next.q.trim()) url.searchParams.set("q", next.q.trim());
+  else url.searchParams.delete("q");
+  if (next.sort !== "order") url.searchParams.set("sort", next.sort);
+  else url.searchParams.delete("sort");
+  if (next.page > 1) url.searchParams.set("page", String(next.page));
+  else url.searchParams.delete("page");
+  url.searchParams.delete("v");
+  window.history.replaceState(null, "", url.toString());
+}
 
 function formatPlaylistDuration(seconds: number): string {
   if (!seconds || seconds < 0) return "0m";
@@ -231,6 +269,15 @@ export function WatchShell({
   const queryClient = useQueryClient();
   const requestedId = Number(searchParams.get("v") || 0) || null;
   const fromSlug = searchParams.get("from");
+  const [landingQuery, setLandingQuery] = useState(searchParams.get("q") ?? "");
+  const [landingSort, setLandingSort] = useState<PlaylistVideoSort>(parsePlaylistVideoSort(searchParams.get("sort")));
+  const [landingPage, setLandingPage] = useState(() => parseCatalogPage(searchParams.get("page")));
+  const landingFilterKey = `${landingQuery}\0${landingSort}`;
+  const [appliedLandingFilterKey, setAppliedLandingFilterKey] = useState(landingFilterKey);
+  if (appliedLandingFilterKey !== landingFilterKey) {
+    setAppliedLandingFilterKey(landingFilterKey);
+    if (landingPage !== 1) setLandingPage(1);
+  }
   const engagementPath = useMemo(() => {
     if (!requestedId) return null;
     const q = fromSlug ? `?from=${encodeURIComponent(fromSlug)}` : "";
@@ -265,6 +312,15 @@ export function WatchShell({
   const companionPanelId = useId();
 
   const items = playlist?.items ?? EMPTY_ITEMS;
+  const landingItems = useMemo(
+    () => catalogPlaylistItems(items, landingQuery, landingSort),
+    [items, landingQuery, landingSort],
+  );
+  const landingPagingPage = appliedLandingFilterKey !== landingFilterKey ? 1 : landingPage;
+  const landingPaged = useMemo(
+    () => paginateItems(landingItems, landingPagingPage),
+    [landingItems, landingPagingPage],
+  );
   const current = useMemo(() => {
     if (!watching || !items.length) return undefined;
     return items.find((i) => i.id === requestedId);
@@ -287,6 +343,11 @@ export function WatchShell({
     if (!watching || !current?.playable) return;
     void sendPlaylistSharePageBeacon(token, current.id).catch(() => {});
   }, [token, watching, current?.id, current?.playable]);
+
+  useEffect(() => {
+    if (watching || !playlist) return;
+    writeLandingParams({ q: landingQuery, sort: landingSort, page: landingPaged.page });
+  }, [watching, playlist, landingQuery, landingSort, landingPaged.page]);
 
   const [videoVariant, setVideoVariant] = useState<"processed" | "original">("processed");
   const [variantItemId, setVariantItemId] = useState(current?.id);
@@ -454,7 +515,7 @@ export function WatchShell({
   }, [watching, itemRecording?.id, track, flush]);
 
   function watchUrl(itemId: number) {
-    return `/share/p/${token}?v=${itemId}`;
+    return playlistWatchHref(token, itemId, fromSlug);
   }
 
   function goTo(item: PublicPlaylistItem | undefined, play = true, from: PlaylistNavFrom = "sidebar") {
@@ -576,16 +637,18 @@ export function WatchShell({
 
   const allowVideo = itemRecording?.allow_video_download !== false;
   const allowFiles = itemRecording?.allow_files_download !== false;
-  const artefacts: ArtefactItem[] = allowFiles && itemRecording && current
-    ? itemRecording.available_files.map((ft) => ({
-        type: ft as ArtefactType,
-        href: getPlaylistShareFileUrl(token, current.id, ft),
-      }))
-    : [];
+  const artefacts: ArtefactItem[] =
+    itemRecording && current
+      ? itemRecording.available_files.map((ft) => ({
+          type: ft as ArtefactType,
+          href: allowFiles ? getPlaylistShareFileUrl(token, current.id, ft) : undefined,
+          locked: !allowFiles,
+        }))
+      : [];
   const sourceExtras =
     allowFiles && itemRecording ? sourceExtrasToArtefacts(itemRecording.source_extras, resolveStorageUrl) : [];
-  const hasVideo = !!itemRecording?.has_processed_video;
-  const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || (hasVideo && allowVideo);
+  const hasVideo = !!itemRecording?.has_processed_video || !!itemRecording?.has_original_video;
+  const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || hasVideo;
 
   return (
     <div className="bg-background">
@@ -606,7 +669,7 @@ export function WatchShell({
             <AgeRatingBadge />
             {watching ? (
               <Link
-                href={`/share/p/${token}`}
+                href={fromSlug ? `/share/p/${token}?from=${encodeURIComponent(fromSlug)}` : `/share/p/${token}`}
                 className="min-w-0 truncate rounded-sm text-sm text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
                 {playlist.name}
@@ -626,13 +689,7 @@ export function WatchShell({
                 setTimeout(() => setCopied(false), 2000);
               });
             }}
-            className={cn(
-              "flex min-h-9 items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-              copied
-                ? "border-success-fg/40 bg-success-fg/10 text-success-fg"
-                : "border-border bg-card text-secondary-foreground hover:border-primary/40",
-            )}
+            className={cn(COPY_LINK_CHIP, copied ? COPY_LINK_CHIP_COPIED : COPY_LINK_CHIP_IDLE)}
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? "Copied" : "Copy link"}
@@ -671,6 +728,8 @@ export function WatchShell({
               activeCueIdx={activeCueIdx}
               recordingId={itemRecording?.id}
               recordingTitle={itemRecording?.title ?? current?.title}
+              recordingStartTime={itemRecording?.start_time ?? current?.start_time}
+              recordingDuration={itemRecording?.duration ?? current?.duration ?? 0}
               processedPlayUrl={itemRecording?.play_url}
               originalPlayUrl={itemRecording?.original_play_url}
               mediaExpiresIn={itemRecording?.media_expires_in}
@@ -727,8 +786,9 @@ export function WatchShell({
                   {hasFiles && current && (
                     <CollapsibleCard title="Files">
                       <div className="flex flex-col gap-2">
-                        {hasVideo && allowVideo && (
+                        {hasVideo && (
                           <ShareVideoDownloadButton
+                            locked={!allowVideo}
                             download={() => getPlaylistShareMedia(token, current.id, true, playVariant)}
                           />
                         )}
@@ -815,13 +875,67 @@ export function WatchShell({
               ) : null}
             </section>
 
-            <VideoList
-              token={token}
-              items={items}
-              currentId={null}
-              onNavigate={() => setPlayIntent(true)}
-              onItemSelect={(item) => goTo(item, true, "landing")}
-            />
+            <div className="min-w-0">
+              {items.length > 0 && (
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                  <SearchInput
+                    id="playlist-catalog-search"
+                    className="min-w-0 sm:min-w-[15rem] sm:flex-[2]"
+                    value={landingQuery}
+                    onChange={setLandingQuery}
+                    placeholder="Search videos…"
+                  />
+                  <div className="min-w-0 sm:min-w-[11rem] sm:flex-1">
+                    <label htmlFor="playlist-catalog-sort" className={FILTER_LABEL}>
+                      Sort by
+                    </label>
+                    <FilterSelect
+                      id="playlist-catalog-sort"
+                      value={landingSort}
+                      options={[...PLAYLIST_VIDEO_SORT]}
+                      onChange={(v) => setLandingSort(v as PlaylistVideoSort)}
+                      filled={landingSort !== "order"}
+                    />
+                  </div>
+                </div>
+              )}
+              {items.length > 0 && landingItems.length === 0 && landingQuery.trim() ? (
+                <EmptyState
+                  icon={ListVideo}
+                  title={`No results for “${landingQuery.trim()}”`}
+                  description="Try a different search."
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setLandingQuery("")}
+                      className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                    >
+                      Clear search
+                    </button>
+                  }
+                />
+              ) : (
+                <VideoList
+                  token={token}
+                  fromSlug={fromSlug}
+                  items={landingPaged.items}
+                  currentId={null}
+                  onNavigate={() => setPlayIntent(true)}
+                  onItemSelect={(item) => goTo(item, true, "landing")}
+                  startNumber={(landingPaged.page - 1) * CATALOG_PAGE_SIZE + 1}
+                />
+              )}
+              {landingPaged.totalPages > 1 ? (
+                <Pagination
+                  page={landingPaged.page}
+                  totalPages={landingPaged.totalPages}
+                  total={landingPaged.total}
+                  perPage={CATALOG_PAGE_SIZE}
+                  onPageChange={setLandingPage}
+                  itemLabel="video"
+                />
+              ) : null}
+            </div>
           </div>
         )}
       </main>
@@ -852,6 +966,8 @@ function WatchLayout({
   activeCueIdx,
   recordingId,
   recordingTitle,
+  recordingStartTime,
+  recordingDuration,
   processedPlayUrl,
   originalPlayUrl,
   mediaExpiresIn,
@@ -893,6 +1009,8 @@ function WatchLayout({
   activeCueIdx: number;
   recordingId: number | undefined;
   recordingTitle?: string;
+  recordingStartTime?: string;
+  recordingDuration?: number;
   processedPlayUrl?: string | null;
   originalPlayUrl?: string | null;
   mediaExpiresIn?: number | null;
@@ -914,18 +1032,54 @@ function WatchLayout({
 }) {
   const { theater, setTheater } = useWatchTheater();
   const [autoplayNext, setAutoplayNext] = useState(readPlaylistAutoplayNext);
+  const [sidebarQuery, setSidebarQuery] = useState("");
+  const sidebarItems = useMemo(
+    () => catalogPlaylistItems(items, sidebarQuery, "order"),
+    [items, sidebarQuery],
+  );
   const playable = !!current?.playable && !gone;
   const showEndCard = playable && ended;
+  const dateLabel = formatDate(recordingStartTime ?? current?.start_time);
+  const durationLabel = formatDuration(recordingDuration || current?.duration || 0);
   const companionBody =
     activeTab === "videos" ? (
-      <VideoList
-        token={token}
-        items={items}
-        currentId={current?.id ?? null}
-        onNavigate={onNavigate}
-        onItemSelect={onItemSelect}
-        embedded
-      />
+      <div className="flex min-h-0 flex-col gap-3">
+        {items.length > 0 && (
+          <SearchInput
+            id="playlist-sidebar-search"
+            value={sidebarQuery}
+            onChange={setSidebarQuery}
+            placeholder="Search videos…"
+          />
+        )}
+        {items.length > 0 && sidebarItems.length === 0 && sidebarQuery.trim() ? (
+          <EmptyState
+            icon={ListVideo}
+            className="py-8"
+            title={`No results for “${sidebarQuery.trim()}”`}
+            description="Try a different search."
+            action={
+              <button
+                type="button"
+                onClick={() => setSidebarQuery("")}
+                className="text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+              >
+                Clear search
+              </button>
+            }
+          />
+        ) : (
+          <VideoList
+            token={token}
+            fromSlug={fromSlug}
+            items={sidebarItems}
+            currentId={current?.id ?? null}
+            onNavigate={onNavigate}
+            onItemSelect={onItemSelect}
+            embedded
+          />
+        )}
+      </div>
     ) : activeTab === "topics" && hasTopicsPanel && topicVersion ? (
       <AIContentEditor
         key={recordingId ?? 0}
@@ -957,7 +1111,7 @@ function WatchLayout({
               type="button"
               autoFocus
               onClick={onNext}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black transition-transform duration-150 ease-out active:scale-[0.96]"
+              className="pressable rounded-xl bg-white px-4 py-2 text-sm font-medium text-black"
             >
               Play next
             </button>
@@ -983,7 +1137,7 @@ function WatchLayout({
             type="button"
             autoFocus
             onClick={onNext}
-            className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black transition-transform duration-150 ease-out active:scale-[0.96]"
+            className="pressable rounded-xl bg-white px-4 py-2 text-sm font-medium text-black"
           >
             Play next
           </button>
@@ -1044,6 +1198,18 @@ function WatchLayout({
           <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
             {recordingTitle ?? current?.title ?? "Video unavailable"}
           </h1>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="flex items-center gap-2">
+              <Clock size={13} />
+              <span>{dateLabel}</span>
+              {durationLabel && (
+                <>
+                  <span aria-hidden="true" className="text-border">·</span>
+                  <span>{durationLabel}</span>
+                </>
+              )}
+            </span>
+          </div>
           <WatchVideoVariantChrome
             bothVariants={bothVariants}
             variant={videoVariant}
@@ -1096,28 +1262,35 @@ function WatchLayout({
 
 function VideoList({
   token,
+  fromSlug,
   items,
   currentId,
   onNavigate,
   onItemSelect,
   sticky = false,
   embedded = false,
+  startNumber,
 }: {
   token: string;
+  fromSlug: string | null;
   items: PublicPlaylistItem[];
   currentId: number | null;
   onNavigate?: () => void;
   onItemSelect?: (item: PublicPlaylistItem) => void;
   sticky?: boolean;
   embedded?: boolean;
+  /** 1-based index of the first visible row. Omit to show saved playlist position. */
+  startNumber?: number;
 }) {
   const list = (
     <ol className="space-y-1">
-      {items.map((item, idx) => {
+      {items.map((item, i) => {
         const active = currentId === item.id;
         const status = itemStatus(item);
+        const date = formatDate(item.start_time);
+        const n = startNumber != null ? startNumber + i : item.position + 1;
         const rowClass = cn(
-          "flex w-full min-h-11 min-w-0 items-center gap-3 rounded-xl p-2 text-left transition-colors",
+          "pressable pressable-block flex w-full min-h-11 min-w-0 items-center gap-3 rounded-xl p-2 text-left",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
           active && "bg-muted",
           !item.playable && "cursor-not-allowed opacity-60",
@@ -1125,7 +1298,7 @@ function VideoList({
         );
         const body = (
           <>
-            <span className="w-5 shrink-0 text-center text-xs tabular-nums text-muted-foreground">{idx + 1}</span>
+            <span className="w-7 shrink-0 text-center text-xs tabular-nums text-muted-foreground">{n}</span>
             <Thumb
               src={item.poster_url}
               posterAssetKey={item.poster_asset_key}
@@ -1136,7 +1309,12 @@ function VideoList({
               <span className={cn("line-clamp-2 text-sm font-medium leading-snug text-foreground", !item.playable && "text-muted-foreground")}>
                 {item.title}
               </span>
-              {status && <span className="mt-1 block text-xs text-muted-foreground">{status}</span>}
+              {(date !== "—" || status) && (
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  {date !== "—" ? <span className="tabular-nums">{date}</span> : null}
+                  {status && <span>{status}</span>}
+                </span>
+              )}
             </span>
           </>
         );
@@ -1157,7 +1335,7 @@ function VideoList({
                 </button>
               ) : (
                 <Link
-                  href={`/share/p/${token}?v=${item.id}`}
+                  href={playlistWatchHref(token, item.id, fromSlug)}
                   aria-current={active ? "true" : undefined}
                   onClick={onNavigate}
                   className={rowClass}

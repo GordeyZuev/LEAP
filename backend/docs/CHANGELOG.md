@@ -1,6 +1,230 @@
+## 2026-09-18: Catalog Sort by names the criterion
+
+- **Public course and channel** — the field is **Sort by**, matching list pages. Newest/Oldest are **Newest lecture** / **Oldest lecture** (recording `start_time`). Name and duration say direction (A–Z, longest first). Channel playlists: most videos / longest first. Course landing numbers follow the current sort/page, not the stored playlist index. Lecture dates format in Europe/Moscow so the public page does not hydrate a different day.
+- **Owner Content** — same option labels, but the field is **Order** (it writes positions, then stays on **Current order**). Course Order is disabled while search/dates are on (same as drag) and hidden for a single item. Channel video rows show the lecture date; channel rows can be moved with arrow keys, and a cancelled drag no longer sticks dimmed. Drag, arrows, and Order share one in-flight lock so two PUTs cannot overlap.
+
+### Файлы
+
+- `frontend/src/lib/playlist-catalog.ts`
+- `frontend/src/lib/channel-catalog.ts`
+- `frontend/src/components/filters/order-select.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/c/[slug]/channel-view.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/lib/utils.ts`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/CHANNELS.md`
+- `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-17: Saved catalog Order in the editor
+
+- **Playlist Content** — **Order** (newest / oldest / name / duration) writes watch positions; drag still works and returns the control to Manual. Public **Sort** remains a temporary view.
+- **Channel Content** — the same for playlists (name / videos / duration) and videos (newest / oldest / name / duration). Owner video rows now include `start_time` so Newest matches the public hub.
+
+### Файлы
+
+- `frontend/src/lib/channel-catalog.ts`
+- `frontend/src/lib/channel-catalog.test.ts`
+- `frontend/src/components/filters/order-select.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `frontend/src/app/c/[slug]/channel-view.tsx`
+- `frontend/src/api/channels.ts`
+- `backend/api/schemas/channel.py`
+- `backend/api/routers/channels.py`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/CHANNELS.md`
+
+---
+
+## 2026-09-17: Playlist settings picker, readable breakdowns, catalog pages
+
+- **Channels on a course** — settings use the same chip + Select dialog as automation templates, not an inline checklist. Cover uses the same label/hint pattern as other settings fields.
+- **Engagement breakdowns** — long chapter/template names are a ranked list with bars (no overlapping Y-axis ticks). Daily charts were already bucketed.
+- **Public catalogs** — search still runs on the full course/channel; the list pages 24 items (`?page=`) when there are more.
+
+### Файлы
+
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/components/charts/horizontal-breakdown-chart.tsx`
+- `frontend/src/components/recordings/share-analytics-panel.tsx`
+- `frontend/src/lib/catalog-page.ts`
+- `frontend/src/lib/catalog-page.test.ts`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/c/[slug]/channel-view.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/CHANNELS.md`
+- `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-17: Playlist pickers match the 200 cap
+
+- **Owner pickers** — `GET /playlists` `per_page` max is **200** (`MAX_PLAYLISTS_PER_USER`). Course and channel “add playlist” pickers fetch that page so names 101–200 are not missing. Add-recording dialogs use the recordings API ceiling (100) plus search, and say when more rows exist.
+- **Public catalogs** stay one payload: a course/channel is capped at 200 items; search/sort is client-side so a page cannot hide matches. Watch still uses `view=catalog` (no poster presign).
+
+### Файлы
+
+- `backend/api/routers/playlists.py`
+- `frontend/src/lib/constants.ts`
+- `frontend/src/components/playlists/playlist-picker.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/CHANNELS.md`
+- `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-17: Shared playlist search and MTS Link lecture dates
+
+- **Public playlists** — landing (`/share/p/{uuid}`) can search titles and sort (playlist order / newest / oldest / name / duration). `?q=` / `?sort=` stay in the URL; `?from=` from a channel is kept. Rows show the lecture date. Watch (`?v=`) has search in the playlist companion without changing course order or autoplay; the title shows date and duration like a single share page.
+- **MTS Link Date** — `recordings.start_time` is the event session start (`GET /eventsessions/{id}` `startsAt`), not record `createAt` (file appeared after the lecture). Naive UserAPI timestamps are Europe/Moscow. New/non-uploaded rows pick this up on the next sync. **Existing rows, including UPLOADED**, need the backfill after deploy (dry-run first): `uv run python scripts/backfill_mts_link_start_time.py` then `--apply`. UI Date, channel Newest, and Jinja `record_date` change immediately. Automation `sync_days` windows follow `start_time` (lectures that looked “today” because of upload time may leave a last-N-days job). Already-published YouTube/VK titles are not rewritten until a later run.
+
+### Файлы
+
+- `frontend/src/lib/playlist-catalog.ts`
+- `frontend/src/lib/playlist-catalog.test.ts`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `backend/api/helpers/mts_link_datetime.py`
+- `backend/api/routers/input_sources.py`
+- `backend/scripts/backfill_mts_link_start_time.py`
+- `backend/tests/unit/api/helpers/test_mts_link_datetime.py`
+- `backend/tests/unit/api/test_mts_link_sync.py`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/FAQ.md`
+
+---
+
+## 2026-09-17: Player controls stay after load
+
+- **Watch player** — Plyr chrome no longer disappears after the video becomes ready (or on HUD/help re-renders). Hover still shows the bar during playback; reload no longer leaves a bare `<video>` without buttons.
+
+### Файлы
+
+- `frontend/src/components/ui/video-player.tsx`
+
+---
+
+## 2026-09-17: Channel banner uncropped on phones
+
+- **Channel banner** — below `lg` the public page, owner preview, and channel cards show the uploaded file at full width (`h-auto`, no `object-cover`). From `lg`, the same `6:1` cover strip as before.
+
+### Файлы
+
+- `frontend/src/lib/constants.ts`
+- `frontend/src/app/c/[slug]/channel-view.tsx`
+- `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `frontend/src/app/(app)/channels/page.tsx`
+- `backend/docs/guides/CHANNELS.md`
+
+---
+
+## 2026-09-17: Watch title from Jinja, fixed Files squeeze
+
+- **Public watch** — recording `<h1>` uses API `title` (rendered LEAP `title_template` / look), not `display_name`. Same field as Open Graph. Playlist watch already used `title`.
+- **Files plaques** — hover inset is a fixed 3px per side (`.pressable-fixed`), so a long “Video – processed” row does not shrink by 2% of its width.
+
+### Файлы
+
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/globals.css`
+- `frontend/src/components/recordings/artefact-list.tsx`
+- `backend/docs/TECHNICAL.md`
+
+---
+
+## v0.11.0.1 (2026-09-16)
+
+Релиз: спокойнее hover/press; Admin заметнее; публичные скачивания с замком, не скрытием; Delete курса/канала в шапке; статус обработки по `on_air`. Автоматизация (окно дат, Preview, RUNNING) — ниже за **2026-09-16**. Миграций нет.
+
+---
+
+## 2026-09-16: Share download locks, Admin nav, safer Delete
+
+- **Admin** — sidebar link sits with Templates / Automation (not the footer). Settings role chip links to `/admin` when `role=admin`.
+- **Public Files** — turning off video or file download leaves the same file row faded, with a centered **Download locked** overlay on an opaque `--background` knockout (same chrome as the download row, no hover). Play and in-player captions still work; `download=true` stays **403**. `source_extras` is still omitted when file download is off (no extra S3 on share).
+- **Playlist / channel** — Delete moved to the page header (same red secondary control as presets), not next to the name field. Confirm dialog unchanged; available on every tab.
+- **Processing** — live work (`on_air`) shows a spinner on the status badge and the card/detail progress bar, including when the stored status is still Ready.
+
+### Файлы
+
+- `frontend/src/components/layout/sidebar.tsx`
+- `frontend/src/components/settings/account-panel.tsx`
+- `frontend/src/components/recordings/artefact-list.tsx`
+- `frontend/src/components/recordings/share-video-download-button.tsx`
+- `frontend/src/components/recordings/share-modal.tsx`
+- `frontend/src/app/share/[token]/share-view.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `frontend/src/components/ui/status-badge.tsx`
+- `frontend/src/components/recordings/pipeline-popover.tsx`
+- `frontend/src/components/recordings/recording-card.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `frontend/src/content/release-notes.ts`
+- `backend/docs/TECHNICAL.md`
+- `README.md`
+- `backend/docs/UPDATES.md`
+
+---
+
+## 2026-09-16: Restrained button and tile motion
+
+- **Press language** — `.pressable`: hover/press `scale(0.98)` (typical tactile 2–4%) plus a wash on press. Nested controls in `.pressable-group` (recording tiles, Run+config) don’t stack a second scale.
+- **Shared timing** — filter controls, chevrons, recording-card hover, and modals use the same 200ms curve. Duplicate `duration-150` on `CreatePlaceholder` removed. Playlist “Play next” uses `.pressable` instead of `scale(0.96)`.
+- **CollapsibleCard** — the whole header strip toggles (padding included). No hover wash. Optional `action` stays outside the trigger.
+
+### Файлы
+
+- `frontend/src/app/globals.css`
+- `frontend/src/components/ui/action-button.tsx`
+- `frontend/src/components/ui/section-card.tsx`
+- `frontend/src/components/ui/tabs.tsx`
+- `frontend/src/components/ui/toggle.tsx`
+- `frontend/src/components/ui/modal.tsx`
+- `frontend/src/components/ui/create-placeholder.tsx`
+- `frontend/src/lib/filter-field-classes.ts`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+
+---
+
 ## v0.11.0.0 (2026-09-16)
 
-Релиз: **каналы** и удобнее **публичный просмотр**; **аналитика вовлечённости** на share, курсе и канале (главы, досмотры, переходы между лекциями). Миграции **049–053** накатить до кода (**053** — данные вовлечённости). Подробности — **2026-09-15: Channels**, **2026-09-16: Public watch engagement analytics**, **2026-09-16: Public watch latency & player UX**, **2026-09-16: DeepSeek topics retry and host metrics**.
+Релиз: **каналы** и удобнее **публичный просмотр**; **аналитика вовлечённости** на share, курсе и канале (главы, досмотры, переходы между лекциями). Миграции **049–054** накатить до кода (**054** — automation `RUNNING` runs; **053** — данные вовлечённости). Подробности — **2026-09-15: Channels**, **2026-09-16: Public watch engagement analytics**, **2026-09-16: Public watch latency & player UX**, **2026-09-16: DeepSeek topics retry and host metrics**, **2026-09-16: Automation window, preview, and run status**.
+
+---
+
+## 2026-09-16: Automation window, preview, and run status
+
+- **Inclusive last-N days** in the **job timezone** (default Europe/Moscow). `N=1` is today only; Zoom/MTS `from`/`to` and DB `start_time` use the same calendar dates. Unbounded match (`sync_days` null) still refreshes providers for the last **30** days when sync is on.
+- **Preview** (`dry_run=true`) does **not** sync unless `sync=true`. Execute uses `sync_config.sync_on_run` unless `sync` is passed. Inactive jobs and a second execute while `RUNNING` return **409**.
+- **`sync_config`**: `sync_days` (1–30 or null), `max_recordings` (null = unlimited; MTS wait pings are not capped), `sync_on_run`. Matching follows **`template_ids` order**. `PATCH processing_config: null` now clears the override.
+- **History** — migration **054**: `finished_at` nullable, status `RUNNING`, one in-flight run per job. UI shows a live badge, compact recording lists (5 + Show all).
+
+### Файлы
+
+- `backend/api/helpers/automation_window.py`
+- `backend/api/tasks/automation.py`
+- `backend/api/routers/automation.py`
+- `backend/api/repositories/automation_repos.py`
+- `backend/api/schemas/automation/job.py`
+- `backend/api/helpers/beat_sync.py`
+- `backend/alembic/versions/054_running_automation_job_runs.py`
+- `backend/tests/unit/api/helpers/test_automation_window.py`
+- `frontend/src/app/(app)/automation/`
+- `frontend/src/components/automation/`
+- `frontend/src/components/ui/section-card.tsx`
+- `backend/docs/guides/AUTOMATION_CELERY_BEAT.md`
 
 ---
 

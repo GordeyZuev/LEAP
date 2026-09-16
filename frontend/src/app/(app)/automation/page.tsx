@@ -38,6 +38,7 @@ interface AutomationJob {
   next_run_at: string | null;
   run_count: number;
   created_at?: string | null;
+  is_running?: boolean;
 }
 
 interface AutomationJobListResponse {
@@ -97,6 +98,8 @@ function AutomationContent() {
       return res.data;
     },
     staleTime: STALE_TIME.catalog,
+    refetchInterval: (query) =>
+      (query.state.data?.items ?? []).some((job) => job.is_running) ? 2000 : false,
     ...listQueryOptions,
   });
 
@@ -139,7 +142,7 @@ function AutomationContent() {
         actions={
           <Link
             href="/automation/new"
-            className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-primary-hover transition-colors"
+            className="pressable flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-primary-hover"
           >
             <Plus size={16} /> New job
           </Link>
@@ -253,12 +256,14 @@ function AutomationContent() {
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-                      job.is_active
+                      job.is_running
+                        ? "bg-primary/10 text-primary"
+                        : job.is_active
                         ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"
                         : "bg-muted text-muted-foreground",
                     )}
                   >
-                    {job.is_active ? "Active" : "Inactive"}
+                    {job.is_running ? "Running" : job.is_active ? "Active" : "Inactive"}
                   </span>
                 </td>
                 <td className="px-6 py-4">
@@ -267,9 +272,15 @@ function AutomationContent() {
                       size="sm"
                       variant="secondary"
                       onClick={() => setRunJobId(job.id)}
-                      disabled={!job.is_active}
-                      title={job.is_active ? undefined : "Activate the job to run it"}
-                      isPending={runNow.isPending && runNow.variables === job.id}
+                      disabled={!job.is_active || job.is_running}
+                      title={
+                        job.is_running
+                          ? "This job is already running"
+                          : job.is_active
+                            ? undefined
+                            : "Activate the job to run it"
+                      }
+                      isPending={job.is_running || (runNow.isPending && runNow.variables === job.id)}
                       icon={<Play size={12} />}
                       pendingLabel="Running…"
                       className="hover:border-primary hover:bg-primary hover:text-white"

@@ -544,10 +544,9 @@ export default function CredentialsPage() {
                         )}
                         <ActionButton
                           size="sm"
-                          variant="secondary"
+                          variant="danger"
                           onClick={() => setDisconnectId(cred.id)}
                           icon={<X size={12} />}
-                          className="border-danger-fg/65 text-danger-fg hover:bg-danger-fg/10"
                         >
                           Disconnect
                         </ActionButton>
@@ -601,7 +600,7 @@ export default function CredentialsPage() {
                   key={p.key}
                   type="button"
                   onClick={() => selectPlatform(p.key)}
-                  className="flex-1 py-2 rounded-xl text-xs font-medium border transition-colors bg-card text-secondary-foreground border-border hover:bg-muted"
+                  className="pressable flex-1 py-2 rounded-xl text-xs font-medium border bg-card text-secondary-foreground border-border hover:bg-muted"
                 >
                   {p.label}
                 </button>

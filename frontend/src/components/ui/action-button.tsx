@@ -5,7 +5,7 @@ import { Check, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ActionButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "danger" | "neutral";
+  variant?: "primary" | "secondary" | "danger" | "destructive" | "neutral";
   size?: "md" | "sm";
   isPending?: boolean;
   isSuccess?: boolean;
@@ -22,11 +22,11 @@ const SIZES: Record<NonNullable<ActionButtonProps["size"]>, string> = {
 };
 
 const VARIANTS: Record<NonNullable<ActionButtonProps["variant"]>, string> = {
-  primary:   "bg-primary text-primary-foreground hover:bg-primary-hover",
-  secondary: "border border-border text-secondary-foreground hover:bg-muted",
-  // --destructive is tuned as a solid fill behind white text (globals.css).
-  danger:    "bg-destructive text-white hover:brightness-95",
-  neutral:   "bg-gray-900 text-white hover:bg-gray-800",
+  primary:      "bg-primary text-primary-foreground hover:bg-primary-hover",
+  secondary:    "border border-border text-secondary-foreground hover:bg-muted",
+  danger:       "border border-danger-fg/40 text-danger-fg hover:bg-danger-fg/10",
+  destructive: "bg-destructive text-white hover:brightness-95",
+  neutral:      "bg-gray-900 text-white hover:bg-gray-800",
 };
 
 const SUCCESS = "bg-green-600 text-white hover:bg-green-600";

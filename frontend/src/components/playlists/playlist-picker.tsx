@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
 import { addPlaylistItems, createPlaylist, listPlaylists, removePlaylistItem, type PlaylistListItem } from "@/api/playlists";
+import { LEAP_CATALOG_CAP } from "@/lib/constants";
 import { ActionButton } from "@/components/ui/action-button";
 import { ChecklistPicker } from "@/components/ui/checklist-picker";
 import { extractApiError } from "@/lib/utils";
@@ -42,7 +43,7 @@ export function PlaylistPicker({
 
   const { data } = useQuery({
     queryKey: ["playlists", "picker"],
-    queryFn: () => listPlaylists({ per_page: 100, sort_by: "name", sort_order: "asc" }),
+    queryFn: () => listPlaylists({ per_page: LEAP_CATALOG_CAP, sort_by: "name", sort_order: "asc" }),
   });
 
   const playlists = data?.items ?? EMPTY_PLAYLISTS;

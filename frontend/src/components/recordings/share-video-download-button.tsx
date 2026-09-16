@@ -4,15 +4,21 @@ import { useState } from "react";
 import { ArrowDownToLine, Loader2, Video } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { ARTEFACT_ROW, ARTEFACT_ROW_DEFAULT } from "@/components/recordings/artefact-list";
+import { ARTEFACT_ROW, ARTEFACT_ROW_DEFAULT, LockedArtefactRow } from "@/components/recordings/artefact-list";
 
 export function ShareVideoDownloadButton({
   download,
+  locked = false,
 }: {
   download: () => Promise<{ url: string }>;
+  locked?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+
+  if (locked) {
+    return <LockedArtefactRow icon={<Video size={13} className="shrink-0" />} label="Video" extension="mp4" />;
+  }
 
   async function handleDownload() {
     setLoading(true);
@@ -51,7 +57,7 @@ export function ShareVideoDownloadButton({
       {!error && (
         <span className="shrink-0 text-[10px] font-semibold uppercase text-muted-foreground">mp4</span>
       )}
-      <ArrowDownToLine size={11} className={cn("shrink-0", error ? undefined : "text-muted-foreground")} />
+      <ArrowDownToLine size={13} className={cn("shrink-0", error ? undefined : "text-muted-foreground")} />
     </button>
   );
 }

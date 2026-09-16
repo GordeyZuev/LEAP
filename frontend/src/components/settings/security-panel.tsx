@@ -288,10 +288,9 @@ export function SecurityPanel() {
             Sign out other devices
           </ActionButton>
           <ActionButton
-            variant="secondary"
+            variant="danger"
             onClick={() => setLogoutAllOpen(true)}
             icon={<LogOut />}
-            className="border-danger-fg/65 text-danger-fg hover:bg-danger-fg/10"
           >
             Sign out everywhere
           </ActionButton>
@@ -311,14 +310,14 @@ export function SecurityPanel() {
               </p>
             </div>
             <ActionButton
-              variant="secondary"
+              variant="danger"
               onClick={() => {
                 setDeleteAccountPassword("");
                 setDeleteAccountError("");
                 setDeleteAccountOpen(true);
               }}
               icon={<Trash2 />}
-              className="shrink-0 border-danger-fg/65 text-danger-fg hover:bg-danger-fg/10"
+              className="shrink-0"
             >
               Delete account
             </ActionButton>

@@ -4,9 +4,11 @@ Ordered collections of recordings for watching as a course. This is **not** a Yo
 
 Limits: **200 playlists per user**, **200 items per playlist**, unique `name` per user. Schema: `playlists` / `playlist_items` (migration **043**). REST detail: [TECHNICAL.md](../TECHNICAL.md) (Public Share Links, Playlists REST).
 
+Owner **Playlists** grid is SQL-paginated. A course itself is a capped catalog: public `/share/p/{uuid}` and the editor load **all items in one GET** (≤200) so search, sort, autoplay, and reorder see the full set. The public list then pages 24 rows in the UI. Watch fetches `view=catalog` (no poster presign). The recordings library is unbounded: add-to-playlist search uses the recordings list API (`per_page` ≤100) plus name search. `GET /playlists` pickers use `per_page` up to **200**.
+
 ## Owner UI and API
 
-Sidebar **Playlists** → card grid → editor (reorder by drag). On a recording, **Publications** groups LEAP Link and course membership; row icons sit vertically centered with the status text and actions. Membership can also show as chips in that card.
+Sidebar **Playlists** → card grid → editor (drag or **Order**: newest lecture, oldest lecture, name A–Z, longest first). That stored order is the public “Playlist order”. On a recording, **Publications** groups LEAP Link and course membership; row icons sit vertically centered with the status text and actions. Membership can also show as chips in that card.
 
 **List cards** (enabled share only): **LEAP** opens `{origin}/share/p/{uuid}` in a new tab; **Copy link** copies that absolute URL. Disabled or never-enabled playlists have no list controls (enable from the editor). Poster is a custom `cover_key` when set, otherwise the first playable lecture. Name and duration go to the editor. Attach the course to one or more **Channels** from the editor or a recording.
 
@@ -33,7 +35,7 @@ URL: `{origin}/share/p/{uuid}`. Owner list **LEAP** / **Copy link** use this URL
 
 Recording share uses the same Enable / Disable / Rotate contract. Public recording URL is `{origin}/share/{uuid}`. Migration **044** adds `recordings.share_enabled`. Messengers (Telegram) unfurl that URL via Open Graph (`opengraph-image` + `GET /api/v1/share/{token}/poster`).
 
-The playlist **landing** (`/share/p/{uuid}`) is the course page: first-item poster (image only; the picture links to the first playable video) and a video list. Opening a video uses `/share/p/{uuid}?v={itemId}` (real navigation). Watch uses the same layout as recording share: player, companion tabs **Chapters / Transcript / Playlist**, then **Summary & questions** (generated Theme, summary, questions), Files, and **Created Overview** for that item. Items without processed video are listed but not playable. Course landing has no Files panel. Opening a **playable** video on watch counts as a **page view on that recording** (`POST …/items/{itemId}/beacon`, same Redis ~30 min dedup as recording share). Processing rows and the landing page do not increment views.
+The playlist **landing** (`/share/p/{uuid}`) is the course page: first-item poster (image only; the picture links to the first playable video) and a video list. Viewers can search titles and **Sort by** playlist order / newest lecture / oldest lecture / name A–Z / longest first (`?q=` / `?sort=`; `newest`/`oldest` are lecture `start_time`). Lists longer than 24 videos paginate in the UI (`?page=`), still searching the full catalog. `?from=` from a channel is kept. Opening a video uses `/share/p/{uuid}?v={itemId}` (real navigation). Watch uses the same layout as recording share: player, companion tabs **Chapters / Transcript / Playlist** (the playlist tab can search without reordering), then **Summary & questions** (generated Theme, summary, questions), Files, and **Created Overview** for that item. Items without processed video are listed but not playable. Course landing has no Files panel. Opening a **playable** video on watch counts as a **page view on that recording** (`POST …/items/{itemId}/beacon`, same Redis ~30 min dedup as recording share). Processing rows and the landing page do not increment views.
 
 ## Revoke / disable and 404
 

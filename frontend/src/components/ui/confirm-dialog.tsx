@@ -51,7 +51,7 @@ export function ConfirmDialog({
             {cancelLabel}
           </ActionButton>
           <ActionButton
-            variant={danger ? "danger" : "primary"}
+            variant={danger ? "destructive" : "primary"}
             onClick={onConfirm}
             isPending={isPending}
             pendingLabel={pendingLabel}

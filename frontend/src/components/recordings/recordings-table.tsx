@@ -92,7 +92,7 @@ function RowMenu({
         aria-label="More actions"
         aria-expanded={open}
         className={cn(
-          "flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-secondary-foreground",
+          "pressable flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted hover:text-secondary-foreground",
           open && "border-primary/30 bg-primary/5 text-primary"
         )}
       >
@@ -406,7 +406,7 @@ export function RecordingsTable({
                           disabled={isLoading}
                           title="Restore"
                           aria-label={`Restore ${r.display_name}`}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-success-fg/50 text-success-fg hover:bg-success-fg/10 disabled:opacity-50"
+                          className="pressable flex h-7 w-7 items-center justify-center rounded-lg border border-success-fg/50 text-success-fg hover:bg-success-fg/10 disabled:opacity-50"
                         >
                           <ArchiveRestore size={13} />
                         </button>
@@ -419,7 +419,7 @@ export function RecordingsTable({
                           disabled={!r.can_run || isLoading}
                           title="Run"
                           aria-label={`Run ${r.display_name}`}
-                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:border-primary hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                          className="pressable flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:border-primary hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Play size={11} />
                         </button>
@@ -430,7 +430,7 @@ export function RecordingsTable({
                             disabled={isLoading}
                             title="Pause"
                             aria-label={`Pause ${r.display_name}`}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                            className="pressable flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Pause size={11} />
                           </button>

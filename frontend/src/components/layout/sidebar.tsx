@@ -259,10 +259,6 @@ export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: 
             </Link>
           );
         })}
-      </nav>
-
-      {/* Bottom */}
-      <div className="px-2 pb-4 space-y-1">
         {isAdmin && (
           <Link
             href="/admin"
@@ -274,6 +270,10 @@ export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: 
             <span className={labelClass}>Admin</span>
           </Link>
         )}
+      </nav>
+
+      {/* Bottom */}
+      <div className="px-2 pb-4 space-y-1">
         <Link
           href="/docs"
           title={effectiveCollapsed ? "Documentation" : undefined}

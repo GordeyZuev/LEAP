@@ -491,10 +491,10 @@ export default function SourcesPage() {
                 </ActionButton>
                 <ActionButton
                   size="sm"
-                  variant="secondary"
+                  variant="danger"
                   onClick={() => setDeleteId(s.id)}
                   icon={<Trash2 size={12} />}
-                  className="ml-auto border-red-200 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                  className="ml-auto"
                 />
               </div>
             </div>
@@ -540,7 +540,7 @@ export default function SourcesPage() {
                     {(["ZOOM", "MTS_LINK", "YANDEX_DISK", "VIDEO_URL"] as SourceType[]).map((t) => (
                       <button key={t} type="button"
                         onClick={() => setForm((f) => ({ ...f, platform: t, credential_id: "" }))}
-                        className={cn("flex-1 py-2 rounded-xl text-xs font-medium border transition-colors",
+                        className={cn("pressable flex-1 py-2 rounded-xl text-xs font-medium border",
                           form.platform === t ? "bg-primary text-white border-primary" : "bg-card text-secondary-foreground border-border hover:bg-muted"
                         )}
                       >

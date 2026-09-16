@@ -6,12 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Calendar, ChevronRight, Clock, LayoutGrid, List, ListVideo, Radio } from "lucide-react";
 
-import {
-  getPublicChannel,
-  sendChannelPageBeacon,
-  type PublicChannelPlaylist,
-  type PublicChannelVideo,
-} from "@/api/share";
+import { getPublicChannel, sendChannelPageBeacon } from "@/api/share";
 import { FilterSelect } from "@/components/filters/filter-select";
 import { SearchInput } from "@/components/filters/search-input";
 import { PlaylistStackPoster } from "@/components/playlists/playlist-stack-poster";
@@ -19,80 +14,45 @@ import { StablePosterImage } from "@/components/recordings/recording-poster";
 import { PUBLIC_PAGE_MAIN } from "@/components/share/public-share-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { Pagination } from "@/components/ui/pagination";
 import { ExpandableFormattedText, FormattedText } from "@/components/ui/formatted-text";
 import { Tabs } from "@/components/ui/tabs";
-import { CHANNEL_BANNER_ASPECT } from "@/lib/constants";
-import { FILTER_LABEL } from "@/lib/filter-field-classes";
+import { CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
 import {
-  cn,
-  formatDate,
-  formatDurationCompact,
-  httpStatus,
-  stripLeadingTimestamp,
-} from "@/lib/utils";
+  CHANNEL_PLAYLIST_SORT,
+  CHANNEL_VIDEO_SORT,
+  channelVideoSearchName,
+  parseChannelPlaylistSort,
+  parseChannelVideoSort,
+  sortChannelPlaylists,
+  sortChannelVideos,
+  type ChannelPlaylistSort,
+  type ChannelVideoSort,
+} from "@/lib/channel-catalog";
+import { CHANNEL_BANNER_FRAME, CHANNEL_BANNER_IMG } from "@/lib/constants";
+import { CATALOG_PAGE_SIZE, paginateItems, parseCatalogPage } from "@/lib/catalog-page";
+import { FILTER_LABEL } from "@/lib/filter-field-classes";
+import { cn, formatDate, formatDurationCompact, httpStatus } from "@/lib/utils";
 
-const CATALOG_CARD =
-  "flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-4 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md";
-const CATALOG_ROW =
-  "flex items-start gap-4 overflow-hidden rounded-[1.25rem] border border-border bg-card p-3 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md";
+const CATALOG_CARD = cn("flex flex-col overflow-hidden p-4", CARD_SHELL, CARD_INTERACTIVE);
+const CATALOG_ROW = cn(
+  "flex items-start gap-4 overflow-hidden rounded-[1.25rem] border border-border bg-card p-3 shadow-sm",
+  CARD_INTERACTIVE,
+);
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(min(16rem,100%),1fr))] gap-4";
 const LIST = "flex flex-col gap-3";
 const CATALOG_PANEL = "channel-catalog";
 const VIEW_BTN =
-  "flex size-9 items-center justify-center rounded-lg border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+  "pressable flex size-9 items-center justify-center rounded-lg border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 const VIEW_ON = "border-primary bg-primary text-white";
 const VIEW_OFF = "border-border bg-card text-muted-foreground hover:bg-muted";
 
-const VIDEO_SORT = [
-  { value: "order", label: "Channel order" },
-  { value: "newest", label: "Newest" },
-  { value: "oldest", label: "Oldest" },
-  { value: "name", label: "Name" },
-  { value: "duration", label: "Duration" },
-] as const;
-
-const PLAYLIST_SORT = [
-  { value: "order", label: "Channel order" },
-  { value: "name", label: "Name" },
-  { value: "videos", label: "Videos" },
-  { value: "duration", label: "Duration" },
-] as const;
-
 type Tab = "videos" | "playlists";
 type ViewMode = "grid" | "list";
-type VideoSort = (typeof VIDEO_SORT)[number]["value"];
-type PlaylistSort = (typeof PLAYLIST_SORT)[number]["value"];
-
-function videoName(v: PublicChannelVideo): string {
-  return stripLeadingTimestamp(v.title);
-}
 
 function matchesQuery(haystack: string, q: string): boolean {
   if (!q) return true;
   return haystack.toLowerCase().includes(q.trim().toLowerCase());
-}
-
-function sortVideos(items: PublicChannelVideo[], sort: VideoSort): PublicChannelVideo[] {
-  const copy = [...items];
-  if (sort === "order") return copy;
-  copy.sort((a, b) => {
-    if (sort === "newest") return (b.start_time ?? "").localeCompare(a.start_time ?? "");
-    if (sort === "oldest") return (a.start_time ?? "").localeCompare(b.start_time ?? "");
-    if (sort === "name") return videoName(a).localeCompare(videoName(b), undefined, { sensitivity: "base" });
-    return (b.duration ?? 0) - (a.duration ?? 0);
-  });
-  return copy;
-}
-
-function sortPlaylists(items: PublicChannelPlaylist[], sort: PlaylistSort): PublicChannelPlaylist[] {
-  const copy = [...items];
-  if (sort === "order") return copy;
-  copy.sort((a, b) => {
-    if (sort === "name") return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-    if (sort === "videos") return b.video_count - a.video_count;
-    return (b.duration_sum ?? 0) - (a.duration_sum ?? 0);
-  });
-  return copy;
 }
 
 function DurationBadge({ seconds }: { seconds: number | null | undefined }) {
@@ -137,15 +97,7 @@ function parseView(raw: string | null): ViewMode {
   return raw === "list" ? "list" : "grid";
 }
 
-function parseVideoSort(raw: string | null): VideoSort {
-  return VIDEO_SORT.some((o) => o.value === raw) ? (raw as VideoSort) : "order";
-}
-
-function parsePlaylistSort(raw: string | null): PlaylistSort {
-  return PLAYLIST_SORT.some((o) => o.value === raw) ? (raw as PlaylistSort) : "order";
-}
-
-function writeParams(next: { tab: Tab; q: string; sort: string; view: ViewMode }) {
+function writeParams(next: { tab: Tab; q: string; sort: string; view: ViewMode; page: number }) {
   const url = new URL(window.location.href);
   if (next.tab === "videos") url.searchParams.set("tab", "videos");
   else url.searchParams.delete("tab");
@@ -155,6 +107,8 @@ function writeParams(next: { tab: Tab; q: string; sort: string; view: ViewMode }
   else url.searchParams.delete("sort");
   if (next.view === "list") url.searchParams.set("view", "list");
   else url.searchParams.delete("view");
+  if (next.page > 1) url.searchParams.set("page", String(next.page));
+  else url.searchParams.delete("page");
   window.history.replaceState(null, "", url.toString());
 }
 
@@ -162,9 +116,16 @@ export function ChannelPublicView({ slug }: { slug: string }) {
   const sp = useSearchParams();
   const [tab, setTab] = useState<Tab>(sp.get("tab") === "videos" ? "videos" : "playlists");
   const [query, setQuery] = useState(sp.get("q") ?? "");
-  const [videoSort, setVideoSort] = useState<VideoSort>(parseVideoSort(sp.get("sort")));
-  const [playlistSort, setPlaylistSort] = useState<PlaylistSort>(parsePlaylistSort(sp.get("sort")));
+  const [videoSort, setVideoSort] = useState<ChannelVideoSort>(parseChannelVideoSort(sp.get("sort")));
+  const [playlistSort, setPlaylistSort] = useState<ChannelPlaylistSort>(parseChannelPlaylistSort(sp.get("sort")));
   const [view, setView] = useState<ViewMode>(parseView(sp.get("view")));
+  const [catalogPage, setCatalogPage] = useState(() => parseCatalogPage(sp.get("page")));
+  const catalogFilterKey = `${tab}\0${query}\0${tab === "videos" ? videoSort : playlistSort}`;
+  const [appliedFilterKey, setAppliedFilterKey] = useState(catalogFilterKey);
+  if (appliedFilterKey !== catalogFilterKey) {
+    setAppliedFilterKey(catalogFilterKey);
+    if (catalogPage !== 1) setCatalogPage(1);
+  }
 
   const { data, error, isPending, refetch } = useQuery({
     queryKey: ["public-channel", slug],
@@ -178,23 +139,31 @@ export function ChannelPublicView({ slug }: { slug: string }) {
 
   const sort = tab === "videos" ? videoSort : playlistSort;
 
-  useEffect(() => {
-    writeParams({ tab, q: query, sort, view });
-  }, [tab, query, sort, view]);
-
   const videos = useMemo(() => {
     if (!data) return [];
     const q = query.trim();
-    const filtered = data.videos.filter((v) => matchesQuery(`${videoName(v)} ${v.blurb ?? ""}`, q));
-    return sortVideos(filtered, videoSort);
+    const filtered = data.videos.filter((v) =>
+      matchesQuery(`${channelVideoSearchName(v.title)} ${v.blurb ?? ""}`, q),
+    );
+    return sortChannelVideos(filtered, videoSort);
   }, [data, query, videoSort]);
 
   const playlists = useMemo(() => {
     if (!data) return [];
     const q = query.trim();
     const filtered = data.playlists.filter((p) => matchesQuery(`${p.name} ${p.blurb ?? ""}`, q));
-    return sortPlaylists(filtered, playlistSort);
+    return sortChannelPlaylists(filtered, playlistSort);
   }, [data, query, playlistSort]);
+
+  const pagingPage = appliedFilterKey !== catalogFilterKey ? 1 : catalogPage;
+  const pagedVideos = paginateItems(videos, pagingPage);
+  const pagedPlaylists = paginateItems(playlists, pagingPage);
+  const catalogPaged = tab === "videos" ? pagedVideos : pagedPlaylists;
+
+  useEffect(() => {
+    if (!data) return;
+    writeParams({ tab, q: query, sort, view, page: catalogPaged.page });
+  }, [data, tab, query, sort, view, catalogPaged.page]);
 
   if (httpStatus(error) === 404) {
     return (
@@ -221,9 +190,9 @@ export function ChannelPublicView({ slug }: { slug: string }) {
   return (
     <div>
       {data.banner_url ? (
-        <div className={`${CHANNEL_BANNER_ASPECT} w-full overflow-hidden bg-muted`}>
+        <div className={CHANNEL_BANNER_FRAME}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={data.banner_url} alt="" className="h-full w-full object-cover" />
+          <img src={data.banner_url} alt="" className={CHANNEL_BANNER_IMG} />
         </div>
       ) : null}
       <main className={PUBLIC_PAGE_MAIN}>
@@ -266,21 +235,23 @@ export function ChannelPublicView({ slug }: { slug: string }) {
             />
             <div className="min-w-0 sm:min-w-[11rem] sm:flex-1">
               <label htmlFor="channel-catalog-sort" className={FILTER_LABEL}>
-                Sort
+                Sort by
               </label>
               {tab === "videos" ? (
                 <FilterSelect
                   id="channel-catalog-sort"
                   value={videoSort}
-                  options={[...VIDEO_SORT]}
-                  onChange={(v) => setVideoSort(v as VideoSort)}
+                  options={[...CHANNEL_VIDEO_SORT]}
+                  onChange={(v) => setVideoSort(v as ChannelVideoSort)}
+                  filled={videoSort !== "order"}
                 />
               ) : (
                 <FilterSelect
                   id="channel-catalog-sort"
                   value={playlistSort}
-                  options={[...PLAYLIST_SORT]}
-                  onChange={(v) => setPlaylistSort(v as PlaylistSort)}
+                  options={[...CHANNEL_PLAYLIST_SORT]}
+                  onChange={(v) => setPlaylistSort(v as ChannelPlaylistSort)}
+                  filled={playlistSort !== "order"}
                 />
               )}
             </div>
@@ -344,8 +315,8 @@ export function ChannelPublicView({ slug }: { slug: string }) {
           )}
           {tab === "videos" && videos.length > 0 && (
             <ul className={view === "grid" ? GRID : LIST}>
-              {videos.map((v) => {
-                const name = videoName(v);
+              {pagedVideos.items.map((v) => {
+                const name = channelVideoSearchName(v.title);
                 const href = `/share/${v.share_token}?from=${encodeURIComponent(slug)}`;
                 const date = formatDate(v.start_time);
                 const duration = formatDurationCompact(v.duration);
@@ -404,7 +375,7 @@ export function ChannelPublicView({ slug }: { slug: string }) {
           )}
           {tab === "playlists" && playlists.length > 0 && (
             <ul className={view === "grid" ? GRID : LIST}>
-              {playlists.map((p) => {
+              {pagedPlaylists.items.map((p) => {
                 const href = `/share/p/${p.share_token}?from=${encodeURIComponent(slug)}`;
                 const duration = formatDurationCompact(p.duration_sum);
                 const list = view === "list";
@@ -456,6 +427,16 @@ export function ChannelPublicView({ slug }: { slug: string }) {
               })}
             </ul>
           )}
+          {catalogPaged.totalPages > 1 ? (
+            <Pagination
+              page={catalogPaged.page}
+              totalPages={catalogPaged.totalPages}
+              total={catalogPaged.total}
+              perPage={CATALOG_PAGE_SIZE}
+              onPageChange={setCatalogPage}
+              itemLabel={tab === "videos" ? "video" : "playlist"}
+            />
+          ) : null}
         </div>
       </main>
     </div>

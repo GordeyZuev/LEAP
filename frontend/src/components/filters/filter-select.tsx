@@ -69,6 +69,8 @@ interface FilterSelectProps<V extends string | number = string> {
   /** Applied to the trigger so an external <label htmlFor> resolves. */
   id?: string;
   "aria-describedby"?: string;
+  /** Override filled chrome. Default: filled when value is non-empty. */
+  filled?: boolean;
 }
 
 export function FilterSelect<V extends string | number = string>({
@@ -81,6 +83,7 @@ export function FilterSelect<V extends string | number = string>({
   ariaLabel,
   id,
   "aria-describedby": describedBy,
+  filled,
 }: FilterSelectProps<V>) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -206,6 +209,7 @@ export function FilterSelect<V extends string | number = string>({
         disabled={disabled}
         role="combobox"
         aria-label={ariaLabel}
+        title={ariaLabel}
         aria-describedby={describedBy}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -219,7 +223,7 @@ export function FilterSelect<V extends string | number = string>({
         className={cn(
           FILTER_CONTROL,
           "flex w-full items-center justify-between gap-2 text-left font-medium",
-          hasSelection ? cn(FILTER_CONTROL_FILLED, "text-primary") : "text-secondary-foreground",
+          (filled ?? hasSelection) ? cn(FILTER_CONTROL_FILLED, "text-primary") : "text-secondary-foreground",
           compact && "min-h-9 px-2.5 py-1 text-xs",
           disabled && "cursor-not-allowed opacity-50",
         )}
@@ -227,7 +231,7 @@ export function FilterSelect<V extends string | number = string>({
         <span className="truncate">{selected?.label ?? "—"}</span>
         <ChevronDown
           size={compact ? 13 : 16}
-          className={cn("shrink-0 opacity-60 transition-transform duration-150", open && "rotate-180")}
+          className={cn("shrink-0 opacity-60 motion-reduce:transition-none transition-transform duration-200 ease-out", open && "rotate-180")}
         />
       </button>
 

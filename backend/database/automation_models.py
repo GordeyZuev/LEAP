@@ -64,13 +64,13 @@ class AutomationJobRunModel(Base):
     job_id = Column(Integer, ForeignKey("automation_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # SUCCESS | FAILED | SKIPPED — what the task returned.
+    # RUNNING | SUCCESS | FAILED | SKIPPED
     status = Column(String(20), nullable=False)
     # SCHEDULE | MANUAL — how the run was triggered.
     trigger = Column(String(20), nullable=False, default="SCHEDULE")
 
     started_at = Column(DateTime(timezone=True), nullable=False)
-    finished_at = Column(DateTime(timezone=True), nullable=False)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
 
     synced_count = Column(Integer, nullable=False, default=0)

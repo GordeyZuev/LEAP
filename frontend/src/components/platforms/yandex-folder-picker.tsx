@@ -186,7 +186,7 @@ export function YandexFolderPicker({
               <button
                 type="button"
                 onClick={() => onChange("")}
-                className="shrink-0 text-muted-foreground transition-colors duration-150 hover:text-secondary-foreground"
+                className="shrink-0 text-muted-foreground transition-colors duration-200 hover:text-secondary-foreground"
                 aria-label="Clear folder path"
               >
                 <X size={14} />
@@ -211,7 +211,7 @@ export function YandexFolderPicker({
               type="button"
               onClick={() => setOpen(false)}
               aria-label="Close dialog"
-              className="text-muted-foreground transition-colors duration-150 hover:text-secondary-foreground"
+              className="text-muted-foreground transition-colors duration-200 hover:text-secondary-foreground"
             >
               <X size={16} />
             </button>
@@ -224,7 +224,7 @@ export function YandexFolderPicker({
                   <button
                     type="button"
                     className={cn(
-                      "max-w-[10rem] truncate rounded-md px-1.5 py-0.5 transition-colors duration-150",
+                      "max-w-[10rem] truncate rounded-md px-1.5 py-0.5 transition-colors duration-200",
                       idx === arr.length - 1
                         ? "font-medium text-foreground"
                         : "text-primary hover:bg-muted",
@@ -258,7 +258,7 @@ export function YandexFolderPicker({
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Filter folders…"
                 disabled={!!error}
-                className={cn(FILTER_CONTROL, "w-full py-2 pl-9 pr-3 text-sm transition-colors duration-150")}
+                className={cn(FILTER_CONTROL, "pl-9 pr-3")}
               />
             </div>
           </div>
@@ -266,7 +266,7 @@ export function YandexFolderPicker({
           <div className="relative min-h-[16rem] flex-1">
             <div
               className={cn(
-                "h-full max-h-[min(24rem,45vh)] overflow-y-auto px-3 py-2 transition-opacity duration-150",
+                "h-full max-h-[min(24rem,45vh)] overflow-y-auto px-3 py-2 transition-opacity duration-200",
                 isRefreshing && "pointer-events-none opacity-60",
               )}
               aria-busy={isFetching}
@@ -300,7 +300,7 @@ export function YandexFolderPicker({
                     <li key={item.path}>
                       <button
                         type="button"
-                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors duration-150 hover:bg-muted"
+                        className="pressable pressable-block flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-muted"
                         onClick={() => openFolder(item)}
                         disabled={isFetching}
                       >
@@ -329,7 +329,7 @@ export function YandexFolderPicker({
 
             {(isInitialLoad || isRefreshing) && !error && (
               <div
-                className="pointer-events-none absolute inset-0 flex items-center justify-center bg-card/50 backdrop-blur-[1px] transition-opacity duration-150"
+                className="pointer-events-none absolute inset-0 flex items-center justify-center bg-card/50 backdrop-blur-[1px] transition-opacity duration-200"
                 aria-hidden="true"
               >
                 <Loader2 size={20} className="animate-spin text-muted-foreground" />

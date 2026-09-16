@@ -18,6 +18,11 @@ from api.helpers.blank_record import (
     is_mts_link_blank,
     positive_duration_seconds,
 )
+from api.helpers.mts_link_datetime import (
+    load_event_session,
+    resolve_mts_link_start_time,
+    session_starts_at_iso,
+)
 from api.helpers.text import collapse_whitespace
 from api.repositories.auth_repos import UserCredentialRepository
 from api.repositories.config_repos import UserConfigRepository
@@ -636,19 +641,6 @@ def _mts_link_datetime_bound(value: str | None, end_of_day: bool) -> str | None:
     return value
 
 
-def _parse_mts_link_created_at(value: str | None) -> datetime:
-    """Parse ``createAt`` into an aware datetime, falling back to now on unknown formats."""
-    if value:
-        text = value.strip().replace("Z", "+00:00")
-        for parser in (datetime.fromisoformat, lambda v: datetime.strptime(v, "%Y-%m-%d %H:%M:%S")):
-            try:
-                parsed = parser(text)
-            except (ValueError, TypeError):
-                continue
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-    return datetime.now(UTC)
-
-
 async def _resolve_mts_link_user_id(mts_api, email: str) -> int:
     """Resolve a lecturer email to an MTS Link userId.
 
@@ -706,6 +698,7 @@ def _build_mts_link_metadata(
     mts_user_id: int,
     download_url: str | None,
     duration_seconds: float | None = None,
+    session_starts_at: str | None = None,
 ) -> dict:
     """Build source metadata for an MTS Link online recording.
 
@@ -718,7 +711,7 @@ def _build_mts_link_metadata(
     event_session_id = event_session.get("id") if isinstance(event_session, dict) else None
     online_size = int(record.get("size") or 0)
 
-    return {
+    payload = {
         "mts_record_id": record.get("id"),
         "event_session_id": event_session_id,
         "mts_user_id": mts_user_id,
@@ -730,6 +723,9 @@ def _build_mts_link_metadata(
         "download_url": download_url,
         "source_processing_incomplete": duration_seconds is None and online_size == 0 and download_url is None,
     }
+    if session_starts_at:
+        payload["session_starts_at"] = session_starts_at
+    return payload
 
 
 async def _sync_mts_link_source(
@@ -768,6 +764,7 @@ async def _sync_mts_link_source(
     saved_count = 0
     updated_count = 0
     errors: list[str] = []
+    event_sessions: dict = {}
 
     for email in config.user_emails:
         try:
@@ -816,7 +813,24 @@ async def _sync_mts_link_source(
                         )
                     await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
-                source_metadata = _build_mts_link_metadata(record, email, mts_user_id, download_url, duration_seconds)
+                session_payload = await load_event_session(
+                    mts_api,
+                    event_session_id,
+                    event_sessions,
+                    pause_seconds=_MTS_LINK_REQUEST_PAUSE_SECONDS,
+                )
+                start_time, _source = resolve_mts_link_start_time(record, session_payload, allow_now=True)
+                if start_time is None:
+                    start_time, _source = datetime.now(UTC), "now"
+
+                source_metadata = _build_mts_link_metadata(
+                    record,
+                    email,
+                    mts_user_id,
+                    download_url,
+                    duration_seconds,
+                    session_starts_at=session_starts_at_iso(session_payload),
+                )
                 display_name = record.get("name") or "Untitled"
                 matched_template = _find_matching_template(display_name, source.id, templates)
                 is_blank = is_mts_link_blank(duration_seconds)
@@ -829,7 +843,7 @@ async def _sync_mts_link_source(
                     user_id=user_id,
                     input_source_id=source.id,
                     display_name=display_name,
-                    start_time=_parse_mts_link_created_at(record.get("createAt")),
+                    start_time=start_time,
                     duration=int(duration_seconds) if duration_seconds is not None else 0,
                     source_type=SourceType.MTS_LINK,
                     source_key=f"mtslink:record:{record_id}",

@@ -36,6 +36,11 @@ import { cn, formatDate, formatDuration, httpStatus, scrollPlayerIntoView } from
 import { lastIndexAtOrBefore } from "@/lib/playlist-playable";
 import { recordingResumeKey } from "@/lib/video-resume";
 import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
+import {
+  COPY_LINK_CHIP,
+  COPY_LINK_CHIP_COPIED,
+  COPY_LINK_CHIP_IDLE,
+} from "@/components/share/public-share-header";
 import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
 import { useShareEngagement } from "@/hooks/use-share-engagement";
 import { useShareVtt } from "@/hooks/use-share-vtt";
@@ -368,12 +373,11 @@ export function ShareView({ token }: { token: string }) {
 
   const allowVideo = recording.allow_video_download !== false;
   const allowFiles = recording.allow_files_download !== false;
-  const artefacts: ArtefactItem[] = allowFiles
-    ? recording.available_files.map((ft) => ({
-        type: ft as ArtefactType,
-        href: getShareFileUrl(token, ft),
-      }))
-    : [];
+  const artefacts: ArtefactItem[] = recording.available_files.map((ft) => ({
+    type: ft as ArtefactType,
+    href: allowFiles ? getShareFileUrl(token, ft) : undefined,
+    locked: !allowFiles,
+  }));
   const sourceExtras = allowFiles
     ? sourceExtrasToArtefacts(recording.source_extras, resolveStorageUrl)
     : [];
@@ -437,7 +441,7 @@ export function ShareView({ token }: { token: string }) {
     />
   );
 
-  const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || (hasVideo && allowVideo);
+  const hasFiles = artefacts.length > 0 || sourceExtras.length > 0 || hasVideo;
 
   const companion = showCompanionCol ? (
     <>
@@ -491,13 +495,7 @@ export function ShareView({ token }: { token: string }) {
           <button
             type="button"
             onClick={handleCopyLink}
-            className={cn(
-              "flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-              copied
-                ? "border-success-fg/40 bg-success-fg/10 text-success-fg"
-                : "border-border bg-card text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-            )}
+            className={cn(COPY_LINK_CHIP, copied ? COPY_LINK_CHIP_COPIED : COPY_LINK_CHIP_IDLE)}
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? "Copied" : "Copy link"}
@@ -519,7 +517,7 @@ export function ShareView({ token }: { token: string }) {
                   </Link>
                 )}
                 <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
-                  {recording.display_name}
+                  {recording.title || recording.display_name}
                 </h1>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                   <span className="flex items-center gap-2">
@@ -561,8 +559,11 @@ export function ShareView({ token }: { token: string }) {
                 {hasFiles && (
                   <CollapsibleCard title="Files">
                     <div className="flex flex-col gap-2">
-                      {hasVideo && allowVideo && (
-                        <ShareVideoDownloadButton download={() => getShareMedia(token, currentVariant, true)} />
+                      {hasVideo && (
+                        <ShareVideoDownloadButton
+                          locked={!allowVideo}
+                          download={() => getShareMedia(token, currentVariant, true)}
+                        />
                       )}
                       <ArtefactList items={artefacts} />
                       <SourceExtrasSection items={sourceExtras} />

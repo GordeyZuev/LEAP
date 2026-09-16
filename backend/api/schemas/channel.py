@@ -131,6 +131,7 @@ class ChannelVideoRow(BaseModel):
     recording_id: int
     position: int
     title: str
+    start_time: datetime | None = None
     duration: float
     share_enabled: bool
     playable: bool

@@ -6,6 +6,7 @@ from typing import cast
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.helpers.automation_window import resolve_job_timezone
 from api.helpers.schedule_converter import schedule_to_cron
 from database.automation_models import AutomationJobModel
 from logger import get_logger
@@ -19,7 +20,7 @@ async def sync_job_to_beat(session: AsyncSession, job: AutomationJobModel) -> No
         schedule = cast("dict", job.schedule)
         cron_expr, _ = schedule_to_cron(schedule)
         minute, hour, day, month, day_of_week = cron_expr.split()
-        timezone = schedule.get("timezone", "UTC")
+        timezone = resolve_job_timezone(schedule)
 
         crontab_query = text("""
             INSERT INTO celery_crontab_schedule (minute, hour, day_of_month, month_of_year, day_of_week, timezone)

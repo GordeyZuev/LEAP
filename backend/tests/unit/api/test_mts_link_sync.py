@@ -10,7 +10,6 @@ from api.routers.input_sources import (
     _build_mts_link_metadata,
     _list_mts_link_records,
     _mts_link_datetime_bound,
-    _parse_mts_link_created_at,
     _resolve_mts_link_user_id,
 )
 from api.schemas.template.source_config import MtsLinkSourceConfig, SourceConfig, ZoomSourceConfig
@@ -61,12 +60,6 @@ class TestMtsLinkDateBounds:
     def test_existing_timestamp_and_none_pass_through(self):
         assert _mts_link_datetime_bound("2026-01-05 08:30:00", end_of_day=False) == "2026-01-05 08:30:00"
         assert _mts_link_datetime_bound(None, end_of_day=True) is None
-
-    def test_created_at_is_always_timezone_aware(self):
-        assert _parse_mts_link_created_at("2026-05-05 10:00:00").tzinfo is not None
-        assert _parse_mts_link_created_at("2026-05-05T10:00:00Z").tzinfo is not None
-        assert _parse_mts_link_created_at(None).tzinfo is not None
-        assert _parse_mts_link_created_at("not-a-date").tzinfo is not None
 
 
 @pytest.mark.unit
@@ -194,6 +187,8 @@ class TestMtsLinkSyncUpsertFlags:
         assert "is_mts_link_blank" in src
         assert "get_ready_mp4_url(" in src
         assert "conversion_view" in src
+        assert "load_event_session" in src
+        assert "resolve_mts_link_start_time" in src
 
 
 @pytest.mark.unit

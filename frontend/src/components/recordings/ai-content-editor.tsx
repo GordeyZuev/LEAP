@@ -93,7 +93,7 @@ const SEARCH_INPUT =
   "w-full rounded-xl border border-input bg-background py-2 pl-8 pr-8 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30";
 
 const ADD_PILL =
-  "flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+  "pressable pressable-block flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 
 const EDIT_AFFORDANCE =
   "inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:opacity-50";

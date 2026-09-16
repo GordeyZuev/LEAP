@@ -4,12 +4,11 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { FILTER_CONTROL } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL_CHROME } from "@/lib/filter-field-classes";
 
 const PLACEHOLDER_CLASS = cn(
-  FILTER_CONTROL,
+  FILTER_CONTROL_CHROME,
   "pressable flex items-center gap-2 border-dashed text-muted-foreground opacity-70 hover:border-primary/40 hover:opacity-100 hover:text-foreground",
-  "transition-[color,background-color,border-color,opacity,scale] duration-150",
 );
 
 /** Empty control that matches a select trigger, faded, creates the missing thing. */

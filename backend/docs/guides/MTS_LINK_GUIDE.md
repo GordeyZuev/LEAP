@@ -97,6 +97,15 @@ docker compose exec api uv run python scripts/backfill_mts_link_blank.py --apply
 
 `source_key` записи — `mtslink:record:{recordId}`, поэтому две онлайн-записи одной сессии не схлопываются в одну запись LEAP.
 
+**Дата в UI (`recordings.start_time`)** — это **начало мероприятия** (`startsAt` / `utcStartsAt` из `GET /eventsessions/{id}`), не `createAt` объекта онлайн-записи в `GET /records` (это появление файла после сборки). Naive `createAt` без зоны читается как Europe/Moscow. Sync кэширует сессию на прогон. Уже загруженные (`UPLOADED`) строки sync не переписывает — после деплоя:
+
+```bash
+docker compose exec api uv run python scripts/backfill_mts_link_start_time.py
+docker compose exec api uv run python scripts/backfill_mts_link_start_time.py --apply
+```
+
+Dry-run по умолчанию. `--apply` пишет `start_time` и `source.meta.session_starts_at`. Ошибка UserAPI не подставляет «сейчас» — строка пропускается.
+
 Диапазон даты берётся из тех же `from_date` / `to_date`, что и sync Zoom; `GET /records` требует времени, поэтому дата без времени расширяется до полных суток.
 
 ---

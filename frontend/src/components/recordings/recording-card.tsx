@@ -150,7 +150,7 @@ export function RecordingCard({
   const leapReady = r.uploads.leap?.status === "UPLOADED";
   const shareActive = Boolean(r.share_token && r.share_enabled);
   const isSoftDeleted = !!r.soft_deleted_at;
-  const isProcessing = r.status === "DOWNLOADING" || r.status === "PROCESSING" || r.status === "UPLOADING";
+  const isProcessing = r.on_air && !r.failed;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -190,7 +190,7 @@ export function RecordingCard({
   return (
     <div
       className={cn(
-        "group relative flex h-full min-w-0 flex-col rounded-xl border p-2 transition-[box-shadow,border-color,background-color] duration-150",
+        "pressable pressable-group group relative flex h-full min-w-0 flex-col rounded-xl border p-2",
         isSoftDeleted && "opacity-60",
         selected
           ? "border-primary bg-card shadow-sm ring-2 ring-primary/20"
@@ -271,7 +271,7 @@ export function RecordingCard({
                 aria-label="More actions"
                 aria-expanded={menuOpen}
                 className={cn(
-                  "flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-secondary-foreground",
+                  "pressable flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-secondary-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                   menuOpen && "bg-muted text-secondary-foreground",
                 )}
@@ -378,12 +378,12 @@ export function RecordingCard({
               type="button"
               disabled={isLoading}
               onClick={() => onRestore(r.id)}
-              className="inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-success-fg hover:bg-success-fg/10 disabled:opacity-50"
+              className="pressable inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-success-fg hover:bg-success-fg/10 disabled:opacity-50"
             >
               <ArchiveRestore size={12} /> Restore
             </button>
           ) : (
-            <div className="flex">
+            <div className="pressable-group flex">
               <button
                 type="button"
                 disabled={!r.can_run || isLoading}
@@ -391,7 +391,7 @@ export function RecordingCard({
                 title={runButtonTitle(r)}
                 aria-describedby={r.can_run ? undefined : `run-why-${r.id}`}
                 className={cn(
-                  "inline-flex h-7 items-center gap-1 border border-border px-2.5 text-xs font-medium text-secondary-foreground transition-colors",
+                  "pressable inline-flex h-7 items-center gap-1 border border-border px-2.5 text-xs font-medium text-secondary-foreground",
                   "disabled:cursor-not-allowed disabled:opacity-40",
                   onRunWithConfig
                     ? "rounded-l-lg border-e-0 hover:border-primary hover:bg-primary hover:text-white"
@@ -410,7 +410,7 @@ export function RecordingCard({
                   onClick={() => onRunWithConfig(r.id)}
                   title="Run with config"
                   aria-label="Run with config"
-                  className="inline-flex h-7 w-7 items-center justify-center rounded-e-lg border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-secondary-foreground disabled:opacity-40"
+                  className="pressable inline-flex h-7 w-7 items-center justify-center rounded-e-lg border border-border text-muted-foreground hover:bg-muted hover:text-secondary-foreground disabled:opacity-40"
                 >
                   <Settings2 size={11} />
                 </button>

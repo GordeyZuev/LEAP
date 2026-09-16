@@ -22,6 +22,7 @@ import { SearchInput } from "@/components/filters/search-input";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { ResultCount } from "@/components/ui/result-count";
 import { ActionButton } from "@/components/ui/action-button";
+import { CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 
@@ -152,7 +153,7 @@ function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridPro
             <Link
               key={p.id}
               href={`/presets/${p.id}`}
-              className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md"
+              className={cn("flex flex-col gap-3 p-5", CARD_SHELL, CARD_INTERACTIVE)}
             >
               <div className="flex items-start justify-between gap-2">
                 <span className="flex-1 text-sm font-semibold text-foreground">{p.name}</span>
@@ -237,7 +238,7 @@ function PresetsContent() {
         actions={
           <Link
             href="/presets/new"
-            className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-hover"
+            className="pressable flex shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
           >
             <Plus size={16} /> New preset
           </Link>

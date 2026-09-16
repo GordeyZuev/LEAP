@@ -204,7 +204,7 @@ export function ShareModal({
           <div className="mt-4 space-y-1 rounded-xl border border-border px-3 py-2">
             <Toggle
               label="Allow video download"
-              hint="Shows a download button for the processed video. Playback cannot be copy-proof."
+              hint="Viewers see a video file with a lock when this is off. Playback cannot be copy-proof."
               checked={allowVideoDownload}
               onChange={(v) => {
                 onFlagsChange({ allow_video_download: v, allow_files_download: allowFilesDownload });
@@ -215,7 +215,7 @@ export function ShareModal({
             />
             <Toggle
               label="Allow file download"
-              hint="Shows transcript and subtitle files. Captions in the player still work."
+              hint="Viewers see transcript and subtitle files with a lock when this is off. Captions in the player still work."
               checked={allowFilesDownload}
               onChange={(v) => {
                 onFlagsChange({ allow_video_download: allowVideoDownload, allow_files_download: v });

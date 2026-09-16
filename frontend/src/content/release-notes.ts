@@ -17,6 +17,59 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.11.0.1": {
+    title: "Quieter buttons, clearer admin and shares",
+    highlights: [
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Buttons, tabs, and catalog tiles squeeze slightly on hover and darken on press, without jumping. Switches only move the knob.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "Administrators see " },
+          { kind: "link", label: "Admin", href: "/admin" },
+          {
+            kind: "text",
+            value: " next to Automation in the sidebar, and as a link from Settings.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "If you turn off public video or file download, viewers still see the Files list with a lock instead of missing rows.",
+          },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "Delete a " },
+          { kind: "link", label: "playlist", href: "/playlists" },
+          { kind: "text", value: " or " },
+          { kind: "link", label: "channel", href: "/channels" },
+          { kind: "text", value: " from the page header, away from the name field." },
+        ],
+      },
+      {
+        parts: [
+          { kind: "text", value: "In " },
+          { kind: "link", label: "Automation", href: "/automation" },
+          {
+            kind: "text",
+            value:
+              ", last-N days is inclusive in the job timezone. Preview does not refresh sources unless you ask. A running job shows live status; recording lists start with five rows and Show all.",
+          },
+        ],
+      },
+    ],
+  },
   "0.11.0.0": {
     title: "Channels: a public home for your program",
     highlights: [

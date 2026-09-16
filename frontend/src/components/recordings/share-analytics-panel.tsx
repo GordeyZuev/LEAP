@@ -249,11 +249,13 @@ export function ShareAnalyticsPanel({
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-foreground">Playlist navigation</p>
                     {Object.entries(data.engagement.playlist_navigate_by_from).some(([, count]) => count > 0) ? (
-                      <HorizontalBreakdownChart
-                        data={Object.entries(data.engagement.playlist_navigate_by_from)
-                          .filter(([, count]) => count > 0)
-                          .map(([label, value]) => ({ label, value }))}
-                      />
+                      <div className="rounded-xl border border-border bg-card px-4 py-3">
+                        <HorizontalBreakdownChart
+                          data={Object.entries(data.engagement.playlist_navigate_by_from)
+                            .filter(([, count]) => count > 0)
+                            .map(([label, value]) => ({ label, value }))}
+                        />
+                      </div>
                     ) : (
                       <p className="text-xs text-muted-foreground">No navigation events</p>
                     )}
@@ -263,12 +265,14 @@ export function ShareAnalyticsPanel({
                 {(data.engagement?.chapter_seeks_top.length ?? 0) > 0 ? (
                   <div className="space-y-2">
                     <p className="text-xs font-medium text-foreground">Top chapters</p>
-                    <HorizontalBreakdownChart
-                      data={data.engagement!.chapter_seeks_top.map((row) => ({
-                        label: row.label,
-                        value: row.count,
-                      }))}
-                    />
+                    <div className="rounded-xl border border-border bg-card px-4 py-3">
+                      <HorizontalBreakdownChart
+                        data={data.engagement!.chapter_seeks_top.map((row) => ({
+                          label: row.label,
+                          value: row.count,
+                        }))}
+                      />
+                    </div>
                   </div>
                 ) : null}
               </div>

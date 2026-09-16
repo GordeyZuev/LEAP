@@ -1,14 +1,21 @@
 """Celery tasks for automation jobs."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import case, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
+from api.helpers.automation_window import (
+    MATCH_QUERY_LIMIT,
+    UNBOUNDED_MATCH_QUERY_LIMIT,
+    resolve_job_timezone,
+    resolve_job_window,
+)
 from api.helpers.schedule_converter import get_next_run_time, schedule_to_cron
 from api.repositories.automation_repos import AutomationJobRepository, AutomationJobRunRepository
 from api.repositories.template_repos import InputSourceRepository, RecordingTemplateRepository
@@ -22,6 +29,9 @@ from models.recording import ProcessingStatus, SourceType
 
 logger = get_logger()
 settings = get_settings()
+
+_WAIT_STATUSES = (ProcessingStatus.PENDING_SOURCE, ProcessingStatus.PENDING_CONVERSION)
+_RUN_STATUS_BY_RESULT = {"success": "SUCCESS", "error": "FAILED", "skipped": "SKIPPED"}
 
 
 def _resolve_status_filter(filters: dict) -> list[str] | None:
@@ -47,34 +57,95 @@ def _should_enqueue_recording(recording: RecordingModel) -> bool:
     return _is_mts_link(recording)
 
 
+def _order_templates(templates: list, template_ids: list[int]) -> list:
+    """First-match order is the job checklist, not created_at."""
+    by_id = {t.id: t for t in templates}
+    return [by_id[tid] for tid in template_ids if tid in by_id]
+
+
+def _sync_days(sync_config: dict | None) -> int | None:
+    raw = (sync_config or {}).get("sync_days", 2)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 2
+
+
+def _max_recordings(sync_config: dict | None) -> int | None:
+    raw = (sync_config or {}).get("max_recordings")
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _sync_on_run(sync_config: dict | None) -> bool:
+    raw = (sync_config or {}).get("sync_on_run", True)
+    return raw is not False
+
+
+def _apply_enqueue_cap(
+    matches: list[tuple[Any, Any]],
+    max_recordings: int | None,
+) -> list[tuple[Any, Any]]:
+    """Wait-status pings always run; cap only full pipelines, newest first."""
+    if max_recordings is None:
+        return matches
+    wait: list[tuple[Any, Any]] = []
+    rest: list[tuple[Any, Any]] = []
+    for recording, template in matches:
+        if recording.status in _WAIT_STATUSES:
+            wait.append((recording, template))
+        else:
+            rest.append((recording, template))
+    rest.sort(key=lambda pair: recording_start(pair[0]), reverse=True)
+    return wait + rest[:max_recordings]
+
+
+def recording_start(recording: Any) -> datetime:
+    start = getattr(recording, "start_time", None)
+    if start is None:
+        return datetime.min.replace(tzinfo=UTC)
+    if start.tzinfo is None:
+        return start.replace(tzinfo=UTC)
+    return start
+
+
 def _recordings_for_job_query(
     *,
     user_id: str,
-    from_datetime: datetime,
+    from_datetime: datetime | None,
     to_datetime: datetime,
     status_filter: list[str] | None,
     exclude_blank: bool,
+    unbounded: bool,
 ):
-    """Active recordings in the sync window. Wait statuses are first so MTS pings are not starved by limit(1000)."""
+    """Active recordings in the window. Wait statuses first so MTS pings are not starved."""
     query = (
         select(RecordingModel)
         .options(selectinload(RecordingModel.source))
         .where(
             RecordingModel.user_id == user_id,
             RecordingModel.deleted == False,  # noqa: E712
-            RecordingModel.start_time >= from_datetime,
             RecordingModel.start_time <= to_datetime,
         )
     )
+    if from_datetime is not None:
+        query = query.where(RecordingModel.start_time >= from_datetime)
     if status_filter:
         query = query.where(RecordingModel.status.in_(status_filter))
     if exclude_blank:
         query = query.where(~RecordingModel.blank_record)
-    wait = (ProcessingStatus.PENDING_SOURCE, ProcessingStatus.PENDING_CONVERSION)
+    limit = UNBOUNDED_MATCH_QUERY_LIMIT if unbounded else MATCH_QUERY_LIMIT
     return query.order_by(
-        case((RecordingModel.status.in_(wait), 0), else_=1),
+        case((RecordingModel.status.in_(_WAIT_STATUSES), 0), else_=1),
         RecordingModel.start_time.asc(),
-    ).limit(1000)
+    ).limit(limit)
 
 
 def _would_process_items(matches: list[tuple[Any, Any]]) -> list[dict[str, Any]]:
@@ -120,6 +191,7 @@ async def _load_job_templates(session, job, user_id: str):
     template_repo = RecordingTemplateRepository(session)
     templates = await template_repo.find_by_ids(job.template_ids, user_id)
     templates = [t for t in templates if t.is_active and not t.is_draft]
+    templates = _order_templates(templates, list(job.template_ids or []))
     return template_repo, templates
 
 
@@ -148,11 +220,9 @@ async def _sources_for_templates(session, templates, user_id: str):
     return sources_to_sync
 
 
-async def _sync_sources(session, job_id: int, user_id: str, sources_to_sync, days: int) -> int:
+async def _sync_sources(session, job_id: int, user_id: str, sources_to_sync, from_date: str, to_date: str) -> int:
     from api.routers.input_sources import _sync_single_source
 
-    to_date = datetime.now().strftime("%Y-%m-%d")
-    from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     synced_count = 0
     for source in sources_to_sync:
         try:
@@ -180,8 +250,8 @@ async def _sync_sources(session, job_id: int, user_id: str, sources_to_sync, day
     return synced_count
 
 
-async def _sync_and_match(session, job, user_id: str) -> _MatchPlan | dict[str, Any]:
-    """Sync sources and match recordings. Does not bind, enqueue, mark_run, or commit."""
+async def _sync_and_match(session, job, user_id: str, *, sync: bool) -> _MatchPlan | dict[str, Any]:
+    """Sync sources (optional) and match recordings. Does not bind, enqueue, mark_run, or commit."""
     from api.routers.input_sources import _find_matching_template
 
     job_id = job.id
@@ -197,27 +267,40 @@ async def _sync_and_match(session, job, user_id: str) -> _MatchPlan | dict[str, 
         logger.warning(f"Job {job_id}: No sources to sync")
         return {"status": "error", "job_id": job_id, "user_id": user_id, "error": "No sources to sync"}
 
-    days = (job.sync_config or {}).get("sync_days", 2)
-    synced_count = await _sync_sources(session, job_id, user_id, sources_to_sync, days)
+    tz_name = resolve_job_timezone(job.schedule)
+    days = _sync_days(job.sync_config)
+    match_window = resolve_job_window(days, tz_name=tz_name, for_api_sync=False)
+    synced_count = 0
+    if sync:
+        api_window = resolve_job_window(days, tz_name=tz_name, for_api_sync=True)
+        synced_count = await _sync_sources(
+            session,
+            job_id,
+            user_id,
+            sources_to_sync,
+            api_window.from_date or api_window.to_date,
+            api_window.to_date,
+        )
 
     filters = job.filters or {}
     status_filter = _resolve_status_filter(filters)
     exclude_blank = filters.get("exclude_blank", True)
-    from_datetime = datetime.now(UTC) - timedelta(days=days)
-    to_datetime = datetime.now(UTC)
+    if exclude_blank is None:
+        exclude_blank = True
     query = _recordings_for_job_query(
         user_id=user_id,
-        from_datetime=from_datetime,
-        to_datetime=to_datetime,
+        from_datetime=match_window.from_datetime,
+        to_datetime=match_window.to_datetime,
         status_filter=status_filter,
-        exclude_blank=exclude_blank,
+        exclude_blank=bool(exclude_blank),
+        unbounded=match_window.from_datetime is None,
     )
     result = await session.execute(query)
     recordings_to_process = list(result.scalars().all())
     logger.info(
         f"Job {job_id}: Found {len(recordings_to_process)} recordings to process "
         f"(status={status_filter}, exclude_blank={exclude_blank}, "
-        f"date_range={from_datetime.isoformat()} to {to_datetime.isoformat()})"
+        f"date_range={match_window.from_datetime} to {match_window.to_datetime.isoformat()}, sync={sync})"
     )
 
     matches: list[tuple[Any, Any]] = []
@@ -235,6 +318,8 @@ async def _sync_and_match(session, job, user_id: str) -> _MatchPlan | dict[str, 
         else:
             unmatched.append(recording)
 
+    matches = _apply_enqueue_cap(matches, _max_recordings(job.sync_config))
+
     return _MatchPlan(
         templates=templates,
         sources_to_sync=sources_to_sync,
@@ -246,25 +331,18 @@ async def _sync_and_match(session, job, user_id: str) -> _MatchPlan | dict[str, 
     )
 
 
-async def _preview_job(session, job, user_id: str) -> dict[str, Any]:
-    """Sync + match, then commit so catalog rows from sync survive. No bind/enqueue."""
-    plan = await _sync_and_match(session, job, user_id)
+async def _preview_job(session, job, user_id: str, *, sync: bool) -> dict[str, Any]:
+    """Optional sync + match, then commit so catalog rows from sync survive. No bind/enqueue."""
+    plan = await _sync_and_match(session, job, user_id, sync=sync)
     if isinstance(plan, dict):
         return plan
     payload = plan.preview_payload(job.id, user_id)
-    # Snapshot first: commit expires ORM instances. _sync_single_source does not
-    # commit; without this, preview lists rows that roll back when the session closes.
     await session.commit()
     return payload
 
 
-# Maps the task's result payload onto a history row. Kept next to the task so
-# the two stay in step when the payload changes.
-_RUN_STATUS_BY_RESULT = {"success": "SUCCESS", "error": "FAILED", "skipped": "SKIPPED"}
-
-
 async def _record_run(session, job_id: int, user_id: str, started_at, result: dict, trigger: str) -> None:
-    """Persist one execution. Never lets bookkeeping break the run itself."""
+    """Persist a finished execution when no RUNNING row was opened (skipped before start)."""
     finished_at = datetime.now(UTC)
     try:
         await AutomationJobRunRepository(session).create(
@@ -286,7 +364,26 @@ async def _record_run(session, job_id: int, user_id: str, started_at, result: di
         logger.error(f"Failed to record run for job {job_id}: {exc}")
 
 
-async def _execute_job(session, job_id: int, user_id: str) -> dict[str, Any]:
+async def _finish_run(session, run, started_at, result: dict) -> None:
+    finished_at = datetime.now(UTC)
+    try:
+        await AutomationJobRunRepository(session).finish(
+            run,
+            status=_RUN_STATUS_BY_RESULT.get(result.get("status", ""), "FAILED"),
+            finished_at=finished_at,
+            duration_seconds=int((finished_at - started_at).total_seconds()),
+            synced_count=result.get("synced_count", 0) or 0,
+            recordings_found=result.get("recordings_found", 0) or 0,
+            matched_count=result.get("matched_count", 0) or 0,
+            processed_count=result.get("processed_count", 0) or 0,
+            error=result.get("error") or result.get("reason"),
+            affected_recordings=result.get("would_process"),
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.error(f"Failed to finish run {getattr(run, 'id', None)}: {exc}")
+
+
+async def _execute_job(session, job_id: int, user_id: str, *, sync: bool) -> dict[str, Any]:
     job_repo = AutomationJobRepository(session)
     job = await job_repo.get_by_id(job_id, user_id)
 
@@ -296,7 +393,7 @@ async def _execute_job(session, job_id: int, user_id: str) -> dict[str, Any]:
 
     try:
         logger.info(f"Starting automation job {job_id} ({job.name})")
-        plan = await _sync_and_match(session, job, user_id)
+        plan = await _sync_and_match(session, job, user_id, sync=sync)
         if isinstance(plan, dict):
             return plan
 
@@ -334,7 +431,7 @@ async def _execute_job(session, job_id: int, user_id: str) -> dict[str, Any]:
         )
 
         cron_expr, _ = schedule_to_cron(job.schedule)
-        timezone = job.schedule.get("timezone", "Europe/Moscow")
+        timezone = resolve_job_timezone(job.schedule)
         next_run = get_next_run_time(cron_expr, timezone)
         await job_repo.mark_run(job, next_run)
 
@@ -356,11 +453,11 @@ async def _execute_job(session, job_id: int, user_id: str) -> dict[str, Any]:
     max_retries=settings.celery.automation_max_retries,
     default_retry_delay=settings.celery.automation_retry_delay,
 )
-def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCHEDULE"):
+def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCHEDULE", sync: bool | None = None):
     """
     Execute automation job:
-    1. Load templates and collect source_ids
-    2. Sync recordings from all required sources
+    1. Load templates in job.template_ids order
+    2. Optionally sync recordings from required sources
     3. Filter recordings by automation filters
     4. Match recordings with templates
     5. Process matched recordings with config override
@@ -370,8 +467,28 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
         session_maker = get_async_session_maker()
         async with session_maker() as session:
             started_at = datetime.now(UTC)
-            result = await _execute_job(session, job_id, user_id)
-            await _record_run(session, job_id, user_id, started_at, result, trigger)
+            job_repo = AutomationJobRepository(session)
+            job = await job_repo.get_by_id(job_id, user_id)
+            if not job or not job.is_active:
+                result = {"status": "skipped", "reason": "Job not found or inactive", "user_id": user_id}
+                await _record_run(session, job_id, user_id, started_at, result, trigger)
+                return result
+
+            do_sync = _sync_on_run(job.sync_config) if sync is None else bool(sync)
+            run_repo = AutomationJobRunRepository(session)
+            try:
+                run = await run_repo.create_running(
+                    job_id=job_id,
+                    user_id=user_id,
+                    trigger=trigger,
+                    started_at=started_at,
+                )
+            except IntegrityError:
+                await session.rollback()
+                return {"status": "skipped", "reason": "Job already running", "user_id": user_id}
+
+            result = await _execute_job(session, job_id, user_id, sync=do_sync)
+            await _finish_run(session, run, started_at, result)
             return result
 
     return self.run_async(_run())
@@ -384,10 +501,10 @@ def run_automation_job_task(self, job_id: int, user_id: str, trigger: str = "SCH
     max_retries=settings.celery.automation_max_retries,
     default_retry_delay=settings.celery.automation_retry_delay,
 )
-def dry_run_automation_job_task(self, job_id: int, user_id: str):
-    """Sync sources and match recordings without binding or starting pipelines."""
+def dry_run_automation_job_task(self, job_id: int, user_id: str, sync: bool = False):
+    """Match recordings without binding or starting pipelines. Sync only if requested."""
 
-    self.update_progress(user_id, 5, "Syncing sources…")
+    self.update_progress(user_id, 5, "Refreshing sources…" if sync else "Matching recordings…")
 
     async def _run():
         session_maker = get_async_session_maker()
@@ -397,7 +514,7 @@ def dry_run_automation_job_task(self, job_id: int, user_id: str):
             if not job:
                 return {"status": "error", "error": "Job not found", "user_id": user_id}
             try:
-                return await _preview_job(session, job, user_id)
+                return await _preview_job(session, job, user_id, sync=sync)
             except Exception as e:
                 logger.error(f"Dry run failed for job {job_id}: {e}")
                 return {"status": "error", "error": str(e), "user_id": user_id}

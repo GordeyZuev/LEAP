@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { StatusBadge, type ProcessingStatus } from "@/components/ui/status-badge";
+import { StatusBadge, displayProcessingStatus, type ProcessingStatus } from "@/components/ui/status-badge";
 import {
   PipelineStageList,
   orderStages,
@@ -116,8 +116,7 @@ export function PipelineStatusButton({
     };
   }, [open, close]);
 
-  const displayStatus: ProcessingStatus =
-    onAir && !failed && !hasStages && status === "READY" ? "PROCESSING" : status;
+  const displayStatus = displayProcessingStatus(status, { onAir, failed });
 
   if (!hasStages) {
     return (
@@ -144,7 +143,7 @@ export function PipelineStatusButton({
           className,
         )}
       >
-        <StatusBadge status={status} failed={failed} failedStage={failedStage} size={size} className="cursor-pointer" />
+        <StatusBadge status={displayStatus} failed={failed} failedStage={failedStage} size={size} className="cursor-pointer" />
       </button>
 
       {open && coords && createPortal(

@@ -16,7 +16,7 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
         type="button"
         onClick={onRemove}
         aria-label={`Remove ${label}`}
-        className="rounded-full p-0.5 text-primary/70 transition-colors hover:bg-primary/15 hover:text-primary"
+        className="pressable rounded-full p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"
       >
         <X size={12} />
       </button>

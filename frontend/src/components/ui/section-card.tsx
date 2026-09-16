@@ -19,6 +19,13 @@ export type CardDensity = "comfortable" | "compact";
 
 export const CARD_SHELL = "rounded-2xl border border-border bg-card shadow-sm";
 
+/** Clickable catalog tiles. */
+export const CARD_INTERACTIVE = "pressable hover:border-primary/30 hover:shadow-md";
+
+/** Trailing chevron on row-style links. */
+export const CARD_CHEVRON =
+  "shrink-0 text-muted-foreground motion-reduce:transition-none transition-transform duration-200 ease-out group-hover:translate-x-0.5 group-hover:text-primary";
+
 const HEADER_PAD: Record<CardDensity, string> = {
   comfortable: "px-6 py-4",
   compact: "px-5 py-4",
@@ -151,15 +158,26 @@ export function CollapsibleCard({
     onOpenChange?.(next);
   }
 
+  const padY = "py-4";
+  const padStart = density === "comfortable" ? "ps-6" : "ps-5";
+  const padEnd = density === "comfortable" ? "pe-6" : "pe-5";
+
   return (
     <div className={cn(CARD_SHELL, className)}>
-      <div className={cn("flex items-center gap-3", HEADER_PAD[density])}>
+      <div className="flex items-stretch">
         <button
           type="button"
           onClick={toggle}
           aria-expanded={open}
           aria-controls={bodyId}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-3 text-left",
+            padY,
+            padStart,
+            action ? "pe-3" : padEnd,
+            open ? "rounded-t-2xl" : "rounded-2xl",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30",
+          )}
         >
           <h2 className={cn("min-w-0", TITLE[density])}>{title}</h2>
           {subtitle && (
@@ -177,7 +195,9 @@ export function CollapsibleCard({
             />
           </span>
         </button>
-        {action}
+        {action ? (
+          <div className={cn("flex shrink-0 items-center", padY, padEnd)}>{action}</div>
+        ) : null}
       </div>
       <div
         id={bodyId}

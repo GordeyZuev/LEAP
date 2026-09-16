@@ -32,7 +32,7 @@ from api.services.playlist_service import (
     item_unavailable_reason,
     poster_preview_map,
 )
-from database.playlist_models import PlaylistItemModel, PlaylistModel
+from database.playlist_models import MAX_PLAYLISTS_PER_USER, PlaylistItemModel, PlaylistModel
 from logger import format_details, get_logger
 
 router = APIRouter(prefix="/api/v1/playlists", tags=["Playlists"])
@@ -155,7 +155,7 @@ def _to_item_response(
 async def list_playlists(
     q: str | None = Query(None, description="Search substring in playlist name"),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=MAX_PLAYLISTS_PER_USER),
     sort_by: str = Query("updated_at"),
     sort_order: Literal["asc", "desc"] = Query("desc"),
     ctx: ServiceContext = Depends(get_service_context),

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, use, useCallback, useMemo, useState } from "react";
+import { Suspense, use, useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -27,6 +27,7 @@ import {
 import { apiClient } from "@/api/client";
 import { listPlaylists } from "@/api/playlists";
 import { SearchInput } from "@/components/filters/search-input";
+import { OrderSelect, ownerOrderOptions } from "@/components/filters/order-select";
 import { StablePosterImage } from "@/components/recordings/recording-poster";
 import { PlaylistStackPoster } from "@/components/playlists/playlist-stack-poster";
 import { ShareAnalyticsPanel } from "@/components/recordings/share-analytics-panel";
@@ -45,10 +46,18 @@ import { CARD_SHELL, SectionCard } from "@/components/ui/section-card";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { Toast } from "@/components/ui/toast";
 import { useToast } from "@/hooks/use-toast";
-import { CHANNEL_BANNER_ASPECT } from "@/lib/constants";
+import { CHANNEL_BANNER_FRAME, CHANNEL_BANNER_IMG, LEAP_CATALOG_CAP, PER_PAGE_RECORDINGS_PICKER } from "@/lib/constants";
+import {
+  CHANNEL_PLAYLIST_SORT,
+  CHANNEL_VIDEO_SORT,
+  sortChannelPlaylists,
+  sortChannelVideos,
+  type ChannelPlaylistSort,
+  type ChannelVideoSort,
+} from "@/lib/channel-catalog";
 import { CHECKBOX } from "@/lib/filter-field-classes";
 import { CHANNEL_JINJA_VARS, interpolateChannelDescription } from "@/lib/formatted-text";
-import { cn, extractApiError, formatDurationCompact } from "@/lib/utils";
+import { cn, extractApiError, formatDate, formatDurationCompact } from "@/lib/utils";
 
 function channelUrl(slug: string): string {
   if (typeof window === "undefined") return `/c/${slug}`;
@@ -124,6 +133,22 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
   const [copied, setCopied] = useState(false);
   const [copiedPlaylistId, setCopiedPlaylistId] = useState<number | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [videoOrder, setVideoOrder] = useState<ChannelVideoSort>("order");
+  const [playlistOrder, setPlaylistOrder] = useState<ChannelPlaylistSort>("order");
+  const [orderBusy, setOrderBusy] = useState(false);
+  const orderBusyRef = useRef(false);
+
+  function beginOrder(): boolean {
+    if (orderBusyRef.current) return false;
+    orderBusyRef.current = true;
+    setOrderBusy(true);
+    return true;
+  }
+
+  function endOrder() {
+    orderBusyRef.current = false;
+    setOrderBusy(false);
+  }
 
   const { data: channel, isLoading, error, refetch } = useQuery({
     queryKey: ["channel", channelId],
@@ -133,12 +158,12 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
 
   const videosQuery = useQuery({
     queryKey: ["channel-videos", channelId],
-    queryFn: () => listChannelVideos(channelId, { per_page: 200 }),
+    queryFn: () => listChannelVideos(channelId, { per_page: LEAP_CATALOG_CAP }),
     enabled: Number.isFinite(channelId),
   });
   const playlistsQuery = useQuery({
     queryKey: ["channel-playlists", channelId],
-    queryFn: () => listChannelPlaylists(channelId, { per_page: 200 }),
+    queryFn: () => listChannelPlaylists(channelId, { per_page: LEAP_CATALOG_CAP }),
     enabled: Number.isFinite(channelId),
   });
 
@@ -151,16 +176,16 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
     queryFn: async () => {
       const p = new URLSearchParams();
       if (addSearch) p.set("search", addSearch);
-      p.set("per_page", "50");
-      const res = await apiClient.get<{ items: RecordingPick[] }>(`/recordings?${p.toString()}`);
-      return res.data.items;
+      p.set("per_page", String(PER_PAGE_RECORDINGS_PICKER));
+      const res = await apiClient.get<{ items: RecordingPick[]; total: number }>(`/recordings?${p.toString()}`);
+      return res.data;
     },
     enabled: addVideosOpen,
   });
 
   const playlistPickQuery = useQuery({
     queryKey: ["playlists", "picker", addSearch],
-    queryFn: () => listPlaylists({ per_page: 100, q: addSearch || undefined, sort_by: "name", sort_order: "asc" }),
+    queryFn: () => listPlaylists({ per_page: LEAP_CATALOG_CAP, q: addSearch || undefined, sort_by: "name", sort_order: "asc" }),
     enabled: addPlaylistsOpen,
   });
 
@@ -235,8 +260,16 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
     if (fromIdx < 0 || toIdx < 0) return;
     ids.splice(fromIdx, 1);
     ids.splice(toIdx, 0, fromId);
-    await reorderChannelVideos(channelId, ids);
-    void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
+    if (!beginOrder()) return;
+    try {
+      await reorderChannelVideos(channelId, ids);
+      setVideoOrder("order");
+      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
+    } catch (e) {
+      show("error", extractApiError(e, "Could not update order."));
+    } finally {
+      endOrder();
+    }
   }
 
   async function dropPlaylist(targetId: number, fromId?: number) {
@@ -247,8 +280,98 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
     if (fromIdx < 0 || toIdx < 0) return;
     ids.splice(fromIdx, 1);
     ids.splice(toIdx, 0, fromId);
-    await reorderChannelPlaylists(channelId, ids);
-    void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
+    if (!beginOrder()) return;
+    try {
+      await reorderChannelPlaylists(channelId, ids);
+      setPlaylistOrder("order");
+      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
+    } catch (e) {
+      show("error", extractApiError(e, "Could not update order."));
+    } finally {
+      endOrder();
+    }
+  }
+
+  async function applyVideoOrder(sort: ChannelVideoSort) {
+    if (sort === "order" || videos.length < 2) return;
+    if (!beginOrder()) return;
+    try {
+      const sorted = sortChannelVideos(videos, sort);
+      qc.setQueryData(
+        ["channel-videos", channelId],
+        (old: { items: typeof videos } | undefined) => (old ? { ...old, items: sorted } : old),
+      );
+      await reorderChannelVideos(channelId, sorted.map((row) => row.recording_id));
+      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
+      show("success", "Order updated");
+    } catch (e) {
+      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
+      show("error", extractApiError(e, "Could not update order."));
+    } finally {
+      endOrder();
+    }
+  }
+
+  async function applyPlaylistOrder(sort: ChannelPlaylistSort) {
+    if (sort === "order" || playlists.length < 2) return;
+    if (!beginOrder()) return;
+    try {
+      const sorted = sortChannelPlaylists(playlists, sort);
+      qc.setQueryData(
+        ["channel-playlists", channelId],
+        (old: { items: typeof playlists } | undefined) => (old ? { ...old, items: sorted } : old),
+      );
+      await reorderChannelPlaylists(channelId, sorted.map((row) => row.playlist_id));
+      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
+      show("success", "Order updated");
+    } catch (e) {
+      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
+      show("error", extractApiError(e, "Could not update order."));
+    } finally {
+      endOrder();
+    }
+  }
+
+  async function moveVideo(id: number, dir: -1 | 1) {
+    if (!beginOrder()) return;
+    const ids = videos.map((v) => v.recording_id);
+    const idx = ids.indexOf(id);
+    const next = idx + dir;
+    if (idx < 0 || next < 0 || next >= ids.length) {
+      endOrder();
+      return;
+    }
+    [ids[idx], ids[next]] = [ids[next], ids[idx]];
+    try {
+      await reorderChannelVideos(channelId, ids);
+      setVideoOrder("order");
+      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
+    } catch (e) {
+      show("error", extractApiError(e, "Could not update order."));
+    } finally {
+      endOrder();
+    }
+  }
+
+  async function movePlaylist(id: number, dir: -1 | 1) {
+    if (!beginOrder()) return;
+    const ids = playlists.map((p) => p.playlist_id);
+    const idx = ids.indexOf(id);
+    const next = idx + dir;
+    if (idx < 0 || next < 0 || next >= ids.length) {
+      endOrder();
+      return;
+    }
+    [ids[idx], ids[next]] = [ids[next], ids[idx]];
+    try {
+      await reorderChannelPlaylists(channelId, ids);
+      setPlaylistOrder("order");
+      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
+    } catch (e) {
+      show("error", extractApiError(e, "Could not update order."));
+    } finally {
+      endOrder();
+    }
   }
 
   if (isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading channel…</div>;
@@ -278,7 +401,7 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
         onCopy={() => void copyLink()}
         onEnable={() => enableShare.mutate()}
         onDisable={() => setDisableConfirm(true)}
-        hintActive={`One permanent link /c/${channel.slug}. Disable keeps the same address.`}
+        hintActive="One permanent link."
         hintDisabled="Enabling again uses the same slug."
         hintNever="Share stays off until the showcase is ready."
       />
@@ -305,7 +428,6 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <SectionCard
           title={tab === "playlists" ? "Playlists" : "Videos"}
-          description="Same tabs as the public page. Drag to reorder."
           className="min-w-0"
           action={
             <ActionButton
@@ -323,18 +445,43 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
             </ActionButton>
           }
         >
-          <Tabs
-            label="Channel tabs"
-            hidePanel
-            value={tab}
-            onChange={(v) => setTab(v as "videos" | "playlists")}
-            items={[
-              { value: "playlists", label: "Playlists" },
-              { value: "videos", label: "Videos" },
-            ]}
-          >
-            {null}
-          </Tabs>
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-4">
+            <Tabs
+              label="Channel tabs"
+              hidePanel
+              className="min-w-0 flex-1"
+              tablistClassName="mb-0"
+              value={tab}
+              onChange={(v) => setTab(v as "videos" | "playlists")}
+              items={[
+                { value: "playlists", label: "Playlists" },
+                { value: "videos", label: "Videos" },
+              ]}
+            >
+              {null}
+            </Tabs>
+            {(tab === "playlists" ? playlists.length : videos.length) > 1 ? (
+              tab === "playlists" ? (
+                <OrderSelect
+                  label="Order"
+                  className="min-w-0 sm:w-[15rem]"
+                  value={playlistOrder}
+                  options={ownerOrderOptions(CHANNEL_PLAYLIST_SORT)}
+                  onChange={applyPlaylistOrder}
+                  disabled={orderBusy}
+                />
+              ) : (
+                <OrderSelect
+                  label="Order"
+                  className="min-w-0 sm:w-[15rem]"
+                  value={videoOrder}
+                  options={ownerOrderOptions(CHANNEL_VIDEO_SORT)}
+                  onChange={applyVideoOrder}
+                  disabled={orderBusy}
+                />
+              )
+            ) : null}
+          </div>
           {tab === "videos" && videos.length === 0 && (
             <EmptyState
               icon={Plus}
@@ -362,13 +509,22 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 >
                   <button
                     type="button"
-                    draggable
-                    aria-label="Reorder"
+                    draggable={!orderBusy}
+                    aria-label="Reorder. Drag, or use arrow keys."
                     onDragStart={(e) => {
+                      if (orderBusy) return;
                       setDraggingId(item.recording_id);
                       e.dataTransfer.setData("text/plain", String(item.recording_id));
                     }}
-                    className="flex size-11 shrink-0 cursor-grab items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                    onDragEnd={() => setDraggingId(null)}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp") { e.preventDefault(); void moveVideo(item.recording_id, -1); }
+                      if (e.key === "ArrowDown") { e.preventDefault(); void moveVideo(item.recording_id, 1); }
+                    }}
+                    className={cn(
+                      "flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted",
+                      orderBusy ? "cursor-not-allowed opacity-50" : "cursor-grab",
+                    )}
                   >
                     <GripVertical size={16} />
                   </button>
@@ -379,17 +535,22 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                     <Link href={`/recordings/${item.recording_id}`} className="block truncate text-sm font-medium hover:underline">
                       {item.title}
                     </Link>
-                    <p className="text-xs text-muted-foreground">{formatDurationCompact(item.duration)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatDate(item.start_time)}
+                      {item.duration ? ` · ${formatDurationCompact(item.duration)}` : ""}
+                    </p>
                     <HiddenLink reason={item.hidden_reason} href={`/recordings/${item.recording_id}`} />
                   </div>
                   <button
                     type="button"
-                    className="text-xs text-muted-foreground hover:text-danger-fg"
+                    aria-label="Remove from channel"
                     onClick={() =>
-                      void removeChannelVideo(channelId, item.recording_id).then(() =>
-                        qc.invalidateQueries({ queryKey: ["channel-videos", channelId] }),
-                      )
+                      void removeChannelVideo(channelId, item.recording_id).then(() => {
+                        setVideoOrder("order");
+                        void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
+                      })
                     }
+                    className="inline-flex min-h-11 items-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-danger-fg"
                   >
                     Remove
                   </button>
@@ -424,13 +585,22 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 >
                   <button
                     type="button"
-                    draggable
-                    aria-label="Reorder"
+                    draggable={!orderBusy}
+                    aria-label="Reorder. Drag, or use arrow keys."
                     onDragStart={(e) => {
+                      if (orderBusy) return;
                       setDraggingId(item.playlist_id);
                       e.dataTransfer.setData("text/plain", String(item.playlist_id));
                     }}
-                    className="flex size-11 shrink-0 cursor-grab items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                    onDragEnd={() => setDraggingId(null)}
+                    onKeyDown={(e) => {
+                      if (e.key === "ArrowUp") { e.preventDefault(); void movePlaylist(item.playlist_id, -1); }
+                      if (e.key === "ArrowDown") { e.preventDefault(); void movePlaylist(item.playlist_id, 1); }
+                    }}
+                    className={cn(
+                      "flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted",
+                      orderBusy ? "cursor-not-allowed opacity-50" : "cursor-grab",
+                    )}
                   >
                     <GripVertical size={16} />
                   </button>
@@ -462,12 +632,14 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                     )}
                     <button
                       type="button"
-                      className="text-xs text-muted-foreground hover:text-danger-fg"
-                      onClick={() =>
-                        void removeChannelPlaylist(channelId, item.playlist_id).then(() =>
-                          qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] }),
-                        )
-                      }
+                      aria-label="Remove playlist from channel"
+                      className="inline-flex min-h-11 items-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-danger-fg"
+                    onClick={() =>
+                      void removeChannelPlaylist(channelId, item.playlist_id).then(() => {
+                        setPlaylistOrder("order");
+                        void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
+                      })
+                    }
                     >
                       Remove
                     </button>
@@ -481,9 +653,10 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
       </div>
         )}
         {pageTab === "channel" && (
+      <>
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className={cn(CARD_SHELL, "min-w-0 p-5")}>
-          <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-end gap-3">
             <Field label="Name" className="min-w-0 flex-1">
               <input
                 value={nameEditing ? nameDraft : channel.name}
@@ -494,9 +667,6 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
               />
             </Field>
-            <ActionButton variant="secondary" icon={<Trash2 size={14} />} onClick={() => setDeleteConfirm(true)}>
-              Delete
-            </ActionButton>
           </div>
           {nameEditing && nameDraft.trim() !== channel.name && (
             <ActionButton
@@ -513,20 +683,22 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
           <div className="mt-5">
             <p className="text-xs font-medium text-muted-foreground">Banner</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Wide strip on the public page. Same width as the fields below.
+              Full image on the phone. A wide strip on large screens. Keep titles near the center.
             </p>
             <div
               className={cn(
-                CHANNEL_BANNER_ASPECT,
-                "mt-2 w-full overflow-hidden rounded-xl border border-border bg-muted",
+                CHANNEL_BANNER_FRAME,
+                "mt-2 rounded-xl border border-border",
                 "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
               )}
             >
               {channel.banner_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={channel.banner_url} alt="" className="h-full w-full object-cover" />
+                <img src={channel.banner_url} alt="" className={CHANNEL_BANNER_IMG} />
               ) : (
-                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No banner</div>
+                <div className="flex min-h-24 items-center justify-center text-xs text-muted-foreground lg:h-full">
+                  No banner
+                </div>
               )}
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -619,6 +791,17 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
         </section>
         {aside}
       </div>
+      <div className="mt-8 border-t border-border pt-5">
+        <ActionButton
+          variant="danger"
+          size="sm"
+          icon={<Trash2 size={14} />}
+          onClick={() => setDeleteConfirm(true)}
+        >
+          Delete channel
+        </ActionButton>
+      </div>
+      </>
         )}
         {pageTab === "analytics" && (
           <ShareAnalyticsPanel
@@ -636,10 +819,10 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
           <h2 className="text-sm font-semibold">Add videos</h2>
           <SearchInput id="add-channel-videos" value={addSearch} onChange={setAddSearch} placeholder="Search recordings…" />
           <div className="max-h-80 space-y-2 overflow-y-auto">
-            {(recordingsQuery.data ?? [])
+            {(recordingsQuery.data?.items ?? [])
               .filter((r) => !inVideos.has(r.id))
               .map((r) => (
-                <label key={r.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3">
+                <label key={r.id} className="pressable pressable-block flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3">
                   <input
                     type="checkbox"
                     className={CHECKBOX}
@@ -657,6 +840,11 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 </label>
               ))}
           </div>
+          {recordingsQuery.data && recordingsQuery.data.total > recordingsQuery.data.items.length ? (
+            <p className="text-xs text-muted-foreground">
+              Showing {recordingsQuery.data.items.length} of {recordingsQuery.data.total}. Search to find the rest.
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             <ActionButton type="button" variant="secondary" onClick={() => setAddVideosOpen(false)}>Cancel</ActionButton>
             <ActionButton
@@ -665,6 +853,7 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 void addChannelVideos(channelId, [...addSelected]).then(() => {
                   setAddVideosOpen(false);
                   setAddSelected(new Set());
+                  setVideoOrder("order");
                   void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
                   void qc.invalidateQueries({ queryKey: ["channel", channelId] });
                 });
@@ -684,7 +873,7 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
             {(playlistPickQuery.data?.items ?? [])
               .filter((p) => !inPlaylists.has(p.id))
               .map((p) => (
-                <label key={p.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3">
+                <label key={p.id} className="pressable pressable-block flex cursor-pointer items-center gap-3 rounded-xl border border-border p-3">
                   <input
                     type="checkbox"
                     className={CHECKBOX}
@@ -710,6 +899,7 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 void addChannelPlaylists(channelId, [...addSelected]).then(() => {
                   setAddPlaylistsOpen(false);
                   setAddSelected(new Set());
+                  setPlaylistOrder("order");
                   void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
                   void qc.invalidateQueries({ queryKey: ["channel", channelId] });
                 });
@@ -744,7 +934,7 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
         onConfirm={() => remove.mutate()}
         title="Delete channel?"
         description="This frees the slug. Playlists and recordings are not deleted."
-        confirmLabel="Delete"
+        confirmLabel="Delete channel"
         danger
       />
       {toast && <Toast key={toast.serial} type={toast.type} message={toast.msg} exiting={toast.exiting} onDismiss={dismiss} />}

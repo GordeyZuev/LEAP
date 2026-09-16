@@ -1266,7 +1266,7 @@ function EditUserModal({
                                   type="button"
                                   onClick={() => setLimits((l) => ({ ...l, [f.key]: "" }))}
                                   title="Clear — inherit plan default"
-                                  className="shrink-0 h-9 w-9 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors text-xs font-semibold"
+                                  className="pressable shrink-0 h-9 w-9 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-foreground text-xs font-semibold"
                                 >
                                   ∞
                                 </button>

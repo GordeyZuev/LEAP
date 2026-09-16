@@ -20,8 +20,9 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { Field } from "@/components/ui/field";
+import { CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
 import { useUrlListState } from "@/hooks/use-url-list-state";
-import { CHANNEL_BANNER_ASPECT, PER_PAGE_CHANNELS } from "@/lib/constants";
+import { CHANNEL_BANNER_FRAME, CHANNEL_BANNER_IMG, PER_PAGE_CHANNELS } from "@/lib/constants";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { cn, extractApiError } from "@/lib/utils";
 
@@ -74,20 +75,20 @@ function ChannelCard({ channel: c }: { channel: ChannelListItem }) {
   }
 
   return (
-    <article className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm transition-[border-color,box-shadow] duration-150 hover:border-primary/30 hover:shadow-md">
+    <article className={cn("flex flex-col overflow-hidden p-5", CARD_SHELL, CARD_INTERACTIVE)}>
       <Link href={`/channels/${c.id}`} className="flex min-w-0 flex-col">
         <div
           className={cn(
-            "relative mb-4 overflow-hidden rounded-xl bg-muted",
-            CHANNEL_BANNER_ASPECT,
+            CHANNEL_BANNER_FRAME,
+            "relative mb-4 rounded-xl",
             "outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10",
           )}
         >
           {c.banner_url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={c.banner_url} alt="" className="h-full w-full object-cover" />
+            <img src={c.banner_url} alt="" className={CHANNEL_BANNER_IMG} />
           ) : (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
+            <div className="flex min-h-24 items-center justify-center text-muted-foreground lg:h-full">
               <Radio size={22} aria-hidden />
             </div>
           )}
