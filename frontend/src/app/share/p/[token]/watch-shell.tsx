@@ -6,9 +6,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Check,
   Clock,
-  Copy,
+  Folder,
   ListVideo,
   Play,
   VideoOff,
@@ -16,12 +15,14 @@ import {
 
 import {
   getPlaylistShareFileUrl,
+  getPlaylistSharePosters,
   getPlaylistShareMedia,
   getPublicPlaylist,
   getPublicPlaylistItem,
   sendPlaylistLandingBeacon,
   sendPlaylistSharePageBeacon,
   type PublicPlaylistItem,
+  type PublicPlaylistGroup,
   type PublicRecordingResponse,
 } from "@/api/share";
 import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-content-editor";
@@ -29,6 +30,7 @@ import { resolveStorageUrl } from "@/api/client";
 import { StablePosterImage } from "@/components/recordings/recording-poster";
 import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
 import { ShareVideoDownloadButton } from "@/components/recordings/share-video-download-button";
+import { PublicShareHeader } from "@/components/share/public-share-header";
 import { TranscriptPanel, type TranscriptCue } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
@@ -42,7 +44,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { FormattedText } from "@/components/ui/formatted-text";
-import { FILTER_LABEL } from "@/lib/filter-field-classes";
+import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
 import { useShareEngagement } from "@/hooks/use-share-engagement";
 import { useShareVtt } from "@/hooks/use-share-vtt";
@@ -54,6 +56,7 @@ import {
   catalogPlaylistItems,
   parsePlaylistVideoSort,
   PLAYLIST_VIDEO_SORT,
+  visiblePlaylistFolderItems,
   type PlaylistVideoSort,
 } from "@/lib/playlist-catalog";
 import { firstPlayable, lastIndexAtOrBefore, nextPlayable } from "@/lib/playlist-playable";
@@ -61,12 +64,6 @@ import { paginateItems, parseCatalogPage, CATALOG_PAGE_SIZE } from "@/lib/catalo
 import type { ChapterSeekSource, PlaylistNavFrom } from "@/lib/share-engagement";
 import { trackPlaylistNavigateDeduped } from "@/lib/share-engagement";
 import { playlistResumeKey } from "@/lib/video-resume";
-import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
-import {
-  COPY_LINK_CHIP,
-  COPY_LINK_CHIP_COPIED,
-  COPY_LINK_CHIP_IDLE,
-} from "@/components/share/public-share-header";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -77,14 +74,25 @@ const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 const EMPTY_ITEMS: PublicPlaylistItem[] = [];
 const NAV_FROM_KEY = "leap:playlist-nav-from";
 
-function playlistWatchHref(token: string, itemId: number, fromSlug: string | null): string {
+function playlistLandingHref(token: string, fromSlug: string | null, groupId: number | null = null): string {
+  const p = new URLSearchParams();
+  if (groupId !== null) p.set("group", String(groupId));
+  if (fromSlug) p.set("from", fromSlug);
+  const query = p.toString();
+  return `/share/p/${token}${query ? `?${query}` : ""}`;
+}
+
+function playlistWatchHref(
+  token: string, itemId: number, fromSlug: string | null, groupId: number | null = null,
+): string {
   const p = new URLSearchParams();
   p.set("v", String(itemId));
+  if (groupId !== null) p.set("group", String(groupId));
   if (fromSlug) p.set("from", fromSlug);
   return `/share/p/${token}?${p.toString()}`;
 }
 
-function writeLandingParams(next: { q: string; sort: PlaylistVideoSort; page: number }) {
+function writeLandingParams(next: { q: string; sort: PlaylistVideoSort; page: number; groupId: number | null }) {
   const url = new URL(window.location.href);
   if (next.q.trim()) url.searchParams.set("q", next.q.trim());
   else url.searchParams.delete("q");
@@ -92,6 +100,8 @@ function writeLandingParams(next: { q: string; sort: PlaylistVideoSort; page: nu
   else url.searchParams.delete("sort");
   if (next.page > 1) url.searchParams.set("page", String(next.page));
   else url.searchParams.delete("page");
+  if (next.groupId !== null) url.searchParams.set("group", String(next.groupId));
+  else url.searchParams.delete("group");
   url.searchParams.delete("v");
   window.history.replaceState(null, "", url.toString());
 }
@@ -114,7 +124,6 @@ function itemStatus(item: PublicPlaylistItem): string | null {
 
 const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-4 sm:px-6 lg:px-8";
 const PAGE_MAIN = cn(PAGE_SHELL, "py-4 sm:py-8");
-const PAGE_HEADER_INNER = cn(PAGE_SHELL, "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 sm:py-4");
 const PLAYLIST_GRID =
   "grid grid-cols-1 gap-8 md:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)] md:items-start lg:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)] xl:grid-cols-[minmax(20rem,28rem)_minmax(0,1fr)]";
 const PLAYLIST_PLAQUE = cn(
@@ -166,6 +175,7 @@ function PlaylistVideoPlayer({
   processedPlayUrl,
   originalPlayUrl,
   mediaExpiresIn,
+  mediaIssuedAtMs,
   itemFetching,
   onItemRefetch,
   markers,
@@ -175,6 +185,8 @@ function PlaylistVideoPlayer({
   onGone,
   onEnded,
   onMarkerSeek,
+  autoPlayRequested,
+  onAutoPlayAttempt,
   overlay,
 }: {
   token: string;
@@ -183,8 +195,9 @@ function PlaylistVideoPlayer({
   processedPlayUrl?: string | null;
   originalPlayUrl?: string | null;
   mediaExpiresIn?: number | null;
+  mediaIssuedAtMs: number;
   itemFetching: boolean;
-  onItemRefetch: () => void;
+  onItemRefetch: (variant: "processed" | "original") => Promise<string | null>;
   markers: VideoPlayerMarker[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -192,25 +205,31 @@ function PlaylistVideoPlayer({
   onGone?: () => void;
   onEnded?: () => void;
   onMarkerSeek?: (time: number, label: string) => void;
+  autoPlayRequested?: boolean;
+  onAutoPlayAttempt?: () => void;
   overlay?: React.ReactNode;
 }) {
   const presetUrl = variant === "processed" ? processedPlayUrl : originalPlayUrl;
-  const { data: videoUrl, isLoading, isError, refetch, error } = useQuery({
+  const { data: media, dataUpdatedAt: mediaUpdatedAt, isLoading, refetch, error } = useQuery({
     queryKey: ["playlist-share-media", token, itemId, variant],
-    queryFn: async () => {
-      const res = await getPlaylistShareMedia(token, itemId, false, variant);
-      return res.url;
-    },
+    queryFn: () => getPlaylistShareMedia(token, itemId, false, variant),
     enabled: !presetUrl && !itemFetching,
     staleTime: MEDIA_URL_STALE_MS,
     retry: false,
   });
-  const resolvedUrl = presetUrl ?? videoUrl;
+  const resolvedUrl = presetUrl ?? media?.url;
+  const refreshMedia = useCallback(async () => {
+    if (presetUrl) return onItemRefetch(variant);
+    const result = await refetch({ cancelRefetch: false });
+    return result.isSuccess ? result.data?.url ?? null : null;
+  }, [presetUrl, onItemRefetch, refetch, variant]);
 
   usePresignedMediaRefresh({
-    expiresIn: mediaExpiresIn,
-    enabled: Boolean(presetUrl),
-    onRefresh: onItemRefetch,
+    expiresIn: presetUrl ? mediaExpiresIn : media?.expires_in,
+    enabled: Boolean(resolvedUrl),
+    url: resolvedUrl,
+    issuedAtMs: presetUrl ? mediaIssuedAtMs : mediaUpdatedAt,
+    onRefresh: refreshMedia,
   });
 
   useEffect(() => {
@@ -218,8 +237,8 @@ function PlaylistVideoPlayer({
     if (status === 404) onGone?.();
   }, [error, onGone]);
 
-  if (itemFetching || (!presetUrl && isLoading)) return <VideoPlayerLoading />;
-  if ((!presetUrl && isError) || !resolvedUrl) {
+  if (!resolvedUrl && (itemFetching || isLoading)) return <VideoPlayerLoading />;
+  if (!resolvedUrl) {
     return (
       <div
         role="status"
@@ -240,15 +259,14 @@ function PlaylistVideoPlayer({
       ref={videoRef}
       src={resolvedUrl}
       resumeKey={playlistResumeKey(token, itemId, variant)}
-      onReload={() => {
-        onItemRefetch();
-        void refetch();
-      }}
+      onReload={refreshMedia}
       markers={markers}
       vttBlobUrl={variant === "processed" ? vttBlobUrl : null}
       onTimeUpdate={onTimeUpdate}
       onEnded={onEnded}
       onMarkerSeek={onMarkerSeek}
+      autoPlayRequested={autoPlayRequested}
+      onAutoPlayAttempt={onAutoPlayAttempt}
       overlay={overlay}
       className="rounded-none outline-none"
     />
@@ -259,10 +277,12 @@ export function WatchShell({
   token,
   initialPlaylist,
   initialView = "full",
+  initialFromSlug = null,
 }: {
   token: string;
   initialPlaylist?: import("@/api/share").PublicPlaylistResponse | null;
   initialView?: "full" | "catalog";
+  initialFromSlug?: string | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -272,7 +292,11 @@ export function WatchShell({
   const [landingQuery, setLandingQuery] = useState(searchParams.get("q") ?? "");
   const [landingSort, setLandingSort] = useState<PlaylistVideoSort>(parsePlaylistVideoSort(searchParams.get("sort")));
   const [landingPage, setLandingPage] = useState(() => parseCatalogPage(searchParams.get("page")));
-  const landingFilterKey = `${landingQuery}\0${landingSort}`;
+  const landingGroupId = (() => {
+    const id = Number(searchParams.get("group"));
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  })();
+  const landingFilterKey = `${landingQuery}\0${landingSort}\0${landingGroupId ?? ""}`;
   const [appliedLandingFilterKey, setAppliedLandingFilterKey] = useState(landingFilterKey);
   if (appliedLandingFilterKey !== landingFilterKey) {
     setAppliedLandingFilterKey(landingFilterKey);
@@ -285,7 +309,7 @@ export function WatchShell({
   }, [token, requestedId, fromSlug]);
   const { track, flush } = useShareEngagement(engagementPath);
   const watching = requestedId != null;
-  const playlistView = watching ? "catalog" : "full";
+  const playlistView = "catalog";
 
   const {
     data: playlist,
@@ -293,17 +317,18 @@ export function WatchShell({
     isPending,
     refetch,
   } = useQuery({
-    queryKey: ["public-playlist", token, playlistView],
-    queryFn: () => getPublicPlaylist(token, playlistView),
-    initialData: playlistView === initialView ? (initialPlaylist ?? undefined) : undefined,
+    queryKey: ["public-playlist", token, playlistView, fromSlug],
+    queryFn: () => getPublicPlaylist(token, playlistView, fromSlug),
+    initialData: playlistView === initialView && fromSlug === initialFromSlug ? (initialPlaylist ?? undefined) : undefined,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
+  const channel = playlist?.channels.find((candidate) => candidate.slug === fromSlug?.trim().toLowerCase());
+  const channelSlug = channel?.slug ?? null;
 
   const [goneId, setGoneId] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [playIntent, setPlayIntent] = useState(false);
+  const [playTargetId, setPlayTargetId] = useState<number | null>(null);
   const [endedId, setEndedId] = useState<number | null>(null);
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -312,9 +337,16 @@ export function WatchShell({
   const companionPanelId = useId();
 
   const items = playlist?.items ?? EMPTY_ITEMS;
+  const groups = playlist?.groups ?? [];
+  const selectedGroup = groups.find((group) => group.id === landingGroupId);
+  const hasGroups = groups.length > 0;
+  const activeGroupId = selectedGroup?.id ?? null;
   const landingItems = useMemo(
-    () => catalogPlaylistItems(items, landingQuery, landingSort),
-    [items, landingQuery, landingSort],
+    () => {
+      const visible = visiblePlaylistFolderItems(items, selectedGroup?.id ?? null, hasGroups, landingQuery);
+      return catalogPlaylistItems(visible, landingQuery, landingSort);
+    },
+    [items, landingQuery, landingSort, hasGroups, selectedGroup],
   );
   const landingPagingPage = appliedLandingFilterKey !== landingFilterKey ? 1 : landingPage;
   const landingPaged = useMemo(
@@ -327,6 +359,25 @@ export function WatchShell({
   }, [items, requestedId, watching]);
   const startAt = firstPlayable(items);
   const cover = startAt ?? items[0];
+  const posterIds = useMemo(
+    () => [...new Set([...landingPaged.items.map((item) => item.id), ...(cover ? [cover.id] : [])])].sort((a, b) => a - b),
+    [landingPaged.items, cover],
+  );
+  const { data: posters } = useQuery({
+    queryKey: ["public-playlist-posters", token, posterIds.join(",")],
+    queryFn: () => getPlaylistSharePosters(token, posterIds),
+    enabled: !watching && posterIds.length > 0,
+    staleTime: MEDIA_URL_STALE_MS,
+    retry: false,
+  });
+  const landingPosterItems = useMemo(
+    () => landingPaged.items.map((item) => ({
+      ...item,
+      poster_url: posters?.[item.id]?.url ?? item.poster_url,
+      poster_asset_key: posters?.[item.id]?.asset_key ?? item.poster_asset_key,
+    })),
+    [landingPaged.items, posters],
+  );
   const gone = goneId !== null && goneId === current?.id;
 
   const handleMediaMissing = useCallback(() => {
@@ -346,8 +397,8 @@ export function WatchShell({
 
   useEffect(() => {
     if (watching || !playlist) return;
-    writeLandingParams({ q: landingQuery, sort: landingSort, page: landingPaged.page });
-  }, [watching, playlist, landingQuery, landingSort, landingPaged.page]);
+    writeLandingParams({ q: landingQuery, sort: landingSort, page: landingPaged.page, groupId: activeGroupId });
+  }, [watching, playlist, landingQuery, landingSort, landingPaged.page, activeGroupId]);
 
   const [videoVariant, setVideoVariant] = useState<"processed" | "original">("processed");
   const [variantItemId, setVariantItemId] = useState(current?.id);
@@ -358,6 +409,7 @@ export function WatchShell({
 
   const {
     data: recording,
+    dataUpdatedAt: itemUpdatedAt,
     error: itemError,
     isFetching: itemFetching,
     isPlaceholderData,
@@ -370,8 +422,10 @@ export function WatchShell({
     retry: false,
   });
 
-  const refetchItemPlayer = useCallback(() => {
-    void refetchItem();
+  const refetchItemPlayer = useCallback(async (variant: "processed" | "original") => {
+    const result = await refetchItem({ cancelRefetch: false });
+    if (!result.isSuccess) return null;
+    return variant === "processed" ? result.data?.play_url ?? null : result.data?.original_play_url ?? null;
   }, [refetchItem]);
 
   useEffect(() => {
@@ -515,7 +569,7 @@ export function WatchShell({
   }, [watching, itemRecording?.id, track, flush]);
 
   function watchUrl(itemId: number) {
-    return playlistWatchHref(token, itemId, fromSlug);
+    return playlistWatchHref(token, itemId, channelSlug, items.find((item) => item.id === itemId)?.group_id ?? null);
   }
 
   function goTo(item: PublicPlaylistItem | undefined, play = true, from: PlaylistNavFrom = "sidebar") {
@@ -528,7 +582,7 @@ export function WatchShell({
     flush();
     setGoneId(null);
     setEndedId(null);
-    if (play) setPlayIntent(true);
+    if (play) setPlayTargetId(item.id);
     router.push(watchUrl(item.id));
   }
 
@@ -544,37 +598,17 @@ export function WatchShell({
     });
   }, [recording, nextItem, token, queryClient]);
 
-  const shouldAutoplay = watching && playIntent;
-
-  useEffect(() => {
-    if (!shouldAutoplay) return;
-    const el = videoRef.current;
-    if (!el) return;
-    let cancelled = false;
-    const tryPlay = () => {
-      if (cancelled) return;
-      void el.play().catch(() => {}).finally(() => {
-        if (!cancelled) setPlayIntent(false);
-      });
-    };
-    if (el.readyState >= 2) tryPlay();
-    else el.addEventListener("canplay", tryPlay, { once: true });
-    const fallback = window.setTimeout(tryPlay, 400);
-    return () => {
-      cancelled = true;
-      el.removeEventListener("canplay", tryPlay);
-      window.clearTimeout(fallback);
-    };
-  }, [shouldAutoplay, current?.id]);
-
   if (httpStatus(error) === 404) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center bg-background px-6">
-        <div className="w-full max-w-md">
-          <ErrorState
-            title="Link not found"
-            description="This share link has been revoked, or it never existed."
-          />
+      <div className="bg-background">
+        <PublicShareHeader />
+        <div className="flex min-h-[70vh] items-center justify-center px-6">
+          <div className="w-full max-w-md">
+            <ErrorState
+              title="Link not found"
+              description="This share link has been revoked, or it never existed."
+            />
+          </div>
         </div>
       </div>
     );
@@ -582,13 +616,17 @@ export function WatchShell({
 
   if (error && !playlist) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center bg-background px-6">
-        <div className="w-full max-w-md">
-          <ErrorState
-            title="Unable to load this playlist"
-            description="Check your connection and try again."
-            onRetry={() => void refetch()}
-          />
+      <div className="bg-background">
+        <PublicShareHeader />
+        <div className="flex min-h-[70vh] items-center justify-center px-6">
+          <div className="w-full max-w-md">
+            <ErrorState
+              title="Unable to load this playlist"
+              description="Check your connection and try again."
+              error={error}
+              onRetry={() => void refetch()}
+            />
+          </div>
         </div>
       </div>
     );
@@ -597,11 +635,7 @@ export function WatchShell({
   if (isPending || !playlist) {
     return (
       <div className="bg-background">
-        <header className="border-b border-border bg-card">
-          <div className={PAGE_HEADER_INNER}>
-            <Skeleton className="h-6 w-24" />
-          </div>
-        </header>
+        <PublicShareHeader />
         <main className={PAGE_MAIN}>
           {watching ? (
             <div className="space-y-3">
@@ -658,54 +692,28 @@ export function WatchShell({
       >
         Skip to {watching ? "video" : "playlist"}
       </a>
-      <header className="border-b border-border bg-card">
-        <div className={PAGE_HEADER_INNER}>
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex shrink-0 items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo_symb.svg" alt="" aria-hidden="true" className="h-6 w-6" />
-              <span className="text-sm font-semibold text-foreground">LEAP</span>
-            </span>
-            <AgeRatingBadge />
-            {watching ? (
-              <Link
-                href={fromSlug ? `/share/p/${token}?from=${encodeURIComponent(fromSlug)}` : `/share/p/${token}`}
-                className="min-w-0 truncate rounded-sm text-sm text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-              >
-                {playlist.name}
-              </Link>
-            ) : (
-              <span className="hidden min-w-0 truncate text-sm text-muted-foreground sm:block">{playlist.name}</span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const url = watching
-                ? window.location.href
-                : `${window.location.origin}/share/p/${token}`;
-              void navigator.clipboard.writeText(url).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              });
-            }}
-            className={cn(COPY_LINK_CHIP, copied ? COPY_LINK_CHIP_COPIED : COPY_LINK_CHIP_IDLE)}
+      <PublicShareHeader>
+        {watching ? (
+          <Link
+            href={playlistLandingHref(token, channelSlug, current?.group_id ?? null)}
+            className="min-w-0 truncate rounded-sm text-sm text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Copied" : "Copy link"}
-          </button>
-          <span role="status" className="sr-only">
-            {copied ? "Link copied to clipboard" : ""}
-          </span>
-        </div>
-      </header>
+            {playlist.name}
+          </Link>
+        ) : (
+          <span className="hidden min-w-0 truncate text-sm text-muted-foreground sm:block">{playlist.name}</span>
+        )}
+      </PublicShareHeader>
 
       <main id="playlist-main" className={PAGE_MAIN}>
         {watching ? (
           <WatchLayout
               token={token}
-              fromSlug={fromSlug}
+              fromSlug={channelSlug}
+              channelName={channel?.name ?? null}
+              playlistName={playlist.name}
               items={items}
+              groups={groups}
               current={current}
               gone={gone}
               ended={ended}
@@ -733,6 +741,7 @@ export function WatchShell({
               processedPlayUrl={itemRecording?.play_url}
               originalPlayUrl={itemRecording?.original_play_url}
               mediaExpiresIn={itemRecording?.media_expires_in}
+              mediaIssuedAtMs={itemUpdatedAt}
               itemFetching={itemFetching && !itemRecording}
               onItemRefetch={refetchItemPlayer}
               videoVariant={playVariant}
@@ -762,12 +771,9 @@ export function WatchShell({
                 }
                 setEndedId(current?.id ?? null);
               }}
+              autoPlayRequested={playTargetId === current?.id}
+              onAutoPlayAttempt={() => setPlayTargetId((id) => id === current?.id ? null : id)}
               onNext={() => goTo(nextItem, true, "sidebar")}
-              onNavigate={() => {
-                setGoneId(null);
-                setEndedId(null);
-                setPlayIntent(true);
-              }}
               below={
                 <div className={WATCH_BELOW}>
                   {hasExtraContent && topicVersion && (
@@ -812,14 +818,12 @@ export function WatchShell({
         ) : (
           <div className={PLAYLIST_GRID}>
             <section className={PLAYLIST_PLAQUE}>
-              <h1 className="shrink-0 text-xl font-semibold tracking-tight break-words text-foreground">
-                {fromSlug ? (
-                  <Link href={`/c/${fromSlug}`} className="mb-2 block text-sm font-normal text-muted-foreground hover:text-foreground">
-                    ← {fromSlug}
-                  </Link>
-                ) : null}
-                {playlist.name}
-              </h1>
+              {channel ? (
+                <Link href={`/c/${channel.slug}`} className="mb-2 text-sm text-muted-foreground hover:text-foreground">
+                  ← {channel.name}
+                </Link>
+              ) : null}
+              <h1 className="shrink-0 text-xl font-semibold tracking-tight break-words text-foreground">{playlist.name}</h1>
               <p className="mt-1.5 shrink-0 text-sm text-muted-foreground">
                 Playlist
                 <span aria-hidden> · </span>
@@ -839,7 +843,7 @@ export function WatchShell({
                 <Link
                   href={watchUrl(startAt.id)}
                   onClick={() => {
-                    setPlayIntent(true);
+                    setPlayTargetId(startAt.id);
                     try {
                       window.sessionStorage.setItem(NAV_FROM_KEY, "landing");
                     } catch {
@@ -851,8 +855,8 @@ export function WatchShell({
                 >
                   <span className={cn(VIDEO_PLAYER_FRAME, "block bg-muted")}>
                     <StablePosterImage
-                      posterUrl={cover.poster_url}
-                      posterAssetKey={cover.poster_asset_key}
+                      posterUrl={posters?.[cover.id]?.url ?? cover.poster_url}
+                      posterAssetKey={posters?.[cover.id]?.asset_key ?? cover.poster_asset_key}
                       className="h-full w-full rounded-none"
                       placeholderIconSize={28}
                     />
@@ -899,6 +903,37 @@ export function WatchShell({
                   </div>
                 </div>
               )}
+              {hasGroups && (
+                selectedGroup ? (
+                  <div className="mb-4 flex items-center gap-3">
+                    <Link
+                      href={playlistLandingHref(token, channelSlug)}
+                      className="text-sm font-medium text-primary hover:underline"
+                    >
+                      ← All groups
+                    </Link>
+                    <span className="text-sm font-semibold">{selectedGroup.name}</span>
+                  </div>
+                ) : !landingQuery.trim() ? (
+                  <div className="mb-5 grid gap-3 sm:grid-cols-2">
+                    {groups.map((group) => (
+                      <Link
+                        key={group.id}
+                        href={playlistLandingHref(token, channelSlug, group.id)}
+                        className="pressable flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card p-4 text-left hover:bg-muted/60"
+                      >
+                        <Folder size={24} className="shrink-0 text-primary" aria-hidden />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{group.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {group.item_count} {group.item_count === 1 ? "video" : "videos"}
+                          </span>
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : null
+              )}
               {items.length > 0 && landingItems.length === 0 && landingQuery.trim() ? (
                 <EmptyState
                   icon={ListVideo}
@@ -914,17 +949,18 @@ export function WatchShell({
                     </button>
                   }
                 />
-              ) : (
+              ) : landingItems.length > 0 ? (
                 <VideoList
                   token={token}
-                  fromSlug={fromSlug}
-                  items={landingPaged.items}
+                  fromSlug={channelSlug}
+                  items={landingPosterItems}
                   currentId={null}
-                  onNavigate={() => setPlayIntent(true)}
                   onItemSelect={(item) => goTo(item, true, "landing")}
                   startNumber={(landingPaged.page - 1) * CATALOG_PAGE_SIZE + 1}
                 />
-              )}
+              ) : selectedGroup ? (
+                <EmptyState icon={ListVideo} title="No videos in this group yet" />
+              ) : null}
               {landingPaged.totalPages > 1 ? (
                 <Pagination
                   page={landingPaged.page}
@@ -946,7 +982,10 @@ export function WatchShell({
 function WatchLayout({
   token,
   fromSlug,
+  channelName,
+  playlistName,
   items,
+  groups,
   current,
   gone,
   ended,
@@ -971,6 +1010,7 @@ function WatchLayout({
   processedPlayUrl,
   originalPlayUrl,
   mediaExpiresIn,
+  mediaIssuedAtMs,
   itemFetching,
   onItemRefetch,
   videoVariant,
@@ -983,13 +1023,17 @@ function WatchLayout({
   onTimeUpdate,
   onGone,
   onEnded,
+  autoPlayRequested,
+  onAutoPlayAttempt,
   onNext,
-  onNavigate,
   below,
 }: {
   token: string;
   fromSlug: string | null;
+  channelName: string | null;
+  playlistName: string;
   items: PublicPlaylistItem[];
+  groups: PublicPlaylistGroup[];
   current: PublicPlaylistItem | undefined;
   gone: boolean;
   ended: boolean;
@@ -1014,8 +1058,9 @@ function WatchLayout({
   processedPlayUrl?: string | null;
   originalPlayUrl?: string | null;
   mediaExpiresIn?: number | null;
+  mediaIssuedAtMs: number;
   itemFetching: boolean;
-  onItemRefetch: () => void;
+  onItemRefetch: (variant: "processed" | "original") => Promise<string | null>;
   videoVariant: "processed" | "original";
   onVideoVariantChange: (v: "processed" | "original") => void;
   bothVariants: boolean;
@@ -1026,18 +1071,30 @@ function WatchLayout({
   onTimeUpdate: (time: number) => void;
   onGone: () => void;
   onEnded: () => void;
+  autoPlayRequested: boolean;
+  onAutoPlayAttempt: () => void;
   onNext: () => void;
-  onNavigate: () => void;
   below?: React.ReactNode;
 }) {
   const { theater, setTheater } = useWatchTheater();
   const [autoplayNext, setAutoplayNext] = useState(readPlaylistAutoplayNext);
   const [sidebarQuery, setSidebarQuery] = useState("");
+  const [sidebarGroupId, setSidebarGroupId] = useState<number | null>(current?.group_id ?? null);
+  const [sidebarForItemId, setSidebarForItemId] = useState(current?.id);
+  if (sidebarForItemId !== current?.id) {
+    setSidebarForItemId(current?.id);
+    setSidebarGroupId(current?.group_id ?? null);
+  }
   const sidebarItems = useMemo(
-    () => catalogPlaylistItems(items, sidebarQuery, "order"),
-    [items, sidebarQuery],
+    () => catalogPlaylistItems(
+      sidebarGroupId === null ? items : items.filter((item) => item.group_id === sidebarGroupId),
+      sidebarQuery,
+      "order",
+    ),
+    [items, sidebarQuery, sidebarGroupId],
   );
   const playable = !!current?.playable && !gone;
+  const currentGroup = groups.find((group) => group.id === current?.group_id);
   const showEndCard = playable && ended;
   const dateLabel = formatDate(recordingStartTime ?? current?.start_time);
   const durationLabel = formatDuration(recordingDuration || current?.duration || 0);
@@ -1051,6 +1108,17 @@ function WatchLayout({
             onChange={setSidebarQuery}
             placeholder="Search videos…"
           />
+        )}
+        {groups.length > 0 && (
+          <select
+            aria-label="Playlist group"
+            value={sidebarGroupId ?? ""}
+            onChange={(event) => setSidebarGroupId(event.target.value ? Number(event.target.value) : null)}
+            className={cn(FILTER_CONTROL, "w-full text-sm")}
+          >
+            <option value="">All groups</option>
+            {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+          </select>
         )}
         {items.length > 0 && sidebarItems.length === 0 && sidebarQuery.trim() ? (
           <EmptyState
@@ -1074,7 +1142,6 @@ function WatchLayout({
             fromSlug={fromSlug}
             items={sidebarItems}
             currentId={current?.id ?? null}
-            onNavigate={onNavigate}
             onItemSelect={onItemSelect}
             embedded
           />
@@ -1156,6 +1223,7 @@ function WatchLayout({
       processedPlayUrl={processedPlayUrl}
       originalPlayUrl={originalPlayUrl}
       mediaExpiresIn={mediaExpiresIn}
+      mediaIssuedAtMs={mediaIssuedAtMs}
       itemFetching={itemFetching}
       onItemRefetch={onItemRefetch}
       markers={markers}
@@ -1165,6 +1233,8 @@ function WatchLayout({
       onGone={onGone}
       onEnded={onEnded}
       onMarkerSeek={onMarkerSeek}
+      autoPlayRequested={autoPlayRequested}
+      onAutoPlayAttempt={onAutoPlayAttempt}
       overlay={overlay}
     />
   ) : (
@@ -1190,11 +1260,26 @@ function WatchLayout({
       player={player}
       title={
         <div>
-          {fromSlug ? (
-            <Link href={`/c/${fromSlug}`} className="mb-2 block text-sm font-normal text-muted-foreground hover:text-foreground">
-              ← {fromSlug}
+          <nav aria-label="Video location" className="mb-2 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+            {fromSlug && (
+              <>
+                <Link href={`/c/${fromSlug}`} className="min-w-0 max-w-full break-words font-medium text-primary hover:text-primary-hover hover:underline">
+                  {channelName ?? fromSlug}
+                </Link>
+                <span aria-hidden>/</span>
+              </>
+            )}
+            <Link href={playlistLandingHref(token, fromSlug)} className="min-w-0 max-w-full break-words font-medium text-primary hover:text-primary-hover hover:underline">
+              {playlistName}
             </Link>
-          ) : null}
+            {currentGroup && (
+              <>
+                <span aria-hidden>/</span>
+                <Link href={playlistLandingHref(token, fromSlug, currentGroup.id)}
+                  className="min-w-0 max-w-full break-words font-medium text-primary hover:text-primary-hover hover:underline">{currentGroup.name}</Link>
+              </>
+            )}
+          </nav>
           <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
             {recordingTitle ?? current?.title ?? "Video unavailable"}
           </h1>
@@ -1265,7 +1350,6 @@ function VideoList({
   fromSlug,
   items,
   currentId,
-  onNavigate,
   onItemSelect,
   sticky = false,
   embedded = false,
@@ -1275,7 +1359,6 @@ function VideoList({
   fromSlug: string | null;
   items: PublicPlaylistItem[];
   currentId: number | null;
-  onNavigate?: () => void;
   onItemSelect?: (item: PublicPlaylistItem) => void;
   sticky?: boolean;
   embedded?: boolean;
@@ -1326,7 +1409,6 @@ function VideoList({
                   type="button"
                   aria-current={active ? "true" : undefined}
                   onClick={() => {
-                    onNavigate?.();
                     onItemSelect(item);
                   }}
                   className={rowClass}
@@ -1335,9 +1417,8 @@ function VideoList({
                 </button>
               ) : (
                 <Link
-                  href={playlistWatchHref(token, item.id, fromSlug)}
+                  href={playlistWatchHref(token, item.id, fromSlug, item.group_id)}
                   aria-current={active ? "true" : undefined}
-                  onClick={onNavigate}
                   className={rowClass}
                 >
                   {body}

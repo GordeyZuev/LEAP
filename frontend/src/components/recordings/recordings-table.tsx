@@ -260,7 +260,7 @@ export function RecordingsTable({
           </tr>
         </thead>
         <tbody className={TABLE_BODY}>
-          {recordings.map((r) => {
+          {recordings.map((r, index) => {
             const isSoftDeleted = !!r.soft_deleted_at;
             const isLoading = loadingId === r.id;
             const uploadEntries = Object.entries(r.uploads).filter(([platform]) => platform !== "leap");
@@ -296,8 +296,10 @@ export function RecordingsTable({
                     posterUrl={r.poster_url}
                     posterFallbackUrl={r.poster_fallback_url}
                     posterAssetKey={r.poster_asset_key}
+                    posterRefreshAtMs={r.poster_refresh_at_ms}
                     duration={r.duration}
                     className={RECORDING_TABLE_POSTER}
+                    prioritize={index < 3}
                   />
                 </td>
                 <td className="max-w-[200px] px-3 py-2.5">

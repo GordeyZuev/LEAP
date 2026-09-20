@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.repositories.playlist_repo import PlaylistRepository
+from api.schemas.playlist import PlaylistGroupResponse
 from database.models import RecordingModel
 from database.playlist_models import MAX_ITEMS_PER_PLAYLIST, MAX_PLAYLISTS_PER_USER, PlaylistItemModel, PlaylistModel
 from logger import get_logger
@@ -19,6 +20,18 @@ logger = get_logger()
 
 SHARE_NOT_FOUND = "Share link not found or has been revoked"
 UNSET = object()
+
+
+def group_responses(playlist: PlaylistModel) -> list[PlaylistGroupResponse]:
+    """Serialize groups with counts from the already loaded playlist items."""
+    counts: dict[int, int] = {}
+    for item in playlist.items:
+        if item.group_id is not None:
+            counts[item.group_id] = counts.get(item.group_id, 0) + 1
+    return [
+        PlaylistGroupResponse(id=group.id, name=group.name, position=group.position, item_count=counts.get(group.id, 0))
+        for group in sorted(playlist.groups, key=lambda group: (group.position, group.id))
+    ]
 
 
 def item_unavailable_reason(recording: RecordingModel) -> str | None:

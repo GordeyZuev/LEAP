@@ -1,8 +1,8 @@
 """Input source endpoints"""
 
-import asyncio
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -71,11 +71,13 @@ async def _refresh_yandex_disk_credential_if_expiring_during_sync(
     credential_id: int,
     cred_repo: UserCredentialRepository,
     encryption,
+    *,
+    user_id: str,
 ) -> None:
     """Refresh Yandex Disk OAuth token when near expiry so sync listing does not 401."""
     from api.services.yandex_disk_credentials import refresh_yandex_disk_credential_if_needed
 
-    await refresh_yandex_disk_credential_if_needed(credentials, credential_id, cred_repo, encryption)
+    await refresh_yandex_disk_credential_if_needed(credentials, credential_id, cred_repo, encryption, user_id=user_id)
 
 
 def _get_best_video_file(recording_files: list | None) -> dict | None:
@@ -208,7 +210,7 @@ async def _sync_single_source(
                 }
 
             cred_repo = UserCredentialRepository(session)
-            credential = await cred_repo.get_by_id(source.credential_id)
+            credential = await cred_repo.get_by_id(source.credential_id, user_id)
 
             if not credential:
                 return {
@@ -233,11 +235,13 @@ async def _sync_single_source(
                     source.credential_id,
                     cred_repo,
                     encryption,
+                    user_id=user_id,
                 )
 
     meetings = []
     saved_count = 0
     updated_count = 0
+    new_recording_ids: list[int] = []
 
     if source.source_type == "ZOOM":
         try:
@@ -322,7 +326,7 @@ async def _sync_single_source(
                     matched_template = _find_matching_template(display_name, source_id, templates)
                     is_blank = _determine_blank_status(duration, video_file_size, zoom_processing_incomplete)
 
-                    _recording, is_new = await recording_repo.create_or_update(
+                    recording, is_new = await recording_repo.create_or_update(
                         user_id=user_id,
                         input_source_id=source_id,
                         display_name=display_name,
@@ -341,6 +345,8 @@ async def _sync_single_source(
 
                     if is_new:
                         saved_count += 1
+                        if not is_blank:
+                            new_recording_ids.append(recording.id)
                     else:
                         updated_count += 1
 
@@ -353,7 +359,7 @@ async def _sync_single_source(
             )
 
         except Exception as e:
-            logger.error(f"Zoom sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
+            logger.opt(exception=True).error(f"Zoom sync failed | {format_details(source=source_id, error=str(e))}")
             return {
                 "status": "error",
                 "error": str(e),
@@ -368,9 +374,12 @@ async def _sync_single_source(
             )
             saved_count = result.get("saved", 0)
             updated_count = result.get("updated", 0)
+            new_recording_ids = result.get("new_recording_ids", [])
             meetings = [None] * result.get("found", 0)  # placeholder for count
         except Exception as e:
-            logger.error(f"VIDEO_URL sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"VIDEO_URL sync failed | {format_details(source=source_id, error=str(e))}"
+            )
             return {"status": "error", "error": str(e)}
 
     elif source.source_type == "MTS_LINK":
@@ -385,9 +394,10 @@ async def _sync_single_source(
             )
             saved_count = result.get("saved", 0)
             updated_count = result.get("updated", 0)
+            new_recording_ids = result.get("new_recording_ids", [])
             meetings = [None] * result.get("found", 0)
         except Exception as e:
-            logger.error(f"MTS Link sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
+            logger.opt(exception=True).error(f"MTS Link sync failed | {format_details(source=source_id, error=str(e))}")
             return {"status": "error", "error": str(e)}
 
     elif source.source_type == "YANDEX_DISK":
@@ -400,9 +410,12 @@ async def _sync_single_source(
             )
             saved_count = result.get("saved", 0)
             updated_count = result.get("updated", 0)
+            new_recording_ids = result.get("new_recording_ids", [])
             meetings = [None] * result.get("found", 0)
         except Exception as e:
-            logger.error(f"Yandex Disk sync failed | {format_details(source=source_id, error=str(e))}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"Yandex Disk sync failed | {format_details(source=source_id, error=str(e))}"
+            )
             return {"status": "error", "error": str(e)}
 
     elif source.source_type == "LOCAL":
@@ -422,6 +435,7 @@ async def _sync_single_source(
         "recordings_found": len(meetings),
         "recordings_saved": saved_count,
         "recordings_updated": updated_count,
+        "new_recording_ids": new_recording_ids,
     }
 
 
@@ -449,6 +463,7 @@ async def _sync_video_url_source(
 
     saved_count = 0
     updated_count = 0
+    new_recording_ids: list[int] = []
 
     if config.is_playlist:
         entries = await extract_playlist_entries(config.url)
@@ -457,9 +472,11 @@ async def _sync_video_url_source(
         entries = [info]
 
     for entry in entries:
+        if entry.get("unavailable"):
+            continue
         try:
             video_id = entry.get("id", "")
-            title = entry.get("title", "Unknown")
+            title = (collapse_whitespace(entry.get("title") or "Unknown") or "Unknown")[:500]
             duration = entry.get("duration") or 0
             video_url = entry.get("url") or entry.get("webpage_url", config.url)
 
@@ -480,7 +497,7 @@ async def _sync_video_url_source(
 
             matched_template = _find_matching_template(title, source.id, templates)
 
-            _recording, is_new = await recording_repo.create_or_update(
+            recording, is_new = await recording_repo.create_or_update(
                 user_id=user_id,
                 input_source_id=source.id,
                 display_name=title,
@@ -492,10 +509,12 @@ async def _sync_video_url_source(
                 user_config=user_config,
                 is_mapped=matched_template is not None,
                 template_id=matched_template.id if matched_template else None,
+                require_start_time_in_lookup=False,
             )
 
             if is_new:
                 saved_count += 1
+                new_recording_ids.append(recording.id)
             else:
                 updated_count += 1
 
@@ -508,7 +527,12 @@ async def _sync_video_url_source(
     logger.info(
         f"VIDEO_URL sync | {format_details(source=source.id, found=len(entries), saved=saved_count, updated=updated_count)}"
     )
-    return {"found": len(entries), "saved": saved_count, "updated": updated_count}
+    return {
+        "found": len(entries),
+        "saved": saved_count,
+        "updated": updated_count,
+        "new_recording_ids": new_recording_ids,
+    }
 
 
 async def _sync_yandex_disk_source(
@@ -553,11 +577,13 @@ async def _sync_yandex_disk_source(
 
     saved_count = 0
     updated_count = 0
+    new_recording_ids: list[int] = []
 
     for file_info in video_files:
         try:
             file_path = file_info.get("path", "")
-            file_name = file_info.get("name", "Unknown")
+            file_name = file_info.get("name") or "Unknown"
+            display_name = (collapse_whitespace(Path(file_name).stem) or file_name)[:500]
             file_size = file_info.get("size", 0)
 
             canonical_source_key = _yandex_disk_canonical_source_key(file_info, file_path, file_name)
@@ -578,7 +604,7 @@ async def _sync_yandex_disk_source(
                 "sha256": file_info.get("sha256"),
             }
 
-            matched_template = _find_matching_template(file_name, source.id, templates)
+            matched_template = _find_matching_template(display_name, source.id, templates)
 
             modified_str = file_info.get("modified")
             if modified_str:
@@ -591,10 +617,10 @@ async def _sync_yandex_disk_source(
 
             # Yandex: source_key is hash/resource_id-based; start_time is file mtime — do not
             # require both to match when finding an existing row (see RecordingRepository).
-            _recording, is_new = await recording_repo.create_or_update(
+            recording, is_new = await recording_repo.create_or_update(
                 user_id=user_id,
                 input_source_id=source.id,
-                display_name=file_name,
+                display_name=display_name,
                 start_time=start_time,
                 duration=0,
                 source_type=SourceType.YANDEX_DISK,
@@ -610,6 +636,7 @@ async def _sync_yandex_disk_source(
 
             if is_new:
                 saved_count += 1
+                new_recording_ids.append(recording.id)
             else:
                 updated_count += 1
 
@@ -622,11 +649,16 @@ async def _sync_yandex_disk_source(
     logger.info(
         f"Yandex Disk sync | {format_details(source=source.id, found=len(video_files), saved=saved_count, updated=updated_count)}"
     )
-    return {"found": len(video_files), "saved": saved_count, "updated": updated_count}
+    return {
+        "found": len(video_files),
+        "saved": saved_count,
+        "updated": updated_count,
+        "new_recording_ids": new_recording_ids,
+    }
 
 
-# UserAPI allows ~2 requests/second; pause between paged/per-record calls to stay under it.
-_MTS_LINK_REQUEST_PAUSE_SECONDS = 0.5
+# UserAPI allows 2 requests/second per org key; Redis acquire in MtsLinkAPI._request
+# enforces that globally. Do not also sleep here.
 _MTS_LINK_RECORDS_PAGE_SIZE = 100
 _MTS_LINK_MAX_RECORD_PAGES = 50
 
@@ -686,7 +718,6 @@ async def _list_mts_link_records(mts_api, mts_user_id: int, from_date: str, to_d
 
         records.extend(page)
         offset += len(page)
-        await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
     logger.warning(f"MTS Link record list truncated | {format_details(user_id=mts_user_id, records=len(records))}")
     return records
@@ -743,10 +774,14 @@ async def _sync_mts_link_source(
     """
     from api.mts_link_api import MtsLinkAPIError
     from api.schemas.template.source_config import MtsLinkSourceConfig
+    from api.shared.exceptions import ExternalRateLimitError
     from models.mts_link_auth import create_mts_link_client, create_mts_link_credentials
 
     config = MtsLinkSourceConfig(**(source.config or {}))
-    mts_api = create_mts_link_client(create_mts_link_credentials(credentials))
+    mts_api = create_mts_link_client(
+        create_mts_link_credentials(credentials),
+        credential_id=source.credential_id,
+    )
 
     template_repo = RecordingTemplateRepository(session)
     templates = await template_repo.find_matchable_by_user(user_id)
@@ -763,6 +798,7 @@ async def _sync_mts_link_source(
     found = 0
     saved_count = 0
     updated_count = 0
+    new_recording_ids: list[int] = []
     errors: list[str] = []
     event_sessions: dict = {}
 
@@ -770,7 +806,7 @@ async def _sync_mts_link_source(
         try:
             mts_user_id = await _resolve_mts_link_user_id(mts_api, email)
             records = await _list_mts_link_records(mts_api, mts_user_id, records_from, records_to)
-        except (MtsLinkAPIError, ValueError) as e:
+        except (MtsLinkAPIError, ExternalRateLimitError, ValueError) as e:
             errors.append(f"{email}: {e}")
             logger.warning(f"MTS Link lecturer sync failed | {format_details(email=email, error=str(e))}")
             continue
@@ -791,11 +827,10 @@ async def _sync_mts_link_source(
                         file_payload = await mts_api.get_file(record_id)
                         duration_seconds = positive_duration_seconds(file_payload.get("duration"))
                         file_size = int(file_payload.get("size") or file_size or 0)
-                    except MtsLinkAPIError as e:
+                    except (MtsLinkAPIError, ExternalRateLimitError) as e:
                         logger.debug(
                             f"MTS Link file metadata missing | {format_details(record=record_id, error=str(e))}"
                         )
-                    await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
                 download_url = None
                 if event_session_id:
@@ -807,17 +842,15 @@ async def _sync_mts_link_source(
                             view=source_cfg.get("conversion_view", "none"),
                             quality=source_cfg.get("conversion_quality", "720"),
                         )
-                    except MtsLinkAPIError as e:
+                    except (MtsLinkAPIError, ExternalRateLimitError) as e:
                         logger.debug(
                             f"No converted record yet | {format_details(session_id=event_session_id, error=str(e))}"
                         )
-                    await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
                 session_payload = await load_event_session(
                     mts_api,
                     event_session_id,
                     event_sessions,
-                    pause_seconds=_MTS_LINK_REQUEST_PAUSE_SECONDS,
                 )
                 start_time, _source = resolve_mts_link_start_time(record, session_payload, allow_now=True)
                 if start_time is None:
@@ -839,7 +872,7 @@ async def _sync_mts_link_source(
                 if file_size > 0:
                     upsert_kwargs["video_file_size"] = file_size
 
-                _recording, is_new = await recording_repo.create_or_update(
+                recording, is_new = await recording_repo.create_or_update(
                     user_id=user_id,
                     input_source_id=source.id,
                     display_name=display_name,
@@ -859,6 +892,8 @@ async def _sync_mts_link_source(
 
                 if is_new:
                     saved_count += 1
+                    if not is_blank:
+                        new_recording_ids.append(recording.id)
                 else:
                     updated_count += 1
 
@@ -875,7 +910,13 @@ async def _sync_mts_link_source(
     logger.info(
         f"MTS Link sync | {format_details(source=source.id, found=found, saved=saved_count, updated=updated_count)}"
     )
-    return {"found": found, "saved": saved_count, "updated": updated_count, "errors": errors}
+    return {
+        "found": found,
+        "saved": saved_count,
+        "updated": updated_count,
+        "errors": errors,
+        "new_recording_ids": new_recording_ids,
+    }
 
 
 def _normalize_string(s: str, case_sensitive: bool) -> str:
@@ -1122,6 +1163,7 @@ async def bulk_sync_sources(
             "user_id": current_user.id,
             "from_date": data.from_date,
             "to_date": data.to_date,
+            "auto_run": data.auto_run,
         }
     )
 
@@ -1184,6 +1226,11 @@ async def update_source(
         )
 
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("config") is not None:
+        from api.schemas.template.source_config import parse_source_config_for_platform
+
+        parsed_config = parse_source_config_for_platform(source.source_type, update_data["config"])
+        update_data["config"] = parsed_config.model_dump(exclude_none=True)
     for field, value in update_data.items():
         setattr(source, field, value)
 

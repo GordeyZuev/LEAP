@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.services.share_observability import fill_daily_series, visitor_key_for_request
+from api.services.share_observability import (
+    ShareObservabilityService,
+    _channel_id_from_from_param,
+    enqueue_share_event_batch,
+    fill_daily_series,
+    visitor_key_for_request,
+)
 
 
 class _FakeClient:
@@ -33,6 +39,16 @@ def test_visitor_key_differs_by_recording_id() -> None:
     assert visitor_key_for_request(1, request) != visitor_key_for_request(2, request)
 
 
+def test_visitor_key_ignores_forwarded_ip_from_untrusted_peer(mocker) -> None:
+    mocker.patch("api.middleware.rate_limit.settings.security.trust_x_forwarded_for", False)
+    first = _FakeRequest(ip="192.0.2.1")
+    second = _FakeRequest(ip="192.0.2.2")
+    first.client = MagicMock(host="8.8.8.8")
+    second.client = MagicMock(host="8.8.8.8")
+
+    assert visitor_key_for_request("recording:1", first) == visitor_key_for_request("recording:1", second)
+
+
 def test_fill_daily_series_zero_fills_gaps() -> None:
     today = datetime.now(UTC).date()
     yesterday = today - timedelta(days=1)
@@ -47,9 +63,60 @@ def test_fill_daily_series_zero_fills_gaps() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_page_view_skips_without_owner() -> None:
-    from api.services.share_observability import ShareObservabilityService
+async def test_share_event_publish_fails_fast_before_db_fallback(mocker) -> None:
+    task = mocker.patch("api.tasks.share_events.persist_share_event_batch")
+    payload = {"access_events": []}
 
+    await enqueue_share_event_batch(payload)
+
+    assert "queued_at" in payload
+    task.apply_async.assert_called_once_with(kwargs={"payload": payload}, retry=False)
+
+
+@pytest.mark.asyncio
+async def test_from_param_rejects_unrelated_channel(mocker) -> None:
+    channel = MagicMock(id=7, user_id="another_owner", share_enabled=True)
+    mocker.patch("api.repositories.channel_repo.ChannelRepository.get_by_slug", new=AsyncMock(return_value=channel))
+    request = MagicMock()
+    request.query_params = {"from": "26"}
+    session = AsyncMock()
+
+    result = await _channel_id_from_from_param(session, request, owner_user_id="user_123", playlist_id=3)
+
+    assert result is None
+    session.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_from_param_requires_actual_playlist_membership(mocker) -> None:
+    channel = MagicMock(id=7, user_id="user_123", share_enabled=True)
+    mocker.patch("api.repositories.channel_repo.ChannelRepository.get_by_slug", new=AsyncMock(return_value=channel))
+    request = MagicMock()
+    request.query_params = {"from": "26"}
+    session = AsyncMock()
+    session.scalar = AsyncMock(side_effect=[None, 42])
+
+    assert await _channel_id_from_from_param(session, request, owner_user_id="user_123", playlist_id=3) is None
+    assert await _channel_id_from_from_param(session, request, owner_user_id="user_123", playlist_id=3) == 7
+
+
+@pytest.mark.asyncio
+async def test_from_param_requires_actual_recording_membership(client, mocker) -> None:
+    channel = MagicMock(id=7, user_id="user_123", share_enabled=True)
+    mocker.patch("api.repositories.channel_repo.ChannelRepository.get_by_slug", new=AsyncMock(return_value=channel))
+    request = MagicMock()
+    request.query_params = {"from": "course-26"}
+    session = AsyncMock()
+    session.scalar = AsyncMock(side_effect=[None, None])
+
+    result = await _channel_id_from_from_param(session, request, owner_user_id="user_123", recording_id=8)
+
+    assert result is None
+    assert session.scalar.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_record_page_view_skips_without_owner() -> None:
     recording = MagicMock()
     recording.id = 1
     recording.user_id = None
@@ -57,6 +124,26 @@ async def test_record_page_view_skips_without_owner() -> None:
     service = ShareObservabilityService()
     counted = await service.record_page_view(recording, _FakeRequest())
     assert counted is False
+
+
+@pytest.mark.asyncio
+async def test_sync_fallback_duplicate_does_not_increment_counter(mocker) -> None:
+    session = AsyncMock()
+    session.scalar = AsyncMock(return_value=None)
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+    mocker.patch("api.services.share_observability.get_async_session_maker", return_value=lambda: session)
+    mocker.patch("api.services.share_observability._channel_id_from_from_param", new=AsyncMock(return_value=None))
+    recording = MagicMock(id=12, user_id="owner")
+
+    persisted = await ShareObservabilityService()._persist_event(
+        recording, event_type="page_view", visitor_key="visitor", increment_views=True, event_id="duplicate"
+    )
+
+    assert persisted is True
+    session.scalar.assert_awaited_once()
+    session.execute.assert_not_awaited()
+    session.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio

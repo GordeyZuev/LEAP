@@ -1,7 +1,7 @@
 # Database Design — LEAP / ZoomUploader
 
-**Alembic:** 17 ревизий (`001` … `017`)
-**Последнее обновление:** март 2026
+**Alembic:** текущая цепочка ревизий до `057` (см. каталог миграций)
+**Последнее обновление:** октябрь 2026
 **СУБД:** PostgreSQL 12+
 
 Источник истины по схеме: каталог `alembic/versions/` и SQLAlchemy-модели в `database/*.py`.
@@ -36,9 +36,10 @@
 | Плейлисты | `playlists`, `playlist_items` |
 | Каналы | `channels`, `channel_videos`, `channel_playlists` |
 | Автоматизация | `automation_jobs` |
+| Новости и обратная связь | `product_updates`, `product_news_subscriptions`, `product_update_deliveries`, `product_feedback` |
 | Celery Beat (django-celery-beat–совместимая схема) | `celery_interval_schedule`, `celery_crontab_schedule`, `celery_solar_schedule`, `celery_periodic_task_changed`, `celery_periodic_task` |
 
-**Итого:** 17 доменных таблиц + 5 служебных для Beat (см. миграцию `008_create_celery_beat_tables.py`). Таблица `quota_change_history` удалена в `017`.
+**Итого:** исторический подсчёт доменных таблиц выше не включает более поздние модули. Миграция **057** добавляет таблицы новостей, подписок, доставок и отзывов, создаёт агрегатное представление Grafana и заполняет архив с `0.9.0.0` структурированными пунктами для аудитории и создателей. Пять служебных таблиц Celery Beat создаются миграцией `008_create_celery_beat_tables.py`. Таблица `quota_change_history` удалена в `017`.
 
 ### Multi-tenancy
 
@@ -78,6 +79,8 @@ erDiagram
     playlists ||--o{ playlist_items : contains
     channels ||--o{ channel_videos : videos
     channels ||--o{ channel_playlists : playlists
+    product_updates ||--o{ product_update_deliveries : sends
+    product_news_subscriptions ||--o{ product_update_deliveries : receives
     playlists ||--o{ channel_playlists : channels
     recordings ||--o{ playlist_items : listed
 
@@ -242,6 +245,7 @@ erDiagram
 | 015 | `015_add_uniqueness_constraints.py` | Уникальность имён и credentials |
 | 016 | `016_add_final_duration_to_recordings.py` | `final_duration`, float duration |
 | 017 | `017_drop_quota_change_history.py` | Удаление `quota_change_history` |
+| 057 | `057_product_updates_and_feedback.py` | Архив новостей, подписки, рассылки, отзывы, структурированные заметки релизов и aggregate-only Grafana view |
 
 ### Makefile
 

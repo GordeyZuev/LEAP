@@ -1,5 +1,7 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,6 +16,7 @@ import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 
 export default function LoginPage() {
   const router = useRouter();
+  const qc = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -29,7 +32,9 @@ export default function LoginPage() {
       // Server sets httpOnly session cookies + CSRF cookie on the response.
       // We don't read or store any tokens client-side.
       await apiClient.post("/auth/login", { email, password, remember_me: rememberMe });
-      router.push("/recordings");
+      await qc.cancelQueries();
+      qc.clear();
+      router.push("/home");
     } catch (err: unknown) {
       // 403 "Email not verified" → send the user to the check-your-inbox screen
       // so they can resend the verification link from there.

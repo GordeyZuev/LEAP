@@ -1,6 +1,6 @@
 # yt-dlp Video Sources Guide
 
-Руководство по загрузке видео из внешних источников через yt-dlp: YouTube, VK Video, Rutube и 1000+ других платформ.
+Руководство по загрузке видео из внешних источников через yt-dlp: YouTube, VK Video, Rutube и Vimeo.
 
 ---
 
@@ -22,7 +22,7 @@
 |---------|----------|
 | Загрузка одного видео | Ввести URL → синхронизировать → скачать → обработать |
 | Загрузка плейлиста | Ввести URL плейлиста → получить все видео → скачать каждое |
-| Автоопределение платформы | По URL определяется YouTube / VK / Rutube / другие |
+| Автоопределение платформы | По домену URL определяется YouTube / VK / Rutube; Vimeo относится к `other` |
 | Выбор качества | `best`, `1080p`, `720p`, `480p` |
 | Формат контейнера | `mp4` (рекомендуется) или `any` |
 | Data transfer | Загрузить с одной платформы → обработать → выгрузить на другую |
@@ -40,14 +40,11 @@
 | YouTube | `youtube.com`, `youtu.be` | `youtube` |
 | VK Video | `vk.com`, `vkvideo.ru` | `vk` |
 | Rutube | `rutube.ru` | `rutube` |
+| Vimeo | `vimeo.com` | `other` |
 
-### Другие платформы (через yt-dlp)
+### Ограничение доменов
 
-yt-dlp поддерживает 1000+ сайтов. Любой URL, поддерживаемый yt-dlp, будет работать с `video_platform: "other"` (или автоопределением).
-
-Примеры: Dailymotion, Vimeo, Twitch, Mail.ru, Одноклассники и др.
-
-> Полный список: [yt-dlp Supported Sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
+Библиотека yt-dlp поддерживает много сайтов, но LEAP принимает пользовательские ссылки только с доменов в `YTDLP_HOST_SUFFIXES` (`backend/utils/safe_http.py`): YouTube, VK Video, Rutube и Vimeo. Для других доменов API отклоняет URL до извлечения данных. Это правило действует и для прямого импорта, и для скачивания записи.
 
 ---
 

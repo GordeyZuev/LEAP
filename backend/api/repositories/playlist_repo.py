@@ -19,23 +19,70 @@ class PlaylistRepository:
     async def get_by_id(self, playlist_id: int, user_id: str) -> PlaylistModel | None:
         result = await self.session.execute(
             select(PlaylistModel)
-            .options(selectinload(PlaylistModel.items).selectinload(PlaylistItemModel.recording))
+            .options(
+                selectinload(PlaylistModel.groups),
+                selectinload(PlaylistModel.items).selectinload(PlaylistItemModel.recording),
+            )
             .where(PlaylistModel.id == playlist_id, PlaylistModel.user_id == user_id)
         )
         return result.scalar_one_or_none()
 
     async def get_by_share_token(self, token) -> PlaylistModel | None:
+        recording_loader = selectinload(PlaylistModel.items).selectinload(PlaylistItemModel.recording)
         result = await self.session.execute(
             select(PlaylistModel)
             .options(
-                selectinload(PlaylistModel.owner),
-                selectinload(PlaylistModel.items)
-                .selectinload(PlaylistItemModel.recording)
-                .selectinload(RecordingModel.owner),
+                noload(PlaylistModel.owner),
+                selectinload(PlaylistModel.groups),
+                recording_loader.noload(RecordingModel.owner),
+                recording_loader.noload(RecordingModel.input_source),
+                recording_loader.noload(RecordingModel.template),
+                recording_loader.noload(RecordingModel.source),
+                recording_loader.noload(RecordingModel.outputs),
+                recording_loader.noload(RecordingModel.processing_stages),
             )
             .where(PlaylistModel.share_token == token)
         )
         return result.scalar_one_or_none()
+
+    async def get_public_surface_by_share_token(self, token) -> tuple[int, str] | None:
+        """Resolve a public landing beacon without loading the course catalog."""
+        result = await self.session.execute(
+            select(PlaylistModel.id, PlaylistModel.user_id).where(
+                PlaylistModel.share_token == token,
+                PlaylistModel.share_enabled.is_(True),
+            )
+        )
+        row = result.one_or_none()
+        return (int(row[0]), str(row[1])) if row else None
+
+    async def get_public_item_by_share_token(self, token, item_id: int):
+        """Load one public playlist item without hydrating the playlist catalog."""
+        result = await self.session.execute(
+            select(PlaylistModel, PlaylistItemModel, RecordingModel)
+            .join(PlaylistItemModel, PlaylistItemModel.playlist_id == PlaylistModel.id)
+            .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
+            .options(
+                noload(PlaylistModel.owner),
+                noload(PlaylistModel.groups),
+                noload(PlaylistModel.items),
+                noload(PlaylistItemModel.playlist),
+                noload(PlaylistItemModel.recording),
+                selectinload(RecordingModel.owner),
+                noload(RecordingModel.input_source),
+                noload(RecordingModel.template),
+                noload(RecordingModel.source),
+                noload(RecordingModel.outputs),
+                noload(RecordingModel.processing_stages),
+            )
+            .where(
+                PlaylistModel.share_token == token,
+                PlaylistModel.share_enabled.is_(True),
+                PlaylistItemModel.id == item_id,
+                RecordingModel.user_id == PlaylistModel.user_id,
+            )
+        )
+        return result.one_or_none()
 
     async def list_by_user(self, user_id: str) -> list[PlaylistModel]:
         result = await self.session.execute(
@@ -83,7 +130,8 @@ class PlaylistRepository:
                 func.coalesce(func.sum(duration), 0.0),
             )
             .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
-            .where(PlaylistItemModel.playlist_id.in_(playlist_ids))
+            .join(PlaylistModel, PlaylistModel.id == PlaylistItemModel.playlist_id)
+            .where(PlaylistItemModel.playlist_id.in_(playlist_ids), RecordingModel.user_id == PlaylistModel.user_id)
             .group_by(PlaylistItemModel.playlist_id)
         )
         return {int(pid): (int(count), float(total)) for pid, count, total in result.all()}
@@ -106,7 +154,12 @@ class PlaylistRepository:
                 .label("rn"),
             )
             .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
-            .where(PlaylistItemModel.playlist_id.in_(playlist_ids), playable)
+            .join(PlaylistModel, PlaylistModel.id == PlaylistItemModel.playlist_id)
+            .where(
+                PlaylistItemModel.playlist_id.in_(playlist_ids),
+                RecordingModel.user_id == PlaylistModel.user_id,
+                playable,
+            )
         ).subquery()
         result = await self.session.execute(
             select(ranked.c.playlist_id, RecordingModel)
@@ -130,7 +183,8 @@ class PlaylistRepository:
         result = await self.session.execute(
             select(PlaylistItemModel.playlist_id, RecordingModel.id, RecordingModel.display_name)
             .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
-            .where(PlaylistItemModel.playlist_id.in_(playlist_ids))
+            .join(PlaylistModel, PlaylistModel.id == PlaylistItemModel.playlist_id)
+            .where(PlaylistItemModel.playlist_id.in_(playlist_ids), RecordingModel.user_id == PlaylistModel.user_id)
             .order_by(PlaylistItemModel.playlist_id, PlaylistItemModel.position)
         )
         out: dict[int, list[tuple[int, str]]] = {}

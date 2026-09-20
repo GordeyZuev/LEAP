@@ -36,7 +36,7 @@ async def probe_stored_media_duration(storage_key: str | None) -> float | None:
         raw = await AudioDetector().get_duration_seconds(str(tmp))
         return positive_duration_seconds(raw)
     except Exception:
-        logger.debug("Could not probe stored media duration | key=%s", storage_key, exc_info=True)
+        logger.opt(exception=True).debug(f"Could not probe stored media duration | key={storage_key}")
         return None
     finally:
         tmp.unlink(missing_ok=True)

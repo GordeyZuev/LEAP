@@ -8,6 +8,7 @@ import { apiClient } from "@/api/client";
 import { FILTER_CONTROL, FILTER_CONTROL_FILLED, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { ActionButton } from "@/components/ui/action-button";
 import { Modal } from "@/components/ui/modal";
+import { useMe } from "@/lib/react-query";
 
 interface ThumbnailInfo {
   name: string;
@@ -21,27 +22,34 @@ interface ThumbnailListResponse {
 
 const blobCache = new Map<string, string>();
 
-async function fetchBlobUrl(name: string): Promise<string> {
-  if (blobCache.has(name)) return blobCache.get(name)!;
+function blobCacheKey(ownerId: string, name: string): string {
+  return `${ownerId}:${name}`;
+}
+
+async function fetchBlobUrl(ownerId: string, name: string): Promise<string> {
+  const key = blobCacheKey(ownerId, name);
+  if (blobCache.has(key)) return blobCache.get(key)!;
   const res = await apiClient.get(`/thumbnails/${name}`, { responseType: "blob" });
   const objectUrl = URL.createObjectURL(res.data as Blob);
-  blobCache.set(name, objectUrl);
+  blobCache.set(key, objectUrl);
   return objectUrl;
 }
 
-function ThumbnailImage({ name, size }: { name: string; size?: string }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(() => blobCache.get(name) ?? null);
+function ThumbnailImage({ name, size, ownerId }: { name: string; size?: string; ownerId?: string }) {
+  const key = ownerId ? blobCacheKey(ownerId, name) : null;
+  const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
+  const blobUrl = key ? blobCache.get(key) ?? (loaded?.key === key ? loaded.url : null) : null;
 
   useEffect(() => {
-    if (blobCache.has(name)) return;
+    if (!ownerId || !key || blobCache.has(key)) return;
     let cancelled = false;
-    void fetchBlobUrl(name).then((url) => {
-      if (!cancelled) setBlobUrl(url);
+    void fetchBlobUrl(ownerId, name).then((url) => {
+      if (!cancelled) setLoaded({ key, url });
     });
     return () => {
       cancelled = true;
     };
-  }, [name]);
+  }, [name, ownerId, key]);
 
   if (!blobUrl) {
     return (
@@ -62,19 +70,21 @@ function ThumbnailImage({ name, size }: { name: string; size?: string }) {
   );
 }
 
-function SmallThumbPreview({ name }: { name: string }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(() => blobCache.get(name) ?? null);
+function SmallThumbPreview({ name, ownerId }: { name: string; ownerId?: string }) {
+  const key = ownerId ? blobCacheKey(ownerId, name) : null;
+  const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
+  const blobUrl = key ? blobCache.get(key) ?? (loaded?.key === key ? loaded.url : null) : null;
 
   useEffect(() => {
-    if (blobCache.has(name)) return;
+    if (!ownerId || !key || blobCache.has(key)) return;
     let cancelled = false;
-    void fetchBlobUrl(name).then((url) => {
-      if (!cancelled) setBlobUrl(url);
+    void fetchBlobUrl(ownerId, name).then((url) => {
+      if (!cancelled) setLoaded({ key, url });
     });
     return () => {
       cancelled = true;
     };
-  }, [name]);
+  }, [name, ownerId, key]);
 
   if (!blobUrl) {
     return <div className="h-8 w-12 shrink-0 animate-pulse rounded-md bg-muted" />;
@@ -108,6 +118,8 @@ export function ThumbnailPicker({
   const fileRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const qc = useQueryClient();
+  const { data: owner } = useMe();
+  const ownerId = owner?.id;
 
   const { data, isLoading } = useQuery<ThumbnailListResponse>({
     queryKey: ["thumbnails"],
@@ -128,6 +140,9 @@ export function ThumbnailPicker({
       setUploadName("");
       setUploadError("");
       void qc.invalidateQueries({ queryKey: ["thumbnails"] });
+      void qc.invalidateQueries({ queryKey: ["recordings"] });
+      void qc.invalidateQueries({ queryKey: ["playlists"] });
+      void qc.invalidateQueries({ queryKey: ["channels"] });
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -138,9 +153,17 @@ export function ThumbnailPicker({
   const deleteThumbnail = useMutation({
     mutationFn: (name: string) => apiClient.delete(`/thumbnails/${name}`),
     onSuccess: (_, name) => {
-      blobCache.delete(name);
+      if (ownerId) {
+        const key = blobCacheKey(ownerId, name);
+        const url = blobCache.get(key);
+        if (url) URL.revokeObjectURL(url);
+        blobCache.delete(key);
+      }
       if (value === name) onChange("");
       void qc.invalidateQueries({ queryKey: ["thumbnails"] });
+      void qc.invalidateQueries({ queryKey: ["recordings"] });
+      void qc.invalidateQueries({ queryKey: ["playlists"] });
+      void qc.invalidateQueries({ queryKey: ["channels"] });
     },
   });
 
@@ -203,7 +226,7 @@ export function ThumbnailPicker({
         >
           {value ? (
             <>
-              <SmallThumbPreview name={value} />
+              <SmallThumbPreview name={value} ownerId={ownerId} />
               <span className="min-w-0 flex-1 truncate">{value}</span>
             </>
           ) : (
@@ -289,7 +312,7 @@ export function ThumbnailPicker({
                     }}
                   >
                     <div className="aspect-video overflow-hidden rounded-[10px]">
-                      <ThumbnailImage name={t.name} size={`${t.size_kb.toFixed(1)} KB`} />
+                      <ThumbnailImage name={t.name} ownerId={ownerId} size={`${t.size_kb.toFixed(1)} KB`} />
                     </div>
                     <p className="truncate px-2 pb-2 pt-1 text-xs text-muted-foreground">{t.name}</p>
                     {value === t.name && (

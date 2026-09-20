@@ -83,6 +83,7 @@ class PlaylistListItem(BaseModel):
         None,
         description="Stable poster identity for the cover recording; unchanged across presign refreshes.",
     )
+    poster_refresh_at_ms: int | None = None
     has_custom_cover: bool = False
     created_at: datetime
     updated_at: datetime
@@ -129,12 +130,43 @@ class PlaylistReorderRequest(BaseModel):
     item_ids: list[int] = Field(..., min_length=1)
 
 
+class PlaylistGroupWrite(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        return strip_and_validate_name(value)
+
+
+class PlaylistGroupResponse(BaseModel):
+    id: int
+    name: str
+    position: int
+    item_count: int = 0
+
+
+class PublicChannelLink(BaseModel):
+    slug: str
+    name: str
+
+
+class PublicPosterResponse(BaseModel):
+    url: str
+    asset_key: str | None = None
+
+
+class PlaylistItemGroupUpdate(BaseModel):
+    group_id: int | None = None
+
+
 class PlaylistItemResponse(BaseModel):
     model_config = ORM_MODEL_CONFIG
 
     id: int
     recording_id: int
     position: int
+    group_id: int | None = None
     display_name: str
     title: str
     start_time: datetime
@@ -150,6 +182,7 @@ class PlaylistItemResponse(BaseModel):
         None,
         description="Stable poster identity; unchanged when presigned URLs are refreshed.",
     )
+    poster_refresh_at_ms: int | None = None
     deleted: bool = False
     blank_record: bool = False
 
@@ -161,6 +194,7 @@ class PlaylistItemsResponse(PaginatedResponse):
 class PublicPlaylistItem(BaseModel):
     id: int
     position: int
+    group_id: int | None = None
     title: str
     duration: float
     start_time: datetime
@@ -176,4 +210,6 @@ class PublicPlaylistItem(BaseModel):
 class PublicPlaylistResponse(BaseModel):
     name: str
     description: str | None = None
+    channels: list[PublicChannelLink] = Field(default_factory=list)
+    groups: list[PlaylistGroupResponse] = Field(default_factory=list)
     items: list[PublicPlaylistItem]

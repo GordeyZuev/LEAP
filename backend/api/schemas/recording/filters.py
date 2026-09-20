@@ -1,6 +1,10 @@
 """Recording filter schemas"""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+OperationalState = Literal["in_progress", "waiting_source", "paused", "error"]
 
 
 class RecordingFilters(BaseModel):
@@ -9,6 +13,8 @@ class RecordingFilters(BaseModel):
 
     Supports filtering by various criteria for automatic selection of records.
     """
+
+    operational_state: OperationalState | None = None
 
     # Connections (singular fields kept for backward compatibility with older clients)
     template_id: int | None = Field(None, description="Filter by template ID")

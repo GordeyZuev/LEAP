@@ -7,7 +7,6 @@ import { Menu } from "lucide-react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Footer } from "@/components/layout/footer";
 import { Logo } from "@/components/layout/logo";
-import { ReleaseNotesGate } from "@/components/layout/release-notes-gate";
 import { CredentialReauthBanner } from "@/components/layout/credential-reauth-banner";
 import { navigationMenuAriaLabel, useCredentialsNeedingReauth } from "@/hooks/use-credentials-reauth";
 
@@ -38,7 +37,6 @@ export function AppShell({
 
   return (
     <div className="flex h-full">
-      <ReleaseNotesGate />
       <Suspense fallback={<aside className="hidden h-full w-60 shrink-0 bg-sidebar lg:block" aria-hidden />}>
         <Sidebar
           isAdmin={isAdmin}
@@ -63,7 +61,7 @@ export function AppShell({
               />
             )}
           </button>
-          <Link href="/recordings" aria-label="LEAP — recordings" className="flex items-center gap-2">
+          <Link href="/home" aria-label="LEAP — home" className="flex items-center gap-2">
             <Logo size={20} />
             <span className="text-base font-semibold tracking-wider text-primary">LEAP</span>
           </Link>

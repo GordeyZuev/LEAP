@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -400,48 +400,132 @@ async def reorder_channel_playlists(
     await ctx.session.commit()
 
 
+async def _public_channel_order_page(
+    channel: ChannelModel,
+    *,
+    kind: Literal["videos", "playlists"],
+    page: int,
+    per_page: int,
+    session: AsyncSession,
+    repo: ChannelRepository,
+) -> PublicChannelResponse:
+    """Use SQL paging for the default catalog view without loading both membership lists."""
+    videos_total = await repo.public_video_count(channel.id)
+    playlists_total = await repo.public_playlist_count(channel.id)
+    total = videos_total if kind == "videos" else playlists_total
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    current_page = min(page, total_pages)
+    banner_url = await _banner_url(channel)
+    videos: list[PublicChannelVideo] = []
+    playlists: list[PublicChannelPlaylist] = []
+
+    if kind == "videos":
+        rows = await repo.public_videos_page(channel.id, page=current_page, per_page=per_page)
+        recs = [rec for _membership, rec in rows]
+        looks = await publication_looks_for_recordings(session, channel.user_id, recs)
+        previews = await poster_preview_map(session, channel.user_id, recs, looks=looks)
+        videos = [
+            PublicChannelVideo(
+                title=rec.display_name,
+                duration=display_duration_seconds(rec),
+                start_time=rec.start_time,
+                poster_url=previews[rec.id].url if rec.id in previews else None,
+                poster_asset_key=previews[rec.id].asset_key if rec.id in previews else None,
+                share_token=str(rec.share_token),
+                blurb=recording_catalog_blurb(rec),
+            )
+            for _membership, rec in rows
+        ]
+    else:
+        rows = await repo.public_playlists_page(channel.id, page=current_page, per_page=per_page)
+        playlist_ids = [pl.id for _membership, pl in rows]
+        playlist_repo = PlaylistRepository(session)
+        stats = await playlist_repo.aggregate_stats(playlist_ids)
+        first = await playlist_repo.first_playable_recordings(playlist_ids)
+        recs = list(first.values())
+        looks = await publication_looks_for_recordings(session, channel.user_id, recs)
+        previews = await poster_preview_map(session, channel.user_id, recs, looks=looks)
+        covers = await presign_storage_keys([pl.cover_key for _membership, pl in rows])
+        for _membership, pl in rows:
+            video_count, duration_sum = stats.get(pl.id, (0, 0.0))
+            first_rec = first.get(pl.id)
+            preview = previews.get(first_rec.id) if first_rec else None
+            playlists.append(
+                PublicChannelPlaylist(
+                    name=pl.name,
+                    video_count=video_count,
+                    duration_sum=duration_sum,
+                    poster_url=covers.get(pl.cover_key) if pl.cover_key else (preview.url if preview else None),
+                    poster_asset_key=pl.cover_key if pl.cover_key else (preview.asset_key if preview else None),
+                    share_token=str(pl.share_token),
+                    blurb=excerpt(
+                        render_playlist_description(
+                            pl.description,
+                            video_count=video_count,
+                            duration_sum=duration_sum,
+                            ordered_titles=[],
+                        )
+                    ),
+                )
+            )
+
+    return PublicChannelResponse(
+        name=channel.name,
+        slug=channel.slug,
+        description=None,
+        banner_url=banner_url,
+        videos=videos,
+        playlists=playlists,
+        kind=kind,
+        page=current_page,
+        per_page=per_page,
+        total=total,
+        total_pages=total_pages,
+        videos_total=videos_total,
+        playlists_total=playlists_total,
+    )
+
+
 @router.get("/api/v1/c/{slug}", response_model=PublicChannelResponse)
 async def get_public_channel(
     slug: str,
+    kind: Literal["all", "videos", "playlists"] = Query("all"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(24, ge=1, le=60),
+    q: str | None = Query(None, max_length=120),
+    sort: Literal["order", "newest", "oldest", "name", "duration", "videos"] = Query("order"),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicChannelResponse:
     svc = ChannelService(session, user_id="")
     channel = await svc.require_public(slug)
-    video_rows, playlist_rows, banner_url = await asyncio.gather(
-        svc.repo.public_videos(channel.id),
-        svc.repo.public_playlists(channel.id),
-        _banner_url(channel),
-    )
+    if kind != "all" and sort == "order" and not (q or "").strip() and not channel.description:
+        return await _public_channel_order_page(
+            channel, kind=kind, page=page, per_page=per_page, session=session, repo=svc.repo
+        )
+    # AsyncSession is not safe for concurrent statements on the same connection.
+    video_rows = await svc.repo.public_videos(channel.id)
+    playlist_rows = await svc.repo.public_playlists(channel.id)
+    banner_url = await _banner_url(channel)
     recs = [rec for _row, rec in video_rows]
     pl_ids = [pl.id for _row, pl in playlist_rows]
     pl_repo = PlaylistRepository(session)
-    stats, first_by_id, cover_urls = await asyncio.gather(
-        pl_repo.aggregate_stats(pl_ids),
-        pl_repo.first_playable_recordings(pl_ids),
-        presign_storage_keys([pl.cover_key for _row, pl in playlist_rows]),
-    )
-    first_recs = [first_by_id[pid] for pid in pl_ids if pid in first_by_id]
-    poster_recs: list = []
-    seen: set[int] = set()
-    for rec in [*recs, *first_recs]:
-        if rec.id in seen:
-            continue
-        seen.add(rec.id)
-        poster_recs.append(rec)
-    looks = await publication_looks_for_recordings(session, channel.user_id, poster_recs)
-    previews = await poster_preview_map(session, channel.user_id, poster_recs, looks=looks)
+    stats = await pl_repo.aggregate_stats(pl_ids)
+    all_video_count = len(recs)
+    all_playlist_count = len(playlist_rows)
+    all_video_titles = [rec.display_name for rec in recs]
+    all_playlist_names = [pl.name for _row, pl in playlist_rows]
+    all_video_duration = sum(display_duration_seconds(rec) for rec in recs)
     videos = []
     for _row, rec in video_rows:
         if rec.share_token is None:
             continue
-        preview = previews.get(rec.id)
         videos.append(
             PublicChannelVideo(
                 title=rec.display_name,
                 duration=display_duration_seconds(rec),
                 start_time=rec.start_time,
-                poster_url=preview.url if preview else None,
-                poster_asset_key=preview.asset_key if preview else None,
+                poster_url=None,
+                poster_asset_key=None,
                 share_token=str(rec.share_token),
                 blurb=recording_catalog_blurb(rec),
             )
@@ -451,23 +535,13 @@ async def get_public_channel(
         if pl.share_token is None:
             continue
         video_count, duration_sum = stats.get(pl.id, (0, 0.0))
-        poster_url = None
-        poster_asset_key = None
-        if pl.cover_key:
-            poster_url = cover_urls.get(pl.cover_key)
-            poster_asset_key = pl.cover_key
-        else:
-            rec = first_by_id.get(pl.id)
-            if rec is not None and rec.id in previews:
-                poster_url = previews[rec.id].url
-                poster_asset_key = previews[rec.id].asset_key or None
         playlists.append(
             PublicChannelPlaylist(
                 name=pl.name,
                 video_count=video_count,
                 duration_sum=duration_sum,
-                poster_url=poster_url,
-                poster_asset_key=poster_asset_key,
+                poster_url=None,
+                poster_asset_key=pl.cover_key,
                 share_token=str(pl.share_token),
                 blurb=excerpt(
                     render_playlist_description(
@@ -479,20 +553,95 @@ async def get_public_channel(
                 ),
             )
         )
+
+    description = render_channel_description(
+        channel.description,
+        video_count=all_video_count,
+        playlist_count=all_playlist_count,
+        duration_sum=all_video_duration,
+        video_titles=all_video_titles,
+        playlist_names=all_playlist_names,
+    )
+    videos_total_all = len(videos)
+    playlists_total_all = len(playlists)
+
+    needle = (q or "").strip().casefold()
+    if kind == "videos":
+        if needle:
+            videos = [v for v in videos if needle in v.title.casefold() or needle in (v.blurb or "").casefold()]
+        if sort == "newest":
+            videos.sort(key=lambda v: v.start_time or datetime.min.replace(tzinfo=UTC), reverse=True)
+        elif sort == "oldest":
+            videos.sort(key=lambda v: (v.start_time is None, v.start_time or datetime.max.replace(tzinfo=UTC)))
+        elif sort == "name":
+            videos.sort(key=lambda v: v.title.casefold())
+        elif sort == "duration":
+            videos.sort(key=lambda v: v.duration, reverse=True)
+    elif kind == "playlists":
+        if needle:
+            playlists = [p for p in playlists if needle in p.name.casefold() or needle in (p.blurb or "").casefold()]
+        if sort == "name":
+            playlists.sort(key=lambda p: p.name.casefold())
+        elif sort == "videos":
+            playlists.sort(key=lambda p: p.video_count, reverse=True)
+        elif sort == "duration":
+            playlists.sort(key=lambda p: p.duration_sum, reverse=True)
+
+    if kind == "all":
+        page_videos, page_playlists = videos, playlists
+        total = len(videos) + len(playlists)
+        total_pages = 1
+    else:
+        active = videos if kind == "videos" else playlists
+        total = len(active)
+        total_pages = max(1, (total + per_page - 1) // per_page)
+        offset = (min(page, total_pages) - 1) * per_page
+        active_page = active[offset : offset + per_page]
+        page_videos = active_page if kind == "videos" else []
+        page_playlists = active_page if kind == "playlists" else []
+
+    page_video_tokens = {v.share_token for v in page_videos}
+    page_playlist_tokens = {p.share_token for p in page_playlists}
+    selected_video_recs = [rec for _row, rec in video_rows if str(rec.share_token) in page_video_tokens]
+    selected_playlist_rows = [(_row, pl) for _row, pl in playlist_rows if str(pl.share_token) in page_playlist_tokens]
+    selected_playlist_ids = [pl.id for _row, pl in selected_playlist_rows]
+    selected_first = await pl_repo.first_playable_recordings(selected_playlist_ids)
+    poster_recs = [*selected_video_recs, *selected_first.values()]
+    looks = await publication_looks_for_recordings(session, channel.user_id, poster_recs)
+    previews = await poster_preview_map(session, channel.user_id, poster_recs, looks=looks)
+    cover_page_urls = await presign_storage_keys([pl.cover_key for _row, pl in selected_playlist_rows])
+    video_preview_by_token = {str(rec.share_token): previews.get(rec.id) for rec in selected_video_recs}
+    for video in page_videos:
+        preview = video_preview_by_token.get(video.share_token)
+        video.poster_url = preview.url if preview else None
+        video.poster_asset_key = preview.asset_key if preview else None
+    first_by_playlist = selected_first
+    for playlist in page_playlists:
+        match = next((pl for _row, pl in selected_playlist_rows if str(pl.share_token) == playlist.share_token), None)
+        if match is None:
+            continue
+        if match.cover_key:
+            playlist.poster_url = cover_page_urls.get(match.cover_key)
+        else:
+            rec = first_by_playlist.get(match.id)
+            preview = previews.get(rec.id) if rec else None
+            playlist.poster_url = preview.url if preview else None
+            playlist.poster_asset_key = (preview.asset_key or None) if preview else None
+
     return PublicChannelResponse(
         name=channel.name,
         slug=channel.slug,
-        description=render_channel_description(
-            channel.description,
-            video_count=len(videos),
-            playlist_count=len(playlists),
-            duration_sum=sum(v.duration for v in videos),
-            video_titles=[v.title for v in videos],
-            playlist_names=[p.name for p in playlists],
-        ),
+        description=description,
         banner_url=banner_url,
-        videos=videos,
-        playlists=playlists,
+        videos=page_videos,
+        playlists=page_playlists,
+        kind=kind,
+        page=min(page, total_pages),
+        per_page=per_page if kind != "all" else total,
+        total=total,
+        total_pages=total_pages,
+        videos_total=videos_total_all,
+        playlists_total=playlists_total_all,
     )
 
 

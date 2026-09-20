@@ -24,6 +24,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { SegmentedField } from "@/components/ui/segmented-field";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { Pagination } from "@/components/ui/pagination";
@@ -209,7 +210,7 @@ export default function CredentialsPage() {
   // Disconnect state
   const [disconnectId, setDisconnectId] = useState<number | null>(null);
 
-  const { data: listData, isPending } = useQuery<CredentialListResponse>({
+  const { data: listData, isPending, isError, error, refetch } = useQuery<CredentialListResponse>({
     // Distinct from the unfiltered ["credentials-list"] lookup other pages use.
     queryKey: ["credentials-page", list.urlKey],
     queryFn: async () => {
@@ -450,6 +451,8 @@ export default function CredentialsPage() {
               <TableRowsSkeleton rows={5} cols={5} />
             </tbody>
           </table>
+        ) : isError ? (
+          <ErrorState title="Failed to load connections" error={error} onRetry={() => void refetch()} />
         ) : credentials.length === 0 && list.hasActiveFilters ? (
           <EmptyState
             icon={AlertCircle}

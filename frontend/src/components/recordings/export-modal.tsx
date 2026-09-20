@@ -2,6 +2,7 @@
 
 import { useCallback, useId, useState } from "react";
 import { Download, X } from "lucide-react";
+import { parseOperationalState } from "@/lib/operational-state";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
@@ -34,6 +35,9 @@ function parsePositiveIntParams(sp: URLSearchParams, key: string): number[] {
 function buildFiltersFromParams(params: string): Record<string, unknown> {
   const sp = new URLSearchParams(params);
   const filters: Record<string, unknown> = {};
+
+  const operationalState = parseOperationalState(sp.get("operational_state"));
+  if (operationalState) filters.operational_state = operationalState;
 
   const statuses = sp.getAll("status");
   if (statuses.length) filters.status = statuses;

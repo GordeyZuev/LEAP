@@ -28,7 +28,7 @@ class UploaderFactory:
         config_helper = ConfigService(session, user_id)
 
         if credential_id:
-            creds = await config_helper.cred_service.get_credentials_by_id(credential_id)
+            creds = await config_helper.cred_service.get_credentials_by_id(credential_id, user_id)
         else:
             creds = await config_helper.get_youtube_credentials()
 
@@ -64,7 +64,7 @@ class UploaderFactory:
         config_helper = ConfigService(session, user_id)
 
         if credential_id:
-            creds = await config_helper.cred_service.get_credentials_by_id(credential_id)
+            creds = await config_helper.cred_service.get_credentials_by_id(credential_id, user_id)
         else:
             creds = await config_helper.get_vk_credentials()
 

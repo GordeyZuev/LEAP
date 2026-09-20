@@ -157,31 +157,85 @@ class ChannelRepository:
 
     async def public_videos(self, channel_id: int) -> list[tuple[ChannelVideoModel, RecordingModel]]:
         result = await self.session.execute(
-            select(ChannelVideoModel, RecordingModel)
-            .join(RecordingModel, RecordingModel.id == ChannelVideoModel.recording_id)
-            .where(
-                ChannelVideoModel.channel_id == channel_id,
-                RecordingModel.share_enabled.is_(True),
-                RecordingModel.share_token.is_not(None),
-                playable_recording_clause(),
-            )
-            .options(*_RECORDING_SKIP_GRAPHS)
-            .order_by(ChannelVideoModel.position)
+            self._public_video_rows(channel_id).options(*_RECORDING_SKIP_GRAPHS).order_by(ChannelVideoModel.position)
         )
         return [(row[0], row[1]) for row in result.all()]
 
     async def public_playlists(self, channel_id: int) -> list[tuple[ChannelPlaylistModel, PlaylistModel]]:
         result = await self.session.execute(
-            select(ChannelPlaylistModel, PlaylistModel)
-            .join(PlaylistModel, PlaylistModel.id == ChannelPlaylistModel.playlist_id)
-            .where(
-                ChannelPlaylistModel.channel_id == channel_id,
-                PlaylistModel.share_enabled.is_(True),
-                PlaylistModel.share_token.is_not(None),
-            )
+            self._public_playlist_rows(channel_id)
             .options(*_PLAYLIST_SKIP_GRAPHS)
             .order_by(ChannelPlaylistModel.position)
         )
+        return [(row[0], row[1]) for row in result.all()]
+
+    def _public_video_rows(self, channel_id: int):
+        return (
+            select(ChannelVideoModel, RecordingModel)
+            .join(ChannelModel, ChannelModel.id == ChannelVideoModel.channel_id)
+            .join(RecordingModel, RecordingModel.id == ChannelVideoModel.recording_id)
+            .where(
+                ChannelVideoModel.channel_id == channel_id,
+                RecordingModel.user_id == ChannelModel.user_id,
+                RecordingModel.share_enabled.is_(True),
+                RecordingModel.share_token.is_not(None),
+                playable_recording_clause(),
+            )
+        )
+
+    def _public_playlist_rows(self, channel_id: int):
+        return (
+            select(ChannelPlaylistModel, PlaylistModel)
+            .join(ChannelModel, ChannelModel.id == ChannelPlaylistModel.channel_id)
+            .join(PlaylistModel, PlaylistModel.id == ChannelPlaylistModel.playlist_id)
+            .where(
+                ChannelPlaylistModel.channel_id == channel_id,
+                PlaylistModel.user_id == ChannelModel.user_id,
+                PlaylistModel.share_enabled.is_(True),
+                PlaylistModel.share_token.is_not(None),
+            )
+        )
+
+    async def public_video_count(self, channel_id: int) -> int:
+        rows = (
+            self._public_video_rows(channel_id)
+            .with_only_columns(ChannelVideoModel.id, maintain_column_froms=True)
+            .subquery()
+        )
+        return int((await self.session.execute(select(func.count()).select_from(rows))).scalar_one())
+
+    async def public_playlist_count(self, channel_id: int) -> int:
+        rows = (
+            self._public_playlist_rows(channel_id)
+            .with_only_columns(ChannelPlaylistModel.id, maintain_column_froms=True)
+            .subquery()
+        )
+        return int((await self.session.execute(select(func.count()).select_from(rows))).scalar_one())
+
+    async def public_videos_page(
+        self, channel_id: int, *, page: int, per_page: int
+    ) -> list[tuple[ChannelVideoModel, RecordingModel]]:
+        rows = (
+            self._public_video_rows(channel_id)
+            .options(*_RECORDING_SKIP_GRAPHS)
+            .order_by(ChannelVideoModel.position, ChannelVideoModel.id)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        result = await self.session.execute(rows)
+        return [(row[0], row[1]) for row in result.all()]
+
+    async def public_playlists_page(
+        self, channel_id: int, *, page: int, per_page: int
+    ) -> list[tuple[ChannelPlaylistModel, PlaylistModel]]:
+        rows = (
+            self._public_playlist_rows(channel_id)
+            .options(*_PLAYLIST_SKIP_GRAPHS)
+            .order_by(ChannelPlaylistModel.position, ChannelPlaylistModel.id)
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+        result = await self.session.execute(rows)
         return [(row[0], row[1]) for row in result.all()]
 
     async def recording_ids_in_channel_scope(self, channel_id: int) -> list[int]:

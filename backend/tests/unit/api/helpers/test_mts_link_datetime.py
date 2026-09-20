@@ -12,6 +12,7 @@ from api.helpers.mts_link_datetime import (
     session_starts_at_iso,
 )
 from api.mts_link_api import MtsLinkResponseError
+from api.shared.exceptions import ExternalRateLimitError
 
 
 @pytest.mark.unit
@@ -107,6 +108,15 @@ class TestLoadEventSession:
     async def test_error_caches_none(self):
         api = AsyncMock()
         api.get_event_session.side_effect = MtsLinkResponseError(404, "missing")
+        cache: dict = {}
+        assert await load_event_session(api, 900, cache) is None
+        assert await load_event_session(api, 900, cache) is None
+        assert api.get_event_session.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_caches_none(self):
+        api = AsyncMock()
+        api.get_event_session.side_effect = ExternalRateLimitError(platform="mts_link")
         cache: dict = {}
         assert await load_event_session(api, 900, cache) is None
         assert await load_event_session(api, 900, cache) is None

@@ -83,6 +83,7 @@ function AdminAnalyticsSectionContent() {
             title={`Recordings per ${chartPeriodLabel}`}
             isLoading={analyticsQuery.isPending}
             isError={analyticsQuery.isError}
+            error={analyticsQuery.error}
             isEmpty={
               !analyticsQuery.isPending &&
               dailyMetric(data?.daily ?? [], "recordings_created").every((p) => p.value === 0)
@@ -100,6 +101,7 @@ function AdminAnalyticsSectionContent() {
               title={`Transcribed content per ${chartPeriodLabel}`}
               isLoading={analyticsQuery.isPending}
               isError={analyticsQuery.isError}
+              error={analyticsQuery.error}
               isEmpty={
                 !analyticsQuery.isPending &&
                 dailyMetric(data?.daily ?? [], "transcription_minutes").every((p) => p.value === 0)
@@ -116,6 +118,7 @@ function AdminAnalyticsSectionContent() {
               description="Distinct users who created a recording"
               isLoading={analyticsQuery.isPending}
               isError={analyticsQuery.isError}
+              error={analyticsQuery.error}
               isEmpty={
                 !analyticsQuery.isPending &&
                 dailyMetric(data?.daily ?? [], "active_users").every((p) => p.value === 0)
@@ -132,6 +135,7 @@ function AdminAnalyticsSectionContent() {
               className="lg:col-span-2"
               isLoading={analyticsQuery.isPending}
               isError={analyticsQuery.isError}
+              error={analyticsQuery.error}
               isEmpty={
                 !analyticsQuery.isPending &&
                 dailyMetric(data?.daily ?? [], "share_views").every((p) => p.value === 0)

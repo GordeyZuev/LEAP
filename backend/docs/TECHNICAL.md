@@ -28,7 +28,7 @@
 
 **Ключевые возможности:**
 - ✅ Синхронизация видео из Zoom, МТС Линк, локальных файлов
-- ✅ Загрузка видео по ссылке (YouTube, VK, Rutube, 1000+ сайтов через yt-dlp)
+- ✅ Загрузка видео по ссылке (YouTube, VK Video, Rutube, Vimeo через yt-dlp)
 - ✅ Интеграция с Яндекс Диском (загрузка и выгрузка через REST API)
 - ✅ FFmpeg обработка (удаление тишины, обрезка)
 - ✅ AI транскрибация (Fireworks Whisper)
@@ -55,7 +55,7 @@ FFmpeg • Pydantic V2
 **External APIs:**
 ```
 Zoom API • YouTube Data API v3 • VK API
-yt-dlp (1000+ sites) • Yandex Disk REST API
+yt-dlp (allowlisted hosts) • Yandex Disk REST API
 ```
 
 **Security:**
@@ -414,7 +414,7 @@ video_download_module/
     ├── mtslink/
     │   └── downloader.py     # MtsLinkDownloader (stream ready MP4; prepare in mts_link_prepare)
     ├── ytdlp/
-    │   ├── downloader.py     # YtDlpDownloader (YouTube, VK, Rutube, 1000+ sites)
+    │   ├── downloader.py     # YtDlpDownloader (allowlisted video hosts)
     │   └── metadata.py       # Platform detection, playlist extraction
     └── yadisk/
         └── downloader.py     # YandexDiskDownloader (public links + OAuth API)
@@ -423,7 +423,7 @@ video_download_module/
 **Supported Sources:**
 - **Zoom API** — OAuth 2.0 / Server-to-Server, token refresh
 - **MTS Link** — org API key (`x-auth-token`); MP4 conversion via **prepare-before-run** on `POST /run` (not `POST /download`); statuses `PENDING_SOURCE` / `PENDING_CONVERSION`; blank if online or stored duration **< 10 min**; list/sidebar/share `duration` is **processed** (`final_duration`) when set, else the MP4 after download (`source.meta.online_duration` stays the MTS session). See [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md)
-- **yt-dlp** — YouTube, VK, Rutube и 1000+ сайтов (видео + плейлисты + аудио/mp3)
+- **yt-dlp** — прямой импорт с YouTube, VK Video, Rutube и Vimeo; плейлисты YouTube в Add video. URL ограничены allowlist в `utils/safe_http.py`.
 - **Yandex Disk** — публичные ссылки и OAuth API для приватных файлов
 - **Local files** — загрузка через API endpoint
 
@@ -819,10 +819,20 @@ final = {
 #### Recordings Pipeline
 
 ```bash
-# Add video from external sources (no InputSource required)
-POST /api/v1/recordings/add-url        # Single video by URL (yt-dlp)
-POST /api/v1/recordings/add-playlist   # Playlist/channel by URL (yt-dlp)
-POST /api/v1/sources + sync            # Yandex Disk public link (InputSource)
+# Add video from a local file, URL, playlist, or public Yandex Disk link
+GET  /api/v1/recordings/upload-policy          # file size, extensions, resume window
+POST /api/v1/recordings/uploads                # start a resumable upload session
+GET  /api/v1/recordings/uploads/{upload_id}    # server offset and session status
+PATCH /api/v1/recordings/uploads/{upload_id}   # update name / auto-run before completion
+PUT  /api/v1/recordings/uploads/{upload_id}/chunk?offset={offset}  # append at the server offset
+POST /api/v1/recordings/uploads/{upload_id}/complete        # validate and save once
+POST /api/v1/recordings/formats-preview        # one video's title, duration, thumbnail, formats
+POST /api/v1/recordings/add-url                # one video; 422 for private/disallowed URL
+POST /api/v1/recordings/playlist-preview       # available / unavailable video counts
+POST /api/v1/recordings/add-playlist           # create/update one recording per playlist video
+POST /api/v1/recordings/disk-preview           # public link type and video count
+POST /api/v1/recordings/add-disk-link          # create/reuse InputSource, queue sync
+POST /api/v1/sources/bulk/sync                 # sync up to 50 owned sources
 
 # Full pipeline
 GET  /api/v1/recordings?compact=true           # list: omits per-stage processing_stages arrays (lighter cards)
@@ -839,7 +849,6 @@ GET  /api/v1/recordings/{id}/source-extras          # companion files saved from
 # AI content — edit without re-running the pipeline
 PATCH /api/v1/recordings/{id}/topics                # partial update: summary, description, questions, main_topics, topic_timestamps
 POST  /api/v1/recordings/{id}/topics/render         # render Jinja template in recording context → { title, description }
-POST  /api/v1/recordings/formats-preview            # title, duration, thumbnail URL, available streams (no recording created)
 
 # Individual stages
 POST /api/v1/recordings/{id}/download   # Zoom, yt-dlp, Yandex Disk, … — NOT MTS Link (400 → use /run)
@@ -856,15 +865,16 @@ POST /api/v1/recordings/bulk/upload
 
 #### Automation jobs
 
-See [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md). Inclusive last-N days use the **job timezone**. Preview: `POST /api/v1/automation/jobs/{id}/run?dry_run=true` (no source sync unless `sync=true`). Execute **409** if the job is inactive or already `RUNNING`. `sync_config.sync_days` null matches all catalog rows; provider sync is still last 30 days when enabled.
+See [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md). Inclusive last-N days use the **job timezone**. Preview: `POST /api/v1/automation/jobs/{id}/run?dry_run=true` (no source sync unless `sync=true`). Execute **409** if the job is inactive or already `RUNNING`. `sync_config.sync_days` null matches all catalog rows. Zoom and MTS refresh uses the last 30 days in that case. A public Yandex Disk link and a VIDEO_URL source list the whole link and need no credential; matching still uses `start_time`.
 
 #### Authentication & Sessions
 
 ```bash
 # Session bootstrap (sets httpOnly cookies; CSRF token in body)
 POST /api/v1/auth/register
-POST /api/v1/auth/login
+POST /api/v1/auth/login            # cookies + csrf_token; add ?include_tokens=true for CLI JWT pair
 POST /api/v1/auth/refresh         # body or refresh cookie; rotates pair
+PATCH /api/v1/users/me            # email change requires current_password; re-verify new address
 
 # Single-device logout
 POST /api/v1/auth/logout          # revokes the current refresh + clears cookies
@@ -922,18 +932,34 @@ GET    /api/v1/recordings/{id}/share/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD
 GET    /api/v1/recordings/{id}/share/analytics?days=7|28   # rolling window (legacy)
 ```
 
+#### Product news, subscriptions, and feedback
+
+The public archive is served by `GET /api/v1/product-updates`; visitors may separately subscribe to notable update emails or submit feedback. Subscription is opt-in and requires confirmation. Admin APIs provide publishing, explicit newsletter queueing, audience counts, delivery state, feedback review, and aggregate stats. See [guides/PRODUCT_NEWS.md](guides/PRODUCT_NEWS.md) for the flow, routes, privacy boundary, and deployment order. Alembic migration **057** creates and seeds the feature with structured release notes.
+
 #### Product analytics (auth required)
 
 Daily metrics are aggregated by **calendar day (UTC)**. Query params `from` and `to` are inclusive dates (`YYYY-MM-DD`). Maximum span **366 days**. Defaults to the last **28 days** when omitted.
 
 | Endpoint | Role | Metrics |
 |----------|------|---------|
+| `GET /api/v1/users/me/home-summary` | owner | Current visible recording counts: `total`, `published`, `in_progress`, `waiting_source`, `paused`, `error`; `Cache-Control: private, no-store` |
 | `GET /api/v1/users/me/analytics` | owner | `recordings_created`, `transcription_minutes` (content length), `transcription_jobs`, uploads by platform, share views/downloads, failed recordings, breakdowns |
 | `GET /api/v1/admin/stats/analytics` | admin | platform totals + `active_users` per day (distinct users with ≥1 new recording) |
 | `GET /api/v1/admin/users/{user_id}/analytics` | admin | same shape as user analytics for one account |
 | `GET /api/v1/admin/users/{user_id}/events?from=&to=` | admin | immutable `usage_events` timeline (optional date filter) |
 
 **Labels:** `transcription_minutes` = sum of `recordings.final_duration` after `TRANSCRIBE` completed (deduped per recording per day, same logic as Grafana Overview). `transcription_jobs` = count of completed transcriptions. Monthly **quota** transcriptions use `quota_usage.transcriptions_count` via `/users/me/quota`.
+
+**Home:** `/home` combines current owner-scoped counts with the existing UTC analytics
+endpoint. Catalog requests accept `operational_state=in_progress|waiting_source|paused|error`;
+export and bulk requests accept the same field in `filters`. Unknown values return 422.
+`include_posters=false` skips signed poster URL lookups (default remains `true`). Home uses
+`compact=true&include_posters=false&per_page=5`. Unknown signed-in routes and render
+errors link to `/home`. The client prefers a specific `detail`; a generic 429 includes
+the wait from `retry_after` or `Retry-After`
+([error copy](guides/USAGE_AND_ANALYTICS.md#api-errors-in-the-interface)).
+Category precedence, refresh behavior, and UI copy:
+[Home guide](guides/USAGE_AND_ANALYTICS.md#home).
 
 **Owner UI:** Settings → **Usage** reads `/users/me/quota` (eight blocks: `recordings`, `storage`, `concurrent_tasks`, `automation_jobs`, `transcriptions`, `processing`, `templates`, `credentials`) and `/users/me/analytics` for activity. See [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md).
 
@@ -1105,13 +1131,14 @@ DELETE /api/v1/thumbnails/{filename}
 
 **JWT (JSON Web Tokens):**
 - Длительность access/refresh задаётся в **`config/settings.py`** (по умолчанию: access **30** минут, refresh **7** дней), переопределение через переменные окружения с префиксом **`SECURITY_`**
-- Refresh-токены хранятся в БД; см. `api/routers/auth.py`
+- Refresh-токены хранятся в БД как SHA-256 от JWT; см. `api/routers/auth.py` и миграцию **055**
+- `SessionResponse` по умолчанию без JWT (только `csrf_token`); CLI: `?include_tokens=true`
 
 **OAuth 2.0:**
 - YouTube: Authorization Code Flow
 - VK: Implicit Flow (2026 policy)
 - Zoom: OAuth 2.0 / Server-to-Server
-- CSRF protection через Redis state tokens
+- CSRF protection через Redis state tokens; callback сверяет `metadata["platform"]` с маршрутом
 
 **RBAC (Role-Based Access Control):**
 ```python
@@ -1164,7 +1191,7 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 
 **API Rate Limits:**
 - Per minute: 60 requests
-- Per hour: 1000 requests
+- Per hour: 10000 requests (per client IP; 60/min still applies)
 - 429 Too Many Requests response
 
 **Quota System:**

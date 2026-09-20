@@ -10,6 +10,17 @@
 | Ключи AI (AssemblyAI ASR, DeepSeek и т.д.) | JSON: `config/assemblyai_creds.json`, `config/deepseek_creds.json`, … | Не шифруются приложением; файл вне VCS, права ОС. Шаблоны: `config/examples/*.json.example` |
 | Секреты OAuth-приложения (client id/secret для провайдера) | `.env`: `OAUTH_*`, плюс опционально `OAUTH_BASE_URL` | Env; не путать с токенами пользователя в БД |
 | JWT, пароль БД, Redis, S3 | `.env` / секреты оркестратора | См. `.env.example` |
+| Refresh JWT, email-verify, password-reset | `refresh_tokens.token`, `users.email_verification_token`, `users.password_reset_token` | SHA-256 hex (`hash_secret`); raw JWT/token only in httpOnly cookie or email link |
+
+## Credentials API
+
+`GET /api/v1/credentials/{id}` returns metadata only. Decrypted blobs (including `client_secret`) are **not** returned over REST — not on GET, list, or `POST /credentials/{id}/check`. Workers decrypt in-process after `user_id` is bound in the query (`CredentialService.get_credentials_by_id(id, user_id)`).
+
+## Сессии и письма
+
+- Login / refresh cookies carry the raw JWT; the DB stores `sha256(jwt)`.
+- Reset and verification emails contain a raw token; the DB stores the hash. After migration **055**, previously issued reset/verify links stop working — the user must request a new email.
+
 
 ## Архитектура (пользовательские credentials)
 
@@ -102,7 +113,9 @@ uv run python scripts/reencrypt_credentials.py
 
 ## Production checklist
 
-- [ ] `APP_DEBUG=false` (иначе не сработает строгая проверка: JWT по умолчанию и пустой `SECURITY_ENCRYPTION_KEY` допустимы только вне strict production — см. `Settings.validate_production_settings` в `config/settings.py`)
+- [ ] `APP_DEBUG=false` (strict production: default JWT and empty `SECURITY_ENCRYPTION_KEY` abort startup — see `Settings.validate_production_settings`)
 - [ ] `SECURITY_JWT_SECRET_KEY` — не значение по умолчанию из примера
 - [ ] `SECURITY_ENCRYPTION_KEY` задан и совпадает во всех процессах, имеющих доступ к БД с credentials
+- [ ] `SERVER_CORS_ORIGINS` — явный список origin (не `*` вместе с cookie credentials)
+- [ ] За nginx: `SECURITY_TRUST_X_FORWARDED_FOR=true` (не обязательно в Docker: private TCP peer уже доверяет `X-Real-IP`)
 - [ ] Пароли БД/Redis и ключи S3 не в репозитории; AI JSON-файлы с API keys — в `.gitignore`, права только для пользователя сервиса

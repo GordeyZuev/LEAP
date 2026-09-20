@@ -31,6 +31,7 @@ class ShareEventRepository:
     async def create(
         self,
         *,
+        event_id: str | None = None,
         owner_user_id: str,
         event_type: str,
         recording_id: int | None = None,
@@ -48,6 +49,8 @@ class ShareEventRepository:
             visitor_key=visitor_key,
             artifact_type=artifact_type,
         )
+        if event_id is not None:
+            event.id = event_id
         self.session.add(event)
         await self.session.flush()
         return event

@@ -51,6 +51,13 @@ class PlaylistModel(Base):
     )
 
     owner: Mapped["UserModel"] = relationship("UserModel", lazy="selectin")
+    groups: Mapped[list["PlaylistGroupModel"]] = relationship(
+        "PlaylistGroupModel",
+        back_populates="playlist",
+        cascade="all, delete-orphan",
+        order_by="PlaylistGroupModel.position",
+        lazy="select",
+    )
     items: Mapped[list["PlaylistItemModel"]] = relationship(
         "PlaylistItemModel",
         back_populates="playlist",
@@ -58,6 +65,23 @@ class PlaylistModel(Base):
         order_by="PlaylistItemModel.position",
         lazy="selectin",
     )
+
+
+class PlaylistGroupModel(Base):
+    """Named folder for lectures within a playlist."""
+
+    __tablename__ = "playlist_groups"
+    __table_args__ = (
+        UniqueConstraint("playlist_id", "name", name="uq_playlist_groups_playlist_name"),
+        Index("ix_playlist_groups_playlist_position", "playlist_id", "position"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    playlist_id: Mapped[int] = mapped_column(Integer, ForeignKey("playlists.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    playlist: Mapped[PlaylistModel] = relationship("PlaylistModel", back_populates="groups")
 
 
 class PlaylistItemModel(Base):
@@ -77,6 +101,9 @@ class PlaylistItemModel(Base):
         Integer, ForeignKey("recordings.id", ondelete="CASCADE"), nullable=False, index=True
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    group_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("playlist_groups.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

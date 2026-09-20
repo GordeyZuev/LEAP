@@ -10,7 +10,7 @@ export function markReleaseSeen(version: string): void {
   window.localStorage.setItem(LAST_SEEN_RELEASE_KEY, version);
 }
 
-/** True when the user has not dismissed release notes for this app version. */
+/** True when the user has not dismissed this published product update. */
 export function shouldShowReleaseNotes(version: string): boolean {
   return getLastSeenRelease() !== version;
 }

@@ -1,29 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-import { APP_VERSION } from "@/lib/app-version";
-import { getReleaseNotesForVersion } from "@/content/release-notes";
+import { fetchLatestProductUpdate } from "@/api/product-updates";
 import { markReleaseSeen, shouldShowReleaseNotes } from "@/lib/release-notes-storage";
 
 /** Wait for the shell to settle before showing release notes. */
 const SHOW_DELAY_MS = 1_500;
 
 export function useReleaseNotes() {
-  const content = getReleaseNotesForVersion(APP_VERSION);
+  const { data: update } = useQuery({
+    queryKey: ["product-updates", "latest"],
+    queryFn: fetchLatestProductUpdate,
+    staleTime: 5 * 60_000,
+  });
+  const version = update?.version ?? update?.id ?? "";
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!content || !shouldShowReleaseNotes(APP_VERSION)) return;
+    if (!version || !shouldShowReleaseNotes(version)) return;
 
     const timer = window.setTimeout(() => setOpen(true), SHOW_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [content]);
+  }, [version]);
 
   const dismiss = useCallback(() => {
-    markReleaseSeen(APP_VERSION);
+    if (version) markReleaseSeen(version);
     setOpen(false);
-  }, []);
+  }, [version]);
 
-  return { open, version: APP_VERSION, content, dismiss };
+  return { open, update, version, dismiss };
 }

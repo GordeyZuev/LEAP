@@ -195,6 +195,18 @@ async def _load_job_templates(session, job, user_id: str):
     return template_repo, templates
 
 
+def _source_is_syncable(source) -> bool:
+    """Active sources that can refresh. A credential is required only when the provider needs one."""
+    if source is None or not source.is_active:
+        return False
+    if source.credential_id:
+        return True
+    if source.source_type == "VIDEO_URL":
+        return True
+    config = source.config or {}
+    return source.source_type == "YANDEX_DISK" and bool(config.get("public_url"))
+
+
 async def _sources_for_templates(session, templates, user_id: str):
     source_ids_set: set[int] = set()
     has_empty_source_ids = False
@@ -211,11 +223,11 @@ async def _sources_for_templates(session, templates, user_id: str):
     source_repo = InputSourceRepository(session)
     if has_empty_source_ids:
         all_sources = await source_repo.find_active_by_user(user_id)
-        return [s for s in all_sources if s.credential_id]
+        return [s for s in all_sources if _source_is_syncable(s)]
     sources_to_sync = []
     for source_id in source_ids_set:
         source = await source_repo.find_by_id(source_id, user_id)
-        if source and source.is_active and source.credential_id:
+        if _source_is_syncable(source):
             sources_to_sync.append(source)
     return sources_to_sync
 
@@ -442,7 +454,7 @@ async def _execute_job(session, job_id: int, user_id: str, *, sync: bool) -> dic
         return payload
 
     except Exception as e:
-        logger.error(f"Job {job_id} failed: {e}", exc_info=True)
+        logger.opt(exception=True).error(f"Job {job_id} failed: {e}")
         return {"status": "error", "job_id": job_id, "user_id": user_id, "error": str(e)}
 
 

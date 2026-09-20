@@ -9,7 +9,9 @@ import { VIDEO_PLAYER_FRAME } from "@/components/ui/video-player-frame";
 import { PLAYER_SHORTCUTS, PLAYER_SPEEDS, handlePlayerKey } from "@/components/ui/video-player-keys";
 import { applyHudAction, HUD_HIDE_MS, type HudView } from "@/lib/player-hud";
 import { cn } from "@/lib/utils";
-import { createResumeSaver, readResumeTime, resumeTimeWithinDuration } from "@/lib/video-resume";
+import { createResumeSaver, readResumeTime, resumeTimeWithinDuration, retryTimeWithinDuration } from "@/lib/video-resume";
+
+const MAX_AUTO_RECOVERIES = 2;
 
 export interface VideoPlayerMarker {
   time: number;
@@ -28,7 +30,10 @@ interface VideoPlayerProps {
   /** Fired when user clicks a progress-bar chapter marker. */
   onMarkerSeek?: (time: number, label: string) => void;
   /** Refresh a signed media URL after an expiry or transport failure. */
-  onReload?: () => void | Promise<unknown>;
+  onReload?: () => string | null | Promise<string | null>;
+  /** Play after this media element mounts (used when navigating to a playlist item). */
+  autoPlayRequested?: boolean;
+  onAutoPlayAttempt?: () => void;
   /** Layered on the Plyr container (fullscreen-safe): playlist end card, etc. */
   overlay?: ReactNode;
   className?: string;
@@ -49,7 +54,7 @@ function syncMarkers(
   bar.querySelectorAll(".plyr__progress__marker").forEach((n: Element) => n.remove());
   const duration = player.duration;
   if (!duration || !markers?.length) return;
-  markers.forEach((m) => {
+  markers.filter((m) => Number.isFinite(m.time) && m.time >= 0 && m.time <= duration).forEach((m) => {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "plyr__progress__marker";
@@ -107,6 +112,18 @@ function liveHud(view: HudView): string {
   return view.muted ? "Muted" : `Volume ${view.percent}%`;
 }
 
+function setAutoPiPAction(handler: (() => void) | null): void {
+  if (!("mediaSession" in navigator)) return;
+  try {
+    // The action ships in Chromium before TypeScript's MediaSessionAction union.
+    const session = navigator.mediaSession;
+    const setAction = session.setActionHandler as (action: string, callback: (() => void) | null) => void;
+    setAction.call(session, "enterpictureinpicture", handler);
+  } catch {
+    // This Media Session action is not available in every browser.
+  }
+}
+
 /**
  * Plyr rewrites DOM around the media node. Keep that tree inside a memoized
  * empty mount: React must not own <video>, or ready/HUD setState pulls it
@@ -145,16 +162,27 @@ const PlyrMount = memo(function PlyrMount({
 
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   function VideoPlayer(
-    { src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onMarkerSeek, onReload, overlay, className },
+    { src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onMarkerSeek, onReload,
+      autoPlayRequested, onAutoPlayAttempt, overlay, className },
     forwardedRef,
   ) {
     const [ready, setReady] = useState(false);
     const [failure, setFailure] = useState<string | null>(null);
     const [instanceId, setInstanceId] = useState(0);
+    const [retryingScope, setRetryingScope] = useState<string | null>(null);
     const [helpOpen, setHelpOpen] = useState(false);
     const [host, setHost] = useState<HTMLElement | null>(null);
     const [hud, setHud] = useState<HudView | null>(null);
-    const playerScope = `${src}\0${resumeKey ?? ""}\0${instanceId}`;
+    // A new presigned URL for the same video must not replace a playing media node.
+    // Keep it ready for recovery if the current URL later fails a Range request.
+    const mediaIdentity = resumeKey ?? src;
+    const [source, setSource] = useState({ identity: mediaIdentity, url: src });
+    if (source.identity !== mediaIdentity) {
+      setSource({ identity: mediaIdentity, url: src });
+    }
+    const activeSrc = source.identity === mediaIdentity ? source.url : src;
+    const playerScope = `${activeSrc}\0${mediaIdentity}\0${instanceId}`;
+    const retrying = retryingScope === playerScope;
     const [playerScopeSeen, setPlayerScopeSeen] = useState(playerScope);
     if (playerScopeSeen !== playerScope) {
       setPlayerScopeSeen(playerScope);
@@ -173,17 +201,28 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
     const onEndedRef = useRef(onEnded);
     const onMarkerSeekRef = useRef(onMarkerSeek);
     const onReloadRef = useRef(onReload);
+    const onAutoPlayAttemptRef = useRef(onAutoPlayAttempt);
     const helpOpenRef = useRef(false);
     const overlayRef = useRef(Boolean(overlay));
     const hudViewRef = useRef<HudView | null>(null);
     const hudAtRef = useRef(0);
     const hudHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const skipHudUntilRef = useRef(0);
+    const wasPlayingRef = useRef(false);
+    const resumePlaybackRef = useRef(false);
+    const retryPositionRef = useRef<{ identity: string; time: number } | null>(null);
+    const autoRecoveriesRef = useRef({ identity: mediaIdentity, count: 0 });
+    useEffect(() => {
+      if (failure && src !== activeSrc) {
+        setSource({ identity: mediaIdentity, url: src });
+      }
+    }, [failure, src, activeSrc, mediaIdentity]);
     useEffect(() => { markersRef.current = markers; }, [markers]);
     useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; }, [onTimeUpdate]);
     useEffect(() => { onEndedRef.current = onEnded; }, [onEnded]);
     useEffect(() => { onMarkerSeekRef.current = onMarkerSeek; }, [onMarkerSeek]);
     useEffect(() => { onReloadRef.current = onReload; }, [onReload]);
+    useEffect(() => { onAutoPlayAttemptRef.current = onAutoPlayAttempt; }, [onAutoPlayAttempt]);
     useEffect(() => { helpOpenRef.current = helpOpen; }, [helpOpen]);
     useEffect(() => { overlayRef.current = Boolean(overlay); }, [overlay]);
 
@@ -210,11 +249,25 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       let cancelled = false;
       let refreshAttempted = false;
       let startupTimer: ReturnType<typeof setTimeout> | null = null;
+      let stallTimer: ReturnType<typeof setTimeout> | null = null;
+      let recoveryResetTimer: ReturnType<typeof setTimeout> | null = null;
+      const startedAt = performance.now();
+      let firstFrameRecorded = false;
+      let bufferingStartedAt: number | null = null;
+      let lastProgressTime = Number.isFinite(el.currentTime) ? el.currentTime : 0;
       skipHudUntilRef.current = Date.now() + 500;
 
-      const clearTimers = () => {
+      const clearStartupTimer = () => {
         if (startupTimer) clearTimeout(startupTimer);
         startupTimer = null;
+      };
+      const clearStallTimer = () => {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = null;
+      };
+      const clearTimers = () => {
+        clearStartupTimer();
+        clearStallTimer();
       };
 
       const player = new Plyr(el, {
@@ -256,32 +309,100 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
 
       const markReady = () => {
         if (cancelled) return;
-        clearTimers();
+        clearStartupTimer();
+        refreshAttempted = false;
         setFailure(null);
         setReady(true);
         if (player.elements.container) setHost(player.elements.container);
       };
+      const recordFirstFrame = () => {
+        if (firstFrameRecorded) return;
+        firstFrameRecorded = true;
+        performance.measure("leap:video:first-frame", { start: startedAt, end: performance.now() });
+      };
       const markFailed = (message = "Video could not be loaded") => {
-        if (cancelled) return;
+        if (cancelled || refreshAttempted) return;
+        refreshAttempted = true;
         clearTimers();
+        if (recoveryResetTimer) clearTimeout(recoveryResetTimer);
+        resumePlaybackRef.current = wasPlayingRef.current;
+        const time = player.currentTime || el.currentTime || 0;
+        if (time > 0) {
+          retryPositionRef.current = { identity: mediaIdentity, time };
+          saver?.flush(time);
+        }
+        const attempts = autoRecoveriesRef.current.identity === mediaIdentity
+          ? autoRecoveriesRef.current.count
+          : 0;
+        const canRecover = attempts < MAX_AUTO_RECOVERIES;
         setReady(false);
-        setFailure(message);
-        if (!refreshAttempted) {
-          refreshAttempted = true;
-          void onReloadRef.current?.();
+        setFailure(canRecover ? message : "Video could not be loaded");
+        if (!canRecover) return;
+        autoRecoveriesRef.current = { identity: mediaIdentity, count: attempts + 1 };
+        void Promise.resolve().then(() => onReloadRef.current?.() ?? null).then((url) => {
+          if (cancelled) return;
+          if (url && new URL(url, document.baseURI).href !== el.src) setSource({ identity: mediaIdentity, url });
+          else setFailure("Video could not be loaded");
+        }).catch(() => {
+          if (!cancelled) setFailure("Video could not be loaded");
+        });
+      };
+      const playbackVisible = () => !document.hidden || document.pictureInPictureElement === el;
+      const startStallTimer = () => {
+        if (!playbackVisible() || cancelled || refreshAttempted || el.paused || el.ended || stallTimer) return;
+        stallTimer = setTimeout(() => {
+          stallTimer = null;
+          if (!playbackVisible() || cancelled || el.paused || el.ended) return;
+          const time = el.currentTime;
+          if (Number.isFinite(time) && Math.abs(time - lastProgressTime) > 0.05) {
+            lastProgressTime = time;
+            startStallTimer();
+          } else {
+            markFailed("Video stalled; retrying");
+          }
+        }, 30_000);
+      };
+      const recordPlaying = () => {
+        clearStallTimer();
+        startStallTimer();
+        recordFirstFrame();
+        if (autoRecoveriesRef.current.identity === mediaIdentity && autoRecoveriesRef.current.count > 0) {
+          if (recoveryResetTimer) clearTimeout(recoveryResetTimer);
+          const startedAt = el.currentTime;
+          recoveryResetTimer = setTimeout(() => {
+            if (!cancelled && !el.paused && el.currentTime - startedAt > 0.5) {
+              autoRecoveriesRef.current = { identity: mediaIdentity, count: 0 };
+            }
+          }, 5000);
+        }
+        if (bufferingStartedAt !== null) {
+          performance.measure("leap:video:buffering", {
+            start: bufferingStartedAt,
+            end: performance.now(),
+          });
+          bufferingStartedAt = null;
         }
       };
 
       const saver = resumeKey ? createResumeSaver(resumeKey) : null;
+      let resumeApplied = false;
       const applyResume = () => {
-        if (!resumeKey || cancelled) return;
-        const saved = readResumeTime(resumeKey);
-        if (saved == null) return;
+        if (cancelled || resumeApplied || el.readyState < 1) return;
+        resumeApplied = true;
+        const retryPosition = retryPositionRef.current?.identity === mediaIdentity
+          ? retryPositionRef.current.time
+          : null;
+        if (retryPosition !== null) retryPositionRef.current = null;
+        const saved = retryPosition ?? (resumeKey ? readResumeTime(resumeKey) : null);
         const duration = player.duration || el.duration;
-        const t = resumeTimeWithinDuration(saved, duration);
-        if (t == null) return;
-        player.currentTime = t;
-        el.currentTime = t;
+        const t = saved == null ? null : retryPosition !== null
+          ? retryTimeWithinDuration(saved, duration)
+          : resumeTimeWithinDuration(saved, duration);
+        if (t != null) el.currentTime = t;
+        if (resumePlaybackRef.current) {
+          resumePlaybackRef.current = false;
+          void el.play().catch(() => {});
+        }
       };
       if (el.readyState >= 1) applyResume();
       else el.addEventListener("loadedmetadata", applyResume, { once: true });
@@ -289,11 +410,18 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       player.on("timeupdate", () => {
         const ct = player.currentTime;
         onTimeUpdateRef.current?.(ct);
-        saver?.save(ct);
+        if (resumeApplied) saver?.save(ct);
+        if (Number.isFinite(ct) && Math.abs(ct - lastProgressTime) > 0.05) {
+          lastProgressTime = ct;
+          clearStallTimer();
+          startStallTimer();
+        }
         const list = markersRef.current;
         const labelEl = chapterLabelRef.current;
         if (!labelEl || !list?.length) return;
-        const active = list.findLast((m) => m.time <= ct);
+        const active = list.reduce<VideoPlayerMarker | null>((latest, marker) =>
+          Number.isFinite(marker.time) && marker.time >= 0 && marker.time <= ct
+            && (!latest || marker.time > latest.time) ? marker : latest, null);
         const label = active?.label ?? null;
         if (label !== lastLabelRef.current) {
           labelEl.textContent = label ?? "";
@@ -302,6 +430,23 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         }
       });
       player.on("ready", applyResume);
+      player.on("play", () => {
+        wasPlayingRef.current = true;
+        startStallTimer();
+      });
+      player.on("pause", () => {
+        // A fatal media error can pause the element before its error event is delivered.
+        // Keep the previous play intent so recovery resumes without another click.
+        if (!el.error) wasPlayingRef.current = false;
+        clearStallTimer();
+      });
+      player.on("waiting", () => {
+        if (firstFrameRecorded && bufferingStartedAt === null) bufferingStartedAt = performance.now();
+        startStallTimer();
+      });
+      player.on("stalled", startStallTimer);
+      player.on("playing", recordPlaying);
+      player.on("loadeddata", recordFirstFrame);
       player.on("canplay", markReady);
       player.on("playing", markReady);
       player.on("loadeddata", markReady);
@@ -324,10 +469,37 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       el.addEventListener("loadeddata", markReady);
       el.addEventListener("canplay", markReady);
       el.addEventListener("error", onMediaError);
+      const startStartupTimer = () => {
+        if (document.hidden || cancelled || refreshAttempted || el.readyState >= 1) return;
+        startupTimer = setTimeout(() => markFailed("Video is taking too long to load"), 20_000);
+      };
+      const onVisibilityChange = () => {
+        clearTimers();
+        if (!document.hidden && el.readyState < 1) startStartupTimer();
+        startStallTimer();
+      };
+      const onPiPChange = () => {
+        clearStallTimer();
+        startStallTimer();
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      el.addEventListener("enterpictureinpicture", onPiPChange);
+      el.addEventListener("leavepictureinpicture", onPiPChange);
+      // Chromium may ask for PiP when the user leaves an audible playing tab.
+      // The browser owns eligibility and permission; visibilitychange alone has no user activation.
+      setAutoPiPAction(() => {
+        if (!cancelled && !el.paused && !el.ended && document.pictureInPictureEnabled
+          && typeof el.requestPictureInPicture === "function") {
+          void el.requestPictureInPicture().catch(() => {});
+        }
+      });
       if (el.readyState >= 1) markReady();
-      else startupTimer = setTimeout(() => markFailed("Video is taking too long to load"), 20_000);
+      else startStartupTimer();
 
-      const persistNow = () => saver?.flush(player.currentTime || el.currentTime || 0);
+      const persistNow = () => {
+        const time = player.currentTime || el.currentTime || 0;
+        if (time > 0) saver?.flush(time);
+      };
       player.on("pause", persistNow);
       player.on("ended", () => onEndedRef.current?.());
       window.addEventListener("pagehide", persistNow);
@@ -347,11 +519,16 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       return () => {
         cancelled = true;
         clearTimers();
+        if (recoveryResetTimer) clearTimeout(recoveryResetTimer);
         persistNow();
         saver?.cancel();
         if (hudHideRef.current) clearTimeout(hudHideRef.current);
         window.removeEventListener("pagehide", persistNow);
         window.removeEventListener("keydown", onKeyDown);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        el.removeEventListener("enterpictureinpicture", onPiPChange);
+        el.removeEventListener("leavepictureinpicture", onPiPChange);
+        setAutoPiPAction(null);
         el.removeEventListener("loadedmetadata", applyResume);
         el.removeEventListener("loadedmetadata", markReady);
         el.removeEventListener("loadeddata", markReady);
@@ -363,9 +540,31 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         lastLabelRef.current = null;
         player.destroy();
       };
-    }, [resumeKey, pushHud]);
+    }, [mediaIdentity, resumeKey, pushHud]);
 
     const markersKey = markerSignature(markers);
+    useEffect(() => {
+      const el = localRef.current;
+      if (!autoPlayRequested || !el) return;
+      let cancelled = false;
+      let attempted = false;
+      const tryPlay = () => {
+        if (cancelled || attempted) return;
+        attempted = true;
+        void el.play().catch(() => {}).finally(() => {
+          if (!cancelled) onAutoPlayAttemptRef.current?.();
+        });
+      };
+      if (el.readyState >= 2) tryPlay();
+      else el.addEventListener("canplay", tryPlay, { once: true });
+      const fallback = window.setTimeout(tryPlay, 400);
+      return () => {
+        cancelled = true;
+        el.removeEventListener("canplay", tryPlay);
+        window.clearTimeout(fallback);
+      };
+    }, [autoPlayRequested, playerScope]);
+
     useEffect(() => {
       const player = playerRef.current;
       if (!player || !ready) return;
@@ -398,13 +597,13 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       track.src = vttBlobUrl;
       track.dataset.leap = "1";
       el.appendChild(track);
-    }, [vttBlobUrl, src, instanceId]);
+    }, [vttBlobUrl, activeSrc, instanceId]);
 
     const hudBits = hud ? formatHud(hud) : null;
 
     return (
       <div className={cn(VIDEO_PLAYER_FRAME, "motion-safe:animate-page-in", className)}>
-        <PlyrMount key={playerScope} src={src} setRef={setRef} attach={attach} />
+        <PlyrMount key={playerScope} src={activeSrc} setRef={setRef} attach={attach} />
         {host && createPortal(
           <>
             {hudBits && !overlay && (
@@ -437,7 +636,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
           </>,
           host,
         )}
-        {Boolean(src) && !ready && (
+        {Boolean(activeSrc) && !ready && (
           <div className="absolute inset-0 z-10 overflow-hidden rounded-[inherit]">
             {failure ? (
               <div className="flex h-full flex-col items-center justify-center gap-3 bg-muted/90">
@@ -446,13 +645,25 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
                 <button
                   type="button"
                   onClick={() => {
-                    setFailure(null);
-                    void onReloadRef.current?.();
-                    setInstanceId((n) => n + 1);
+                    if (retrying) return;
+                    const retryElement = localRef.current;
+                    autoRecoveriesRef.current = { identity: mediaIdentity, count: 0 };
+                    setRetryingScope(playerScope);
+                    void Promise.resolve().then(() => onReloadRef.current?.() ?? null).catch(() => null).then((url) => {
+                      if (localRef.current !== retryElement) return;
+                      const nextUrl = url ?? src;
+                      if (nextUrl !== activeSrc) {
+                        setSource({ identity: mediaIdentity, url: nextUrl });
+                        return;
+                      }
+                      setFailure(null);
+                      setInstanceId((n) => n + 1);
+                    }).finally(() => setRetryingScope((scope) => scope === playerScope ? null : scope));
                   }}
+                  disabled={retrying}
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
                 >
-                  <RotateCcw size={14} /> Retry
+                  <RotateCcw size={14} /> {retrying ? "Retrying…" : "Retry"}
                 </button>
               </div>
             ) : (

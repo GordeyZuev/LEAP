@@ -14,6 +14,27 @@ from logger import get_logger
 logger = get_logger()
 
 
+def _oauth_error_code(response: httpx.Response) -> str | None:
+    """Extract OAuth error code from a provider JSON body without logging the body."""
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    code = payload.get("error") or payload.get("error_code")
+    return str(code) if code else None
+
+
+def _log_oauth_http_failure(label: str, response: httpx.Response) -> None:
+    """Log provider HTTP failures as status + error code only (never response.text)."""
+    code = _oauth_error_code(response)
+    if code:
+        logger.error(f"{label}: status={response.status_code} error={code}")
+    else:
+        logger.error(f"{label}: status={response.status_code}")
+
+
 async def refresh_yandex_disk_oauth_token(
     refresh_token: str,
     config: OAuthPlatformConfig | None = None,
@@ -54,7 +75,7 @@ async def refresh_yandex_disk_oauth_token(
         response = await client.post(token_url, data=data, headers=headers)
         response_text = response.text
         if response.status_code != 200:
-            logger.error(f"Yandex Disk token refresh failed: status={response.status_code} error={response_text}")
+            _log_oauth_http_failure("Yandex Disk token refresh failed", response)
             raise httpx.HTTPStatusError(
                 f"Token refresh failed: {response.status_code}", request=response.request, response=response
             )
@@ -67,7 +88,7 @@ async def refresh_yandex_disk_oauth_token(
                 f"Yandex OAuth error: {token_data['error']}", request=response.request, response=response
             )
         if not token_data.get("access_token"):
-            logger.error(f"Yandex Disk token refresh: missing access_token in body={response_text[:500]}")
+            logger.error("Yandex Disk token refresh: missing access_token")
             raise ValueError("Yandex OAuth refresh response missing access_token")
         logger.info("Yandex Disk access token refreshed successfully")
         return token_data
@@ -206,8 +227,7 @@ class OAuthService:
             response = await client.post(self.config.token_url, data=data)
 
             if response.status_code != 200:
-                error_text = response.text
-                logger.error(f"Google token exchange failed: status={response.status_code} error={error_text}")
+                _log_oauth_http_failure("Google token exchange failed", response)
                 raise httpx.HTTPStatusError(
                     f"Token exchange failed: {response.status_code}", request=response.request, response=response
                 )
@@ -237,9 +257,7 @@ class OAuthService:
             response_text = response.text
 
             if response.status_code != 200:
-                logger.error(
-                    f"VK token exchange failed: status={response.status_code} url={url} error={response_text[:500]}"
-                )
+                _log_oauth_http_failure("VK token exchange failed", response)
                 raise httpx.HTTPStatusError(
                     f"Token exchange failed: {response.status_code}", request=response.request, response=response
                 )
@@ -247,7 +265,7 @@ class OAuthService:
             try:
                 token_data = json.loads(response_text) if response_text else {}
             except json.JSONDecodeError:
-                logger.error(f"VK token response is not JSON: {response_text[:500]}")
+                logger.error(f"VK token response is not JSON: status={response.status_code}")
                 raise httpx.HTTPStatusError(
                     "Invalid JSON response from VK", request=response.request, response=response
                 )
@@ -289,7 +307,7 @@ class OAuthService:
             response_text = response.text
 
             if response.status_code != 200:
-                logger.error(f"Zoom token exchange failed: status={response.status_code} error={response_text[:500]}")
+                _log_oauth_http_failure("Zoom token exchange failed", response)
                 raise httpx.HTTPStatusError(
                     f"Token exchange failed: {response.status_code}", request=response.request, response=response
                 )
@@ -297,7 +315,7 @@ class OAuthService:
             try:
                 token_response = json.loads(response_text) if response_text else {}
             except json.JSONDecodeError:
-                logger.error(f"Zoom token response is not JSON: {response_text[:500]}")
+                logger.error(f"Zoom token response is not JSON: status={response.status_code}")
                 raise httpx.HTTPStatusError(
                     "Invalid JSON response from Zoom", request=response.request, response=response
                 )
@@ -328,16 +346,14 @@ class OAuthService:
             response = await client.post(self.config.token_url, data=payload, headers=headers)
             response_text = response.text
             if response.status_code != 200:
-                logger.error(
-                    f"Yandex Disk token exchange failed: status={response.status_code} error={response_text[:500]}"
-                )
+                _log_oauth_http_failure("Yandex Disk token exchange failed", response)
                 raise httpx.HTTPStatusError(
                     f"Token exchange failed: {response.status_code}", request=response.request, response=response
                 )
             try:
                 token_data = json.loads(response_text) if response_text else {}
             except json.JSONDecodeError:
-                logger.error(f"Yandex Disk token response is not JSON: {response_text[:500]}")
+                logger.error(f"Yandex Disk token response is not JSON: status={response.status_code}")
                 raise httpx.HTTPStatusError(
                     "Invalid JSON response from Yandex OAuth", request=response.request, response=response
                 )
@@ -391,8 +407,7 @@ class OAuthService:
             response = await client.post(self.config.token_url, data=data)
 
             if response.status_code != 200:
-                error_text = response.text
-                logger.error(f"Google token refresh failed: status={response.status_code} error={error_text}")
+                _log_oauth_http_failure("Google token refresh failed", response)
                 raise httpx.HTTPStatusError(
                     f"Token refresh failed: {response.status_code}", request=response.request, response=response
                 )
@@ -414,8 +429,7 @@ class OAuthService:
             response = await client.post(self.config.token_url, data=data)
 
             if response.status_code != 200:
-                error_text = response.text
-                logger.error(f"VK token refresh failed: status={response.status_code} error={error_text}")
+                _log_oauth_http_failure("VK token refresh failed", response)
                 raise httpx.HTTPStatusError(
                     f"Token refresh failed: {response.status_code}", request=response.request, response=response
                 )
@@ -454,8 +468,7 @@ class OAuthService:
             response = await client.post(self.config.token_url, data=data, headers=headers)
 
             if response.status_code != 200:
-                error_text = response.text
-                logger.error(f"Zoom token refresh failed: status={response.status_code} error={error_text}")
+                _log_oauth_http_failure("Zoom token refresh failed", response)
                 raise httpx.HTTPStatusError(
                     f"Token refresh failed: {response.status_code}", request=response.request, response=response
                 )

@@ -64,7 +64,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     except Exception:
         exc_str = repr(exc)
 
-    _bound(request, exc).error("Unhandled exception: {}", exc_str, exc_info=exc)
+    _bound(request, exc).opt(exception=exc).error("Unhandled exception: {}", exc_str)
 
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -112,7 +112,7 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 
 async def response_validation_exception_handler(request: Request, exc: ResponseValidationError) -> JSONResponse:
     """Response validation exception handler."""
-    _bound(request, exc).error("Response validation error: {}", exc, exc_info=exc)
+    _bound(request, exc).opt(exception=exc).error("Response validation error: {}", exc)
 
     errors = []
     for error in exc.errors():
@@ -140,7 +140,7 @@ async def response_validation_exception_handler(request: Request, exc: ResponseV
 
 async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError) -> JSONResponse:
     """SQLAlchemy exception handler."""
-    _bound(request, exc).error("Database error: {}", exc, exc_info=exc)
+    _bound(request, exc).opt(exception=exc).error("Database error: {}", exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

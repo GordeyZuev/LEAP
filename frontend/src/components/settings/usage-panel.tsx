@@ -219,6 +219,7 @@ function UsagePanelContent() {
               description="New recordings created"
               isLoading={analyticsQuery.isPending}
               isError={analyticsQuery.isError}
+              error={analyticsQuery.error}
               isEmpty={
                 !analyticsQuery.isPending &&
                 dailyMetric(data?.daily ?? [], "recordings_created").every((p) => p.value === 0)
@@ -237,6 +238,7 @@ function UsagePanelContent() {
                 description="Minutes of content after transcription"
                 isLoading={analyticsQuery.isPending}
                 isError={analyticsQuery.isError}
+                error={analyticsQuery.error}
                 isEmpty={
                   !analyticsQuery.isPending &&
                   dailyMetric(data?.daily ?? [], "transcription_minutes").every((p) => p.value === 0)
@@ -253,6 +255,7 @@ function UsagePanelContent() {
                 description="Successful uploads by platform"
                 isLoading={analyticsQuery.isPending}
                 isError={analyticsQuery.isError}
+                error={analyticsQuery.error}
                 isEmpty={uploadChart.seriesKeys.length === 0}
                 emptyMessage="No uploads in this period"
               >
@@ -265,6 +268,7 @@ function UsagePanelContent() {
                   className="lg:col-span-2"
                   isLoading={analyticsQuery.isPending}
                   isError={analyticsQuery.isError}
+                  error={analyticsQuery.error}
                 >
                   <DailyBarChart
                     data={dailyMetric(data?.daily ?? [], "share_views")}

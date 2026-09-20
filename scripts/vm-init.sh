@@ -143,6 +143,7 @@ SERVER_CORS_ORIGINS=["https://${DOMAIN}"]
 # split frontend and API across different sites.
 SECURITY_COOKIE_SECURE=true
 SECURITY_COOKIE_SAMESITE=lax
+SECURITY_TRUST_X_FORWARDED_FOR=true
 # ---------------------------- Email (non-secret SMTP config)
 # Credentials (EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD) come from Lockbox.
 EMAIL_ENABLED=true

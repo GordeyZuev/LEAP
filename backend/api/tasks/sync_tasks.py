@@ -24,6 +24,7 @@ def sync_single_source_task(
     user_id: str,
     from_date: str = "2025-01-01",
     to_date: str | None = None,
+    auto_run: bool = False,
 ) -> dict:
     """
     Syncing one source (Celery task).
@@ -47,11 +48,11 @@ def sync_single_source_task(
             self.update_progress(user_id, 10, f"Syncing source {source_id}...", step="sync")
 
             # Use run_async for proper event loop isolation
-            result = self.run_async(_async_sync_single_source(self, source_id, user_id, from_date, to_date))
+            result = self.run_async(_async_sync_single_source(self, source_id, user_id, from_date, to_date, auto_run))
             return self.build_result(user_id=user_id, **result)
 
         except Exception as e:
-            logger.error(f"Sync task failed | {format_details(source=source_id, error=e)}", exc_info=True)
+            logger.opt(exception=True).error(f"Sync task failed | {format_details(source=source_id, error=e)}")
             raise
 
 
@@ -68,6 +69,7 @@ def bulk_sync_sources_task(
     user_id: str,
     from_date: str = "2025-01-01",
     to_date: str | None = None,
+    auto_run: bool = False,
 ) -> dict:
     """
     Batch syncing multiple sources (Celery task).
@@ -96,11 +98,11 @@ def bulk_sync_sources_task(
             )
 
             # Use run_async for proper event loop isolation
-            result = self.run_async(_async_batch_sync_sources(self, source_ids, user_id, from_date, to_date))
+            result = self.run_async(_async_batch_sync_sources(self, source_ids, user_id, from_date, to_date, auto_run))
             return self.build_result(user_id=user_id, **result)
 
         except Exception as e:
-            logger.error(f"Batch sync failed | {format_details(sources=source_ids, error=e)}", exc_info=True)
+            logger.opt(exception=True).error(f"Batch sync failed | {format_details(sources=source_ids, error=e)}")
             raise
 
 
@@ -110,6 +112,7 @@ async def _async_sync_single_source(
     user_id: str,
     from_date: str,
     to_date: str | None,
+    auto_run: bool = False,
 ) -> dict:
     """Async wrapper for syncing one source."""
     session_maker = get_async_session_maker()
@@ -131,6 +134,10 @@ async def _async_sync_single_source(
             repo = InputSourceRepository(session)
             source = await repo.find_by_id(source_id, user_id)
 
+            pipelines_started = (
+                await _queue_new_recordings(result.get("new_recording_ids", []), user_id) if auto_run else 0
+            )
+
             return {
                 "status": "success",
                 "source_id": source_id,
@@ -139,6 +146,7 @@ async def _async_sync_single_source(
                 "recordings_found": result.get("recordings_found", 0),
                 "recordings_saved": result.get("recordings_saved", 0),
                 "recordings_updated": result.get("recordings_updated", 0),
+                "pipelines_started": pipelines_started,
             }
         return {
             "status": "error",
@@ -153,12 +161,14 @@ async def _async_batch_sync_sources(
     user_id: str,
     from_date: str,
     to_date: str | None,
+    auto_run: bool = False,
 ) -> dict:
     """Async wrapper for batch syncing sources."""
     session_maker = get_async_session_maker()
     results = []
     successful = 0
     failed = 0
+    new_recording_ids: list[int] = []
 
     async with session_maker() as session:
         repo = InputSourceRepository(session)
@@ -185,6 +195,7 @@ async def _async_batch_sync_sources(
 
                 if result["status"] == "success":
                     successful += 1
+                    new_recording_ids.extend(result.get("new_recording_ids", []))
                     results.append(
                         {
                             "source_id": source_id,
@@ -207,7 +218,7 @@ async def _async_batch_sync_sources(
                     )
 
             except Exception as e:
-                logger.error(f"Unexpected sync error | {format_details(source=source_id, error=e)}", exc_info=True)
+                logger.opt(exception=True).error(f"Unexpected sync error | {format_details(source=source_id, error=e)}")
                 failed += 1
                 results.append(
                     {
@@ -219,6 +230,7 @@ async def _async_batch_sync_sources(
                 )
 
         await session.commit()
+        pipelines_started = await _queue_new_recordings(new_recording_ids, user_id) if auto_run else 0
 
         return {
             "status": "success",
@@ -227,4 +239,19 @@ async def _async_batch_sync_sources(
             "successful": successful,
             "failed": failed,
             "results": results,
+            "pipelines_started": pipelines_started,
         }
+
+
+async def _queue_new_recordings(recording_ids: list[int], user_id: str) -> int:
+    """Start each newly discovered recording after its sync transaction commits."""
+    from api.routers.recordings import _auto_run_recording
+
+    started = 0
+    for recording_id in dict.fromkeys(recording_ids):
+        try:
+            if await _auto_run_recording(recording_id, user_id):
+                started += 1
+        except Exception:
+            logger.exception("Source synced, but a recording could not be auto-run")
+    return started

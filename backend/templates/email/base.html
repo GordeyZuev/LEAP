@@ -15,10 +15,7 @@
           <!-- Header -->
           <tr>
             <td style="background-color:#224C87;padding:28px 36px;text-align:center;">
-              <!-- Logo mark — inline SVG, white stroke on blue bg -->
-              <svg width="33" height="40" viewBox="0 0 220 267" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-bottom:10px;">
-                <path d="M106.948 30.0078L31.6382 209.061C25.6677 223.256 37.3071 238.59 52.585 236.656L189.201 219.367" stroke="#FAFAFA" stroke-width="60" stroke-linecap="round"/>
-              </svg>
+              <img src="{{ frontend_base_url }}/logo_symb_inverse.svg" width="33" height="40" alt="LEAP" style="display:inline-block;vertical-align:middle;margin-bottom:10px;border:0;">
               <div style="font-size:20px;font-weight:700;letter-spacing:4px;color:#ffffff;margin-bottom:2px;">LEAP</div>
             </td>
           </tr>
@@ -36,10 +33,10 @@
           <!-- Footer -->
           <tr>
             <td style="background:#f8fafc;padding:18px 36px;border-top:1px solid #e2e8f0;text-align:center;">
-              <p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.7;">
+              {% block footer %}<p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.7;">
                 Это письмо отправлено автоматически — отвечать не нужно.<br>
                 &copy; 2026 LEAP Platform. Все права защищены.
-              </p>
+              </p>{% endblock %}
             </td>
           </tr>
 

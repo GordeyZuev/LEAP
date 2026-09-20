@@ -20,8 +20,6 @@ import os
 import sys
 from pathlib import Path
 
-_PAUSE_SECONDS = 0.5
-
 
 def _setup_path() -> None:
     project_root = Path(__file__).resolve().parent.parent
@@ -56,6 +54,7 @@ async def _run(args: argparse.Namespace) -> int:
     from api.helpers.media_duration import probe_stored_media_duration
     from api.mts_link_api import MtsLinkAPIError
     from api.repositories.auth_repos import UserCredentialRepository
+    from api.shared.exceptions import ExternalRateLimitError
     from database.automation_models import AutomationJobModel  # noqa: F401
     from database.models import RecordingModel, SourceMetadataModel
     from models.mts_link_auth import create_mts_link_client, create_mts_link_credentials
@@ -80,7 +79,7 @@ async def _run(args: argparse.Namespace) -> int:
             clients[cred_id] = None
             return None
         credentials = get_encryption().decrypt_credentials(credential.encrypted_data)
-        client = create_mts_link_client(create_mts_link_credentials(credentials))
+        client = create_mts_link_client(create_mts_link_credentials(credentials), credential_id=cred_id)
         clients[cred_id] = client
         return client
 
@@ -118,7 +117,7 @@ async def _run(args: argparse.Namespace) -> int:
                 try:
                     payload = await client.get_file(record_id)
                     duration = positive_duration_seconds(payload.get("duration"))
-                except MtsLinkAPIError as e:
+                except (MtsLinkAPIError, ExternalRateLimitError) as e:
                     print(f"  rec={rec.id} record={record_id} WARN {e}")
             elif not rec.local_video_path:
                 print(f"  skip rec={rec.id} (no credential)")
@@ -159,7 +158,6 @@ async def _run(args: argparse.Namespace) -> int:
                     rec.duration = duration
                     apply_blank_record(rec, is_blank, reason=BLANK_REASON_TOO_SHORT)
                     updated += 1
-            await asyncio.sleep(_PAUSE_SECONDS)
 
         if args.apply:
             await session.commit()

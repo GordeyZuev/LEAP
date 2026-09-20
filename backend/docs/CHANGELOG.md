@@ -1,3 +1,327 @@
+## 2026-10-04: allow_errors continues the same chain
+
+- **allow_errors** — a transcription, topics, or subtitles error skips that stage and the rest of the same Celery chain, including upload, still runs. The recording is not marked Failed. Topics and subtitles are skipped only when transcription itself failed. A later task returns immediately only while there is still no transcript, so subtitles can be generated once a transcript exists. A quota block and a soft time limit still mark the recording Failed and stop the chain.
+- **Run** — an orchestrator crash before the chain starts clears `on_air`. A failure while saving the chain id leaves the chain running.
+
+### Files
+
+- `backend/api/helpers/failure_handler.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/tasks/base.py`
+- `backend/tests/unit/api/test_allow_errors_chain.py`
+- `backend/docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`
+- `backend/docs/UPDATES.md`
+
+---
+
+## 2026-10-04: Automation syncs public Yandex Disk links
+
+- **Automation** — a run refreshes the sources named in template `source_ids`, including a public Yandex Disk link and a VIDEO_URL source with no credential. Zoom, MTS, and a private Disk folder still need one. If any template has no `source_ids`, the run refreshes every active syncable source of that user. One source failing does not skip the others. Zoom and MTS use the job date window; a public Disk link and a VIDEO_URL source list the whole link, and matching still keeps rows inside that window.
+- **Deployment** — restart the `async_operations` worker so scheduled jobs pick up the new source selection.
+
+### Files
+
+- `backend/api/tasks/automation.py`
+- `backend/api/schemas/automation/job.py`
+- `backend/tests/unit/api/tasks/test_automation_sources.py`
+- `backend/docs/guides/AUTOMATION_CELERY_BEAT.md`
+
+---
+
+## 2026-10-04: Run resumes a failed subtitle stage
+
+- **Run** — on a processed recording, Run resumed only PENDING stages, so a FAILED subtitles stage was left alone and the recording stayed `Failed · Subtitles`. FAILED stages re-enter the pipeline; stages that already completed are skipped. Starting transcription or subtitles clears that recording failure, including the stored `'"handler"'` text. A leftover flag is cleared on Run only when trim, transcription, topics, or subtitles have since completed. A download or upload failure stays.
+- **Deployment** — api and Celery workers together. The recording already showing the error needs one more Run.
+
+### Files
+
+- `backend/api/routers/recordings.py`
+- `backend/api/tasks/processing.py`
+- `backend/tests/unit/api/test_pause_resume.py`
+
+---
+
+## 2026-10-04: Home recovery and readable API errors
+
+- **Navigation** — unknown routes, render crashes, and an already signed-in visit to login or register go to `/home`, including the logo on those screens. Recording detail still returns to the library. No API or migration change.
+- **Errors** — one client reader keeps a specific API `detail` (quota, validation, auth lockout). A generic 429 states the wait from `retry_after` or `Retry-After`. Offline, timeout, oversized upload, and 5xx without a useful sentence each get one short line. A canceled request is not described as a dropped connection. Connections, charts, share stats, the player, and a failed automation job use that text instead of an empty list or a generic failure.
+
+### Files
+
+- `frontend/src/app/not-found.tsx`, `frontend/src/app/(app)/not-found.tsx`, `frontend/src/app/error.tsx`, `frontend/src/app/(app)/error.tsx`, `frontend/src/app/(auth)/layout.tsx`
+- `frontend/src/lib/utils.ts`, `frontend/src/lib/api-error.test.ts`, `frontend/src/components/ui/error-state.tsx`, `frontend/src/components/charts/chart-card.tsx`
+- `frontend/src/app/(app)/home/page.tsx`, `frontend/src/app/(app)/recordings/page.tsx`, `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/app/(app)/credentials/page.tsx`, `frontend/src/app/(app)/channels/[id]/page.tsx`, `frontend/src/app/(app)/automation/[id]/page.tsx`
+- `backend/docs/guides/USAGE_AND_ANALYTICS.md`, `backend/docs/TECHNICAL.md`, `backend/docs/UPDATES.md`
+
+---
+
+## 2026-10-04: Pipeline failures keep the original error
+
+- **Logging** — a JSON fragment such as `{"handler": ...}` inside an exception no longer becomes a log format field. Download, trim, transcribe, topics, subtitles, and pipeline orchestration report the real error instead of `KeyError('"handler"')`, and that logging error no longer rolls the recording back.
+- **Context** — task and user fields that contain braces stay literal in the log line.
+
+### Files
+
+- `backend/logger.py`
+- `backend/api/tasks/processing.py`, `backend/api/tasks/upload.py`, `backend/api/tasks/sync_tasks.py`, `backend/api/tasks/maintenance.py`, `backend/api/tasks/automation.py`, `backend/api/tasks/template.py`
+- `backend/api/middleware/error_handler.py`, `backend/api/routers/input_sources.py`, `backend/api/zoom_api.py`, `backend/api/token_manager.py`, `backend/api/helpers/media_duration.py`
+- `backend/video_upload_module/platforms/youtube/uploader.py`, `backend/video_download_module/platforms/mtslink/downloader.py`, `backend/database/manager.py`, `backend/deepseek_module/topic_extractor.py`
+- `backend/tests/unit/test_logger_braces.py`
+- `backend/docs/guides/MONITORING.md`
+
+---
+
+## 2026-10-04: Home publication visibility and Settings hydration
+
+- **Activity** — shown and fetched only when Home's owner-scoped `published` count is positive. Count enabled public LEAP links or playable videos in an enabled public playlist owned by the same user, without counting playlist duplicates. Require a share token and active deletion state, excluding deleted and blank records; zero weekly views do not hide published content. The existing aggregate query supplies the extra count; no migration is required.
+- **Settings** — hydrate tab contents from a deterministic skeleton before consuming cached profile or other panel data. Home reuses the same `useHydrated` hook. Header and tabs retain server rendering; hydration warnings are not suppressed.
+- **Deployment** — update the Home summary API before, or with, the frontend so it receives `published`.
+
+### Files
+
+- `backend/api/repositories/recording_repos.py`, `backend/api/schemas/user/stats.py`
+- `backend/tests/unit/api/test_home.py`
+- `frontend/src/hooks/use-hydrated.ts`
+- `frontend/src/app/(app)/home/page.tsx`, `frontend/src/app/(app)/settings/page.tsx`
+
+---
+
+## 2026-10-03: Product news, email subscriptions, and feedback
+
+- **News archive** — public `/updates` page shows five recent releases by default, with older entries faded until expanded. Each release has a short note and expandable `For Audience` / `For Creators` bullets. Subscription and feedback have separate pages. The public watch header uses a compact **News & Updates** chip beside theme and copy controls. Migration 057 creates the feature and seeds the structured release history.
+- **Optional email** — independent from feedback and account registration. Subscribers select one or more interests and confirm by email. Administrators publish news separately from queueing email, review the matching confirmed audience, and explicitly queue each newsletter. Celery records per-subscriber pending/sent/failed/skipped outcomes; email links allow topic changes or unsubscribe.
+- **Feedback and analytics** — feedback requires a use area and type; reply email is optional. Admin includes counts, audience distribution, delivery status, and feedback review. Grafana Overview reads aggregate-only `product_communications_current_stats`; emails and feedback content are not exposed to its read-only role.
+- **Deployment** — apply migration **057**, deploy API and Celery workers, configure public email base URL and SMTP, then deploy the frontend. See [PRODUCT_NEWS.md](guides/PRODUCT_NEWS.md).
+
+### Files
+
+- `api/routers/product_updates.py`, `api/schemas/product_updates.py`, `api/services/product_updates.py`, `api/tasks/product_updates.py`
+- `database/product_update_models.py`, `alembic/versions/057_product_updates_and_feedback.py`
+- `templates/email/product_news_confirmation.html`, `templates/email/product_update.html`
+- `frontend/src/app/updates/`, `frontend/src/app/(app)/admin/updates/page.tsx`, `frontend/src/api/product-updates.ts`
+- `monitoring/dashboards/leap_overview.json`, `docs/guides/PRODUCT_NEWS.md`
+
+---
+
+## 2026-10-03: Public share latency and analytics reliability audit
+
+- **Public watch paths** — playlist item metadata, beacons, engagement, media, and files use a bounded membership lookup. The course catalog separates metadata from visible-page poster resolution; the channel browser requests a filtered page, while the legacy `kind=all` response remains available. Channel queries run sequentially on one SQLAlchemy session.
+- **Files** — S3 subtitle/transcript requests redirect to signed Object Storage URLs; local storage continues streaming from the API. Only inline VTT may bypass disabled file downloads. Revoked and deleting direct recording links return 404.
+- **Analytics** — public beacons publish to `async_operations`; the worker commits events and counters atomically and ignores duplicate IDs. The audit restored channel attribution for surface opens, normalized mixed access batches, retained event publication timestamps, removed Celery result storage for these fire-and-forget tasks, and made synchronous fallback idempotent. Redis failures use database dedup where possible. Visitor dedup uses the same trusted client IP policy as rate limiting. Video and S3 file downloads are counted only after a signed URL is created successfully.
+- **Follow-up** — removed a redundant Object Storage existence check from the recording response. The default channel page now uses SQL counts and fetches only one page of the selected tab; search, alternate sorting, and templated descriptions retain the capped catalog path. Public channel reads exclude cross-tenant memberships, and playlist responses hide data from corrupted cross-tenant items. Course landing beacons and engagement now check the enabled course with a scalar lookup; public course card statistics and automatic posters exclude cross-tenant recordings. Analytics publishing skips Celery broker retries because the request already has a database fallback. Automatic deploy starts only after successful CI for the same SHA, skips superseded commits, and waits for the new worker before starting the API; manual dispatch does not require a CI run and waits for production approval when required reviewers are configured.
+- **Verification** — 1017 backend unit tests and 36 frontend tests passed; Ruff, ESLint, frontend production build, `actionlint`, and repository-wide `ty check` exited successfully. `ty` still emitted 91 warnings. Recheck the exact staged index before committing if other work continues in the shared tree. Local PostgreSQL, Redis, and Object Storage integration and production p95 still need measurement after deployment.
+
+### Files
+
+- `api/routers/share.py`, `api/routers/channels.py`
+- `api/services/share_observability.py`, `api/services/share_engagement.py`, `api/tasks/share_events.py`
+- `tests/unit/api/test_playlists.py`, `tests/unit/api/test_share_observability.py`, `tests/unit/api/test_share_event_worker.py`
+- `docs/guides/PLAYLISTS.md`, `docs/guides/CHANNELS.md`, `docs/guides/VIDEO_DELIVERY.md`, `docs/guides/USAGE_AND_ANALYTICS.md`, `docs/guides/MONITORING.md`, `docs/guides/CELERY_WORKERS_GUIDE.md`
+
+---
+
+## 2026-10-02: Home welcome layout (updated 2026-10-03)
+
+- **Home** — signed-in landing page with a greeting, equal status cards, one recent/error recording list, and weekly activity beneath it. Shared page, card, tab, status, and chart components preserve the existing UI style.
+- **Navigation** — separate Home entry in the sidebar; logo, authenticated root, and successful login lead to Home. Open library leads to Recordings; empty accounts can connect a source. Video creation remains in the library.
+- **Data** — authenticated `GET /api/v1/users/me/home-summary` returns owner-scoped counts with `private, no-store`. Shared `operational_state` predicates keep counts, catalog, export, and bulk filters consistent. Home requests five list items without poster URLs.
+- **Refresh recovery** — failed refreshes retain loaded records with a retry action. A stale zero summary cannot hide newly loaded records; cached empty-list messages are suppressed on refresh failure. Polling preserves the selected tab.
+- **Large metrics** — compact notation keeps large Home values inside narrow columns; tooltips and screen-reader text retain exact displayed values.
+- **Deployment** — no Home-specific migration; roll out API support before, or together with, the frontend. See [Home behavior and API details](guides/USAGE_AND_ANALYTICS.md#home).
+
+### Files
+
+- `frontend/src/app/(app)/home/page.tsx`
+- `frontend/src/components/charts/analytics-summary-cards.tsx`
+- `frontend/src/lib/operational-state.ts`, `frontend/src/lib/format-compact-number.ts`
+- `backend/api/repositories/recording_repos.py`
+- `backend/api/routers/users.py`, `backend/api/routers/recordings.py`, `backend/api/routers/recordings_helpers.py`
+- `backend/api/schemas/user/stats.py`, `backend/api/schemas/recording/filters.py`
+- `backend/tests/unit/api/test_home.py`, `frontend/src/lib/format-compact-number.test.ts`
+- `backend/docs/guides/USAGE_AND_ANALYTICS.md`, `backend/docs/UPDATES.md`
+
+---
+
+## v0.11.1.0 (2026-10-02)
+
+- **Курсы:** папки групп внутри плейлиста; владелец создаёт, переименовывает и удаляет папки, переносит в них лекции. Публичная страница открывает папку по URL и показывает путь от записи в курсе до папки и плейлиста. Прямая ссылка на запись не раскрывает связанные плейлисты и каналы. Ссылка к каналу показывается только при `?from=` с реальной опубликованной связью. Кнопка копирования ссылки убирает `?from=`, сохраняя адрес открытого видео или папки.
+- **Просмотр и превью:** обновление временного адреса видео не пересоздаёт работающий плеер; при ошибке он получает новый адрес и пытается восстановить позицию. Контроль отсутствия прогресса обнаруживает остановку после 30 секунд в видимой вкладке, позиция для восстановления хранится также в памяти. Адрес обновляется с учётом возраста кэша, а неудачное плановое обновление повторяется до трёх раз. Фоновое обновление данных не закрывает доступное видео заглушкой. Таймауты ожидания приостанавливаются, пока вкладка скрыта. Публичный каталог запрашивает превью только для видимой страницы. Долгое воспроизведение после истечения старой S3-ссылки всё ещё может потребовать повторной буферизации.
+- **PiP и позиция:** в поддерживаемом Chromium плеер отвечает на штатный запрос автоматического Picture-in-Picture при смене вкладки, если видео играет и браузер разрешает переход. Ручной PiP остаётся в управлении плеера на широком экране. Повторная попытка после сбоя теперь возвращается и в последние пять секунд ролика; обычный новый просмотр почти законченного видео начинается с начала.
+- **Надёжность плеера:** открытый PiP проверяется на отсутствие прогресса и при скрытой вкладке. В курсе Play и Next дожидаются создания плеера нужного видео; восстановление после ошибки сразу использует свежий адрес из ответа API и сохраняет воспроизведение при вызванной ошибкой паузе. Не более двух автоматических попыток подряд защищают от цикла при недоступном объекте; ручная Retry остаётся. Прямые адреса удалённого, пустого или неготового видео курса возвращают 404. Автовоспроизведение по-прежнему зависит от разрешения браузера.
+- **Локальная загрузка:** браузер отправляет файл блоками по 8 MiB и после обрыва запрашивает у сервера фактическое смещение; при повторном выборе того же файла передаётся только остаток. Частичная загрузка хранится 24 часа во временном каталоге общего тома API, финализация привязана к ID сессии и не создаёт дубликат при повторе ответа, даже если после сохранения исчерпана месячная квота. Сервер ограничивает размер файла, проверяет контейнер и длительность, сохраняет фактическую длительность и учитывает размер файла при проверке квоты. Ошибки валидации возвращаются с корректными HTTP-кодами; незавершённая финализация очищается из постоянного хранилища.
+- **Ссылки и плейлисты:** повторное добавление одной ссылки возвращает 409 с номером существующей записи; повторный импорт плейлиста использует устойчивый ключ видео и сохраняет пользовательское название, дату начала и привязанный шаблон. Неизвестная длительность не затирает известную. Если yt-dlp вернул адрес страницы вне списка разрешённых доменов, запись использует проверенную исходную ссылку. Плоские ID роликов YouTube превращаются в адреса просмотра, отдельный ролик не принимается как плейлист. Ограничение качества соблюдается и при резервном выборе формата. Импорт плейлиста сообщает о неудачных элементах и пропущенных по месячной квоте. Шаблон проверяется на принадлежность пользователю до создания записи.
+- **Яндекс Диск и интерфейс:** расширение файла убрано из названия записи. Окно добавления объединяет Sources, File и Link; внутри Link доступны отдельное видео, плейлист и публичный файл/папка Диска. Для Диска пользователь явно выбирает файл или папку, а предпросмотр показывает тип и число найденных видео; сервер проверяет соответствие выбранному типу. Плейлист показывает число доступных роликов и пропусков до импорта. Качество одиночного видео разблокируется после анализа ссылки и показывает реально найденные разрешения; у плейлиста общий предел применяется к каждому ролику, у Диска используется исходное качество файла. Публичная ссылка сохраняется как источник для повторной синхронизации. Auto-run доступен для файла и новых записей после синхронизации. Синхронизация источников учитывает лимит в 50 источников на запрос.
+- **Уточнения Add video (2026-10-03):** поле видео перечисляет YouTube, VK Video, Rutube и Vimeo, плейлист явно обозначен как YouTube. Предел качества показывает короткие названия разрешений вместо повторяющегося `Up to`; до проверки ссылки выбор недоступен. Во вкладке Sources есть поиск, массовый выбор, понятные типы и переход к управлению источниками; лишний счётчик убран. Длинные пояснения к Диску и файлу сокращены, дозагрузка обозначена компактной плашкой.
+- **Сброс:** диалоги на странице записи и в списке предупреждают об удалении оригинала; сброс с сохранением файлов оставляет ключи медиа для повторной обработки.
+- **Публичная тема:** запись, плейлист и канал следуют системной теме. Кнопка солнце/луна в шапке рядом с Copy link переключает вид; повторное нажатие снова следует системе. Тот же выбор, что в Settings.
+- **Развёртывание:** применить миграции **056–057** до запуска API. nginx принимает multipart запрос размером до 5001 MiB для файла до 5000 MiB. Workflow обновляет сгенерированный `nginx/nginx.conf` из шаблона и пересоздаёт nginx; при ручном обновлении сервера требуется тот же шаг.
+
+---
+
+## 2026-09-21: Trim mux WebM only for WebM-legal codecs
+
+- **Symptom** — recordings with no real outro (sound until EOF) still ran FFmpeg remux. Mixed streams such as H.264+Opus were written to `.webm` (`if VP9 or Opus`) and FFmpeg died: *Only VP8 or VP9 or AV1 video and Vorbis or Opus audio … are supported for WebM.*
+- **Fix** — `.webm` only when every present stream is WebM-legal; otherwise `.mkv`. Skip FFmpeg when the clamped trim window is the full source (no intro/outro to cut). On that skip path, delete the local analysis MP3 after upload (S3 `save_file` does not consume it).
+
+### Файлы
+
+- `backend/video_processing_module/video_processor.py`
+- `backend/api/tasks/processing.py`
+- `backend/tests/unit/modules/test_video_processor.py`
+- `backend/docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## v0.11.0.2 (2026-09-20)
+
+Релиз: вежливые per-credential лимиты МТС Линк / VK (короткий retry вместо 10 минут и ложного failed); обрезка не режет лекцию на паузе в середине; hardening исходящих URL и hashed auth tokens. Миграция **055** — до (или вместе с) API/workers. Подробности — **2026-09-20: Per-credential rate limits**, **2026-09-20: Security hardening**, **2026-09-19: Mid-lecture break**.
+
+---
+
+## 2026-09-20: Rate limit uses real client IP behind Docker nginx
+
+- **Problem** — `RateLimitMiddleware` keyed on `request.client.host`. Behind Docker nginx that is `172.18.0.4` for every browser. One hourly bucket (1000) covered all share pages, `/users/me`, and `/auth/login` → **429** `retry_after=3600` and nobody could sign in.
+- **Fix** — trust `X-Real-IP` (then `X-Forwarded-For`) when the TCP peer is private/loopback, even if `SECURITY_TRUST_X_FORWARDED_FOR` is unset. Compose defaults the flag to true. nginx overwrites `X-Forwarded-For` with `$remote_addr` (no client-supplied prefix). Auth routes ignore the global hourly cap (keep the per-minute auth cap). Default hourly limit **10000**. `/metrics` is exempt like health.
+- **Ops** — flush `rl:ip:172.18.*` in Redis to unlock a live bucket before the new API image rolls out.
+
+### Файлы
+
+- `backend/api/middleware/rate_limit.py`
+- `backend/config/settings.py`
+- `backend/tests/unit/api/middleware/test_rate_limit.py`
+- `docker-compose.yml`
+- `nginx/nginx.https.conf`, `nginx/nginx.conf`, `nginx/nginx.bootstrap.conf`
+- `backend/.env.example`
+- `backend/docs/guides/DEPLOYMENT.md`
+- `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-20: Faster recordings list posters
+
+- **Problem** — `GET /api/v1/recordings` sat at ~2s (p95 GET ~3.6s). Postgres for a page of 20 was under 1ms. `poster_urls` p95 ~1.6s: S3 `HEAD` for thumbnails ran **before** `shared_operations()` (new TLS client per unique name) and missing looks still called `ConfigResolver` per row.
+- **Fix** — thumbnail name comes only from publication looks (same merge as the card title); no second resolve. Unique names are `HEAD`ed in parallel under one S3 client, then presigned. No look thumb → frame `poster.jpg` only.
+
+### Файлы
+
+- `backend/api/routers/recordings.py`
+- `backend/tests/unit/api/test_poster_urls_batch.py`
+
+---
+
+
+## 2026-09-20: /metrics survives torn Prometheus mmap files
+
+- **Problem** — Prometheus scrape of `GET /metrics` every 15s returned 500 (`UnicodeDecodeError: ... byte 0x98 ...`). `prometheus_client` decoded a torn multiprocess `.db` key as UTF-8; the exception was unhandled, so the `leap-api` target went down. API traffic was unaffected.
+- **Fix** — unreadable mmap `.db` files are skipped and logged. If rendering still fails, `/metrics` returns **200** with an empty body.
+
+### Файлы
+
+- `backend/api/observability/metrics.py`
+- `backend/tests/unit/api/observability/test_metrics_mmap.py`
+- `backend/docs/guides/MONITORING.md`
+
+---
+
+## 2026-09-20: Security hardening (SSRF, FFmpeg, auth, credentials)
+
+- **SSRF** — user URLs (yt-dlp, Yandex Disk public links, MTS media, `_download_url`) go through `utils/safe_http.py`: http(s) only, DNS + private/metadata/CGNAT IP block, hop-by-hop redirect revalidation. Product host allowlists for yt-dlp / Yandex Disk / MTS Link `base_url`. Source `public_url` / VIDEO_URL hosts are validated against the **platform** schema at create/update (422). Private or disallowed URLs return **422**. MTS UserAPI client does not follow redirects.
+- **FFmpeg** — `processing_config` overrides are typed (`ProcessingConfigOverride` / `TrimmingConfig`, `extra=ignore`). Silence-detect `-af` is built from floats only.
+- **Secrets / CORS** — production (`APP_DEBUG=false`) refuses default JWT and empty Fernet. Default CORS origin is `http://localhost:3000`; `*` + credentials is rejected at startup.
+- **Auth** — Redis rate limits (trusted `X-Forwarded-For` only behind nginx). Email change requires current password, sets `is_verified=False`, verifies the new address. Register/resend do not enumerate emails (register body is identical whether the address exists; bcrypt still runs). Login JSON omits JWTs unless `include_tokens=true`. Refresh / reset / verify tokens stored as SHA-256 (migration **055**). Outstanding reset/verify emails issued before 055 stop working — users must request a new email.
+- **Celery / credentials** — `task_owner:{task_id}` in Redis; PENDING tasks without an owner are 403. Pipeline `chain.apply_async()` binds the chain result id. Credential decrypt/update/delete require `user_id` in WHERE. `GET /credentials/{id}` never decrypts (`include_data` removed). OAuth callback binds Redis `state.platform`. OAuth HTTP logs status + error code, not response bodies.
+
+**Deploy:** apply migration **055** before (or with) API/workers that only look up hashed tokens. Set `SERVER_CORS_ORIGINS` if the frontend is not on `localhost:3000`. Confirm `SECURITY_JWT_SECRET_KEY` and `SECURITY_ENCRYPTION_KEY` are non-default — the API will not start with empty/default keys when `debug=False`. Behind nginx set `SECURITY_TRUST_X_FORWARDED_FOR=true`.
+
+### Файлы
+
+- `backend/utils/safe_http.py`
+- `backend/api/middleware/rate_limit.py`
+- `backend/api/auth/security.py`
+- `backend/api/routers/auth.py`
+- `backend/api/routers/users.py`
+- `backend/api/routers/credentials.py`
+- `backend/api/routers/oauth.py`
+- `backend/api/services/oauth_service.py`
+- `backend/api/services/task_access_service.py`
+- `backend/api/services/credential_service.py`
+- `backend/api/tasks/base.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/schemas/template/processing_config.py`
+- `backend/api/schemas/template/source_config.py`
+- `backend/api/mts_link_api.py`
+- `backend/alembic/versions/055_hash_auth_tokens.py`
+- `backend/config/settings.py`
+- `backend/.env.example`
+- `backend/docs/guides/CREDENTIAL_SECURITY.md`
+- `backend/docs/guides/OAUTH.md`
+- `backend/docs/guides/DEPLOYMENT.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+---
+
+## 2026-09-20: Grafana Overview — live Host (VM) metrics
+
+- **Problem** — Prometheus showed current `node_filesystem_avail_bytes` on `/`, but Overview **Root disk free** (and sometimes memory) stayed on old values (range stat over 7d, `instant` unset) or a **UI-edited copy** in `grafana_data` ignored JSON on disk (`allowUiUpdates: true`, DB version above provisioned file).
+- **Fix** — Host stat panels: **`instant: true`**, **`range: false`**, **`timeFrom: "5m"`**; disk PromQL `mountpoint="/"` (unchanged). **`monitoring/grafana_dashboards.yml`**: **`allowUiUpdates: false`**. Runbook: stale panels, **`/grafana/api/`** (subpath), sync file to VM before DELETE/`overwrite` POST — [guides/MONITORING.md](guides/MONITORING.md).
+
+### Файлы
+
+- `monitoring/dashboards/leap_overview.json`, `monitoring/grafana_dashboards.yml`, `backend/docs/guides/MONITORING.md`, `backend/docs/INDEX.md`
+
+---
+
+## 2026-09-20: Per-credential rate limits for MTS Link and VK
+
+- **Problem** — MTS UserAPI allows 2 req/s per org key; VK user tokens allow 3 req/s (`error_code` 6). Download/upload treated every failure as a 10-minute Celery retry, so parallel workers stampeded and recordings failed after a short QPS blip.
+- **Fix** — Redis slot `ext-rl:{platform}:{credential_id}` before each UserAPI/VK call (fail open if Redis is down). HTTP 429 / VK 6 retry in-client with full jitter, then a short Celery countdown. Auth errors still fail without retry. Pause-0.5s loops in MTS sync are replaced by the shared limiter.
+- **Sync** — exhausted 429 is `ExternalRateLimitError` (not `MtsLinkAPIError`); lecturer paging and per-record lookups catch it so one QPS blip does not abort the whole source.
+- **VK** — `authenticate` / `upload_video` re-raise rate limits instead of returning False/`None`, so Celery uses the short countdown instead of treating QPS as a dead token.
+- **Prepare** — exhausted MTS 429 parks as converting (`PENDING_CONVERSION`), not `failed`.
+
+### Файлы
+
+- `backend/api/helpers/external_retry.py`
+- `backend/api/helpers/mts_link_datetime.py`
+- `backend/api/shared/exceptions.py`
+- `backend/api/mts_link_api.py`
+- `backend/api/services/mts_link_prepare.py`
+- `backend/api/services/credential_probes.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/tasks/upload.py`
+- `backend/api/routers/input_sources.py`
+- `backend/models/mts_link_auth.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`
+- `backend/video_upload_module/platforms/vk/uploader.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/guides/VK_INTEGRATION.md`
+- `backend/docs/dev_notes/PLATFORM_API_RATE_LIMITING.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-19: Mid-lecture break is not the end of the video
+
+- **Symptom** — Rec 185 (MTS Link, 3h18 source): 13 min coffee break, then ~1.5h more lecture. TRIM cut at the break (`Audio boundaries: 120.5s - 3926.2s`, `last_silence=11824.5-11826.6s media=11880.5s`) because any silence ≥ 60s counted as outro. YouTube/share got only the first hour; Original stayed full.
+- **Fix** — outro is only silence whose `silence_end` is within template `padding_after` of EOF (same setting as the post-speech margin). Intro unchanged (`padding_before`). Mid-file pauses are ignored. If the file just stops with sound, the end is kept. Rec 91 unclosed / 0.4s-early digital tails still cut at default padding 5s.
+
+### Файлы
+
+- `backend/video_processing_module/audio_detector.py`
+- `backend/video_processing_module/video_processor.py`
+- `backend/tests/unit/modules/test_audio_detector.py`
+- `backend/scripts/run_silence_detect_on_file.py`
+- `backend/docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
 ## 2026-09-18: Catalog Sort by names the criterion
 
 - **Public course and channel** — the field is **Sort by**, matching list pages. Newest/Oldest are **Newest lecture** / **Oldest lecture** (recording `start_time`). Name and duration say direction (A–Z, longest first). Channel playlists: most videos / longest first. Course landing numbers follow the current sort/page, not the stored playlist index. Lecture dates format in Europe/Moscow so the public page does not hydrate a different day.
@@ -274,7 +598,7 @@
 - **DeepSeek API error payload** — `response.error` с `choices=None` поднимает `DeepSeekError` с текстом `message` (без dict-repr и Loguru `KeyError` на `{message}`).
 - **Transient queue timeout** — сообщения вида «900-second timeout limit» / «try again later» → Celery retry с **`CELERY_DEEPSEEK_TRANSIENT_RETRY_DELAY`** (default **900s**), не с `CELERY_PROCESSING_RETRY_DELAY` (180s). Прочие `DeepSeekError` — fail stage без retry.
 - **Compose** — `api` memory limit **2G → 3G**; сервис **`node_exporter`** + scrape в Prometheus; Overview: host RAM available %, CPU busy %, disk free on `/`.
-- **Grafana Overview (Host row)** — disk PromQL `mountpoint="/"` (с `--path.rootfs=/host` метки не `/host`); у stat-панелей убран `reduceOptions.fields`, из‑за которого memory могла быть **No data** при живом Prometheus.
+- **Grafana Overview (Host row)** — disk PromQL `mountpoint="/"` (с `--path.rootfs=/host` метки не `/host`); у stat-панелей убран `reduceOptions.fields`, из‑за которого memory могла быть **No data** при живом Prometheus. Дальнейшая синхронизация live-значений — секция **2026-09-20: Grafana Overview — live Host (VM) metrics**.
 - **Deploy:** собрать и выкатить **`leap-backend`** + `docker compose up -d api celery_worker node_exporter prometheus grafana`. Если в Loki ещё `topic_extractor:435/466` и `KeyError: "'message'"` — prod на старом образе; после деплоя при необходимости **force** re-extract topics для застрявших записей.
 
 ### Файлы
@@ -282,7 +606,7 @@
 - `backend/deepseek_module/topic_extractor.py`, `backend/deepseek_module/__init__.py`, `backend/api/tasks/processing.py`, `backend/config/settings.py`
 - `backend/tests/unit/deepseek_module/test_topic_extractor.py`
 - `backend/tests/unit/api/tasks/test_extract_topics_deepseek_retry.py`
-- `docker-compose.yml`, `monitoring/prometheus.yml`, `monitoring/dashboards/leap_overview.json`, `backend/docs/guides/MONITORING.md`, `backend/.env.example`
+- `docker-compose.yml`, `monitoring/prometheus.yml`, `monitoring/dashboards/leap_overview.json`, `monitoring/grafana_dashboards.yml`, `backend/docs/guides/MONITORING.md`, `backend/.env.example`
 
 ---
 

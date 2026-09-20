@@ -142,13 +142,12 @@ async def check_credentials_status(
 @router.get("/{credential_id}", response_model=CredentialResponse)
 async def get_credential_by_id(
     credential_id: int,
-    include_data: bool = False,
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Get specific credential by ID with optional decryption."""
+    """Get specific credential by ID (never returns decrypted secrets)."""
     cred_repo = UserCredentialRepository(session)
-    credential = await cred_repo.get_by_id(credential_id)
+    credential = await cred_repo.get_by_id(credential_id, current_user.id)
 
     if not credential or credential.user_id != current_user.id:
         raise HTTPException(
@@ -156,7 +155,7 @@ async def get_credential_by_id(
             detail=f"Credential {credential_id} not found",
         )
 
-    response = CredentialResponse(
+    return CredentialResponse(
         id=credential.id,
         platform=credential.platform,
         account_name=credential.account_name,
@@ -165,20 +164,6 @@ async def get_credential_by_id(
         created_at=credential.created_at,
         updated_at=credential.updated_at,
     )
-
-    if include_data:
-        encryption = get_encryption()
-        try:
-            decrypted_data = encryption.decrypt_credentials(credential.encrypted_data)
-            response.credentials = decrypted_data
-        except Exception as e:
-            logger.error(f"Failed to decrypt credentials: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to decrypt credentials",
-            )
-
-    return response
 
 
 def _map_yandex_disk_browse_error(exc: YandexDiskError) -> HTTPException:
@@ -372,7 +357,7 @@ async def check_credential_connection(
     from api.services.credential_probes import ProbeContext, check_credential
 
     cred_repo = UserCredentialRepository(session)
-    credential = await cred_repo.get_by_id(credential_id)
+    credential = await cred_repo.get_by_id(credential_id, current_user.id)
 
     if not credential or credential.user_id != current_user.id:
         raise HTTPException(
@@ -390,18 +375,23 @@ async def check_credential_connection(
         )
 
     result = await check_credential(
-        ProbeContext(credential_id=credential_id, credentials=decrypted, session=session),
+        ProbeContext(
+            credential_id=credential_id,
+            credentials=decrypted,
+            session=session,
+            user_id=current_user.id,
+        ),
         credential.platform,
     )
 
     needs_reauth = credential.needs_reauth
     if result.status == "ok":
         needs_reauth = False
-        await cred_repo.set_needs_reauth(credential_id, False)
-        await cred_repo.update_last_used(credential_id)
+        await cred_repo.set_needs_reauth(credential_id, False, user_id=current_user.id)
+        await cred_repo.update_last_used(credential_id, user_id=current_user.id)
     elif result.status == "auth_failed":
         needs_reauth = True
-        await cred_repo.set_needs_reauth(credential_id, True)
+        await cred_repo.set_needs_reauth(credential_id, True, user_id=current_user.id)
 
     logger.info(
         f"Credential check | {format_details(credential=credential_id, platform=credential.platform, result=result.status)}"
@@ -499,7 +489,7 @@ async def update_credentials(
     """Update existing credential data (PATCH - partial update). Supports updating credentials and/or account_name."""
     cred_repo = UserCredentialRepository(session)
 
-    credential = await cred_repo.get_by_id(credential_id)
+    credential = await cred_repo.get_by_id(credential_id, current_user.id)
     if not credential or credential.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -529,7 +519,7 @@ async def update_credentials(
         cred_update.account_name = request.account_name or None
 
     try:
-        updated_credential = await cred_repo.update(credential.id, credential_data=cred_update)
+        updated_credential = await cred_repo.update(credential.id, credential_data=cred_update, user_id=current_user.id)
     except IntegrityError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -564,13 +554,13 @@ async def delete_credentials(
     """Delete platform credentials by ID."""
     cred_repo = UserCredentialRepository(session)
 
-    credential = await cred_repo.get_by_id(credential_id)
+    credential = await cred_repo.get_by_id(credential_id, current_user.id)
     if not credential or credential.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Credential {credential_id} not found",
         )
 
-    await cred_repo.delete(credential.id)
+    await cred_repo.delete(credential.id, user_id=current_user.id)
 
     logger.info(f"User credentials deleted: user_id={current_user.id} | credential_id={credential_id}")

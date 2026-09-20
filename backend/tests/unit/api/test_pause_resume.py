@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from models.recording import ProcessingStatus, TargetStatus, TargetType
-from tests.fixtures.factories import create_mock_output_target, create_mock_recording
+from models.recording import ProcessingStageStatus, ProcessingStatus, TargetStatus, TargetType
+from tests.fixtures.factories import create_mock_output_target, create_mock_processing_stage, create_mock_recording
 
 # =============================================================================
 # Helper: status_manager.can_pause
@@ -445,6 +445,100 @@ class TestSmartRun:
         data = response.json()
         assert data["success"] is True
         assert "upload" in data["message"].lower()
+
+    def test_run_processed_resumes_failed_subtitles(self, client, mocker):
+        """PROCESSED + FAILED subtitles → pipeline, not uploads."""
+        subs = create_mock_processing_stage(stage_type="GENERATE_SUBTITLES", failed=True)
+        subs.status = ProcessingStageStatus.FAILED
+        recording = create_mock_recording(
+            record_id=1,
+            status=ProcessingStatus.PROCESSED,
+            failed=True,
+            failed_at_stage="generate_subtitles",
+            failed_reason='"handler"',
+            processing_stages=[subs],
+        )
+
+        mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
+        mock_repo.return_value = mock_repo_instance
+
+        mock_run = mocker.patch("api.tasks.processing.run_recording_task")
+        mock_run.delay = MagicMock(return_value=MagicMock(id="run-task-subs"))
+
+        response = client.post("/api/v1/recordings/1/run")
+
+        assert response.status_code == 200
+        assert "not finished" in response.json()["message"]
+        mock_run.delay.assert_called_once()
+
+    def test_run_processed_clears_stale_subtitle_failure(self, client, mocker):
+        """PROCESSED + subtitles already completed → drop the leftover failure flag."""
+        subs = create_mock_processing_stage(stage_type="GENERATE_SUBTITLES")
+        subs.status = ProcessingStageStatus.COMPLETED
+        recording = create_mock_recording(
+            record_id=1,
+            status=ProcessingStatus.PROCESSED,
+            failed=True,
+            failed_at_stage="generate_subtitles",
+            failed_reason='"handler"',
+            processing_stages=[subs],
+            outputs=[],
+        )
+
+        mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
+        mock_repo.return_value = mock_repo_instance
+
+        mocker.patch(
+            "api.routers.recordings.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {}, recording),
+        )
+        mock_run = mocker.patch("api.tasks.processing.run_recording_task")
+
+        response = client.post("/api/v1/recordings/1/run")
+
+        assert response.status_code == 200
+        assert recording.failed is False
+        assert recording.failed_reason is None
+        mock_run.delay.assert_not_called()
+
+    def test_run_processed_keeps_download_failure(self, client, mocker):
+        """A late download failure is not a completed trim/topics/subtitles stage."""
+        download = create_mock_processing_stage(stage_type="DOWNLOAD")
+        download.status = ProcessingStageStatus.COMPLETED
+        download.failed = False
+        recording = create_mock_recording(
+            record_id=1,
+            status=ProcessingStatus.PROCESSED,
+            failed=True,
+            failed_at_stage="download",
+            failed_reason="token expired",
+            processing_stages=[download],
+            outputs=[],
+        )
+
+        mock_repo = mocker.patch("api.routers.recordings.RecordingRepository")
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.get_by_id = AsyncMock(return_value=recording)
+        mock_repo.return_value = mock_repo_instance
+
+        mocker.patch(
+            "api.routers.recordings.resolve_full_config",
+            new_callable=AsyncMock,
+            return_value=({}, {}, recording),
+        )
+        mock_run = mocker.patch("api.tasks.processing.run_recording_task")
+
+        response = client.post("/api/v1/recordings/1/run")
+
+        assert response.status_code == 200
+        assert recording.failed is True
+        assert recording.failed_reason == "token expired"
+        mock_run.delay.assert_not_called()
 
     def test_run_uploaded_retries_pending(self, client, mocker):
         """UPLOADED + pending uploads → retries pending."""

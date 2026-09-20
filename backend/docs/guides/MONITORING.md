@@ -34,12 +34,16 @@ Postgres (grafana_ro) ───────────────────�
 
 `PROMETHEUS_MULTIPROC_DIR` is a shared tmpfs. API and Celery workers write
 histogram files there; `/metrics` on the API process aggregates them. Pipeline
-stage duration is visible in Prometheus.
+stage duration is visible in Prometheus. A torn `.db` (crash mid-write) is
+skipped with a warning so the scrape stays **200**; that process's in-flight
+histogram is missing until the worker rewrites the file.
 
 Loki chunks live in Object Storage (90 days). Prometheus TSDB is local (30 days).
 A dashboard window wider than 30 days is empty by design.
 
 **Host (VM)** — `node_exporter` exposes RAM, CPU, and root disk to Prometheus. The container bind-mounts host `/` at `/host` and uses `--path.rootfs=/host`, but filesystem metrics still label the root volume as **`mountpoint="/"`** (not `/host`). Overview disk panel filters `mountpoint="/"`.
+
+**Product news & feedback** — Overview shows current confirmed subscriber totals, SMTP-accepted emails, failed delivery records, feedback totals, and aggregate dimensions. These panels query `product_communications_current_stats`; they are current snapshots, not a time series. Migration **057** grants `grafana_ro` access to this aggregate view only. Subscriber addresses and feedback messages are not exposed to Grafana. See [PRODUCT_NEWS.md](PRODUCT_NEWS.md).
 Overview → **Host (VM)** row. Manual checks: `free -h`, `docker stats --no-stream`.
 
 ### Log and analytics timezones
@@ -86,6 +90,15 @@ Celery (`api.celery_app` signals):
 
 Human-readable files (`app.log`, `celery-*.log`) stay on the VM for SSH.
 Only `structured.json` is shipped to Loki.
+
+Loguru calls `str.format` on a message only when the call has arguments.
+An f-string that already contains `{...}` (a JSON body, a topic title) must not
+take `exc_info` or other kwargs: the braces become a format field, the call
+raises `KeyError`, and that new error replaces the pipeline failure (status
+rollback included). Attach a traceback with `logger.opt(exception=True)` and
+no arguments, or pass the exception as a `{}` value. Braces in `task_id`,
+`recording_id`, `user_id`, and `platform` are escaped before they are spliced
+into the line. A placeholder value is not parsed again.
 
 ## Loki labels
 
@@ -160,6 +173,8 @@ Share traffic on Overview is **Postgres** (`share_access_events`), grouped by
 calendar day. Do not use Prometheus `increase(...[1d])` for those panels —
 a sliding 24h window plus legend `sum` overcounts overlapping samples.
 
+Public share beacons use Celery `async_operations`. Monitor `leap_share_event_queue_publish_seconds`, `leap_share_event_queue_publish_errors_total`, `leap_share_event_queue_lag_seconds`, and `leap_share_event_persisted_total{kind="access|engagement"}` alongside `celery_queue_length{queue="async_operations"}` and the share route p95. Queue lag is observed after a successful database commit; an accepted beacon may precede its analytics row. A sustained publish error or growing queue requires checking the Redis broker and Celery worker. Successful API tests do not establish the production p95 target; measure with real PostgreSQL, Redis, and Object Storage traffic.
+
 MTS Link “MP4 still converting” is an INFO parking path, not an ERROR / retry.
 
 ## PromQL / LogQL
@@ -206,10 +221,13 @@ leap_queue_oldest_task_age_seconds
 | Share downloads legend in the thousands      | `increase[1d]` + legend `sum` on overlap   | Overview v6 reads `share_access_events` by calendar day             |
 | Oldest task age is weeks with queue depth 0  | Stale `leap:enq:*` ZSET member (Beat id ≠ worker id) | Scrape drops members older than 7d **and** orphans not in the broker list (≥30s) |
 | MTS pending fills Errors dashboard           | Logged ERROR + Celery retry                | Pending conversion is INFO and does not retry                       |
+| Pipeline stage fails with `KeyError('"handler"')` | Log message contained `{...}` and still had format arguments | Redeploy **api** and Celery workers together. After that the task log shows the original error |
 | Loki panels empty                            | App not writing `structured.json`                  | Check `JSON_LOG_FILE` in the container                              |
 | `leap-api` Prometheus target DOWN            | `/metrics` off                                     | `MONITORING_PROMETHEUS_ENABLED=true` on **api**                     |
+| `/metrics` 500, `UnicodeDecodeError` / `0x98` | Torn mmap `.db` in `PROMETHEUS_MULTIPROC_DIR`     | Code skips the file (warning). Optional: restart api/celery to rewrite mmap files |
 | `celery_queue_length` always 0               | Workers not sending events                         | `-E` + `worker_send_task_events=True` (already in compose)          |
 | Host (VM) panels **No data**                 | `node_exporter` down, stale dashboard JSON, or CPU panel before 5m of scrapes | `up{job="node"}`; memory: `100*node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes`; disk: `node_filesystem_avail_bytes{mountpoint="/"}` (not `/host`); `git pull` + `docker compose restart grafana` |
+| Host (VM) **stale numbers** (Prometheus OK)  | Provisioned Overview **copied in Grafana DB** (`allowUiUpdates` was true)     | Explore → same PromQL → if correct: delete **LEAP Overview** in UI (re-provisions in ~30s from `monitoring/dashboards/`), or `docker compose restart grafana` after `git pull`; provisioning has `allowUiUpdates: false` |
 | `leap_celery_worker` Docker **unhealthy**    | Healthcheck script can fail while tasks still run  | Confirm with `docker compose logs celery_worker`; do not trust the badge alone |
 | External API Grafana panels                  | Removed — `track_external_api()` is unused         | Wire the helper before adding panels back                           |
 

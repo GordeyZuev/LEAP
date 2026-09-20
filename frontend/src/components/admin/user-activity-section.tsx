@@ -63,6 +63,7 @@ export function UserActivitySection({ userId }: { userId: string }) {
               title="Recordings"
               isLoading={analyticsQuery.isPending}
               isError={analyticsQuery.isError}
+              error={analyticsQuery.error}
               isEmpty={
                 !analyticsQuery.isPending &&
                 dailyMetric(data?.daily ?? [], "recordings_created").every((p) => p.value === 0)
@@ -79,6 +80,7 @@ export function UserActivitySection({ userId }: { userId: string }) {
               title="Transcribed (min)"
               isLoading={analyticsQuery.isPending}
               isError={analyticsQuery.isError}
+              error={analyticsQuery.error}
               isEmpty={
                 !analyticsQuery.isPending &&
                 dailyMetric(data?.daily ?? [], "transcription_minutes").every((p) => p.value === 0)
@@ -95,6 +97,7 @@ export function UserActivitySection({ userId }: { userId: string }) {
               title="Share views"
               isLoading={analyticsQuery.isPending}
               isError={analyticsQuery.isError}
+              error={analyticsQuery.error}
               isEmpty={
                 !analyticsQuery.isPending &&
                 dailyMetric(data?.daily ?? [], "share_views").every((p) => p.value === 0)

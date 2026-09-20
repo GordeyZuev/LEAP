@@ -17,7 +17,7 @@ alwaysApply: false
 On every release, at minimum:
 
 1. **`workflow-changelog.mdc`** — new `backend/docs/CHANGELOG.md` section(s).
-2. **`README.md`** — version line(s) and the highlights section (same `` `Новое в v…` `` pattern as today’s README) when there are user-visible highlights; **`backend/docs/UPDATES.md`** only if you still curate it.
+2. **`README.md`** — version line(s) and the highlights section (same `` `Новое в v…` `` pattern as today’s README) when there are user-visible highlights; **`backend/docs/UPDATES.md`** only if you still curate it. Both are outcomes for creators and viewers: no migration numbers and no implementation detail (those stay in CHANGELOG and guides). Full rule: skill **`leap-version-bump`**.
 3. **Grep the previous semver** across the repo; fix stale **product** stamps in **`README.md`**, **`backend/api/__init__.py`**, **`backend/config/settings.py`** (drives **`settings.app.version`** / OpenAPI in `api/main.py`), **`backend/.version`**, **`backend/docs/UPDATES.md`**, **`backend/docs/ARCHITECTURE_SCHEMAS.md`** (when the header tracks the product release), and any other file that still advertises the **old** release as current.
 
 **Do not** bump **document-internal** edition numbers (e.g. ADR header `` `Версия: 2.0` ``, guide `` `Версия: v3.0` `` for the document’s own revision) unless that file’s policy says it tracks the product release.

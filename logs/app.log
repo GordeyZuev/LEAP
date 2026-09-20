@@ -1,0 +1,329 @@
+26-10-03 21:54:04 | INFO     | app                       | api.tasks.automation:_sync_and_match:263 | Job 1: Using 1 templates: [1]
+26-10-03 21:54:04 | INFO     | app                       | api.tasks.automation:_sync_and_match:300 | Job 1: Found 0 recordings to process (status=['INITIALIZED'], exclude_blank=True, date_range=2026-10-01 21:00:00+00:00 to 2026-10-03T20:59:59.999999+00:00, sync=False)
+26-10-03 21:54:05 | WARNING  | app                       | api.helpers.external_retry:acquire_external_slot:98 | External rate limiter fail-open | platform=mts_link • key=ext-rl:mts_link:42 • error=ConnectionError
+26-10-03 21:54:05 | WARNING  | app                       | api.middleware.rate_limit:dispatch:109 | Rate limit exceeded (per hour): ip=testclient
+26-10-03 21:54:05 | WARNING  | app                       | api.middleware.rate_limit:dispatch:109 | Rate limit exceeded (per hour): ip=testclient
+26-10-03 21:54:05 | WARNING  | observability             | api.observability.metrics:_merge_multiproc_files:209 | Skipping corrupt Prometheus mmap file /private/var/folders/1d/6p8qtwhd7f38hsjfhhnnggkh0000gn/T/pytest-of-gazuev/pytest-165/test_merge_skips_corrupt_mmap_0/counter_2.db: 'utf-8' codec can't decode byte 0x98 in position 167: invalid start byte
+26-10-03 21:54:05 | WARNING  | observability             | api.observability.metrics:_build_metrics_response:289 | Failed to render /metrics: 'utf-8' codec can't decode byte 0x61 in position 167: invalid start byte
+26-10-03 21:54:05 | INFO     | app                       | api.services.mts_link_prepare:_start_conversion:377 | MTS Link conversion requested | record=1 • conversion=9 • quality=720 • view=none
+26-10-03 21:54:05 | INFO     | app                       | api.services.mts_link_prepare:_start_conversion:360 | MTS Link conversion busy | record=1 • conversion=None • detail=MTS Link API error 403: busy
+26-10-03 21:54:05 | INFO     | app                       | api.services.mts_link_prepare:_start_conversion:360 | MTS Link conversion busy | record=1 • conversion=88 • detail=MTS Link API error 403: simultaneous
+26-10-03 21:54:05 | INFO     | app                       | api.services.mts_link_prepare:_start_conversion:360 | MTS Link conversion busy | record=1 • conversion=88 • detail=MTS Link API error 403: simultaneous
+26-10-03 21:54:05 | INFO     | app                       | api.services.mts_link_prepare:_start_conversion:377 | MTS Link conversion requested | record=1 • conversion=9 • quality=720 • view=none
+26-10-03 21:54:05 | INFO     | app                       | api.services.mts_link_prepare:_start_conversion:377 | MTS Link conversion requested | record=1 • conversion=9 • quality=720 • view=none
+26-10-03 21:54:05 | WARNING  | app                       | api.services.task_access_service:validate_task_access:53 | User user_a attempted to access task tid owned by user_b
+26-10-03 21:54:05 | WARNING  | app                       | api.services.task_access_service:validate_task_access:61 | Cannot verify ownership of task tid (state=PENDING) for user user_a
+26-10-03 21:54:05 | WARNING  | app                       | api.tasks.automation:_execute_job:391 | Job 1 not found or inactive
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.automation:_execute_job:395 | Starting automation job 5 (daily)
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.automation:_execute_job:428 | Job 5: Matched 1 recordings, unmatched 0, started 1 pipelines
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.automation:_execute_job:395 | Starting automation job 5 (daily)
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.automation:_execute_job:428 | Job 5: Matched 0 recordings, unmatched 1, started 0 pipelines
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:download_recording_task:164 | Task=unknown • Rec=132 • User=user-01 | Downloading
+26-10-03 21:54:05 | WARNING  | app                       | api.tasks.processing:download_recording_task:186 | Task=unknown • Rec=132 • User=user-01 | Rate limited during download: ExternalRateLimitError('Rate limited by mts_link retry_after=1.0')
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:download_recording_task:164 | Task=unknown • Rec=132 • User=user-01 | Downloading
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.processing:download_recording_task:190 | Task=unknown • Rec=132 • User=user-01 | Error downloading: RuntimeError('cdn timeout')
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:extract_topics_task:1974 | Task=unknown • Rec=132 • User=user-01 | Extracting topics
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.processing:extract_topics_task:2006 | Task=unknown • Rec=132 • User=user-01 | Error extracting topics: DeepSeekError('DeepSeek API error: We were unable to start processing your request within the 900-second timeout limit. Please try again later.')
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:extract_topics_task:1974 | Task=unknown • Rec=132 • User=user-01 | Extracting topics
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.processing:extract_topics_task:2006 | Task=unknown • Rec=132 • User=user-01 | Error extracting topics: DeepSeekError('DeepSeek JSON parse failed: Expecting value')
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.upload:upload_recording_to_platform:311 | Task=unknown • Rec=132 • User=user-01 • Platform=vk | Uploading | metadata_override=False
+26-10-03 21:54:05 | WARNING  | app                       | api.tasks.upload:upload_recording_to_platform:339 | Task=unknown • Rec=132 • User=user-01 • Platform=vk | Rate limited during upload: ExternalRateLimitError('Rate limited by vk_video retry_after=1.0')
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.upload:upload_recording_to_platform:311 | Task=unknown • Rec=132 • User=user-01 • Platform=vk | Uploading | metadata_override=False
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.upload:upload_recording_to_platform:354 | Task=unknown • Rec=132 • User=user-01 • Platform=vk | Credential error: Token validation failed
+26-10-03 21:54:05 | INFO     | observability             | api.observability.metrics:setup_prometheus:304 | Prometheus instrumentation disabled
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me/analytics → 200 in 1.2ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me/analytics → 400 in 1.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/admin/stats/analytics → 200 in 1.3ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/admin/stats/analytics → 403 in 1.0ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/admin/users/{user_id}/analytics → 200 in 1.2ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/admin/users/{user_id}/analytics → 403 in 0.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/admin/users/{user_id}/analytics → 200 in 0.9ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id}/share/analytics → 200 in 2.7ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.oauth:_log_oauth_callback_provider_error:38 | %s OAuth: user declined or cancelled | error=%s
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/oauth/youtube/callback → 307 in 2.3ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:update_recording_config:3496 | Updated manual config | rec=1
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP PATCH /api/v1/recordings/{recording_id}/config → 200 in 3.7ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:update_recording_config:3496 | Updated manual config | rec=1
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP PATCH /api/v1/recordings/{recording_id}/config → 200 in 3.0ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP PATCH /api/v1/recordings/{recording_id}/config → 422 in 0.8ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/from-recording/{recording_id} → 409 in 2.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/from-recording/{recording_id} → 422 in 0.9ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/topics → 422 in 1.0ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/subtitles → 422 in 1.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 1.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 422 in 0.9ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 1.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 422 in 0.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/auth/sessions → 200 in 8.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/auth/sessions → 200 in 1.5ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.auth:revoke_session:427 | User user_123 revoked session 42
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP DELETE /api/v1/auth/sessions/{session_id} → 200 in 1.5ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP DELETE /api/v1/auth/sessions/{session_id} → 404 in 0.7ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.auth:revoke_session:427 | User user_123 revoked session 7
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP DELETE /api/v1/auth/sessions/{session_id} → 200 in 1.1ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.auth:logout_all:326 | User user_123 logged out from all devices (3 tokens revoked)
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/auth/logout-all → 200 in 1.1ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.auth:logout_others:367 | User user_123 logged out from other devices (1 other sessions revoked)
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/auth/logout-others → 200 in 1.2ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.auth:logout_others:367 | User user_123 logged out from other devices (1 other sessions revoked)
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/auth/logout-others → 200 in 1.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/channels → 200 in 1.0ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/c/{slug} → 404 in 1.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/c/{slug} → 200 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/c/{slug} → 200 in 0.9ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/c/{slug} → 200 in 0.7ms
+26-10-03 21:54:05 | WARNING  | app                       | api.services.credential_probes:check_credential:180 | Credential check failed | credential=1 • error=RuntimeError: boom
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.4ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 1.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.9ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.4ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.9ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.8ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.8ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/ → 307 in 0.4ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials → 200 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/{credential_id} → 200 in 1.0ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/{credential_id} → 404 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/{credential_id} → 404 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/{credential_id} → 200 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/status → 200 in 0.8ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/status → 200 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/status → 200 in 0.5ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/status → 200 in 0.6ms
+26-10-03 21:54:05 | ERROR    | api.helpers.failure_handler | api.helpers.failure_handler:handle_download_failure:48 | Download failed | Recording: DOWNLOADING → SKIPPED | rec=1
+26-10-03 21:54:05 | ERROR    | api.helpers.failure_handler | api.helpers.failure_handler:handle_download_failure:48 | Download failed | Recording: PROCESSING → PROCESSING | rec=1
+26-10-03 21:54:05 | ERROR    | api.helpers.failure_handler | api.helpers.failure_handler:handle_download_failure:48 | Download failed | Recording: DOWNLOADING → DOWNLOADED | rec=1
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me/home-summary → 200 in 0.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me/home-summary → 401 in 0.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 422 in 0.8ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 422 in 1.2ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 422 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 422 in 0.8ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:export_recordings:524 | Export | total=0 • format=json • user=user_123
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 200 in 1.5ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 0.5ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/bulk/run → 200 in 1.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 0.9ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 0.4ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id}/pipeline-status → 200 in 1.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id}/pipeline-status → 404 in 0.4ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token} → 200 in 0.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token} → 200 in 0.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token}/items/{item_id} → 200 in 0.6ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token} → 200 in 2.7ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token} → 200 in 2.1ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token} → 200 in 2.5ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token} → 200 in 2.3ms
+26-10-03 21:54:05 | INFO     | file_storage.factory      | file_storage.factory:create_storage_backend:24 | Storage backend initialized: LOCAL | storage
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token} → 200 in 2.8ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token} → 200 in 2.1ms
+26-10-03 21:54:05 | WARNING  | app                       | api.mts_link_api:_request:474 | MTS Link 429, retrying | attempt=1 • retry_after=1.0
+26-10-03 21:54:05 | WARNING  | app                       | api.mts_link_api:_request:474 | MTS Link 429, retrying | attempt=1 • retry_after=None
+26-10-03 21:54:05 | WARNING  | app                       | api.mts_link_api:_request:474 | MTS Link 429, retrying | attempt=2 • retry_after=None
+26-10-03 21:54:05 | WARNING  | app                       | api.mts_link_api:_request:474 | MTS Link 429, retrying | attempt=3 • retry_after=None
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:_download_via_external:503 | Recording: INITIALIZED → DOWNLOADING
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:_download_via_external:503 | Recording: INITIALIZED → DOWNLOADING
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:_download_via_external:524 | MTS Link MP4 is still converting; parking recording until it is ready
+26-10-03 21:54:05 | INFO     | app                       | api.tasks.processing:_run_download_recording:122 | MTS Link conversion still in progress; download will resume later
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/download → 400 in 1.2ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/bulk/download → 200 in 2.9ms
+26-10-03 21:54:05 | WARNING  | app                       | api.routers.input_sources:_list_mts_link_records:718 | MTS Link record list truncated | user_id=42 • records=50
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:pause_recording:3604 | Paused (hard) | rec=1 • rolled_back_to=DOWNLOADED
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/pause → 200 in 1.3ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:pause_recording:3604 | Paused (hard) | rec=1 • rolled_back_to=DOWNLOADED
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/pause → 200 in 1.5ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:pause_recording:3604 | Paused (hard) | rec=1 • rolled_back_to=INITIALIZED
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/pause → 200 in 1.3ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/pause → 200 in 0.5ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/pause → 409 in 0.6ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/pause → 409 in 0.5ms
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/pause → 404 in 0.5ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:_execute_smart_run:2886 | Smart run: starting full pipeline | rec=1 • status=INITIALIZED
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 2.0ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:_execute_smart_run:2886 | Smart run: starting full pipeline | rec=1 • status=SKIPPED
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 1.9ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:_execute_smart_run:2897 | Smart run: continuing processing | rec=1
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 1.7ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 409 in 1.0ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 409 in 0.9ms
+26-10-03 21:54:05 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 409 in 1.1ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:_execute_smart_run:2886 | Smart run: starting full pipeline | rec=1 • status=INITIALIZED
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 2.5ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:_execute_smart_run:2897 | Smart run: continuing processing | rec=1
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 1.9ms
+26-10-03 21:54:05 | INFO     | app                       | api.routers.recordings:_execute_smart_run:2897 | Smart run: continuing processing | rec=1
+26-10-03 21:54:05 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 2.2ms
+26-10-03 21:54:06 | WARNING  | app                       | api.routers.recordings:_execute_smart_run:3007 | Failed to bind smart-run chain owner | task=up-task-1 | Error 1 connecting to localhost:6379. Operation not permitted.
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:_execute_smart_run:3018 | Smart run: uploading targets | count=1 • rec=1
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 3.8ms
+26-10-03 21:54:06 | WARNING  | app                       | api.routers.recordings:_execute_smart_run:3007 | Failed to bind smart-run chain owner | task=up-task-2 | Error 1 connecting to localhost:6379. Operation not permitted.
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:_execute_smart_run:3018 | Smart run: uploading targets | count=1 • rec=1
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 2.8ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 1.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 1.3ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 200 in 1.2ms
+26-10-03 21:54:06 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 409 in 1.2ms
+26-10-03 21:54:06 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 409 in 1.1ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/run → 404 in 1.1ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/1/retry-upload → 404 in 0.4ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.playlists:create_playlist:234 | Created playlist | playlist=3
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/playlists → 201 in 1.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/playlists → 200 in 0.8ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/files/{file_type} → 200 in 0.9ms
+26-10-03 21:54:06 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/files/{file_type} → 403 in 0.8ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/files/{file_type} → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/files/{file_type} → 302 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/media → 200 in 1.0ms
+26-10-03 21:54:06 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/media → 403 in 0.5ms
+26-10-03 21:54:06 | WARNING  | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token}/items/{item_id}/media → 403 in 0.7ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token}/items/{item_id} → 404 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token}/items/{item_id}/media → 404 in 0.4ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token}/items/{item_id}/files/{file_type} → 404 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token} → 404 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token} → 404 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token} → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token} → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token} → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token}/posters → 200 in 1.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/p/{share_token}/poster → 302 in 1.9ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/share/p/{share_token}/items/{item_id}/beacon → 204 in 0.7ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/share/p/{share_token}/items/{item_id}/beacon → 204 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/share/p/{share_token}/items/{item_id}/beacon → 204 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/share/p/{share_token}/items/{item_id}/beacon → 204 in 0.6ms
+26-10-03 21:54:06 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:119 | Unsupported or unknown binary container signature (pipeline ingress whitelist applies)
+26-10-03 21:54:06 | INFO     | app                       | api.routers.input_sources:_sync_yandex_disk_source:645 | Yandex Disk sync | source=1 • found=1 • saved=1 • updated=0
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:add_playlist_by_url:1767 | Added playlist | total=2 • created=0 • updated=1 • auto_run=False
+26-10-03 21:54:06 | INFO     | app                       | api.repositories.recording_repos:create_or_update:937 | Updated recording | rec=42 • status=INITIALIZED
+26-10-03 21:54:06 | INFO     | app                       | api.repositories.recording_repos:create_or_update:937 | Updated recording | rec=42 • status=INITIALIZED
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:reset_recording:3744 | Reset | rec=42 • deleted=0 • errors=0 • status=DOWNLOADED
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/share → 200 in 0.9ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/share → 200 in 0.9ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP DELETE /api/v1/recordings/{recording_id}/share → 204 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/{recording_id}/share/rotate → 200 in 0.8ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/poster → 302 in 2.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/share/{share_token}/poster → 404 in 2.1ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:export_recordings:524 | Export | total=1 • format=json • user=user_123
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 200 in 1.7ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:export_recordings:524 | Export | total=1 • format=csv • user=user_123
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 200 in 1.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 422 in 1.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 422 in 1.1ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:export_recordings:524 | Export | total=1 • format=json • user=user_123
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 200 in 1.7ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.recordings:export_recordings:524 | Export | total=1 • format=xlsx • user=user_123
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/recordings/export → 200 in 66.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 32.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 2.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 2.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 2.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 11.4ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings → 200 in 2.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id} → 200 in 2.9ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id} → 404 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id} → 200 in 2.1ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id} → 404 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/render-preview → 404 in 1.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/render-preview → 200 in 1.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/render-preview → 200 in 1.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/render-preview → 404 in 0.9ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/presets/render-preview → 404 in 1.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id}/share/analytics → 200 in 2.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/recordings/{recording_id}/share/analytics → 422 in 0.7ms
+26-10-03 21:54:06 | WARNING  | app                       | api.helpers.source_extras:list_source_extras:49 | Unreadable source extras manifest | rec=42 error=Expecting value: line 1 column 1 (char 0)
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates/export → 422 in 1.1ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates/export → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/import → 200 in 1.4ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/{template_id}/validate-replace → 200 in 1.3ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/{template_id}/validate-replace → 200 in 1.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/templates/{template_id}/validate-replace → 200 in 1.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 1.1ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 0.7ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 1.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 1.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 1.1ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 1.2ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 0.8ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates → 200 in 0.7ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates/{template_id} → 200 in 1.0ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates/{template_id} → 404 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates/{template_id} → 404 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/templates/{template_id}/stats → 404 in 1.1ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.thumbnails:create_thumbnail:146 | User test_user created thumbnail: lecture_cover.png
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/thumbnails → 201 in 2.3ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.thumbnails:create_thumbnail:146 | User test_user created thumbnail: lecture_cover.png
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/thumbnails → 201 in 1.5ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.thumbnails:create_thumbnail:146 | User test_user created thumbnail: photo.png
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/thumbnails → 201 in 1.4ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.thumbnails:create_thumbnail:146 | User test_user created thumbnail: Screenshot_2024.png
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP POST /api/v1/thumbnails → 201 in 1.8ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me → 200 in 0.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me/quota → 200 in 0.8ms
+26-10-03 21:54:06 | WARNING  | app                       | api.routers.users:get_my_quota:118 | Quota status unavailable | user=%s | %s
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me/quota → 404 in 0.9ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/users/me/quota → 200 in 0.6ms
+26-10-03 21:54:06 | INFO     | app                       | api.routers.users:update_profile:191 | User profile updated: test@example.com (ID: user_123)
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP PATCH /api/v1/users/me → 200 in 1.8ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP PATCH /api/v1/users/me → 422 in 1.4ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP PATCH /api/v1/users/me → 422 in 1.3ms
+26-10-03 21:54:06 | WARNING  | app                       | api.tasks.upload:_upload_extra_files_to_yadisk:189 | Yandex Disk extra files skipped: no oauth_token (video upload already done; re-link preset credential or check YandexDiskUploader.oauth_token)
+26-10-03 21:54:06 | INFO     | app                       | api.tasks.upload:_upload_one_local:211 | Yandex Disk extra file uploaded | path=/Video/lec_description.txt
+26-10-03 21:54:06 | INFO     | app                       | api.tasks.upload:_upload_one_local:211 | Yandex Disk extra file uploaded | path=/Out/v.srt
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/{credential_id}/yandex-disk/browse → 200 in 1.5ms
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/{credential_id}/yandex-disk/browse → 200 in 0.7ms
+26-10-03 21:54:06 | WARNING  | app                       | api.routers.credentials:browse_yandex_disk:221 | Yandex Disk browse failed | credential_id=3 path=/ error=None
+26-10-03 21:54:06 | INFO     | http.access               | api.middleware.logging:dispatch:76 | HTTP GET /api/v1/credentials/{credential_id}/yandex-disk/browse → 404 in 1.0ms
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_normalize:203 | AssemblyAI | segments=sentences | count=1 | words=2 | lang=ru
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_normalize:210 | AssemblyAI | segments=heuristic(fallback) | count=1 | words=2 | lang=ru
+26-10-03 21:54:06 | WARNING  | app                       | assemblyai_module.service:_normalize:208 | AssemblyAI | /sentences returned no usable text, falling back to heuristic
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_normalize:210 | AssemblyAI | segments=heuristic(fallback) | count=1 | words=1 | lang=ru
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_normalize:210 | AssemblyAI | segments=heuristic(fallback) | count=1 | words=2 | lang=en
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_normalize:210 | AssemblyAI | segments=heuristic(fallback) | count=1 | words=1 | lang=en
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_submit:110 | AssemblyAI | Submitting | models=['universal-2'] | lang=ru | keyterms=1
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_submit:125 | AssemblyAI | Job submitted | id=test_id_123
+26-10-03 21:54:06 | INFO     | app                       | assemblyai_module.service:_poll:149 | AssemblyAI | Completed | id=test_id | elapsed=0.0s | attempts=1
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:_parse_json_response:522 | Main topic: SQL joins
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:extract_topics:138 | Extracting topics: segments=1 | duration=30.0min | range=3-10
+26-10-03 21:54:06 | WARNING  | deepseek_module.topic_extractor | deepseek_module.topic_extractor:_add_end_timestamps:612 | Topic skipped (invalid timestamps): topic=Tail | start=1800.0s | end=1800.0s
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:_parse_json_response:522 | Main topic: SQL joins
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:06 | INFO     | deepseek_module.topic_extractor | deepseek_module.topic_extractor:__init__:102 | TopicExtractor initialized: base_url=https://api.deepseek.com/v1 | model=deepseek-flash
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.audio_detector:_get_duration:169 | Error getting media duration: Expecting value: line 1 column 1 (char 0)
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.audio_detector:detect_audio_boundaries_from_file:40 | Audio file not found: /path/to/invalid_audio.mp3
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.audio_detector:detect_audio_boundaries_from_file:40 | Audio file not found: /path/to/nonexistent.mp3
+26-10-03 21:54:07 | INFO     | app                       | video_processing_module.audio_detector:detect_audio_boundaries_from_file:81 | Audio boundaries: 5.0s - 60.0s | last_silence=0.0-5.0s media=60.0s
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.video_processor:extract_audio_full:154 | Audio extraction failed: FFmpeg error: No audio stream
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.video_processor:extract_audio_full:164 | Audio extraction error: Subprocess failed
+26-10-03 21:54:07 | INFO     | yandex_disk_module.client | yandex_disk_module.client:list_public_video_files:275 | Found 1 video files in public resource
+26-10-03 21:54:07 | INFO     | app                       | video_download_module.platforms.ytdlp.metadata:extract_playlist_entries:220 | Extracted 3 entries from playlist: https://www.youtube.com/playlist?list=PL123
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:114 | Downloaded HTML instead of media file
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:135 | Ingress rejected: claimed %r but body is not EBML (got %r)
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:143 | Ingress rejected: claimed %r but payload is EBML/WebM — extension and container mismatch
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:143 | Ingress rejected: claimed %r but payload is EBML/WebM — extension and container mismatch
+26-10-03 21:54:07 | INFO     | app                       | video_download_module.platforms.mtslink.downloader:_save_chat:209 | MTS Link chat saved | recording=42
+26-10-03 21:54:07 | INFO     | app                       | video_download_module.platforms.mtslink.downloader:_save_session_files:252 | MTS Link files saved | recording=42 • files=1
+26-10-03 21:54:07 | WARNING  | app                       | video_download_module.platforms.mtslink.downloader:_fetch_companions:181 | MTS Link chat not saved | recording=42 • error=MTS Link API error 500: chat boom
+26-10-03 21:54:07 | WARNING  | app                       | video_download_module.platforms.mtslink.downloader:_fetch_companions:188 | MTS Link files not saved | recording=42 • error=MTS Link API error 403: no access
+26-10-03 21:54:07 | INFO     | app                       | video_download_module.platforms.mtslink.downloader:_save_session_files:252 | MTS Link files saved | recording=42 • files=2
+26-10-03 21:54:07 | WARNING  | app                       | video_upload_module.platforms.vk.uploader:_make_request:401 | VK error 6 (too many requests), retrying (attempt 1)
+26-10-03 21:54:07 | WARNING  | app                       | video_upload_module.platforms.vk.uploader:_make_request:401 | VK error 6 (too many requests), retrying (attempt 2)
+26-10-03 21:54:07 | WARNING  | app                       | video_upload_module.platforms.vk.uploader:_make_request:401 | VK error 6 (too many requests), retrying (attempt 3)
+26-10-03 21:54:07 | INFO     | app                       | video_upload_module.platforms.vk.uploader:upload_video:154 | Uploading video

@@ -5,13 +5,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import noload, selectinload
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
@@ -23,7 +23,12 @@ from api.helpers.share_stats import build_share_stats_from_recording
 from api.repositories.playlist_repo import PlaylistRepository
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.share_event_repo import ShareEventRepository
-from api.schemas.playlist import PublicPlaylistItem, PublicPlaylistResponse
+from api.schemas.playlist import (
+    PublicChannelLink,
+    PublicPlaylistItem,
+    PublicPlaylistResponse,
+    PublicPosterResponse,
+)
 from api.schemas.share import (
     PublicRecordingResponse,
     ShareAnalyticsResponse,
@@ -35,6 +40,7 @@ from api.services.analytics_service import AnalyticsRangeError, analytics_range_
 from api.services.playlist_service import (
     SHARE_NOT_FOUND,
     assert_public_download,
+    group_responses,
     is_playable,
     item_unavailable_reason,
     poster_url_map,
@@ -46,6 +52,7 @@ from api.services.share_engagement import (
 )
 from api.services.share_observability import ShareObservabilityService, fill_daily_series
 from config.settings import get_settings
+from database.channel_models import ChannelModel
 from database.models import RecordingModel
 from database.share_models import ShareArtifactType
 from logger import get_logger
@@ -71,8 +78,20 @@ async def _get_recording_by_share_token(token: uuid.UUID, session: AsyncSession)
     """Lookup a non-deleted recording with an enabled share link. Raises 404 if not found."""
     result = await session.execute(
         select(RecordingModel)
-        .options(selectinload(RecordingModel.owner))
-        .where(RecordingModel.share_token == token, RecordingModel.deleted == False)  # noqa: E712
+        .options(
+            selectinload(RecordingModel.owner),
+            noload(RecordingModel.input_source),
+            noload(RecordingModel.template),
+            noload(RecordingModel.source),
+            noload(RecordingModel.outputs),
+            noload(RecordingModel.processing_stages),
+        )
+        .where(
+            RecordingModel.share_token == token,
+            RecordingModel.deleted.is_(False),
+            RecordingModel.delete_state == "active",
+            RecordingModel.user_id.is_not(None),
+        )
     )
     recording = result.scalar_one_or_none()
     if not recording or not recording.share_enabled:
@@ -80,9 +99,9 @@ async def _get_recording_by_share_token(token: uuid.UUID, session: AsyncSession)
     return recording
 
 
-async def _track_page_view_safe(recording: RecordingModel, request: Request) -> None:
+async def _track_page_view_safe(recording: RecordingModel, request: Request, *, playlist_id: int | None = None) -> None:
     try:
-        await _observability.record_page_view(recording, request)
+        await _observability.record_page_view(recording, request, playlist_id=playlist_id)
     except Exception as exc:
         logger.info("share page_view tracking failed (ignored): {!r}", exc)
 
@@ -94,17 +113,28 @@ async def _track_download_safe(recording: RecordingModel, request: Request, arti
         logger.info("share download tracking failed (ignored): {!r}", exc)
 
 
-async def _respond_page_view_beacon(recording: RecordingModel | None, request: Request) -> Response:
+async def _respond_page_view_beacon(
+    recording: RecordingModel | None, request: Request, *, playlist_id: int | None = None
+) -> Response:
     """Always 204: missing/revoked links must not leak, tracking must not fail the page."""
     if recording is not None and not recording.deleted:
-        await _track_page_view_safe(recording, request)
+        await _track_page_view_safe(recording, request, playlist_id=playlist_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-async def _channel_id_for_request(session: AsyncSession, request: Request) -> int | None:
+async def _channel_id_for_request(
+    session: AsyncSession,
+    request: Request,
+    *,
+    owner_user_id: str | None,
+    recording_id: int | None = None,
+    playlist_id: int | None = None,
+) -> int | None:
     from api.services.share_observability import _channel_id_from_from_param
 
-    return await _channel_id_from_from_param(session, request)
+    return await _channel_id_from_from_param(
+        session, request, owner_user_id=owner_user_id, recording_id=recording_id, playlist_id=playlist_id
+    )
 
 
 async def _record_engagement_batch(
@@ -161,12 +191,45 @@ async def _get_enabled_playlist(token: uuid.UUID, session: AsyncSession):
     return playlist
 
 
+async def _public_channel_for_request(
+    session: AsyncSession,
+    request: Request,
+    *,
+    owner_user_id: str,
+    recording_id: int | None = None,
+    playlist_id: int | None = None,
+) -> PublicChannelLink | None:
+    """Resolve only the published channel named by the incoming navigation context."""
+    channel_id = await _channel_id_for_request(
+        session, request, owner_user_id=owner_user_id, recording_id=recording_id, playlist_id=playlist_id
+    )
+    if channel_id is None:
+        return None
+    result = await session.execute(select(ChannelModel.slug, ChannelModel.name).where(ChannelModel.id == channel_id))
+    row = result.one_or_none()
+    return PublicChannelLink(slug=row[0], name=row[1]) if row else None
+
+
 async def _playlist_item_or_404(playlist, item_id: int):
     item = next((i for i in playlist.items if i.id == item_id), None)
     recording = item.recording if item else None
     if not item or recording is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Share link not found or has been revoked")
     return item, recording
+
+
+async def _public_playlist_item_or_404(share_token: uuid.UUID, item_id: int, session: AsyncSession):
+    """Resolve a public playlist item with a bounded query instead of loading its whole playlist."""
+    from api.observability import track_handler_section
+
+    with track_handler_section("share_playlist_item_lookup"):
+        row = await PlaylistRepository(session).get_public_item_by_share_token(share_token, item_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SHARE_NOT_FOUND)
+    playlist, item, recording = row
+    if not is_playable(recording):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SHARE_NOT_FOUND)
+    return playlist, item, recording
 
 
 def _distinct_original_key(recording: RecordingModel, *, include_original: bool) -> str | None:
@@ -211,6 +274,7 @@ async def _build_public_recording_response(
     session: AsyncSession,
     *,
     include_original: bool,
+    navigation_channel: PublicChannelLink | None = None,
     view: ShareViewMode = "full",
 ) -> PublicRecordingResponse:
     from api.observability import track_handler_section
@@ -238,18 +302,17 @@ async def _build_public_recording_response(
 
         tx_manager = get_transcription_manager()
         try:
-            if await tx_manager.has_extracted(recording_id, user_slug):
-                active_version = await tx_manager.get_active_extracted(recording_id, user_slug)
-                if active_version:
-                    summary = active_version.get("summary") or None
-                    questions = active_version.get("questions") or None
-                    raw_desc = active_version.get("description") or None
-                    if raw_desc and "{{" not in raw_desc:
-                        description = raw_desc
-                    if active_version.get("topic_timestamps"):
-                        topic_timestamps = active_version["topic_timestamps"]
-                    if active_version.get("main_topics"):
-                        main_topics = active_version["main_topics"]
+            active_version = await tx_manager.get_active_extracted(recording_id, user_slug)
+            if active_version:
+                summary = active_version.get("summary") or None
+                questions = active_version.get("questions") or None
+                raw_desc = active_version.get("description") or None
+                if raw_desc and "{{" not in raw_desc:
+                    description = raw_desc
+                if active_version.get("topic_timestamps"):
+                    topic_timestamps = active_version["topic_timestamps"]
+                if active_version.get("main_topics"):
+                    main_topics = active_version["main_topics"]
         except Exception as exc:
             logger.debug("Could not load extracted for share | rec=%s err=%s", recording_id, exc)
 
@@ -311,6 +374,7 @@ async def _build_public_recording_response(
             vtt_url=vtt_url,
             original_play_url=original_play_url,
             media_expires_in=media_expires_in,
+            channels=[navigation_channel] if navigation_channel else [],
         )
 
 
@@ -463,9 +527,11 @@ async def share_page_engagement(
         recording = await _get_recording_by_share_token(share_token, session)
     except HTTPException:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    channel_id = await _channel_id_for_request(session, request)
+    channel_id = await _channel_id_for_request(
+        session, request, owner_user_id=recording.user_id, recording_id=recording.id
+    )
     context = EngagementContext(
-        owner_user_id=recording.user_id,
+        owner_user_id=cast("str", recording.user_id),
         recording_id=recording.id,
         channel_id=channel_id,
         visitor_subject=f"recording:{recording.id}",
@@ -476,12 +542,18 @@ async def share_page_engagement(
 @router.get("/api/v1/share/{share_token}", response_model=PublicRecordingResponse)
 async def get_public_recording(
     share_token: uuid.UUID,
+    request: Request,
     view: ShareViewMode = Query("full", description="full metadata or player-focused payload with play_url"),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicRecordingResponse:
     """Return public recording metadata for the share page."""
     recording = await _get_recording_by_share_token(share_token, session)
-    return await _build_public_recording_response(recording, session, include_original=True, view=view)
+    channel = await _public_channel_for_request(
+        session, request, owner_user_id=cast("str", recording.user_id), recording_id=recording.id
+    )
+    return await _build_public_recording_response(
+        recording, session, include_original=True, navigation_channel=channel, view=view
+    )
 
 
 @router.get("/api/v1/share/{share_token}/poster")
@@ -491,7 +563,7 @@ async def get_share_poster(
 ) -> RedirectResponse:
     """Presigned poster for Open Graph / Telegram. Revoked links 404 like other public share routes."""
     recording = await _get_recording_by_share_token(share_token, session)
-    return await _redirect_to_poster(session, recording.user_id, [recording])
+    return await _redirect_to_poster(session, cast("str", recording.user_id), [recording])
 
 
 @router.get("/api/v1/share/{share_token}/media")
@@ -526,15 +598,14 @@ async def get_share_media(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not available")
 
     storage = get_storage_backend()
-    if download:
-        artifact = ShareArtifactType.VIDEO_ORIGINAL if media_kind == "original" else ShareArtifactType.VIDEO_PROCESSED
-        await _track_download_safe(recording, request, artifact)
-
     expires_in = get_settings().storage.s3_presign_expires
     stem = f"recording-{recording.id}"
     dl_filename = f"{stem}.mp4" if download else None
     async with storage.shared_operations():
         url = await storage.presigned_url(raw_key, expires_in=expires_in, download_filename=dl_filename)
+    if download:
+        artifact = ShareArtifactType.VIDEO_ORIGINAL if media_kind == "original" else ShareArtifactType.VIDEO_PROCESSED
+        await _track_download_safe(recording, request, artifact)
     return {"url": url, "expires_in": expires_in}
 
 
@@ -544,6 +615,7 @@ async def _stream_share_file(
     request: Request,
     inline: bool,
 ) -> Response:
+    from file_storage.backends.s3 import S3StorageBackend
     from file_storage.factory import get_storage_backend
     from file_storage.path_builder import StoragePathBuilder, to_storage_key
 
@@ -551,7 +623,7 @@ async def _stream_share_file(
         allow_video=True,
         allow_files=bool(getattr(recording, "allow_files_download", True)),
         kind="files",
-        inline=inline,
+        inline=inline and file_type == "vtt",
     )
     user_slug = recording.owner.user_slug
     recording_id = recording.id
@@ -580,23 +652,37 @@ async def _stream_share_file(
     storage_key, media_type, attachment_name = file_map[file_type]
     storage = get_storage_backend()
 
-    if not await storage.exists(storage_key):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
-
-    content = await storage.load(storage_key)
-    if inline:
+    if not isinstance(storage, S3StorageBackend):
+        if not await storage.exists(storage_key):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        content = await storage.load(storage_key)
+        if inline:
+            return StreamingResponse(
+                iter([content]),
+                media_type=media_type,
+                headers={"Content-Disposition": f'inline; filename="{attachment_name}"'},
+            )
+        await _track_download_safe(recording, request, file_type)
         return StreamingResponse(
             iter([content]),
             media_type=media_type,
-            headers={"Content-Disposition": f'inline; filename="{attachment_name}"'},
+            headers={"Content-Disposition": f'attachment; filename="{attachment_name}"'},
         )
 
-    await _track_download_safe(recording, request, file_type)
-    return StreamingResponse(
-        iter([content]),
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{attachment_name}"'},
-    )
+    expires_in = get_settings().storage.s3_presign_expires
+    from api.observability import track_handler_section
+
+    with track_handler_section("share_file_presign"):
+        async with storage.shared_operations():
+            url = await storage.presigned_url(
+                storage_key,
+                expires_in=expires_in,
+                download_filename=None if inline else attachment_name,
+                inline=inline,
+            )
+    if not inline:
+        await _track_download_safe(recording, request, file_type)
+    return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/api/v1/share/{share_token}/files/{file_type}")
@@ -619,7 +705,7 @@ def _public_playlist_items(
 ) -> list[PublicPlaylistItem]:
     items: list[PublicPlaylistItem] = []
     for item in sorted(playlist.items, key=lambda i: i.position):
-        rec = item.recording
+        rec = _owned_playlist_recording(playlist, item)
         reason = item_unavailable_reason(rec) if rec else "deleted"
         if rec is not None and titles and rec.id in titles:
             title = titles[rec.id]
@@ -629,6 +715,7 @@ def _public_playlist_items(
             PublicPlaylistItem(
                 id=item.id,
                 position=item.position,
+                group_id=item.group_id,
                 title=title,
                 duration=display_duration_seconds(rec) if rec else 0.0,
                 start_time=rec.start_time if rec else item.created_at,
@@ -643,20 +730,24 @@ def _public_playlist_items(
     return items
 
 
+def _owned_playlist_recording(playlist, item) -> RecordingModel | None:
+    """Treat a corrupted cross-tenant membership as unavailable on public reads."""
+    recording = item.recording
+    return recording if recording is not None and recording.user_id == playlist.user_id else None
+
+
 @router.post("/api/v1/share/p/{share_token}/beacon", status_code=status.HTTP_204_NO_CONTENT)
 async def playlist_landing_beacon(
     share_token: uuid.UUID,
     request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
-    try:
-        playlist = await _get_enabled_playlist(share_token, session)
-    except HTTPException:
+    surface = await PlaylistRepository(session).get_public_surface_by_share_token(share_token)
+    if surface is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    playlist_id, owner_user_id = surface
     try:
-        await _observability.record_surface_view(
-            owner_user_id=playlist.user_id, request=request, playlist_id=playlist.id
-        )
+        await _observability.record_surface_view(owner_user_id=owner_user_id, request=request, playlist_id=playlist_id)
     except Exception as exc:
         logger.info("playlist landing beacon failed (ignored): {!r}", exc)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -668,16 +759,16 @@ async def playlist_landing_engagement(
     request: Request,
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
-    try:
-        playlist = await _get_enabled_playlist(share_token, session)
-    except HTTPException:
+    surface = await PlaylistRepository(session).get_public_surface_by_share_token(share_token)
+    if surface is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    channel_id = await _channel_id_for_request(session, request)
+    playlist_id, owner_user_id = surface
+    channel_id = await _channel_id_for_request(session, request, owner_user_id=owner_user_id, playlist_id=playlist_id)
     context = EngagementContext(
-        owner_user_id=playlist.user_id,
-        playlist_id=playlist.id,
+        owner_user_id=owner_user_id,
+        playlist_id=playlist_id,
         channel_id=channel_id,
-        visitor_subject=f"playlist:{playlist.id}",
+        visitor_subject=f"playlist:{playlist_id}",
     )
     return await _respond_engagement(session, context, request)
 
@@ -685,12 +776,13 @@ async def playlist_landing_engagement(
 @router.get("/api/v1/share/p/{share_token}", response_model=PublicPlaylistResponse)
 async def get_public_playlist(
     share_token: uuid.UUID,
+    request: Request,
     view: PublicPlaylistViewMode = Query("full", description="full with posters or catalog without poster presign"),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicPlaylistResponse:
     """Public playlist metadata. Empty playlists return 200 with items=[]."""
     playlist = await _get_enabled_playlist(share_token, session)
-    recs = [i.recording for i in playlist.items]
+    recs = [rec for item in playlist.items if (rec := _owned_playlist_recording(playlist, item)) is not None]
     looks = await publication_looks_for_recordings(session, playlist.user_id, recs)
     titles = {rid: look.title for rid, look in looks.items()}
     previews = None
@@ -698,9 +790,24 @@ async def get_public_playlist(
         from api.services.playlist_service import poster_preview_map
 
         previews = await poster_preview_map(session, playlist.user_id, recs, looks=looks)
+    channel = await _public_channel_for_request(
+        session, request, owner_user_id=playlist.user_id, playlist_id=playlist.id
+    )
     return PublicPlaylistResponse(
         name=playlist.name,
-        description=render_playlist_description(playlist.description, playlist, item_titles=titles),
+        description=render_playlist_description(
+            playlist.description,
+            video_count=len(playlist.items),
+            duration_sum=sum(display_duration_seconds(rec) for rec in recs),
+            ordered_titles=[
+                titles.get(rec.id, rec.display_name)
+                if (rec := _owned_playlist_recording(playlist, item))
+                else "Unknown"
+                for item in sorted(playlist.items, key=lambda item: item.position)
+            ],
+        ),
+        channels=[channel] if channel else [],
+        groups=group_responses(playlist),
         items=_public_playlist_items(playlist, previews, titles),
     )
 
@@ -719,8 +826,36 @@ async def get_playlist_share_poster(
         url = urls.get(playlist.cover_key)
         if url:
             return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
-    ordered = [i.recording for i in sorted(playlist.items, key=lambda i: i.position)]
+    ordered = [
+        rec
+        for item in sorted(playlist.items, key=lambda item: item.position)
+        if (rec := _owned_playlist_recording(playlist, item)) is not None
+    ]
     return await _redirect_to_poster(session, playlist.user_id, ordered)
+
+
+@router.get("/api/v1/share/p/{share_token}/posters", response_model=dict[int, PublicPosterResponse])
+async def get_playlist_share_posters(
+    share_token: uuid.UUID,
+    item_ids: list[int] = Query(..., min_length=1, max_length=25),
+    session: AsyncSession = Depends(get_db_session),
+) -> dict[int, PublicPosterResponse]:
+    """Resolve poster URLs only for the currently visible public catalog page."""
+    from api.services.playlist_service import poster_preview_map
+
+    playlist = await _get_enabled_playlist(share_token, session)
+    requested = set(item_ids)
+    selected = [item for item in playlist.items if item.id in requested and _owned_playlist_recording(playlist, item)]
+    recs = [item.recording for item in selected]
+    looks = await publication_looks_for_recordings(session, playlist.user_id, recs)
+    previews = await poster_preview_map(session, playlist.user_id, recs, looks=looks)
+    return {
+        item.id: PublicPosterResponse(
+            url=previews[item.recording_id].url, asset_key=previews[item.recording_id].asset_key
+        )
+        for item in selected
+        if item.recording_id in previews
+    }
 
 
 @router.get("/api/v1/share/p/{share_token}/items/{item_id}", response_model=PublicRecordingResponse)
@@ -730,8 +865,7 @@ async def get_public_playlist_item(
     view: ShareViewMode = Query("full", description="full metadata or player payload with play_url"),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicRecordingResponse:
-    playlist = await _get_enabled_playlist(share_token, session)
-    _item, recording = await _playlist_item_or_404(playlist, item_id)
+    _playlist, _item, recording = await _public_playlist_item_or_404(share_token, item_id, session)
     return await _build_public_recording_response(recording, session, include_original=True, view=view)
 
 
@@ -744,13 +878,13 @@ async def playlist_item_share_beacon(
 ) -> Response:
     """Count a playlist watch as a page view on that recording (same counters / 30-min dedup)."""
     try:
-        playlist = await _get_enabled_playlist(share_token, session)
-        _item, recording = await _playlist_item_or_404(playlist, item_id)
+        playlist, _item, recording = await _public_playlist_item_or_404(share_token, item_id, session)
     except HTTPException:
+        playlist = None
         recording = None
     if recording is not None and not is_playable(recording):
         recording = None
-    return await _respond_page_view_beacon(recording, request)
+    return await _respond_page_view_beacon(recording, request, playlist_id=playlist.id if playlist else None)
 
 
 @router.post("/api/v1/share/p/{share_token}/items/{item_id}/engagement", status_code=status.HTTP_204_NO_CONTENT)
@@ -762,10 +896,11 @@ async def playlist_item_share_engagement(
 ) -> Response:
     context: EngagementContext | None = None
     try:
-        playlist = await _get_enabled_playlist(share_token, session)
-        _item, recording = await _playlist_item_or_404(playlist, item_id)
+        playlist, _item, recording = await _public_playlist_item_or_404(share_token, item_id, session)
         if is_playable(recording):
-            channel_id = await _channel_id_for_request(session, request)
+            channel_id = await _channel_id_for_request(
+                session, request, owner_user_id=playlist.user_id, playlist_id=playlist.id
+            )
             context = EngagementContext(
                 owner_user_id=playlist.user_id,
                 recording_id=recording.id,
@@ -790,8 +925,7 @@ async def get_public_playlist_item_media(
 ) -> dict:
     from file_storage.factory import get_storage_backend
 
-    playlist = await _get_enabled_playlist(share_token, session)
-    _item, recording = await _playlist_item_or_404(playlist, item_id)
+    _playlist, _item, recording = await _public_playlist_item_or_404(share_token, item_id, session)
     if recording.deleted or recording.delete_state != "active":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not available")
     if download:
@@ -806,13 +940,13 @@ async def get_public_playlist_item_media(
     if not raw_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not available")
     storage = get_storage_backend()
-    if download:
-        artifact = ShareArtifactType.VIDEO_ORIGINAL if media_kind == "original" else ShareArtifactType.VIDEO_PROCESSED
-        await _track_download_safe(recording, request, artifact)
     expires_in = get_settings().storage.s3_presign_expires
     dl_filename = f"recording-{recording.id}.mp4" if download else None
     async with storage.shared_operations():
         url = await storage.presigned_url(raw_key, expires_in=expires_in, download_filename=dl_filename)
+    if download:
+        artifact = ShareArtifactType.VIDEO_ORIGINAL if media_kind == "original" else ShareArtifactType.VIDEO_PROCESSED
+        await _track_download_safe(recording, request, artifact)
     return {"url": url, "expires_in": expires_in}
 
 
@@ -825,8 +959,7 @@ async def download_public_playlist_file(
     inline: bool = Query(False),
     session: AsyncSession = Depends(get_db_session),
 ) -> Response:
-    playlist = await _get_enabled_playlist(share_token, session)
-    _item, recording = await _playlist_item_or_404(playlist, item_id)
+    _playlist, _item, recording = await _public_playlist_item_or_404(share_token, item_id, session)
     if recording.deleted or recording.delete_state != "active":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
     return await _stream_share_file(recording, file_type, request, inline)

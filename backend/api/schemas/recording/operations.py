@@ -30,6 +30,17 @@ class RecordingOperationResponse(BaseModel):
     mts: dict[str, Any] | None = Field(default=None, description="MTS Link prepare details when awaiting or after ping")
 
 
+class LocalRecordingUploadResponse(BaseModel):
+    """Result of a completed local video upload."""
+
+    success: bool
+    recording_id: int
+    display_name: str
+    local_video_path: str
+    task_id: str | None = None
+    auto_run_requested: bool = False
+
+
 class RecordingBulkOperationResponse(BaseModel):
     """Result of bulk operation."""
 

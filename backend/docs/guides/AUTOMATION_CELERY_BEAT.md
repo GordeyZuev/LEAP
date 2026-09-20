@@ -2,18 +2,18 @@
 
 > **Status**: Implemented (DB-backed Beat for user jobs; maintenance tasks in code)
 > **Migration**: `008_create_celery_beat_tables`
-> **Updated**: 2026-03-22
+> **Updated**: 2026-10-04
 
 ## Overview
 
-Automation jobs schedule **sync + template matching + processing** for Zoom recordings. User-defined schedules are stored in PostgreSQL and executed by **Celery Beat** with **`celery-sqlalchemy-scheduler`** (`DatabaseScheduler`).
+Automation jobs schedule **sync + template matching + processing** for the sources named by the job's templates (Zoom, MTS Link, a private or public Yandex Disk folder, VIDEO_URL). User-defined schedules are stored in PostgreSQL and executed by **Celery Beat** with **`celery-sqlalchemy-scheduler`** (`DatabaseScheduler`).
 
 **Capabilities:**
 
 - Schedule types: `time_of_day`, `hours`, `weekdays`, `cron` (see `api/schemas/automation/schedule.py`)
 - Rows in `celery_periodic_task` survive Beat restarts
 - Per-job template lists, filters, `processing_config` override
-- Manual run and async dry-run (`automation.dry_run`) via Celery — dry-run **syncs sources and lists matches**, does not enqueue pipelines
+- Manual run and async dry-run (`automation.dry_run`) via Celery — dry-run lists matches and does **not** refresh sources unless `sync=true`; it does not enqueue pipelines
 
 ---
 
@@ -152,9 +152,9 @@ Cron: `0 */N * * *` with `1 <= N <= 24`.
 | `name` | Required; unique per user |
 | `template_ids` | Non-empty; templates validated (active, not draft) |
 | `schedule` | Discriminated union above |
-| `sync_config.sync_days` | 1–30 inclusive local calendar days in the job timezone (today counts). `null` = match all rows already in LEAP |
+| `sync_config.sync_days` | 1–30 inclusive local calendar days in the job timezone (today counts). `null` = match every catalog row. Zoom and MTS queries use this window (last 30 days when it is null). Disk and VIDEO_URL list the whole folder or link; matching still keeps rows whose `start_time` is inside the window |
 | `sync_config.max_recordings` | Optional cap on full pipelines per run; MTS wait pings are not capped. `null` = unlimited |
-| `sync_config.sync_on_run` | Default `true`. Refresh Zoom/MTS before matching |
+| `sync_config.sync_on_run` | Default `true`. Scheduled and manual runs refresh sources before matching. Preview does not, unless `sync=true` |
 | `filters` | Optional; `AutomationFilters` defaults: MTS-aware statuses (`INITIALIZED`, `PENDING_CONVERSION`, `PENDING_SOURCE`), `exclude_blank=true` |
 | `processing_config` | Optional dict override for pipeline |
 
@@ -183,10 +183,32 @@ Full Pydantic models: `api/schemas/automation/job.py`.
 Scheduled and manual runs use **`automation.run_job`** (`run_automation_job_task`):
 
 1. Load active, non-draft templates in **`job.template_ids` order** (first match wins).
-2. If sync is on: derive sources from template `matching_rules.source_ids` (empty → all credentialed sources) and call `_sync_single_source` with the **same** inclusive `from`/`to` dates as matching (last 30 days when the match window is unbounded).
+2. If sync is on, refresh the sources below. A failure on one source is logged and the run continues with the rest.
 3. Load recordings in the **job-timezone calendar window** (`start_time` inclusive), apply `filters`, match templates (`_find_matching_template`). Unmatched rows are left unchanged.
 4. Enqueue `run_recording_task` (wait statuses always; `max_recordings` caps other pipelines, newest first).
 5. Update job stats and persist a history row (`RUNNING` → `SUCCESS`/`FAILED`/`SKIPPED`). Migration **054**.
+
+### Which sources a run refreshes
+
+Sources come from `matching_rules.source_ids` on the job's templates.
+
+- Every template lists `source_ids`: only those sources, and only when they are active and belong to the job's user.
+- Any template has no `matching_rules`, or `source_ids` is missing or empty: every active source of that user. The listed ids on the other templates are not a limit.
+
+A source is refreshed when it has a credential, or when it does not need one:
+
+| Source | Credential | What the refresh reads |
+|--------|------------|------------------------|
+| Zoom, MTS Link | Required | Recordings in the job date window |
+| Yandex Disk private folder | Required | Every video in `config.folder_path`. `start_time` is the file modification time |
+| Yandex Disk public link | Not used. `config.public_url` is enough | Every video on that link. `start_time` is the file modification time |
+| VIDEO_URL | Not used | The whole URL or playlist. A new row's `start_time` is the sync time |
+| LOCAL | Not refreshed | Nothing to pull |
+| Inactive, or a private Disk folder with no credential | Skipped | — |
+
+One job can refresh an MTS Link source and a public Disk link together. The Disk link is not dropped for lack of a credential.
+
+Zoom and MTS receive the same inclusive `from`/`to` dates as the match window (last 30 days when `sync_days` is null). A Disk folder, a public Disk link, and VIDEO_URL ignore those dates and still only **match** rows inside the window. A Disk file older than `sync_days` is saved or updated and is not started. A title matches only with `exact_matches`, `keywords`, or `patterns`; `source_ids` only narrows the source. A row that matches no template is stored as `SKIPPED`, and the default filter does not pick `SKIPPED` up. MTS rows waiting for an MP4 stay `PENDING_SOURCE` and are polled again. `exclude_blank` defaults to true.
 
 Shared helper `_sync_and_match` does sync (optional) + match. Preview (`automation.dry_run`) uses the same helper, **commits** only so catalog rows from a requested sync survive, and does not bind, enqueue, or write history.
 

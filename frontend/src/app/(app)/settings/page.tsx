@@ -13,6 +13,8 @@ import { AccountPanel } from "@/components/settings/account-panel";
 import { UsagePanel } from "@/components/settings/usage-panel";
 import { RetentionSection } from "@/components/settings/retention-section";
 import { SecurityPanel } from "@/components/settings/security-panel";
+import { useHydrated } from "@/hooks/use-hydrated";
+import { Skeleton } from "@/components/ui/skeleton";
 import { apiClient } from "@/api/client";
 
 type Tab = "account" | "usage" | "appearance" | "security";
@@ -27,6 +29,7 @@ const TABS: TabItem<Tab>[] = [
 const IS_TAB = (v: string | null): v is Tab => TABS.some((t) => t.value === v);
 
 function SettingsContent() {
+  const hydrated = useHydrated();
   const router = useRouter();
   const searchParams = useSearchParams();
   const raw = searchParams.get("tab");
@@ -63,24 +66,26 @@ function SettingsContent() {
       <PageHeader title="Settings" />
 
       <Tabs items={TABS} value={tab} onChange={goTo} label="Settings sections">
-        {tab === "account" && (
-          <div className="space-y-6">
-            <BaseTemplateBanner template={defaultTemplate ?? null} loading={defaultTemplateLoading} />
-            <AccountPanel />
-            <SectionCard title="Data retention">
-              <RetentionSection />
+        {!hydrated ? <Skeleton className="h-40 w-full rounded-2xl" /> : <>
+          {tab === "account" && (
+            <div className="space-y-6">
+              <BaseTemplateBanner template={defaultTemplate ?? null} loading={defaultTemplateLoading} />
+              <AccountPanel />
+              <SectionCard title="Data retention">
+                <RetentionSection />
+              </SectionCard>
+            </div>
+          )}
+          {tab === "usage" && <UsagePanel />}
+          {tab === "appearance" && (
+            <SectionCard title="Appearance">
+              <Field label="Theme" hint="Choose a light or dark interface, or follow your system setting.">
+                <ThemeToggle />
+              </Field>
             </SectionCard>
-          </div>
-        )}
-        {tab === "usage" && <UsagePanel />}
-        {tab === "appearance" && (
-          <SectionCard title="Appearance">
-            <Field label="Theme" hint="Choose a light or dark interface, or follow your system setting.">
-              <ThemeToggle />
-            </Field>
-          </SectionCard>
-        )}
-        {tab === "security" && <SecurityPanel />}
+          )}
+          {tab === "security" && <SecurityPanel />}
+        </>}
       </Tabs>
     </div>
   );

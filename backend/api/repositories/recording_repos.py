@@ -3,10 +3,10 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import raiseload, selectinload
 
 from api.helpers.blank_record import (
     BLANK_REASON_TOO_SHORT,
@@ -16,7 +16,9 @@ from api.helpers.blank_record import (
     preserve_mts_recording_duration,
 )
 from api.helpers.text import collapse_whitespace
+from api.schemas.recording.filters import OperationalState
 from database.models import OutputTargetModel, RecordingModel, SourceMetadataModel
+from database.playlist_models import PlaylistItemModel, PlaylistModel
 from logger import format_details, format_status_change, get_logger
 from models.recording import ProcessingStatus, SourceType, TargetStatus
 
@@ -40,6 +42,20 @@ def _recording_order_clause(sort_by: str, sort_order: str):
     primary = column.desc().nulls_last() if descending else column.asc().nulls_last()
     tie = RecordingModel.id.desc() if descending else RecordingModel.id.asc()
     return primary, tie
+
+
+def operational_state_conditions():
+    """Exclusive operational categories shared by Home and catalog filters."""
+    r = RecordingModel
+    healthy = r.failed.is_(False)
+    running = and_(healthy, r.on_pause.is_(False))
+    waiting = r.status.in_([ProcessingStatus.PENDING_SOURCE, ProcessingStatus.PENDING_CONVERSION])
+    return {
+        "error": r.failed.is_(True),
+        "paused": and_(healthy, r.on_pause.is_(True)),
+        "waiting_source": and_(running, waiting),
+        "in_progress": and_(running, ~waiting, r.on_air.is_(True)),
+    }
 
 
 def merge_mts_link_source_metadata(existing_meta: dict[str, Any], incoming: dict[str, Any] | None) -> dict[str, Any]:
@@ -208,6 +224,7 @@ class RecordingRepository:
         source_ids: list[int] | None = None,
         statuses: list[str] | None = None,
         failed: bool | None = None,
+        operational_state: OperationalState | None = None,
         is_mapped: bool | None = None,
         exclude_blank: bool = True,
         include_deleted: bool = False,
@@ -243,6 +260,9 @@ class RecordingRepository:
             else:
                 query = query.where(RecordingModel.status.in_(other_statuses))
 
+        if operational_state is not None:
+            query = query.where(operational_state_conditions()[operational_state])
+
         if failed is not None:
             query = query.where(RecordingModel.failed == failed)
 
@@ -263,6 +283,41 @@ class RecordingRepository:
 
         return query
 
+    async def home_summary(self, user_id: str) -> dict[str, int]:
+        """One bounded aggregate query; no relationships or media storage access."""
+        public_playlist_recordings = (
+            select(PlaylistItemModel.recording_id)
+            .join(PlaylistModel, PlaylistModel.id == PlaylistItemModel.playlist_id)
+            .where(
+                PlaylistModel.user_id == user_id,
+                PlaylistModel.share_enabled.is_(True),
+                PlaylistModel.share_token.is_not(None),
+            )
+        )
+        query = select(
+            func.count(RecordingModel.id).label("total"),
+            func.count(RecordingModel.id)
+            .filter(
+                or_(
+                    and_(RecordingModel.share_enabled.is_(True), RecordingModel.share_token.is_not(None)),
+                    and_(
+                        RecordingModel.id.in_(public_playlist_recordings),
+                        RecordingModel.processed_video_path.is_not(None),
+                        RecordingModel.processed_video_path != "",
+                    ),
+                ),
+                RecordingModel.delete_state == "active",
+            )
+            .label("published"),
+            *(
+                func.count(RecordingModel.id).filter(condition).label(name)
+                for name, condition in operational_state_conditions().items()
+            ),
+        )
+        query = self._apply_filters(query, user_id)
+        result = await self.session.execute(query)
+        return dict(result.mappings().one())
+
     async def list_filtered(
         self,
         user_id: str,
@@ -271,6 +326,7 @@ class RecordingRepository:
         source_ids: list[int] | None = None,
         statuses: list[str] | None = None,
         failed: bool | None = None,
+        operational_state: OperationalState | None = None,
         is_mapped: bool | None = None,
         exclude_blank: bool = True,
         include_deleted: bool = False,
@@ -281,6 +337,7 @@ class RecordingRepository:
         sort_order: str = "desc",
         page: int = 1,
         per_page: int = 20,
+        include_processing_stages: bool = True,
     ) -> tuple[list[RecordingModel], int]:
         """
         Get paginated, filtered recordings with total count.
@@ -297,6 +354,7 @@ class RecordingRepository:
             source_ids=source_ids,
             statuses=statuses,
             failed=failed,
+            operational_state=operational_state,
             is_mapped=is_mapped,
             exclude_blank=exclude_blank,
             include_deleted=include_deleted,
@@ -307,10 +365,15 @@ class RecordingRepository:
         total = (await self.session.execute(count_query)).scalar() or 0
 
         # Data query with eager loading
+        stage_load = (
+            selectinload(RecordingModel.processing_stages)
+            if include_processing_stages
+            else raiseload(RecordingModel.processing_stages)
+        )
         data_query = select(RecordingModel).options(
             selectinload(RecordingModel.source).selectinload(SourceMetadataModel.input_source),
             selectinload(RecordingModel.outputs).selectinload(OutputTargetModel.preset),
-            selectinload(RecordingModel.processing_stages),
+            stage_load,
             selectinload(RecordingModel.input_source),
             selectinload(RecordingModel.template),
             selectinload(RecordingModel.owner),
@@ -322,6 +385,7 @@ class RecordingRepository:
             source_ids=source_ids,
             statuses=statuses,
             failed=failed,
+            operational_state=operational_state,
             is_mapped=is_mapped,
             exclude_blank=exclude_blank,
             include_deleted=include_deleted,
@@ -349,6 +413,7 @@ class RecordingRepository:
         source_ids: list[int] | None = None,
         statuses: list[str] | None = None,
         failed: bool | None = None,
+        operational_state: OperationalState | None = None,
         is_mapped: bool | None = None,
         exclude_blank: bool = True,
         include_deleted: bool = False,
@@ -368,6 +433,7 @@ class RecordingRepository:
             source_ids=source_ids,
             statuses=statuses,
             failed=failed,
+            operational_state=operational_state,
             is_mapped=is_mapped,
             exclude_blank=exclude_blank,
             include_deleted=include_deleted,
@@ -816,10 +882,20 @@ class RecordingRepository:
 
             # Update existing recording, but only if status is not UPLOADED
             if existing.status != ProcessingStatus.UPLOADED:
-                if not require_start_time_in_lookup:
+                if not require_start_time_in_lookup and source_type != SourceType.EXTERNAL_URL:
                     existing.start_time = start_time
-                existing.display_name = _normalized_display_name(display_name)
-                if duration > 0 or source_type != SourceType.MTS_LINK:
+                previous_meta = (
+                    existing.source.meta if existing.source and isinstance(existing.source.meta, dict) else {}
+                )
+                previous_title = previous_meta.get("title")
+                refresh_title = (
+                    source_type != SourceType.EXTERNAL_URL
+                    or not isinstance(previous_title, str)
+                    or existing.display_name == _normalized_display_name(previous_title)
+                )
+                if refresh_title:
+                    existing.display_name = _normalized_display_name(display_name)
+                if duration > 0 or source_type not in (SourceType.MTS_LINK, SourceType.EXTERNAL_URL):
                     if source_type == SourceType.MTS_LINK and preserve_mts_recording_duration(
                         has_downloaded_media=bool(existing.local_video_path),
                         existing_duration=existing.duration,
@@ -835,7 +911,7 @@ class RecordingRepository:
                     source_metadata = merge_mts_link_source_metadata(existing_meta, source_metadata)
                     source_processing_incomplete = bool(source_metadata.get("source_processing_incomplete"))
 
-                if "is_mapped" in kwargs:
+                if "is_mapped" in kwargs and (source_type != SourceType.EXTERNAL_URL or kwargs["is_mapped"]):
                     old_is_mapped = existing.is_mapped
                     existing.is_mapped = kwargs["is_mapped"]
 
@@ -865,7 +941,7 @@ class RecordingRepository:
                             f"{format_status_change('Recording', 'PENDING_SOURCE', existing.status)} | {format_details(rec=existing.id)}"
                         )
 
-                if "template_id" in kwargs:
+                if "template_id" in kwargs and (source_type != SourceType.EXTERNAL_URL or kwargs["template_id"]):
                     existing.template_id = kwargs["template_id"]
 
                 is_blank = bool(kwargs.get("blank_record", False))
@@ -893,7 +969,7 @@ class RecordingRepository:
                 return existing, False
             # Recording already uploaded — optionally refresh source metadata / canonical key (e.g. Yandex rename)
             if uploaded_allow_metadata_refresh and existing.source:
-                if not require_start_time_in_lookup:
+                if not require_start_time_in_lookup and source_type != SourceType.EXTERNAL_URL:
                     existing.start_time = start_time
                 if existing.source.source_key != source_key:
                     existing.source.source_key = source_key

@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Check, Copy } from "lucide-react";
 
 import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
+import { PublicThemeButton } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
+import { fetchLatestProductUpdate } from "@/api/product-updates";
+import { hasSeenProductNews, markProductNewsSeen } from "@/lib/product-news-storage";
 
 export const PUBLIC_PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-4 sm:px-6 lg:px-8";
 export const PUBLIC_PAGE_MAIN = cn(PUBLIC_PAGE_SHELL, "py-4 sm:py-8");
@@ -21,12 +26,15 @@ export const COPY_LINK_CHIP_IDLE =
   "border-border bg-card text-secondary-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-primary";
 
 /**
- * Public share chrome: LEAP mark, 12+, optional context, Copy link.
- * Same shell as recording and playlist watch.
+ * Public share chrome: LEAP mark, 12+, optional context, theme, Copy link.
+ * Same shell as recording, playlist, and channel watch.
  */
 export function PublicShareHeader({ children }: { children?: ReactNode }) {
   const [copied, setCopied] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const newsQuery = useQuery({ queryKey: ["product-updates", "latest"], queryFn: fetchLatestProductUpdate, staleTime: 5 * 60_000 });
+  const latestNews = newsQuery.data;
+  const newsUnread = Boolean(latestNews && !hasSeenProductNews(latestNews.id));
 
   useEffect(
     () => () => {
@@ -37,7 +45,9 @@ export function PublicShareHeader({ children }: { children?: ReactNode }) {
 
   async function onCopy() {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("from");
+      await navigator.clipboard.writeText(url.toString());
     } catch {
       return;
     }
@@ -58,19 +68,41 @@ export function PublicShareHeader({ children }: { children?: ReactNode }) {
           <AgeRatingBadge />
           {children}
         </div>
-        <button
-          type="button"
-          suppressHydrationWarning
-          onClick={() => void onCopy()}
-          className={cn(COPY_LINK_CHIP, copied ? COPY_LINK_CHIP_COPIED : COPY_LINK_CHIP_IDLE)}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? "Copied" : "Copy link"}
-        </button>
-        <span role="status" className="sr-only">
-          {copied ? "Link copied to clipboard" : ""}
-        </span>
+        <div className="flex items-center gap-2">
+          {latestNews && (
+            <Link
+              href={`/updates#${latestNews.id}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => markProductNewsSeen(latestNews.id)}
+              aria-label={newsUnread ? "News & Updates, new release" : "News & Updates"}
+              title="News & Updates from LEAP"
+              className={cn(
+                COPY_LINK_CHIP,
+                "max-w-[38vw] sm:max-w-[18rem]",
+                "mr-2",
+                "border-primary/15 bg-primary/[0.045] text-secondary-foreground hover:border-primary/30 hover:bg-primary/[0.08]",
+              )}
+            >
+              <span className="shrink-0 text-xs font-semibold text-primary">News &amp; Updates</span>
+              {newsUnread && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />}
+            </Link>
+          )}
+          <PublicThemeButton />
+          <button
+            type="button"
+            suppressHydrationWarning
+            onClick={() => void onCopy()}
+            className={cn(COPY_LINK_CHIP, copied ? COPY_LINK_CHIP_COPIED : COPY_LINK_CHIP_IDLE)}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy link"}
+          </button>
       </div>
+      </div>
+      <span role="status" className="sr-only">
+        {copied ? "Link copied to clipboard" : ""}
+      </span>
     </header>
   );
 }

@@ -23,6 +23,19 @@ export function resolveDark(mode: ThemeMode): boolean {
   return mode === "dark" || (mode === "system" && systemPrefersDark());
 }
 
+/**
+ * Next mode for the public sun/moon button.
+ *
+ * Switches to the other appearance. When that appearance is what the OS is
+ * already doing, store "system" so a later OS change keeps following it.
+ * Two clicks from an automatic page return to automatic.
+ */
+export function nextPublicTheme(current: ThemeMode, systemDark: boolean): ThemeMode {
+  const resolvedDark = current === "dark" || (current === "system" && systemDark);
+  const next: ThemeMode = resolvedDark ? "light" : "dark";
+  return (next === "dark") === systemDark ? "system" : next;
+}
+
 /** Toggle the `dark` class on <html> to match the given mode. */
 export function applyTheme(mode: ThemeMode): void {
   if (typeof document === "undefined") return;

@@ -52,7 +52,7 @@ flowchart LR
 | `processing_cpu` | `api.tasks.processing.trim_video` |
 | `downloads` | `api.tasks.processing.download_recording` |
 | `uploads` | `api.tasks.upload.*` (`upload_recording_to_platform`, `batch_upload_recordings`) |
-| `async_operations` | `api.tasks.processing.transcribe_recording`, `extract_topics`, `generate_subtitles`, `batch_transcribe_recording`, `run_recording`, `launch_uploads`, `finalize_pipeline`; `api.tasks.template.*`; `api.tasks.sync.*`; `automation.*` (`automation.run_job`, `automation.dry_run`) |
+| `async_operations` | `api.tasks.processing.transcribe_recording`, `extract_topics`, `generate_subtitles`, `batch_transcribe_recording`, `run_recording`, `launch_uploads`, `finalize_pipeline`; `api.tasks.template.*`; `api.tasks.sync.*`; `api.tasks.share_events.persist_batch`; `api.tasks.product_updates.send_batch`; `automation.*` (`automation.run_job`, `automation.dry_run`) |
 | `maintenance` | `maintenance.*` — `cleanup_expired_tokens`, `auto_expire_recordings`, `cleanup_recording_files`, `hard_delete_recordings`, `cleanup_playlist_blank_items` (manual one-off after LEAP deferral deploy); `celery.backend_cleanup` |
 
 **Зачем отдельные `downloads` и `uploads`:** изоляция сетевой полосы и долгих передач от остального I/O пайплайна (см. комментарии в `api/celery_app.py`).
@@ -112,6 +112,8 @@ make flower   # http://localhost:5555
 ## Отличия Docker Compose
 
 В `docker-compose.yml` один контейнер `celery_worker` слушает все рабочие очереди (`downloads,uploads,async_operations,processing_cpu,maintenance`) и временно legacy-очередь `celery`, с `--concurrency=8`, **без** `--pool` → используется pool по умолчанию Celery (**prefork**). Legacy-подписка нужна, чтобы забрать сообщения, опубликованные до явной маршрутизации `finalize_pipeline` и `celery.backend_cleanup`; её можно удалить после устойчивого нулевого backlog. В Makefile сетевые и пайплайновые очереди обрабатываются **threads**-воркерами.
+
+Публичные beacons публикуют `api.tasks.share_events.persist_batch`. Автоматическая выкладка ждёт успешного CI для того же SHA, затем поднимает worker и ждёт его healthcheck до обновления API: старый worker не знает имя новой задачи и не сохранит принятые события. При ошибке публикации API без повторов Celery переходит к синхронной записи события. Задача не хранит Celery result, повторные доставки безопасны по ID события. При росте трафика наблюдайте lag и глубину `async_operations`: она общая с обработкой видео, поэтому устойчивый backlog замедляет статистику и другие I/O задачи.
 
 ---
 

@@ -28,7 +28,7 @@ import { FormattedText } from "@/components/ui/formatted-text";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { PER_PAGE_PLAYLISTS } from "@/lib/constants";
 import { PLAYLIST_JINJA_VARS } from "@/lib/formatted-text";
-import { structuralSharingPreservePosters } from "@/lib/poster-stable";
+import { posterRefreshDelayMs, structuralSharingPreservePosters } from "@/lib/poster-stable";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { cn, extractApiError } from "@/lib/utils";
 
@@ -90,6 +90,7 @@ function PlaylistCard({ playlist: p }: { playlist: PlaylistListItem }) {
         <PlaylistStackPoster
           posterUrl={p.poster_url}
           posterAssetKey={p.poster_asset_key}
+          posterRefreshAtMs={p.poster_refresh_at_ms}
           videoCount={p.video_count}
           wrapperClassName="mb-4"
           className="aspect-video w-full rounded-xl"
@@ -163,6 +164,8 @@ function PlaylistsGrid({
         oldData as PlaylistListResponse | undefined,
         newData as PlaylistListResponse,
       ),
+    refetchInterval: (q) => posterRefreshDelayMs(q.state.data?.items ?? []),
+    refetchIntervalInBackground: false,
   });
 
   const showSkeleton = isInitialLoad(isPending, data);
@@ -184,7 +187,7 @@ function PlaylistsGrid({
 
       {showSkeleton && <CardGridSkeleton />}
 
-      {error && <ErrorState description="Failed to load playlists" onRetry={() => void refetch()} />}
+      {error && <ErrorState title="Failed to load playlists" error={error} onRetry={() => void refetch()} />}
 
       {!showSkeleton && !error && playlists.length === 0 && (
         list.hasActiveFilters ? (

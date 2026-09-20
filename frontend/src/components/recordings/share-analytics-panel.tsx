@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { isAxiosError } from "axios";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -26,7 +25,7 @@ import {
   type DateRangePreset,
   validateRange,
 } from "@/lib/analytics-date-range";
-import { formatRelative } from "@/lib/utils";
+import { extractApiError, formatRelative, httpStatus } from "@/lib/utils";
 
 function sumDailyMetric(
   daily: ShareAnalyticsResponse["daily"],
@@ -36,12 +35,8 @@ function sumDailyMetric(
 }
 
 function analyticsErrorMessage(error: unknown): string {
-  if (isAxiosError(error)) {
-    if (error.response?.status === 404) {
-      return "Statistics are not available for this recording.";
-    }
-  }
-  return "Unable to load statistics.";
+  if (httpStatus(error) === 404) return "Statistics are not available for this recording.";
+  return extractApiError(error, "Unable to load statistics.");
 }
 
 function formatCompletionRate(rate: number | null | undefined): string {

@@ -8,6 +8,7 @@ in storage.
 
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ import httpx
 from file_storage.factory import get_storage_backend
 from file_storage.path_builder import StoragePathBuilder, to_storage_key
 from logger import get_logger
+from utils.safe_http import UnsafeUrlError, safe_stream
 
 logger = get_logger()
 
@@ -105,12 +107,14 @@ class BaseDownloader(ABC):
         max_retries: int = 10,
         description: str = "file",
         source_name: str | None = None,
+        allowed_host_suffixes: Sequence[str] | None = None,
     ) -> bool:
         """Stream a remote URL into ``filepath`` with resume support.
 
         ``filepath`` should be a **local temp file**; caller is responsible for
         committing successfully-downloaded contents to storage via
         :meth:`_commit_temp_to_storage` and for deleting the temp on failure.
+        Redirects are followed only to public hosts (see ``utils.safe_http``).
         """
         headers = dict(headers) if headers else {}
         params = dict(params) if params else {}
@@ -132,11 +136,16 @@ class BaseDownloader(ABC):
 
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(timeout=180.0, connect=30.0, read=60.0, write=30.0),
-                    follow_redirects=True,
+                    follow_redirects=False,
                     limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
                 ) as client:
-                    async with client.stream(
-                        "GET", url, headers=req_headers, params=params, cookies=cookies or None
+                    async with safe_stream(
+                        client,
+                        url,
+                        headers=req_headers,
+                        params=params,
+                        cookies=cookies or None,
+                        allowed_host_suffixes=allowed_host_suffixes,
                     ) as response:
                         if downloaded > 0 and response.status_code == 206:
                             mode = "ab"
@@ -181,6 +190,12 @@ class BaseDownloader(ABC):
                     return False
 
                 return True
+
+            except UnsafeUrlError as e:
+                logger.error(f"Blocked unsafe download URL: {e}")
+                if filepath.exists():
+                    filepath.unlink()
+                return False
 
             except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.ReadTimeout) as e:
                 logger.warning(f"Network error: {type(e).__name__}")

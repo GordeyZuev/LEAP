@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import time
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import Request
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
+from ulid import ULID
 
 from api.dependencies import get_async_session_maker, get_redis
-from api.observability.metrics import share_downloads_total, share_page_views_total
+from api.middleware.rate_limit import client_ip_for_rate_limit
+from api.observability.metrics import (
+    share_downloads_total,
+    share_event_queue_publish_errors_total,
+    share_event_queue_publish_seconds,
+    share_page_views_total,
+)
 from api.repositories.share_event_repo import ShareEventRepository
 from database.models import RecordingModel
-from database.share_models import ShareEventType
+from database.share_models import ShareAccessEventModel, ShareEventType
 from logger import get_logger
 
 logger = get_logger("share.observability")
@@ -21,32 +31,100 @@ _VIEW_DEDUP_SECONDS = 30 * 60
 _REDIS_VIEW_PREFIX = "share:view:"
 
 
-def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",", 1)[0].strip()
-    return request.client.host if request.client else "unknown"
+async def enqueue_share_event_batch(payload: dict) -> None:
+    """Publish an idempotent event batch without blocking the API event loop."""
+    from api.tasks.share_events import persist_share_event_batch
+
+    payload.setdefault("queued_at", time.time())
+    started = time.perf_counter()
+    try:
+        # A failed broker publish is persisted by the caller; publisher retries
+        # would only hold the public request open before that fallback runs.
+        await asyncio.to_thread(persist_share_event_batch.apply_async, kwargs={"payload": payload}, retry=False)
+    except Exception:
+        share_event_queue_publish_errors_total.inc()
+        raise
+    finally:
+        share_event_queue_publish_seconds.observe(time.perf_counter() - started)
 
 
 def visitor_key_for_request(subject: str, request: Request) -> str:
     """Stable anonymous key for deduplicating page views (no raw IP stored)."""
     today = datetime.now(UTC).date().isoformat()
     ua = request.headers.get("user-agent") or ""
-    ip = _client_ip(request)
+    ip = client_ip_for_rate_limit(request)
     raw = f"{subject}:{ip}:{ua}:{today}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-async def _channel_id_from_from_param(session, request: Request | None) -> int | None:
-    if request is None:
-        return None
-    raw = (request.query_params.get("from") or "").strip().lower()
+async def _channel_id_from_from_param(
+    session,
+    request: Request | None,
+    *,
+    owner_user_id: str | None,
+    recording_id: int | None = None,
+    playlist_id: int | None = None,
+) -> int | None:
+    raw = (request.query_params.get("from") or "").strip().lower() if request is not None else ""
+    return await _channel_id_from_slug(
+        session,
+        raw,
+        owner_user_id=owner_user_id,
+        recording_id=recording_id,
+        playlist_id=playlist_id,
+    )
+
+
+async def _channel_id_from_slug(
+    session,
+    raw: str | None,
+    *,
+    owner_user_id: str | None,
+    recording_id: int | None = None,
+    playlist_id: int | None = None,
+) -> int | None:
+    raw = (raw or "").strip().lower()
     if not raw:
         return None
     from api.repositories.channel_repo import ChannelRepository
+    from database.channel_models import ChannelPlaylistModel, ChannelVideoModel
+    from database.playlist_models import PlaylistItemModel, PlaylistModel
 
     channel = await ChannelRepository(session).get_by_slug(raw)
-    return channel.id if channel else None
+    if channel is None or not channel.share_enabled or channel.user_id != owner_user_id:
+        return None
+    if playlist_id is not None:
+        membership = await session.scalar(
+            select(ChannelPlaylistModel.id).where(
+                ChannelPlaylistModel.channel_id == channel.id,
+                ChannelPlaylistModel.playlist_id == playlist_id,
+            )
+        )
+        return channel.id if membership is not None else None
+    if recording_id is not None:
+        direct = await session.scalar(
+            select(ChannelVideoModel.id).where(
+                ChannelVideoModel.channel_id == channel.id,
+                ChannelVideoModel.recording_id == recording_id,
+            )
+        )
+        if direct is not None:
+            return channel.id
+        via_playlist = await session.scalar(
+            select(ChannelPlaylistModel.id)
+            .join(PlaylistModel, PlaylistModel.id == ChannelPlaylistModel.playlist_id)
+            .join(PlaylistItemModel, PlaylistItemModel.playlist_id == PlaylistModel.id)
+            .where(
+                ChannelPlaylistModel.channel_id == channel.id,
+                PlaylistItemModel.recording_id == recording_id,
+                PlaylistModel.user_id == owner_user_id,
+                PlaylistModel.share_enabled.is_(True),
+                PlaylistModel.share_token.is_not(None),
+            )
+            .limit(1)
+        )
+        return channel.id if via_playlist is not None else None
+    return None
 
 
 def fill_daily_series(
@@ -101,7 +179,9 @@ def fill_daily_metrics(
 class ShareObservabilityService:
     """Record share analytics without blocking or failing public endpoints."""
 
-    async def record_page_view(self, recording: RecordingModel, request: Request) -> bool:
+    async def record_page_view(
+        self, recording: RecordingModel, request: Request, *, playlist_id: int | None = None
+    ) -> bool:
         """Return True when a new view was counted."""
         if not recording.user_id:
             return False
@@ -109,12 +189,14 @@ class ShareObservabilityService:
         visitor_key = visitor_key_for_request(f"recording:{recording.id}", request)
         redis_key = f"{_REDIS_VIEW_PREFIX}{recording.id}:{visitor_key}"
 
+        redis_available = True
         try:
             redis = await get_redis()
             inserted = await redis.set(redis_key, "1", nx=True, ex=_VIEW_DEDUP_SECONDS)
             if not inserted:
                 return False
         except Exception as exc:
+            redis_available = False
             logger.warning("Share view Redis dedup failed, falling back to DB: {}", exc)
             session_maker = get_async_session_maker()
             async with session_maker() as session:
@@ -122,15 +204,38 @@ class ShareObservabilityService:
                 if await repo.has_recent_page_view(recording.id, visitor_key):
                     return False
 
-        persisted = await self._persist_event(
-            recording,
-            event_type=ShareEventType.PAGE_VIEW,
-            visitor_key=visitor_key,
-            increment_views=True,
-            request=request,
-        )
-        if not persisted:
-            return False
+        event = {
+            "id": str(ULID()),
+            "recording_id": recording.id,
+            "owner_user_id": recording.user_id,
+            "event_type": ShareEventType.PAGE_VIEW,
+            "visitor_key": visitor_key,
+            "playlist_id": playlist_id,
+            "from_slug": request.query_params.get("from"),
+        }
+        try:
+            if not redis_available:
+                raise RuntimeError("Redis deduplication unavailable")
+            await enqueue_share_event_batch({"access_events": [event]})
+        except Exception as exc:
+            logger.warning("Share view queue failed, persisting synchronously: {}", exc)
+            persisted = await self._persist_event(
+                recording,
+                event_type=ShareEventType.PAGE_VIEW,
+                visitor_key=visitor_key,
+                increment_views=True,
+                request=request,
+                playlist_id=playlist_id,
+                event_id=str(event["id"]),
+            )
+            if not persisted:
+                if redis_available:
+                    try:
+                        redis = await get_redis()
+                        await redis.delete(redis_key)
+                    except Exception as cleanup_exc:
+                        logger.warning("Share view Redis cleanup failed: {}", cleanup_exc)
+                return False
 
         share_page_views_total.inc()
         logger.info(
@@ -153,29 +258,71 @@ class ShareObservabilityService:
         subject = f"playlist:{playlist_id}" if playlist_id is not None else f"channel:{channel_id}"
         visitor_key = visitor_key_for_request(subject, request)
         redis_key = f"{_REDIS_VIEW_PREFIX}{subject}:{visitor_key}"
+        redis_available = True
         try:
             redis = await get_redis()
             inserted = await redis.set(redis_key, "1", nx=True, ex=_VIEW_DEDUP_SECONDS)
             if not inserted:
                 return False
         except Exception as exc:
-            logger.warning("Share view Redis dedup failed, falling back without DB check: {}", exc)
+            redis_available = False
+            logger.warning("Share view Redis dedup failed, falling back to DB: {}", exc)
 
-        session_maker = get_async_session_maker()
+        event = {
+            "id": str(ULID()),
+            "owner_user_id": owner_user_id,
+            "event_type": ShareEventType.PAGE_VIEW,
+            "visitor_key": visitor_key,
+            "playlist_id": playlist_id,
+            "channel_id": channel_id,
+        }
         try:
-            async with session_maker() as session:
-                repo = ShareEventRepository(session)
-                await repo.create(
-                    owner_user_id=owner_user_id,
-                    event_type=ShareEventType.PAGE_VIEW,
-                    visitor_key=visitor_key,
-                    playlist_id=playlist_id,
-                    channel_id=channel_id,
-                )
-                await session.commit()
+            if not redis_available:
+                raise RuntimeError("Redis deduplication unavailable")
+            await enqueue_share_event_batch({"access_events": [event]})
         except Exception as exc:
-            logger.info("share surface persist failed (ignored): {!r}", exc)
-            return False
+            logger.info("share surface queue failed; falling back to DB: {!r}", exc)
+            session_maker = get_async_session_maker()
+            try:
+                async with session_maker() as session:
+                    if not redis_available:
+                        recent = await session.scalar(
+                            select(ShareAccessEventModel.id)
+                            .where(
+                                ShareAccessEventModel.owner_user_id == owner_user_id,
+                                ShareAccessEventModel.event_type == ShareEventType.PAGE_VIEW,
+                                ShareAccessEventModel.visitor_key == visitor_key,
+                                ShareAccessEventModel.playlist_id == playlist_id,
+                                ShareAccessEventModel.channel_id == channel_id,
+                                ShareAccessEventModel.created_at
+                                >= datetime.now(UTC) - timedelta(seconds=_VIEW_DEDUP_SECONDS),
+                            )
+                            .limit(1)
+                        )
+                        if recent is not None:
+                            return False
+                    await session.execute(
+                        insert(ShareAccessEventModel)
+                        .values(
+                            id=event["id"],
+                            owner_user_id=owner_user_id,
+                            event_type=ShareEventType.PAGE_VIEW,
+                            visitor_key=visitor_key,
+                            playlist_id=playlist_id,
+                            channel_id=channel_id,
+                        )
+                        .on_conflict_do_nothing(index_elements=["id"])
+                    )
+                    await session.commit()
+            except Exception as persist_exc:
+                logger.info("share surface persist failed (ignored): {!r}", persist_exc)
+                if redis_available:
+                    try:
+                        redis = await get_redis()
+                        await redis.delete(redis_key)
+                    except Exception as cleanup_exc:
+                        logger.warning("Share surface Redis cleanup failed: {}", cleanup_exc)
+                return False
         share_page_views_total.inc()
         return True
 
@@ -184,16 +331,30 @@ class ShareObservabilityService:
             return
 
         visitor_key = visitor_key_for_request(f"recording:{recording.id}", request)
-        persisted = await self._persist_event(
-            recording,
-            event_type=ShareEventType.FILE_DOWNLOAD,
-            visitor_key=visitor_key,
-            artifact_type=artifact_type,
-            increment_downloads=True,
-            request=request,
-        )
-        if not persisted:
-            return
+        event = {
+            "id": str(ULID()),
+            "recording_id": recording.id,
+            "owner_user_id": recording.user_id,
+            "event_type": ShareEventType.FILE_DOWNLOAD,
+            "visitor_key": visitor_key,
+            "artifact_type": artifact_type,
+            "from_slug": request.query_params.get("from"),
+        }
+        try:
+            await enqueue_share_event_batch({"access_events": [event]})
+        except Exception as exc:
+            logger.warning("Share download queue failed, persisting synchronously: {}", exc)
+            persisted = await self._persist_event(
+                recording,
+                event_type=ShareEventType.FILE_DOWNLOAD,
+                visitor_key=visitor_key,
+                artifact_type=artifact_type,
+                increment_downloads=True,
+                request=request,
+                event_id=str(event["id"]),
+            )
+            if not persisted:
+                return
 
         share_downloads_total.labels(artifact_type=artifact_type).inc()
         logger.info(
@@ -212,23 +373,37 @@ class ShareObservabilityService:
         increment_views: bool = False,
         increment_downloads: bool = False,
         request: Request | None = None,
+        playlist_id: int | None = None,
+        event_id: str | None = None,
     ) -> bool:
         session_maker = get_async_session_maker()
         try:
             async with session_maker() as session:
-                channel_id = await _channel_id_from_from_param(session, request)
-                repo = ShareEventRepository(session)
-                await repo.create(
-                    recording_id=recording.id,
+                channel_id = await _channel_id_from_from_param(
+                    session,
+                    request,
                     owner_user_id=recording.user_id,
-                    event_type=event_type,
-                    visitor_key=visitor_key,
-                    artifact_type=artifact_type,
-                    channel_id=channel_id,
+                    playlist_id=playlist_id,
+                    recording_id=recording.id if playlist_id is None else None,
+                )
+                inserted = await session.scalar(
+                    insert(ShareAccessEventModel)
+                    .values(
+                        id=event_id or str(ULID()),
+                        recording_id=recording.id,
+                        playlist_id=playlist_id,
+                        owner_user_id=recording.user_id,
+                        event_type=event_type,
+                        visitor_key=visitor_key,
+                        artifact_type=artifact_type,
+                        channel_id=channel_id,
+                    )
+                    .on_conflict_do_nothing(index_elements=["id"])
+                    .returning(ShareAccessEventModel.id)
                 )
 
                 now = datetime.now(UTC)
-                if increment_views:
+                if inserted is not None and increment_views:
                     await session.execute(
                         update(RecordingModel)
                         .where(RecordingModel.id == recording.id)
@@ -237,7 +412,7 @@ class ShareObservabilityService:
                             share_last_viewed_at=now,
                         )
                     )
-                if increment_downloads:
+                if inserted is not None and increment_downloads:
                     await session.execute(
                         update(RecordingModel)
                         .where(RecordingModel.id == recording.id)

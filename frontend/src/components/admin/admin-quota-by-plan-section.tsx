@@ -6,6 +6,7 @@ import { fetchAdminQuotaStats } from "@/api/admin";
 import { COUNT_FORMATTER } from "@/components/settings/format";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { extractApiError } from "@/lib/utils";
 import { SortableTh } from "@/components/ui/sortable-th";
 
 function formatQuotaPeriod(period: number): string {
@@ -44,7 +45,7 @@ export function AdminQuotaByPlanSection() {
 
       {query.isError && (
         <p className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
-          Unable to load quota statistics.
+          {extractApiError(query.error, "Unable to load quota statistics.")}
         </p>
       )}
 

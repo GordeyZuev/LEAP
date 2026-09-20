@@ -13,6 +13,7 @@ from api.services.mts_link_prepare import (
     recording_needs_mts_prepare,
     should_skip_mts_prepare,
 )
+from api.shared.exceptions import ExternalRateLimitError
 from models.recording import ProcessingStatus, SourceType
 
 
@@ -170,6 +171,47 @@ class TestPrepareOutcomes:
             result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
 
         assert result.outcome == MtsPrepareOutcome.FAILED
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_is_retried_once_then_ready(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.get_ready_mp4_url.side_effect = [
+            ExternalRateLimitError(platform="mts_link"),
+            "https://cdn/ready.mp4",
+        ]
+
+        with (
+            patch(
+                "api.services.mts_link_prepare.resolve_mts_link_context",
+                new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+            ),
+            patch("api.services.mts_link_prepare.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.READY
+        assert result.download_url == "https://cdn/ready.mp4"
+        assert api.get_ready_mp4_url.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_exhausted_parks_converting_not_failed(self):
+        rec = _recording()
+        api = AsyncMock()
+        api.get_ready_mp4_url.side_effect = ExternalRateLimitError(platform="mts_link")
+
+        with (
+            patch(
+                "api.services.mts_link_prepare.resolve_mts_link_context",
+                new=AsyncMock(return_value=(1, api, {"conversion_quality": "720", "conversion_view": "none"})),
+            ),
+            patch("api.services.mts_link_prepare.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await prepare_mts_link_recording(AsyncMock(), rec, "user")
+
+        assert result.outcome == MtsPrepareOutcome.CONVERTING
+        assert result.conversion_state == "waiting"
+        assert api.get_ready_mp4_url.await_count == 2
 
     @pytest.mark.asyncio
     async def test_ready_when_size_zero_but_mp4_exists(self):

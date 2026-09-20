@@ -33,6 +33,10 @@
 
 **Рекомендация:** Используйте **Implicit Flow API** для новых проектов
 
+### Rate limits
+
+VK user token: **3 запроса в секунду** (`error_code` 6). LEAP сериализует вызовы на ключ `ext-rl:vk_video:{credential_id}` в Redis. При error 6 — короткий retry с jitter, затем Celery countdown в секундах, не 10 минут. Два разных VK-аккаунта не делят один слот.
+
 ---
 
 ## VK Policy Update 2026

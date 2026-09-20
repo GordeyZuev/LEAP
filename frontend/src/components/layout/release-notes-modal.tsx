@@ -1,49 +1,43 @@
 "use client";
 
-import Link from "next/link";
 import { useId } from "react";
 import { Sparkles } from "lucide-react";
 
-import type { ReleaseNoteHighlight, ReleaseNotesContent } from "@/content/release-notes";
+import type { ProductUpdate } from "@/api/product-updates";
 import { ActionButton } from "@/components/ui/action-button";
 import { Modal } from "@/components/ui/modal";
 
 interface ReleaseNotesModalProps {
   open: boolean;
-  version: string;
-  content: ReleaseNotesContent;
+  update: ProductUpdate;
   onDismiss: () => void;
 }
 
-function HighlightLine({
-  highlight,
-  onNavigate,
+function NoteSection({
+  title,
+  items,
 }: {
-  highlight: ReleaseNoteHighlight;
-  onNavigate: () => void;
+  title: string;
+  items: string[];
 }) {
+  if (items.length === 0) return null;
+
   return (
-    <span>
-      {highlight.parts.map((part, index) => {
-        if (part.kind === "text") {
-          return <span key={index}>{part.value}</span>;
-        }
-        return (
-          <Link
-            key={index}
-            href={part.href}
-            onClick={onNavigate}
-            className="font-medium text-primary underline-offset-2 hover:underline"
-          >
-            {part.label}
-          </Link>
-        );
-      })}
-    </span>
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <ul className="space-y-3 text-sm leading-relaxed text-secondary-foreground">
+        {items.map((item, index) => (
+          <li key={index} className="flex gap-2.5">
+            <span className="mt-2 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
-export function ReleaseNotesModal({ open, version, content, onDismiss }: ReleaseNotesModalProps) {
+export function ReleaseNotesModal({ open, update, onDismiss }: ReleaseNotesModalProps) {
   const titleId = useId();
 
   return (
@@ -53,7 +47,7 @@ export function ReleaseNotesModal({ open, version, content, onDismiss }: Release
       labelledBy={titleId}
       closeOnBackdrop={false}
       closeOnEsc={false}
-      panelClassName="max-w-md"
+      panelClassName="max-w-lg"
     >
       <div className="p-6">
         <div className="mb-4 flex items-start gap-3">
@@ -65,22 +59,22 @@ export function ReleaseNotesModal({ open, version, content, onDismiss }: Release
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              What&apos;s new · v{version}
+              What&apos;s new{update.version ? ` · v${update.version}` : ""}
             </p>
             <h2 id={titleId} className="mt-1 text-base font-semibold text-foreground">
-              {content.title}
+              {update.title}
             </h2>
           </div>
         </div>
 
-        <ul className="mb-6 space-y-3 text-sm leading-relaxed text-secondary-foreground">
-          {content.highlights.map((highlight, index) => (
-            <li key={index} className="flex gap-2.5">
-              <span className="mt-2 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
-              <HighlightLine highlight={highlight} onNavigate={onDismiss} />
-            </li>
-          ))}
-        </ul>
+        <div className="mb-6 space-y-3 text-sm leading-relaxed text-secondary-foreground">
+          <p>{update.summary}</p>
+        </div>
+
+        <div className="mb-6 space-y-5">
+          <NoteSection title="For audience" items={update.audience_bullets} />
+          <NoteSection title="For creators" items={update.creator_bullets} />
+        </div>
 
         <div className="flex justify-end">
           <ActionButton variant="primary" onClick={onDismiss}>

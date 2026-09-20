@@ -1,5 +1,6 @@
 """Recording request schemas"""
 
+import re
 from datetime import date
 from typing import Literal
 
@@ -9,8 +10,31 @@ from api.schemas.common.validators import collapse_optional_display_name
 from api.schemas.processing.preferences import ProcessingPreferences
 from api.schemas.recording.filters import RecordingFilters
 from api.schemas.template.metadata_config import TemplateMetadataConfig
+from api.schemas.template.processing_config import ProcessingConfigOverride
 from api.schemas.validators import DateRangeMixin
 from api.shared.enums import Granularity
+from utils.safe_http import (
+    YANDEX_DISK_PUBLIC_SHARE_SUFFIXES,
+    YTDLP_HOST_SUFFIXES,
+    UnsafeUrlError,
+    validate_public_url,
+)
+
+
+def _validate_ytdlp_url(v: str) -> str:
+    try:
+        return validate_public_url(v, allowed_host_suffixes=YTDLP_HOST_SUFFIXES)
+    except UnsafeUrlError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _validate_quality(value: str) -> str:
+    if value == "best":
+        return value
+    if not re.fullmatch(r"[1-9]\d{1,3}p", value) or int(value[:-1]) > 4320:
+        raise ValueError("Quality must be best or a resolution up to 4320p")
+    return value
+
 
 # ============================================================================
 # Add by URL / Playlist / Yandex Disk
@@ -22,13 +46,23 @@ class AddVideoByUrlRequest(BaseModel):
 
     url: str = Field(..., description="Video URL", examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"])
     display_name: str | None = Field(None, max_length=500, description="Custom name (auto-extracted if not set)")
-    quality: Literal["best", "1080p", "720p", "480p"] = Field("best", description="Video quality preference")
+    quality: str = Field("best", description="Best available or maximum vertical resolution, e.g. 720p")
     format_preference: Literal["mp4", "mp3", "audio", "any"] = Field(
         "mp4",
         description="Container format: mp4 (video), mp3/audio (audio only, useful for transcription)",
     )
     template_id: int | None = Field(None, gt=0, description="Bind recording to template")
     auto_run: bool = Field(False, description="Immediately start full pipeline (download → process → upload)")
+
+    @field_validator("url")
+    @classmethod
+    def validate_video_url(cls, v: str) -> str:
+        return _validate_ytdlp_url(v)
+
+    @field_validator("quality")
+    @classmethod
+    def validate_quality(cls, value: str) -> str:
+        return _validate_quality(value)
 
     @field_validator("display_name")
     @classmethod
@@ -63,13 +97,23 @@ class AddPlaylistByUrlRequest(BaseModel):
     """Add all videos from a playlist/channel URL."""
 
     url: str = Field(..., description="Playlist or channel URL")
-    quality: Literal["best", "1080p", "720p", "480p"] = Field("best", description="Video quality preference")
+    quality: str = Field("best", description="Best available or maximum resolution for every playlist item")
     format_preference: Literal["mp4", "mp3", "audio", "any"] = Field(
         "mp4",
         description="Container format: mp4 (video), mp3/audio (audio only)",
     )
     template_id: int | None = Field(None, gt=0, description="Bind all recordings to template")
     auto_run: bool = Field(False, description="Immediately start pipeline for all videos")
+
+    @field_validator("url")
+    @classmethod
+    def validate_playlist_url(cls, v: str) -> str:
+        return _validate_ytdlp_url(v)
+
+    @field_validator("quality")
+    @classmethod
+    def validate_quality(cls, value: str) -> str:
+        return _validate_quality(value)
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -100,15 +144,76 @@ class AddPlaylistResponse(BaseModel):
     total_videos: int = 0
     recordings_created: int = 0
     recordings_updated: int = 0
+    recordings_failed: int = 0
     recordings: list[dict] = Field(default_factory=list)
     task_ids: list[str] = Field(default_factory=list)
     message: str | None = None
+
+
+class PublicDiskLinkRequest(BaseModel):
+    public_url: str
+
+    @field_validator("public_url")
+    @classmethod
+    def validate_disk_url(cls, value: str) -> str:
+        try:
+            return validate_public_url(
+                value, allowed_host_suffixes=YANDEX_DISK_PUBLIC_SHARE_SUFFIXES, require_https=True
+            )
+        except UnsafeUrlError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class AddPublicDiskLinkRequest(PublicDiskLinkRequest):
+    """Save and sync a public Yandex Disk file or folder."""
+
+    name: str = Field(..., min_length=3, max_length=255)
+    resource_type: Literal["file", "dir"] | None = None
+    auto_run: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        name = " ".join(value.split())
+        if len(name) < 3:
+            raise ValueError("Source name must contain at least 3 characters")
+        return name
+
+
+class AddPublicDiskLinkResponse(BaseModel):
+    source_id: int
+    task_id: str
+    reused: bool
+
+
+class ResumableUploadSettingsRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=500)
+    auto_run: bool = False
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        name = " ".join(value.split())
+        if not name:
+            raise ValueError("Recording name is required")
+        return name
+
+
+class StartResumableUploadRequest(ResumableUploadSettingsRequest):
+    filename: str = Field(..., min_length=1, max_length=255)
+    size: int = Field(..., gt=0)
+    fingerprint: str = Field(..., pattern=r"^[0-9a-f]{64}$")
 
 
 class FormatsPreviewRequest(BaseModel):
     """Request available video formats for a URL without downloading."""
 
     url: str = Field(..., description="Video URL to inspect")
+
+    @field_validator("url")
+    @classmethod
+    def validate_preview_url(cls, v: str) -> str:
+        return _validate_ytdlp_url(v)
 
 
 class FormatInfo(BaseModel):
@@ -141,6 +246,12 @@ class TrimVideoRequest(BaseModel):
     padding_after: float = 5.0
 
 
+def _validate_processing_config_override(v: dict | None) -> dict | None:
+    if v is None:
+        return None
+    return ProcessingConfigOverride.model_validate(v).model_dump(exclude_none=True)
+
+
 def _validate_metadata_config_override(v: dict | None) -> dict | None:
     if v is None:
         return None
@@ -160,6 +271,11 @@ class ConfigOverrideRequest(BaseModel):
     processing_config: dict | None = Field(None, description="Override processing config")
     metadata_config: dict | None = Field(None, description="Override metadata config")
     output_config: dict | None = Field(None, description="Override output config")
+
+    @field_validator("processing_config", mode="before")
+    @classmethod
+    def _typed_processing_override(cls, v: dict | None) -> dict | None:
+        return _validate_processing_config_override(v)
 
     @field_validator("metadata_config", mode="before")
     @classmethod
@@ -525,6 +641,11 @@ class BulkRunRequest(BulkOperationRequest):
     processing_config: dict | None = Field(None, description="Override processing config for all recordings")
     metadata_config: dict | None = Field(None, description="Override metadata config for all recordings")
     output_config: dict | None = Field(None, description="Override output config for all recordings")
+
+    @field_validator("processing_config", mode="before")
+    @classmethod
+    def _typed_bulk_processing_override(cls, v: dict | None) -> dict | None:
+        return _validate_processing_config_override(v)
 
     @field_validator("metadata_config", mode="before")
     @classmethod

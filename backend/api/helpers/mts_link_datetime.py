@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from api.mts_link_api import MtsLinkAPIError, unwrap_data_object
+from api.shared.exceptions import ExternalRateLimitError
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
@@ -111,7 +112,7 @@ async def load_event_session(
         return cache[session_id]
     try:
         payload = await mts_api.get_event_session(session_id)
-    except MtsLinkAPIError:
+    except (MtsLinkAPIError, ExternalRateLimitError):
         cache[session_id] = None
         if pause_seconds > 0:
             await asyncio.sleep(pause_seconds)

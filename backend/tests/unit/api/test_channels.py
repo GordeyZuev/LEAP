@@ -113,3 +113,115 @@ class TestChannelOwnerApi:
         assert response.status_code == 200
         item = response.json()["playlists"][0]
         assert item["blurb"] == "About 4 lectures"
+
+    def test_public_video_catalog_filters_sorts_and_pages_before_posters(self, client, mocker) -> None:
+        ch = _channel(share=True)
+        rec_z = create_mock_recording(record_id=21, user_id="user_123")
+        rec_a = create_mock_recording(record_id=22, user_id="user_123")
+        rec_z.display_name = "Zulu lecture"
+        rec_a.display_name = "Alpha lecture"
+        rec_z.share_token = uuid4()
+        rec_a.share_token = uuid4()
+        svc = MagicMock()
+        svc.require_public = AsyncMock(return_value=ch)
+        svc.repo.public_videos = AsyncMock(
+            return_value=[(MagicMock(position=1), rec_z), (MagicMock(position=2), rec_a)]
+        )
+        svc.repo.public_playlists = AsyncMock(return_value=[])
+        mocker.patch("api.routers.channels.ChannelService", return_value=svc)
+        mocker.patch("api.routers.channels.publication_looks_for_recordings", new=AsyncMock(return_value={}))
+        poster_map = mocker.patch("api.routers.channels.poster_preview_map", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.channels.presign_storage_keys", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.channels.PlaylistRepository.aggregate_stats", new=AsyncMock(return_value={}))
+        first = mocker.patch(
+            "api.routers.channels.PlaylistRepository.first_playable_recordings", new=AsyncMock(return_value={})
+        )
+
+        response = client.get("/api/v1/c/proga?kind=videos&page=1&per_page=1&sort=name&q=lecture")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert body["total_pages"] == 2
+        assert len(body["videos"]) == 1
+        assert body["videos"][0]["title"] == "Alpha lecture"
+        poster_map.assert_awaited_once()
+        assert poster_map.await_args.args[2] == [rec_a]
+        first.assert_awaited_once_with([])
+
+    def test_public_default_video_page_uses_sql_page_only(self, client, mocker) -> None:
+        ch = _channel(share=True)
+        rec = create_mock_recording(record_id=22, user_id="user_123")
+        rec.share_token = uuid4()
+        svc = MagicMock()
+        svc.require_public = AsyncMock(return_value=ch)
+        svc.repo.public_video_count = AsyncMock(return_value=3)
+        svc.repo.public_playlist_count = AsyncMock(return_value=2)
+        svc.repo.public_videos_page = AsyncMock(return_value=[(MagicMock(), rec)])
+        svc.repo.public_playlists_page = AsyncMock()
+        svc.repo.public_videos = AsyncMock()
+        svc.repo.public_playlists = AsyncMock()
+        mocker.patch("api.routers.channels.ChannelService", return_value=svc)
+        mocker.patch("api.routers.channels.publication_looks_for_recordings", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.channels.poster_preview_map", new=AsyncMock(return_value={}))
+
+        response = client.get("/api/v1/c/proga?kind=videos&page=2&per_page=1")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["page"] == 2
+        assert body["total"] == 3
+        assert body["videos_total"] == 3
+        assert body["playlists_total"] == 2
+        assert len(body["videos"]) == 1
+        svc.repo.public_videos_page.assert_awaited_once_with(ch.id, page=2, per_page=1)
+        svc.repo.public_playlists_page.assert_not_awaited()
+        svc.repo.public_videos.assert_not_awaited()
+        svc.repo.public_playlists.assert_not_awaited()
+
+    def test_public_default_playlist_page_uses_sql_page_only(self, client, mocker) -> None:
+        ch = _channel(share=True)
+        pl = MagicMock()
+        pl.id = 3
+        pl.name = "Course"
+        pl.description = None
+        pl.share_token = uuid4()
+        pl.cover_key = None
+        svc = MagicMock()
+        svc.require_public = AsyncMock(return_value=ch)
+        svc.repo.public_video_count = AsyncMock(return_value=0)
+        svc.repo.public_playlist_count = AsyncMock(return_value=1)
+        svc.repo.public_playlists_page = AsyncMock(return_value=[(MagicMock(), pl)])
+        svc.repo.public_videos_page = AsyncMock()
+        mocker.patch("api.routers.channels.ChannelService", return_value=svc)
+        mocker.patch(
+            "api.routers.channels.PlaylistRepository.aggregate_stats", new=AsyncMock(return_value={3: (4, 100.0)})
+        )
+        mocker.patch(
+            "api.routers.channels.PlaylistRepository.first_playable_recordings", new=AsyncMock(return_value={})
+        )
+        mocker.patch("api.routers.channels.publication_looks_for_recordings", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.channels.poster_preview_map", new=AsyncMock(return_value={}))
+        mocker.patch("api.routers.channels.presign_storage_keys", new=AsyncMock(return_value={}))
+
+        response = client.get("/api/v1/c/proga?kind=playlists")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert body["playlists"][0]["video_count"] == 4
+        svc.repo.public_playlists_page.assert_awaited_once_with(ch.id, page=1, per_page=24)
+        svc.repo.public_videos_page.assert_not_awaited()
+
+    def test_public_membership_queries_enforce_channel_owner(self, client) -> None:
+        from sqlalchemy.dialects import postgresql
+
+        from api.repositories.channel_repo import ChannelRepository
+
+        assert client.app is not None  # The fixture registers all ORM relationships before compilation.
+        repo = ChannelRepository(MagicMock())
+        video_sql = str(repo._public_video_rows(1).compile(dialect=postgresql.dialect()))
+        playlist_sql = str(repo._public_playlist_rows(1).compile(dialect=postgresql.dialect()))
+
+        assert "recordings.user_id = channels.user_id" in video_sql
+        assert "playlists.user_id = channels.user_id" in playlist_sql

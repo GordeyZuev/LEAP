@@ -40,6 +40,13 @@ def _log_oauth_callback_provider_error(platform_label: str, error: str) -> None:
     logger.warning("%s OAuth: provider error in callback | error=%s", platform_label, error)
 
 
+def _require_oauth_state_platform(metadata: dict, expected: str) -> None:
+    """Reject a consumed OAuth state whose stored platform does not match this callback."""
+    stored = metadata.get("platform")
+    if stored != expected:
+        raise ValueError("Invalid or expired state token")
+
+
 def get_state_manager(redis=Depends(get_redis)) -> OAuthStateManager:
     """Dependency to get OAuth state manager."""
     return OAuthStateManager(redis)
@@ -68,7 +75,7 @@ async def _fetch_api_data(
             if response.status_code == 200:
                 return True, response.json()
 
-            logger.warning(f"API request failed: status={response.status_code} body={response.text[:200]}")
+            logger.warning(f"API request failed: status={response.status_code}")
             return False, None
     except Exception as e:
         logger.error(f"API request exception: {type(e).__name__}: {e}")
@@ -210,7 +217,7 @@ async def save_oauth_credentials(
 
     if existing_cred:
         cred_update = UserCredentialUpdate(encrypted_data=encrypted_data, is_active=True, needs_reauth=False)
-        credential = await cred_repo.update(existing_cred.id, cred_update)
+        credential = await cred_repo.update(existing_cred.id, cred_update, user_id=user_id)
         action = "updated"
     else:
         # New connection consumes a credential slot — enforce the per-user cap
@@ -286,6 +293,7 @@ async def youtube_callback(
         metadata = await state_manager.validate_state(state)
         if not metadata:
             raise ValueError("Invalid or expired state token")
+        _require_oauth_state_platform(metadata, "youtube")
 
         user_id = metadata["user_id"]
         code_verifier = metadata.get("code_verifier")  # For PKCE
@@ -468,7 +476,11 @@ async def vk_implicit_callback(
             merged = encryption.decrypt_credentials(existing_cred.encrypted_data)
             merged.update(new_creds)
             encrypted = encryption.encrypt_credentials(merged)
-            await cred_repo.update(existing_cred.id, UserCredentialUpdate(encrypted_data=encrypted, is_active=True))
+            await cred_repo.update(
+                existing_cred.id,
+                UserCredentialUpdate(encrypted_data=encrypted, is_active=True),
+                user_id=current_user.id,
+            )
             credential_id = existing_cred.id
             account_name = existing_cred.account_name or "unknown"
             logger.info(f"VK implicit token updated: credential_id={credential_id}")
@@ -531,6 +543,7 @@ async def vk_callback(
         metadata = await state_manager.validate_state(state)
         if not metadata:
             raise ValueError("Invalid or expired state token")
+        _require_oauth_state_platform(metadata, "vk_video")
 
         user_id = metadata["user_id"]
         code_verifier = metadata.get("code_verifier")  # VK ID requires PKCE
@@ -604,6 +617,7 @@ async def zoom_callback(
         metadata = await state_manager.validate_state(state)
         if not metadata:
             raise ValueError("Invalid or expired state token")
+        _require_oauth_state_platform(metadata, "zoom")
 
         user_id = metadata["user_id"]
 
@@ -675,6 +689,7 @@ async def yandex_disk_callback(
         metadata = await state_manager.validate_state(state)
         if not metadata:
             raise ValueError("Invalid or expired state token")
+        _require_oauth_state_platform(metadata, "yandex_disk")
 
         user_id = metadata["user_id"]
         code_verifier = metadata.get("code_verifier")

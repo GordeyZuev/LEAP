@@ -7,7 +7,9 @@ from datetime import datetime
 
 from fastapi import Request
 from pydantic import ValidationError
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from ulid import ULID
 
 from api.repositories.share_engagement_repo import ShareEngagementRepository
 from api.schemas.share import (
@@ -83,8 +85,11 @@ def normalize_event(name: str, payload: dict | None) -> tuple[str, dict] | None:
         nav_from = raw.get("from")
         if nav_from not in _NAV_FROM:
             return None
+        raw_item_id = raw.get("to_item_id")
+        if raw_item_id is None:
+            return None
         try:
-            to_item_id = int(raw.get("to_item_id"))
+            to_item_id = int(raw_item_id)
         except (TypeError, ValueError):
             return None
         if to_item_id <= 0:
@@ -119,7 +124,7 @@ class ShareEngagementService:
             return
         sid = (session_id or "")[:MAX_SESSION_ID_LEN]
         visitor_key = visitor_key_for_request(context.visitor_subject, request)
-        rows: list[ShareEngagementEventModel] = []
+        rows: list[dict] = []
         for item in events[:MAX_BATCH_EVENTS]:
             if not isinstance(item, dict):
                 continue
@@ -137,22 +142,30 @@ class ShareEngagementService:
             ):
                 continue
             rows.append(
-                ShareEngagementEventModel(
-                    owner_user_id=context.owner_user_id,
-                    recording_id=context.recording_id,
-                    playlist_id=context.playlist_id,
-                    channel_id=context.channel_id,
-                    event_name=event_name,
-                    visitor_key=visitor_key,
-                    session_id=sid,
-                    payload=payload,
-                )
+                {
+                    "id": str(ULID()),
+                    "owner_user_id": context.owner_user_id,
+                    "recording_id": context.recording_id,
+                    "playlist_id": context.playlist_id,
+                    "channel_id": context.channel_id,
+                    "event_name": event_name,
+                    "visitor_key": visitor_key,
+                    "session_id": sid,
+                    "payload": payload,
+                }
             )
         if not rows:
             return
-        repo = ShareEngagementRepository(session)
-        await repo.insert_many(rows)
-        await session.commit()
+        from api.services.share_observability import enqueue_share_event_batch
+
+        try:
+            await enqueue_share_event_batch({"engagement_events": rows})
+        except Exception as exc:
+            logger.warning("Share engagement queue failed; persisting synchronously: {}", exc)
+            await session.execute(
+                insert(ShareEngagementEventModel).values(rows).on_conflict_do_nothing(index_elements=["id"])
+            )
+            await session.commit()
 
     async def build_summary(
         self,

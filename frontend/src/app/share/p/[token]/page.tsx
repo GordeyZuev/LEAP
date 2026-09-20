@@ -13,11 +13,11 @@ export async function generateMetadata({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ v?: string }>;
+  searchParams: Promise<{ from?: string | string[] }>;
 }): Promise<Metadata> {
   const { token } = await params;
-  const { v } = await searchParams;
-  const playlist = await loadPlaylist(token, v ? "catalog" : "full");
+  const { from } = await searchParams;
+  const playlist = await loadPlaylist(token, "catalog", typeof from === "string" ? from : null);
 
   if (!playlist) {
     return { title: "Shared playlist – LEAP", robots: { index: false, follow: false } };
@@ -41,15 +41,16 @@ export default async function PlaylistSharePage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ v?: string }>;
+  searchParams: Promise<{ from?: string | string[] }>;
 }) {
   const { token } = await params;
-  const { v } = await searchParams;
-  const playlistView = v ? "catalog" : "full";
-  const initialPlaylist = await loadPlaylist(token, playlistView);
+  const { from } = await searchParams;
+  const fromSlug = typeof from === "string" ? from : null;
+  const playlistView = "catalog";
+  const initialPlaylist = await loadPlaylist(token, playlistView, fromSlug);
   return (
     <Suspense fallback={null}>
-      <WatchShell token={token} initialPlaylist={initialPlaylist} initialView={playlistView} />
+      <WatchShell token={token} initialPlaylist={initialPlaylist} initialView={playlistView} initialFromSlug={fromSlug} />
     </Suspense>
   );
 }

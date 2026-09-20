@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, NamedTuple
+from pathlib import Path
+from typing import Any, Literal, NamedTuple, TypedDict
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 
-from api.auth.dependencies import check_user_quotas, require_feature
+from api.auth.dependencies import check_user_quotas, get_current_user, require_feature
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
+from api.helpers.blank_record import positive_duration_seconds
 from api.helpers.media_duration import display_duration_seconds
 from api.helpers.share_stats import build_share_stats_for_detail, build_share_stats_summary
+from api.helpers.text import collapse_whitespace
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
+from api.repositories.template_repos import InputSourceRepository
 from api.routers.recordings_helpers import (
     _CONFIG_RESOLUTION_HTTP_ERRORS,
     _build_export_row,
@@ -35,12 +40,14 @@ from api.routers.recordings_helpers import (
 from api.schemas.auth import UserInDB
 from api.schemas.recording.config_update import RecordingConfigUpdateRequest
 from api.schemas.recording.export import ExportRecordingsRequest
+from api.schemas.recording.filters import OperationalState
 from api.schemas.recording.operations import (
     BulkProcessDryRunResponse,
     ConfigSaveResponse,
     ConfigUpdateResponse,
     DeleteRecordingResponse,
     DryRunResponse,
+    LocalRecordingUploadResponse,
     PauseRecordingResponse,
     RecordingBulkDeleteResponse,
     RecordingBulkOperationResponse,
@@ -54,6 +61,8 @@ from api.schemas.recording.operations import (
 from api.schemas.recording.request import (
     AddPlaylistByUrlRequest,
     AddPlaylistResponse,
+    AddPublicDiskLinkRequest,
+    AddPublicDiskLinkResponse,
     AddVideoByUrlRequest,
     AddVideoByUrlResponse,
     BulkDeleteRequest,
@@ -68,7 +77,10 @@ from api.schemas.recording.request import (
     ConfigOverrideRequest,
     FormatsPreviewRequest,
     FormatsPreviewResponse,
+    PublicDiskLinkRequest,
     RecordingUpdateRequest,
+    ResumableUploadSettingsRequest,
+    StartResumableUploadRequest,
     TopicsRenderRequest,
     TopicsUpdateRequest,
     TrimVideoRequest,
@@ -85,6 +97,16 @@ from api.schemas.recording.response import (
 )
 from api.schemas.source_extras import SourceExtrasResponse
 from api.services.config_utils import resolve_full_config
+from api.services.quota_service import QuotaService
+from api.services.resumable_upload import (
+    CHUNK_BYTES,
+    SESSION_TTL_SECONDS,
+    create_session,
+    lock_upload,
+    read_session,
+    save_session,
+    session_status,
+)
 from api.shared.enums import Granularity
 from config.settings import get_settings, storage_video_ingress_suffixes
 from database.auth_models import UserModel
@@ -94,6 +116,7 @@ from logger import format_details, get_logger, short_task_id, short_user_id
 from models import ProcessingStatus
 from models.recording import ProcessingStageStatus, SourceType, TargetStatus
 from utils.pipeline_video_formats import ingress_validate_saved_media, strict_suffix_from_source_name
+from video_processing_module.audio_detector import AudioDetector
 
 router = APIRouter(prefix="/api/v1/recordings", tags=["Recordings"])
 bulk_router = APIRouter()
@@ -158,6 +181,15 @@ class _PosterPreview(NamedTuple):
     source: Literal["thumbnail", "frame"]
     fallback_url: str | None = None
     asset_key: str = ""
+    refresh_at_ms: int | None = None
+
+
+class _PosterFields(TypedDict):
+    poster_url: str | None
+    poster_source: Literal["thumbnail", "frame"] | None
+    poster_fallback_url: str | None
+    poster_asset_key: str | None
+    poster_refresh_at_ms: int | None
 
 
 def _poster_asset_key(primary_storage_key: str, fallback_storage_key: str | None = None) -> str:
@@ -187,6 +219,13 @@ def _recording_poster_storage_key(recording: RecordingModel, user_slug: int | No
     return to_storage_key(get_path_builder().recording_root(user_slug, recording.id) / "poster.jpg")
 
 
+def _look_thumbnail_name(looks: dict | None, recording_id: int) -> str | None:
+    if not looks or recording_id not in looks:
+        return None
+    raw = getattr(looks[recording_id], "thumbnail_name", None)
+    return raw if isinstance(raw, str) and raw else None
+
+
 async def _poster_urls(
     session,
     user_id: str,
@@ -194,16 +233,14 @@ async def _poster_urls(
     *,
     looks: dict | None = None,
 ) -> dict[int, _PosterPreview]:
-    """Presign preview URLs for a page of recordings.
-
-    Uses configured thumbnail from resolved metadata when the file exists;
-    otherwise falls back to the lazy ``poster.jpg`` frame extract.
-    """
+    """Presign poster URLs from publication looks; unique S3 HEADs under one client."""
+    from api.helpers.image_upload import presigned_image_refresh_at_ms
     from api.helpers.leap_publication import publication_looks_for_recordings
+    from api.helpers.poster_thumbnail_cache import resolve_poster_thumbnails
     from api.observability import track_handler_section
-    from api.services.config_resolver import ConfigResolver, extract_thumbnail_name_from_metadata
     from config.settings import get_settings
     from database.auth_models import UserModel
+    from file_storage.backends.s3 import S3StorageBackend
     from file_storage.factory import get_storage_backend
     from utils.thumbnail_manager import get_thumbnail_manager
 
@@ -216,57 +253,66 @@ async def _poster_urls(
         user_slug = raw_slug if isinstance(raw_slug, int) else None
 
         if looks is None:
-            looks = await publication_looks_for_recordings(session, user_id, recordings)
+            with track_handler_section("poster_looks"):
+                looks = await publication_looks_for_recordings(session, user_id, recordings)
 
-        config_resolver = ConfigResolver(session)
-        thumbnail_manager = get_thumbnail_manager()
-        thumb_key_cache: dict[tuple[int, str], str | None] = {}
-
-        async def cached_thumbnail_key(name: str) -> str | None:
-            if user_slug is None:
-                return None
-            cache_key = (user_slug, name)
-            if cache_key not in thumb_key_cache:
-                thumb_key_cache[cache_key] = await thumbnail_manager.get_thumbnail_key(
-                    user_slug=user_slug,
-                    thumbnail_name=name,
-                    fallback_to_template=True,
-                )
-            return thumb_key_cache[cache_key]
-
-        # (recording_id, storage_key, source, is_fallback_for_same_recording)
-        pairs: list[tuple[int, str, Literal["thumbnail", "frame"], bool]] = []
-
+        planned: list[tuple[int, str | None, str | None]] = []
         for recording in recordings:
-            look_thumb = None
-            if looks and recording.id in looks:
-                look_thumb = getattr(looks[recording.id], "thumbnail_name", None)
-            thumbnail_name = look_thumb
-            if not thumbnail_name:
-                metadata = await config_resolver.resolve_metadata_config(recording, user_id)
-                thumbnail_name = extract_thumbnail_name_from_metadata(metadata)
-            poster_key = _recording_poster_storage_key(recording, user_slug)
-
-            if thumbnail_name and user_slug is not None:
-                thumb_key = await cached_thumbnail_key(thumbnail_name)
-                if thumb_key:
-                    pairs.append((recording.id, thumb_key, "thumbnail", False))
-                    if poster_key:
-                        pairs.append((recording.id, poster_key, "frame", True))
-                    continue
-
-            if poster_key:
-                pairs.append((recording.id, poster_key, "frame", False))
-
-        if not pairs:
-            return {}
-
-        storage = get_storage_backend()
-        async with storage.shared_operations():
-            urls = await storage.presigned_urls(
-                [key for _, key, _, _ in pairs],
-                expires_in=get_settings().storage.s3_presign_expires,
+            planned.append(
+                (
+                    recording.id,
+                    _look_thumbnail_name(looks, recording.id),
+                    _recording_poster_storage_key(recording, user_slug),
+                )
             )
+
+        unique_names = sorted({Path(name).name for _, name, _ in planned if name})
+        thumbnail_manager = get_thumbnail_manager()
+        storage = get_storage_backend()
+        thumbnail_generation: str | None = None
+
+        async with storage.shared_operations():
+            thumb_by_name: dict[str, str | None] = {}
+            if user_slug is not None and unique_names:
+                with track_handler_section("poster_thumbnail_lookup"):
+
+                    async def resolve_name(name: str) -> str | None:
+                        return await thumbnail_manager.get_thumbnail_key(
+                            user_slug=user_slug,
+                            thumbnail_name=name,
+                            fallback_to_template=True,
+                        )
+
+                    if isinstance(storage, S3StorageBackend):
+                        thumb_by_name, thumbnail_generation = await resolve_poster_thumbnails(
+                            user_slug, unique_names, resolve_name
+                        )
+                    else:
+                        resolved = await asyncio.gather(*(resolve_name(name) for name in unique_names))
+                        thumb_by_name = dict(zip(unique_names, resolved, strict=True))
+
+            # (recording_id, storage_key, source, is_fallback_for_same_recording)
+            pairs: list[tuple[int, str, Literal["thumbnail", "frame"], bool]] = []
+            for rid, thumbnail_name, poster_key in planned:
+                thumb_key = thumb_by_name.get(Path(thumbnail_name).name) if thumbnail_name else None
+                if thumb_key:
+                    pairs.append((rid, thumb_key, "thumbnail", False))
+                    if poster_key:
+                        pairs.append((rid, poster_key, "frame", True))
+                    continue
+                if poster_key:
+                    pairs.append((rid, poster_key, "frame", False))
+
+            if not pairs:
+                return {}
+
+            presign_expires = get_settings().storage.s3_presign_expires
+            refresh_at_ms = presigned_image_refresh_at_ms(storage, presign_expires)
+            with track_handler_section("poster_presign"):
+                urls = await storage.presigned_urls(
+                    [key for _, key, _, _ in pairs],
+                    expires_in=presign_expires,
+                )
 
         previews: dict[int, _PosterPreview] = {}
         fallback_urls: dict[int, str] = {}
@@ -283,13 +329,15 @@ async def _poster_urls(
         return {
             rid: preview._replace(
                 fallback_url=fallback_urls.get(rid),
-                asset_key=_poster_asset_key(primary_keys[rid], fallback_keys.get(rid)),
+                asset_key=_poster_asset_key(primary_keys[rid], fallback_keys.get(rid))
+                + (f"|rev:{thumbnail_generation}" if preview.source == "thumbnail" and thumbnail_generation else ""),
+                refresh_at_ms=refresh_at_ms,
             )
             for rid, preview in previews.items()
         }
 
 
-def _poster_fields(previews: dict[int, _PosterPreview], recording_id: int) -> dict[str, str | None]:
+def _poster_fields(previews: dict[int, _PosterPreview], recording_id: int) -> _PosterFields:
     preview = previews.get(recording_id)
     if not preview:
         return {
@@ -297,12 +345,14 @@ def _poster_fields(previews: dict[int, _PosterPreview], recording_id: int) -> di
             "poster_source": None,
             "poster_fallback_url": None,
             "poster_asset_key": None,
+            "poster_refresh_at_ms": None,
         }
     return {
         "poster_url": preview.url,
         "poster_source": preview.source,
         "poster_fallback_url": preview.fallback_url,
         "poster_asset_key": preview.asset_key or None,
+        "poster_refresh_at_ms": preview.refresh_at_ms,
     }
 
 
@@ -344,6 +394,8 @@ async def list_recordings(
         alias="status",
     ),
     failed: bool | None = Query(None, description="Only failed recordings"),
+    operational_state: OperationalState | None = Query(None),
+    include_posters: bool = Query(True, description="Include signed poster URLs"),
     is_mapped: bool | None = Query(None, description="Filter by is_mapped (true/false/null=all)"),
     include_blank: bool = Query(False, description="Include blank records (short/small)"),
     include_deleted: bool = Query(False, description="Include deleted recordings"),
@@ -386,27 +438,32 @@ async def list_recordings(
     statuses_str: list[str] | None = [s.value for s in status_filter] if status_filter else None
     template_ids = sorted({i for i in template_ids_query if i > 0}) or None
     source_ids = sorted({i for i in source_ids_query if i > 0}) or None
-    recordings, total = await recording_repo.list_filtered(
-        ctx.user_id,
-        template_ids=template_ids,
-        source_ids=source_ids,
-        statuses=statuses_str,
-        failed=failed,
-        is_mapped=is_mapped,
-        exclude_blank=not include_blank,
-        include_deleted=include_deleted,
-        from_dt=from_dt,
-        to_dt=to_dt,
-        search=search,
-        sort_by=sort_by,
-        sort_order=sort_order,
-        page=page,
-        per_page=per_page,
-    )
+    from api.observability import track_handler_section
+
+    with track_handler_section("recordings_list_db"):
+        recordings, total = await recording_repo.list_filtered(
+            ctx.user_id,
+            template_ids=template_ids,
+            source_ids=source_ids,
+            statuses=statuses_str,
+            failed=failed,
+            operational_state=operational_state,
+            is_mapped=is_mapped,
+            exclude_blank=not include_blank,
+            include_deleted=include_deleted,
+            from_dt=from_dt,
+            to_dt=to_dt,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            page=page,
+            per_page=per_page,
+            include_processing_stages=not compact,
+        )
 
     total_pages = (total + per_page - 1) // per_page if total > 0 else 1
 
-    poster_urls = await _poster_urls(ctx.session, ctx.user_id, recordings)
+    poster_urls = await _poster_urls(ctx.session, ctx.user_id, recordings) if include_posters else {}
 
     items = []
     for r in recordings:
@@ -761,6 +818,17 @@ async def download_recording_artifact(
     )
 
 
+@router.get("/upload-policy")
+async def get_upload_policy(_ctx: ServiceContext = Depends(get_service_context)) -> dict[str, Any]:
+    """Expose upload limits so the file picker matches the active backend configuration."""
+    storage = get_settings().storage
+    return {
+        "max_upload_bytes": min(storage.max_upload_size_mb, 5000) * 1024 * 1024,
+        "extensions": sorted(storage_video_ingress_suffixes()),
+        "resume_hours": SESSION_TTL_SECONDS // 3600,
+    }
+
+
 @router.get("/{recording_id}", response_model=RecordingListItem | DetailedRecordingResponse)
 async def get_recording(
     recording_id: int,
@@ -1094,18 +1162,18 @@ async def update_recording(
     )
 
 
-@router.post("", response_model=RecordingOperationResponse)
+@router.post("", response_model=LocalRecordingUploadResponse)
 async def add_local_recording(
     file: UploadFile = File(...),
-    display_name: str = Query(..., description="Recording name"),
+    display_name: str = Query(..., min_length=1, max_length=500, description="Recording name"),
     ctx: ServiceContext = Depends(get_service_context),
     _quota: UserInDB = Depends(check_user_quotas),
-) -> RecordingOperationResponse:
+    auto_run: bool = False,
+) -> LocalRecordingUploadResponse:
     """Upload and create local video recording."""
     storage_builder = StoragePathBuilder()
     filename = file.filename or "uploaded_video.mp4"
     storage_settings = get_settings().storage
-    allowed_formats = storage_settings.supported_video_formats
     allowed_suffixes = storage_video_ingress_suffixes()
 
     try:
@@ -1116,105 +1184,362 @@ async def add_local_recording(
             detail=str(exc),
         ) from exc
 
-    # TODO(S3): Replace with backend.save() when S3 support added
-    # For now: direct file operations (LOCAL only)
+    display_name = collapse_whitespace(display_name)
+    if not display_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Recording name is required")
 
-    # Save to temp directory first
+    max_upload_bytes = min(storage_settings.max_upload_size_mb, 5000) * 1024 * 1024
     temp_path = storage_builder.create_temp_file(suffix=source_suffix)
-
     try:
         total_size = 0
         with temp_path.open("wb") as f:
             while chunk := await file.read(1024 * 1024):
-                f.write(chunk)
                 total_size += len(chunk)
+                if total_size > max_upload_bytes:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        detail=f"Video exceeds the {max_upload_bytes // (1024 * 1024)} MiB upload limit",
+                    )
+                f.write(chunk)
 
-        if not temp_path.exists():
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to save uploaded file",
-            )
-
-        actual_size = temp_path.stat().st_size
-        if actual_size != total_size:
-            logger.warning(f"File size mismatch | {format_details(expected=total_size, got=actual_size)}")
-
-        if not ingress_validate_saved_media(
+        return await _finalize_local_video(
             temp_path,
-            actual_size,
-            actual_size,
             filename,
-            allowed_formats,
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or unsupported media file (ingress whitelist / container sniff)",
-            )
+            display_name,
+            ctx,
+            auto_run=auto_run,
+            source_suffix=source_suffix,
+        )
+    finally:
+        await file.close()
+        temp_path.unlink(missing_ok=True)
 
-        # Get user to access user_slug
-        user_result = await ctx.session.execute(select(UserModel).where(UserModel.id == ctx.user_id))
-        user = user_result.scalar_one()
 
-        # Create recording in DB
-        recording_repo = RecordingRepository(ctx.session)
+async def _finalize_local_video(
+    temp_path: Path,
+    filename: str,
+    display_name: str,
+    ctx: ServiceContext,
+    *,
+    auto_run: bool,
+    source_suffix: str,
+    source_key: str | None = None,
+) -> LocalRecordingUploadResponse:
+    """Validate a complete temporary video and save one recording."""
+    from file_storage.factory import get_storage_backend
+    from file_storage.path_builder import to_storage_key
 
-        # Generate unique source key for local recording
-        source_key = f"local_{ctx.user_id}_{datetime.now().timestamp()}"
+    if not temp_path.exists():
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Upload data is no longer available")
+    actual_size = temp_path.stat().st_size
+    if not ingress_validate_saved_media(
+        temp_path, actual_size, actual_size, filename, get_settings().storage.supported_video_formats
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or unsupported media file (ingress whitelist / container sniff)",
+        )
+    file_duration = positive_duration_seconds(await AudioDetector().get_duration_seconds(str(temp_path)))
+    if file_duration is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Could not read video duration")
 
-        # Get user config for retention settings (merged with defaults)
-        user_config_repo = UserConfigRepository(ctx.session)
-        user_config = await user_config_repo.get_effective_config(ctx.user_id)
+    user_result = await ctx.session.execute(select(UserModel).where(UserModel.id == ctx.user_id))
+    user = user_result.scalar_one()
+    allowed, quota_error = await QuotaService(ctx.session).check_storage_quota(
+        ctx.user_id, user.user_slug, incoming_bytes=actual_size
+    )
+    if not allowed:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=quota_error)
 
+    recording_repo = RecordingRepository(ctx.session)
+    source_key = source_key or f"local_{ctx.user_id}_{datetime.now().timestamp()}"
+    user_config = await UserConfigRepository(ctx.session).get_effective_config(ctx.user_id)
+    target_key: str | None = None
+    committed = False
+    try:
         created_recording = await recording_repo.create(
             user_id=ctx.user_id,
             input_source_id=None,
             display_name=display_name,
             start_time=datetime.now(),
-            duration=0,
+            duration=max(1, int(file_duration)),
             source_type=SourceType.LOCAL_FILE,
             source_key=source_key,
             source_metadata={"uploaded_via_api": True, "original_filename": filename},
             user_config=user_config,
             status=ProcessingStatus.DOWNLOADED,
-            local_video_path="",  # Will update after moving file
+            local_video_path="",
             video_file_size=actual_size,
         )
-
-        await ctx.session.flush()  # Get recording.id
-
-        from file_storage.factory import get_storage_backend
-        from file_storage.path_builder import to_storage_key as _to_storage_key
-
-        target_key = _to_storage_key(
-            storage_builder.recording_source(user.user_slug, created_recording.id, suffix=source_suffix)
+        await ctx.session.flush()
+        target_key = to_storage_key(
+            StoragePathBuilder().recording_source(user.user_slug, created_recording.id, suffix=source_suffix)
         )
         await get_storage_backend().save_file(target_key, temp_path)
-
         created_recording.local_video_path = target_key
         await ctx.session.commit()
-
+        committed = True
         await _track_recordings_created(ctx, [created_recording.id])
-
-        return {
-            "success": True,
-            "recording_id": created_recording.id,
-            "display_name": created_recording.display_name,
-            "local_video_path": target_key,
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to upload file | {format_details(error=str(e))}", exc_info=True)
-        if temp_path.exists():
-            temp_path.unlink()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload file: {e!s}",
+        task_id = None
+        if auto_run:
+            try:
+                task_id = await _auto_run_recording(created_recording.id, ctx.user_id)
+            except Exception:
+                logger.exception("Uploaded video saved but auto-run could not be queued")
+        return LocalRecordingUploadResponse(
+            success=True,
+            recording_id=created_recording.id,
+            display_name=created_recording.display_name,
+            local_video_path=target_key,
+            task_id=task_id,
+            auto_run_requested=auto_run,
         )
+    except Exception:
+        await ctx.session.rollback()
+        if not committed and target_key:
+            try:
+                await get_storage_backend().delete(target_key)
+            except Exception:
+                logger.warning("Failed to clean up uploaded video after a database error")
+        raise
+
+
+@router.post("/uploads", status_code=status.HTTP_201_CREATED)
+async def start_resumable_upload(
+    data: StartResumableUploadRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+    _quota: UserInDB = Depends(check_user_quotas),
+) -> dict[str, Any]:
+    """Create an owner-scoped temporary upload; completed files still use normal ingress validation."""
+    try:
+        strict_suffix_from_source_name(data.filename, storage_video_ingress_suffixes())
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    max_bytes = min(get_settings().storage.max_upload_size_mb, 5000) * 1024 * 1024
+    if data.size > max_bytes:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Video exceeds the upload limit")
+    return create_session(ctx.user_id, data.filename, data.size, data.display_name, data.auto_run, data.fingerprint)
+
+
+@router.get("/uploads/{upload_id}")
+async def get_resumable_upload(upload_id: str, ctx: ServiceContext = Depends(get_service_context)) -> dict[str, Any]:
+    data, part_path = read_session(upload_id, ctx.user_id)
+    return session_status(data, part_path)
+
+
+@router.patch("/uploads/{upload_id}")
+async def update_resumable_upload(
+    upload_id: str,
+    settings: ResumableUploadSettingsRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> dict[str, Any]:
+    with lock_upload(upload_id):
+        data, part_path = read_session(upload_id, ctx.user_id)
+        if data.get("recording_id"):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload already completed")
+        data.update(display_name=settings.display_name, auto_run=settings.auto_run, updated_at=time.time())
+        save_session(upload_id, data)
+        return session_status(data, part_path)
+
+
+@router.put("/uploads/{upload_id}/chunk")
+async def append_resumable_chunk(
+    upload_id: str,
+    request: Request,
+    offset: int = Query(..., ge=0),
+    ctx: ServiceContext = Depends(get_service_context),
+) -> dict[str, Any]:
+    """Append at the exact server offset; a partial request remains resumable."""
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            too_large = int(content_length) > CHUNK_BYTES
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid chunk length") from exc
+        if too_large:
+            raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Chunk is too large")
+    with lock_upload(upload_id):
+        data, part_path = read_session(upload_id, ctx.user_id)
+        if data.get("recording_id"):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload already completed")
+        current = part_path.stat().st_size if part_path.exists() else 0
+        if current != offset:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Expected offset {current}")
+        written = 0
+        with part_path.open("ab") as output:
+            async for chunk in request.stream():
+                if written + len(chunk) > CHUNK_BYTES or current + written + len(chunk) > data["size"]:
+                    output.truncate(current)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Chunk exceeds upload size"
+                    )
+                output.write(chunk)
+                written += len(chunk)
+        if not written:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty chunk")
+        data["updated_at"] = time.time()
+        save_session(upload_id, data)
+        return session_status(data, part_path)
+
+
+@router.post("/uploads/{upload_id}/complete", response_model=LocalRecordingUploadResponse)
+async def complete_resumable_upload(
+    upload_id: str,
+    ctx: ServiceContext = Depends(get_service_context),
+    current_user: UserInDB = Depends(get_current_user),
+) -> LocalRecordingUploadResponse:
+    """Finish a complete temporary file once, even when a client retries the response."""
+    with lock_upload(upload_id):
+        data, part_path = read_session(upload_id, ctx.user_id)
+        source_key = f"local_{ctx.user_id}_{upload_id}"
+        existing = await RecordingRepository(ctx.session).find_by_source_key(
+            ctx.user_id, SourceType.LOCAL_FILE, source_key, require_start_time_in_lookup=False
+        )
+        if existing:
+            if not existing.local_video_path:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recording has no saved video")
+            return LocalRecordingUploadResponse(
+                success=True,
+                recording_id=existing.id,
+                display_name=existing.display_name,
+                local_video_path=existing.local_video_path,
+                task_id=data.get("task_id"),
+                auto_run_requested=data["auto_run"],
+            )
+        await check_user_quotas(current_user, ctx.session)
+        if not part_path.exists() or part_path.stat().st_size != data["size"]:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload is incomplete")
+        suffix = strict_suffix_from_source_name(data["filename"], storage_video_ingress_suffixes())
+        result = await _finalize_local_video(
+            part_path,
+            data["filename"],
+            data["display_name"],
+            ctx,
+            auto_run=data["auto_run"],
+            source_suffix=suffix,
+            source_key=source_key,
+        )
+        data.update(recording_id=result.recording_id, task_id=result.task_id, updated_at=time.time())
+        save_session(upload_id, data)
+        part_path.unlink(missing_ok=True)
+        return result
 
 
 # ============================================================================
 # Add by URL Endpoints
 # ============================================================================
+
+
+@router.post("/add-disk-link", response_model=AddPublicDiskLinkResponse, status_code=status.HTTP_201_CREATED)
+async def add_public_disk_link(
+    data: AddPublicDiskLinkRequest,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> AddPublicDiskLinkResponse:
+    """Save a public Disk link as a reusable source and queue its first sync."""
+    from api.tasks.sync_tasks import sync_single_source_task
+    from yandex_disk_module.client import YandexDiskClient
+
+    try:
+        meta = await YandexDiskClient().get_public_meta(data.public_url)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not read public Disk link"
+        ) from exc
+    if data.resource_type is not None and meta.get("type") != data.resource_type:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"This Disk link points to a {meta.get('type') or 'different resource'}, not the selected type",
+        )
+
+    repo = InputSourceRepository(ctx.session)
+    sources = await repo.find_by_user(ctx.user_id)
+    source = next(
+        (
+            item
+            for item in sources
+            if item.source_type == "YANDEX_DISK"
+            and (item.config or {}).get("public_url") == data.public_url
+            and not (item.config or {}).get("file_pattern")
+            and (meta.get("type") != "dir" or (item.config or {}).get("recursive", True))
+        ),
+        None,
+    )
+    reused = source is not None
+    if source and not source.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Disk source is inactive. Enable it in Sources."
+        )
+    if source is None:
+        duplicate = await repo.find_duplicate(ctx.user_id, data.name, "YANDEX_DISK", None)
+        if duplicate:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source name is already used")
+        source = await repo.create(
+            user_id=ctx.user_id,
+            name=data.name,
+            source_type="YANDEX_DISK",
+            config={"public_url": data.public_url, "recursive": True},
+        )
+        await ctx.session.commit()
+
+    try:
+        task = sync_single_source_task.apply_async(
+            kwargs={"source_id": source.id, "user_id": ctx.user_id, "auto_run": data.auto_run}
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Disk source was saved, but sync could not be queued. Retry this link.",
+        ) from exc
+    return AddPublicDiskLinkResponse(source_id=source.id, task_id=task.id, reused=reused)
+
+
+@router.post("/disk-preview")
+async def preview_public_disk_link(
+    data: PublicDiskLinkRequest,
+    _ctx: ServiceContext = Depends(get_service_context),
+) -> dict[str, Any]:
+    """Show whether a public Disk link is one video or a folder, before adding it."""
+    from yandex_disk_module.client import YandexDiskClient
+
+    client = YandexDiskClient()
+    try:
+        meta = await client.get_public_meta(data.public_url)
+        kind = meta.get("type")
+        if kind not in {"file", "dir"}:
+            raise ValueError("Unsupported Disk resource type")
+        videos = await client.list_public_video_files(data.public_url)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not inspect public Disk link"
+        ) from exc
+    return {
+        "resource_type": kind,
+        "name": meta.get("name") or "Yandex Disk",
+        "video_count": len(videos),
+        "sample_names": [item.get("name") or "Video" for item in videos[:5]],
+    }
+
+
+@router.post("/playlist-preview")
+async def preview_playlist(
+    data: FormatsPreviewRequest,
+    _ctx: ServiceContext = Depends(get_service_context),
+) -> dict[str, Any]:
+    """Show playlist size and sample titles before creating any recordings."""
+    from video_download_module.platforms.ytdlp.metadata import extract_playlist_entries
+
+    try:
+        entries = await extract_playlist_entries(data.url)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not inspect playlist"
+        ) from exc
+    available = [entry for entry in entries if not entry.get("unavailable")]
+    return {
+        "video_count": len(available),
+        "unavailable_count": len(entries) - len(available),
+        "sample_titles": [entry.get("title") or "Video" for entry in available[:5]],
+    }
 
 
 @router.post("/formats-preview", response_model=FormatsPreviewResponse)
@@ -1261,17 +1586,27 @@ async def add_video_by_url(
         )
 
     platform = info.get("platform") or detect_platform(data.url)
-    display_name = data.display_name or info.get("title", "Unknown")
+    original_title = (collapse_whitespace(info.get("title") or "Unknown") or "Unknown")[:500]
+    display_name = (collapse_whitespace(data.display_name or original_title) or original_title)[:500]
     video_id = info.get("id", "")
     duration = info.get("duration") or 0
     video_url = info.get("url") or data.url
 
     source_key = f"{platform}:{video_id}" if video_id else video_url
+    recording_repo = RecordingRepository(ctx.session)
+    existing = await recording_repo.find_by_source_key(
+        ctx.user_id, SourceType.EXTERNAL_URL, source_key, require_start_time_in_lookup=False
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Video already added as recording #{existing.id}",
+        )
     source_metadata = {
         "url": video_url,
         "platform": platform,
         "video_id": video_id,
-        "title": display_name,
+        "title": original_title,
         "duration": duration,
         "thumbnail": info.get("thumbnail"),
         "uploader": info.get("uploader"),
@@ -1280,9 +1615,17 @@ async def add_video_by_url(
         "format_preference": data.format_preference,
     }
 
-    recording_repo = RecordingRepository(ctx.session)
     user_config_repo = UserConfigRepository(ctx.session)
     user_config = await user_config_repo.get_effective_config(ctx.user_id)
+
+    template = None
+    if data.template_id:
+        from api.repositories.template_repos import RecordingTemplateRepository
+
+        template_repo = RecordingTemplateRepository(ctx.session)
+        template = await template_repo.find_by_id(data.template_id, ctx.user_id)
+        if template is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
     recording = await recording_repo.create(
         user_id=ctx.user_id,
@@ -1301,14 +1644,10 @@ async def add_video_by_url(
 
     # Bind template if specified
     if data.template_id:
+        assert template is not None
         recording.template_id = data.template_id
         recording.is_mapped = True
-        from api.repositories.template_repos import RecordingTemplateRepository
-
-        template_repo = RecordingTemplateRepository(ctx.session)
-        template = await template_repo.find_by_id(data.template_id, ctx.user_id)
-        if template:
-            await template_repo.increment_usage(template)
+        await template_repo.increment_usage(template)
 
     await ctx.session.commit()
 
@@ -1316,7 +1655,10 @@ async def add_video_by_url(
 
     task_id = None
     if data.auto_run:
-        task_id = await _auto_run_recording(recording.id, ctx.user_id)
+        try:
+            task_id = await _auto_run_recording(recording.id, ctx.user_id)
+        except Exception:
+            logger.exception("Video URL saved but auto-run could not be queued")
 
     logger.info(f"Added video by URL | {format_details(rec=recording.id, platform=platform, auto_run=data.auto_run)}")
 
@@ -1361,21 +1703,39 @@ async def add_playlist_by_url(
     recording_repo = RecordingRepository(ctx.session)
     user_config_repo = UserConfigRepository(ctx.session)
     user_config = await user_config_repo.get_effective_config(ctx.user_id)
+    remaining_new = await QuotaService(ctx.session).remaining_recordings_quota(ctx.user_id)
+    if data.template_id:
+        from api.repositories.template_repos import RecordingTemplateRepository
+
+        template = await RecordingTemplateRepository(ctx.session).find_by_id(data.template_id, ctx.user_id)
+        if template is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
 
     created_recordings: list[dict] = []
     created_count = 0
     updated_count = 0
+    failed_count = 0
     task_ids: list[str] = []
 
     for entry in entries:
+        if entry.get("unavailable"):
+            failed_count += 1
+            continue
         try:
             video_id = entry.get("id", "")
-            title = entry.get("title", "Unknown")
+            title = (collapse_whitespace(entry.get("title") or "Unknown") or "Unknown")[:500]
             duration = entry.get("duration") or 0
             video_url = entry.get("url", data.url)
             entry_platform = entry.get("platform", platform)
 
             source_key = f"{entry_platform}:{video_id}" if video_id else video_url
+            if remaining_new is not None and created_count >= remaining_new:
+                existing = await recording_repo.find_by_source_key(
+                    ctx.user_id, SourceType.EXTERNAL_URL, source_key, require_start_time_in_lookup=False
+                )
+                if existing is None:
+                    failed_count += 1
+                    continue
             source_metadata = {
                 "url": video_url,
                 "platform": entry_platform,
@@ -1399,6 +1759,7 @@ async def add_playlist_by_url(
                 user_config=user_config,
                 is_mapped=data.template_id is not None,
                 template_id=data.template_id,
+                require_start_time_in_lookup=False,
             )
 
             if is_new:
@@ -1409,16 +1770,23 @@ async def add_playlist_by_url(
             created_recordings.append(
                 {
                     "recording_id": recording.id,
-                    "display_name": title,
+                    "display_name": recording.display_name,
                     "is_new": is_new,
                 }
             )
 
         except Exception as e:
+            failed_count += 1
             logger.warning(
                 f"Failed to add playlist entry | {format_details(title=entry.get('title', '?'), error=str(e))}"
             )
             continue
+
+    if not created_recordings:
+        await ctx.session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No playlist videos could be added"
+        )
 
     await ctx.session.commit()
 
@@ -1444,6 +1812,7 @@ async def add_playlist_by_url(
         total_videos=len(entries),
         recordings_created=created_count,
         recordings_updated=updated_count,
+        recordings_failed=failed_count,
         recordings=created_recordings,
         task_ids=task_ids,
         message=f"Playlist processed: {created_count} new, {updated_count} updated"
@@ -2492,7 +2861,10 @@ async def _execute_smart_run(
     - on_air=True → 409 (pipeline already active)
     - INITIALIZED/SKIPPED → start full pipeline (download → process → upload)
     - DOWNLOADED → start processing pipeline (skip download)
-    - PROCESSED/UPLOADED → ensure output targets from config, then upload pending/failed
+    - PROCESSED/UPLOADED → resume the pipeline when a stage is PENDING or FAILED
+      (completed stages skip themselves); otherwise upload pending/failed targets.
+      A leftover failure flag is cleared only if that trim, transcription, topics,
+      or subtitles stage has since completed. Download and upload failures stay.
     - READY → already complete
     - EXPIRED/PENDING_SOURCE → reject
 
@@ -2577,13 +2949,13 @@ async def _execute_smart_run(
     if current_status in [ProcessingStatus.PROCESSED, ProcessingStatus.UPLOADED]:
         from api.tasks.processing import run_recording_task
 
-        # Guard: if processing stages are still PENDING the pipeline was paused mid-run
-        # (e.g. trim completed after pause handler ran, pushed status→PROCESSED while
-        # transcription stages remain PENDING). Re-enter the processing pipeline so
-        # the idempotency guards skip already-completed stages.
         await ctx.session.refresh(recording, ["processing_stages"])
-        pending_stages = [s for s in recording.processing_stages if s.status == ProcessingStageStatus.PENDING]
-        if pending_stages:
+        open_stages = [
+            s
+            for s in recording.processing_stages
+            if s.status in (ProcessingStageStatus.PENDING, ProcessingStageStatus.FAILED)
+        ]
+        if open_stages:
             recording.on_air = True
             await ctx.session.commit()
             try:
@@ -2602,13 +2974,13 @@ async def _execute_smart_run(
             recording.pipeline_task_id = task.id
             await ctx.session.commit()
             logger.info(
-                f"Smart run: re-entering pipeline (incomplete stages) | {format_details(rec=recording_id, pending=len(pending_stages))}"
+                f"Smart run: re-entering pipeline (incomplete stages) | {format_details(rec=recording_id, open=len(open_stages))}"
             )
             return RecordingOperationResponse(
                 success=True,
                 task_id=task.id,
                 recording_id=recording_id,
-                message=f"Resuming processing pipeline ({len(pending_stages)} stage(s) still pending)",
+                message=f"Resuming processing pipeline ({len(open_stages)} stage(s) not finished)",
             )
 
         from api.helpers.pipeline_initializer import ensure_output_targets
@@ -2623,6 +2995,28 @@ async def _execute_smart_run(
             )
         except _CONFIG_RESOLUTION_HTTP_ERRORS as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+        if recording.failed and recording.failed_at_stage in {
+            "trim",
+            "transcribe",
+            "extract_topics",
+            "generate_subtitles",
+        }:
+            finished = next(
+                (
+                    s
+                    for s in recording.processing_stages
+                    if str(getattr(s.stage_type, "value", s.stage_type)).lower() == recording.failed_at_stage
+                    and s.status == ProcessingStageStatus.COMPLETED
+                    and not s.failed
+                ),
+                None,
+            )
+            if finished is not None:
+                from api.helpers.failure_reset import reset_recording_failure
+
+                reset_recording_failure(recording, recording.failed_at_stage)
+                await ctx.session.commit()
 
         if output_config:
             include_copy = bool(output_config.get("auto_upload"))
@@ -2654,6 +3048,7 @@ async def _execute_smart_run(
 
             from celery import chain as celery_chain
 
+            from api.tasks.base import bind_task_owner
             from api.tasks.processing import _finalize_pipeline_task
 
             recording.on_air = True
@@ -2670,6 +3065,10 @@ async def _execute_smart_run(
                     ),
                     _finalize_pipeline_task.si(recording_id, ctx.user_id),
                 ).apply_async()
+                try:
+                    bind_task_owner(str(task.id), ctx.user_id)
+                except Exception as bind_exc:
+                    logger.warning(f"Failed to bind smart-run chain owner | task={task.id} | {bind_exc}")
             except Exception as exc:
                 recording.on_air = False
                 await ctx.session.commit()
@@ -3346,10 +3745,11 @@ async def reset_recording(
         logger.info(f"Reset: revoked active chain | rec={recording_id} task={recording.pipeline_task_id}")
 
     # Clear recording metadata
-    recording.local_video_path = None
-    recording.processed_video_path = None
-    recording.processed_audio_path = None
-    recording.transcription_dir = None
+    if delete_files:
+        recording.local_video_path = None
+        recording.processed_video_path = None
+        recording.processed_audio_path = None
+        recording.transcription_dir = None
     recording.topic_timestamps = None
     recording.main_topics = None
     recording.transcription_info = None
@@ -3366,7 +3766,9 @@ async def reset_recording(
         else False
     )
 
-    if recording.status == ProcessingStatus.PENDING_CONVERSION:
+    if not delete_files and recording.local_video_path:
+        recording.status = ProcessingStatus.DOWNLOADED
+    elif recording.status == ProcessingStatus.PENDING_CONVERSION:
         recording.status = ProcessingStatus.INITIALIZED if recording.is_mapped else ProcessingStatus.SKIPPED
         if recording.source and isinstance(recording.source.meta, dict):
             meta = dict(recording.source.meta)

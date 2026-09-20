@@ -188,3 +188,10 @@ class PublicChannelResponse(BaseModel):
     banner_url: str | None = None
     videos: list[PublicChannelVideo]
     playlists: list[PublicChannelPlaylist]
+    kind: str = "all"
+    page: int = 1
+    per_page: int = 0
+    total: int = 0
+    total_pages: int = 1
+    videos_total: int = 0
+    playlists_total: int = 0

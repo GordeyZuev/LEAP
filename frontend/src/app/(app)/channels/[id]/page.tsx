@@ -57,7 +57,7 @@ import {
 } from "@/lib/channel-catalog";
 import { CHECKBOX } from "@/lib/filter-field-classes";
 import { CHANNEL_JINJA_VARS, interpolateChannelDescription } from "@/lib/formatted-text";
-import { cn, extractApiError, formatDate, formatDurationCompact } from "@/lib/utils";
+import { cn, extractApiError, formatDate, formatDurationCompact, httpStatus } from "@/lib/utils";
 
 function channelUrl(slug: string): string {
   if (typeof window === "undefined") return `/c/${slug}`;
@@ -376,7 +376,20 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
 
   if (isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading channel…</div>;
   if (error || !channel) {
-    return <ErrorState title="Channel not found" onRetry={() => void refetch()} />;
+    const missing = !error || httpStatus(error) === 404 || httpStatus(error) === 403;
+    return (
+      <div className="p-8">
+        <ErrorState
+          title={missing ? "Channel not found" : "Could not load this channel"}
+          description={missing ? "It may have been deleted, or it belongs to another account." : undefined}
+          error={missing ? undefined : error}
+          onRetry={missing ? undefined : () => void refetch()}
+        />
+        <p className="text-center">
+          <Link href="/channels" className="text-sm text-primary hover:underline">Back to channels</Link>
+        </p>
+      </div>
+    );
   }
 
   const descriptionValue = descDraft ?? channel.description ?? "";

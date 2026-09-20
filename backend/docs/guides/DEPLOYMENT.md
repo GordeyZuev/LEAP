@@ -169,8 +169,8 @@ make grafana-pw  # admin password for /grafana/
 
 ## 6. Continuous deployment
 
-After `make deploy-gh-secrets`, every push to `main` triggers
-`.github/workflows/deploy.yml`:
+After `make deploy-gh-secrets`, every push to `main` runs CI. A successful CI
+run triggers `.github/workflows/deploy.yml` for that same commit:
 
 1. Build `backend/` and `frontend/` images
 2. Push to `cr.yandex/<registry-id>/leap-{backend,frontend}:<sha>` and `:latest`
@@ -184,11 +184,14 @@ After `make deploy-gh-secrets`, every push to `main` triggers
 
    Or: repo **Settings → Environments → production → Required reviewers**.
    Until reviewers are set, the job does not wait.
-4. After approval, SSH to the VM: `git pull` → `refresh-env.sh` → `docker compose pull && up -d`
+4. After approval, skip the run if `main` has moved on; otherwise sync that
+   commit to the VM, refresh secrets, run migrations, and start the worker
+   before the API.
 
 Reject the deployment in the Actions UI to leave production on the previous
 compose revision (images for the rejected SHA stay in Container Registry).
-Jobs run only on `main` (including `workflow_dispatch`).
+Jobs run only on `main`. Manual `workflow_dispatch` can start a deploy without
+a preceding CI run, but still requires production approval.
 
 PRs run `.github/workflows/ci.yml`: `ruff` + `ty` + backend `pytest tests/unit` + frontend `pnpm lint && pnpm build`.
 
@@ -214,6 +217,21 @@ make refresh-env
 ```
 
 Full env var reference: [backend/.env.example](../../.env.example).
+
+**CORS:** default origin is `http://localhost:3000`. Production must set `SERVER_CORS_ORIGINS` to the frontend origin (see `scripts/vm-init.sh`). Startup rejects `*` together with cookie credentials.
+
+**Rate limit / proxies:** keys are per client IP (`rl:ip:{ip}:h:{bucket}`). nginx must send `X-Real-IP` (`$remote_addr`). The API trusts that header (and `X-Forwarded-For`) when `SECURITY_TRUST_X_FORWARDED_FOR=true` **or** when the TCP peer is private/loopback (Docker nginx → `api`). Without that, every browser shares the nginx container IP and the hourly cap returns **429** for `/auth/login` too.
+
+Auth routes (`/auth/login`, register, password reset) use only the per-minute auth cap, not the global hourly bucket. `/api/v1/health/*` and `/metrics` are exempt.
+
+To unblock a collapsed Docker-IP bucket immediately:
+
+```bash
+docker exec leap_redis sh -c 'redis-cli --scan --pattern "rl:ip:172.18.*" | xargs -r redis-cli DEL'
+docker exec leap_redis sh -c 'redis-cli --scan --pattern "rl:auth:ip:172.18.*" | xargs -r redis-cli DEL'
+```
+
+**JWT / Fernet:** with `APP_DEBUG=false` the API will not start if `SECURITY_JWT_SECRET_KEY` is the example default or `SECURITY_ENCRYPTION_KEY` is empty.
 
 ### Transactional email (verification + password reset)
 

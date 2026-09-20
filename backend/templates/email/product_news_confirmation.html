@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}Подтвердите подписку — LEAP{% endblock %}
+{% block heading %}Новости LEAP{% endblock %}
+
+{% block body %}
+  <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.7;">
+    Чтобы получать письма о заметных обновлениях LEAP, подтвердите подписку по кнопке.
+    Если вы не оставляли адрес, просто проигнорируйте это письмо.
+  </p>
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:4px 0 32px;">
+      <a href="{{ confirm_url }}" style="display:inline-block;padding:13px 32px;background:#224C87;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">Подтвердить подписку</a>
+    </td></tr>
+  </table>
+  <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;word-break:break-all;">
+    Если кнопка не открывается: <a href="{{ confirm_url }}" style="color:#224C87;">{{ confirm_url }}</a>
+  </p>
+{% endblock %}

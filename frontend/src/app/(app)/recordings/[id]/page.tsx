@@ -44,6 +44,7 @@ import { recordingResumeKey } from "@/lib/video-resume";
 import { Toast } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -298,8 +299,9 @@ const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 async function fetchRecordingMediaUrl(recordingId: string, variant: "processed" | "original") {
   const res = await apiClient.get<{ url: string; expires_in: number }>(
     `/recordings/${recordingId}/media?type=${variant}`,
+    { timeout: 30_000 },
   );
-  return res.data.url;
+  return res.data;
 }
 const DETAIL_SIDEBAR = "order-first w-full min-w-0 space-y-6 lg:order-none lg:w-80 lg:shrink-0";
 
@@ -611,21 +613,34 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
   markers?: VideoPlayerMarker[];
   onTimeUpdate?: (currentTime: number) => void;
 }>(function RecordingVideoPlayer({ recordingId, variant, vttBlobUrl, markers, onTimeUpdate }, ref) {
-  const { data: src, isLoading: loading, isError, refetch } = useQuery({
+  const { data: media, dataUpdatedAt, isLoading: loading, isError, error, refetch } = useQuery({
     queryKey: ["recording-media", recordingId, variant],
     queryFn: () => fetchRecordingMediaUrl(recordingId, variant),
     staleTime: MEDIA_URL_STALE_MS,
   });
+  const src = media?.url ? resolveStorageUrl(media.url) : undefined;
+  const refreshMedia = useCallback(async () => {
+    const result = await refetch({ cancelRefetch: false });
+    return result.isSuccess && result.data?.url ? resolveStorageUrl(result.data.url) : null;
+  }, [refetch]);
 
-  if (loading) {
+  usePresignedMediaRefresh({
+    expiresIn: media?.expires_in,
+    enabled: Boolean(src),
+    url: src,
+    issuedAtMs: dataUpdatedAt,
+    onRefresh: refreshMedia,
+  });
+
+  if (loading && !src) {
     return <VideoPlayerLoading />;
   }
 
-  if (isError || !src) {
+  if (!src) {
     return (
       <div className={cn(VIDEO_PLAYER_FRAME, "flex flex-col items-center justify-center gap-2 bg-muted")}>
         <VideoOff size={22} className="text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">{isError ? "Failed to load video" : "Video not available yet"}</p>
+        <p className="text-xs text-muted-foreground">{isError ? extractApiError(error, "Failed to load video") : "Video not available yet"}</p>
         {isError && (
           <button type="button" onClick={() => void refetch()} className="text-xs text-primary hover:underline">
             Retry
@@ -637,10 +652,11 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
 
   return (
     <VideoPlayer
+      key={`${recordingId}-${variant}`}
       ref={ref}
       src={src}
       resumeKey={recordingResumeKey(recordingId, variant)}
-      onReload={() => refetch()}
+      onReload={refreshMedia}
       vttBlobUrl={vttBlobUrl}
       markers={markers}
       onTimeUpdate={onTimeUpdate}
@@ -812,7 +828,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   });
 
   const resetRec = useMutation({
-    mutationFn: () => apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: resetDeleteFiles } }),
+    mutationFn: (deleteFiles: boolean) => apiClient.post(`/recordings/${id}/reset`, null, { params: { delete_files: deleteFiles } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["recording", id] });
       showToast("success", "Recording reset");
@@ -1018,6 +1034,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               ? "It may have been deleted, or it belongs to another account."
               : "Check your connection and try again."
           }
+          error={missing ? undefined : error}
           onRetry={missing ? undefined : () => void refetch()}
         />
         <p className="text-center">
@@ -1883,11 +1900,13 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
       <ConfirmDialog
         open={resetConfirm}
         title="Reset recording?"
-        description="The recording will return to INITIALIZED status."
+        description={resetDeleteFiles
+          ? "All media and transcription files, including the original video, will be deleted. A locally uploaded original cannot be downloaded again."
+          : "Processing history will reset. Existing media files will be kept for another run."}
         confirmLabel="Reset"
         cancelLabel="Cancel"
-        onConfirm={() => { setResetConfirm(false); resetRec.mutate(); }}
-        onCancel={() => setResetConfirm(false)}
+        onConfirm={() => { setResetConfirm(false); resetRec.mutate(resetDeleteFiles); setResetDeleteFiles(false); }}
+        onCancel={() => { setResetConfirm(false); setResetDeleteFiles(false); }}
       >
         <label className="flex items-center gap-2 text-sm text-secondary-foreground select-none cursor-pointer">
           <input
@@ -1896,7 +1915,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
             className={CHECKBOX}
           />
-          Delete processed files (video, audio, transcription)
+          Delete all files, including the original video
         </label>
       </ConfirmDialog>
 

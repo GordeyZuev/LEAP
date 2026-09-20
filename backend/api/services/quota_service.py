@@ -90,23 +90,29 @@ class QuotaService:
 
     async def check_recordings_quota(self, user_id: str) -> tuple[bool, str | None]:
         """Check if user can create a new recording this month."""
+        remaining = await self.remaining_recordings_quota(user_id)
+        if remaining is not None and remaining <= 0:
+            max_recordings = (await self.get_effective_quotas(user_id))["max_recordings_per_month"]
+            return False, f"Monthly recordings quota exceeded: {max_recordings}/month"
+        return True, None
+
+    async def remaining_recordings_quota(self, user_id: str) -> int | None:
+        """Return available new recording slots, or None for an unlimited plan."""
         quotas = await self.get_effective_quotas(user_id)
         max_recordings = quotas["max_recordings_per_month"]
 
         if max_recordings is None:
-            return True, None
+            return None
 
         current_period = int(datetime.now().strftime("%Y%m"))
         usage = await self.usage_repo.get_by_user_and_period(user_id, current_period)
         current_count = usage.recordings_count if usage else 0
+        return max(0, max_recordings - current_count)
 
-        if current_count >= max_recordings:
-            return False, f"Monthly recordings quota exceeded: {max_recordings}/month"
-
-        return True, None
-
-    async def check_storage_quota(self, user_id: str, user_slug: int) -> tuple[bool, str | None]:
-        """Check if user has exceeded their storage limit (calculated from disk)."""
+    async def check_storage_quota(
+        self, user_id: str, user_slug: int, incoming_bytes: int = 0
+    ) -> tuple[bool, str | None]:
+        """Check whether current usage plus a new file fits the storage limit."""
         quotas = await self.get_effective_quotas(user_id)
         max_storage_gb = quotas["max_storage_gb"]
 
@@ -116,7 +122,7 @@ class QuotaService:
         storage_bytes = await self._calc_storage_bytes(user_slug)
         max_bytes = max_storage_gb * 1024 * 1024 * 1024
 
-        if storage_bytes >= max_bytes:
+        if storage_bytes + incoming_bytes >= max_bytes:
             used_gb = round(storage_bytes / (1024**3), 2)
             return False, f"Storage quota exceeded: {used_gb}/{max_storage_gb} GB"
 

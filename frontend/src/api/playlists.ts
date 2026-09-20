@@ -17,6 +17,7 @@ export interface PlaylistListItem {
   share_enabled: boolean;
   poster_url: string | null;
   poster_asset_key?: string | null;
+  poster_refresh_at_ms?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +50,7 @@ export interface PlaylistItem {
   id: number;
   recording_id: number;
   position: number;
+  group_id: number | null;
   display_name: string;
   title?: string;
   start_time: string;
@@ -58,8 +60,16 @@ export interface PlaylistItem {
   poster_url: string | null;
   poster_fallback_url?: string | null;
   poster_asset_key?: string | null;
+  poster_refresh_at_ms?: number | null;
   deleted: boolean;
   blank_record: boolean;
+}
+
+export interface PlaylistGroup {
+  id: number;
+  name: string;
+  position: number;
+  item_count: number;
 }
 
 export interface PlaylistItemsResponse {
@@ -119,6 +129,29 @@ export async function listPlaylistItems(
 export async function addPlaylistItems(id: number, recordingIds: number[]): Promise<PlaylistItem[]> {
   const res = await apiClient.post<PlaylistItem[]>(`/playlists/${id}/items`, { recording_ids: recordingIds });
   return res.data;
+}
+
+export async function listPlaylistGroups(id: number): Promise<PlaylistGroup[]> {
+  const res = await apiClient.get<PlaylistGroup[]>(`/playlists/${id}/groups`);
+  return res.data;
+}
+
+export async function createPlaylistGroup(id: number, name: string): Promise<PlaylistGroup> {
+  const res = await apiClient.post<PlaylistGroup>(`/playlists/${id}/groups`, { name });
+  return res.data;
+}
+
+export async function renamePlaylistGroup(id: number, groupId: number, name: string): Promise<PlaylistGroup> {
+  const res = await apiClient.patch<PlaylistGroup>(`/playlists/${id}/groups/${groupId}`, { name });
+  return res.data;
+}
+
+export async function deletePlaylistGroup(id: number, groupId: number): Promise<void> {
+  await apiClient.delete(`/playlists/${id}/groups/${groupId}`);
+}
+
+export async function setPlaylistItemGroup(id: number, itemId: number, groupId: number | null): Promise<void> {
+  await apiClient.patch(`/playlists/${id}/items/${itemId}/group`, { group_id: groupId });
 }
 
 export async function removePlaylistItem(playlistId: number, itemId: number): Promise<void> {

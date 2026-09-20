@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  Folder,
   GripVertical,
   Link as LinkIcon,
   ListVideo,
@@ -18,16 +19,21 @@ import {
 
 import {
   addPlaylistItems,
+  createPlaylistGroup,
   deletePlaylist,
   deletePlaylistCover,
+  deletePlaylistGroup,
   disablePlaylistShare,
   enablePlaylistShare,
   getPlaylist,
   listPlaylistChannels,
+  listPlaylistGroups,
   listPlaylistItems,
   removePlaylistItem,
   reorderPlaylistItems,
+  renamePlaylistGroup,
   rotatePlaylistShare,
+  setPlaylistItemGroup,
   updatePlaylist,
   uploadPlaylistCover,
   type PlaylistDetail,
@@ -37,7 +43,7 @@ import {
 import { apiClient } from "@/api/client";
 import { LEAP_CATALOG_CAP, PER_PAGE_RECORDINGS_PICKER } from "@/lib/constants";
 import { PLAYLIST_VIDEO_SORT, sortPlaylistItems, type PlaylistVideoSort } from "@/lib/playlist-catalog";
-import { structuralSharingPreservePosters } from "@/lib/poster-stable";
+import { posterRefreshDelayMs, structuralSharingPreservePosters } from "@/lib/poster-stable";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
 import { OrderSelect, ownerOrderOptions } from "@/components/filters/order-select";
 import { SearchInput } from "@/components/filters/search-input";
@@ -132,6 +138,10 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   const [overId, setOverId] = useState<number | null>(null);
   const [itemOrder, setItemOrder] = useState<PlaylistVideoSort>("order");
   const [orderBusy, setOrderBusy] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [groupDraft, setGroupDraft] = useState("");
+  const [groupToDelete, setGroupToDelete] = useState<number | null>(null);
   const orderBusyRef = useRef(false);
 
   function beginOrder(): boolean {
@@ -167,9 +177,17 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
         oldData as PlaylistItemsResponse | undefined,
         newData as PlaylistItemsResponse,
       ),
+    refetchInterval: (query) => posterRefreshDelayMs(query.state.data?.items ?? []),
+    refetchIntervalInBackground: false,
   });
 
   const items = itemsQuery.data?.items ?? EMPTY_ITEMS;
+  const groupsQuery = useQuery({
+    queryKey: ["playlist-groups", playlistId],
+    queryFn: () => listPlaylistGroups(playlistId),
+    enabled: Number.isFinite(playlistId),
+  });
+  const groups = groupsQuery.data ?? [];
   const publicUrl = shareUrl(playlist?.share_token ?? null);
 
   const recordingsQuery = useQuery({
@@ -269,6 +287,42 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       setItemOrder("order");
     },
     onError: (e) => show("error", extractApiError(e, "Failed to add recordings")),
+  });
+
+  function refreshGroups() {
+    void qc.invalidateQueries({ queryKey: ["playlist-groups", playlistId] });
+    void qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
+  }
+
+  const createGroup = useMutation({
+    mutationFn: (name: string) => createPlaylistGroup(playlistId, name),
+    onSuccess: () => {
+      setNewGroupName("");
+      refreshGroups();
+    },
+    onError: (e) => show("error", extractApiError(e, "Could not create group")),
+  });
+  const renameGroup = useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => renamePlaylistGroup(playlistId, id, name),
+    onSuccess: () => {
+      setEditingGroupId(null);
+      refreshGroups();
+    },
+    onError: (e) => show("error", extractApiError(e, "Could not rename group")),
+  });
+  const removeGroup = useMutation({
+    mutationFn: (id: number) => deletePlaylistGroup(playlistId, id),
+    onSuccess: () => {
+      setGroupToDelete(null);
+      refreshGroups();
+    },
+    onError: (e) => show("error", extractApiError(e, "Could not delete group")),
+  });
+  const assignGroup = useMutation({
+    mutationFn: ({ itemId, groupId }: { itemId: number; groupId: number | null }) =>
+      setPlaylistItemGroup(playlistId, itemId, groupId),
+    onSuccess: refreshGroups,
+    onError: (e) => show("error", extractApiError(e, "Could not move video")),
   });
 
   async function persistOrder(ids: number[]): Promise<boolean> {
@@ -403,6 +457,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
               ? "It may have been deleted, or it belongs to another account."
               : "Check your connection and try again."
           }
+          error={missing ? undefined : error}
           onRetry={missing ? undefined : () => void refetch()}
         />
         <p className="mt-4 text-center">
@@ -632,6 +687,68 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
             </ActionButton>
           }
         >
+        <div className="mb-5 rounded-xl border border-border bg-muted/20 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Folder size={16} className="text-muted-foreground" aria-hidden />
+            <h2 className="text-sm font-semibold">Group folders</h2>
+          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Put lectures into folders for viewers. Videos without a group stay on the main page.
+          </p>
+          <form
+            className="mb-3 flex flex-wrap gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (newGroupName.trim()) createGroup.mutate(newGroupName.trim());
+            }}
+          >
+            <input
+              aria-label="New group name"
+              value={newGroupName}
+              maxLength={120}
+              onChange={(event) => setNewGroupName(event.target.value)}
+              placeholder="e.g. Group 1"
+              className={cn(FILTER_CONTROL, "min-w-0 flex-1")}
+            />
+            <ActionButton type="submit" size="sm" variant="secondary" icon={<Plus size={12} />}
+              disabled={!newGroupName.trim()} isPending={createGroup.isPending}>
+              Add group
+            </ActionButton>
+          </form>
+          {groups.length > 0 && (
+            <ul className="space-y-2">
+              {groups.map((group) => (
+                <li key={group.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+                  {editingGroupId === group.id ? (
+                    <form className="flex min-w-0 flex-1 items-center gap-2" onSubmit={(event) => {
+                      event.preventDefault();
+                      if (groupDraft.trim()) renameGroup.mutate({ id: group.id, name: groupDraft.trim() });
+                    }}>
+                      <input aria-label="Group name" value={groupDraft} maxLength={120}
+                        onChange={(event) => setGroupDraft(event.target.value)}
+                        className={cn(FILTER_CONTROL, "min-w-0 flex-1")} />
+                      <button type="submit" disabled={!groupDraft.trim() || renameGroup.isPending}
+                        className="text-xs text-primary disabled:opacity-50">Save</button>
+                      <button type="button" onClick={() => setEditingGroupId(null)}
+                        className="text-xs text-muted-foreground">Cancel</button>
+                    </form>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 truncate text-sm">{group.name}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{group.item_count}</span>
+                      <button type="button" aria-label={`Rename ${group.name}`}
+                        onClick={() => { setEditingGroupId(group.id); setGroupDraft(group.name); }}
+                        className="rounded p-1 text-muted-foreground hover:text-foreground"><Pencil size={14} /></button>
+                      <button type="button" aria-label={`Delete ${group.name}`}
+                        onClick={() => setGroupToDelete(group.id)}
+                        className="rounded p-1 text-muted-foreground hover:text-danger-fg"><Trash2 size={14} /></button>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {(items.length > 0 || q || fromDate || toDate) && (
         <div className="mb-4 space-y-3">
           <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-4">
@@ -748,6 +865,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                     posterUrl={item.poster_url}
                     posterFallbackUrl={item.poster_fallback_url}
                     posterAssetKey={item.poster_asset_key}
+                    posterRefreshAtMs={item.poster_refresh_at_ms}
                     duration={item.duration}
                     className="aspect-video w-16 shrink-0"
                   />
@@ -762,6 +880,19 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                     </p>
                   </div>
                 </div>
+                <select
+                  aria-label={`Group for ${item.title || item.display_name}`}
+                  value={item.group_id ?? ""}
+                  disabled={assignGroup.isPending}
+                  onChange={(event) => assignGroup.mutate({
+                    itemId: item.id,
+                    groupId: event.target.value ? Number(event.target.value) : null,
+                  })}
+                  className={cn(FILTER_CONTROL, "min-w-0 max-w-full text-xs sm:w-36")}
+                >
+                  <option value="">No group</option>
+                  {groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}
+                </select>
                 <div className="flex shrink-0 items-center justify-end">
                   <button
                     type="button"
@@ -853,6 +984,16 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
         </div>
       </Modal>
 
+      <ConfirmDialog
+        open={groupToDelete !== null}
+        title="Delete group?"
+        description="Lectures in this group will return to the main playlist page."
+        confirmLabel="Delete group"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => { if (groupToDelete !== null) removeGroup.mutate(groupToDelete); }}
+        onCancel={() => setGroupToDelete(null)}
+      />
       <ConfirmDialog
         open={disableConfirm}
         title="Disable link?"

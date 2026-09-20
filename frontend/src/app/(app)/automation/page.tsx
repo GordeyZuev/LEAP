@@ -200,7 +200,7 @@ function AutomationContent() {
             {error && (
               <tr>
                 <td colSpan={4} className="p-0">
-                  <ErrorState description="Failed to load jobs" onRetry={() => refetch()} />
+                  <ErrorState title="Failed to load jobs" error={error} onRetry={() => refetch()} />
                 </td>
               </tr>
             )}

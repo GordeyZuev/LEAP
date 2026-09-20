@@ -34,7 +34,7 @@ class CredentialResponse(BaseModel):
     is_active: bool = Field(..., description="Are credentials active")
     needs_reauth: bool = Field(False, description="Whether re-authentication is needed")
     last_used_at: datetime | None = Field(None, description="Time of last usage")
-    credentials: dict | None = Field(None, description="Credentials (only when include_data flag is set)")
+    credentials: dict | None = Field(None, description="Always omitted; secrets are never returned over the API")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 

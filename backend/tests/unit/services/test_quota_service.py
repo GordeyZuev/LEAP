@@ -127,6 +127,18 @@ class TestQuotaServiceChecks:
         assert "GB" in error
 
     @pytest.mark.asyncio
+    async def test_check_storage_quota_includes_new_upload(self, mock_db_session, mocker):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        service.get_effective_quotas = AsyncMock(return_value={"max_storage_gb": 1})
+        mocker.patch.object(QuotaService, "_calc_storage_bytes", return_value=900 * 1024 * 1024)
+
+        allowed, _error = await service.check_storage_quota("user_123", user_slug=42, incoming_bytes=200 * 1024 * 1024)
+
+        assert allowed is False
+
+    @pytest.mark.asyncio
     async def test_check_concurrent_tasks_quota(self, mock_db_session):
         """Test concurrent tasks quota check."""
         from api.services.quota_service import QuotaService

@@ -128,6 +128,7 @@ async def _query_recordings_by_filters(
         source_ids=source_ids,
         statuses=filters.status,
         failed=filters.failed,
+        operational_state=filters.operational_state,
         is_mapped=filters.is_mapped,
         exclude_blank=filters.exclude_blank,
         include_deleted=filters.include_deleted,

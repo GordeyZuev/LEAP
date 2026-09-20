@@ -99,11 +99,7 @@ class TopicExtractor:
             timeout=config.timeout,
         )
 
-        logger.info(
-            f"TopicExtractor initialized: base_url={config.base_url} | model={config.model}",
-            base_url=config.base_url,
-            model=config.model,
-        )
+        logger.info(f"TopicExtractor initialized: base_url={config.base_url} | model={config.model}")
 
     async def extract_topics(
         self,
@@ -170,9 +166,7 @@ class TopicExtractor:
             raise DeepSeekError("DeepSeek JSON contained no in-range chapters")
 
         logger.info(
-            f"Topics extracted successfully: main={len(main_topics)} | detailed={len(topic_timestamps_with_end)}",
-            main_topics=len(main_topics),
-            detailed_topics=len(topic_timestamps_with_end),
+            f"Topics extracted successfully: main={len(main_topics)} | detailed={len(topic_timestamps_with_end)}"
         )
 
         out: dict[str, Any] = {
@@ -610,10 +604,7 @@ class TopicExtractor:
             end = min(end, total_duration)
             if start >= end:
                 logger.warning(
-                    f"Topic skipped (invalid timestamps): topic={topic} | start={start:.1f}s | end={end:.1f}s",
-                    topic=topic,
-                    start_sec=round(start, 1),
-                    end_sec=round(end, 1),
+                    f"Topic skipped (invalid timestamps): topic={topic} | start={start:.1f}s | end={end:.1f}s"
                 )
                 continue
 

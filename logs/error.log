@@ -1,0 +1,17 @@
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.processing:download_recording_task:190 | Task=unknown • Rec=132 • User=user-01 | Error downloading: RuntimeError('cdn timeout')
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.processing:extract_topics_task:2006 | Task=unknown • Rec=132 • User=user-01 | Error extracting topics: DeepSeekError('DeepSeek API error: We were unable to start processing your request within the 900-second timeout limit. Please try again later.')
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.processing:extract_topics_task:2006 | Task=unknown • Rec=132 • User=user-01 | Error extracting topics: DeepSeekError('DeepSeek JSON parse failed: Expecting value')
+26-10-03 21:54:05 | ERROR    | app                       | api.tasks.upload:upload_recording_to_platform:354 | Task=unknown • Rec=132 • User=user-01 • Platform=vk | Credential error: Token validation failed
+26-10-03 21:54:05 | ERROR    | api.helpers.failure_handler | api.helpers.failure_handler:handle_download_failure:48 | Download failed | Recording: DOWNLOADING → SKIPPED | rec=1
+26-10-03 21:54:05 | ERROR    | api.helpers.failure_handler | api.helpers.failure_handler:handle_download_failure:48 | Download failed | Recording: PROCESSING → PROCESSING | rec=1
+26-10-03 21:54:05 | ERROR    | api.helpers.failure_handler | api.helpers.failure_handler:handle_download_failure:48 | Download failed | Recording: DOWNLOADING → DOWNLOADED | rec=1
+26-10-03 21:54:06 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:119 | Unsupported or unknown binary container signature (pipeline ingress whitelist applies)
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.audio_detector:_get_duration:169 | Error getting media duration: Expecting value: line 1 column 1 (char 0)
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.audio_detector:detect_audio_boundaries_from_file:40 | Audio file not found: /path/to/invalid_audio.mp3
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.audio_detector:detect_audio_boundaries_from_file:40 | Audio file not found: /path/to/nonexistent.mp3
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.video_processor:extract_audio_full:154 | Audio extraction failed: FFmpeg error: No audio stream
+26-10-03 21:54:07 | ERROR    | app                       | video_processing_module.video_processor:extract_audio_full:164 | Audio extraction error: Subprocess failed
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:114 | Downloaded HTML instead of media file
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:135 | Ingress rejected: claimed %r but body is not EBML (got %r)
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:143 | Ingress rejected: claimed %r but payload is EBML/WebM — extension and container mismatch
+26-10-03 21:54:07 | ERROR    | utils.pipeline_video_formats | utils.pipeline_video_formats:ingress_validate_saved_media:143 | Ingress rejected: claimed %r but payload is EBML/WebM — extension and container mismatch

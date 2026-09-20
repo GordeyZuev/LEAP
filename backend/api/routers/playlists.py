@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
-from api.helpers.image_upload import presign_storage_keys, read_image_upload
+from api.helpers.image_upload import presign_storage_keys, presigned_image_refresh_at_ms, read_image_upload
 from api.helpers.leap_publication import publication_looks_for_recordings
 from api.helpers.media_duration import display_duration_seconds
 from api.helpers.playlist_description import description_needs_item_titles, render_playlist_description
@@ -16,6 +19,9 @@ from api.schemas.common.pagination import paginate_list
 from api.schemas.playlist import (
     PlaylistAddItemsRequest,
     PlaylistCreate,
+    PlaylistGroupResponse,
+    PlaylistGroupWrite,
+    PlaylistItemGroupUpdate,
     PlaylistItemResponse,
     PlaylistItemsResponse,
     PlaylistListItem,
@@ -28,11 +34,14 @@ from api.schemas.playlist import (
 from api.services.playlist_service import (
     UNSET,
     PlaylistService,
+    group_responses,
     is_playable,
     item_unavailable_reason,
     poster_preview_map,
 )
-from database.playlist_models import MAX_PLAYLISTS_PER_USER, PlaylistItemModel, PlaylistModel
+from config.settings import get_settings
+from database.playlist_models import MAX_PLAYLISTS_PER_USER, PlaylistGroupModel, PlaylistItemModel, PlaylistModel
+from file_storage.factory import get_storage_backend
 from logger import format_details, get_logger
 
 router = APIRouter(prefix="/api/v1/playlists", tags=["Playlists"])
@@ -50,6 +59,13 @@ def _counts(playlist: PlaylistModel) -> tuple[int, float]:
             continue
         duration += display_duration_seconds(rec)
     return len(items), duration
+
+
+def _cover_asset_key(playlist: PlaylistModel) -> str | None:
+    """Change client image identity when a cover is replaced at the same storage key."""
+    if not playlist.cover_key:
+        return None
+    return f"{playlist.cover_key}|updated:{playlist.updated_at.isoformat()}"
 
 
 def _to_response(
@@ -70,7 +86,7 @@ def _to_response(
         share_created_at=playlist.share_created_at,
         has_custom_cover=bool(playlist.cover_key),
         poster_url=poster_url,
-        poster_asset_key=poster_asset_key or playlist.cover_key,
+        poster_asset_key=poster_asset_key or _cover_asset_key(playlist),
         created_at=playlist.created_at,
         updated_at=playlist.updated_at,
     )
@@ -90,6 +106,7 @@ def _to_list_item(
     playlist: PlaylistModel,
     poster_url: str | None = None,
     poster_asset_key: str | None = None,
+    poster_refresh_at_ms: int | None = None,
     *,
     has_custom_cover: bool = False,
     item_titles: dict[int, str] | None = None,
@@ -116,6 +133,7 @@ def _to_list_item(
         share_enabled=playlist.share_enabled,
         poster_url=poster_url,
         poster_asset_key=poster_asset_key,
+        poster_refresh_at_ms=poster_refresh_at_ms,
         has_custom_cover=has_custom_cover,
         created_at=playlist.created_at,
         updated_at=playlist.updated_at,
@@ -127,6 +145,7 @@ def _to_item_response(
     poster_url: str | None = None,
     poster_fallback_url: str | None = None,
     poster_asset_key: str | None = None,
+    poster_refresh_at_ms: int | None = None,
     *,
     title: str | None = None,
 ) -> PlaylistItemResponse:
@@ -137,6 +156,7 @@ def _to_item_response(
         id=item.id,
         recording_id=item.recording_id,
         position=item.position,
+        group_id=item.group_id,
         display_name=display,
         title=title if title is not None else display,
         start_time=rec.start_time if rec else item.created_at,
@@ -146,6 +166,7 @@ def _to_item_response(
         poster_url=poster_url,
         poster_fallback_url=poster_fallback_url,
         poster_asset_key=poster_asset_key,
+        poster_refresh_at_ms=poster_refresh_at_ms,
         deleted=bool(rec.deleted) if rec else True,
         blank_record=bool(rec.blank_record) if rec else False,
     )
@@ -173,7 +194,13 @@ async def list_playlists(
     total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
     ids = [p.id for p in playlists]
     stats = await svc.repo.aggregate_stats(ids)
-    first_by_id = await svc.repo.first_playable_recordings(ids)
+    uncovered_ids = [p.id for p in playlists if not p.cover_key]
+    first_by_id = await svc.repo.first_playable_recordings(uncovered_ids)
+    cover_refresh_at_ms = (
+        presigned_image_refresh_at_ms(get_storage_backend(), get_settings().storage.s3_presign_expires)
+        if any(p.cover_key for p in playlists)
+        else None
+    )
     cover_urls = await presign_storage_keys([p.cover_key for p in playlists])
     recs_for_poster = [first_by_id[p.id] for p in playlists if not p.cover_key and p.id in first_by_id]
     looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, recs_for_poster)
@@ -185,20 +212,24 @@ async def list_playlists(
         video_count, duration_sum = stats.get(p.id, (0, 0.0))
         poster_url = None
         poster_asset_key = None
+        poster_refresh_at_ms = None
         if p.cover_key:
             poster_url = cover_urls.get(p.cover_key)
-            poster_asset_key = p.cover_key
+            poster_asset_key = _cover_asset_key(p)
+            poster_refresh_at_ms = cover_refresh_at_ms if poster_url else None
         else:
             rec = first_by_id.get(p.id)
             if rec is not None and rec.id in previews:
                 poster_url = previews[rec.id].url
                 poster_asset_key = previews[rec.id].asset_key or None
+                poster_refresh_at_ms = previews[rec.id].refresh_at_ms
         ordered_titles = [name for _rid, name in titles_by_pl[p.id]] if p.id in titles_by_pl else None
         out.append(
             _to_list_item(
                 p,
                 poster_url=poster_url,
                 poster_asset_key=poster_asset_key,
+                poster_refresh_at_ms=poster_refresh_at_ms,
                 has_custom_cover=bool(p.cover_key),
                 video_count=video_count,
                 duration_sum=duration_sum,
@@ -230,7 +261,7 @@ async def create_playlist(
 async def _owner_cover_preview(playlist: PlaylistModel, ctx: ServiceContext) -> tuple[str | None, str | None]:
     if playlist.cover_key:
         urls = await presign_storage_keys([playlist.cover_key])
-        return urls.get(playlist.cover_key), playlist.cover_key
+        return urls.get(playlist.cover_key), _cover_asset_key(playlist)
     rec = _first_playable_recording(playlist)
     if rec is None:
         return None, None
@@ -313,6 +344,119 @@ async def delete_playlist(
     logger.info("Deleted playlist | {}", format_details(playlist=playlist_id))
 
 
+@router.get("/{playlist_id}/groups", response_model=list[PlaylistGroupResponse])
+async def list_playlist_groups(
+    playlist_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> list[PlaylistGroupResponse]:
+    playlist = await PlaylistService(ctx.session, ctx.user_id).get_owned(playlist_id)
+    return group_responses(playlist)
+
+
+@router.post("/{playlist_id}/groups", response_model=PlaylistGroupResponse, status_code=status.HTTP_201_CREATED)
+async def create_playlist_group(
+    playlist_id: int,
+    body: PlaylistGroupWrite,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> PlaylistGroupResponse:
+    playlist = await PlaylistService(ctx.session, ctx.user_id).get_owned(playlist_id)
+    max_position = await ctx.session.scalar(
+        select(func.max(PlaylistGroupModel.position)).where(PlaylistGroupModel.playlist_id == playlist_id)
+    )
+    group = PlaylistGroupModel(
+        playlist_id=playlist_id, name=body.name, position=(max_position if max_position is not None else -1) + 1
+    )
+    ctx.session.add(group)
+    playlist.updated_at = datetime.now(UTC)
+    try:
+        await ctx.session.commit()
+    except IntegrityError as exc:
+        await ctx.session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="A group with this name already exists"
+        ) from exc
+    return PlaylistGroupResponse(id=group.id, name=group.name, position=group.position)
+
+
+@router.patch("/{playlist_id}/groups/{group_id}", response_model=PlaylistGroupResponse)
+async def rename_playlist_group(
+    playlist_id: int,
+    group_id: int,
+    body: PlaylistGroupWrite,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> PlaylistGroupResponse:
+    playlist = await PlaylistService(ctx.session, ctx.user_id).get_owned(playlist_id)
+    group = await ctx.session.scalar(
+        select(PlaylistGroupModel).where(
+            PlaylistGroupModel.id == group_id, PlaylistGroupModel.playlist_id == playlist_id
+        )
+    )
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+    group.name = body.name
+    playlist.updated_at = datetime.now(UTC)
+    try:
+        await ctx.session.commit()
+    except IntegrityError as exc:
+        await ctx.session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="A group with this name already exists"
+        ) from exc
+    return PlaylistGroupResponse(
+        id=group.id,
+        name=group.name,
+        position=group.position,
+        item_count=sum(item.group_id == group.id for item in playlist.items),
+    )
+
+
+@router.delete("/{playlist_id}/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_playlist_group(
+    playlist_id: int,
+    group_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> None:
+    playlist = await PlaylistService(ctx.session, ctx.user_id).get_owned(playlist_id)
+    group = await ctx.session.scalar(
+        select(PlaylistGroupModel).where(
+            PlaylistGroupModel.id == group_id, PlaylistGroupModel.playlist_id == playlist_id
+        )
+    )
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+    for item in playlist.items:
+        if item.group_id == group_id:
+            item.group_id = None
+    await ctx.session.delete(group)
+    playlist.updated_at = datetime.now(UTC)
+    await ctx.session.commit()
+
+
+@router.patch("/{playlist_id}/items/{item_id}/group", status_code=status.HTTP_204_NO_CONTENT)
+async def set_playlist_item_group(
+    playlist_id: int,
+    item_id: int,
+    body: PlaylistItemGroupUpdate,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> None:
+    svc = PlaylistService(ctx.session, ctx.user_id)
+    playlist = await svc.get_owned(playlist_id)
+    item = await svc.repo.get_item(item_id, playlist_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist item not found")
+    if body.group_id is not None:
+        group = await ctx.session.scalar(
+            select(PlaylistGroupModel.id).where(
+                PlaylistGroupModel.id == body.group_id, PlaylistGroupModel.playlist_id == playlist_id
+            )
+        )
+        if group is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+    item.group_id = body.group_id
+    playlist.updated_at = datetime.now(UTC)
+    await ctx.session.commit()
+
+
 @router.get("/{playlist_id}/items", response_model=PlaylistItemsResponse)
 async def list_playlist_items(
     playlist_id: int,
@@ -356,6 +500,7 @@ async def list_playlist_items(
                 poster_url=previews[i.recording_id].url if i.recording_id in previews else None,
                 poster_fallback_url=previews[i.recording_id].fallback_url if i.recording_id in previews else None,
                 poster_asset_key=previews[i.recording_id].asset_key or None if i.recording_id in previews else None,
+                poster_refresh_at_ms=previews[i.recording_id].refresh_at_ms if i.recording_id in previews else None,
                 title=looks[i.recording_id].title if i.recording_id in looks else None,
             )
             for i in page_items
@@ -391,6 +536,9 @@ async def add_playlist_items(
             if by_id[item.id].recording_id in previews
             else None,
             poster_asset_key=previews[by_id[item.id].recording_id].asset_key or None
+            if by_id[item.id].recording_id in previews
+            else None,
+            poster_refresh_at_ms=previews[by_id[item.id].recording_id].refresh_at_ms
             if by_id[item.id].recording_id in previews
             else None,
             title=looks[by_id[item.id].recording_id].title if by_id[item.id].recording_id in looks else None,

@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 export function PlaylistStackPoster({
   posterUrl,
   posterAssetKey,
+  posterRefreshAtMs,
   videoCount,
   className,
   wrapperClassName,
@@ -20,6 +21,7 @@ export function PlaylistStackPoster({
 }: {
   posterUrl?: string | null;
   posterAssetKey?: string | null;
+  posterRefreshAtMs?: number | null;
   videoCount: number;
   className?: string;
   wrapperClassName?: string;
@@ -43,6 +45,7 @@ export function PlaylistStackPoster({
         <StablePosterImage
           posterUrl={posterUrl}
           posterAssetKey={posterAssetKey}
+          posterRefreshAtMs={posterRefreshAtMs}
           className={className}
           placeholderIconSize={placeholderIconSize}
         />

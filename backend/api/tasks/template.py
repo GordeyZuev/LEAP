@@ -72,7 +72,9 @@ def rematch_recordings_task(
             )
 
         except Exception as exc:
-            logger.error(f"Error in re-match | {format_details(template=template_id, error=repr(exc))}", exc_info=True)
+            logger.opt(exception=True).error(
+                f"Error in re-match | {format_details(template=template_id, error=repr(exc))}"
+            )
             raise self.retry(exc=exc)
 
 

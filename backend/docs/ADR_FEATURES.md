@@ -470,8 +470,8 @@ GET /users/me/activity - User activity log
 
 ## ADR-014: Notifications
 
-**Статус:** 🚧 Частично реализовано (error logging)
-**Приоритет:** Low (nice to have)
+**Статус:** 🚧 Частично реализовано
+**Приоритет:** Medium
 
 ### Решение
 
@@ -514,9 +514,18 @@ Multi-channel notifications для критичных событий.
 
 ### Реализация (текущая)
 
-**Error Logging:**
-- Все ошибки логируются
-- Email уведомления - TODO
+**Новости продукта (реализовано отдельно от операционных уведомлений):**
+- Публичный архив заметных обновлений и компактные ссылки на News в интерфейсе.
+- Подтверждаемая email-подписка с выбором интересов, изменением тем и отпиской.
+- Администратор публикует новости и вручную подтверждает отправку каждой рассылки после проверки аудитории.
+- Обратная связь сохраняется независимо от подписки; адрес ответа необязателен.
+- Admin показывает агрегаты и отзывы. Grafana читает только агрегатное представление без PII.
+
+**Операционные уведомления:**
+- Ошибки по-прежнему доступны в логах и мониторинге.
+- Персональные сообщения о сбоях обработки, квотах и автоматизациях, а также центр уведомлений остаются будущей отдельной задачей. Подписку на новости продукта нельзя использовать для таких писем.
+
+Подробности: [PRODUCT_NEWS.md](guides/PRODUCT_NEWS.md).
 
 **Будущее:**
 ```python
@@ -829,7 +838,7 @@ stmt = (
 | ADR-011 | Async Processing | ✅ Done | High | Celery Chains |
 | ADR-012 | Quotas & Subscriptions | ✅ Done | High | 4 plans |
 | ADR-013 | Audit Logging | 🚧 Partial | Medium | Basic logging |
-| ADR-014 | Notifications | 🚧 Partial | Low | Logging only |
+| ADR-014 | Notifications | 🚧 Partial | Medium | Product news, subscription, feedback; operational alerts remain TODO |
 | ADR-015 | FSM | ✅ Done | High | Production-ready |
 | ADR-016 | DB Optimization | ✅ Done | High | N+1 eliminated |
 

@@ -19,8 +19,6 @@ import sys
 from datetime import UTC
 from pathlib import Path
 
-_PAUSE_SECONDS = 0.5
-
 
 def _setup_path() -> None:
     project_root = Path(__file__).resolve().parent.parent
@@ -79,7 +77,7 @@ async def _run(args: argparse.Namespace) -> int:
             clients[cred_id] = None
             return None
         credentials = get_encryption().decrypt_credentials(credential.encrypted_data)
-        client = create_mts_link_client(create_mts_link_credentials(credentials))
+        client = create_mts_link_client(create_mts_link_credentials(credentials), credential_id=cred_id)
         clients[cred_id] = client
         return client
 
@@ -117,7 +115,7 @@ async def _run(args: argparse.Namespace) -> int:
                 print(f"  rec={rec.id} old={rec.start_time} new=— source=skip (no credential)")
                 skipped += 1
                 continue
-            session_payload = await load_event_session(client, session_id, event_sessions, pause_seconds=_PAUSE_SECONDS)
+            session_payload = await load_event_session(client, session_id, event_sessions)
             if session_payload is None:
                 print(f"  rec={rec.id} old={rec.start_time} new=— source=skip (eventsession {session_id} failed)")
                 skipped += 1

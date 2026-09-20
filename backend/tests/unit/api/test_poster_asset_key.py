@@ -19,12 +19,15 @@ class TestPosterAssetKey:
                 source="thumbnail",
                 fallback_url="https://example.test/fallback",
                 asset_key="thumb|frame",
+                refresh_at_ms=4_300_000,
             ),
         }
         fields = _poster_fields(previews, 42)
         assert fields["poster_url"] == "https://example.test/presigned"
         assert fields["poster_fallback_url"] == "https://example.test/fallback"
         assert fields["poster_asset_key"] == "thumb|frame"
+        assert fields["poster_refresh_at_ms"] == 4_300_000
 
     def test_poster_fields_missing_recording(self) -> None:
         assert _poster_fields({}, 1)["poster_asset_key"] is None
+        assert _poster_fields({}, 1)["poster_refresh_at_ms"] is None

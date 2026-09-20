@@ -67,27 +67,77 @@ async def handle_trim_failure(recording: RecordingModel, error: str) -> None:
     )
 
 
+def stage_error_may_skip(exc: BaseException) -> bool:
+    """Quota and the soft time limit stay hard failures even when allow_errors is set."""
+    from celery.exceptions import SoftTimeLimitExceeded
+
+    from api.services.quota_service import QuotaExceededError
+
+    hard = (SoftTimeLimitExceeded, QuotaExceededError)
+    if isinstance(exc, hard):
+        return False
+    cause = exc.__cause__ or exc.__context__
+    return not isinstance(cause, hard)
+
+
+def _mark_stage_skipped(
+    recording: RecordingModel,
+    stage_type: ProcessingStageType,
+    meta: dict,
+    *,
+    create: bool = True,
+) -> None:
+    if create:
+        stage = recording._get_or_create_stage(stage_type)
+    else:
+        stage = next((item for item in recording.processing_stages if item.stage_type == stage_type), None)
+        if stage is None:
+            return
+    stage.status = ProcessingStageStatus.SKIPPED
+    stage.failed = False
+    stage.stage_meta = meta
+
+
+async def skip_stage_if_allow_errors(
+    recording_id: int,
+    user_id: str,
+    stage_type: ProcessingStageType,
+    error: str,
+) -> bool:
+    """Skip the stage when allow_errors is set. Leave on_air for the rest of the chain."""
+    from api.dependencies import get_async_session_maker
+    from api.repositories.recording_repos import RecordingRepository
+    from api.services.config_utils import resolve_full_config
+
+    async with get_async_session_maker()() as session:
+        repo = RecordingRepository(session)
+        recording = await repo.get_by_id(recording_id, user_id)
+        if not recording:
+            return False
+        full_config, _ = await resolve_full_config(session, recording_id, user_id, manual_override=None)
+        if not full_config.get("transcription", {}).get("allow_errors", False):
+            return False
+        await handle_transcribe_failure(recording, stage_type, error, allow_errors=True)
+        await repo.update(recording)
+        await session.commit()
+        return True
+
+
 async def handle_transcribe_failure(
     recording: RecordingModel, stage_type: ProcessingStageType, error: str, allow_errors: bool
 ) -> None:
     """Handle transcription failure with allow_errors logic: skip or rollback."""
     if allow_errors:
-        for stage in recording.processing_stages:
-            if stage.stage_type == stage_type:
-                stage.status = ProcessingStageStatus.SKIPPED
-                stage.stage_meta = {"skip_reason": "error", "error": error[:500]}
-                break
-
+        _mark_stage_skipped(
+            recording,
+            stage_type,
+            {"skip_reason": "error", "error": error[:500]},
+        )
         _cascade_skip_dependent_stages(recording, stage_type)
 
         from api.helpers.status_manager import update_aggregate_status
 
         update_aggregate_status(recording)
-
-        recording.failed = True
-        recording.failed_at_stage = stage_type.value.lower()
-        recording.failed_reason = f"Skipped (allow_errors=True): {error[:500]}"
-
         logger.warning(f"{stage_type.value} failed, skipped (allow_errors) | {format_details(rec=recording.id)}")
     else:
         old_status = recording.status
@@ -126,11 +176,12 @@ def _cascade_skip_dependent_stages(recording: RecordingModel, parent_stage: Proc
     }
 
     for dep_stage_type in dependencies.get(parent_stage, []):
-        for stage in recording.processing_stages:
-            if stage.stage_type == dep_stage_type:
-                stage.status = ProcessingStageStatus.SKIPPED
-                stage.stage_meta = {"skip_reason": "parent_failed", "parent_stage": parent_stage.value}
-                break
+        _mark_stage_skipped(
+            recording,
+            dep_stage_type,
+            {"skip_reason": "parent_failed", "parent_stage": parent_stage.value},
+            create=False,
+        )
 
 
 async def handle_upload_failure(recording: RecordingModel, platform: str, error: str) -> None:

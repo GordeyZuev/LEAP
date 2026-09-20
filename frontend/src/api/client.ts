@@ -56,6 +56,7 @@ function refreshSession() {
       .post(`${API_URL}/api/v1/auth/refresh`, {}, {
         withCredentials: true,
         headers: csrf ? { [CSRF_HEADER_NAME]: csrf } : {},
+        timeout: 30_000,
       })
       .finally(() => {
         refreshInflight = null;

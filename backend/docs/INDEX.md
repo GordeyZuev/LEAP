@@ -15,6 +15,7 @@ In-app guide (plain language, search, FAQ): web client → **Documentation**.
 | Are connecting platforms | [guides/OAUTH.md](guides/OAUTH.md), [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) |
 | Need the HTTP surface | [TECHNICAL.md](TECHNICAL.md), [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md) |
 | Want what shipped | [CHANGELOG.md](CHANGELOG.md) |
+| Want the latest progress | [UPDATES.md](UPDATES.md) |
 
 Root product overview: repository [`README.md`](../../README.md).
 
@@ -35,7 +36,8 @@ Root product overview: repository [`README.md`](../../README.md).
 ## Using the product
 
 - [FAQ.md](FAQ.md)
-- [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md) – Settings → Usage, quotas, activity charts, admin analytics, share stats (v0.10.8.3)
+- [guides/USAGE_AND_ANALYTICS.md](guides/USAGE_AND_ANALYTICS.md) – Home overview, Settings → Usage, quotas, activity charts, admin analytics, share stats, API error copy in the UI
+- [guides/PRODUCT_NEWS.md](guides/PRODUCT_NEWS.md) – news archive, confirmed subscriptions, feedback, newsletter delivery, and aggregate reporting
 - [guides/PLAYLISTS.md](guides/PLAYLISTS.md) – course playlists, public `/share/p/{uuid}`, Enable / Disable / Rotate
 - [guides/CHANNELS.md](guides/CHANNELS.md) – `/c/{slug}` hubs, M:N playlists, Playlists then Videos, Enable / Disable
 - [guides/TEMPLATES.md](guides/TEMPLATES.md)
@@ -55,10 +57,11 @@ Root product overview: repository [`README.md`](../../README.md).
 - [guides/SESSIONS.md](guides/SESSIONS.md)
 - [guides/QUOTAS.md](guides/QUOTAS.md)
 - [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md)
+- [guides/PRODUCT_NEWS.md](guides/PRODUCT_NEWS.md)
 - [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md)
 - [guides/CELERY_WORKERS_GUIDE.md](guides/CELERY_WORKERS_GUIDE.md)
 - [guides/CELERY_ASYNCIO_TECHNICAL.md](guides/CELERY_ASYNCIO_TECHNICAL.md)
-- [guides/MONITORING.md](guides/MONITORING.md)
+- [guides/MONITORING.md](guides/MONITORING.md) – Loki/Prometheus/Grafana; **Host (VM)** row (`node_exporter`, disk `mountpoint="/"`); provisioned dashboards (`allowUiUpdates: false`), stale Overview → delete `uid/leap-overview` or POST overwrite; Admin API under **`/grafana/api/`**
 
 ---
 
@@ -102,7 +105,7 @@ ASR in production is **AssemblyAI**. Notes about Fireworks Batch API are histori
 | Playlists / course share | [guides/PLAYLISTS.md](guides/PLAYLISTS.md) |
 | MTS Link | [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) |
 | Playback | [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) |
-| Observability | [guides/MONITORING.md](guides/MONITORING.md) |
+| Observability | [guides/MONITORING.md](guides/MONITORING.md) – logs, Celery/API metrics, Overview **Host (VM)**, Grafana provisioning |
 | API | [TECHNICAL.md](TECHNICAL.md) |
 
 ---
@@ -110,6 +113,7 @@ ASR in production is **AssemblyAI**. Notes about Fireworks Batch API are histori
 ## History and archive
 
 - [CHANGELOG.md](CHANGELOG.md) – what shipped (canonical)
+- [UPDATES.md](UPDATES.md) – recent release overview and current progress
 - [archive/PLAN.md](archive/PLAN.md) – thesis plan (not a runbook)
 
 ---
@@ -121,4 +125,4 @@ ASR in production is **AssemblyAI**. Notes about Fireworks Batch API are histori
 
 ---
 
-**Index last updated:** September 2026
+**Index last updated:** October 2026

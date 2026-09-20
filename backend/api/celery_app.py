@@ -148,6 +148,8 @@ celery_app = Celery(
         "api.tasks.maintenance",
         "api.tasks.sync_tasks",
         "api.tasks.template",
+        "api.tasks.share_events",
+        "api.tasks.product_updates",
     ],
 )
 
@@ -184,6 +186,8 @@ celery_app.conf.task_routes = {
     "celery.backend_cleanup": {"queue": "maintenance"},
     "api.tasks.template.*": {"queue": "async_operations"},
     "api.tasks.sync.*": {"queue": "async_operations"},
+    "api.tasks.share_events.*": {"queue": "async_operations"},
+    "api.tasks.product_updates.*": {"queue": "async_operations"},
     "automation.*": {"queue": "async_operations"},
     "maintenance.*": {"queue": "maintenance"},
 }
@@ -385,7 +389,7 @@ def _record_enqueue_time(_sender=None, headers=None, properties=None, routing_ke
 
 
 @task_prerun.connect
-def _clear_enqueue_time(task_id, _task, *_args, **_kwargs):
+def _clear_enqueue_time(task_id, **_kwargs):
     try:
         client = _publish_redis()
         for queue in QUEUES_TRACKED:

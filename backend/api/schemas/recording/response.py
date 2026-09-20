@@ -247,6 +247,10 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
         None,
         description="Stable poster identity (storage keys); unchanged when presigned URLs are refreshed.",
     )
+    poster_refresh_at_ms: int | None = Field(
+        None,
+        description="UTC Unix milliseconds when clients should request fresh poster URLs; null for URLs without expiry.",
+    )
 
     # --- Failure & pause ---
     failed: bool = False

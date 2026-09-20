@@ -11,8 +11,14 @@ settings = get_settings()
 
 
 def _run_async_raises(exc: DeepSeekError):
+    asked = False
+
     def _inner(coro):
+        nonlocal asked
         coro.close()
+        if asked:
+            return False
+        asked = True
         raise exc
 
     return _inner

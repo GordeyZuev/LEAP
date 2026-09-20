@@ -17,6 +17,17 @@ export interface PlaylistCatalogItem {
   start_time: string;
 }
 
+export function visiblePlaylistFolderItems<T extends { group_id: number | null }>(
+  items: T[],
+  groupId: number | null,
+  hasGroups: boolean,
+  query: string,
+): T[] {
+  if (groupId !== null) return items.filter((item) => item.group_id === groupId);
+  if (hasGroups && !query.trim()) return items.filter((item) => item.group_id === null);
+  return items;
+}
+
 export function parsePlaylistVideoSort(raw: string | null): PlaylistVideoSort {
   return PLAYLIST_VIDEO_SORT.some((o) => o.value === raw) ? (raw as PlaylistVideoSort) : "order";
 }

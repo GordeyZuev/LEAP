@@ -114,8 +114,21 @@ class MtsLinkCredentialsManual(BaseModel):
     account: str | None = Field(None, description="Optional org label for account_name")
     base_url: str | None = Field(
         None,
-        description="UserAPI base URL (default cloud; override for on-prem)",
+        description="UserAPI base URL (default cloud; override must be https://*.mts-link.ru)",
     )
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_mts_base_url(cls, v: str | None) -> str | None:
+        if v is None or not str(v).strip():
+            return None
+        from utils.safe_http import MTS_LINK_HOST_SUFFIXES, UnsafeUrlError, assert_allowlisted_https_url
+
+        cleaned = str(v).strip().rstrip("/")
+        try:
+            return assert_allowlisted_https_url(cleaned, MTS_LINK_HOST_SUFFIXES)
+        except UnsafeUrlError as exc:
+            raise ValueError(str(exc)) from exc
 
 
 class ZoomCredentialsManual(BaseModel):

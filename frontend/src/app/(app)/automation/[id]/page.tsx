@@ -12,6 +12,7 @@ import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ChecklistPicker } from "@/components/ui/checklist-picker";
 import { CreatePlaceholder } from "@/components/ui/create-placeholder";
+import { ErrorState } from "@/components/ui/error-state";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { JobRunHistory } from "@/components/automation/job-run-history";
@@ -262,7 +263,7 @@ export default function AutomationJobPage({ params }: { params: Promise<{ id: st
   const { id } = use(params);
   const isNew = id === "new";
 
-  const { data: existing, isPending, isError } = useQuery({
+  const { data: existing, isPending, isError, error, refetch } = useQuery({
     queryKey: ["automation-job", id],
     queryFn: async () => (await apiClient.get<AutomationJobApi>(`/automation/jobs/${id}`)).data,
     enabled: !isNew,
@@ -278,9 +279,11 @@ export default function AutomationJobPage({ params }: { params: Promise<{ id: st
   if (!isNew && isPending) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
   if (!isNew && isError) {
     return (
-      <div className="p-8 space-y-2">
-        <p className="text-sm text-red-500">Failed to load job</p>
-        <Link href="/automation" className="text-sm text-primary hover:underline">← Back</Link>
+      <div className="p-8">
+        <ErrorState title="Failed to load job" error={error} onRetry={() => void refetch()} />
+        <p className="text-center">
+          <Link href="/automation" className="text-sm text-primary hover:underline">Back to jobs</Link>
+        </p>
       </div>
     );
   }

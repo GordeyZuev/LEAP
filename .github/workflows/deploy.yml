@@ -1,7 +1,9 @@
 name: Deploy
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -25,15 +27,18 @@ env:
   REGISTRY: cr.yandex
   IMAGE_BACKEND: leap-backend
   IMAGE_FRONTEND: leap-frontend
+  DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   build-and-push:
     name: Build & push images
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success'))
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -51,8 +56,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_BACKEND }}
           tags: |
-            type=sha,prefix=,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ env.DEPLOY_SHA }}
+            type=raw,value=latest
 
       - name: Build & push backend
         uses: docker/build-push-action@v5
@@ -75,8 +80,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ secrets.YC_REGISTRY_ID }}/${{ env.IMAGE_FRONTEND }}
           tags: |
-            type=sha,prefix=,format=long
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ env.DEPLOY_SHA }}
+            type=raw,value=latest
 
       - name: Build & push frontend
         uses: docker/build-push-action@v5
@@ -102,38 +107,60 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Check for a newer commit
+        id: current
+        run: |
+          git fetch --quiet origin main
+          if [ "$(git rev-parse FETCH_HEAD)" = "$DEPLOY_SHA" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Skipping superseded commit $DEPLOY_SHA"
+          fi
 
       # Sync compose + nginx + monitoring configs to the VPS so it always uses
       # the version that built the images.
       - name: Sync deploy artifacts to VPS
+        if: steps.current.outputs.deploy == 'true'
         uses: easingthemes/ssh-deploy@main
         env:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
           # Excludes runtime artifacts owned by vm-init.sh / refresh-env.sh —
           # rsync --delete would wipe them and break nginx, OAuth, certbot.
-          ARGS: "-rlgoDzvc -i --delete --exclude=__pycache__ --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
+          ARGS: "-rlgoDzvc -i --delete --exclude=.git --exclude=__pycache__ --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
           SOURCE: "./"
           REMOTE_HOST: ${{ secrets.VPS_HOST }}
           REMOTE_USER: ${{ secrets.VPS_USER }}
           TARGET: ${{ secrets.VPS_DEPLOY_PATH }}
 
       - name: Restart stack on VPS
+        if: steps.current.outputs.deploy == 'true'
         uses: appleboy/ssh-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: GITHUB_TOKEN
           script: |
             set -euo pipefail
             cd ${{ secrets.VPS_DEPLOY_PATH }}
 
-            git fetch --quiet origin main
-            git reset --hard origin/main
+            # Older deploys rsynced .git with a short-lived Actions extraheader.
+            # A stale AUTHORIZATION makes GitHub return 401, then git prompts
+            # and fails because this SSH session has no TTY.
+            git config --local --unset-all http.https://github.com/.extraheader || true
+            auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w 0)
+            git -c "http.extraheader=AUTHORIZATION: basic ${auth}" fetch --quiet origin main
+            git reset --hard ${{ env.DEPLOY_SHA }}
             yc container registry configure-docker
             if [ -x /opt/leap/refresh-env.sh ]; then
               /opt/leap/refresh-env.sh
             fi
-            export IMAGE_TAG=${{ github.sha }}
+            export IMAGE_TAG=${{ env.DEPLOY_SHA }}
             docker compose pull api celery_worker celery_beat flower frontend
             # Run migrations synchronously BEFORE recreating app containers.
             # `--no-deps` below defeats depends_on, so migrations must be run
@@ -141,7 +168,12 @@ jobs:
             # exit code — if migrations fail, the deploy fails here before
             # the new code ever sees traffic.
             docker compose run --rm migrate
-            docker compose up -d --no-deps api celery_worker celery_beat flower frontend
+            # New API versions can publish task names unknown to an old worker.
+            # Wait for the new worker's healthcheck before exposing the API.
+            docker compose up --wait --wait-timeout 300 --no-deps celery_worker
+            docker compose up -d --no-deps celery_beat flower
+            docker compose up --wait --wait-timeout 180 --no-deps api
+            docker compose up -d --no-deps frontend
             # --force-recreate so bind-mounted config files (prometheus.yml,
             # promtail.yml, grafana_datasources.yml, dashboards/*.json, nginx
             # conf + htpasswd) re-load. `up -d` alone only detects YAML-spec
@@ -149,5 +181,22 @@ jobs:
             # state and its config is stable.
             docker compose up -d loki
             docker compose up -d --force-recreate prometheus celery_exporter promtail grafana
+            # nginx.conf is an ignored runtime file, excluded from rsync.
+            # Refresh it from the tracked template before recreating nginx.
+            # Certbot stores the cert under live/<domain>. live/leap is only a
+            # symlink. A plain [ -L ] is false when that symlink is missing or
+            # hidden from ubuntu, and the HTTP-only bootstrap config then
+            # drops port 443.
+            if ! sudo test -f /etc/letsencrypt/live/leap/fullchain.pem; then
+              domain_cert=$(sudo find /etc/letsencrypt/live -mindepth 2 -maxdepth 2 -name fullchain.pem -print -quit || true)
+              if [ -n "$domain_cert" ]; then
+                sudo ln -sfn "$(dirname "$domain_cert")" /etc/letsencrypt/live/leap
+              fi
+            fi
+            if sudo test -f /etc/letsencrypt/live/leap/fullchain.pem; then
+              sudo cp nginx/nginx.https.conf nginx/nginx.conf
+            else
+              sudo cp nginx/nginx.bootstrap.conf nginx/nginx.conf
+            fi
             docker compose up -d --no-deps --force-recreate nginx
             docker compose ps

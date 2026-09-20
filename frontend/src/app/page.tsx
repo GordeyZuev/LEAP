@@ -11,7 +11,7 @@ export default function RootPage() {
   const status = useSession();
 
   useEffect(() => {
-    if (status === "authenticated") router.replace("/recordings");
+    if (status === "authenticated") router.replace("/home");
   }, [status, router]);
 
   if (status === "checking" || status === "authenticated") {

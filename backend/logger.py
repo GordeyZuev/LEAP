@@ -43,7 +43,9 @@ def _build_context(record) -> str:
     ]:
         val = extra.get(key)
         if val is not None:
-            parts.append(f"{label}={val}")
+            # Context is spliced into the format template; braces must stay literal.
+            text = str(val).replace("{", "{{").replace("}", "}}")
+            parts.append(f"{label}={text}")
     return " \u2022 ".join(parts)
 
 

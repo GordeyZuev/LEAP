@@ -1,12 +1,13 @@
 """Service for validating user access to Celery tasks.
 
-Ensures task isolation between users using Celery metadata.
+Ensures task isolation between users using Redis owner binding and Celery metadata.
 """
 
 from celery.result import AsyncResult
 from fastapi import HTTPException, status
 
 from api.celery_app import celery_app
+from api.tasks.base import lookup_task_owner
 from logger import get_logger
 
 logger = get_logger()
@@ -15,14 +16,12 @@ logger = get_logger()
 class TaskAccessService:
     """
     Validates user access to Celery tasks (status, cancel).
-    Uses user_id from task result/metadata.
+    Prefers Redis task_owner binding (set at enqueue); falls back to result meta.
     """
 
     @staticmethod
     def _extract_user_id_from_task(task: AsyncResult) -> str | None:
-        """
-        Extract user_id from task. Checks: task.info, task.result.
-        """
+        """Extract user_id from task. Checks: task.info, task.result."""
         if task.info and isinstance(task.info, dict):
             user_id = task.info.get("user_id")
             if user_id:
@@ -48,11 +47,22 @@ class TaskAccessService:
         """
         task = AsyncResult(task_id, app=celery_app)
 
-        # PENDING / STARTED / RETRY: no stable result dict yet (track_started, retry
-        # stores the exception in info). Caller got task_id from an authenticated API.
-        if task.state in ("PENDING", "STARTED", "RETRY"):
-            logger.debug(f"Task {task_id} is {task.state}, skipping user_id check")
+        redis_owner = lookup_task_owner(task_id)
+        if redis_owner is not None:
+            if redis_owner != user_id:
+                logger.warning(f"User {user_id} attempted to access task {task_id} owned by {redis_owner}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied. This task belongs to another user.",
+                )
             return task
+
+        if task.state in ("PENDING", "STARTED", "RETRY"):
+            logger.warning(f"Cannot verify ownership of task {task_id} (state={task.state}) for user {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot verify task ownership. Access denied.",
+            )
 
         task_user_id = TaskAccessService._extract_user_id_from_task(task)
 

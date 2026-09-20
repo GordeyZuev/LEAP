@@ -1089,7 +1089,10 @@ export default function DocsPage() {
             />
           </Sub>
           <Sub title="Appearance">
-            <P>Light, dark, or follow system theme.</P>
+            <P>
+              Light, dark, or follow system theme. Public recording, playlist, and channel pages use the same
+              choice. A sun or moon button in that header switches the look; another click follows the system again.
+            </P>
           </Sub>
           <Sub title="Security">
             <List
@@ -1245,6 +1248,10 @@ export default function DocsPage() {
 
       {/* Footer help */}
       <p className="mt-12 text-center text-sm leading-[1.5] text-muted-foreground">
+        <a href="/updates" className="font-medium text-primary underline-offset-2 hover:underline">Product news</a>
+        {" · "}
+        <a href="/updates/feedback" className="font-medium text-primary underline-offset-2 hover:underline">Send feedback</a>
+        {" · "}
         Still have questions?{" "}
         <a
           href="mailto:gordey.zuev@gmail.com"

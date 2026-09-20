@@ -3,13 +3,14 @@
 import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn, extractApiError } from "@/lib/utils";
 
 export function ChartCard({
   title,
   description,
   isLoading,
   isError,
+  error,
   errorMessage,
   isEmpty,
   emptyMessage = "No data in this period",
@@ -20,6 +21,7 @@ export function ChartCard({
   description?: string;
   isLoading?: boolean;
   isError?: boolean;
+  error?: unknown;
   errorMessage?: string;
   isEmpty?: boolean;
   emptyMessage?: string;
@@ -43,7 +45,7 @@ export function ChartCard({
         </div>
       ) : isError ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-xs text-red-600">
-          {errorMessage ?? "Unable to load chart"}
+          {errorMessage ?? (error ? extractApiError(error, "Unable to load chart") : "Unable to load chart")}
         </p>
       ) : isEmpty ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground">

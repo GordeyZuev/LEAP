@@ -4,6 +4,7 @@ import {
   catalogPlaylistItems,
   parsePlaylistVideoSort,
   playlistItemMatchesQuery,
+  visiblePlaylistFolderItems,
 } from "./playlist-catalog.ts";
 
 const items = [
@@ -55,5 +56,13 @@ describe("playlist catalog", () => {
       catalogPlaylistItems(items, "wrap", "order").map((i) => i.title),
       ["Zeta wrap"],
     );
+  });
+
+  it("opens a folder without hiding grouped lectures from global search", () => {
+    const rows = [{ group_id: null }, { group_id: 2 }, { group_id: 3 }];
+    assert.deepEqual(visiblePlaylistFolderItems(rows, null, false, ""), rows);
+    assert.deepEqual(visiblePlaylistFolderItems(rows, null, true, ""), [rows[0]]);
+    assert.deepEqual(visiblePlaylistFolderItems(rows, 2, true, ""), [rows[1]]);
+    assert.deepEqual(visiblePlaylistFolderItems(rows, null, true, "lecture"), rows);
   });
 });

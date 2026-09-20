@@ -125,13 +125,8 @@ class TokenManager:
                     logger.error("Token fetch exhausted retries", account=config.account)
                     return (None, None)
 
-            except Exception as e:
-                logger.error(
-                    "Unexpected token fetch error",
-                    account=config.account,
-                    error=type(e).__name__,
-                    exc_info=True,
-                )
+            except Exception:
+                logger.opt(exception=True).error("Unexpected token fetch error")
                 return (None, None)
 
         return (None, None)

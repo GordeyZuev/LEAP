@@ -48,6 +48,7 @@ class TestMtsLinkDownloadOptions:
         # Unset keys fall back to the same defaults as the source schema.
         assert kwargs["conversion_view"] == "none"
         assert kwargs["fetch_session_files"] is True
+        assert kwargs["credential_id"] == 3
 
     @pytest.mark.asyncio
     async def test_recording_without_input_source_is_rejected(self):

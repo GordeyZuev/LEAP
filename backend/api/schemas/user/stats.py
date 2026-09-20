@@ -20,3 +20,16 @@ class TemplateStats(BaseModel):
     template_id: int
     template_name: str | None
     count: int
+
+
+class HomeSummary(BaseModel):
+    """Current visible catalog counts, independent of the analytics period."""
+
+    total: int
+    published: int = Field(
+        description="Visible recordings published by direct LEAP link or playable in a public playlist"
+    )
+    in_progress: int
+    waiting_source: int
+    paused: int
+    error: int

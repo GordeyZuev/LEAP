@@ -16,6 +16,7 @@ recording/share page
 - Storage checks for video, audio and subtitles are concurrent, avoiding serial Object Storage round trips.
 - Presigned URLs live for 60 minutes. The client cache treats them as stale after 50 minutes, leaving time to refresh before expiry.
 - The browser reads media directly from Object Storage with HTTP Range requests; API memory and bandwidth are not on the media path.
+- Public subtitle/transcript file routes return a short-lived `302` to a signed Object Storage URL on S3. Local storage still returns file bytes through the API. Signing does not check S3 object existence first; a stale database artifact can therefore redirect to an Object Storage 404. Download requests require `allow_files_download`; only `inline=true` for VTT subtitles bypasses that setting for the player. Media download URLs require `allow_video_download`.
 
 ## MP4 requirements
 
@@ -27,7 +28,9 @@ Faststart does not shrink a large `moov` atom. Stream-copy trim may still wait f
 
 ## Player recovery
 
-The shared player times out only until the first playable frame. After `playing`, `waiting` / `stalled` are treated as buffering (Safari fires `stalled` when the buffer is full and the download pauses). A signed URL is refreshed once on native media `error`. Retry remounts the `<video>` element. Position is stored by recording ID and variant, never by a public share token.
+The shared player has a 20-second metadata startup timeout and, while a visible tab or active PiP is playing, a 30-second no-progress timeout. `waiting` / `stalled` alone do not fail playback: Safari may fire `stalled` when the buffer is full. Native media errors or the no-progress timeout request a fresh signed URL. A new URL does not replace a playing `<video>`; it is used only for recovery after a failure. Recovery remounts the media element, seeks to the current position (including the last five seconds), and tries to continue playback. At most two automatic recoveries happen without sustained progress, avoiding an endless loop for a missing object; Manual Retry remains available. The client also requests a new URL shortly before expiry, retrying a failed refresh up to three times.
+
+Switching tabs does not pause playback. The player suspends its startup and no-progress timers while the tab is hidden, except that an active PiP keeps the no-progress timer running. It saves position on `pagehide`. Ordinary return visits resume by recording ID and variant; playlist watch uses the playlist token, item ID, and variant. Near-end positions are ignored on a new visit. Manual Picture-in-Picture is available where the browser supports it (the custom control is hidden on narrow screens). Chromium may also request automatic PiP through the Media Session API for an audible playing video when its eligibility and site permissions allow it. The player does not force PiP on every tab switch; unsupported browsers keep normal background playback behavior. A Play or Next request in a playlist follows the selected item and waits for its media element to mount before attempting playback; browser autoplay policy may still reject it.
 
 ## Existing-object backfill
 
@@ -55,7 +58,9 @@ Apply mode sets `Content-Type: video/mp4` in place when HEAD is wrong. For proce
 - Object metadata reports the expected video MIME type and accepts byte ranges.
 - For MP4, the `moov` atom appears before `mdat`.
 - Opening a recording triggers metadata and media requests together, followed by Object Storage range traffic.
-- After playback has started, buffering must not replace the player with Retry. An expired or invalid media URL causes one refresh on `error`, then Retry remounts the element.
+- Short buffering must not replace the player with Retry. A visible, playing tab or active PiP with no position progress for 30 seconds requests a fresh URL and restores playback. An expired or invalid media URL triggers the same recovery on `error`; if recovery fails, Retry remains available.
+- Switching tabs preserves playback and pauses the client timeout clocks except for active PiP's no-progress timer. Check manual PiP and, where supported and permitted, browser-requested automatic PiP on desktop. Check playlist Play and Next after a cold load.
+- A removed, blank, or unprocessed playlist item returns 404 from its direct watch, media, and file endpoints, while the catalog still lists it as unavailable.
 - `async_operations`, `maintenance`, and temporary `celery` queue depths are monitored during rollout.
 
 See also [MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md](MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md), [STORAGE_STRUCTURE.md](STORAGE_STRUCTURE.md), and [CELERY_WORKERS_GUIDE.md](CELERY_WORKERS_GUIDE.md).

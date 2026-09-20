@@ -24,6 +24,9 @@ interface TabsProps<V extends string> {
   panelId?: string;
   /** Stable id prefix for tab/panel nodes (defaults to `useId()`). */
   idPrefix?: string;
+  disabled?: boolean;
+  /** Fill the tab rail with equal-width choices (useful in dialogs). */
+  stretch?: boolean;
 }
 
 /**
@@ -47,6 +50,8 @@ export function Tabs<V extends string>({
   hidePanel = false,
   panelId: panelIdProp,
   idPrefix,
+  disabled = false,
+  stretch = false,
 }: TabsProps<V>) {
   const generated = useId();
   const base = idPrefix ?? generated;
@@ -60,6 +65,7 @@ export function Tabs<V extends string>({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (disabled) return;
     const i = items.findIndex((t) => t.value === value);
     if (i < 0) return;
     switch (e.key) {
@@ -93,6 +99,7 @@ export function Tabs<V extends string>({
         // from changing the rail's outer spacing.
         className={cn(
           "-mx-1 -my-1 mb-5 flex gap-1 overflow-x-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          stretch && "mx-0 rounded-xl bg-muted",
           tablistClassName,
         )}
       >
@@ -108,10 +115,13 @@ export function Tabs<V extends string>({
               aria-selected={active}
               aria-controls={hidePanel && panelIdProp ? panelIdProp : panelId(t.value)}
               tabIndex={active ? 0 : -1}
+              disabled={disabled}
               onClick={() => onChange(t.value)}
               className={cn(
                 "pressable flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2 text-sm font-medium",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                "disabled:cursor-not-allowed disabled:opacity-50",
+                stretch && "min-w-[4.75rem] flex-1 justify-center",
                 active
                   ? "bg-card text-primary shadow-sm ring-1 ring-border"
                   : "text-muted-foreground hover:bg-muted hover:text-secondary-foreground"

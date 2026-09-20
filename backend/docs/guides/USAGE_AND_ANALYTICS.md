@@ -1,6 +1,6 @@
 # Usage, quotas, and product analytics
 
-**Product release:** v0.11.0.1 (September 2026)
+**Product release:** v0.11.1.0 (October 2026)
 
 This guide is the canonical reference for **in-app usage observability**: what users and admins see in the web UI, how it maps to API responses, and how it relates to `usage_events`, `quota_usage`, and share counters.
 
@@ -79,6 +79,8 @@ Activity totals come from **`GET /api/v1/users/me/analytics`**.
 - Course and channel analytics include **downloads by file type** for lectures currently in the catalog (same `FILE_DOWNLOAD` events as the daily chart).
 - Counting runs on public watch pages only (single share and lecture inside a course); not mixed into Settings → Usage or Admin → Analytics.
 - A viewer who is **signed in to LEAP** still increments share views: `navigator.sendBeacon` cannot send a CSRF header, so those POSTs are exempt. Owner Enable / Disable / Rotate still require CSRF.
+- Public access and engagement beacons publish events to the `async_operations` Celery queue. The worker writes rows and recording counters in one transaction, using event IDs to avoid double counting on retries. If Redis deduplication or queue publishing fails, the API attempts a synchronous database write; tracking remains best-effort and must not fail playback. Channel surface opens retain their channel ID, while `?from=` attribution requires an enabled channel, the same owner, and actual catalog membership. A Redis outage can still cause duplicate views from simultaneous requests before either database write commits.
+- Analytics can lag behind a successful beacon while events wait in the queue. Event timestamps use publication time so a delayed worker does not move traffic into a later UTC day. See [MONITORING.md](MONITORING.md) for queue and publish metrics.
 
 ---
 
@@ -127,3 +129,84 @@ Same release also shipped:
 - **Stability** — share view beacons work while signed in; Loki WARNING is reserved for signal (see [MONITORING.md](MONITORING.md)).
 
 Full file-level history: [CHANGELOG.md](../CHANGELOG.md) (dated sections **2026-09-09**, **2026-09-10**).
+
+
+## Home
+
+`/home` is the signed-in landing page: a standard Home heading, personal greeting,
+current operational counts, one list of up to five recordings with **Recently added** / **With errors** tabs,
+and weekly activity with a daily public-video views chart.
+
+A centered, width-limited column aligns the recording status cards, list, and activity
+section to the same edges. The activity metrics share one surface with the chart.
+**Open library** is the main navigation action; an empty library offers **Connect a
+source**. Video creation stays in the recording library. Connection warnings reuse
+the app-wide banner. Home is separated from the remaining sidebar navigation. The logo,
+authenticated `/`, successful login, an already signed-in visit to login or register,
+unknown routes, and render-error screens lead to `/home`. A recording still returns
+to the library, and **Open library** stays the way into Recordings.
+
+The list initially selects **With errors** when needed; subsequent refreshes preserve
+the selected tab. Recently added sorts by `created_at DESC`; With errors sorts by
+`updated_at DESC`. Each row opens the recording details and shows its status or failed
+stage. The page does not infer successful publication from an absence of errors.
+
+Activity appears only when at least one visible recording has an enabled public LEAP
+link, or can be played in an enabled public playlist belonging to the same owner.
+Both publication paths require a non-null share token and an active recording deletion
+state; playlist playback also requires a non-empty processed video path. A recording
+in several playlists counts once. Without published recordings,
+Home does not request analytics. Publication is independent of whether views occurred
+in the selected week.
+
+Activity shows public video views, recordings added, and hours of transcribed content
+for the UTC period. **View analytics** opens Settings → Usage. Values of 10,000 or more
+use compact notation; exact displayed values remain available in tooltips and
+screen-reader text. Transcribed hours are rounded to one decimal before formatting.
+
+- `GET /api/v1/users/me/home-summary` returns `total`, `published`, `in_progress`, `waiting_source`,
+  `paused`, and `error` for the authenticated owner; responses use `private, no-store`.
+- Counts exclude deleted and blank recordings. Categories are exclusive: errors first,
+  then paused, then source/conversion waits, then `on_air` (including queued work).
+  These categories are not exhaustive: idle/finished recordings also belong to `total`.
+- Catalog, export, and bulk filters accept `operational_state` with those four category keys.
+  Counts and filters share SQL predicates.
+- Home list requests use `compact=true&include_posters=false&per_page=5`, avoiding unused
+  poster lookups. Only the selected tab is fetched/polled.
+- Current data refreshes every 30 seconds on an active tab and on window focus; weekly
+  analytics refreshes every five minutes. Analytics reuses the existing UTC metrics,
+  covering today and the preceding six days; the period label exposes the exact range.
+- Queries are scoped to the signed-in user. Successful login cancels outstanding queries
+  and clears the client cache before navigating to Home.
+- Failed/missing data is not replaced with zeros. A failed refresh retains previously loaded
+  results with an error and a retry action. A stale zero summary cannot hide a nonempty
+  list. Cached empty-list messages are suppressed while that list's refresh is in error.
+- Home adds no database migration. Deploy the API with `/users/me/home-summary` and
+  `operational_state` support before, or together with, the frontend.
+
+Settings tab contents and Home use the shared `useHydrated` hook to keep the first
+client render consistent with server markup even when the parent auth guard has
+already populated the user cache. Settings keeps its heading and tab navigation
+server-rendered while its data-dependent panel starts with a skeleton.
+
+## API errors in the interface
+
+Toasts and load-error placeholders share one reader, `extractApiError`. A specific API
+`detail` is shown as written: quota text, the first FastAPI validation `msg`, and an
+auth lockout. These generic bodies are not shown literally: `Rate limit exceeded`,
+`Too many requests`, and `Internal Server Error`. A sentence longer than 240 characters
+is also replaced.
+
+| Situation | What the UI says |
+| --- | --- |
+| 429 with no useful `detail` | Too many requests, plus a wait taken from JSON `retry_after` or the `Retry-After` header: about a minute up to 90 seconds, then whole minutes, an hour up to 90 minutes, otherwise whole hours. With neither value: wait a moment. |
+| No response, `ERR_NETWORK` | Could not reach the server. |
+| `ECONNABORTED` or `ETIMEDOUT` | The request timed out. |
+| `ERR_CANCELED` | The caller's own fallback. A cancel is not described as a dropped connection. |
+| 413 with no useful `detail` | The file is larger than the upload limit. The upload form still states the configured byte limit first. |
+| 5xx with no useful `detail` | The server had a problem; try again in a moment. |
+| Anything else | The caller's fallback, such as "Failed to load recordings". |
+
+Missing recordings, playlists, and channels (404/403) keep their own "not found" copy.
+A failed Connections load is an error with retry, not an empty account. Charts, share
+statistics, the recording player, and a failed automation job use the same reader.

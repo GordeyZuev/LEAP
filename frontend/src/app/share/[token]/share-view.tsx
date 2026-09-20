@@ -6,9 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Check,
   Clock,
-  Copy,
   VideoOff,
 } from "lucide-react";
 
@@ -23,6 +21,7 @@ import { AIContentEditor, type TopicVersion } from "@/components/recordings/ai-c
 import { resolveStorageUrl } from "@/api/client";
 import { ArtefactList, SourceExtrasSection, sourceExtrasToArtefacts, type ArtefactItem, type ArtefactType } from "@/components/recordings/artefact-list";
 import { ShareVideoDownloadButton } from "@/components/recordings/share-video-download-button";
+import { PublicShareHeader } from "@/components/share/public-share-header";
 import { TranscriptPanel } from "@/components/recordings/transcript-panel";
 import { type VideoPlayerMarker } from "@/components/ui/video-player";
 import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-player-frame";
@@ -35,12 +34,6 @@ import { FormattedText } from "@/components/ui/formatted-text";
 import { cn, formatDate, formatDuration, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
 import { lastIndexAtOrBefore } from "@/lib/playlist-playable";
 import { recordingResumeKey } from "@/lib/video-resume";
-import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
-import {
-  COPY_LINK_CHIP,
-  COPY_LINK_CHIP_COPIED,
-  COPY_LINK_CHIP_IDLE,
-} from "@/components/share/public-share-header";
 import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
 import { useShareEngagement } from "@/hooks/use-share-engagement";
 import { useShareVtt } from "@/hooks/use-share-vtt";
@@ -59,7 +52,6 @@ const MEDIA_URL_STALE_MS = 50 * 60 * 1000;
 
 const PAGE_SHELL = "mx-auto w-full max-w-[110rem] px-4 sm:px-6 lg:px-8";
 const PAGE_MAIN = cn(PAGE_SHELL, "py-4 sm:py-8");
-const PAGE_HEADER_INNER = cn(PAGE_SHELL, "flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 sm:py-4");
 
 type SidePanelTab = "topics" | "transcript";
 
@@ -70,6 +62,7 @@ function ShareVideoPlayer({
   processedPlayUrl,
   originalPlayUrl,
   mediaExpiresIn,
+  mediaIssuedAtMs,
   onItemRefetch,
   markers,
   vttBlobUrl,
@@ -85,7 +78,8 @@ function ShareVideoPlayer({
   processedPlayUrl?: string | null;
   originalPlayUrl?: string | null;
   mediaExpiresIn?: number | null;
-  onItemRefetch: () => void;
+  mediaIssuedAtMs: number;
+  onItemRefetch: (variant: "processed" | "original") => Promise<string | null>;
   markers: VideoPlayerMarker[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -95,33 +89,37 @@ function ShareVideoPlayer({
   onEnded?: () => void;
 }) {
   const presetUrl = variant === "processed" ? processedPlayUrl : originalPlayUrl;
-  const { data: videoUrl, isLoading, isError, refetch, error } = useQuery({
+  const { data: media, dataUpdatedAt: mediaUpdatedAt, isLoading, refetch, error } = useQuery({
     queryKey: ["share-media", token, variant],
-    queryFn: async () => {
-      const res = await getShareMedia(token, variant);
-      return res.url;
-    },
+    queryFn: () => getShareMedia(token, variant),
     enabled: !presetUrl,
     staleTime: MEDIA_URL_STALE_MS,
     retry: false,
   });
-  const resolvedUrl = presetUrl ?? videoUrl;
+  const resolvedUrl = presetUrl ?? media?.url;
+  const refreshMedia = useCallback(async () => {
+    if (presetUrl) return onItemRefetch(variant);
+    const result = await refetch({ cancelRefetch: false });
+    return result.isSuccess ? result.data?.url ?? null : null;
+  }, [presetUrl, onItemRefetch, refetch, variant]);
 
   usePresignedMediaRefresh({
-    expiresIn: mediaExpiresIn,
-    enabled: Boolean(presetUrl),
-    onRefresh: onItemRefetch,
+    expiresIn: presetUrl ? mediaExpiresIn : media?.expires_in,
+    enabled: Boolean(resolvedUrl),
+    url: resolvedUrl,
+    issuedAtMs: presetUrl ? mediaIssuedAtMs : mediaUpdatedAt,
+    onRefresh: refreshMedia,
   });
 
   useEffect(() => {
     if (httpStatus(error) === 404) onMediaMissing?.();
   }, [error, onMediaMissing]);
 
-  if (!presetUrl && isLoading) {
+  if (!resolvedUrl && isLoading) {
     return <VideoPlayerLoading />;
   }
 
-  if ((!presetUrl && isError) || !resolvedUrl) {
+  if (!resolvedUrl) {
     return (
       <div
         role="status"
@@ -142,10 +140,7 @@ function ShareVideoPlayer({
       ref={videoRef}
       src={resolvedUrl}
       resumeKey={recordingResumeKey(String(recordingId), variant)}
-      onReload={() => {
-        onItemRefetch();
-        void refetch();
-      }}
+      onReload={refreshMedia}
       markers={markers}
       vttBlobUrl={variant === "processed" ? vttBlobUrl : null}
       onTimeUpdate={onTimeUpdate}
@@ -165,12 +160,13 @@ export function ShareView({ token }: { token: string }) {
   const { track, flush } = useShareEngagement(engagementPath);
   const {
     data: recording,
+    dataUpdatedAt: recordingUpdatedAt,
     error,
     isPending,
     refetch,
   } = useQuery<PublicRecordingResponse>({
-    queryKey: ["share-recording", token],
-    queryFn: () => getPublicRecording(token, "player"),
+    queryKey: ["share-recording", token, fromSlug],
+    queryFn: () => getPublicRecording(token, "player", fromSlug),
     retry: false,
   });
 
@@ -186,19 +182,11 @@ export function ShareView({ token }: { token: string }) {
     setSidePanelTab(tab);
     scrollPlayerIntoView();
   }, []);
-  const [copied, setCopied] = useState(false);
   const { theater, setTheater } = useWatchTheater();
   const videoRef = useRef<HTMLVideoElement>(null);
   const durationFallbackRef = useRef(0);
   const positionRef = useRef(0);
   const companionPanelId = useId();
-
-  const handleCopyLink = useCallback(() => {
-    void navigator.clipboard.writeText(window.location.href).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, []);
 
   const handleMediaMissing = useCallback(() => {
     void refetch();
@@ -213,8 +201,10 @@ export function ShareView({ token }: { token: string }) {
     fallbackUrl: vttFallback,
   });
 
-  const refetchPlayer = useCallback(() => {
-    void refetch();
+  const refetchPlayer = useCallback(async (variant: "processed" | "original") => {
+    const result = await refetch({ cancelRefetch: false });
+    if (!result.isSuccess) return null;
+    return variant === "processed" ? result.data?.play_url ?? null : result.data?.original_play_url ?? null;
   }, [refetch]);
 
   const topicTimestamps = useMemo(
@@ -314,12 +304,15 @@ export function ShareView({ token }: { token: string }) {
   const missing = httpStatus(error) === 404;
   if (missing) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center bg-background px-6">
-        <div className="w-full max-w-md">
-          <ErrorState
-            title="Link not found"
-            description="This share link has been revoked, or it never existed."
-          />
+      <div className="bg-background">
+        <PublicShareHeader />
+        <div className="flex min-h-[70vh] items-center justify-center px-6">
+          <div className="w-full max-w-md">
+            <ErrorState
+              title="Link not found"
+              description="This share link has been revoked, or it never existed."
+            />
+          </div>
         </div>
       </div>
     );
@@ -327,13 +320,17 @@ export function ShareView({ token }: { token: string }) {
 
   if (error && !recording) {
     return (
-      <div className="flex min-h-[70vh] items-center justify-center bg-background px-6">
-        <div className="w-full max-w-md">
-          <ErrorState
-            title="Unable to load this recording"
-            description="Check your connection and try again."
-            onRetry={() => void refetch()}
-          />
+      <div className="bg-background">
+        <PublicShareHeader />
+        <div className="flex min-h-[70vh] items-center justify-center px-6">
+          <div className="w-full max-w-md">
+            <ErrorState
+              title="Unable to load this recording"
+              description="Check your connection and try again."
+              error={error}
+              onRetry={() => void refetch()}
+            />
+          </div>
         </div>
       </div>
     );
@@ -342,15 +339,7 @@ export function ShareView({ token }: { token: string }) {
   if (isPending || !recording) {
     return (
       <div className="bg-background">
-        <header className="border-b border-border bg-card">
-          <div className={PAGE_HEADER_INNER}>
-            <div className="flex items-center gap-3">
-              <Skeleton className="h-6 w-6 rounded" />
-              <Skeleton className="h-4 w-10" />
-            </div>
-            <Skeleton className="h-4 w-36" />
-          </div>
-        </header>
+        <PublicShareHeader />
         <main className={PAGE_MAIN}>
           <WatchStage
             player={<div className={cn(VIDEO_PLAYER_FRAME, "animate-pulse")} />}
@@ -361,6 +350,7 @@ export function ShareView({ token }: { token: string }) {
     );
   }
 
+  const linkedChannel = recording.channels?.find((channel) => channel.slug === fromSlug?.trim().toLowerCase());
   const hasVideo = recording.has_processed_video || recording.has_original_video;
   const bothVariants = Boolean(
     recording.has_processed_video && recording.has_original_video && recording.original_play_url,
@@ -423,6 +413,7 @@ export function ShareView({ token }: { token: string }) {
       processedPlayUrl={recording.play_url}
       originalPlayUrl={recording.original_play_url}
       mediaExpiresIn={recording.media_expires_in}
+      mediaIssuedAtMs={recordingUpdatedAt}
       onItemRefetch={refetchPlayer}
       markers={onProcessedTimeline ? markers : []}
       vttBlobUrl={onProcessedTimeline ? vttBlobUrl : null}
@@ -482,39 +473,19 @@ export function ShareView({ token }: { token: string }) {
 
   return (
     <div className="bg-background">
-      <header className="border-b border-border bg-card">
-        <div className={PAGE_HEADER_INNER}>
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/logo_symb.svg" alt="" aria-hidden="true" className="h-6 w-6" />
-              <span className="text-sm font-semibold text-foreground">LEAP</span>
-            </span>
-            <AgeRatingBadge />
-          </div>
-          <button
-            type="button"
-            onClick={handleCopyLink}
-            className={cn(COPY_LINK_CHIP, copied ? COPY_LINK_CHIP_COPIED : COPY_LINK_CHIP_IDLE)}
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Copied" : "Copy link"}
-          </button>
-          <span role="status" className="sr-only">
-            {copied ? "Link copied to clipboard" : ""}
-          </span>
-        </div>
-      </header>
+      <PublicShareHeader />
 
       <main className={PAGE_MAIN}>
         <WatchStage
             player={playerNode}
             title={
               <div>
-                {fromSlug && (
-                  <Link href={`/c/${fromSlug}`} className="mb-2 inline-flex text-sm text-muted-foreground hover:text-foreground">
-                    ← {fromSlug}
-                  </Link>
+                {linkedChannel && (
+                  <nav aria-label="Video location" className="mb-2 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+                    <Link href={`/c/${linkedChannel.slug}`} className="min-w-0 max-w-full break-words font-medium text-primary hover:text-primary-hover hover:underline">
+                      {linkedChannel.name}
+                    </Link>
+                  </nav>
                 )}
                 <h1 className="text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
                   {recording.title || recording.display_name}

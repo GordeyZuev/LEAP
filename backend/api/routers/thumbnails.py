@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from fastapi.responses import StreamingResponse
 
 from api.auth.dependencies import get_current_user
+from api.helpers.poster_thumbnail_cache import invalidate_poster_thumbnails
 from api.schemas.auth import UserInDB
 from api.schemas.thumbnail import (
     ThumbnailInfo,
@@ -143,6 +144,7 @@ async def create_thumbnail(
 
     try:
         storage_key = await thumbnail_manager.write_user_thumbnail(current_user.user_slug, final_filename, content)
+        await invalidate_poster_thumbnails(current_user.user_slug)
         logger.info(f"User {current_user.user_slug} created thumbnail: {final_filename}")
         return ThumbnailUploadResponse(
             message="Thumbnail created successfully",
@@ -183,6 +185,7 @@ async def update_thumbnail(
 
     try:
         storage_key = await thumbnail_manager.write_user_thumbnail(current_user.user_slug, thumbnail_name, content)
+        await invalidate_poster_thumbnails(current_user.user_slug)
         logger.info(f"User {current_user.user_slug} {action} thumbnail: {thumbnail_name}")
         return ThumbnailUploadResponse(
             message=f"Thumbnail {action} successfully",
@@ -250,4 +253,5 @@ async def delete_thumbnail(
             detail=f"Thumbnail not found: {thumbnail_name}",
         )
 
+    await invalidate_poster_thumbnails(current_user.user_slug)
     logger.info(f"User {current_user.user_slug} deleted thumbnail: {thumbnail_name}")

@@ -21,7 +21,7 @@ Supporting rules: **`workflow-changelog.mdc`**, **`version-bump-and-readme.mdc`*
 ## 1) Changes → business summary and doc audit
 
 1. **Inventory** — From `git diff`, PR scope, or the user’s file list: modules, API paths, env vars (**names only**), migrations.
-2. **Business summary** — 3–7 bullets **for operators/users** (outcomes, not refactors). Match the voice of the root **`README.md`** highlights section (currently the `` `Новое в v…` `` pattern).
+2. **Business summary** — 3–7 bullets of what a person can do or notice. Match the voice of the root **`README.md`** highlights (`` `Новое в v…` ``). From **v0.10.0** onward, each release in **`README.md`** and **`backend/docs/UPDATES.md`** has two parts: **Для создателей** and **Для зрителей** (in-app notes: **For creators** / **For viewers**).
 3. **CHANGELOG draft** — Technical bullets + `` `### Файлы` `` / `` `### Files` `` subsection per **`workflow-changelog.mdc`** (match surrounding CHANGELOG language).
 4. **Doc consistency** — Open **`backend/docs/INDEX.md`** and **`workflow-changelog.mdc`** cross-update table: if behavior/API/env/deploy changed, patch the listed guides and **`backend/docs/TECHNICAL.md`**.
 5. **Stale version grep** — Search for the **previous** `vX.Y.Z` / `X.Y.Z` in:
@@ -40,15 +40,15 @@ Do **not** treat ADR/guide **internal** doc-edition headings (e.g. text like `` 
    - **`backend/api/__init__.py`** → `__version__ = "X.Y.Z"`
    - **`backend/config/settings.py`** → `AppSettings.version` default (`Field(default="X.Y.Z", …)` — used by **`api/main.py`** for OpenAPI / health metadata)
    - **`backend/.version`** → single line `X.Y.Z`
-3. Update **root `README.md`**: top product version line (often `` `**Версия:**` `` today), footer **Version** (if present), and highlights block (`` `Новое в vX.Y.Z` `` pattern) — all **`vX.Y.Z`** must match **X.Y.Z** from `pyproject`.
-4. Append/prepend **`backend/docs/CHANGELOG.md`** release block (and dated entries if that is the house style).
-5. If you maintain **`backend/docs/UPDATES.md`**, add/adjust the current-release bullet so it matches the new version (otherwise skip).
+3. Update **root `README.md`**: top product version line (often `` `**Версия:**` `` today), footer **Version** (if present), and highlights block (`` `Новое в vX.Y.Z` `` pattern) — all **`vX.Y.Z`** must match **X.Y.Z** from `pyproject`. Highlights are outcomes only (see **Do not**).
+4. Append/prepend **`backend/docs/CHANGELOG.md`** release block (and dated entries if that is the house style). Revision ids and deploy order belong here, not in README or UPDATES.
+5. If you maintain **`backend/docs/UPDATES.md`**, add/adjust the current-release note so it matches the new version (otherwise skip). Same outcome-only rule as README.
 6. Replace any other stale **product** stamps found in step 1.5; add month/year only where that line already carries a date.
 7. If **Alembic** revisions shipped: ensure **`alembic-migrations.mdc`** checklist and CHANGELOG mention revision ids + deploy order.
 8. **In-app release notes (“What’s new” modal)** — when the release has user-visible UI changes:
    - Sync **`frontend/src/lib/app-version.ts`** fallback with **`pyproject`** semver (footer and modal read **`APP_VERSION`**; optional **`NEXT_PUBLIC_APP_VERSION`** at build time).
    - Add or update the block for **`X.Y.Z`** in **`frontend/src/content/release-notes.ts`** → **`RELEASE_NOTES_BY_VERSION`**.
-   - **Copy:** English; **3–7 bullets**; outcomes for users/operators, not internal refactors. Use **`parts`** with **`{ kind: "link", label, href }`** for in-app routes (`/templates`, `/settings`, `/recordings`, …).
+   - **Copy:** English; two parts, **For creators** and **For viewers**; outcomes only, same ban on implementation detail as README. Use **`parts`** with **`{ kind: "link", label, href }`** for in-app routes (`/templates`, `/settings`, `/recordings`, …).
    - Skip the modal for a release by omitting that version key (patch-only / ops-only).
    - **Verify:** `localStorage.removeItem("leap:lastSeenRelease")` in the browser → reload → modal after ~1.5 s.
 
@@ -66,3 +66,4 @@ Do **not** treat ADR/guide **internal** doc-edition headings (e.g. text like `` 
 
 - Commit secrets; env vars in notes = **names only**.
 - Bump unrelated **docker-compose** `version:` keys or **Python** `target-version` in Ruff — those are not product semver.
+- In **`README.md`** and **`backend/docs/UPDATES.md`**, do not write implementation detail: no migration or revision ids, queues, hashes, storage paths, HTTP or worker mechanics, package or library names used as how-it-works, deploy commands, or file lists. Say what changed for a creator or a viewer. Put revision ids, ordering, and how it is built in **`backend/docs/CHANGELOG.md`** and the matching guide.

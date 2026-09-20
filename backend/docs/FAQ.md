@@ -79,7 +79,7 @@ No. VK upload is not supported. Current destinations are YouTube, Yandex Disk, a
 
 ## Google Drive / Rutube upload?
 
-Not in the current release. yt-dlp can **download** from Rutube and many other sites. Native Google Drive and Rutube **publish** are planned.
+Not in the current release. LEAP can **download** from Rutube and the other allowlisted video hosts. Native Google Drive and Rutube **publish** are planned.
 
 ---
 

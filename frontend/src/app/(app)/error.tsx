@@ -26,7 +26,7 @@ export default function AppSectionError({
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground">Something went wrong</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              This page failed to render. Retry, or jump back to recordings.
+              This page failed to render. Retry, or go back home.
             </p>
             <div className="mt-4 flex gap-2">
               <button
@@ -37,10 +37,10 @@ export default function AppSectionError({
                 Try again
               </button>
               <Link
-                href="/recordings"
+                href="/home"
                 className="pressable rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-muted"
               >
-                Recordings
+                Home
               </Link>
             </div>
             {error.digest && (

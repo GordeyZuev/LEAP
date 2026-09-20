@@ -9,15 +9,18 @@ from openai import APIStatusError, AuthenticationError
 
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
+from api.helpers.external_retry import rate_limit_countdown
 from api.helpers.status_manager import update_aggregate_status
 from api.observability import track_pipeline_stage
 from api.repositories.recording_repos import RecordingRepository
 from api.repositories.template_repos import OutputPresetRepository
+from api.schemas.config.user_config import TrimmingConfig
 from api.services.config_utils import copy_presets, is_leap_platform, resolve_full_config
 from api.services.leap_publish import leap_meta_from_preset, merge_leap_metadata, should_enqueue_leap_publish
 from api.services.quota_service import QuotaExceededError
 from api.services.timing_service import TimingService
-from api.tasks.base import BaseTask, ProcessingTask
+from api.shared.exceptions import ExternalRateLimitError
+from api.tasks.base import BaseTask, ProcessingTask, bind_task_owner
 from assemblyai_module import EmptyTranscriptError
 from config.settings import get_settings
 from database.models import RecordingModel
@@ -179,8 +182,12 @@ def download_recording_task(
             logger.error("Soft time limit exceeded")
             raise self.retry(countdown=settings.celery.download_retry_delay, exc=SoftTimeLimitExceeded())
 
+        except ExternalRateLimitError as exc:
+            logger.warning(f"Rate limited during download: {exc!r}")
+            raise self.retry(countdown=rate_limit_countdown(self.request.retries, exc.retry_after), exc=exc)
+
         except Exception as exc:
-            logger.error(f"Error downloading: {exc!r}", exc_info=True)
+            logger.opt(exception=True).error(f"Error downloading: {exc!r}")
             raise self.retry(exc=exc)
 
 
@@ -230,7 +237,7 @@ async def _refresh_download_token_if_needed(
 
         # Get credentials
         cred_repo = UserCredentialRepository(session)
-        credential = await cred_repo.get_by_id(source.credential_id)
+        credential = await cred_repo.get_by_id(source.credential_id, user_id)
 
         if not credential:
             logger.warning(f"Credential not found | credential={source.credential_id}")
@@ -398,7 +405,9 @@ async def _refresh_yandex_disk_oauth_if_expiring(
     """
     from api.services.yandex_disk_credentials import refresh_yandex_disk_credential_if_needed
 
-    await refresh_yandex_disk_credential_if_needed(creds_data, credential.id, cred_repo, encryption)
+    await refresh_yandex_disk_credential_if_needed(
+        creds_data, credential.id, cred_repo, encryption, user_id=credential.user_id
+    )
 
 
 async def _mts_link_download_options(session, recording, user_id: str) -> tuple[int, dict]:
@@ -421,7 +430,7 @@ async def _mts_link_download_options(session, recording, user_id: str) -> tuple[
     if not source or not source.credential_id:
         raise ValueError("MTS Link source has no credential configured")
 
-    credential = await UserCredentialRepository(session).get_by_id(source.credential_id)
+    credential = await UserCredentialRepository(session).get_by_id(source.credential_id, user_id)
     if not credential:
         raise ValueError(f"MTS Link credential {source.credential_id} not found")
 
@@ -435,6 +444,7 @@ async def _mts_link_download_options(session, recording, user_id: str) -> tuple[
         "conversion_view": config.get("conversion_view", "none"),
         "fetch_chat": config.get("fetch_chat", True),
         "fetch_session_files": config.get("fetch_session_files", True),
+        "credential_id": credential.id,
     }
 
 
@@ -467,7 +477,7 @@ async def _download_via_external(
         source = await source_repo.find_by_id(recording.source.input_source_id, user_id)
         if source and source.credential_id:
             cred_repo = UserCredentialRepository(session)
-            credential = await cred_repo.get_by_id(source.credential_id)
+            credential = await cred_repo.get_by_id(source.credential_id, user_id)
             if credential:
                 encryption = get_encryption()
                 creds_data = encryption.decrypt_credentials(credential.encrypted_data)
@@ -737,7 +747,7 @@ def trim_video_task(
             raise self.retry(countdown=settings.celery.processing_retry_delay, exc=SoftTimeLimitExceeded())
 
         except Exception as exc:
-            logger.error(f"Error trimming: {exc!r}", exc_info=True)
+            logger.opt(exception=True).error(f"Error trimming: {exc!r}")
             raise self.retry(exc=exc)
 
 
@@ -791,12 +801,12 @@ async def _async_process_video(
             await recording_repo.update(recording)
             await session.commit()
 
-        trimming_config = full_config.get("trimming", {})
-
-        silence_threshold = trimming_config.get("silence_threshold", -40.0)
-        min_silence_duration = trimming_config.get("min_silence_duration", 2.0)
-        padding_before = trimming_config.get("padding_before", 5.0)
-        padding_after = trimming_config.get("padding_after", 5.0)
+        trimming_config = full_config.get("trimming", {}) or {}
+        trimming = TrimmingConfig.model_validate(trimming_config)
+        silence_threshold = trimming.silence_threshold
+        min_silence_duration = trimming.min_silence_duration
+        padding_before = trimming.padding_before
+        padding_after = trimming.padding_after
 
         logger.debug(
             f"Trim config | {format_details(silence_threshold=silence_threshold, min_silence_duration=min_silence_duration)}"
@@ -899,25 +909,20 @@ async def _async_process_video(
             )
             output_audio_key = _to_storage_key(storage_builder.recording_audio(user_slug, recording_id))
 
+            video_duration = float(source_info["duration"])
+
             # Sound throughout entire video - skip trimming, reuse source video as processed.
-            if last_sound is None and first_sound == 0.0:
-                logger.info("Skipped: sound throughout entire video")
-                task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
+            # last_sound is None when silencedetect found nothing; last_sound == duration when
+            # there were mid-file pauses but no trailing outro (file just stops).
+            skip_media_trim = last_sound is None and first_sound == 0.0
 
-                # No trim needed — keep source as processed video (avoid copying a multi-GB file).
-                output_video_key = source_storage_key
-                logger.debug(f"Processed video references source: {output_video_key}")
+            if not skip_media_trim and last_sound is None:
+                if temp_audio_path.exists():
+                    temp_audio_path.unlink()
+                raise Exception("Failed to detect audio end")
 
-                # Commit the extracted full audio under the canonical audio key.
-                await storage_backend.save_file(output_audio_key, temp_audio_path)
-
-            else:
-                # Normal case: trim video and audio (FFmpeg requires local files).
-                if last_sound is None:
-                    if temp_audio_path.exists():
-                        temp_audio_path.unlink()
-                    raise Exception("Failed to detect audio end")
-
+            if not skip_media_trim:
+                assert last_sound is not None
                 start_trim = max(0, first_sound - padding_before)
                 end_trim = last_sound + padding_after
 
@@ -938,9 +943,6 @@ async def _async_process_video(
 
                 logger.info(f"Audio boundaries | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s')}")
 
-                # Silence-based bounds can exceed container duration (padding, MP3 vs video mismatch).
-                video_meta = await processor.get_video_info(str(local_source_video))
-                video_duration = float(video_meta["duration"])
                 if end_trim > video_duration:
                     overshoot = end_trim - video_duration
                     log = logger.warning if overshoot > 30 else logger.info
@@ -972,7 +974,24 @@ async def _async_process_video(
                 logger.info(
                     f"Trim window vs video | {format_details(start=f'{start_trim:.1f}s', end=f'{end_trim:.1f}s', video=f'{video_duration:.1f}s')}"
                 )
+                if start_trim <= 0 and end_trim >= video_duration:
+                    skip_media_trim = True
+                    logger.info("Skipped: trim window is full media")
 
+            if skip_media_trim:
+                logger.info("Skipped: using original video (no trim)")
+                task_self.update_progress(user_id, 60, "Using original video...", step="reference_video")
+
+                # No trim needed — keep source as processed video (avoid copying a multi-GB file).
+                output_video_key = source_storage_key
+                logger.debug(f"Processed video references source: {output_video_key}")
+
+                # Commit the extracted full audio under the canonical audio key.
+                await storage_backend.save_file(output_audio_key, temp_audio_path)
+                # S3 upload leaves the local file; LOCAL save_file already consumed it.
+                temp_audio_path.unlink(missing_ok=True)
+
+            else:
                 # Step 3: Trim video into a local temp output.
                 task_self.update_progress(user_id, 60, "Trimming video...", step="trim_video")
 
@@ -1076,6 +1095,33 @@ async def _mark_empty_transcript(recording_id: int, user_id: str) -> None:
         await session.commit()
 
 
+def _continue_after_stage_error(
+    task,
+    recording_id: int,
+    user_id: str,
+    stage_type: ProcessingStageType,
+    exc: BaseException,
+    *,
+    retry: bool = True,
+    countdown: int | None = None,
+) -> dict:
+    """Skip the stage and return success when allow_errors is set; otherwise retry or raise."""
+    from api.helpers.failure_handler import skip_stage_if_allow_errors
+
+    if task.run_async(skip_stage_if_allow_errors(recording_id, user_id, stage_type, str(exc))):
+        return task.build_result(
+            user_id=user_id,
+            status="skipped",
+            recording_id=recording_id,
+            result={"reason": "allow_errors"},
+        )
+    if not retry:
+        raise exc
+    if countdown is not None:
+        raise task.retry(countdown=countdown, exc=exc)
+    raise task.retry(exc=exc)
+
+
 @celery_app.task(
     bind=True,
     base=ProcessingTask,
@@ -1141,8 +1187,8 @@ def transcribe_recording_task(
             raise Ignore()
 
         except Exception as exc:
-            logger.error(f"Error transcribing: {exc!r}", exc_info=True)
-            raise self.retry(exc=exc)
+            logger.opt(exception=True).error(f"Error transcribing: {exc!r}")
+            return _continue_after_stage_error(self, recording_id, user_id, ProcessingStageType.TRANSCRIBE, exc)
 
 
 async def _async_transcribe_recording(
@@ -1185,6 +1231,13 @@ async def _async_transcribe_recording(
         transcription_config = full_config.get("transcription", {})
 
         recording_repo = RecordingRepository(session)
+
+        from api.helpers.failure_reset import reset_recording_failure, should_reset_on_retry
+
+        if should_reset_on_retry(recording, "transcribe"):
+            reset_recording_failure(recording, "transcribe")
+            await recording_repo.update(recording)
+            await session.commit()
 
         # Check if retrying after failure
         transcribe_stage = next(
@@ -1862,6 +1915,12 @@ def run_recording_task(
         # Launch chain
         chain_signature = chain(*task_chain)
         chain_result = chain_signature.apply_async()
+        # chain.apply_async() does not go through BaseTask.apply_async; bind the
+        # result id (last task) so GET /tasks/{id} is not 403 while PENDING.
+        try:
+            bind_task_owner(str(chain_result.id), user_id)
+        except Exception as exc:
+            logger.warning(f"Failed to bind pipeline chain owner | task={chain_result.id} | {exc}")
 
         # Store the actual chain ID so pause can revoke it
         async def _store_chain_id():
@@ -1872,7 +1931,10 @@ def run_recording_task(
                     rec.pipeline_task_id = chain_result.id
                     await session.commit()
 
-        self.run_async(_store_chain_id())
+        try:
+            self.run_async(_store_chain_id())
+        except Exception as exc:
+            logger.opt(exception=True).error(f"Failed to store pipeline chain id | {exc!r}")
 
         logger.info(
             f"Pipeline launched | {format_details(tasks=len(task_chain), chain_id=short_task_id(chain_result.id))}"
@@ -1891,7 +1953,7 @@ def run_recording_task(
         )
 
     except Exception as exc:
-        logger.error(f"Pipeline orchestration failed: {exc!r}", exc_info=True)
+        logger.opt(exception=True).error(f"Pipeline orchestration failed: {exc!r}")
         raise
     finally:
         _ctx.__exit__(None, None, None)
@@ -1966,29 +2028,39 @@ def extract_topics_task(
             logger.error("Soft time limit exceeded")
             raise self.retry(countdown=settings.celery.processing_retry_delay, exc=SoftTimeLimitExceeded())
 
-        except AuthenticationError:
-            logger.error("DeepSeek authentication failed", exc_info=True)
-            raise
+        except AuthenticationError as exc:
+            logger.opt(exception=True).error("DeepSeek authentication failed")
+            return _continue_after_stage_error(
+                self, recording_id, user_id, ProcessingStageType.EXTRACT_TOPICS, exc, retry=False
+            )
 
         except APIStatusError as exc:
             if exc.status_code in (401, 402):
-                logger.error(f"DeepSeek client error {exc.status_code}: {exc!r}", exc_info=True)
-                raise
-            logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
-            raise self.retry(exc=exc)
+                logger.opt(exception=True).error(f"DeepSeek client error {exc.status_code}: {exc!r}")
+                return _continue_after_stage_error(
+                    self, recording_id, user_id, ProcessingStageType.EXTRACT_TOPICS, exc, retry=False
+                )
+            logger.opt(exception=True).error(f"Error extracting topics: {exc!r}")
+            return _continue_after_stage_error(self, recording_id, user_id, ProcessingStageType.EXTRACT_TOPICS, exc)
 
         except DeepSeekError as exc:
-            logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
+            logger.opt(exception=True).error(f"Error extracting topics: {exc!r}")
             if is_transient_deepseek_error(exc):
-                raise self.retry(
+                return _continue_after_stage_error(
+                    self,
+                    recording_id,
+                    user_id,
+                    ProcessingStageType.EXTRACT_TOPICS,
+                    exc,
                     countdown=settings.celery.deepseek_transient_retry_delay,
-                    exc=exc,
                 )
-            raise
+            return _continue_after_stage_error(
+                self, recording_id, user_id, ProcessingStageType.EXTRACT_TOPICS, exc, retry=False
+            )
 
         except Exception as exc:
-            logger.error(f"Error extracting topics: {exc!r}", exc_info=True)
-            raise self.retry(exc=exc)
+            logger.opt(exception=True).error(f"Error extracting topics: {exc!r}")
+            return _continue_after_stage_error(self, recording_id, user_id, ProcessingStageType.EXTRACT_TOPICS, exc)
 
 
 async def _async_extract_topics(
@@ -2033,12 +2105,17 @@ async def _async_extract_topics(
             logger.info("Skipped: topic extraction already completed")
             return {"status": "skipped", "reason": "already_completed"}
 
-        # Get user_slug for path generation
+        topics_stage = next(
+            (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.EXTRACT_TOPICS),
+            None,
+        )
         user_slug = recording.owner.user_slug
-
-        # Check presence of transcription
         transcription_manager = get_transcription_manager()
-        if not await transcription_manager.has_master(recording_id, user_slug):
+        has_transcript = await transcription_manager.has_master(recording_id, user_slug)
+        if not force and topics_stage and topics_stage.status == ProcessingStageStatus.SKIPPED and not has_transcript:
+            logger.info("Skipped: topic extraction already skipped")
+            return {"status": "skipped", "reason": "already_skipped"}
+        if not has_transcript:
             raise ValueError(f"Transcription not found for recording {recording_id}. Please run transcription first.")
 
         task_self.update_progress(user_id, 20, "Loading transcription...", step="extract_topics")
@@ -2230,9 +2307,13 @@ def generate_subtitles_task(
                 result=result,
             )
 
+        except SoftTimeLimitExceeded:
+            logger.error("Soft time limit exceeded")
+            raise self.retry(countdown=settings.celery.processing_retry_delay, exc=SoftTimeLimitExceeded())
+
         except Exception as exc:
-            logger.error(f"Error generating subtitles: {exc!r}", exc_info=True)
-            raise self.retry(exc=exc)
+            logger.opt(exception=True).error(f"Error generating subtitles: {exc!r}")
+            return _continue_after_stage_error(self, recording_id, user_id, ProcessingStageType.GENERATE_SUBTITLES, exc)
 
 
 async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, formats: list[str]) -> dict:
@@ -2259,6 +2340,13 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
             logger.info("Skipped: blank record")
             return {"status": "skipped", "reason": "blank_record"}
 
+        from api.helpers.failure_reset import reset_recording_failure, should_reset_on_retry
+
+        if should_reset_on_retry(recording, "generate_subtitles"):
+            reset_recording_failure(recording, "generate_subtitles")
+            await recording_repo.update(recording)
+            await session.commit()
+
         # Idempotency: skip if subtitles already generated successfully
         subs_stage = next(
             (s for s in recording.processing_stages if s.stage_type == ProcessingStageType.GENERATE_SUBTITLES), None
@@ -2267,12 +2355,13 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
             logger.info("Skipped: subtitle generation already completed")
             return {"status": "skipped", "reason": "already_completed"}
 
-        # Get user_slug for path generation
         user_slug = recording.owner.user_slug
-
-        # Check presence of transcription
         transcription_manager = get_transcription_manager()
-        if not await transcription_manager.has_master(recording_id, user_slug):
+        has_transcript = await transcription_manager.has_master(recording_id, user_slug)
+        if subs_stage and subs_stage.status == ProcessingStageStatus.SKIPPED and not has_transcript:
+            logger.info("Skipped: subtitle generation already skipped")
+            return {"status": "skipped", "reason": "already_skipped"}
+        if not has_transcript:
             raise ValueError(f"Transcription not found for recording {recording_id}. Please run transcription first.")
 
         task_self.update_progress(user_id, 30, "Starting subtitle generation...", step="generate_subtitles")

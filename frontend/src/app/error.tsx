@@ -20,10 +20,12 @@ export default function GlobalError({
   return (
     <div className="flex min-h-full items-center justify-center bg-background px-4">
       <div className="flex w-full max-w-md flex-col items-center text-center">
-        <Logo size={40} />
+        <Link href="/home" aria-label="LEAP — home">
+          <Logo size={40} />
+        </Link>
         <p className="mt-8 text-lg font-semibold text-foreground">Something went wrong</p>
         <p className="mt-2 text-sm text-muted-foreground">
-          The app hit an unexpected error. You can retry, or go back to the recordings list.
+          The app hit an unexpected error. You can retry, or go back home.
         </p>
         <div className="mt-6 flex gap-3">
           <button
@@ -34,7 +36,7 @@ export default function GlobalError({
             Try again
           </button>
           <Link
-            href="/recordings"
+            href="/home"
             className="pressable rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-muted"
           >
             Go home

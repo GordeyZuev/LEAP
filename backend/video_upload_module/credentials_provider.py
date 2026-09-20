@@ -93,15 +93,17 @@ class DatabaseCredentialProvider(CredentialProvider):
         credential_id: int,
         encryption_service: Any,
         credential_repository: Any,
+        user_id: str,
     ):
         self.credential_id = credential_id
         self.encryption = encryption_service
         self.repo = credential_repository
+        self.user_id = user_id
 
     async def load_credentials(self) -> dict[str, Any] | None:
         """Load credentials from database."""
         try:
-            credential = await self.repo.get_by_id(self.credential_id)
+            credential = await self.repo.get_by_id(self.credential_id, self.user_id)
             if not credential or not credential.encrypted_data:
                 logger.warning(f"Credential {self.credential_id} not found or empty")
                 return None
@@ -118,7 +120,7 @@ class DatabaseCredentialProvider(CredentialProvider):
 
             encrypted = self.encryption.encrypt_credentials(credentials_data)
             update_data = UserCredentialUpdate(encrypted_data=encrypted)
-            await self.repo.update(self.credential_id, update_data)
+            await self.repo.update(self.credential_id, update_data, user_id=self.user_id)
             logger.info(f"Updated credential {self.credential_id} in database")
             return True
         except Exception as e:
@@ -257,6 +259,7 @@ def create_credential_provider(
     credentials_file: str | None = None,
     encryption_service: Any = None,
     credential_repository: Any = None,
+    user_id: str | None = None,
 ) -> CredentialProvider:
     """
     Factory function to create appropriate credential provider.
@@ -265,7 +268,9 @@ def create_credential_provider(
     if credential_id is not None:
         if not encryption_service or not credential_repository:
             raise ValueError("encryption_service and credential_repository required for DB provider")
-        return DatabaseCredentialProvider(credential_id, encryption_service, credential_repository)
+        if not user_id:
+            raise ValueError("user_id is required for DB provider")
+        return DatabaseCredentialProvider(credential_id, encryption_service, credential_repository, user_id)
     if credentials_file:
         return FileCredentialProvider(credentials_file)
     raise ValueError("Either credential_id or credentials_file must be provided")

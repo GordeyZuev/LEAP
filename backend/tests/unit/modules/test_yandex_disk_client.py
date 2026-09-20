@@ -64,6 +64,25 @@ class TestYandexDiskClientPublished:
         assert params["offset"] == 10
         assert "fields" not in params
 
+    @pytest.mark.asyncio
+    async def test_public_link_can_point_to_one_video(self) -> None:
+        client = YandexDiskClient(oauth_token=None)
+        video = {"type": "file", "name": "Lecture.mp4", "path": "/Lecture.mp4"}
+        with patch.object(client, "get_public_meta", new_callable=AsyncMock, return_value=video):
+            assert await client.list_public_video_files("https://disk.yandex.ru/d/share") == [video]
+
+    @pytest.mark.asyncio
+    async def test_public_link_recurses_into_folder(self) -> None:
+        client = YandexDiskClient(oauth_token=None)
+        nested = {"type": "file", "name": "Lecture.webm", "path": "/Course/Lecture.webm"}
+        responses = [
+            {"type": "dir"},
+            {"_embedded": {"items": [{"type": "dir", "path": "/Course"}], "total": 1}},
+            {"_embedded": {"items": [nested, {"type": "file", "name": "notes.txt"}], "total": 2}},
+        ]
+        with patch.object(client, "get_public_meta", new_callable=AsyncMock, side_effect=responses):
+            assert await client.list_public_video_files("https://disk.yandex.ru/d/share") == [nested]
+
 
 @pytest.mark.unit
 class TestYandexDiskClientUploadFile:

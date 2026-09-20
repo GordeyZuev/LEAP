@@ -121,7 +121,7 @@ function PresetsPagedGrid({ list, platforms, activeFilter }: PresetsPagedGridPro
 
       {showSkeleton && <CardGridSkeleton />}
 
-      {error && <ErrorState description="Failed to load presets" onRetry={() => refetch()} />}
+      {error && <ErrorState title="Failed to load presets" error={error} onRetry={() => refetch()} />}
 
       {!showSkeleton && !error && presets.length === 0 && (
         list.hasActiveFilters ? (

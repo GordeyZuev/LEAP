@@ -210,7 +210,7 @@ function ChannelsList() {
         chips={<FilterChips chips={chips} />}
       />
       {isInitialLoad(query.isPending, data) && <CardGridSkeleton />}
-      {query.isError && <ErrorState description="Could not load channels" onRetry={() => void query.refetch()} />}
+      {query.isError && <ErrorState title="Could not load channels" error={query.error} onRetry={() => void query.refetch()} />}
       {data && data.items.length === 0 && (
         <EmptyState
           icon={Radio}

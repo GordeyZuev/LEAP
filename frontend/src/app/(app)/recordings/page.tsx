@@ -17,9 +17,10 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
+import { OPERATIONAL_STATE_LABEL, parseOperationalState, type OperationalState } from "@/lib/operational-state";
 import { apiClient } from "@/api/client";
 import { Download, Pause, Play, Plus, RotateCcw, Trash2, ChevronDown, Filter, Video, LayoutGrid, List } from "lucide-react";
-import { structuralSharingPreservePosters } from "@/lib/poster-stable";
+import { posterRefreshDelayMs, structuralSharingPreservePosters } from "@/lib/poster-stable";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { cn, extractApiError } from "@/lib/utils";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
@@ -115,6 +116,7 @@ type Notify = (type: "success" | "error" | "info", msg: string) => void;
 // ---------------------------------------------------------------------------
 
 interface RecordingsFilters {
+  operationalState: OperationalState | null;
   status: ProcessingStatus[];
   templateIds: number[];
   sourceIds: number[];
@@ -138,6 +140,7 @@ function parseIsMappedFromUrl(raw: string | null): boolean | null {
 
 function filtersFromUrl(sp: URLSearchParams): RecordingsFilters {
   return {
+    operationalState: parseOperationalState(sp.get("operational_state")),
     status: sp.getAll("status") as ProcessingStatus[],
     templateIds: parsePositiveIntParams(sp, "template_id"),
     sourceIds: parsePositiveIntParams(sp, "source_id"),
@@ -303,7 +306,10 @@ function RecordingsPagedResults({
       ),
     refetchInterval: (q) => {
       const items = q.state.data?.items ?? [];
-      return items.some((r) => needsActivePoll(r)) ? POLL_INTERVAL_LIST : false;
+      const activePoll = items.some((r) => needsActivePoll(r)) ? POLL_INTERVAL_LIST : Infinity;
+      const posterRefresh = posterRefreshDelayMs(items);
+      const nextRefresh = Math.min(activePoll, posterRefresh === false ? Infinity : posterRefresh);
+      return Number.isFinite(nextRefresh) ? Math.max(10_000, nextRefresh) : false;
     },
     refetchIntervalInBackground: false,
   });
@@ -486,7 +492,7 @@ function RecordingsPagedResults({
         </div>
       )}
 
-      {error && <ErrorState description="Failed to load recordings" onRetry={() => refetch()} />}
+      {error && <ErrorState title="Failed to load recordings" error={error} onRetry={() => refetch()} />}
 
       {!showSkeleton && !error && recordings.length === 0 && (
         <EmptyState
@@ -512,7 +518,7 @@ function RecordingsPagedResults({
       {!showSkeleton && !error && recordings.length > 0 && viewMode === "grid" && (
         // Stretch row height; Run sits on mt-auto inside each card.
         <div className={cn("grid animate-fade-in gap-4", GRID_TRACKS)}>
-          {recordings.map((rec) => (
+          {recordings.map((rec, index) => (
             <RecordingCard
               key={rec.id}
               recording={rec}
@@ -527,6 +533,7 @@ function RecordingsPagedResults({
               onRestore={onRestore}
               onRename={onRename}
               loadingId={loadingRecordingId}
+              prioritizePoster={index < 3}
             />
           ))}
         </div>
@@ -584,14 +591,17 @@ function RecordingsPagedResults({
       <ConfirmDialog
         open={resetConfirm}
         title={`Reset ${selectedIds.length} recording${selectedIds.length !== 1 ? "s" : ""}?`}
-        description="Recordings will be reset to INITIALIZED status."
+        description={resetDeleteFiles
+          ? "All media and transcription files, including the original videos, will be deleted. Locally uploaded originals cannot be downloaded again."
+          : "Processing history will reset. Existing media files will be kept for another run."}
         confirmLabel="Reset"
         cancelLabel="Cancel"
         onConfirm={() => {
           setResetConfirm(false);
           bulkReset.mutate({ ids: selectedIds, deleteFiles: resetDeleteFiles });
+          setResetDeleteFiles(false);
         }}
-        onCancel={() => setResetConfirm(false)}
+        onCancel={() => { setResetConfirm(false); setResetDeleteFiles(false); }}
       >
         <label className="flex items-center gap-2 text-sm text-secondary-foreground select-none cursor-pointer">
           <input
@@ -600,7 +610,7 @@ function RecordingsPagedResults({
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
             className={CHECKBOX}
           />
-          Delete processed files (video, audio, transcription)
+          Delete all files, including the original videos
         </label>
       </ConfirmDialog>
     </>
@@ -725,7 +735,7 @@ function RecordingsContent() {
 
   // --- Selection state ---
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const selectionScope = `${list.search}\0${list.sortBy}\0${list.sortOrder}`;
+  const selectionScope = `${list.search}\0${list.sortBy}\0${list.sortOrder}\0${new URLSearchParams(urlKey).get("operational_state") ?? ""}`;
   const [selectedScope, setSelectedScope] = useState(selectionScope);
   if (selectedScope !== selectionScope) {
     setSelectedScope(selectionScope);
@@ -833,6 +843,7 @@ function RecordingsContent() {
   const hasActiveFilters = useMemo(() => {
     const sp = new URLSearchParams(urlKey);
     return !!(
+      sp.get("operational_state") ||
       sp.get("search") ||
       sp.getAll("status").length ||
       parsePositiveIntParams(sp, "template_id").length ||
@@ -1043,6 +1054,10 @@ function RecordingsContent() {
         },
       });
     }
+    if (f.operationalState) {
+      chips.push({ key: "operational_state", label: OPERATIONAL_STATE_LABEL[f.operationalState],
+        onRemove: () => { setSelected(new Set()); setParam("operational_state", null); } });
+    }
     f.status.forEach((st) =>
       chips.push({
         key: `status:${st}`,
@@ -1197,14 +1212,17 @@ function RecordingsContent() {
       <ConfirmDialog
         open={singleResetId !== null}
         title="Reset recording?"
-        description="The recording will return to INITIALIZED status."
+        description={resetDeleteFiles
+          ? "All media and transcription files, including the original video, will be deleted. A locally uploaded original cannot be downloaded again."
+          : "Processing history will reset. Existing media files will be kept for another run."}
         confirmLabel="Reset"
         cancelLabel="Cancel"
         onConfirm={() => {
           if (singleResetId !== null) singleReset.mutate({ id: singleResetId, deleteFiles: resetDeleteFiles });
           setSingleResetId(null);
+          setResetDeleteFiles(false);
         }}
-        onCancel={() => setSingleResetId(null)}
+        onCancel={() => { setSingleResetId(null); setResetDeleteFiles(false); }}
       >
         <label className="flex items-center gap-2 text-sm text-secondary-foreground select-none cursor-pointer">
           <input
@@ -1213,7 +1231,7 @@ function RecordingsContent() {
             onChange={(e) => setResetDeleteFiles(e.target.checked)}
             className={CHECKBOX}
           />
-          Delete processed files (video, audio, transcription)
+          Delete all files, including the original video
         </label>
       </ConfirmDialog>
 

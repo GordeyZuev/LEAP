@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import api.tasks.automation
 import api.tasks.maintenance
 import api.tasks.processing
+import api.tasks.product_updates
 import api.tasks.sync_tasks
 import api.tasks.template
 import api.tasks.upload  # noqa: F401
@@ -36,6 +37,7 @@ from api.routers import (
     oauth,
     output_presets,
     playlists,
+    product_updates,
     recordings,
     references,
     share,
@@ -102,6 +104,7 @@ app.include_router(output_presets.router)
 app.include_router(automation.router)
 
 app.include_router(share.router)
+app.include_router(product_updates.router)
 app.include_router(references.router)
 app.include_router(thumbnails.router)
 app.include_router(storage.router)

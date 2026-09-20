@@ -4,6 +4,7 @@ import { apiClient } from "@/api/client";
 import type { ShareStatsSummary } from "@/lib/share-stats";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const METADATA_TIMEOUT_MS = 4_000;
 
 /** Absolute API origin for Next server code (generateMetadata, Open Graph). */
 export function serverApiBase(): string {
@@ -17,6 +18,7 @@ export function serverApiBase(): string {
 const publicClient = axios.create({
   baseURL: `${API_URL}/api/v1`,
   headers: { "Content-Type": "application/json" },
+  timeout: 30_000,
 });
 
 export interface ShareCreateResponse {
@@ -50,6 +52,7 @@ export interface PublicRecordingResponse {
   vtt_url?: string | null;
   original_play_url?: string | null;
   media_expires_in?: number | null;
+  channels?: { slug: string; name: string }[];
 }
 
 export type PublicPlaylistView = "full" | "catalog";
@@ -57,6 +60,7 @@ export type PublicPlaylistView = "full" | "catalog";
 export interface PublicPlaylistItem {
   id: number;
   position: number;
+  group_id: number | null;
   title: string;
   duration: number;
   start_time: string;
@@ -66,10 +70,24 @@ export interface PublicPlaylistItem {
   poster_asset_key?: string | null;
 }
 
+export interface PublicPlaylistGroup {
+  id: number;
+  name: string;
+  position: number;
+  item_count: number;
+}
+
 export interface PublicPlaylistResponse {
   name: string;
   description: string | null;
+  channels: { slug: string; name: string }[];
+  groups: PublicPlaylistGroup[];
   items: PublicPlaylistItem[];
+}
+
+export interface PublicPosterResponse {
+  url: string;
+  asset_key: string | null;
 }
 
 export interface ShareMediaResponse {
@@ -209,16 +227,29 @@ export interface PublicChannelResponse {
   banner_url: string | null;
   videos: PublicChannelVideo[];
   playlists: PublicChannelPlaylist[];
+  kind: "all" | "videos" | "playlists";
+  page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
+  videos_total: number;
+  playlists_total: number;
 }
 
-export async function getPublicChannel(slug: string): Promise<PublicChannelResponse> {
-  const res = await publicClient.get<PublicChannelResponse>(`/c/${slug}`);
+export async function getPublicChannel(
+  slug: string,
+  params: { kind: "videos" | "playlists"; page: number; perPage: number; q?: string; sort?: string },
+): Promise<PublicChannelResponse> {
+  const res = await publicClient.get<PublicChannelResponse>(`/c/${slug}`, {
+    params: { kind: params.kind, page: params.page, per_page: params.perPage, q: params.q || undefined, sort: params.sort },
+  });
   return res.data;
 }
 
 export async function fetchPublicChannelForMetadata(slug: string): Promise<PublicChannelResponse | null> {
   try {
     const { data } = await axios.get<PublicChannelResponse>(`${serverApiBase()}/api/v1/c/${slug}`, {
+      params: { kind: "playlists", per_page: 1 },
       timeout: 4000,
     });
     return data;
@@ -232,9 +263,10 @@ export async function fetchPublicChannelForMetadata(slug: string): Promise<Publi
 export async function getPublicRecording(
   token: string,
   view: "full" | "player" = "full",
+  fromSlug: string | null = null,
 ): Promise<PublicRecordingResponse> {
   const res = await publicClient.get<PublicRecordingResponse>(`/share/${token}`, {
-    params: view === "player" ? { view: "player" } : {},
+    params: { ...(view === "player" ? { view: "player" } : {}), ...(fromSlug ? { from: fromSlug } : {}) },
   });
   return res.data;
 }
@@ -258,10 +290,23 @@ export function getShareFileUrl(token: string, fileType: string, inline = false)
 export async function getPublicPlaylist(
   token: string,
   view: PublicPlaylistView = "full",
+  fromSlug: string | null = null,
 ): Promise<PublicPlaylistResponse> {
   const res = await publicClient.get<PublicPlaylistResponse>(`/share/p/${token}`, {
-    params: view === "catalog" ? { view: "catalog" } : {},
+    params: { ...(view === "catalog" ? { view: "catalog" } : {}), ...(fromSlug ? { from: fromSlug } : {}) },
   });
+  return res.data;
+}
+
+export async function getPlaylistSharePosters(
+  token: string,
+  itemIds: number[],
+): Promise<Record<number, PublicPosterResponse>> {
+  const query = new URLSearchParams();
+  itemIds.forEach((id) => query.append("item_ids", String(id)));
+  const res = await publicClient.get<Record<number, PublicPosterResponse>>(
+    `/share/p/${token}/posters?${query.toString()}`,
+  );
   return res.data;
 }
 
@@ -296,11 +341,16 @@ export function getPlaylistShareFileUrl(token: string, itemId: number, fileType:
 export async function fetchPublicPlaylistForMetadata(
   token: string,
   view: PublicPlaylistView = "full",
+  fromSlug: string | null = null,
 ): Promise<PublicPlaylistResponse | null> {
   try {
-    const qs = view === "catalog" ? "?view=catalog" : "";
+    const query = new URLSearchParams();
+    if (view === "catalog") query.set("view", "catalog");
+    if (fromSlug) query.set("from", fromSlug);
+    const qs = query.size ? `?${query.toString()}` : "";
     const res = await fetch(`${serverApiBase()}/api/v1/share/p/${token}${qs}`, {
-      next: { revalidate: 300 },
+      cache: "no-store",
+      signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     return (await res.json()) as PublicPlaylistResponse;
@@ -322,6 +372,7 @@ export async function fetchPublicRecordingForMetadata(
   try {
     const res = await fetch(`${serverApiBase()}/api/v1/share/${token}`, {
       next: { revalidate: 300 },
+      signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     return (await res.json()) as PublicRecordingResponse;

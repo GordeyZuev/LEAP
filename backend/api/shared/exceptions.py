@@ -66,3 +66,19 @@ class ResourceNotFoundError(TaskError):
         self.resource_type = resource_type
         self.resource_id = resource_id
         super().__init__(f"{resource_type} {resource_id} not found")
+
+
+class ExternalRateLimitError(TaskError):
+    """Provider rejected the call for sending too quickly (HTTP 429, VK error 6)."""
+
+    def __init__(
+        self,
+        platform: str,
+        retry_after: float | None = None,
+        credential_id: int | None = None,
+    ):
+        self.platform = platform
+        self.retry_after = retry_after
+        self.credential_id = credential_id
+        extra = f" retry_after={retry_after}" if retry_after is not None else ""
+        super().__init__(f"Rate limited by {platform}{extra}")

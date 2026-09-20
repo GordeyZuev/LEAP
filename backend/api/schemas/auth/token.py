@@ -78,13 +78,18 @@ class SessionResponse(BaseModel):
 
     The session itself lives in httpOnly cookies set on the same response;
     this body delivers the CSRF token (which the browser-side JS must echo
-    on every state-changing request) plus a TokenPair for CLI clients.
+    on every state-changing request). JWT pair is included only when the
+    client passes ``include_tokens=true``.
     """
 
     csrf_token: str = Field(
         ..., description="Double-submit CSRF token. Echo via X-CSRF-Token header on POST/PUT/PATCH/DELETE."
     )
-    access_token: str = Field(..., description="Bearer access token (CLI clients).")
-    refresh_token: str = Field(..., description="Bearer refresh token (CLI clients).")
+    access_token: str | None = Field(
+        default=None, description="Bearer access token. Omitted unless include_tokens=true (CLI clients)."
+    )
+    refresh_token: str | None = Field(
+        default=None, description="Bearer refresh token. Omitted unless include_tokens=true (CLI clients)."
+    )
     token_type: str = Field(default="bearer", description="Token type")
     expires_in: int = Field(..., description="Lifetime of access token in seconds")

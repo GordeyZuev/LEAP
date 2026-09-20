@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Calendar, ChevronRight, Clock, LayoutGrid, List, ListVideo, Radio } from "lucide-react";
 
 import { getPublicChannel, sendChannelPageBeacon } from "@/api/share";
+import { useDebounce } from "@/hooks/use-debounce";
 import { FilterSelect } from "@/components/filters/filter-select";
 import { SearchInput } from "@/components/filters/search-input";
 import { PlaylistStackPoster } from "@/components/playlists/playlist-stack-poster";
@@ -24,13 +25,11 @@ import {
   channelVideoSearchName,
   parseChannelPlaylistSort,
   parseChannelVideoSort,
-  sortChannelPlaylists,
-  sortChannelVideos,
   type ChannelPlaylistSort,
   type ChannelVideoSort,
 } from "@/lib/channel-catalog";
 import { CHANNEL_BANNER_FRAME, CHANNEL_BANNER_IMG } from "@/lib/constants";
-import { CATALOG_PAGE_SIZE, paginateItems, parseCatalogPage } from "@/lib/catalog-page";
+import { CATALOG_PAGE_SIZE, parseCatalogPage } from "@/lib/catalog-page";
 import { FILTER_LABEL } from "@/lib/filter-field-classes";
 import { cn, formatDate, formatDurationCompact, httpStatus } from "@/lib/utils";
 
@@ -49,11 +48,6 @@ const VIEW_OFF = "border-border bg-card text-muted-foreground hover:bg-muted";
 
 type Tab = "videos" | "playlists";
 type ViewMode = "grid" | "list";
-
-function matchesQuery(haystack: string, q: string): boolean {
-  if (!q) return true;
-  return haystack.toLowerCase().includes(q.trim().toLowerCase());
-}
 
 function DurationBadge({ seconds }: { seconds: number | null | undefined }) {
   const dur = formatDurationCompact(seconds);
@@ -127,9 +121,18 @@ export function ChannelPublicView({ slug }: { slug: string }) {
     if (catalogPage !== 1) setCatalogPage(1);
   }
 
+  const debouncedQuery = useDebounce(query, 300);
+  const sort = tab === "videos" ? videoSort : playlistSort;
+  const pagingPage = appliedFilterKey !== catalogFilterKey ? 1 : catalogPage;
   const { data, error, isPending, refetch } = useQuery({
-    queryKey: ["public-channel", slug],
-    queryFn: () => getPublicChannel(slug),
+    queryKey: ["public-channel", slug, tab, pagingPage, debouncedQuery, sort],
+    queryFn: () => getPublicChannel(slug, {
+      kind: tab,
+      page: pagingPage,
+      perPage: CATALOG_PAGE_SIZE,
+      q: debouncedQuery,
+      sort,
+    }),
     retry: false,
   });
 
@@ -137,28 +140,14 @@ export function ChannelPublicView({ slug }: { slug: string }) {
     void sendChannelPageBeacon(slug).catch(() => {});
   }, [slug]);
 
-  const sort = tab === "videos" ? videoSort : playlistSort;
-
-  const videos = useMemo(() => {
-    if (!data) return [];
-    const q = query.trim();
-    const filtered = data.videos.filter((v) =>
-      matchesQuery(`${channelVideoSearchName(v.title)} ${v.blurb ?? ""}`, q),
-    );
-    return sortChannelVideos(filtered, videoSort);
-  }, [data, query, videoSort]);
-
-  const playlists = useMemo(() => {
-    if (!data) return [];
-    const q = query.trim();
-    const filtered = data.playlists.filter((p) => matchesQuery(`${p.name} ${p.blurb ?? ""}`, q));
-    return sortChannelPlaylists(filtered, playlistSort);
-  }, [data, query, playlistSort]);
-
-  const pagingPage = appliedFilterKey !== catalogFilterKey ? 1 : catalogPage;
-  const pagedVideos = paginateItems(videos, pagingPage);
-  const pagedPlaylists = paginateItems(playlists, pagingPage);
-  const catalogPaged = tab === "videos" ? pagedVideos : pagedPlaylists;
+  const videos = data?.videos ?? [];
+  const playlists = data?.playlists ?? [];
+  const catalogPaged = {
+    page: data?.page ?? pagingPage,
+    totalPages: data?.total_pages ?? 1,
+    total: data?.total ?? 0,
+    items: tab === "videos" ? videos : playlists,
+  };
 
   useEffect(() => {
     if (!data) return;
@@ -175,7 +164,7 @@ export function ChannelPublicView({ slug }: { slug: string }) {
   if (error && !data) {
     return (
       <div className="flex min-h-[70vh] items-center justify-center px-6">
-        <ErrorState title="Unable to load this channel" onRetry={() => void refetch()} />
+        <ErrorState title="Unable to load this channel" error={error} onRetry={() => void refetch()} />
       </div>
     );
   }
@@ -183,8 +172,8 @@ export function ChannelPublicView({ slug }: { slug: string }) {
     return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
   }
 
-  const catalogEmpty = tab === "videos" ? data.videos.length === 0 : data.playlists.length === 0;
-  const filteredEmpty = tab === "videos" ? videos.length === 0 : playlists.length === 0;
+  const catalogEmpty = tab === "videos" ? data.videos_total === 0 : data.playlists_total === 0;
+  const filteredEmpty = data.total === 0;
   const searching = query.trim().length > 0;
 
   return (
@@ -315,7 +304,7 @@ export function ChannelPublicView({ slug }: { slug: string }) {
           )}
           {tab === "videos" && videos.length > 0 && (
             <ul className={view === "grid" ? GRID : LIST}>
-              {pagedVideos.items.map((v) => {
+              {videos.map((v) => {
                 const name = channelVideoSearchName(v.title);
                 const href = `/share/${v.share_token}?from=${encodeURIComponent(slug)}`;
                 const date = formatDate(v.start_time);
@@ -375,7 +364,7 @@ export function ChannelPublicView({ slug }: { slug: string }) {
           )}
           {tab === "playlists" && playlists.length > 0 && (
             <ul className={view === "grid" ? GRID : LIST}>
-              {pagedPlaylists.items.map((p) => {
+              {playlists.map((p) => {
                 const href = `/share/p/${p.share_token}?from=${encodeURIComponent(slug)}`;
                 const duration = formatDurationCompact(p.duration_sum);
                 const list = view === "list";

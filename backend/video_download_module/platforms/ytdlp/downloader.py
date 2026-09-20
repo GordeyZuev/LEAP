@@ -6,6 +6,7 @@ from typing import Any
 
 from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
+from utils.safe_http import YTDLP_HOST_SUFFIXES, validate_public_url
 from video_download_module.core.base import BaseDownloader, DownloadResult
 from video_download_module.platforms.ytdlp.opts import get_ydl_opts
 
@@ -35,6 +36,7 @@ class YtDlpDownloader(BaseDownloader):
         url = source_meta.get("url") or source_meta.get("download_url")
         if not url:
             raise ValueError("No URL in source metadata for yt-dlp download")
+        url = validate_public_url(url, allowed_host_suffixes=YTDLP_HOST_SUFFIXES)
 
         format_pref = source_meta.get("format_preference", "mp4")
         source_suffix = ".mp3" if self._is_audio_format(format_pref) else ".mp4"
@@ -134,11 +136,15 @@ class YtDlpDownloader(BaseDownloader):
         if format_pref == "mp4":
             if quality == "best":
                 return "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-            height_map = {"1080p": 1080, "720p": 720, "480p": 480}
-            height = height_map.get(quality, 1080)
+            height = (
+                int(quality[:-1])
+                if isinstance(quality, str) and quality.endswith("p") and quality[:-1].isdigit()
+                else 1080
+            )
             return (
                 f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/"
-                f"best[height<={height}][ext=mp4]/best[ext=mp4]/best"
+                f"best[height<={height}][ext=mp4]/"
+                f"bestvideo[height<={height}]+bestaudio/best[height<={height}]"
             )
         return "best"
 
@@ -152,6 +158,7 @@ class YtDlpDownloader(BaseDownloader):
             "no_color": True,
             "retries": 5,
             "fragment_retries": 5,
+            "noplaylist": True,
             "socket_timeout": 30,
             "fixup": "detect_or_warn",
         }
@@ -167,7 +174,7 @@ class YtDlpDownloader(BaseDownloader):
                 }
             ]
         else:
-            opts["merge_output_format"] = "mp4"
+            opts["merge_output_format"] = "mp4/mkv"
 
         return opts
 

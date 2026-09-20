@@ -226,7 +226,7 @@ function TemplatesContent() {
             {error && (
               <tr>
                 <td colSpan={4} className="p-0">
-                  <ErrorState description="Failed to load templates" onRetry={() => refetch()} />
+                  <ErrorState title="Failed to load templates" error={error} onRetry={() => refetch()} />
                 </td>
               </tr>
             )}

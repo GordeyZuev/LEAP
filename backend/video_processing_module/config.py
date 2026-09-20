@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from video_processing_module.audio_detector import _finite_float
+
 
 @dataclass
 class ProcessingConfig:
@@ -23,3 +25,9 @@ class ProcessingConfig:
     segment_duration: int = 30
     overlap_duration: int = 1
     keep_temp_files: bool = False
+
+    def __post_init__(self) -> None:
+        self.silence_threshold = _finite_float(self.silence_threshold, "silence_threshold")
+        self.min_silence_duration = _finite_float(self.min_silence_duration, "min_silence_duration")
+        self.padding_before = _finite_float(self.padding_before, "padding_before")
+        self.padding_after = _finite_float(self.padding_after, "padding_after")

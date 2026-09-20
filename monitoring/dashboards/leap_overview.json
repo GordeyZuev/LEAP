@@ -1,6 +1,6 @@
 {
   "annotations": {"list": []},
-  "description": "LEAP product overview — daily volumes, transcribed minutes, tenant health, and red flags. Top row is fixed 24h; trends honour the dashboard time picker.",
+  "description": "LEAP product overview — daily volumes, transcribed minutes, tenant health, red flags, and aggregate product communications.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -219,11 +219,14 @@
       "description": "Share of RAM available on the VM (node_exporter). Investigate if below 15%.",
       "gridPos": {"x": 0, "y": 46, "w": 8, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "timeFrom": "5m",
       "targets": [
         {
           "refId": "A",
           "expr": "100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
-          "legendFormat": " "
+          "legendFormat": " ",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name"},
@@ -248,11 +251,14 @@
       "description": "Non-idle CPU over the last 5 minutes.",
       "gridPos": {"x": 8, "y": 46, "w": 8, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "timeFrom": "5m",
       "targets": [
         {
           "refId": "A",
           "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-          "legendFormat": " "
+          "legendFormat": " ",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name"},
@@ -264,15 +270,69 @@
       "description": "Available space on / (boot volume).",
       "gridPos": {"x": 16, "y": 46, "w": 8, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "timeFrom": "5m",
       "targets": [
         {
           "refId": "A",
           "expr": "node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay|rootfs\"}",
-          "legendFormat": " "
+          "legendFormat": " ",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "bytes", "decimals": 1, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 10737418240}, {"color": "green", "value": 21474836480}]}}}
+    },
+    {"type": "row", "title": "Product news & feedback (current totals)", "gridPos": {"x": 0, "y": 51, "w": 24, "h": 1}, "collapsed": false, "panels": []},
+    {
+      "type": "stat",
+      "title": "Confirmed news subscribers",
+      "description": "Current confirmed opt-ins. Subscriber addresses are not exposed to Grafana.",
+      "gridPos": {"x": 0, "y": 52, "w": 6, "h": 4},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM product_communications_current_stats WHERE metric = 'subscription_status' AND dimension = 'confirmed';"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+    },
+    {
+      "type": "stat",
+      "title": "Emails accepted by SMTP",
+      "description": "Current successful recipient records. SMTP acceptance does not confirm inbox delivery.",
+      "gridPos": {"x": 6, "y": 52, "w": 6, "h": 4},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM product_communications_current_stats WHERE metric = 'delivery_status' AND dimension = 'sent';"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+    },
+    {
+      "type": "stat",
+      "title": "Email errors",
+      "description": "Recipient records whose most recent SMTP attempt failed. Retryable from Admin → News & feedback.",
+      "gridPos": {"x": 12, "y": 52, "w": 6, "h": 4},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM product_communications_current_stats WHERE metric = 'delivery_status' AND dimension = 'failed';"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+    },
+    {
+      "type": "stat",
+      "title": "Feedback received",
+      "description": "Total feedback submissions stored by LEAP.",
+      "gridPos": {"x": 18, "y": 52, "w": 6, "h": 4},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT COALESCE(SUM(value), 0) AS value FROM product_communications_current_stats WHERE metric = 'feedback_kind';"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+    },
+    {
+      "type": "table",
+      "title": "Audience and delivery status",
+      "description": "Current aggregate counts by interest, feedback category, subscription state, and mail state.",
+      "gridPos": {"x": 0, "y": 56, "w": 24, "h": 8},
+      "datasource": {"type": "postgres", "uid": "leap_db"},
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT metric, dimension, value FROM product_communications_current_stats ORDER BY metric, dimension;"}],
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}},
+      "options": {"showHeader": true, "sortBy": [{"displayName": "metric", "desc": false}]}
     }
   ],
   "refresh": "1m",
@@ -284,5 +344,5 @@
   "timezone": "",
   "title": "LEAP Overview",
   "uid": "leap-overview",
-  "version": 8
+  "version": 14
 }

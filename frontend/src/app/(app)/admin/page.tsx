@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { Suspense, useEffect, useMemo, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldCheck,
@@ -19,11 +20,13 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/api/client";
 import { useMe } from "@/lib/react-query";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { cn, extractApiError, formatRelative, formatDateTime } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { Toast } from "@/components/ui/toast";
 import { PageHeader } from "@/components/ui/page-header";
+import { AdminSections } from "@/components/admin/admin-sections";
 import { AdminAuditLog } from "@/components/admin/audit-log";
 import { AdminAnalyticsSection } from "@/components/admin/admin-analytics-section";
 import { AdminQuotaByPlanSection } from "@/components/admin/admin-quota-by-plan-section";
@@ -281,9 +284,18 @@ function PlanDistributionChart({ data }: { data: Record<string, number> }) {
 // ---------------------------------------------------------------------------
 
 export default function AdminPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-sm text-muted-foreground">Loading admin…</div>}>
+      <AdminPageGuard />
+    </Suspense>
+  );
+}
+
+function AdminPageGuard() {
+  const hydrated = useHydrated();
   const me = useMe();
 
-  if (me.isPending && !me.data) {
+  if (!hydrated || (me.isPending && !me.data)) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="animate-spin text-muted-foreground" />
@@ -309,6 +321,11 @@ export default function AdminPage() {
 // ---------------------------------------------------------------------------
 
 function AdminDashboard() {
+  const searchParams = useSearchParams();
+  const requestedSection = searchParams.get("section");
+  const section = requestedSection === "users" || requestedSection === "plans" || requestedSection === "audit"
+    ? requestedSection
+    : "overview";
   const qc = useQueryClient();
   const { toast, show, dismiss } = useToast();
 
@@ -327,11 +344,13 @@ function AdminDashboard() {
     queryKey: ["admin-overview"],
     queryFn: async () => (await apiClient.get("/admin/stats/overview")).data,
     staleTime: 60_000,
+    enabled: section === "overview" || section === "plans",
   });
 
   const plansQuery = useQuery<AdminPlan[]>({
     queryKey: ["admin-plans"],
     queryFn: fetchAdminPlans,
+    enabled: section === "plans" || section === "users",
   });
 
   const exceededOnly = exceededFilter === "exceeded";
@@ -346,12 +365,14 @@ function AdminDashboard() {
         role: roleFilter === "all" ? undefined : roleFilter,
         exceeded_only: exceededOnly || undefined,
       }),
+    enabled: section === "users",
   });
 
   const userStatsQuery = useQuery({
     queryKey: ["admin-user-stats", page, exceededOnly],
     queryFn: () => fetchAdminUserStats({ page, page_size: PAGE_SIZE, exceeded_only: exceededOnly || undefined }),
     staleTime: 60_000,
+    enabled: section === "users",
   });
 
   const ov = overviewQuery.data;
@@ -451,10 +472,14 @@ function AdminDashboard() {
 
   return (
     <div className="w-full min-w-0 p-6 sm:p-8">
-      <PageHeader title="Admin" />
+      <PageHeader
+        title="Admin"
+      />
 
+      <AdminSections>
       <div className="space-y-6">
         {/* ── Overview ──────────────────────────────────────────────────── */}
+        {section === "overview" && <>
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard icon={Users} label="Total users" value={ov?.total_users ?? "—"} />
           <StatCard icon={UserCheck} label="Active users" value={ov?.active_users ?? "—"} />
@@ -487,8 +512,10 @@ function AdminDashboard() {
             </div>
           </div>
         )}
+        </>}
 
         {/* ── Plans ─────────────────────────────────────────────────────── */}
+        {section === "plans" && (
         <div>
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold text-foreground">Subscription plans</h2>
@@ -588,8 +615,10 @@ function AdminDashboard() {
           )}
           </div>
         </div>
+        )}
 
         {/* ── Users ─────────────────────────────────────────────────────── */}
+        {section === "users" && (
         <div>
           <h2 className="mb-3 text-sm font-semibold text-foreground">Users</h2>
           <FilterBar
@@ -753,11 +782,13 @@ function AdminDashboard() {
             </div>
           )}
         </div>
+        )}
+
+        {section === "audit" && <AdminAuditLog />}
       </div>
+      </AdminSections>
 
       {/* Modals */}
-      <AdminAuditLog />
-
       {editingUser && (
         <EditUserModal
           user={editingUser}

@@ -75,12 +75,8 @@ class DatabaseManager:
                     """,
                         self.config.database,
                     )
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to terminate all connections: database={self.config.database}",
-                        database=self.config.database,
-                        error=str(e),
-                    )
+                except Exception:
+                    logger.warning(f"Failed to terminate all connections: database={self.config.database}")
 
                 db_name_quoted = self.config.database.replace('"', '""')
                 await conn.execute(f'DROP DATABASE IF EXISTS "{db_name_quoted}"')

@@ -3,6 +3,15 @@ export interface PosterStableFields {
   poster_url?: string | null;
   poster_fallback_url?: string | null;
   poster_asset_key?: string | null;
+  poster_refresh_at_ms?: number | null;
+}
+
+/** Delay until the next API supplied poster refresh deadline. */
+export function posterRefreshDelayMs(items: PosterStableFields[], nowMs = Date.now()): number | false {
+  const refreshAt = Math.min(...items
+    .map((item) => item.poster_refresh_at_ms)
+    .filter((at): at is number => at != null));
+  return Number.isFinite(refreshAt) ? Math.max(10_000, refreshAt - nowMs) : false;
 }
 
 function preservePosterUrls<T extends PosterStableFields>(
@@ -12,10 +21,13 @@ function preservePosterUrls<T extends PosterStableFields>(
   if (!prevItem?.poster_asset_key || prevItem.poster_asset_key !== nextItem.poster_asset_key) {
     return nextItem;
   }
+  const keepPrevious = prevItem.poster_refresh_at_ms != null && prevItem.poster_refresh_at_ms > Date.now();
+  if (!keepPrevious) return nextItem;
   return {
     ...nextItem,
     poster_url: prevItem.poster_url ?? nextItem.poster_url,
     poster_fallback_url: prevItem.poster_fallback_url ?? nextItem.poster_fallback_url,
+    poster_refresh_at_ms: prevItem.poster_refresh_at_ms,
   };
 }
 

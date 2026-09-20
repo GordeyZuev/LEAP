@@ -2,7 +2,7 @@
 
 import pytest
 
-from api.celery_app import _postrun_log_level
+from api.celery_app import _clear_enqueue_time, _postrun_log_level
 from api.middleware.logging import _level_for_status
 
 
@@ -42,3 +42,21 @@ class TestCeleryPostrunLogLevel:
 
     def test_unknown_state_is_warning(self) -> None:
         assert _postrun_log_level("REVOKED") == "WARNING"
+
+
+@pytest.mark.unit
+def test_celery_prerun_enqueue_cleanup_accepts_signal_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RedisStub:
+        def __init__(self) -> None:
+            self.removed: list[tuple[str, str]] = []
+
+        def zrem(self, key: str, task_id: str) -> None:
+            self.removed.append((key, task_id))
+
+    redis_stub = RedisStub()
+    monkeypatch.setattr("api.celery_app._publish_redis", lambda: redis_stub)
+
+    _clear_enqueue_time(task_id="task-123", task=object(), sender=object())
+
+    assert redis_stub.removed
+    assert all(task_id == "task-123" for _, task_id in redis_stub.removed)

@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
 
 from config.settings import get_settings
+from file_storage.backends.base import StorageBackend
+from file_storage.backends.s3 import S3StorageBackend
 from file_storage.factory import get_storage_backend
 
 SUPPORTED_IMAGE_FORMATS = {".png", ".jpg", ".jpeg", ".webp"}
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
+
+
+def presigned_image_refresh_at_ms(storage: StorageBackend, expires_in: int) -> int | None:
+    """Return an API deadline for rotating S3 image URLs, independent of their signing format."""
+    if not isinstance(storage, S3StorageBackend):
+        return None
+    return int(time.time() * 1000) + expires_in * 1000 - min(300_000, expires_in * 500)
 
 
 async def read_image_upload(file: UploadFile) -> tuple[bytes, str]:

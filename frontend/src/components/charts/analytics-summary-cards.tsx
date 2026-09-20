@@ -1,11 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 export interface SummaryCardItem {
   label: string;
   value: string;
+  /** Exact value when the visible metric is abbreviated. */
+  valueTitle?: string;
   hint?: string;
+  href?: string;
 }
 
 export function AnalyticsSummaryCards({
@@ -28,13 +32,25 @@ export function AnalyticsSummaryCards({
 
   return (
     <div className={cn("grid gap-3", gridClass, className)}>
-      {items.map((item) => (
-        <div key={item.label} className="rounded-xl border border-border bg-card px-4 py-3">
-          <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-          {item.hint && <p className="text-[10px] text-muted-foreground/80">{item.hint}</p>}
-          <p className="mt-2 text-xl font-semibold tabular-nums text-foreground">{item.value}</p>
-        </div>
-      ))}
+      {items.map((item) => {
+        const shell = "flex min-w-0 flex-col rounded-xl border border-border bg-card px-4 py-3";
+        const content = (
+          <>
+            <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
+            {item.hint && <p className="text-[10px] text-muted-foreground/80">{item.hint}</p>}
+            <p title={item.valueTitle} className="mt-auto pt-2 text-xl font-semibold tabular-nums text-foreground">
+              <span aria-hidden={item.valueTitle ? true : undefined}>{item.value}</span>
+              {item.valueTitle && <span className="sr-only">{item.valueTitle}</span>}
+            </p>
+          </>
+        );
+        return item.href ? (
+          <Link key={item.label} href={item.href}
+            className={cn(shell, "pressable transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30")}>
+            {content}
+          </Link>
+        ) : <div key={item.label} className={shell}>{content}</div>;
+      })}
     </div>
   );
 }

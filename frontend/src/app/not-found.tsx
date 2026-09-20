@@ -5,7 +5,9 @@ export default function NotFound() {
   return (
     <div className="min-h-full flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md flex flex-col items-center text-center">
-        <Logo size={40} />
+        <Link href="/home" aria-label="LEAP — home">
+          <Logo size={40} />
+        </Link>
         <p className="text-[88px] leading-none font-bold text-primary tracking-tight mt-10">
           404
         </p>
@@ -13,7 +15,7 @@ export default function NotFound() {
           The page you&apos;re looking for doesn&apos;t exist.
         </p>
         <Link
-          href="/recordings"
+          href="/home"
           className="text-sm font-medium text-primary hover:underline mt-8"
         >
           Back to home

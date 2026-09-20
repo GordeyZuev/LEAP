@@ -19,7 +19,13 @@ from .models import (
     SourceMetadataModel,
     StageTimingModel,
 )
-from .playlist_models import PlaylistItemModel, PlaylistModel
+from .playlist_models import PlaylistGroupModel, PlaylistItemModel, PlaylistModel
+from .product_update_models import (
+    NewsletterSubscriptionModel,
+    ProductFeedbackModel,
+    ProductUpdateDeliveryModel,
+    ProductUpdateModel,
+)
 from .template_models import (
     BaseConfigModel,
     InputSourceModel,
@@ -38,11 +44,16 @@ __all__ = [
     "DatabaseConfig",
     "DatabaseManager",
     "InputSourceModel",
+    "NewsletterSubscriptionModel",
     "OutputPresetModel",
     "OutputTargetModel",
+    "PlaylistGroupModel",
     "PlaylistItemModel",
     "PlaylistModel",
     "ProcessingStageModel",
+    "ProductFeedbackModel",
+    "ProductUpdateDeliveryModel",
+    "ProductUpdateModel",
     "QuotaUsageModel",
     "RecordingModel",
     "RecordingTemplateModel",

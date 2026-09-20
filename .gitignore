@@ -75,8 +75,8 @@ backend/transcriptions/*
 backend/video/*
 backend/storage/*
 
-backend/logs/
-backend/*.log
+*/*.log
+backend/logs/*
 
 backend/*.db
 backend/*.sqlite
@@ -147,3 +147,7 @@ terraform/terraform.rc
 nginx/nginx.conf
 backend/docs/dev_notes/README.md
 backend/docs/dev_notes/ASR_PROVIDER_COMPARISON.md
+20260824-20260930 (1).csv
+20260824-20260930.csv
+player-skeleton.html
+Explore-logs-2026-09-20 17_13_00.json

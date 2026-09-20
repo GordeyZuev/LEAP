@@ -40,9 +40,15 @@ export function writeResumeTime(key: string, time: number): void {
 
 export function resumeTimeWithinDuration(saved: number, duration: number): number | null {
   if (!Number.isFinite(duration) || duration <= SKIP_START_SECONDS) return null;
-  if (saved < SKIP_START_SECONDS) return null;
+  if (!Number.isFinite(saved) || saved < SKIP_START_SECONDS) return null;
   if (saved >= duration - END_SECONDS) return null;
   return Math.min(saved, duration);
+}
+
+/** A failed stream should retry at the current position, including near the end. */
+export function retryTimeWithinDuration(saved: number, duration: number): number | null {
+  if (!Number.isFinite(saved) || saved <= 0 || !Number.isFinite(duration) || duration <= 0.25) return null;
+  return Math.min(saved, duration - 0.25);
 }
 
 export function createResumeSaver(key: string): { save: (time: number) => void; flush: (time: number) => void; cancel: () => void } {

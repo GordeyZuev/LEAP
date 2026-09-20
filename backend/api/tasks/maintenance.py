@@ -53,7 +53,7 @@ def cleanup_expired_tokens_task():
         }
 
     except Exception as e:
-        logger.error("Failed to cleanup expired tokens: {}", str(e), exc_info=True)
+        logger.opt(exception=True).error("Failed to cleanup expired tokens: {}", e)
         return {"status": "error", "error": str(e)}
 
 
@@ -138,7 +138,7 @@ def auto_expire_recordings_task():
         }
 
     except Exception as e:
-        logger.error("Failed to auto-expire recordings: {}", str(e), exc_info=True)
+        logger.opt(exception=True).error("Failed to auto-expire recordings: {}", e)
         return {"status": "error", "error": str(e)}
 
 
@@ -245,7 +245,7 @@ def cleanup_recording_files_task():
         }
 
     except Exception as e:
-        logger.error("Failed to cleanup recording files: {}", str(e), exc_info=True)
+        logger.opt(exception=True).error("Failed to cleanup recording files: {}", e)
         return {"status": "error", "error": str(e)}
 
 
@@ -329,7 +329,7 @@ def hard_delete_recordings_task():
         }
 
     except Exception as e:
-        logger.error("Failed to hard delete recordings: {}", str(e), exc_info=True)
+        logger.opt(exception=True).error("Failed to hard delete recordings: {}", e)
         return {"status": "error", "error": str(e)}
 
 
@@ -366,7 +366,7 @@ def cleanup_playlist_blank_items_task():
         logger.info(f"cleanup_playlist_blank_items: removed={deleted}")
         return {"status": "success", "removed": deleted}
     except Exception as e:
-        logger.error("Failed to cleanup playlist blank items: {}", str(e), exc_info=True)
+        logger.opt(exception=True).error("Failed to cleanup playlist blank items: {}", e)
         return {"status": "error", "error": str(e)}
 
 
@@ -414,7 +414,7 @@ def cleanup_temp_files_task(max_age_hours: int = 6):
         }
 
     except Exception as e:
-        logger.error("Failed to clean temp files: {}", str(e), exc_info=True)
+        logger.opt(exception=True).error("Failed to clean temp files: {}", e)
         return {"status": "error", "error": str(e)}
 
 
@@ -494,5 +494,5 @@ def reset_stale_active_recordings_task(stale_hours: float = 2.0):
         logger.info(f"reset_stale_active_recordings: reset={reset_count} threshold_h={stale_hours}")
         return {"status": "success", "reset": reset_count}
     except Exception as e:
-        logger.error(f"Failed to reset stale active recordings: {e}", exc_info=True)
+        logger.opt(exception=True).error(f"Failed to reset stale active recordings: {e}")
         return {"status": "error", "error": str(e)}

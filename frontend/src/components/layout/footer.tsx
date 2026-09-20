@@ -7,11 +7,19 @@ import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 const VERSION = APP_VERSION;
 
 const links = [
+  { label: "News & Updates", href: "/updates", external: false },
+  { label: "Feedback", href: "/updates/feedback", external: false },
+  { label: "Subscribe", href: "/updates/subscribe", external: false },
   { label: "Documentation", href: "/docs", external: false },
   { label: "Contact", href: "mailto:gordey.zuev@gmail.com", external: true },
 ];
 
-const PUBLIC_LINKS = [{ label: "Contact", href: "mailto:gordey.zuev@gmail.com", external: true }];
+const PUBLIC_LINKS = [
+  { label: "News & Updates", href: "/updates", external: false },
+  { label: "Feedback", href: "/updates/feedback", external: false },
+  { label: "Subscribe", href: "/updates/subscribe", external: false },
+  { label: "Contact", href: "mailto:gordey.zuev@gmail.com", external: true },
+];
 
 export function Footer({ variant = "app" }: { variant?: "app" | "public" }) {
   const items = variant === "public" ? PUBLIC_LINKS : links;

@@ -23,9 +23,11 @@ interface RecordingPosterProps {
   posterFallbackUrl?: string | null;
   /** Stable storage identity from API; presign refresh must not change img src. */
   posterAssetKey?: string | null;
+  posterRefreshAtMs?: number | null;
   /** Seconds — rendered as a badge over the frame. */
   duration?: number;
   className?: string;
+  prioritize?: boolean;
 }
 
 /** Grid card: fixed height strip (not 16:9 — too tall at column width). */
@@ -38,31 +40,17 @@ function useStablePosterUrls(
   posterUrl: string | null | undefined,
   posterFallbackUrl: string | null | undefined,
   posterAssetKey: string | null | undefined,
+  posterRefreshAtMs: number | null | undefined,
 ) {
-  const live = useMemo(
-    () => ({
-      primary: posterUrl ?? null,
-      fallback: posterFallbackUrl ?? null,
-    }),
-    [posterUrl, posterFallbackUrl],
-  );
-
+  const live = { primary: posterUrl ?? null, fallback: posterFallbackUrl ?? null };
   const pinned = useMemo(
-    () => ({
-      primary: posterUrl ?? null,
-      fallback: posterFallbackUrl ?? null,
-    }),
-    // posterUrl omitted on purpose: presign refresh must not change img src when asset is unchanged.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by posterAssetKey only
-    [posterAssetKey],
+    () => ({ primary: posterUrl ?? null, fallback: posterFallbackUrl ?? null }),
+    // The API deadline changes when a signed URL should replace the pinned image.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately keyed by asset and API deadline
+    [posterAssetKey, posterRefreshAtMs],
   );
-
-  if (!posterAssetKey) return live;
-  // Keep stable src across presign refresh, but still pick up the first URL when it appears.
-  return {
-    primary: pinned.primary ?? posterUrl ?? null,
-    fallback: pinned.fallback ?? posterFallbackUrl ?? null,
-  };
+  if (!posterAssetKey || posterRefreshAtMs == null) return live;
+  return { primary: pinned.primary ?? live.primary, fallback: pinned.fallback ?? live.fallback };
 }
 
 function PosterImageBody({
@@ -71,12 +59,14 @@ function PosterImageBody({
   className,
   placeholderIconSize,
   onPrimaryError,
+  prioritize = false,
 }: {
   displayPrimary: string | null;
   displayFallback: string | null;
   className?: string;
   placeholderIconSize: number;
   onPrimaryError?: () => void;
+  prioritize?: boolean;
 }) {
   const [fallbackActive, setFallbackActive] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -106,7 +96,8 @@ function PosterImageBody({
         <img
           src={resolveStorageUrl(activeUrl)}
           alt=""
-          loading="lazy"
+          loading={prioritize ? "eager" : "lazy"}
+          fetchPriority={prioritize ? "high" : "auto"}
           decoding="async"
           onError={handleError}
           className="h-full w-full object-cover"
@@ -125,17 +116,19 @@ export function StablePosterImage({
   posterUrl,
   posterFallbackUrl,
   posterAssetKey,
+  posterRefreshAtMs,
   className,
   placeholderIconSize = 16,
 }: {
   posterUrl?: string | null;
   posterFallbackUrl?: string | null;
   posterAssetKey?: string | null;
+  posterRefreshAtMs?: number | null;
   className?: string;
   placeholderIconSize?: number;
 }) {
-  const displayUrls = useStablePosterUrls(posterUrl, posterFallbackUrl, posterAssetKey);
-  const remountKey = posterAssetKey ?? `${displayUrls.primary ?? ""}|${displayUrls.fallback ?? ""}`;
+  const displayUrls = useStablePosterUrls(posterUrl, posterFallbackUrl, posterAssetKey, posterRefreshAtMs);
+  const remountKey = `${posterAssetKey ?? ""}|${displayUrls.primary ?? ""}|${displayUrls.fallback ?? ""}`;
 
   return (
     <PosterImageBody
@@ -153,11 +146,13 @@ export function RecordingPoster({
   posterUrl,
   posterFallbackUrl,
   posterAssetKey,
+  posterRefreshAtMs,
   duration,
   className,
+  prioritize = false,
 }: RecordingPosterProps) {
-  const displayUrls = useStablePosterUrls(posterUrl, posterFallbackUrl, posterAssetKey);
-  const remountKey = posterAssetKey ?? `${displayUrls.primary ?? ""}|${displayUrls.fallback ?? ""}`;
+  const displayUrls = useStablePosterUrls(posterUrl, posterFallbackUrl, posterAssetKey, posterRefreshAtMs);
+  const remountKey = `${posterAssetKey ?? ""}|${displayUrls.primary ?? ""}|${displayUrls.fallback ?? ""}`;
   const dur = formatDurationCompact(duration);
 
   function handlePosterGenerate() {
@@ -175,6 +170,7 @@ export function RecordingPoster({
         className={className}
         placeholderIconSize={16}
         onPrimaryError={handlePosterGenerate}
+        prioritize={prioritize}
       />
       {dur && (
         <span className="pointer-events-none absolute bottom-1 end-1 rounded bg-black/70 px-1 py-0.5 text-xs font-medium tabular-nums text-white">

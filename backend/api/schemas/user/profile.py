@@ -14,6 +14,10 @@ class UserProfileUpdate(BaseModel):
 
     full_name: str | None = Field(None, max_length=255, description="Full name of user")
     email: EmailStr | None = Field(None, description="Email of user")
+    current_password: str | None = Field(
+        None,
+        description="Required when changing email",
+    )
     timezone: str | None = Field(
         None,
         max_length=50,

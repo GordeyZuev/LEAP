@@ -25,7 +25,7 @@ export const ME_QUERY_KEY = ["me"] as const;
 export const STALE_TIME = {
   session: 5 * 60 * 1000,
   catalog: 5 * 60 * 1000,
-  recordings: 30_000,
+  recordings: 60_000,
 } as const;
 
 export const listQueryOptions = {

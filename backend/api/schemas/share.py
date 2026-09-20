@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from api.schemas.playlist import PublicChannelLink
 from api.schemas.source_extras import SourceExtrasResponse
 from models.recording import ProcessingStatus
 
@@ -100,3 +101,4 @@ class PublicRecordingResponse(BaseModel):
     vtt_url: str | None = None
     original_play_url: str | None = None
     media_expires_in: int | None = None
+    channels: list[PublicChannelLink] = Field(default_factory=list)

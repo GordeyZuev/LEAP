@@ -11,21 +11,96 @@ export function collapseWhitespace(s: string): string {
 }
 
 /**
- * Pull a human-readable message out of an Axios error from the API. Handles a
- * plain string `detail` and FastAPI's `detail: [{ msg }]` validation shape;
- * falls back to `fallback` for anything else.
+ * Pull a human-readable message out of an Axios error from the API.
+ *
+ * A specific `detail` (quota text, validation `msg`, auth lockout) wins.
+ * Generic statuses — rate limit, upload too large, 5xx, offline, timeout —
+ * become one short sentence. Anything else uses `fallback`.
  */
 export function httpStatus(err: unknown): number | undefined {
-  return (err as { response?: { status?: number } } | null)?.response?.status;
+  return axiosResponse(err)?.status;
 }
 
+const GENERIC_DETAIL = /^(rate limit exceeded|too many requests|internal server error)$/i;
+
 export function extractApiError(err: unknown, fallback = "Request failed"): string {
-  const detail = (err as { response?: { data?: { detail?: unknown } } } | null)?.response?.data?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail) && detail[0] && typeof detail[0] === "object" && "msg" in detail[0]) {
-    return String((detail[0] as { msg: unknown }).msg);
+  const response = axiosResponse(err);
+  const specific = specificDetail(response?.data?.detail);
+  if (specific) return specific;
+  return statusMessage(err, response) ?? fallback;
+}
+
+interface AxiosLikeResponse {
+  status?: number;
+  data?: { detail?: unknown; retry_after?: unknown };
+  headers?: {
+    "retry-after"?: unknown;
+    get?: (name: string) => unknown;
+  };
+}
+
+function axiosResponse(err: unknown): AxiosLikeResponse | undefined {
+  if (!err || typeof err !== "object" || !("response" in err)) return undefined;
+  const response = (err as { response?: AxiosLikeResponse }).response;
+  return response && typeof response === "object" ? response : undefined;
+}
+
+function specificDetail(detail: unknown): string | undefined {
+  if (typeof detail === "string") {
+    const text = detail.trim();
+    if (!text || text.length > 240 || GENERIC_DETAIL.test(text)) return undefined;
+    return text;
   }
-  return fallback;
+  if (Array.isArray(detail) && detail[0] && typeof detail[0] === "object" && detail[0] !== null && "msg" in detail[0]) {
+    const text = String(detail[0].msg).trim();
+    return text || undefined;
+  }
+  return undefined;
+}
+
+function statusMessage(err: unknown, response: AxiosLikeResponse | undefined): string | undefined {
+  const transport = transportKind(err, response);
+  if (transport === "timeout") return "The request timed out. Try again.";
+  if (transport === "offline") return "Could not reach the server. Check your connection and try again.";
+  const status = response?.status;
+  if (status === 429) return rateLimitMessage(retryAfterSeconds(response));
+  if (status === 413) return "This file is larger than the upload limit.";
+  if (status != null && status >= 500) return "The server had a problem. Try again in a moment.";
+  return undefined;
+}
+
+function transportKind(err: unknown, response: AxiosLikeResponse | undefined): "offline" | "timeout" | undefined {
+  if (response || !err || typeof err !== "object") return undefined;
+  const code = (err as { code?: string }).code;
+  // A canceled request has no response too. It is not a dropped connection.
+  if (code === "ERR_CANCELED") return undefined;
+  if (code === "ECONNABORTED" || code === "ETIMEDOUT") return "timeout";
+  if (code === "ERR_NETWORK") return "offline";
+  return undefined;
+}
+
+function retryAfterSeconds(response: AxiosLikeResponse | undefined): number | undefined {
+  return positiveSeconds(response?.data?.retry_after) ?? positiveSeconds(retryAfterHeader(response?.headers));
+}
+
+function retryAfterHeader(headers: AxiosLikeResponse["headers"]): unknown {
+  if (!headers) return undefined;
+  return headers.get?.("retry-after") ?? headers["retry-after"];
+}
+
+function positiveSeconds(value: unknown): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds > 0) return seconds;
+  return undefined;
+}
+
+function rateLimitMessage(seconds: number | undefined): string {
+  if (seconds == null) return "Too many requests. Wait a moment and try again.";
+  if (seconds <= 90) return "Too many requests. Try again in a minute.";
+  if (seconds < 3600) return `Too many requests. Try again in ${Math.ceil(seconds / 60)} minutes.`;
+  if (seconds <= 5400) return "Too many requests. Try again in an hour.";
+  return `Too many requests. Try again in ${Math.ceil(seconds / 3600)} hours.`;
 }
 
 // Date formatting — single canonical surface so the whole app shows

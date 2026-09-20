@@ -290,7 +290,7 @@ Nested `transcription` is required (`TranscriptionProcessingConfig`).
 | `enable_transcription` | true | |
 | `prompt` | null | ASR hint; empty → default prompt from codebase |
 | `language` | null | Audio language |
-| `allow_errors` | false | On transcription error, continue pipeline (topics/subtitles skipped) |
+| `allow_errors` | false | On a transcription, topics, or subtitles error, skip that stage and continue the same chain, including upload. The recording is not marked Failed. Topics and subtitles are skipped only when transcription failed, and run again once a transcript exists. A quota block and a soft time limit still fail the recording |
 | `enable_topics` | true | Topic extraction |
 | `granularity` | `long` | `short` \| `medium` \| `long` |
 | `questions_count` | 3 | 1–10 self-check questions |

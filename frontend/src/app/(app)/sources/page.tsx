@@ -435,7 +435,7 @@ export default function SourcesPage() {
       <ResultCount total={data?.total} itemLabel="source" filtered={list.hasActiveFilters} />
 
       {showSkeleton && <CardGridSkeleton count={3} />}
-      {error && <ErrorState description="Failed to load sources" onRetry={() => refetch()} />}
+      {error && <ErrorState title="Failed to load sources" error={error} onRetry={() => refetch()} />}
       {!showSkeleton && !error && sources.length === 0 && (
         list.hasActiveFilters ? (
           <EmptyState

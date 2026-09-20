@@ -25,6 +25,7 @@ export interface RecordingCardData {
   poster_source?: "thumbnail" | "frame" | null;
   poster_fallback_url?: string | null;
   poster_asset_key?: string | null;
+  poster_refresh_at_ms?: number | null;
   status: ProcessingStatus;
   start_time: string;
   duration: number;
@@ -60,6 +61,7 @@ interface RecordingCardProps {
   onRestore?: (id: number) => void;
   onRename?: (id: number, name: string) => void;
   loadingId?: number | null;
+  prioritizePoster?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +146,7 @@ export function RecordingCard({
   onRestore,
   onRename,
   loadingId,
+  prioritizePoster = false,
 }: RecordingCardProps) {
   const isLoading = loadingId === r.id;
   const uploads = Object.entries(r.uploads).filter(([platform]) => platform !== "leap");
@@ -204,8 +207,10 @@ export function RecordingCard({
             posterUrl={r.poster_url}
             posterFallbackUrl={r.poster_fallback_url}
             posterAssetKey={r.poster_asset_key}
+            posterRefreshAtMs={r.poster_refresh_at_ms}
             duration={r.duration}
             className={RECORDING_CARD_POSTER}
+            prioritize={prioritizePoster}
           />
         </Link>
 

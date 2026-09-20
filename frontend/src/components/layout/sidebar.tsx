@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  House,
   Video,
   ListVideo,
   Radio,
@@ -14,23 +15,27 @@ import {
   BookOpen,
   Settings,
   Shield,
+  Sparkles,
   LogOut,
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useExitPresence } from "@/hooks/use-exit-presence";
 import { Logo } from "@/components/layout/logo";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { apiClient } from "@/api/client";
 import { prefetchNavList } from "@/lib/react-query";
 import { useCredentialsNeedingReauth, credentialsNavAriaLabel } from "@/hooks/use-credentials-reauth";
+import { fetchLatestProductUpdate } from "@/api/product-updates";
+import { hasSeenProductNews, markProductNewsSeen } from "@/lib/product-news-storage";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebar-collapsed";
 
 const primaryNav = [
+  { href: "/home", label: "Home", icon: House },
   { href: "/recordings", label: "Recordings", icon: Video },
   { href: "/playlists", label: "Playlists", icon: ListVideo },
   { href: "/channels", label: "Channels", icon: Radio },
@@ -70,6 +75,9 @@ export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: 
   const qc = useQueryClient();
   const { data: reauthData } = useCredentialsNeedingReauth();
   const reauthCount = reauthData?.total ?? 0;
+  const newsQuery = useQuery({ queryKey: ["product-updates", "latest"], queryFn: fetchLatestProductUpdate, staleTime: 5 * 60_000 });
+  const latestNewsId = newsQuery.data?.id;
+  const hasUnreadNews = Boolean(latestNewsId && !hasSeenProductNews(latestNewsId));
 
   function prefetchNav(href: string) {
     if (href === "/recordings") return;
@@ -179,14 +187,14 @@ export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: 
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
-      {/* Logo — always navigates to /recordings, wordmark animates with sidebar width.
+      {/* Logo — always navigates to /home, wordmark animates with sidebar width.
           Padding mirrors nav (px-2 on wrapper + px-3 on link) so the symbol stays on
           the same x-axis as nav icons in both states. */}
       <div className="px-2 py-5">
         <Link
-          href="/recordings"
-          title="Recordings"
-          aria-label="LEAP — recordings"
+          href="/home"
+          title="Home"
+          aria-label="LEAP — home"
           onClick={onMobileClose}
           className={cn(
             "flex items-center gap-2 rounded-xl px-3 py-1.5 hover:bg-white/10 transition-colors",
@@ -210,18 +218,20 @@ export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: 
         {primaryNav.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
-            <Link
-              key={href}
-              href={href}
-              title={effectiveCollapsed ? label : undefined}
-              onClick={onMobileClose}
-              onMouseEnter={() => prefetchNav(href)}
-              onFocus={() => prefetchNav(href)}
-              className={linkClass(active)}
-            >
-              <Icon size={18} strokeWidth={1.75} className="shrink-0" />
-              <span className={labelClass}>{label}</span>
-            </Link>
+            <Fragment key={href}>
+              <Link
+                href={href}
+                title={effectiveCollapsed ? label : undefined}
+                onClick={onMobileClose}
+                onMouseEnter={() => prefetchNav(href)}
+                onFocus={() => prefetchNav(href)}
+                className={linkClass(active)}
+              >
+                <Icon size={18} strokeWidth={1.75} className="shrink-0" />
+                <span className={labelClass}>{label}</span>
+              </Link>
+              {href === "/home" && <div className="mx-3 my-2 h-px bg-white/10" />}
+            </Fragment>
           );
         })}
         <div className="mx-3 my-2 h-px bg-white/10" />
@@ -274,6 +284,21 @@ export function Sidebar({ isAdmin = false, mobileOpen = false, onMobileClose }: 
 
       {/* Bottom */}
       <div className="px-2 pb-4 space-y-1">
+        <Link
+          href="/updates"
+          title={effectiveCollapsed ? "News & Updates" : undefined}
+          onClick={() => {
+            if (latestNewsId) markProductNewsSeen(latestNewsId);
+            onMobileClose?.();
+          }}
+          className={linkClass(pathname === "/updates" || pathname.startsWith("/updates/"))}
+        >
+          <span className="relative shrink-0">
+            <Sparkles size={18} strokeWidth={1.75} />
+            {hasUnreadNews && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-sky-300" aria-hidden />}
+          </span>
+          <span className={labelClass}>News &amp; Updates</span>
+        </Link>
         <Link
           href="/docs"
           title={effectiveCollapsed ? "Documentation" : undefined}

@@ -2,9 +2,10 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.schemas.common.pagination import PaginatedResponse
+from api.schemas.template.processing_config import ProcessingConfigOverride
 
 from .filters import AutomationFilters
 from .schedule import Schedule
@@ -25,7 +26,10 @@ class SyncConfig(BaseModel):
         le=5000,
         description="Max full pipelines to start per run. Null = unlimited. MTS wait pings are not capped.",
     )
-    sync_on_run: bool = Field(default=True, description="Refresh sources from Zoom/MTS before matching")
+    sync_on_run: bool = Field(
+        default=True,
+        description="Refresh Zoom, MTS, public Yandex Disk, and VIDEO_URL sources before matching",
+    )
 
 
 class AutomationJobCreate(BaseModel):
@@ -42,6 +46,13 @@ class AutomationJobCreate(BaseModel):
         description="Override config (highest priority in automation context)",
     )
 
+    @field_validator("processing_config", mode="before")
+    @classmethod
+    def _typed_processing_override(cls, v: dict | None) -> dict | None:
+        if v is None:
+            return None
+        return ProcessingConfigOverride.model_validate(v).model_dump(exclude_none=True)
+
 
 class AutomationJobUpdate(BaseModel):
     """Schema for updating automation job."""
@@ -54,6 +65,13 @@ class AutomationJobUpdate(BaseModel):
     filters: AutomationFilters | None = None
     processing_config: dict | None = None
     is_active: bool | None = None
+
+    @field_validator("processing_config", mode="before")
+    @classmethod
+    def _typed_processing_override(cls, v: dict | None) -> dict | None:
+        if v is None:
+            return None
+        return ProcessingConfigOverride.model_validate(v).model_dump(exclude_none=True)
 
 
 class AutomationJobListItem(BaseModel):

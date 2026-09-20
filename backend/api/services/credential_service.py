@@ -53,13 +53,13 @@ class CredentialService:
 
         return await self._decrypt_and_reencrypt(credential)
 
-    async def get_credentials_by_id(self, credential_id: int) -> dict[str, Any]:
-        """Get decrypted credentials by ID. Re-encrypts legacy data automatically.
+    async def get_credentials_by_id(self, credential_id: int, user_id: str) -> dict[str, Any]:
+        """Get decrypted credentials by ID for the owning user. Re-encrypts legacy data automatically.
 
         Raises:
             ValueError: If credentials not found, inactive, or decryption fails.
         """
-        credential = await self.repo.get_by_id(credential_id)
+        credential = await self.repo.get_by_id(credential_id, user_id)
 
         if not credential:
             raise ValueError(f"Credential {credential_id} not found")
@@ -108,15 +108,19 @@ class CredentialService:
             raise
 
         if self.encryption.needs_reencrypt(credential.encrypted_data):
-            await self._reencrypt(credential.id, decrypted)
+            await self._reencrypt(credential.id, decrypted, user_id=credential.user_id)
 
         return decrypted
 
-    async def _reencrypt(self, credential_id: int, plaintext: dict[str, Any]) -> None:
+    async def _reencrypt(self, credential_id: int, plaintext: dict[str, Any], *, user_id: str) -> None:
         """Re-encrypt credential with current primary key."""
         try:
             new_encrypted = self.encryption.encrypt_credentials(plaintext)
-            await self.repo.update(credential_id, UserCredentialUpdate(encrypted_data=new_encrypted))
+            await self.repo.update(
+                credential_id,
+                UserCredentialUpdate(encrypted_data=new_encrypted),
+                user_id=user_id,
+            )
             logger.info(f"Lazy re-encrypted credential | id={credential_id}")
         except Exception as e:
             logger.warning(f"Lazy re-encrypt failed | id={credential_id}: {e}")
