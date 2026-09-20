@@ -97,7 +97,7 @@ class TestResolveMtsLinkUserId:
 @pytest.mark.unit
 @patch("asyncio.sleep", new_callable=AsyncMock)
 class TestListMtsLinkRecords:
-    """The rate-limit pause is stubbed out: these assert paging, not wall-clock time."""
+    """Paging only; QPS is enforced in MtsLinkAPI, not in this helper."""
 
     @pytest.mark.asyncio
     async def test_stops_on_empty_page(self, _sleep):
@@ -189,6 +189,7 @@ class TestMtsLinkSyncUpsertFlags:
         assert "conversion_view" in src
         assert "load_event_session" in src
         assert "resolve_mts_link_start_time" in src
+        assert "ExternalRateLimitError" in src
 
 
 @pytest.mark.unit

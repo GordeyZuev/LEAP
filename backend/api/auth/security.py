@@ -1,5 +1,6 @@
 """Security utilities: password hashing, JWT tokens"""
 
+import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -10,6 +11,11 @@ import jwt
 from config.settings import get_settings
 
 settings = get_settings()
+
+
+def hash_secret(value: str) -> str:
+    """SHA-256 hex digest for refresh / reset / verification tokens at rest."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 class PasswordHelper:

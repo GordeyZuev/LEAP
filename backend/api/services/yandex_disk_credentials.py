@@ -66,12 +66,14 @@ async def persist_refreshed_yandex_disk_credentials(
     credential_id: int,
     cred_repo: Any,
     encryption: Any,
+    *,
+    user_id: str,
 ) -> None:
     """Encrypt and save refreshed Yandex Disk credentials."""
     from api.schemas.auth import UserCredentialUpdate
 
     enc = encryption.encrypt_credentials(credentials)
-    await cred_repo.update(credential_id, UserCredentialUpdate(encrypted_data=enc))
+    await cred_repo.update(credential_id, UserCredentialUpdate(encrypted_data=enc), user_id=user_id)
 
 
 async def refresh_yandex_disk_credential_if_needed(
@@ -79,10 +81,14 @@ async def refresh_yandex_disk_credential_if_needed(
     credential_id: int,
     cred_repo: Any,
     encryption: Any,
+    *,
+    user_id: str,
 ) -> None:
     """Refresh near-expiry token, mutate ``credentials``, and persist when refreshed."""
     if await apply_yandex_disk_token_refresh(credentials):
-        await persist_refreshed_yandex_disk_credentials(credentials, credential_id, cred_repo, encryption)
+        await persist_refreshed_yandex_disk_credentials(
+            credentials, credential_id, cred_repo, encryption, user_id=user_id
+        )
 
 
 async def get_yandex_disk_client_for_credential(
@@ -101,7 +107,7 @@ async def get_yandex_disk_client_for_credential(
     await validator.validate_credential_access(credential_id, user_id)
 
     cred_repo = UserCredentialRepository(session)
-    credential = await cred_repo.get_by_id(credential_id)
+    credential = await cred_repo.get_by_id(credential_id, user_id)
     if not credential:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -137,7 +143,9 @@ async def get_yandex_disk_client_for_credential(
         )
 
     if refresh_if_expiring:
-        await refresh_yandex_disk_credential_if_needed(credentials, credential_id, cred_repo, encryption)
+        await refresh_yandex_disk_credential_if_needed(
+            credentials, credential_id, cred_repo, encryption, user_id=user_id
+        )
         oauth_token = credentials.get("oauth_token", oauth_token)
 
     return YandexDiskClient(oauth_token=str(oauth_token))

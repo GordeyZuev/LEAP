@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 from pathlib import Path
 
 from logger import get_logger
@@ -7,12 +8,29 @@ from logger import get_logger
 logger = get_logger()
 
 
+def _finite_float(value: object, name: str) -> float:
+    """Coerce to a finite float so values cannot inject extra FFmpeg filters."""
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be a finite number")
+    return number
+
+
 class AudioDetector:
     """Audio detector for content boundary detection"""
 
-    def __init__(self, silence_threshold: float = -30.0, min_silence_duration: float = 2.0):
-        self.silence_threshold = silence_threshold
-        self.min_silence_duration = min_silence_duration
+    def __init__(
+        self,
+        silence_threshold: float = -30.0,
+        min_silence_duration: float = 2.0,
+        padding_after: float = 5.0,
+    ):
+        self.silence_threshold = _finite_float(silence_threshold, "silence_threshold")
+        self.min_silence_duration = _finite_float(min_silence_duration, "min_silence_duration")
+        self.padding_after = _finite_float(padding_after, "padding_after")
+
+    def _silence_detect_filter(self) -> str:
+        return f"silencedetect=noise={self.silence_threshold:.1f}dB:d={self.min_silence_duration:.3f}"
 
     async def detect_audio_boundaries_from_file(self, audio_path: str) -> tuple[float | None, float | None]:
         """Analyze audio file for silence detection (faster than video analysis)."""
@@ -29,7 +47,7 @@ class AudioDetector:
                 "-i",
                 audio_path,
                 "-af",
-                f"silencedetect=noise={self.silence_threshold}dB:d={self.min_silence_duration}",
+                self._silence_detect_filter(),
                 "-f",
                 "null",
                 "-",
@@ -103,26 +121,24 @@ class AudioDetector:
         return silence_periods[0][1]
 
     def _find_last_sound(self, silence_periods: list[tuple[float, float]], duration: float | None) -> float | None:
-        """Find time when last sound ends.
+        """Find when speech ends: trailing silence at EOF only, never a mid-file pause.
 
-        Trailing digital silence is often closed a bit before container duration
-        (MP3 padding / ffprobe vs silencedetect). A 0.1s EOF slack then treats
-        hours of -90 dB as "sound until EOF" and only the intro is trimmed.
+        A period's ``end`` is when sound resumed (or EOF). It is outro only if
+        the leftover after ``end`` is within ``padding_after`` from the template
+        (same margin later applied as ``end_trim = last_sound + padding_after``).
+        Mid-lecture breaks and pauses with speech after them are not outro.
+        Intro is ``_find_first_sound``.
         """
         if not silence_periods or duration is None:
             return None
 
-        eof_slack = max(30.0, self.min_silence_duration)
-        long_silence = 60.0
-
         chosen_start: float | None = None
         for start, end in silence_periods:
-            near_eof = end >= duration - eof_slack
-            is_long = (end - start) >= long_silence
-            if not near_eof and not is_long:
-                continue
             if start <= 0.1:
-                # Silence from t=0: leading-only or the whole file. Do not cut at 0.
+                # Leading-only or whole-file silence. Do not cut at 0.
+                continue
+            gap = max(0.0, duration - end)
+            if gap > self.padding_after:
                 continue
             chosen_start = start
 

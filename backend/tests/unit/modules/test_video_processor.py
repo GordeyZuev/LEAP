@@ -8,6 +8,32 @@ import pytest
 
 
 @pytest.mark.unit
+class TestOutputSuffixForTrim:
+    def test_mp4_when_both_streams_are_mp4_compatible(self):
+        from video_processing_module.video_processor import output_suffix_for_trim
+
+        assert output_suffix_for_trim("h264", "aac") == ".mp4"
+        assert output_suffix_for_trim("hevc", "mp3") == ".mp4"
+
+    def test_webm_only_when_every_stream_is_webm_legal(self):
+        from video_processing_module.video_processor import output_suffix_for_trim
+
+        assert output_suffix_for_trim("vp9", "opus") == ".webm"
+        assert output_suffix_for_trim("vp8", "vorbis") == ".webm"
+        assert output_suffix_for_trim("av1", None) == ".webm"
+
+    def test_mkv_for_mixed_codecs_that_cannot_mux_into_webm(self):
+        from video_processing_module.video_processor import output_suffix_for_trim
+
+        # H.264 + Opus used to return .webm and FFmpeg failed at mux
+        assert output_suffix_for_trim("h264", "opus") == ".mkv"
+        assert output_suffix_for_trim("vp9", "aac") == ".mkv"
+        assert output_suffix_for_trim("hevc", "opus") == ".mkv"
+        assert output_suffix_for_trim("H264", "OPUS") == ".mkv"
+        assert output_suffix_for_trim("vp9", "pcm_s16le") == ".mkv"
+
+
+@pytest.mark.unit
 class TestVideoProcessorInit:
     """Tests for VideoProcessor initialization."""
 

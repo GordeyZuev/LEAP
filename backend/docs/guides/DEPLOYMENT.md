@@ -215,6 +215,21 @@ make refresh-env
 
 Full env var reference: [backend/.env.example](../../.env.example).
 
+**CORS:** default origin is `http://localhost:3000`. Production must set `SERVER_CORS_ORIGINS` to the frontend origin (see `scripts/vm-init.sh`). Startup rejects `*` together with cookie credentials.
+
+**Rate limit / proxies:** keys are per client IP (`rl:ip:{ip}:h:{bucket}`). nginx must send `X-Real-IP` (`$remote_addr`). The API trusts that header (and `X-Forwarded-For`) when `SECURITY_TRUST_X_FORWARDED_FOR=true` **or** when the TCP peer is private/loopback (Docker nginx → `api`). Without that, every browser shares the nginx container IP and the hourly cap returns **429** for `/auth/login` too.
+
+Auth routes (`/auth/login`, register, password reset) use only the per-minute auth cap, not the global hourly bucket. `/api/v1/health/*` and `/metrics` are exempt.
+
+To unblock a collapsed Docker-IP bucket immediately:
+
+```bash
+docker exec leap_redis sh -c 'redis-cli --scan --pattern "rl:ip:172.18.*" | xargs -r redis-cli DEL'
+docker exec leap_redis sh -c 'redis-cli --scan --pattern "rl:auth:ip:172.18.*" | xargs -r redis-cli DEL'
+```
+
+**JWT / Fernet:** with `APP_DEBUG=false` the API will not start if `SECURITY_JWT_SECRET_KEY` is the example default or `SECURITY_ENCRYPTION_KEY` is empty.
+
 ### Transactional email (verification + password reset)
 
 `EmailService` sends only when `EMAIL_ENABLED=true`.

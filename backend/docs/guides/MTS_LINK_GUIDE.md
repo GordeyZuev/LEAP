@@ -41,6 +41,8 @@
 
 Ключ хранится зашифрованным в `user_credentials` (платформа `mts_link`), как и остальные credentials — см. [CREDENTIAL_SECURITY.md](CREDENTIAL_SECURITY.md).
 
+**Лимит UserAPI — 2 запроса в секунду на org-ключ.** LEAP держит общий слот в Redis (`ext-rl:mts_link:{credential_id}`) на все воркеры. HTTP 429 ретраится с jitter (секунды), а не 10-минутным Celery retry. Если Redis недоступен, запрос всё равно уходит; 429 остаётся страховкой.
+
 ---
 
 ## Input Source

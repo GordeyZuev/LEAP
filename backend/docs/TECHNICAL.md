@@ -820,7 +820,8 @@ final = {
 
 ```bash
 # Add video from external sources (no InputSource required)
-POST /api/v1/recordings/add-url        # Single video by URL (yt-dlp)
+POST /api/v1/recordings/add-url        # Single video by URL (yt-dlp); 422 if URL is private/disallowed
+POST  /api/v1/recordings/formats-preview            # title, duration, thumbnail URL, available streams (no recording created); 422 on SSRF/private URL
 POST /api/v1/recordings/add-playlist   # Playlist/channel by URL (yt-dlp)
 POST /api/v1/sources + sync            # Yandex Disk public link (InputSource)
 
@@ -839,7 +840,7 @@ GET  /api/v1/recordings/{id}/source-extras          # companion files saved from
 # AI content — edit without re-running the pipeline
 PATCH /api/v1/recordings/{id}/topics                # partial update: summary, description, questions, main_topics, topic_timestamps
 POST  /api/v1/recordings/{id}/topics/render         # render Jinja template in recording context → { title, description }
-POST  /api/v1/recordings/formats-preview            # title, duration, thumbnail URL, available streams (no recording created)
+POST  /api/v1/recordings/formats-preview            # title, duration, thumbnail URL, available streams (no recording created); 422 on SSRF/private URL
 
 # Individual stages
 POST /api/v1/recordings/{id}/download   # Zoom, yt-dlp, Yandex Disk, … — NOT MTS Link (400 → use /run)
@@ -863,8 +864,9 @@ See [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md). Inclus
 ```bash
 # Session bootstrap (sets httpOnly cookies; CSRF token in body)
 POST /api/v1/auth/register
-POST /api/v1/auth/login
+POST /api/v1/auth/login            # cookies + csrf_token; add ?include_tokens=true for CLI JWT pair
 POST /api/v1/auth/refresh         # body or refresh cookie; rotates pair
+PATCH /api/v1/users/me            # email change requires current_password; re-verify new address
 
 # Single-device logout
 POST /api/v1/auth/logout          # revokes the current refresh + clears cookies
@@ -1105,13 +1107,14 @@ DELETE /api/v1/thumbnails/{filename}
 
 **JWT (JSON Web Tokens):**
 - Длительность access/refresh задаётся в **`config/settings.py`** (по умолчанию: access **30** минут, refresh **7** дней), переопределение через переменные окружения с префиксом **`SECURITY_`**
-- Refresh-токены хранятся в БД; см. `api/routers/auth.py`
+- Refresh-токены хранятся в БД как SHA-256 от JWT; см. `api/routers/auth.py` и миграцию **055**
+- `SessionResponse` по умолчанию без JWT (только `csrf_token`); CLI: `?include_tokens=true`
 
 **OAuth 2.0:**
 - YouTube: Authorization Code Flow
 - VK: Implicit Flow (2026 policy)
 - Zoom: OAuth 2.0 / Server-to-Server
-- CSRF protection через Redis state tokens
+- CSRF protection через Redis state tokens; callback сверяет `metadata["platform"]` с маршрутом
 
 **RBAC (Role-Based Access Control):**
 ```python
@@ -1164,7 +1167,7 @@ decrypted = json.loads(fernet.decrypt(encrypted_data.encode()))
 
 **API Rate Limits:**
 - Per minute: 60 requests
-- Per hour: 1000 requests
+- Per hour: 10000 requests (per client IP; 60/min still applies)
 - 429 Too Many Requests response
 
 **Quota System:**

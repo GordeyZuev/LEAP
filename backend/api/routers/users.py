@@ -1,12 +1,15 @@
 """User profile management endpoints"""
 
+import secrets
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.dependencies import get_current_user
 from api.auth.security import PasswordHelper
-from api.dependencies import get_db_session
+from api.dependencies import get_db_session, get_email_service
 from api.repositories.auth_repos import (
     RefreshTokenRepository,
     UserRepository,
@@ -29,6 +32,7 @@ from api.services.analytics_service import (
     default_analytics_range,
 )
 from api.services.quota_service import QuotaService
+from config.settings import get_settings
 from database.auth_models import (
     RefreshTokenModel,
     UserCredentialModel,
@@ -49,6 +53,7 @@ from database.template_models import (
 from logger import get_logger
 
 logger = get_logger()
+settings = get_settings()
 
 router = APIRouter(prefix="/api/v1/users", tags=["User Management"])
 
@@ -111,20 +116,58 @@ async def update_profile(
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Update current user profile (full_name, email, timezone)."""
-    user_repo = UserRepository(session)
+    """Update current user profile (full_name, email, timezone).
 
-    # Check that email is not used by another user
+    Changing email requires ``current_password``, marks the account unverified,
+    and sends a verification link to the new address (plus a notice to the old).
+    """
+    user_repo = UserRepository(session)
+    payload = profile_data.model_dump(exclude_unset=True)
+    payload.pop("current_password", None)
+
     if profile_data.email and profile_data.email != current_user.email:
+        if not profile_data.current_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is required to change email",
+            )
+        if not PasswordHelper.verify_password(profile_data.current_password, current_user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect",
+            )
         existing_user = await user_repo.get_by_email(profile_data.email)
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already in use by another user",
             )
+        old_email = current_user.email
+        verification_token = secrets.token_urlsafe(32)
+        payload["is_verified"] = False
+        payload["email_verification_token"] = verification_token
+        payload["email_verification_sent_at"] = datetime.now(UTC)
 
-    # Update only fields that were passed (exclude_unset)
-    user_update = UserUpdate(**profile_data.model_dump(exclude_unset=True))
+        user_update = UserUpdate(**payload)
+        updated_user = await user_repo.update(current_user.id, user_update)
+        if not updated_user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        email_service = get_email_service()
+        verify_url = f"{settings.email.base_url}/verify-email?token={verification_token}"
+        try:
+            await email_service.send_email_verification(profile_data.email, verify_url, current_user.full_name)
+        except Exception as exc:
+            logger.warning(f"Failed to send verification to new email: {exc}")
+        try:
+            await email_service.send_email_changed_notice(old_email, profile_data.email, current_user.full_name)
+        except Exception as exc:
+            logger.warning(f"Failed to notify old email of address change: {exc}")
+
+        logger.info(f"User email changed: {old_email} -> {updated_user.email} (ID: {updated_user.id})")
+        return UserResponse.model_validate(updated_user)
+
+    user_update = UserUpdate(**payload)
 
     updated_user = await user_repo.update(current_user.id, user_update)
     if not updated_user:

@@ -219,11 +219,14 @@
       "description": "Share of RAM available on the VM (node_exporter). Investigate if below 15%.",
       "gridPos": {"x": 0, "y": 46, "w": 8, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "timeFrom": "5m",
       "targets": [
         {
           "refId": "A",
           "expr": "100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
-          "legendFormat": " "
+          "legendFormat": " ",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background", "graphMode": "none", "textMode": "value_and_name"},
@@ -248,11 +251,14 @@
       "description": "Non-idle CPU over the last 5 minutes.",
       "gridPos": {"x": 8, "y": 46, "w": 8, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "timeFrom": "5m",
       "targets": [
         {
           "refId": "A",
           "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-          "legendFormat": " "
+          "legendFormat": " ",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "area", "textMode": "value_and_name"},
@@ -264,11 +270,14 @@
       "description": "Available space on / (boot volume).",
       "gridPos": {"x": 16, "y": 46, "w": 8, "h": 4},
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "timeFrom": "5m",
       "targets": [
         {
           "refId": "A",
           "expr": "node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay|rootfs\"}",
-          "legendFormat": " "
+          "legendFormat": " ",
+          "instant": true,
+          "range": false
         }
       ],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
@@ -284,5 +293,5 @@
   "timezone": "",
   "title": "LEAP Overview",
   "uid": "leap-overview",
-  "version": 8
+  "version": 13
 }

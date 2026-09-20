@@ -1,3 +1,166 @@
+## 2026-09-21: Trim mux WebM only for WebM-legal codecs
+
+- **Symptom** — recordings with no real outro (sound until EOF) still ran FFmpeg remux. Mixed streams such as H.264+Opus were written to `.webm` (`if VP9 or Opus`) and FFmpeg died: *Only VP8 or VP9 or AV1 video and Vorbis or Opus audio … are supported for WebM.*
+- **Fix** — `.webm` only when every present stream is WebM-legal; otherwise `.mkv`. Skip FFmpeg when the clamped trim window is the full source (no intro/outro to cut). On that skip path, delete the local analysis MP3 after upload (S3 `save_file` does not consume it).
+
+### Файлы
+
+- `backend/video_processing_module/video_processor.py`
+- `backend/api/tasks/processing.py`
+- `backend/tests/unit/modules/test_video_processor.py`
+- `backend/docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## v0.11.0.2 (2026-09-20)
+
+Релиз: вежливые per-credential лимиты МТС Линк / VK (короткий retry вместо 10 минут и ложного failed); обрезка не режет лекцию на паузе в середине; hardening исходящих URL и hashed auth tokens. Миграция **055** — до (или вместе с) API/workers. Подробности — **2026-09-20: Per-credential rate limits**, **2026-09-20: Security hardening**, **2026-09-19: Mid-lecture break**.
+
+---
+
+## 2026-09-20: Rate limit uses real client IP behind Docker nginx
+
+- **Problem** — `RateLimitMiddleware` keyed on `request.client.host`. Behind Docker nginx that is `172.18.0.4` for every browser. One hourly bucket (1000) covered all share pages, `/users/me`, and `/auth/login` → **429** `retry_after=3600` and nobody could sign in.
+- **Fix** — trust `X-Real-IP` (then `X-Forwarded-For`) when the TCP peer is private/loopback, even if `SECURITY_TRUST_X_FORWARDED_FOR` is unset. Compose defaults the flag to true. nginx overwrites `X-Forwarded-For` with `$remote_addr` (no client-supplied prefix). Auth routes ignore the global hourly cap (keep the per-minute auth cap). Default hourly limit **10000**. `/metrics` is exempt like health.
+- **Ops** — flush `rl:ip:172.18.*` in Redis to unlock a live bucket before the new API image rolls out.
+
+### Файлы
+
+- `backend/api/middleware/rate_limit.py`
+- `backend/config/settings.py`
+- `backend/tests/unit/api/middleware/test_rate_limit.py`
+- `docker-compose.yml`
+- `nginx/nginx.https.conf`, `nginx/nginx.conf`, `nginx/nginx.bootstrap.conf`
+- `backend/.env.example`
+- `backend/docs/guides/DEPLOYMENT.md`
+- `backend/docs/TECHNICAL.md`
+
+---
+
+## 2026-09-20: Faster recordings list posters
+
+- **Problem** — `GET /api/v1/recordings` sat at ~2s (p95 GET ~3.6s). Postgres for a page of 20 was under 1ms. `poster_urls` p95 ~1.6s: S3 `HEAD` for thumbnails ran **before** `shared_operations()` (new TLS client per unique name) and missing looks still called `ConfigResolver` per row.
+- **Fix** — thumbnail name comes only from publication looks (same merge as the card title); no second resolve. Unique names are `HEAD`ed in parallel under one S3 client, then presigned. No look thumb → frame `poster.jpg` only.
+
+### Файлы
+
+- `backend/api/routers/recordings.py`
+- `backend/tests/unit/api/test_poster_urls_batch.py`
+
+---
+
+
+## 2026-09-20: /metrics survives torn Prometheus mmap files
+
+- **Problem** — Prometheus scrape of `GET /metrics` every 15s returned 500 (`UnicodeDecodeError: ... byte 0x98 ...`). `prometheus_client` decoded a torn multiprocess `.db` key as UTF-8; the exception was unhandled, so the `leap-api` target went down. API traffic was unaffected.
+- **Fix** — unreadable mmap `.db` files are skipped and logged. If rendering still fails, `/metrics` returns **200** with an empty body.
+
+### Файлы
+
+- `backend/api/observability/metrics.py`
+- `backend/tests/unit/api/observability/test_metrics_mmap.py`
+- `backend/docs/guides/MONITORING.md`
+
+---
+
+## 2026-09-20: Security hardening (SSRF, FFmpeg, auth, credentials)
+
+- **SSRF** — user URLs (yt-dlp, Yandex Disk public links, MTS media, `_download_url`) go through `utils/safe_http.py`: http(s) only, DNS + private/metadata/CGNAT IP block, hop-by-hop redirect revalidation. Product host allowlists for yt-dlp / Yandex Disk / MTS Link `base_url`. Source `public_url` / VIDEO_URL hosts are validated against the **platform** schema at create/update (422). Private or disallowed URLs return **422**. MTS UserAPI client does not follow redirects.
+- **FFmpeg** — `processing_config` overrides are typed (`ProcessingConfigOverride` / `TrimmingConfig`, `extra=ignore`). Silence-detect `-af` is built from floats only.
+- **Secrets / CORS** — production (`APP_DEBUG=false`) refuses default JWT and empty Fernet. Default CORS origin is `http://localhost:3000`; `*` + credentials is rejected at startup.
+- **Auth** — Redis rate limits (trusted `X-Forwarded-For` only behind nginx). Email change requires current password, sets `is_verified=False`, verifies the new address. Register/resend do not enumerate emails (register body is identical whether the address exists; bcrypt still runs). Login JSON omits JWTs unless `include_tokens=true`. Refresh / reset / verify tokens stored as SHA-256 (migration **055**). Outstanding reset/verify emails issued before 055 stop working — users must request a new email.
+- **Celery / credentials** — `task_owner:{task_id}` in Redis; PENDING tasks without an owner are 403. Pipeline `chain.apply_async()` binds the chain result id. Credential decrypt/update/delete require `user_id` in WHERE. `GET /credentials/{id}` never decrypts (`include_data` removed). OAuth callback binds Redis `state.platform`. OAuth HTTP logs status + error code, not response bodies.
+
+**Deploy:** apply migration **055** before (or with) API/workers that only look up hashed tokens. Set `SERVER_CORS_ORIGINS` if the frontend is not on `localhost:3000`. Confirm `SECURITY_JWT_SECRET_KEY` and `SECURITY_ENCRYPTION_KEY` are non-default — the API will not start with empty/default keys when `debug=False`. Behind nginx set `SECURITY_TRUST_X_FORWARDED_FOR=true`.
+
+### Файлы
+
+- `backend/utils/safe_http.py`
+- `backend/api/middleware/rate_limit.py`
+- `backend/api/auth/security.py`
+- `backend/api/routers/auth.py`
+- `backend/api/routers/users.py`
+- `backend/api/routers/credentials.py`
+- `backend/api/routers/oauth.py`
+- `backend/api/services/oauth_service.py`
+- `backend/api/services/task_access_service.py`
+- `backend/api/services/credential_service.py`
+- `backend/api/tasks/base.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/schemas/template/processing_config.py`
+- `backend/api/schemas/template/source_config.py`
+- `backend/api/mts_link_api.py`
+- `backend/alembic/versions/055_hash_auth_tokens.py`
+- `backend/config/settings.py`
+- `backend/.env.example`
+- `backend/docs/guides/CREDENTIAL_SECURITY.md`
+- `backend/docs/guides/OAUTH.md`
+- `backend/docs/guides/DEPLOYMENT.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+---
+
+## 2026-09-20: Grafana Overview — live Host (VM) metrics
+
+- **Problem** — Prometheus showed current `node_filesystem_avail_bytes` on `/`, but Overview **Root disk free** (and sometimes memory) stayed on old values (range stat over 7d, `instant` unset) or a **UI-edited copy** in `grafana_data` ignored JSON on disk (`allowUiUpdates: true`, DB version above provisioned file).
+- **Fix** — Host stat panels: **`instant: true`**, **`range: false`**, **`timeFrom: "5m"`**; disk PromQL `mountpoint="/"` (unchanged). **`monitoring/grafana_dashboards.yml`**: **`allowUiUpdates: false`**. Runbook: stale panels, **`/grafana/api/`** (subpath), sync file to VM before DELETE/`overwrite` POST — [guides/MONITORING.md](guides/MONITORING.md).
+
+### Файлы
+
+- `monitoring/dashboards/leap_overview.json`, `monitoring/grafana_dashboards.yml`, `backend/docs/guides/MONITORING.md`, `backend/docs/INDEX.md`
+
+---
+
+## 2026-09-20: Per-credential rate limits for MTS Link and VK
+
+- **Problem** — MTS UserAPI allows 2 req/s per org key; VK user tokens allow 3 req/s (`error_code` 6). Download/upload treated every failure as a 10-minute Celery retry, so parallel workers stampeded and recordings failed after a short QPS blip.
+- **Fix** — Redis slot `ext-rl:{platform}:{credential_id}` before each UserAPI/VK call (fail open if Redis is down). HTTP 429 / VK 6 retry in-client with full jitter, then a short Celery countdown. Auth errors still fail without retry. Pause-0.5s loops in MTS sync are replaced by the shared limiter.
+- **Sync** — exhausted 429 is `ExternalRateLimitError` (not `MtsLinkAPIError`); lecturer paging and per-record lookups catch it so one QPS blip does not abort the whole source.
+- **VK** — `authenticate` / `upload_video` re-raise rate limits instead of returning False/`None`, so Celery uses the short countdown instead of treating QPS as a dead token.
+- **Prepare** — exhausted MTS 429 parks as converting (`PENDING_CONVERSION`), not `failed`.
+
+### Файлы
+
+- `backend/api/helpers/external_retry.py`
+- `backend/api/helpers/mts_link_datetime.py`
+- `backend/api/shared/exceptions.py`
+- `backend/api/mts_link_api.py`
+- `backend/api/services/mts_link_prepare.py`
+- `backend/api/services/credential_probes.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/tasks/upload.py`
+- `backend/api/routers/input_sources.py`
+- `backend/models/mts_link_auth.py`
+- `backend/video_download_module/platforms/mtslink/downloader.py`
+- `backend/video_upload_module/platforms/vk/uploader.py`
+- `backend/docs/guides/MTS_LINK_GUIDE.md`
+- `backend/docs/guides/VK_INTEGRATION.md`
+- `backend/docs/dev_notes/PLATFORM_API_RATE_LIMITING.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
+## 2026-09-19: Mid-lecture break is not the end of the video
+
+- **Symptom** — Rec 185 (MTS Link, 3h18 source): 13 min coffee break, then ~1.5h more lecture. TRIM cut at the break (`Audio boundaries: 120.5s - 3926.2s`, `last_silence=11824.5-11826.6s media=11880.5s`) because any silence ≥ 60s counted as outro. YouTube/share got only the first hour; Original stayed full.
+- **Fix** — outro is only silence whose `silence_end` is within template `padding_after` of EOF (same setting as the post-speech margin). Intro unchanged (`padding_before`). Mid-file pauses are ignored. If the file just stops with sound, the end is kept. Rec 91 unclosed / 0.4s-early digital tails still cut at default padding 5s.
+
+### Файлы
+
+- `backend/video_processing_module/audio_detector.py`
+- `backend/video_processing_module/video_processor.py`
+- `backend/tests/unit/modules/test_audio_detector.py`
+- `backend/scripts/run_silence_detect_on_file.py`
+- `backend/docs/guides/MEDIA_INTEGRITY_DOWNLOAD_AND_TRIM.md`
+- `backend/docs/CHANGELOG.md`
+
+---
+
 ## 2026-09-18: Catalog Sort by names the criterion
 
 - **Public course and channel** — the field is **Sort by**, matching list pages. Newest/Oldest are **Newest lecture** / **Oldest lecture** (recording `start_time`). Name and duration say direction (A–Z, longest first). Channel playlists: most videos / longest first. Course landing numbers follow the current sort/page, not the stored playlist index. Lecture dates format in Europe/Moscow so the public page does not hydrate a different day.
@@ -274,7 +437,7 @@
 - **DeepSeek API error payload** — `response.error` с `choices=None` поднимает `DeepSeekError` с текстом `message` (без dict-repr и Loguru `KeyError` на `{message}`).
 - **Transient queue timeout** — сообщения вида «900-second timeout limit» / «try again later» → Celery retry с **`CELERY_DEEPSEEK_TRANSIENT_RETRY_DELAY`** (default **900s**), не с `CELERY_PROCESSING_RETRY_DELAY` (180s). Прочие `DeepSeekError` — fail stage без retry.
 - **Compose** — `api` memory limit **2G → 3G**; сервис **`node_exporter`** + scrape в Prometheus; Overview: host RAM available %, CPU busy %, disk free on `/`.
-- **Grafana Overview (Host row)** — disk PromQL `mountpoint="/"` (с `--path.rootfs=/host` метки не `/host`); у stat-панелей убран `reduceOptions.fields`, из‑за которого memory могла быть **No data** при живом Prometheus.
+- **Grafana Overview (Host row)** — disk PromQL `mountpoint="/"` (с `--path.rootfs=/host` метки не `/host`); у stat-панелей убран `reduceOptions.fields`, из‑за которого memory могла быть **No data** при живом Prometheus. Дальнейшая синхронизация live-значений — секция **2026-09-20: Grafana Overview — live Host (VM) metrics**.
 - **Deploy:** собрать и выкатить **`leap-backend`** + `docker compose up -d api celery_worker node_exporter prometheus grafana`. Если в Loki ещё `topic_extractor:435/466` и `KeyError: "'message'"` — prod на старом образе; после деплоя при необходимости **force** re-extract topics для застрявших записей.
 
 ### Файлы
@@ -282,7 +445,7 @@
 - `backend/deepseek_module/topic_extractor.py`, `backend/deepseek_module/__init__.py`, `backend/api/tasks/processing.py`, `backend/config/settings.py`
 - `backend/tests/unit/deepseek_module/test_topic_extractor.py`
 - `backend/tests/unit/api/tasks/test_extract_topics_deepseek_retry.py`
-- `docker-compose.yml`, `monitoring/prometheus.yml`, `monitoring/dashboards/leap_overview.json`, `backend/docs/guides/MONITORING.md`, `backend/.env.example`
+- `docker-compose.yml`, `monitoring/prometheus.yml`, `monitoring/dashboards/leap_overview.json`, `monitoring/grafana_dashboards.yml`, `backend/docs/guides/MONITORING.md`, `backend/.env.example`
 
 ---
 

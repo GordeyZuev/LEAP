@@ -15,6 +15,7 @@ from api.mts_link_api import (
     unwrap_conversion_jobs,
     unwrap_items,
 )
+from api.shared.exceptions import ExternalRateLimitError
 
 
 def _mock_http(response):
@@ -30,6 +31,7 @@ def _error_response(status_code: int, message: str):
     response = MagicMock()
     response.status_code = status_code
     response.text = message
+    response.headers = {}
     response.json.return_value = {"error": {"message": message}}
     return response
 
@@ -41,6 +43,12 @@ class TestMtsLinkAPI:
             MtsLinkAPI()
         with pytest.raises(ValueError, match="only one"):
             MtsLinkAPI(api_token="k", access_token="b")
+
+    def test_rejects_private_base_url(self):
+        with pytest.raises(ValueError, match="base_url"):
+            MtsLinkAPI(api_token="k", base_url="http://127.0.0.1:8000")
+        with pytest.raises(ValueError, match="base_url"):
+            MtsLinkAPI(api_token="k", base_url="https://evil.example/v3")
 
     @pytest.mark.asyncio
     async def test_list_records_parses_array(self):
@@ -187,6 +195,45 @@ class TestMtsLinkAPI:
 
         assert payload["duration"] == 39.2
         assert http.request.await_args.args[1].endswith("/fileSystem/file/42")
+
+    @pytest.mark.asyncio
+    async def test_429_retries_then_succeeds(self):
+        client = MtsLinkAPI(api_token="k")
+        limited = _error_response(429, "I only allow 2 requests per second. Try again.")
+        limited.headers = {"Retry-After": "1"}
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.content = b'[{"id": 1}]'
+        ok.json.return_value = [{"id": 1}]
+        http = _mock_http(ok)
+        http.request = AsyncMock(side_effect=[limited, ok])
+
+        with (
+            patch("api.mts_link_api.httpx.AsyncClient", return_value=http),
+            patch("api.mts_link_api.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            rows = await client.list_records(from_date="2025-01-01 00:00:00")
+
+        assert rows[0]["id"] == 1
+        assert http.request.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_429_exhausted_raises_rate_limit_error(self):
+        client = MtsLinkAPI(api_token="k", credential_id=42)
+        limited = _error_response(429, "I only allow 2 requests per second. Try again.")
+        http = _mock_http(limited)
+
+        with (
+            patch("api.mts_link_api.httpx.AsyncClient", return_value=http),
+            patch("api.mts_link_api.asyncio.sleep", new_callable=AsyncMock),
+            patch("api.mts_link_api.acquire_external_slot", new_callable=AsyncMock),
+        ):
+            with pytest.raises(ExternalRateLimitError) as exc:
+                await client.list_records(from_date="2025-01-01 00:00:00")
+
+        assert exc.value.platform == "mts_link"
+        assert exc.value.credential_id == 42
+        assert http.request.await_count == 4
 
 
 @pytest.mark.unit

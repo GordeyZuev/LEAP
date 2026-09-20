@@ -6,10 +6,11 @@ CLI / server-to-server clients keep using ``Authorization: Bearer`` with the
 tokens returned in the response body.
 """
 
+import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.cookies import (
@@ -21,7 +22,8 @@ from api.auth.cookies import (
 )
 from api.auth.dependencies import get_current_user
 from api.auth.device import extract_client_ip, hash_ip, parse_device_label
-from api.auth.security import JWTHelper, PasswordHelper
+from api.auth.rate_limit import enforce_auth_email_limit
+from api.auth.security import JWTHelper, PasswordHelper, hash_secret
 from api.dependencies import get_db_session, get_email_service
 from api.repositories.auth_repos import (
     RefreshTokenRepository,
@@ -43,7 +45,6 @@ from api.schemas.auth import (
     SessionResponse,
     UserCreate,
     UserInDB,
-    UserResponse,
     UserUpdate,
     VerifyEmailRequest,
 )
@@ -82,12 +83,14 @@ async def _issue_session(
     response: Response,
     token_repo: RefreshTokenRepository,
     persistent: bool = True,
+    include_tokens: bool = False,
 ) -> SessionResponse:
-    """Mint a fresh token pair, persist the refresh token, and write session cookies.
+    """Mint a fresh token pair, persist the hashed refresh token, and write session cookies.
 
     Shared by ``/auth/login``, ``/auth/refresh``, and ``/auth/logout-others`` so
     all session-issuing paths produce an identical shape and capture the same
-    device metadata.
+    device metadata. JWTs are omitted from JSON unless ``include_tokens`` is set
+    (CLI / Bearer clients).
     """
     access_token = JWTHelper.create_access_token({"user_id": user.id, "email": user.email, "tv": user.token_version})
     refresh_token = JWTHelper.create_refresh_token({"user_id": user.id, "tv": user.token_version})
@@ -118,8 +121,8 @@ async def _issue_session(
 
     return SessionResponse(
         csrf_token=csrf_token,
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=access_token if include_tokens else None,
+        refresh_token=refresh_token if include_tokens else None,
         expires_in=settings.security.jwt_access_token_expire_minutes * 60,
     )
 
@@ -135,12 +138,13 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
     user_repo = UserRepository(session)
     config_repo = UserConfigRepository(session)
 
+    await enforce_auth_email_limit(request.email)
+
     existing_user = await user_repo.get_by_email(request.email)
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email already exists",
-        )
+        # Same bcrypt cost as a real signup so response time cannot enumerate emails.
+        PasswordHelper.hash_password(request.password)
+        return RegisterResponse()
 
     hashed_password = PasswordHelper.hash_password(request.password)
 
@@ -184,17 +188,19 @@ async def register(request: RegisterRequest, session: AsyncSession = Depends(get
     except Exception as exc:
         logger.warning(f"Failed to send verification email to {user.email}: {exc}")
 
-    return RegisterResponse(user=UserResponse.model_validate(user))
+    return RegisterResponse()
 
 
-@router.post("/login", response_model=SessionResponse)
+@router.post("/login", response_model=SessionResponse, response_model_exclude_none=True)
 async def login(
     request: Request,
     response: Response,
     body: LoginRequest,
     session: AsyncSession = Depends(get_db_session),
+    include_tokens: bool = Query(False, description="Include JWT pair in JSON (CLI / Bearer clients)"),
 ):
     """Authenticate the user and issue a fresh session (cookies + JSON body)."""
+    await enforce_auth_email_limit(body.email)
     user_repo = UserRepository(session)
     token_repo = RefreshTokenRepository(session)
 
@@ -219,17 +225,19 @@ async def login(
         response=response,
         token_repo=token_repo,
         persistent=body.remember_me,
+        include_tokens=include_tokens,
     )
     logger.info(f"User logged in: {user.email} (ID: {user.id})")
     return session_response
 
 
-@router.post("/refresh", response_model=SessionResponse)
+@router.post("/refresh", response_model=SessionResponse, response_model_exclude_none=True)
 async def refresh_token(
     request: Request,
     response: Response,
     body: RefreshTokenRequest | None = None,
     session: AsyncSession = Depends(get_db_session),
+    include_tokens: bool = Query(False, description="Include JWT pair in JSON (CLI / Bearer clients)"),
 ):
     """Rotate access + refresh tokens. Accepts the old refresh from cookie or body."""
     body = body or RefreshTokenRequest()
@@ -266,6 +274,7 @@ async def refresh_token(
         response=response,
         token_repo=token_repo,
         persistent=_session_is_persistent(request),
+        include_tokens=include_tokens,
     )
     logger.info(f"Token refreshed for user: {user.email} (ID: {user.id})")
     return session_response
@@ -322,12 +331,13 @@ async def logout_all(
     )
 
 
-@router.post("/logout-others", response_model=SessionResponse)
+@router.post("/logout-others", response_model=SessionResponse, response_model_exclude_none=True)
 async def logout_others(
     request: Request,
     response: Response,
     current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
+    include_tokens: bool = Query(False, description="Include JWT pair in JSON (CLI / Bearer clients)"),
 ) -> SessionResponse:
     """Sign out every other device while keeping the current session alive.
 
@@ -352,6 +362,7 @@ async def logout_others(
         response=response,
         token_repo=token_repo,
         persistent=_session_is_persistent(request),
+        include_tokens=include_tokens,
     )
     logger.info(f"User {current_user.id} logged out from other devices ({max(revoked - 1, 0)} other sessions revoked)")
     return session_response
@@ -368,6 +379,7 @@ async def list_sessions(
     sessions = await token_repo.list_active_by_user(current_user.id)
 
     current_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
+    current_hash = hash_secret(current_refresh) if current_refresh else None
     return SessionListResponse(
         sessions=[
             SessionInfo(
@@ -376,7 +388,7 @@ async def list_sessions(
                 user_agent=s.user_agent,
                 last_used_at=s.last_used_at,
                 created_at=s.created_at,
-                is_current=bool(current_refresh and s.token == current_refresh),
+                is_current=bool(current_hash and s.token == current_hash),
             )
             for s in sessions
         ]
@@ -407,7 +419,7 @@ async def revoke_session(
     await token_repo.revoke_by_id(session_id)
 
     current_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
-    if current_refresh and target.token == current_refresh:
+    if current_refresh and target.token and hmac.compare_digest(target.token, hash_secret(current_refresh)):
         # Caller revoked their own current session — strip cookies so the
         # browser is forced back through login on the next request.
         clear_auth_cookies(response)
@@ -431,6 +443,7 @@ async def forgot_password(
     If the email is registered, sends a one-time reset link valid for
     ``RESET_TOKEN_TTL_HOURS`` hours. Any previously issued token is overwritten.
     """
+    await enforce_auth_email_limit(body.email)
     user_repo = UserRepository(session)
     email_service = get_email_service()
 
@@ -538,8 +551,10 @@ async def resend_verification(
 
     No authentication required: the user may not be logged in yet (e.g. just
     registered, hasn't verified). Rate-limited via DB: one email per
-    ``RESEND_COOLDOWN_SECONDS`` seconds per address.
+    ``RESEND_COOLDOWN_SECONDS`` seconds per address. Cooldown never returns 429
+    (that would enumerate unverified accounts); the send is skipped silently.
     """
+    await enforce_auth_email_limit(body.email)
     user_repo = UserRepository(session)
     email_service = get_email_service()
 
@@ -549,11 +564,7 @@ async def resend_verification(
         if user.email_verification_sent_at:
             elapsed = (datetime.now(UTC) - user.email_verification_sent_at).total_seconds()
             if elapsed < RESEND_COOLDOWN_SECONDS:
-                remaining = int(RESEND_COOLDOWN_SECONDS - elapsed)
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Please wait {remaining} seconds before resending",
-                )
+                return {"message": "If this email is registered and unverified, a new link has been sent"}
 
         token = secrets.token_urlsafe(32)
         await user_repo.update(

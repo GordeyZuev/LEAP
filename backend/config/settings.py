@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.11.0.1", description="Application version")
+    version: str = Field(default="0.11.0.2", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -87,7 +87,10 @@ class ServerSettings(BaseSettings):
     openapi_url: str = Field(default="/openapi.json", description="OpenAPI schema URL")
 
     # CORS
-    cors_origins: list[str] = Field(default=["*"], description="Allowed CORS origins")
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000"],
+        description="Allowed CORS origins (explicit list; never combine * with credentials)",
+    )
     cors_allow_credentials: bool = Field(default=True, description="Allow credentials in CORS")
     cors_allow_methods: list[str] = Field(default=["*"], description="Allowed HTTP methods")
     cors_allow_headers: list[str] = Field(default=["*"], description="Allowed HTTP headers")
@@ -99,6 +102,12 @@ class ServerSettings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
+
+    @model_validator(mode="after")
+    def reject_wildcard_cors_with_credentials(self) -> "ServerSettings":
+        if self.cors_allow_credentials and any(origin.strip() == "*" for origin in self.cors_origins):
+            raise ValueError("SERVER_CORS_ORIGINS cannot include '*' when CORS credentials are enabled")
+        return self
 
 
 # ============================================================================
@@ -266,7 +275,16 @@ class SecuritySettings(BaseSettings):
     # Rate limiting
     rate_limit_enabled: bool = Field(default=True, description="Enable rate limiting")
     rate_limit_per_minute: int = Field(default=60, ge=1, description="Requests per minute limit")
-    rate_limit_per_hour: int = Field(default=1000, ge=1, description="Requests per hour limit")
+    rate_limit_per_hour: int = Field(default=10000, ge=1, description="Requests per hour per client IP")
+    rate_limit_auth_per_minute: int = Field(
+        default=10,
+        ge=1,
+        description="Stricter per-minute cap for /auth/login, register, forgot-password, reset-password",
+    )
+    trust_x_forwarded_for: bool = Field(
+        default=False,
+        description="Trust X-Real-IP / X-Forwarded-For from public peers. Private peers are always trusted.",
+    )
 
     # Cookie-based session auth (the browser flow). Headers stay as a parallel
     # path for CLI / server-to-server callers.
@@ -868,31 +886,27 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
-        """Validate critical settings for production"""
-        # Only validate in strict production mode (when explicitly set, not default)
-        # Allow default values for development/testing
+        """Fail closed when not in debug: JWT and Fernet must be real secrets."""
         import os
+        import sys
 
-        # Check if running in strict production mode (explicitly set APP_DEBUG=false)
-        is_strict_production = os.getenv("APP_DEBUG", "").lower() == "false"
+        under_pytest = "pytest" in sys.modules or os.getenv("LEAP_TESTING") == "1"
+        if under_pytest or self.app.debug:
+            return self
 
-        if is_strict_production:
-            # JWT secret must not be default
-            if self.security.jwt_secret_key == "your-secret-key-change-in-production":
-                raise ValueError("JWT secret key must be changed in production!")
+        if self.security.jwt_secret_key == "your-secret-key-change-in-production":
+            raise ValueError("JWT secret key must be changed in production!")
 
-            # Credential encryption: dedicated key is mandatory in production
-            if not self.security.encryption_key:
-                raise ValueError(
-                    "SECURITY_ENCRYPTION_KEY must be set in production! "
-                    'Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
-                )
+        if not self.security.encryption_key:
+            raise ValueError(
+                "SECURITY_ENCRYPTION_KEY must be set in production! "
+                'Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+            )
 
-            # Database password should not be empty (warning only)
-            if not self.database.password:
-                import warnings
+        if not self.database.password:
+            import warnings
 
-                warnings.warn("Database password is empty in production mode", stacklevel=2)
+            warnings.warn("Database password is empty in production mode", stacklevel=2)
 
         return self
 

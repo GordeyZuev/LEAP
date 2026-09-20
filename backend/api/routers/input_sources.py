@@ -1,6 +1,5 @@
 """Input source endpoints"""
 
-import asyncio
 import re
 from datetime import UTC, datetime
 from typing import Literal
@@ -71,11 +70,13 @@ async def _refresh_yandex_disk_credential_if_expiring_during_sync(
     credential_id: int,
     cred_repo: UserCredentialRepository,
     encryption,
+    *,
+    user_id: str,
 ) -> None:
     """Refresh Yandex Disk OAuth token when near expiry so sync listing does not 401."""
     from api.services.yandex_disk_credentials import refresh_yandex_disk_credential_if_needed
 
-    await refresh_yandex_disk_credential_if_needed(credentials, credential_id, cred_repo, encryption)
+    await refresh_yandex_disk_credential_if_needed(credentials, credential_id, cred_repo, encryption, user_id=user_id)
 
 
 def _get_best_video_file(recording_files: list | None) -> dict | None:
@@ -208,7 +209,7 @@ async def _sync_single_source(
                 }
 
             cred_repo = UserCredentialRepository(session)
-            credential = await cred_repo.get_by_id(source.credential_id)
+            credential = await cred_repo.get_by_id(source.credential_id, user_id)
 
             if not credential:
                 return {
@@ -233,6 +234,7 @@ async def _sync_single_source(
                     source.credential_id,
                     cred_repo,
                     encryption,
+                    user_id=user_id,
                 )
 
     meetings = []
@@ -625,8 +627,8 @@ async def _sync_yandex_disk_source(
     return {"found": len(video_files), "saved": saved_count, "updated": updated_count}
 
 
-# UserAPI allows ~2 requests/second; pause between paged/per-record calls to stay under it.
-_MTS_LINK_REQUEST_PAUSE_SECONDS = 0.5
+# UserAPI allows 2 requests/second per org key; Redis acquire in MtsLinkAPI._request
+# enforces that globally. Do not also sleep here.
 _MTS_LINK_RECORDS_PAGE_SIZE = 100
 _MTS_LINK_MAX_RECORD_PAGES = 50
 
@@ -686,7 +688,6 @@ async def _list_mts_link_records(mts_api, mts_user_id: int, from_date: str, to_d
 
         records.extend(page)
         offset += len(page)
-        await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
     logger.warning(f"MTS Link record list truncated | {format_details(user_id=mts_user_id, records=len(records))}")
     return records
@@ -743,10 +744,14 @@ async def _sync_mts_link_source(
     """
     from api.mts_link_api import MtsLinkAPIError
     from api.schemas.template.source_config import MtsLinkSourceConfig
+    from api.shared.exceptions import ExternalRateLimitError
     from models.mts_link_auth import create_mts_link_client, create_mts_link_credentials
 
     config = MtsLinkSourceConfig(**(source.config or {}))
-    mts_api = create_mts_link_client(create_mts_link_credentials(credentials))
+    mts_api = create_mts_link_client(
+        create_mts_link_credentials(credentials),
+        credential_id=source.credential_id,
+    )
 
     template_repo = RecordingTemplateRepository(session)
     templates = await template_repo.find_matchable_by_user(user_id)
@@ -770,7 +775,7 @@ async def _sync_mts_link_source(
         try:
             mts_user_id = await _resolve_mts_link_user_id(mts_api, email)
             records = await _list_mts_link_records(mts_api, mts_user_id, records_from, records_to)
-        except (MtsLinkAPIError, ValueError) as e:
+        except (MtsLinkAPIError, ExternalRateLimitError, ValueError) as e:
             errors.append(f"{email}: {e}")
             logger.warning(f"MTS Link lecturer sync failed | {format_details(email=email, error=str(e))}")
             continue
@@ -791,11 +796,10 @@ async def _sync_mts_link_source(
                         file_payload = await mts_api.get_file(record_id)
                         duration_seconds = positive_duration_seconds(file_payload.get("duration"))
                         file_size = int(file_payload.get("size") or file_size or 0)
-                    except MtsLinkAPIError as e:
+                    except (MtsLinkAPIError, ExternalRateLimitError) as e:
                         logger.debug(
                             f"MTS Link file metadata missing | {format_details(record=record_id, error=str(e))}"
                         )
-                    await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
                 download_url = None
                 if event_session_id:
@@ -807,17 +811,15 @@ async def _sync_mts_link_source(
                             view=source_cfg.get("conversion_view", "none"),
                             quality=source_cfg.get("conversion_quality", "720"),
                         )
-                    except MtsLinkAPIError as e:
+                    except (MtsLinkAPIError, ExternalRateLimitError) as e:
                         logger.debug(
                             f"No converted record yet | {format_details(session_id=event_session_id, error=str(e))}"
                         )
-                    await asyncio.sleep(_MTS_LINK_REQUEST_PAUSE_SECONDS)
 
                 session_payload = await load_event_session(
                     mts_api,
                     event_session_id,
                     event_sessions,
-                    pause_seconds=_MTS_LINK_REQUEST_PAUSE_SECONDS,
                 )
                 start_time, _source = resolve_mts_link_start_time(record, session_payload, allow_now=True)
                 if start_time is None:
@@ -1184,6 +1186,11 @@ async def update_source(
         )
 
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("config") is not None:
+        from api.schemas.template.source_config import parse_source_config_for_platform
+
+        parsed_config = parse_source_config_for_platform(source.source_type, update_data["config"])
+        update_data["config"] = parsed_config.model_dump(exclude_none=True)
     for field, value in update_data.items():
         setattr(source, field, value)
 

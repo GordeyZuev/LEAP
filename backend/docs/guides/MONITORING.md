@@ -34,7 +34,9 @@ Postgres (grafana_ro) ───────────────────�
 
 `PROMETHEUS_MULTIPROC_DIR` is a shared tmpfs. API and Celery workers write
 histogram files there; `/metrics` on the API process aggregates them. Pipeline
-stage duration is visible in Prometheus.
+stage duration is visible in Prometheus. A torn `.db` (crash mid-write) is
+skipped with a warning so the scrape stays **200**; that process's in-flight
+histogram is missing until the worker rewrites the file.
 
 Loki chunks live in Object Storage (90 days). Prometheus TSDB is local (30 days).
 A dashboard window wider than 30 days is empty by design.
@@ -208,8 +210,10 @@ leap_queue_oldest_task_age_seconds
 | MTS pending fills Errors dashboard           | Logged ERROR + Celery retry                | Pending conversion is INFO and does not retry                       |
 | Loki panels empty                            | App not writing `structured.json`                  | Check `JSON_LOG_FILE` in the container                              |
 | `leap-api` Prometheus target DOWN            | `/metrics` off                                     | `MONITORING_PROMETHEUS_ENABLED=true` on **api**                     |
+| `/metrics` 500, `UnicodeDecodeError` / `0x98` | Torn mmap `.db` in `PROMETHEUS_MULTIPROC_DIR`     | Code skips the file (warning). Optional: restart api/celery to rewrite mmap files |
 | `celery_queue_length` always 0               | Workers not sending events                         | `-E` + `worker_send_task_events=True` (already in compose)          |
 | Host (VM) panels **No data**                 | `node_exporter` down, stale dashboard JSON, or CPU panel before 5m of scrapes | `up{job="node"}`; memory: `100*node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes`; disk: `node_filesystem_avail_bytes{mountpoint="/"}` (not `/host`); `git pull` + `docker compose restart grafana` |
+| Host (VM) **stale numbers** (Prometheus OK)  | Provisioned Overview **copied in Grafana DB** (`allowUiUpdates` was true)     | Explore → same PromQL → if correct: delete **LEAP Overview** in UI (re-provisions in ~30s from `monitoring/dashboards/`), or `docker compose restart grafana` after `git pull`; provisioning has `allowUiUpdates: false` |
 | `leap_celery_worker` Docker **unhealthy**    | Healthcheck script can fail while tasks still run  | Confirm with `docker compose logs celery_worker`; do not trust the badge alone |
 | External API Grafana panels                  | Removed — `track_external_api()` is unused         | Wire the helper before adding panels back                           |
 

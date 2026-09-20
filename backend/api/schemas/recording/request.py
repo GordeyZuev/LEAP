@@ -9,8 +9,18 @@ from api.schemas.common.validators import collapse_optional_display_name
 from api.schemas.processing.preferences import ProcessingPreferences
 from api.schemas.recording.filters import RecordingFilters
 from api.schemas.template.metadata_config import TemplateMetadataConfig
+from api.schemas.template.processing_config import ProcessingConfigOverride
 from api.schemas.validators import DateRangeMixin
 from api.shared.enums import Granularity
+from utils.safe_http import YTDLP_HOST_SUFFIXES, UnsafeUrlError, validate_public_url
+
+
+def _validate_ytdlp_url(v: str) -> str:
+    try:
+        return validate_public_url(v, allowed_host_suffixes=YTDLP_HOST_SUFFIXES)
+    except UnsafeUrlError as exc:
+        raise ValueError(str(exc)) from exc
+
 
 # ============================================================================
 # Add by URL / Playlist / Yandex Disk
@@ -29,6 +39,11 @@ class AddVideoByUrlRequest(BaseModel):
     )
     template_id: int | None = Field(None, gt=0, description="Bind recording to template")
     auto_run: bool = Field(False, description="Immediately start full pipeline (download → process → upload)")
+
+    @field_validator("url")
+    @classmethod
+    def validate_video_url(cls, v: str) -> str:
+        return _validate_ytdlp_url(v)
 
     @field_validator("display_name")
     @classmethod
@@ -71,6 +86,11 @@ class AddPlaylistByUrlRequest(BaseModel):
     template_id: int | None = Field(None, gt=0, description="Bind all recordings to template")
     auto_run: bool = Field(False, description="Immediately start pipeline for all videos")
 
+    @field_validator("url")
+    @classmethod
+    def validate_playlist_url(cls, v: str) -> str:
+        return _validate_ytdlp_url(v)
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -110,6 +130,11 @@ class FormatsPreviewRequest(BaseModel):
 
     url: str = Field(..., description="Video URL to inspect")
 
+    @field_validator("url")
+    @classmethod
+    def validate_preview_url(cls, v: str) -> str:
+        return _validate_ytdlp_url(v)
+
 
 class FormatInfo(BaseModel):
     """A single available video stream."""
@@ -141,6 +166,12 @@ class TrimVideoRequest(BaseModel):
     padding_after: float = 5.0
 
 
+def _validate_processing_config_override(v: dict | None) -> dict | None:
+    if v is None:
+        return None
+    return ProcessingConfigOverride.model_validate(v).model_dump(exclude_none=True)
+
+
 def _validate_metadata_config_override(v: dict | None) -> dict | None:
     if v is None:
         return None
@@ -160,6 +191,11 @@ class ConfigOverrideRequest(BaseModel):
     processing_config: dict | None = Field(None, description="Override processing config")
     metadata_config: dict | None = Field(None, description="Override metadata config")
     output_config: dict | None = Field(None, description="Override output config")
+
+    @field_validator("processing_config", mode="before")
+    @classmethod
+    def _typed_processing_override(cls, v: dict | None) -> dict | None:
+        return _validate_processing_config_override(v)
 
     @field_validator("metadata_config", mode="before")
     @classmethod
@@ -525,6 +561,11 @@ class BulkRunRequest(BulkOperationRequest):
     processing_config: dict | None = Field(None, description="Override processing config for all recordings")
     metadata_config: dict | None = Field(None, description="Override metadata config for all recordings")
     output_config: dict | None = Field(None, description="Override output config for all recordings")
+
+    @field_validator("processing_config", mode="before")
+    @classmethod
+    def _typed_bulk_processing_override(cls, v: dict | None) -> dict | None:
+        return _validate_processing_config_override(v)
 
     @field_validator("metadata_config", mode="before")
     @classmethod

@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Any
 
 from api.helpers.blank_record import positive_duration_seconds
+from api.helpers.external_retry import rate_limit_countdown
 from api.mts_link_api import (
     CONVERSION_FAILED_STATES,
     CONVERSION_INFLIGHT_STATES,
@@ -26,6 +27,7 @@ from api.mts_link_api import (
     prefer_conversion_job,
     unwrap_conversion_jobs,
 )
+from api.shared.exceptions import ExternalRateLimitError
 from database.models import RecordingModel
 from logger import format_details, get_logger
 from models.recording import ProcessingStatus, SourceType
@@ -106,13 +108,13 @@ async def resolve_mts_link_context(session, recording: RecordingModel, user_id: 
     if not source or not source.credential_id:
         raise ValueError("MTS Link source has no credential configured")
 
-    credential = await UserCredentialRepository(session).get_by_id(source.credential_id)
+    credential = await UserCredentialRepository(session).get_by_id(source.credential_id, user_id)
     if not credential:
         raise ValueError(f"MTS Link credential {source.credential_id} not found")
 
     creds = create_mts_link_credentials(get_encryption().decrypt_credentials(credential.encrypted_data))
     config = source.config or {}
-    api = MtsLinkAPI(api_token=creds.api_token, base_url=creds.base_url)
+    api = MtsLinkAPI(api_token=creds.api_token, base_url=creds.base_url, credential_id=credential.id)
     options = {
         "conversion_quality": config.get("conversion_quality", "720"),
         "conversion_view": config.get("conversion_view", "none"),
@@ -162,6 +164,16 @@ async def _prepare_mts_link_recording_impl(session, recording: RecordingModel, u
 
             await UserCredentialRepository(session).set_needs_reauth(credential_id, True)
             return MtsLinkPrepareResult(outcome=MtsPrepareOutcome.FAILED, error=str(e))
+        except ExternalRateLimitError as e:
+            if attempt == 0:
+                await asyncio.sleep(rate_limit_countdown(0, e.retry_after) or _TRANSIENT_RETRY_DELAY_SECONDS)
+                continue
+            # Do not mark the lecture failed: the org key is healthy, we were only too fast.
+            return MtsLinkPrepareResult(
+                outcome=MtsPrepareOutcome.CONVERTING,
+                conversion_state="waiting",
+                error=str(e),
+            )
         except MtsLinkAPIError as e:
             if attempt == 0 and _is_transient_error(e):
                 await asyncio.sleep(_TRANSIENT_RETRY_DELAY_SECONDS)
@@ -181,7 +193,7 @@ async def _apply_auth_side_effects(session, credential_id: int, result: MtsLinkP
 
 def _is_transient_error(exc: MtsLinkAPIError) -> bool:
     if isinstance(exc, MtsLinkResponseError):
-        return exc.status_code >= 500
+        return exc.status_code >= 500 or exc.status_code == 429
     return True
 
 

@@ -7,6 +7,14 @@ from typing import Any
 
 import httpx
 
+from api.helpers.external_retry import (
+    RATE_LIMIT_HTTP_RETRIES,
+    VK_VIDEO_REQUESTS_PER_SECOND,
+    acquire_external_slot,
+    parse_retry_after,
+    rate_limit_countdown,
+)
+from api.shared.exceptions import ExternalRateLimitError
 from logger import get_logger
 
 from ...config_factory import VKConfig
@@ -25,6 +33,8 @@ class VKUploader(BaseUploader):
         self.credential_provider = credential_provider
         self.base_url = "https://api.vk.com/method"
         self._authenticated = False
+        cred_id = getattr(credential_provider, "credential_id", None)
+        self.credential_id = cred_id if isinstance(cred_id, int) else None
 
     async def authenticate(self) -> bool:
         """Authenticate with VK API."""
@@ -83,6 +93,8 @@ class VKUploader(BaseUploader):
             self.config.access_token = access_token
             return await self._validate_token()
 
+        except (TokenRefreshError, ExternalRateLimitError):
+            raise
         except Exception as e:
             logger.error(f"Error authenticating with credential provider: {e}")
             return False
@@ -98,30 +110,25 @@ class VKUploader(BaseUploader):
         return await self._validate_token()
 
     async def _validate_token(self) -> bool:
-        """Validate VK access token."""
+        """Validate VK access token via the same rate-limited API path as uploads."""
         try:
-            async with httpx.AsyncClient() as client:
-                params = {"access_token": self.config.access_token, "v": "5.131"}
-                response = await client.post(f"{self.base_url}/users.get", data=params)
-
-                if response.status_code == 200:
-                    data = response.json()
-                    if "error" in data:
-                        error_info = data["error"]
-                        error_code = error_info.get("error_code")
-                        error_msg = error_info.get("error_msg", "Unknown error")
-
-                        # Token errors are expected, not critical
-                        if error_code in (5, 28):
-                            logger.warning(f"VK token invalid or expired: {error_msg}")
-                        else:
-                            logger.error(f"VK API Error [{error_code}]: {error_msg}")
-                        return False
-                    self._authenticated = True
-                    logger.info("VK authentication successful")
-                    return True
-                logger.warning(f"VK API HTTP error: {response.status_code}")
+            result = await self._make_request("users.get", {})
+            if isinstance(result, dict) and "error" in result:
+                error_info = result["error"]
+                error_code = error_info.get("error_code")
+                error_msg = error_info.get("error_msg", "Unknown error")
+                if error_code in (5, 28):
+                    logger.warning(f"VK token invalid or expired: {error_msg}")
+                else:
+                    logger.error(f"VK API Error [{error_code}]: {error_msg}")
                 return False
+            if result is None:
+                return False
+            self._authenticated = True
+            logger.info("VK authentication successful")
+            return True
+        except (TokenRefreshError, ExternalRateLimitError):
+            raise
         except Exception as e:
             logger.error(f"VK token validation exception: {e}")
             return False
@@ -194,6 +201,8 @@ class VKUploader(BaseUploader):
             logger.error("Failed to get video ID after upload")
             return None
 
+        except (TokenRefreshError, ExternalRateLimitError):
+            raise
         except Exception as e:
             logger.error(f"VK video upload error: {e}")
             return None
@@ -283,13 +292,15 @@ class VKUploader(BaseUploader):
             logger.debug(f"Wallpost enabled: {kwargs['wallpost']}")
 
         try:
-            response = await asyncio.wait_for(self._make_request("video.save", params), timeout=30.0)
+            response = await self._make_request("video.save", params)
 
             if response and "upload_url" in response:
                 return response["upload_url"]
 
             return None
 
+        except (TokenRefreshError, ExternalRateLimitError):
+            raise
         except TimeoutError:
             logger.error("Timeout getting upload URL")
             return None
@@ -343,26 +354,54 @@ class VKUploader(BaseUploader):
     @requires_valid_vk_token(max_retries=1)
     async def _make_request(self, method: str, params: dict[str, Any]) -> dict[str, Any] | None:
         """Execute VK API request with automatic token refresh."""
-        params["access_token"] = self.config.access_token
-        params["v"] = "5.131"
+        last_rate_limit: ExternalRateLimitError | None = None
+        for attempt in range(1 + RATE_LIMIT_HTTP_RETRIES):
+            params["access_token"] = self.config.access_token
+            params["v"] = "5.131"
+            if self.credential_id is not None:
+                await acquire_external_slot(
+                    "vk_video",
+                    self.credential_id,
+                    requests_per_second=VK_VIDEO_REQUESTS_PER_SECOND,
+                )
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(f"{self.base_url}/{method}", data=params)
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(f"{self.base_url}/{method}", data=params)
+                if response.status_code == 429:
+                    retry_after = parse_retry_after(response.headers.get("Retry-After"))
+                    last_rate_limit = ExternalRateLimitError(
+                        platform="vk_video",
+                        retry_after=retry_after,
+                        credential_id=self.credential_id,
+                    )
+                    if attempt >= RATE_LIMIT_HTTP_RETRIES:
+                        raise last_rate_limit
+                    logger.warning(f"VK HTTP 429, retrying (attempt {attempt + 1})")
+                    await asyncio.sleep(rate_limit_countdown(attempt, retry_after))
+                    continue
 
                 if response.status_code == 200:
                     data = response.json()
 
-                    # Return full response to allow decorator to check for token errors
                     if "error" in data:
                         error_info = data["error"]
                         error_code = error_info.get("error_code")
 
-                        # Token errors - let decorator handle them
                         if error_code in (5, 28):
                             return data
 
-                        # Other errors
+                        if error_code == 6:
+                            last_rate_limit = ExternalRateLimitError(
+                                platform="vk_video",
+                                credential_id=self.credential_id,
+                            )
+                            if attempt >= RATE_LIMIT_HTTP_RETRIES:
+                                raise last_rate_limit
+                            logger.warning(f"VK error 6 (too many requests), retrying (attempt {attempt + 1})")
+                            await asyncio.sleep(rate_limit_countdown(attempt))
+                            continue
+
                         logger.error(f"VK API Error: {error_info}")
                         return None
 
@@ -371,8 +410,11 @@ class VKUploader(BaseUploader):
                 error_text = response.text
                 logger.error(f"HTTP Error: {response.status_code}, Response: {error_text[:500]}")
                 return None
-        except TokenRefreshError:
-            raise
-        except Exception as e:
-            logger.error(f"VK API request error: {e}")
-            return None
+            except (TokenRefreshError, ExternalRateLimitError):
+                raise
+            except Exception as e:
+                logger.error(f"VK API request error: {e}")
+                return None
+        if last_rate_limit is not None:
+            raise last_rate_limit
+        return None

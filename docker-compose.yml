@@ -138,6 +138,7 @@ services:
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-LEAP Platform}
       EMAIL_FROM_EMAIL: ${EMAIL_FROM_EMAIL:-}
       EMAIL_BASE_URL: ${EMAIL_BASE_URL:-}
+      SECURITY_TRUST_X_FORWARDED_FOR: ${SECURITY_TRUST_X_FORWARDED_FOR:-true}
     expose:
       - "8000"
     volumes:

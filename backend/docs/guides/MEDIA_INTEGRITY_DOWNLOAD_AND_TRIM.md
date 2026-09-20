@@ -93,8 +93,9 @@ High-level: **Download → local path = `.../source.<ext>` (pipeline ingress) �
 ### 2.3 TRIM (`trim_video_task` + `VideoProcessor` + `AudioDetector`)
 
 - `extract_audio_full`: decodes **only the first audio stream** (`ffmpeg -map 0:a:0`) and **re-encodes** to **64 kbps, 16 kHz, mono** MP3 for ASR analysis.
-- `silencedetect` on that MP3. An unclosed trailing `silence_start` (no `silence_end` before EOF — typical of MTS digital silence) is treated as silence until media duration. `_find_last_sound` then uses that interval as the end of speech.
+- `silencedetect` on that MP3. An unclosed trailing `silence_start` (no `silence_end` before EOF — typical of MTS digital silence) is treated as silence until media duration. `_find_last_sound` treats a period as outro only if leftover after `silence_end` is ≤ template `padding_after`. Mid-lecture pauses are ignored. A pause with speech after it is not outro. If the file just stops with sound until the last frames, the end is not trimmed.
 - `trim_video`: `ffmpeg -i INPUT -ss START -t DURATION -c:v copy -c:a copy` (defaults in `ProcessingConfig`); MP4-compatible outputs also receive `-movflags +faststart -avoid_negative_ts make_zero` for browser delivery.
+- Container suffix is chosen by `output_suffix_for_trim`: `.webm` only when **every present** stream is WebM-legal (VP8/VP9/AV1 + Vorbis/Opus). Mixed pairs such as H.264+Opus or VP9+AAC go to `.mkv`. If the clamped trim window is the full source (sound from start to EOF), FFmpeg remux is skipped and the processed key points at the source.
 - Stream-copy seeks on source keyframes: `avoid_negative_ts` removes negative timestamps but does not guarantee that video starts immediately at the requested cut point. See [VIDEO_DELIVERY.md](VIDEO_DELIVERY.md).
 
 ### 2.4 “Broken on desktop, fine in browser”
@@ -121,6 +122,18 @@ High-level: **Download → local path = `.../source.<ext>` (pipeline ingress) �
 
 - **Sign:** player / `ffprobe` duration is the **full calendar slot** (e.g. ~5 h); Details / `final_duration` is the **speech** (~1 h); ASR billed the long file.
 - **Cause:** trailing −90 dB has `silence_start` and no `silence_end`. Fixed in `AudioDetector` (close to EOF). Re-trim existing rows after deploy.
+
+### 3.2c — **Mid-lecture break treated as EOF** (Rec 185)
+
+- **Sign:** source is hours long (Original tab / `recordings.duration`); edited / `final_duration` stops at the first coffee break; last chapter is often “Перерыв”. `last_silence` in logs may be a short blip near EOF, while `last_sound` is the **start of a ≥60s pause in the middle**.
+- **Cause:** after Rec 91, any silence ≥ 60s counted as outro, even when speech continued after it.
+- **Fix:** outro is only silence that reaches EOF (see §2.3). Re-trim existing rows after deploy (reset TRIM `COMPLETED` first).
+
+### 3.2d — **WebM mux fails on videos with no outro**
+
+- **Sign:** TRIM fails with FFmpeg *Only VP8 or VP9 or AV1 video and Vorbis or Opus audio … are supported for WebM* / *Could not write header*. Often on files with **no trailing silence** (sound until EOF).
+- **Cause:** after EOF-only outro, `last_sound ≈ duration` no longer skipped remux. `output_suffix_for_trim` used **OR** (`VP9 or Opus` → `.webm`), so H.264+Opus (and similar mixes) were written into WebM.
+- **Fix:** `.webm` only if **all** present streams are WebM-legal; skip remux when the trim window is the full media (see §2.3).
 
 ### 3.3 C — **Player / container compatibility** (not “LEAP broke the file”)
 

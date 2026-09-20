@@ -30,31 +30,29 @@ def _format_ffmpeg_stderr(raw: bytes | None, *, max_chars: int = 12_000) -> str:
 # Codecs that can be stream-copied into an MP4 container without re-encoding.
 _MP4_COMPATIBLE_VIDEO = frozenset({"h264", "hevc", "h265", "avc", "mp4v", "mpeg4"})
 _MP4_COMPATIBLE_AUDIO = frozenset({"aac", "mp3", "mp2", "ac3", "eac3", "alac"})
+_WEBM_COMPATIBLE_VIDEO = frozenset({"vp8", "vp9", "av1"})
+_WEBM_COMPATIBLE_AUDIO = frozenset({"vorbis", "opus"})
 
 
 def output_suffix_for_trim(video_codec: str | None, audio_codec: str | None) -> str:
     """Return the output container suffix that allows stream-copy of the given codecs.
 
-    If both present codecs are MP4-compatible, returns '.mp4'.
-    Otherwise returns the original container suffix (WebM/MKV stay as-is).
-    Falls back to '.mp4' when only a video stream exists with a compatible codec.
+    WebM is used only when *every present stream* is WebM-legal. H.264+Opus or
+    VP9+AAC must not pick ``.webm`` — FFmpeg then fails at mux time.
     """
     v = (video_codec or "").lower()
     a = (audio_codec or "").lower()
 
-    v_ok = not v or v in _MP4_COMPATIBLE_VIDEO
-    a_ok = not a or a in _MP4_COMPATIBLE_AUDIO
-
-    if v_ok and a_ok:
+    v_ok_mp4 = not v or v in _MP4_COMPATIBLE_VIDEO
+    a_ok_mp4 = not a or a in _MP4_COMPATIBLE_AUDIO
+    if v_ok_mp4 and a_ok_mp4:
         return ".mp4"
 
-    # VP8/VP9+Vorbis/Opus → WebM; VP9 alone can go in WebM too
-    vp_video = v in {"vp8", "vp9", "av1"}
-    opus_vorbis = a in {"vorbis", "opus"}
-    if vp_video or opus_vorbis:
+    v_ok_webm = not v or v in _WEBM_COMPATIBLE_VIDEO
+    a_ok_webm = not a or a in _WEBM_COMPATIBLE_AUDIO
+    if v_ok_webm and a_ok_webm:
         return ".webm"
 
-    # MKV is a universal container — use as last resort
     return ".mkv"
 
 
@@ -67,6 +65,7 @@ class VideoProcessor:
         self.audio_detector = AudioDetector(
             silence_threshold=config.silence_threshold,
             min_silence_duration=config.min_silence_duration,
+            padding_after=config.padding_after,
         )
         self._ensure_directories()
 

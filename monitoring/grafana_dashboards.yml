@@ -8,6 +8,7 @@ providers:
     type: file
     disableDeletion: false
     updateIntervalSeconds: 30
-    allowUiUpdates: true
+    # File on disk wins; UI edits would stick in grafana_data and ignore JSON fixes.
+    allowUiUpdates: false
     options:
       path: /var/lib/grafana/dashboards

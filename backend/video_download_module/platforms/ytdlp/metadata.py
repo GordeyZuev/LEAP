@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from logger import get_logger
+from utils.safe_http import YTDLP_HOST_SUFFIXES, validate_public_url
 from video_download_module.platforms.ytdlp.opts import get_ydl_opts
 
 logger = get_logger()
@@ -42,6 +43,8 @@ async def extract_video_info(url: str) -> dict[str, Any]:
     import asyncio
 
     import yt_dlp
+
+    url = validate_public_url(url, allowed_host_suffixes=YTDLP_HOST_SUFFIXES)
 
     ydl_opts: dict[str, Any] = {
         "quiet": True,
@@ -120,6 +123,8 @@ async def extract_available_formats(url: str) -> dict[str, Any]:
 
     import yt_dlp
 
+    url = validate_public_url(url, allowed_host_suffixes=YTDLP_HOST_SUFFIXES)
+
     ydl_opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
@@ -162,6 +167,8 @@ async def extract_playlist_entries(url: str) -> list[dict[str, Any]]:
     import asyncio
 
     import yt_dlp
+
+    url = validate_public_url(url, allowed_host_suffixes=YTDLP_HOST_SUFFIXES)
 
     ydl_opts: dict[str, Any] = {
         "quiet": True,

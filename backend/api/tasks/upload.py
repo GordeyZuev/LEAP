@@ -11,6 +11,7 @@ from api.celery_app import celery_app
 from api.core.context import ServiceContext
 from api.dependencies import get_async_session_maker
 from api.helpers.description_markup import markup_to_plain
+from api.helpers.external_retry import rate_limit_countdown
 from api.helpers.template_renderer import TemplateRenderer, render_jinja, render_upload_title_and_description
 from api.observability import track_pipeline_stage
 from api.repositories.auth_repos import UserCredentialRepository
@@ -19,7 +20,7 @@ from api.repositories.template_repos import OutputPresetRepository, RecordingTem
 from api.services.config_resolver import ConfigResolver
 from api.services.config_utils import is_leap_platform
 from api.services.timing_service import TimingService
-from api.shared.exceptions import CredentialError, ResourceNotFoundError
+from api.shared.exceptions import CredentialError, ExternalRateLimitError, ResourceNotFoundError
 from api.tasks.base import UploadTask
 from config.settings import get_settings
 from database.template_models import OutputPresetModel
@@ -334,6 +335,10 @@ def upload_recording_to_platform(
             logger.error("Soft time limit exceeded")
             raise self.retry(countdown=settings.celery.upload_retry_delay, exc=SoftTimeLimitExceeded())
 
+        except ExternalRateLimitError as exc:
+            logger.warning(f"Rate limited during upload: {exc!r}")
+            raise self.retry(countdown=rate_limit_countdown(self.request.retries, exc.retry_after), exc=exc)
+
         except TokenRefreshError as exc:
             logger.error("Token refresh failed - re-authentication needed")
             return self.build_result(
@@ -560,6 +565,7 @@ async def _async_upload_recording(
                 platform=mapped_platform,
                 credential_id=preset.credential_id,
                 session=ctx.session,
+                user_id=user_id,
             )
         elif credential_id:
             effective_credential_id = credential_id
@@ -567,6 +573,7 @@ async def _async_upload_recording(
                 platform=platform,
                 credential_id=credential_id,
                 session=ctx.session,
+                user_id=user_id,
             )
         else:
             cred_repo = UserCredentialRepository(ctx.session)
@@ -580,6 +587,7 @@ async def _async_upload_recording(
                 platform=platform,
                 credential_id=credentials[0].id,
                 session=ctx.session,
+                user_id=user_id,
             )
 
         topics_display = preset_metadata.get("topics_display") if preset_metadata else None
@@ -615,8 +623,8 @@ async def _async_upload_recording(
                 )
 
             if effective_credential_id:
-                await cred_repo.update_last_used(effective_credential_id)
-                await cred_repo.set_needs_reauth(effective_credential_id, False)
+                await cred_repo.update_last_used(effective_credential_id, user_id=user_id)
+                await cred_repo.set_needs_reauth(effective_credential_id, False, user_id=user_id)
 
             title_template = preset_metadata.get("title_template", "{{ display_name }}")
             description_template = preset_metadata.get("description_template", "Uploaded on {{ record_date_iso }}")

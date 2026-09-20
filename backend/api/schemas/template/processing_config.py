@@ -1,6 +1,6 @@
 """Typed schemas for processing_config"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.schemas.common import BASE_MODEL_CONFIG
 from api.schemas.config.user_config import TrimmingConfig
@@ -63,3 +63,13 @@ class TranscriptionProcessingConfig(BaseModel):
 
 
 TemplateProcessingConfig.model_rebuild()
+
+
+class ProcessingConfigOverride(BaseModel):
+    """Runtime processing override. Trimming values are floats only (blocks FFmpeg filter injection)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    trimming: TrimmingConfig | None = None
+    transcription: TranscriptionProcessingConfig | None = None
+    transcription_vocabulary: list[str] | None = None

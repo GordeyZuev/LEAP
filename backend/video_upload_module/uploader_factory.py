@@ -20,6 +20,7 @@ logger = get_logger()
 async def create_youtube_uploader_from_db(
     credential_id: int,
     session: AsyncSession,
+    user_id: str,
     youtube_config: YouTubeUploadConfig | None = None,
 ) -> YouTubeUploader:
     """Create YouTubeUploader with database credentials."""
@@ -33,6 +34,7 @@ async def create_youtube_uploader_from_db(
         credential_id=credential_id,
         encryption_service=encryption,
         credential_repository=repo,
+        user_id=user_id,
     )
 
     uploader = YouTubeUploader(config=youtube_config, credential_provider=credential_provider)
@@ -44,6 +46,7 @@ async def create_youtube_uploader_from_db(
 async def create_vk_uploader_from_db(
     credential_id: int,
     session: AsyncSession,
+    user_id: str,
     vk_config: VKUploadConfig | None = None,
 ) -> VKUploader:
     """Create VKUploader with database credentials."""
@@ -54,6 +57,7 @@ async def create_vk_uploader_from_db(
         credential_id=credential_id,
         encryption_service=encryption,
         credential_repository=repo,
+        user_id=user_id,
     )
 
     if not vk_config:
@@ -68,11 +72,12 @@ async def create_vk_uploader_from_db(
 async def create_yadisk_uploader_from_db(
     credential_id: int,
     session: AsyncSession,
+    user_id: str,
 ) -> YandexDiskUploader:
     """Create YandexDiskUploader with database credentials."""
     encryption = get_encryption()
     repo = UserCredentialRepository(session)
-    credential = await repo.get_by_id(credential_id)
+    credential = await repo.get_by_id(credential_id, user_id)
 
     if not credential:
         raise ValueError(f"Credential {credential_id} not found")
@@ -87,6 +92,7 @@ async def create_yadisk_uploader_from_db(
         credential_id=credential_id,
         encryption_service=encryption,
         credential_repository=repo,
+        user_id=user_id,
     )
 
     uploader = YandexDiskUploader(
@@ -104,13 +110,14 @@ async def create_uploader_from_db(
     platform: str,
     credential_id: int,
     session: AsyncSession,
+    user_id: str,
     config: Any | None = None,
 ) -> YouTubeUploader | VKUploader | YandexDiskUploader:
     """Create platform uploader with database credentials."""
     if platform == "youtube":
-        return await create_youtube_uploader_from_db(credential_id, session, config)
+        return await create_youtube_uploader_from_db(credential_id, session, user_id, config)
     if platform in ("vk", "vk_video"):
-        return await create_vk_uploader_from_db(credential_id, session, config)
+        return await create_vk_uploader_from_db(credential_id, session, user_id, config)
     if platform == "yandex_disk":
-        return await create_yadisk_uploader_from_db(credential_id, session)
+        return await create_yadisk_uploader_from_db(credential_id, session, user_id)
     raise ValueError(f"Unsupported platform: {platform}")

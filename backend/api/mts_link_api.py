@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 import httpx
 
-from logger import get_logger
+from api.helpers.external_retry import (
+    MTS_LINK_REQUESTS_PER_SECOND,
+    RATE_LIMIT_HTTP_RETRIES,
+    acquire_external_slot,
+    parse_retry_after,
+    rate_limit_countdown,
+)
+from api.shared.exceptions import ExternalRateLimitError
+from logger import format_details, get_logger
+from utils.safe_http import MTS_LINK_HOST_SUFFIXES, UnsafeUrlError, assert_allowlisted_https_url
 
 logger = get_logger()
 
@@ -363,16 +373,24 @@ class MtsLinkAPI:
         access_token: str | None = None,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 60.0,
+        credential_id: int | None = None,
     ):
         if not api_token and not access_token:
             raise ValueError("Either api_token (x-auth-token) or access_token (Bearer) is required")
         if api_token and access_token:
             raise ValueError("Provide only one of api_token or access_token")
 
+        cleaned = (base_url or DEFAULT_BASE_URL).rstrip("/")
+        try:
+            assert_allowlisted_https_url(cleaned, MTS_LINK_HOST_SUFFIXES)
+        except UnsafeUrlError as exc:
+            raise ValueError(f"Invalid MTS Link base_url: {exc}") from exc
+
         self._api_token = api_token
         self._access_token = access_token
-        self.base_url = base_url.rstrip("/")
+        self.base_url = cleaned
         self.timeout = timeout
+        self.credential_id = credential_id
 
     def _auth_headers(self, *, json_body: bool = False) -> dict[str, str]:
         headers = {"Content-Type": "application/json" if json_body else "application/x-www-form-urlencoded"}
@@ -396,18 +414,17 @@ class MtsLinkAPI:
             message = str(err.get("message") if isinstance(err, dict) else err) or message
         return message, payload
 
-    async def _request(
+    async def _send(
         self,
         method: Literal["GET", "POST"],
-        path: str,
+        url: str,
         *,
-        params: dict[str, str | int] | None = None,
-        json_body: dict[str, Any] | None = None,
-    ) -> Any:
-        url = f"{self.base_url}/{path.lstrip('/')}"
+        params: dict[str, str | int] | None,
+        json_body: dict[str, Any] | None,
+    ) -> httpx.Response:
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.request(
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
+                return await client.request(
                     method,
                     url,
                     headers=self._auth_headers(json_body=json_body is not None),
@@ -417,25 +434,59 @@ class MtsLinkAPI:
         except httpx.RequestError as e:
             raise MtsLinkAPIError(f"Network error: {e}") from e
 
-        if response.status_code >= 400:
-            message, payload = self._extract_error(response)
+    def _raise_http_error(self, response: httpx.Response) -> None:
+        message, payload = self._extract_error(response)
+        if response.status_code == 401:
+            raise MtsLinkAuthenticationError(f"Authentication failed (401): {message}")
+        if response.status_code == 403:
+            if _is_conversion_busy(message, payload):
+                raise MtsLinkConversionBusyError(403, message, payload=payload)
+            raise MtsLinkAuthenticationError(f"Authentication failed (403): {message}")
+        raise MtsLinkResponseError(response.status_code, message, payload=payload)
 
-            if response.status_code == 401:
-                raise MtsLinkAuthenticationError(f"Authentication failed (401): {message}")
-
-            if response.status_code == 403:
-                if _is_conversion_busy(message, payload):
-                    raise MtsLinkConversionBusyError(403, message, payload=payload)
-                raise MtsLinkAuthenticationError(f"Authentication failed (403): {message}")
-
-            raise MtsLinkResponseError(response.status_code, message, payload=payload)
-
-        if not response.content:
-            return None
-        try:
-            return response.json()
-        except Exception as e:
-            raise MtsLinkResponseError(response.status_code, f"Invalid JSON: {response.text[:200]}") from e
+    async def _request(
+        self,
+        method: Literal["GET", "POST"],
+        path: str,
+        *,
+        params: dict[str, str | int] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> Any:
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        last_rate_limit: ExternalRateLimitError | None = None
+        for attempt in range(1 + RATE_LIMIT_HTTP_RETRIES):
+            if self.credential_id is not None:
+                await acquire_external_slot(
+                    "mts_link",
+                    self.credential_id,
+                    requests_per_second=MTS_LINK_REQUESTS_PER_SECOND,
+                )
+            response = await self._send(method, url, params=params, json_body=json_body)
+            if response.status_code == 429:
+                retry_after = parse_retry_after(response.headers.get("Retry-After"))
+                last_rate_limit = ExternalRateLimitError(
+                    platform="mts_link",
+                    retry_after=retry_after,
+                    credential_id=self.credential_id,
+                )
+                if attempt >= RATE_LIMIT_HTTP_RETRIES:
+                    raise last_rate_limit
+                logger.warning(
+                    f"MTS Link 429, retrying | {format_details(attempt=attempt + 1, retry_after=retry_after)}"
+                )
+                await asyncio.sleep(rate_limit_countdown(attempt, retry_after))
+                continue
+            if response.status_code >= 400:
+                self._raise_http_error(response)
+            if not response.content:
+                return None
+            try:
+                return response.json()
+            except Exception as e:
+                raise MtsLinkResponseError(response.status_code, f"Invalid JSON: {response.text[:200]}") from e
+        if last_rate_limit is not None:
+            raise last_rate_limit
+        raise MtsLinkAPIError("MTS Link request failed after rate-limit retries")
 
     async def list_records(
         self,

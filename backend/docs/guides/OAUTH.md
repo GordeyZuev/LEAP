@@ -114,7 +114,7 @@ Redirect to Platform OAuth
     ↓
 Platform → /oauth/{platform}/callback
     ↓
-Validate state, Exchange code for tokens
+Validate state (CSRF + bind metadata.platform), Exchange code for tokens
     ↓
 Save encrypted credentials to DB
     ↓
@@ -146,8 +146,10 @@ state = await oauth_state_manager.create_state(
     ip_address=request.client.host
 )
 
-# Validate state
+# Validate state (one-time); callback also requires metadata["platform"] == this route
 data = await oauth_state_manager.validate_state(state)
+if data.get("platform") != "youtube":
+    raise ValueError("Invalid or expired state token")
 ```
 
 ### Token Refresh
@@ -535,7 +537,7 @@ GET /api/v1/oauth/zoom/callback - Zoom OAuth callback
 
 ```
 GET /api/v1/credentials - List all user credentials (`needs_reauth`, `is_active`, `platform`, `search` filters)
-GET /api/v1/credentials/{platform} - Get credentials for platform
+GET /api/v1/credentials/{id} - Metadata only (never decrypted secrets)
 POST /api/v1/credentials - Create credential (manual)
 PATCH /api/v1/credentials/{id} - Update credential
 DELETE /api/v1/credentials/{id} - Delete (revoke) credential

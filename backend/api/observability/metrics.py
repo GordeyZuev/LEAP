@@ -7,6 +7,7 @@ import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import cast
 
 import redis
@@ -175,6 +176,33 @@ class _QueueAgeCollector:
 _queue_age_collector = _QueueAgeCollector()
 
 
+def _merge_multiproc_files(multiproc_dir: str):
+    """Merge mmap files, skipping any torn .db so /metrics does not 500."""
+    from prometheus_client.multiprocess import MultiProcessCollector
+
+    usable: list[str] = []
+    for path in Path(multiproc_dir).glob("*.db"):
+        file = str(path)
+        try:
+            MultiProcessCollector.merge([file], accumulate=False)
+        except Exception as exc:
+            logger.warning("Skipping corrupt Prometheus mmap file {}: {}", file, exc)
+            continue
+        usable.append(file)
+    if not usable:
+        return []
+    return MultiProcessCollector.merge(usable, accumulate=True)
+
+
+class _SafeMultiProcessCollector:
+    def collect(self):
+        path = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+        return _merge_multiproc_files(path) if path else []
+
+
+_safe_multiproc_collector = _SafeMultiProcessCollector()
+
+
 @contextmanager
 def track_pipeline_stage(stage: str, platform: str = "n/a") -> Iterator[None]:
     """Time a pipeline stage and emit the histogram observation.
@@ -226,17 +254,20 @@ def _build_metrics_response() -> Response:
     written by all uvicorn workers and Celery workers from the shared directory.
     The _QueueAgeCollector is always added — it generates live Redis data and
     is only meaningful from the API process.
-    """
-    multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
-    if multiproc_dir:
-        from prometheus_client.multiprocess import MultiProcessCollector
 
-        registry = CollectorRegistry()
-        MultiProcessCollector(registry)
-        registry.register(_queue_age_collector)
-    else:
-        registry = REGISTRY
-    return Response(content=generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
+    Torn mmap files are skipped so the scrape stays 200.
+    """
+    try:
+        if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+            registry = CollectorRegistry()
+            registry.register(_safe_multiproc_collector)
+            registry.register(_queue_age_collector)
+        else:
+            registry = REGISTRY
+        return Response(content=generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
+    except Exception as exc:
+        logger.warning("Failed to render /metrics: {}", exc)
+        return Response(content=b"", media_type=CONTENT_TYPE_LATEST)
 
 
 def setup_prometheus(app: FastAPI, *, enabled: bool) -> None:

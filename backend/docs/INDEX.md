@@ -58,7 +58,7 @@ Root product overview: repository [`README.md`](../../README.md).
 - [guides/AUTOMATION_CELERY_BEAT.md](guides/AUTOMATION_CELERY_BEAT.md)
 - [guides/CELERY_WORKERS_GUIDE.md](guides/CELERY_WORKERS_GUIDE.md)
 - [guides/CELERY_ASYNCIO_TECHNICAL.md](guides/CELERY_ASYNCIO_TECHNICAL.md)
-- [guides/MONITORING.md](guides/MONITORING.md)
+- [guides/MONITORING.md](guides/MONITORING.md) – Loki/Prometheus/Grafana; **Host (VM)** row (`node_exporter`, disk `mountpoint="/"`); provisioned dashboards (`allowUiUpdates: false`), stale Overview → delete `uid/leap-overview` or POST overwrite; Admin API under **`/grafana/api/`**
 
 ---
 
@@ -102,7 +102,7 @@ ASR in production is **AssemblyAI**. Notes about Fireworks Batch API are histori
 | Playlists / course share | [guides/PLAYLISTS.md](guides/PLAYLISTS.md) |
 | MTS Link | [guides/MTS_LINK_GUIDE.md](guides/MTS_LINK_GUIDE.md) |
 | Playback | [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) |
-| Observability | [guides/MONITORING.md](guides/MONITORING.md) |
+| Observability | [guides/MONITORING.md](guides/MONITORING.md) – logs, Celery/API metrics, Overview **Host (VM)**, Grafana provisioning |
 | API | [TECHNICAL.md](TECHNICAL.md) |
 
 ---

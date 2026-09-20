@@ -10,6 +10,7 @@ import httpx
 
 from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
+from utils.safe_http import YANDEX_DISK_HOST_SUFFIXES, UnsafeUrlError, safe_get, safe_stream, validate_public_url
 from video_download_module.core.base import BaseDownloader, DownloadResult
 
 logger = get_logger()
@@ -193,7 +194,13 @@ async def _yandex_web_public_download_url(
 ) -> str | None:
     """POST ``/public/api/download-url`` using **same** ``AsyncClient`` as the share page GET."""
     page_url = share_url.split("#", 1)[0]
-    api_url = urljoin(page_url, "/public/api/download-url")
+    try:
+        api_url = validate_public_url(
+            urljoin(page_url, "/public/api/download-url"),
+            allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES,
+        )
+    except UnsafeUrlError:
+        return None
     origin = urljoin(page_url, "/").rstrip("/")
     headers = {
         "User-Agent": _YANDEX_BROWSER_UA,
@@ -219,7 +226,13 @@ async def _yandex_web_public_download_url(
         logger.warning(f"Yandex web download-url | unexpected JSON shape | keys={list(payload.keys())}")
         return None
     url = data.get("url")
-    return str(url) if url else None
+    if not url:
+        return None
+    try:
+        return validate_public_url(str(url), allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES)
+    except UnsafeUrlError:
+        logger.warning("Yandex web download-url | blocked download host")
+        return None
 
 
 class YandexDiskDownloader(BaseDownloader):
@@ -248,7 +261,12 @@ class YandexDiskDownloader(BaseDownloader):
         """Stream one URL to disk using an existing client (keeps cookie jar)."""
         try:
             filepath.parent.mkdir(parents=True, exist_ok=True)
-            async with client.stream("GET", url, headers=dict(headers)) as response:
+            async with safe_stream(
+                client,
+                url,
+                headers=dict(headers),
+                allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES,
+            ) as response:
                 response.raise_for_status()
                 total_size = int(response.headers.get("content-length", 0))
                 if total_size == 0 and expected_size:
@@ -294,8 +312,18 @@ class YandexDiskDownloader(BaseDownloader):
         timeout = httpx.Timeout(180.0, connect=30.0, read=120.0)
         web_url: str | None = None
         limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, limits=limits) as client:
-            page = await client.get(pk_url.split("#", 1)[0], headers=page_headers)
+        try:
+            page_url = validate_public_url(pk_url.split("#", 1)[0], allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES)
+        except UnsafeUrlError as e:
+            logger.warning(f"Yandex public | blocked share URL | {e}")
+            return False
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, limits=limits) as client:
+            page = await safe_get(
+                client,
+                page_url,
+                headers=page_headers,
+                allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES,
+            )
             html = page.text
             if "SmartCaptcha" in html or "не робот" in html.lower():
                 logger.warning("Yandex public page may be a bot/CAPTCHA challenge — store often missing")
@@ -368,6 +396,7 @@ class YandexDiskDownloader(BaseDownloader):
             current_url = download_url
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, limits=limits) as client:
                 for _ in range(24):
+                    current_url = validate_public_url(current_url, allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES)
                     host = urlparse(current_url).hostname
                     hdrs: dict[str, str] = {"Accept": "*/*"}
                     if oauth_token and _yandex_disk_href_host_needs_oauth(host):
@@ -531,11 +560,19 @@ class YandexDiskDownloader(BaseDownloader):
             # Fallback: separate requests (e.g. unified path got no store)
             share_cookies, share_html = {}, ""
             try:
+                share_page = validate_public_url(
+                    pk_url.split("#", 1)[0], allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES
+                )
                 async with httpx.AsyncClient(
                     timeout=httpx.Timeout(45.0, connect=20.0),
-                    follow_redirects=True,
+                    follow_redirects=False,
                 ) as _c:
-                    _r = await _c.get(pk_url.split("#", 1)[0], headers={"User-Agent": _YANDEX_BROWSER_UA})
+                    _r = await safe_get(
+                        _c,
+                        share_page,
+                        headers={"User-Agent": _YANDEX_BROWSER_UA},
+                        allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES,
+                    )
                     share_cookies = dict(_r.cookies)
                     share_html = _r.text
             except Exception as e:
@@ -552,7 +589,7 @@ class YandexDiskDownloader(BaseDownloader):
                     if rhash:
                         async with httpx.AsyncClient(
                             timeout=httpx.Timeout(45.0, connect=20.0),
-                            follow_redirects=True,
+                            follow_redirects=False,
                         ) as pc:
                             web_download_url = await _yandex_web_public_download_url(pc, pk_url, rhash, str(sk))
 
@@ -573,6 +610,7 @@ class YandexDiskDownloader(BaseDownloader):
                             expected_size=source_meta.get("size"),
                             description=desc,
                             source_name=source_meta.get("name"),
+                            allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES,
                         )
                         if success:
                             break
@@ -592,6 +630,7 @@ class YandexDiskDownloader(BaseDownloader):
                         expected_size=source_meta.get("size"),
                         description=desc,
                         source_name=source_meta.get("name"),
+                        allowed_host_suffixes=YANDEX_DISK_HOST_SUFFIXES,
                     )
                     if success:
                         break

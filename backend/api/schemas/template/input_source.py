@@ -1,7 +1,7 @@
 """Input source schemas (fully typed)"""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -11,6 +11,7 @@ from api.schemas.common.pagination import PaginatedResponse
 from .source_config import (
     SourceConfig,
     YandexDiskSourceConfig,
+    parse_source_config_for_platform,
 )
 
 # Platforms that don't require credentials
@@ -56,6 +57,19 @@ class InputSourceCreate(BaseModel):
     def strip_name(cls, v: str) -> str:
         return strip_and_validate_name(v)
 
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_config_to_platform(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        platform = data.get("platform")
+        config = data.get("config")
+        if not platform or config is None:
+            return data
+        parsed = dict(data)
+        parsed["config"] = parse_source_config_for_platform(str(platform), config)
+        return parsed
+
     @model_validator(mode="after")
     def validate_source(self) -> "InputSourceCreate":
         # VIDEO_URL and LOCAL don't require credentials
@@ -76,7 +90,8 @@ class InputSourceUpdate(BaseModel):
     name: str | None = Field(None, min_length=3, max_length=255)
     description: str | None = Field(None, max_length=1000)
     credential_id: int | None = Field(None, gt=0)
-    config: SourceConfig | None = None
+    # Raw dict until the router knows source_type; untagged SourceConfig unions drop URLs.
+    config: dict[str, Any] | None = None
     is_active: bool | None = None
 
 

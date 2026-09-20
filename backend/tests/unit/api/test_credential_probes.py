@@ -11,7 +11,12 @@ from yandex_disk_module.client import YandexDiskError
 
 
 def _ctx(**creds) -> ProbeContext:
-    return ProbeContext(credential_id=1, credentials=creds or {"api_token": "key-value"}, session=MagicMock())
+    return ProbeContext(
+        credential_id=1,
+        credentials=creds or {"api_token": "key-value"},
+        session=MagicMock(),
+        user_id="user_123",
+    )
 
 
 @pytest.mark.unit

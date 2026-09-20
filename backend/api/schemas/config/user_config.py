@@ -10,6 +10,8 @@ from api.shared.enums import Granularity
 
 
 class TrimmingConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     enable_trimming: bool = True
     audio_detection: bool = True
     silence_threshold: float = Field(default=-40.0, le=0.0, ge=-100.0)

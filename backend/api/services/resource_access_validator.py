@@ -60,7 +60,7 @@ class ResourceAccessValidator:
         Raises:
             HTTPException: If credential not found or not owned by user
         """
-        credential = await self.cred_repo.get_by_id(credential_id)
+        credential = await self.cred_repo.get_by_id(credential_id, user_id)
 
         if not credential:
             logger.warning(f"Credential {credential_id} not found (requested by user {user_id})")

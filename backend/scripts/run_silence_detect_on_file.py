@@ -41,7 +41,11 @@ async def main() -> int:
         print("extract_audio_full failed", file=sys.stderr)
         return 1
 
-    detector = AudioDetector(silence_threshold=args.threshold, min_silence_duration=args.min_silence)
+    detector = AudioDetector(
+        silence_threshold=args.threshold,
+        min_silence_duration=args.min_silence,
+        padding_after=args.pad_after,
+    )
     duration = await detector.get_duration_seconds(str(mp3))
     first, last = await detector.detect_audio_boundaries_from_file(str(mp3))
     print(f"mp3_duration={duration}")

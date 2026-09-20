@@ -276,9 +276,8 @@ class TestGetCredentialById:
         assert response.status_code == 404
         # Should not reveal that credential exists but belongs to another user
 
-    def test_get_credential_with_include_data(self, client, mocker, mock_user):
-        """Test decrypting credential when include_data=true."""
-        # Arrange
+    def test_get_credential_never_returns_secrets(self, client, mocker, mock_user):
+        """GET /credentials/{id} must not decrypt even if include_data is sent."""
         credential_id = 1
         mock_credential = _make_mock_credential(
             id=credential_id,
@@ -292,19 +291,14 @@ class TestGetCredentialById:
         mock_repo_instance.get_by_id = AsyncMock(return_value=mock_credential)
         mock_repo.return_value = mock_repo_instance
 
-        # Mock encryption service
         mock_encryption = mocker.patch("api.routers.credentials.get_encryption")
-        mock_encryption_instance = MagicMock()
-        mock_encryption_instance.decrypt_credentials = MagicMock(return_value={"access_token": "decrypted"})
-        mock_encryption.return_value = mock_encryption_instance
 
-        # Act
         response = client.get(f"/api/v1/credentials/{credential_id}?include_data=true")
 
-        # Assert
         assert response.status_code == 200
         data = response.json()
-        assert data["credentials"] is not None
+        assert data.get("credentials") is None
+        mock_encryption.assert_not_called()
 
 
 @pytest.mark.unit

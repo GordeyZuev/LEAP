@@ -16,6 +16,37 @@ from logger import format_details, get_logger, short_task_id, short_user_id
 
 logger = get_logger()
 
+TASK_OWNER_KEY_PREFIX = "task_owner:"
+TASK_OWNER_TTL_SECONDS = 7 * 24 * 3600
+
+
+def extract_task_owner_user_id(args: tuple | None, kwargs: dict | None) -> str | None:
+    """Best-effort user_id from Celery args/kwargs (kwarg or second positional ULID)."""
+    if kwargs and kwargs.get("user_id"):
+        return str(kwargs["user_id"])
+    if args and len(args) >= 2 and isinstance(args[1], str) and len(args[1]) == 26:
+        return args[1]
+    return None
+
+
+def bind_task_owner(task_id: str, user_id: str) -> None:
+    """Record task→user in Redis so PENDING tasks can be authorized."""
+    from api.celery_app import _publish_redis
+
+    _publish_redis().setex(f"{TASK_OWNER_KEY_PREFIX}{task_id}", TASK_OWNER_TTL_SECONDS, user_id)
+
+
+def lookup_task_owner(task_id: str) -> str | None:
+    """Return bound user_id for a Celery task, or None if missing."""
+    try:
+        from api.celery_app import _publish_redis
+
+        value = _publish_redis().get(f"{TASK_OWNER_KEY_PREFIX}{task_id}")
+    except Exception:
+        return None
+    return str(value) if value else None
+
+
 T = TypeVar("T")
 
 
@@ -28,14 +59,17 @@ class BaseTask(Task):
     - Standardized result format
     - Logging hooks
     - Event loop management for async tasks
-
-    Usage:
-        @celery_app.task(bind=True, base=ProcessingTask)
-        def my_task(self, recording_id: int, user_id: str):
-            self.update_progress(user_id, 50, "Processing...")
-            result = self.run_async(async_function(recording_id))
-            return self.build_result(user_id, result=result)
     """
+
+    def apply_async(self, args=None, kwargs=None, **options):
+        result = super().apply_async(args, kwargs, **options)
+        user_id = extract_task_owner_user_id(args, kwargs)
+        if user_id and getattr(result, "id", None):
+            try:
+                bind_task_owner(str(result.id), user_id)
+            except Exception as exc:
+                logger.warning(f"Failed to bind task owner | task={result.id} | {exc}")
+        return result
 
     def run_async(self, coro: Awaitable[T]) -> T:
         """

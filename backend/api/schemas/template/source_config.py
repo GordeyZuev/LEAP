@@ -1,12 +1,25 @@
 """Typed schemas for input source config"""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG
 from api.schemas.common.validators import validate_regex_pattern
+from utils.safe_http import (
+    YANDEX_DISK_PUBLIC_SHARE_SUFFIXES,
+    YTDLP_HOST_SUFFIXES,
+    UnsafeUrlError,
+    assert_allowlisted_https_url,
+)
 from yandex_disk_module.paths import normalize_disk_path
+
+
+def _allowlisted_https(url: str, suffixes: tuple[str, ...]) -> str:
+    try:
+        return assert_allowlisted_https_url(url, suffixes)
+    except UnsafeUrlError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 class ZoomSourceConfig(BaseModel):
@@ -105,6 +118,13 @@ class YandexDiskSourceConfig(BaseModel):
             return v
         return normalize_disk_path(v)
 
+    @field_validator("public_url")
+    @classmethod
+    def validate_public_url(cls, v: str | None) -> str | None:
+        if not v:
+            return v
+        return _allowlisted_https(v, YANDEX_DISK_PUBLIC_SHARE_SUFFIXES)
+
     @field_validator("file_pattern")
     @classmethod
     def validate_pattern(cls, v: str | None) -> str | None:
@@ -136,6 +156,11 @@ class VideoUrlSourceConfig(BaseModel):
         "mp4", description="Container format: mp4 (video), mp3/audio (audio only), any"
     )
 
+    @field_validator("url")
+    @classmethod
+    def validate_video_url(cls, v: str) -> str:
+        return _allowlisted_https(v, YTDLP_HOST_SUFFIXES)
+
 
 class LocalFileSourceConfig(BaseModel):
     model_config = BASE_MODEL_CONFIG
@@ -149,3 +174,26 @@ SourceConfig = (
     | VideoUrlSourceConfig
     | LocalFileSourceConfig
 )
+
+_CONFIG_BY_PLATFORM: dict[str, type[BaseModel]] = {
+    "ZOOM": ZoomSourceConfig,
+    "MTS_LINK": MtsLinkSourceConfig,
+    "GOOGLE_DRIVE": GoogleDriveSourceConfig,
+    "YANDEX_DISK": YandexDiskSourceConfig,
+    "VIDEO_URL": VideoUrlSourceConfig,
+    "LOCAL": LocalFileSourceConfig,
+}
+
+
+def parse_source_config_for_platform(platform: str, config: Any) -> BaseModel:
+    """Validate ``config`` as the schema for ``platform``.
+
+    Untagged ``SourceConfig`` unions otherwise match ``ZoomSourceConfig`` (all
+    fields optional, extra ignored) and silently drop ``url`` / ``public_url``.
+    """
+    if isinstance(config, BaseModel):
+        config = config.model_dump(exclude_none=True)
+    model = _CONFIG_BY_PLATFORM.get(str(platform).upper())
+    if model is None:
+        raise ValueError(f"Unknown source platform {platform}")
+    return model.model_validate(config)

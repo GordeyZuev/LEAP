@@ -187,6 +187,13 @@ def _recording_poster_storage_key(recording: RecordingModel, user_slug: int | No
     return to_storage_key(get_path_builder().recording_root(user_slug, recording.id) / "poster.jpg")
 
 
+def _look_thumbnail_name(looks: dict | None, recording_id: int) -> str | None:
+    if not looks or recording_id not in looks:
+        return None
+    raw = getattr(looks[recording_id], "thumbnail_name", None)
+    return raw if isinstance(raw, str) and raw else None
+
+
 async def _poster_urls(
     session,
     user_id: str,
@@ -194,14 +201,9 @@ async def _poster_urls(
     *,
     looks: dict | None = None,
 ) -> dict[int, _PosterPreview]:
-    """Presign preview URLs for a page of recordings.
-
-    Uses configured thumbnail from resolved metadata when the file exists;
-    otherwise falls back to the lazy ``poster.jpg`` frame extract.
-    """
+    """Presign poster URLs from publication looks; unique S3 HEADs under one client."""
     from api.helpers.leap_publication import publication_looks_for_recordings
     from api.observability import track_handler_section
-    from api.services.config_resolver import ConfigResolver, extract_thumbnail_name_from_metadata
     from config.settings import get_settings
     from database.auth_models import UserModel
     from file_storage.factory import get_storage_backend
@@ -218,51 +220,50 @@ async def _poster_urls(
         if looks is None:
             looks = await publication_looks_for_recordings(session, user_id, recordings)
 
-        config_resolver = ConfigResolver(session)
-        thumbnail_manager = get_thumbnail_manager()
-        thumb_key_cache: dict[tuple[int, str], str | None] = {}
-
-        async def cached_thumbnail_key(name: str) -> str | None:
-            if user_slug is None:
-                return None
-            cache_key = (user_slug, name)
-            if cache_key not in thumb_key_cache:
-                thumb_key_cache[cache_key] = await thumbnail_manager.get_thumbnail_key(
-                    user_slug=user_slug,
-                    thumbnail_name=name,
-                    fallback_to_template=True,
-                )
-            return thumb_key_cache[cache_key]
-
-        # (recording_id, storage_key, source, is_fallback_for_same_recording)
-        pairs: list[tuple[int, str, Literal["thumbnail", "frame"], bool]] = []
-
+        planned: list[tuple[int, str | None, str | None]] = []
         for recording in recordings:
-            look_thumb = None
-            if looks and recording.id in looks:
-                look_thumb = getattr(looks[recording.id], "thumbnail_name", None)
-            thumbnail_name = look_thumb
-            if not thumbnail_name:
-                metadata = await config_resolver.resolve_metadata_config(recording, user_id)
-                thumbnail_name = extract_thumbnail_name_from_metadata(metadata)
-            poster_key = _recording_poster_storage_key(recording, user_slug)
+            planned.append(
+                (
+                    recording.id,
+                    _look_thumbnail_name(looks, recording.id),
+                    _recording_poster_storage_key(recording, user_slug),
+                )
+            )
 
-            if thumbnail_name and user_slug is not None:
-                thumb_key = await cached_thumbnail_key(thumbnail_name)
-                if thumb_key:
-                    pairs.append((recording.id, thumb_key, "thumbnail", False))
-                    if poster_key:
-                        pairs.append((recording.id, poster_key, "frame", True))
-                    continue
-
-            if poster_key:
-                pairs.append((recording.id, poster_key, "frame", False))
-
-        if not pairs:
-            return {}
-
+        unique_names = sorted({name for _, name, _ in planned if name})
+        thumbnail_manager = get_thumbnail_manager()
         storage = get_storage_backend()
+
         async with storage.shared_operations():
+            thumb_by_name: dict[str, str | None] = {}
+            if user_slug is not None and unique_names:
+                resolved = await asyncio.gather(
+                    *[
+                        thumbnail_manager.get_thumbnail_key(
+                            user_slug=user_slug,
+                            thumbnail_name=name,
+                            fallback_to_template=True,
+                        )
+                        for name in unique_names
+                    ]
+                )
+                thumb_by_name = dict(zip(unique_names, resolved, strict=True))
+
+            # (recording_id, storage_key, source, is_fallback_for_same_recording)
+            pairs: list[tuple[int, str, Literal["thumbnail", "frame"], bool]] = []
+            for rid, thumbnail_name, poster_key in planned:
+                thumb_key = thumb_by_name.get(thumbnail_name) if thumbnail_name else None
+                if thumb_key:
+                    pairs.append((rid, thumb_key, "thumbnail", False))
+                    if poster_key:
+                        pairs.append((rid, poster_key, "frame", True))
+                    continue
+                if poster_key:
+                    pairs.append((rid, poster_key, "frame", False))
+
+            if not pairs:
+                return {}
+
             urls = await storage.presigned_urls(
                 [key for _, key, _, _ in pairs],
                 expires_in=get_settings().storage.s3_presign_expires,
@@ -2654,6 +2655,7 @@ async def _execute_smart_run(
 
             from celery import chain as celery_chain
 
+            from api.tasks.base import bind_task_owner
             from api.tasks.processing import _finalize_pipeline_task
 
             recording.on_air = True
@@ -2670,6 +2672,10 @@ async def _execute_smart_run(
                     ),
                     _finalize_pipeline_task.si(recording_id, ctx.user_id),
                 ).apply_async()
+                try:
+                    bind_task_owner(str(task.id), ctx.user_id)
+                except Exception as bind_exc:
+                    logger.warning(f"Failed to bind smart-run chain owner | task={task.id} | {bind_exc}")
             except Exception as exc:
                 recording.on_air = False
                 await ctx.session.commit()

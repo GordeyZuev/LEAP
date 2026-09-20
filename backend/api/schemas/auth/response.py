@@ -34,7 +34,7 @@ class RegisterResponse(BaseModel):
     Always signals that email verification is required before login.
     """
 
-    user: UserResponse
+    user: UserResponse | None = None
     message: str = Field(
         default="Registration successful. Please check your email and click the verification link to activate your account.",
         description="Human-readable instruction shown to the user",

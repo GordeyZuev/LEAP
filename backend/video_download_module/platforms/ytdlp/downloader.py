@@ -6,6 +6,7 @@ from typing import Any
 
 from file_storage.path_builder import StoragePathBuilder
 from logger import get_logger
+from utils.safe_http import YTDLP_HOST_SUFFIXES, validate_public_url
 from video_download_module.core.base import BaseDownloader, DownloadResult
 from video_download_module.platforms.ytdlp.opts import get_ydl_opts
 
@@ -35,6 +36,7 @@ class YtDlpDownloader(BaseDownloader):
         url = source_meta.get("url") or source_meta.get("download_url")
         if not url:
             raise ValueError("No URL in source metadata for yt-dlp download")
+        url = validate_public_url(url, allowed_host_suffixes=YTDLP_HOST_SUFFIXES)
 
         format_pref = source_meta.get("format_preference", "mp4")
         source_suffix = ".mp3" if self._is_audio_format(format_pref) else ".mp4"

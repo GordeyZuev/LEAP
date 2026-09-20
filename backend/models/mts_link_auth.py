@@ -40,8 +40,8 @@ def create_mts_link_credentials(creds_dict: dict) -> MtsLinkApiKeyCredentials:
     )
 
 
-def create_mts_link_client(creds: MtsLinkApiKeyCredentials):
+def create_mts_link_client(creds: MtsLinkApiKeyCredentials, credential_id: int | None = None):
     """Factory for :class:`api.mts_link_api.MtsLinkAPI`."""
     from api.mts_link_api import MtsLinkAPI
 
-    return MtsLinkAPI(api_token=creds.api_token, base_url=creds.base_url)
+    return MtsLinkAPI(api_token=creds.api_token, base_url=creds.base_url, credential_id=credential_id)

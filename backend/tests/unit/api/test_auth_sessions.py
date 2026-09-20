@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from api.auth.security import hash_secret
+
 
 def _mock_session_row(**kwargs):
     defaults = {
@@ -33,8 +35,8 @@ def _mock_session_row(**kwargs):
 @pytest.mark.unit
 class TestListSessions:
     def test_returns_active_sessions_with_is_current_flag(self, client, mocker):
-        row_current = _mock_session_row(id=1, token="cookie-refresh", device_label="Chrome · macOS")
-        row_other = _mock_session_row(id=2, token="other-refresh", device_label="Safari · iOS")
+        row_current = _mock_session_row(id=1, token=hash_secret("cookie-refresh"), device_label="Chrome · macOS")
+        row_other = _mock_session_row(id=2, token=hash_secret("other-refresh"), device_label="Safari · iOS")
 
         mock_repo = mocker.patch("api.routers.auth.RefreshTokenRepository")
         mock_repo.return_value.list_active_by_user = AsyncMock(return_value=[row_current, row_other])
@@ -79,7 +81,7 @@ class TestRevokeSession:
         assert r.status_code == 404
 
     def test_revoke_current_clears_cookies(self, client, mocker):
-        target = _mock_session_row(id=7, token="my-cookie-refresh")
+        target = _mock_session_row(id=7, token=hash_secret("my-cookie-refresh"))
         mock_repo = mocker.patch("api.routers.auth.RefreshTokenRepository")
         mock_repo.return_value.get_by_id_for_user = AsyncMock(return_value=target)
         mock_repo.return_value.revoke_by_id = AsyncMock(return_value=True)
@@ -134,7 +136,28 @@ class TestLogoutOthers:
         r = client.post("/api/v1/auth/logout-others")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert "access_token" in body and "refresh_token" in body and "csrf_token" in body
+        assert "csrf_token" in body
+        assert "access_token" not in body
+        assert "refresh_token" not in body
         mock_user_repo.return_value.bump_token_version.assert_awaited_once_with("user_123")
         mock_token_repo.return_value.revoke_all_by_user.assert_awaited_once_with("user_123")
         mock_token_repo.return_value.create.assert_awaited_once()
+
+    def test_include_tokens_returns_jwt_pair(self, client, mocker):
+        fresh_user = MagicMock()
+        fresh_user.id = "user_123"
+        fresh_user.email = "test@example.com"
+        fresh_user.token_version = 4
+
+        mock_user_repo = mocker.patch("api.routers.auth.UserRepository")
+        mock_user_repo.return_value.bump_token_version = AsyncMock(return_value=4)
+        mock_user_repo.return_value.get_by_id = AsyncMock(return_value=fresh_user)
+
+        mock_token_repo = mocker.patch("api.routers.auth.RefreshTokenRepository")
+        mock_token_repo.return_value.revoke_all_by_user = AsyncMock(return_value=2)
+        mock_token_repo.return_value.create = AsyncMock(return_value=_mock_session_row(id=99))
+
+        r = client.post("/api/v1/auth/logout-others?include_tokens=true")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "access_token" in body and "refresh_token" in body and "csrf_token" in body

@@ -17,6 +17,38 @@ export interface ReleaseNotesContent {
  * Release notes keyed by semver. Add a new entry on each user-visible release.
  */
 export const RELEASE_NOTES_BY_VERSION: Record<string, ReleaseNotesContent> = {
+  "0.11.0.2": {
+    title: "Polite retries, honest cuts, tighter security",
+    highlights: [
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "MTS Link and VK no longer fail a lecture for a short “slow down” from the platform. LEAP waits seconds and retries, per credential, instead of a ten-minute pile-up.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "A pause in the middle of a lecture (a coffee break) is not treated as the end of the video. Only silence near the real ending is trimmed.",
+          },
+        ],
+      },
+      {
+        parts: [
+          {
+            kind: "text",
+            value:
+              "Outbound media URLs must be public http(s). Changing email needs your current password and a new confirmation letter. Browser login stays in cookies. Request a new reset/verify email if an old link stops working.",
+          },
+        ],
+      },
+    ],
+  },
   "0.11.0.1": {
     title: "Quieter buttons, clearer admin and shares",
     highlights: [

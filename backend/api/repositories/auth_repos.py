@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth.security import hash_secret
 from api.schemas.auth import (
     RefreshTokenCreate,
     RefreshTokenInDB,
@@ -61,6 +62,8 @@ class UserRepository:
 
         update_dict = user_data.model_dump(exclude_unset=True)
         for key, value in update_dict.items():
+            if key in ("email_verification_token", "password_reset_token") and value:
+                value = hash_secret(value)
             setattr(db_user, key, value)
 
         await self.session.commit()
@@ -68,16 +71,18 @@ class UserRepository:
         return UserInDB.model_validate(db_user)
 
     async def get_by_reset_token(self, token: str) -> UserInDB | None:
-        """Get user by active password-reset token."""
-        result = await self.session.execute(select(UserModel).where(UserModel.password_reset_token == token))
+        """Get user by active password-reset token (hashed at rest)."""
+        token_hash = hash_secret(token)
+        result = await self.session.execute(select(UserModel).where(UserModel.password_reset_token == token_hash))
         db_user = result.scalars().first()
         if not db_user:
             return None
         return UserInDB.model_validate(db_user)
 
     async def get_by_verification_token(self, token: str) -> UserInDB | None:
-        """Get user by email-verification token."""
-        result = await self.session.execute(select(UserModel).where(UserModel.email_verification_token == token))
+        """Get user by email-verification token (hashed at rest)."""
+        token_hash = hash_secret(token)
+        result = await self.session.execute(select(UserModel).where(UserModel.email_verification_token == token_hash))
         db_user = result.scalars().first()
         if not db_user:
             return None
@@ -110,7 +115,7 @@ class RefreshTokenRepository:
         """Create refresh token, including device metadata when provided."""
         refresh_token = RefreshTokenModel(
             user_id=token_data.user_id,
-            token=token_data.token,
+            token=hash_secret(token_data.token),
             expires_at=token_data.expires_at,
             last_used_at=datetime.now(UTC),
             user_agent=token_data.user_agent,
@@ -123,10 +128,11 @@ class RefreshTokenRepository:
         return RefreshTokenInDB.model_validate(refresh_token)
 
     async def get_by_token(self, token: str) -> RefreshTokenInDB | None:
-        """Get active, non-expired refresh token."""
+        """Get active, non-expired refresh token (lookup by SHA-256 of the JWT)."""
+        token_hash = hash_secret(token)
         result = await self.session.execute(
             select(RefreshTokenModel).where(
-                RefreshTokenModel.token == token,
+                RefreshTokenModel.token == token_hash,
                 RefreshTokenModel.expires_at > datetime.now(UTC),
                 RefreshTokenModel.is_revoked.is_(False),
             )
@@ -139,7 +145,8 @@ class RefreshTokenRepository:
 
     async def revoke(self, token: str) -> RefreshTokenInDB | None:
         """Revoke refresh token."""
-        result = await self.session.execute(select(RefreshTokenModel).where(RefreshTokenModel.token == token))
+        token_hash = hash_secret(token)
+        result = await self.session.execute(select(RefreshTokenModel).where(RefreshTokenModel.token == token_hash))
         db_token = result.scalars().first()
         if db_token:
             db_token.is_revoked = True
@@ -212,8 +219,11 @@ class RefreshTokenRepository:
 
     async def touch_last_used(self, token: str) -> None:
         """Stamp ``last_used_at`` on the matching refresh row (best-effort, no return)."""
+        token_hash = hash_secret(token)
         await self.session.execute(
-            update(RefreshTokenModel).where(RefreshTokenModel.token == token).values(last_used_at=datetime.now(UTC))
+            update(RefreshTokenModel)
+            .where(RefreshTokenModel.token == token_hash)
+            .values(last_used_at=datetime.now(UTC))
         )
         await self.session.commit()
 
@@ -269,9 +279,12 @@ class UserCredentialRepository:
             return None
         return UserCredentialInDB.model_validate(db_credential)
 
-    async def get_by_id(self, credential_id: int) -> UserCredentialInDB | None:
-        """Get credentials by ID."""
-        result = await self.session.execute(select(UserCredentialModel).where(UserCredentialModel.id == credential_id))
+    async def get_by_id(self, credential_id: int, user_id: str | None = None) -> UserCredentialInDB | None:
+        """Get credentials by ID, optionally scoped to the owning user."""
+        query = select(UserCredentialModel).where(UserCredentialModel.id == credential_id)
+        if user_id is not None:
+            query = query.where(UserCredentialModel.user_id == user_id)
+        result = await self.session.execute(query)
         db_credential = result.scalars().first()
         if not db_credential:
             return None
@@ -289,9 +302,18 @@ class UserCredentialRepository:
         db_credentials = result.scalars().all()
         return [UserCredentialInDB.model_validate(cred) for cred in db_credentials]
 
-    async def update(self, credential_id: int, credential_data: UserCredentialUpdate) -> UserCredentialInDB | None:
-        """Update user credentials."""
-        result = await self.session.execute(select(UserCredentialModel).where(UserCredentialModel.id == credential_id))
+    async def update(
+        self,
+        credential_id: int,
+        credential_data: UserCredentialUpdate,
+        *,
+        user_id: str | None = None,
+    ) -> UserCredentialInDB | None:
+        """Update user credentials, optionally scoped to the owning user."""
+        query = select(UserCredentialModel).where(UserCredentialModel.id == credential_id)
+        if user_id is not None:
+            query = query.where(UserCredentialModel.user_id == user_id)
+        result = await self.session.execute(query)
         db_credential = result.scalars().first()
         if not db_credential:
             return None
@@ -304,9 +326,12 @@ class UserCredentialRepository:
         await self.session.refresh(db_credential)
         return UserCredentialInDB.model_validate(db_credential)
 
-    async def delete(self, credential_id: int) -> bool:
-        """Delete user credentials."""
-        result = await self.session.execute(select(UserCredentialModel).where(UserCredentialModel.id == credential_id))
+    async def delete(self, credential_id: int, *, user_id: str | None = None) -> bool:
+        """Delete user credentials, optionally scoped to the owning user."""
+        query = select(UserCredentialModel).where(UserCredentialModel.id == credential_id)
+        if user_id is not None:
+            query = query.where(UserCredentialModel.user_id == user_id)
+        result = await self.session.execute(query)
         db_credential = result.scalars().first()
         if db_credential:
             await self.session.delete(db_credential)
@@ -314,20 +339,22 @@ class UserCredentialRepository:
             return True
         return False
 
-    async def update_last_used(self, credential_id: int) -> None:
+    async def update_last_used(self, credential_id: int, *, user_id: str | None = None) -> None:
         """Stamp last_used_at on the credential row (best-effort)."""
+        conditions = [UserCredentialModel.id == credential_id]
+        if user_id is not None:
+            conditions.append(UserCredentialModel.user_id == user_id)
         await self.session.execute(
-            update(UserCredentialModel)
-            .where(UserCredentialModel.id == credential_id)
-            .values(last_used_at=datetime.now(UTC))
+            update(UserCredentialModel).where(*conditions).values(last_used_at=datetime.now(UTC))
         )
         await self.session.commit()
 
-    async def set_needs_reauth(self, credential_id: int, value: bool) -> None:
+    async def set_needs_reauth(self, credential_id: int, value: bool, *, user_id: str | None = None) -> None:
         """Set or clear the needs_reauth flag on a credential."""
-        await self.session.execute(
-            update(UserCredentialModel).where(UserCredentialModel.id == credential_id).values(needs_reauth=value)
-        )
+        conditions = [UserCredentialModel.id == credential_id]
+        if user_id is not None:
+            conditions.append(UserCredentialModel.user_id == user_id)
+        await self.session.execute(update(UserCredentialModel).where(*conditions).values(needs_reauth=value))
         await self.session.commit()
 
     async def find_by_user(self, user_id: str) -> list[UserCredentialInDB]:

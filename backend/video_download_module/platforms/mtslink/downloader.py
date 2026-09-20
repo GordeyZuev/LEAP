@@ -20,6 +20,7 @@ from api.mts_link_api import (
 )
 from file_storage.path_builder import StoragePathBuilder, to_storage_key
 from logger import format_details, get_logger
+from utils.safe_http import UnsafeUrlError, safe_stream
 from video_download_module.core.base import BaseDownloader, DownloadResult
 
 logger = get_logger()
@@ -71,12 +72,13 @@ class MtsLinkDownloader(BaseDownloader):
         conversion_view: str = "none",
         fetch_chat: bool = True,
         fetch_session_files: bool = True,
+        credential_id: int | None = None,
         **kwargs,  # noqa: ARG002
     ):
         super().__init__(user_slug, storage_builder)
         if not api_token:
             raise ValueError("MTS Link download requires an organization api_token")
-        self.api = MtsLinkAPI(api_token=api_token, base_url=base_url)
+        self.api = MtsLinkAPI(api_token=api_token, base_url=base_url, credential_id=credential_id)
         self.conversion_quality = conversion_quality
         self.conversion_view = conversion_view
         self.fetch_chat = fetch_chat
@@ -259,8 +261,8 @@ class MtsLinkDownloader(BaseDownloader):
         """
         temp_path: Path = self.storage.create_temp_file(prefix="mtsx_", suffix=Path(key).suffix)
         try:
-            async with httpx.AsyncClient(timeout=_ATTACHMENT_TIMEOUT, follow_redirects=True) as client:
-                async with client.stream("GET", url) as response:
+            async with httpx.AsyncClient(timeout=_ATTACHMENT_TIMEOUT, follow_redirects=False) as client:
+                async with safe_stream(client, url) as response:
                     response.raise_for_status()
                     with temp_path.open("wb") as handle:
                         async for chunk in response.aiter_bytes(chunk_size=65536):
@@ -272,7 +274,7 @@ class MtsLinkDownloader(BaseDownloader):
 
             await storage_backend.save_file(key, temp_path)
             return size
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, UnsafeUrlError) as e:
             logger.warning(f"MTS Link attachment skipped | {format_details(file=Path(key).name, error=str(e))}")
             return None
         finally:

@@ -14,11 +14,12 @@ class TestAudioDetector:
         # Arrange & Act
         from video_processing_module.audio_detector import AudioDetector
 
-        detector = AudioDetector(silence_threshold=-40.0, min_silence_duration=2.0)
+        detector = AudioDetector(silence_threshold=-40.0, min_silence_duration=2.0, padding_after=5.0)
 
         # Assert
         assert detector.silence_threshold == -40.0
         assert detector.min_silence_duration == 2.0
+        assert detector.padding_after == 5.0
 
     def test_audio_detector_default_values(self):
         """Test AudioDetector with default values."""
@@ -222,13 +223,50 @@ class TestAudioDetectorHelpers:
         result = detector._find_last_sound(silence_periods, 17765.0)
         assert result == 5100.0
 
-        # Rec 91: trailing hours closed ~0.4s before ffprobe duration (old 0.1s slack kept EOF)
+        # Rec 91: trailing hours closed ~0.4s before ffprobe duration (padding_after=5)
         result = detector._find_last_sound([(0.0, 147.9), (6877.9, 24654.9)], 24655.3)
         assert result == 6877.9
 
-        # Long digital tail not quite at EOF (encoder flush / MP3 padding)
+        # Closed 35s early: not outro at default padding_after=5
         result = detector._find_last_sound([(0.0, 147.9), (10.0, 12.0), (6877.9, 24620.0)], 24655.3)
+        assert result == 24655.3
+
+        # Same 35s gap is outro if the template padding covers it
+        wide = AudioDetector(padding_after=40.0)
+        result = wide._find_last_sound([(0.0, 147.9), (6877.9, 24620.0)], 24655.3)
         assert result == 6877.9
+
+        # Short pause in the last 30s, then speech until EOF — not outro
+        result = detector._find_last_sound([(90.0, 93.0)], 120.0)
+        assert result == 120.0
+
+    def test_find_last_sound_ignores_mid_lecture_break(self):
+        """Rec 185: 13 min coffee break is not outro when the file just stops."""
+        from video_processing_module.audio_detector import AudioDetector
+
+        detector = AudioDetector()
+        duration = 11880.5
+        intro = (0.0, 120.5)
+        break_13min = (3926.2, 3926.2 + 13 * 60)
+        short_blip_near_end = (11824.5, 11826.6)
+        periods = [intro, break_13min, short_blip_near_end]
+
+        assert detector._find_first_sound(periods) == 120.5
+        assert detector._find_last_sound(periods, duration) == duration
+
+        # Sound from t=0 through EOF except a long mid pause — keep until duration
+        assert detector._find_last_sound([break_13min], duration) == duration
+
+        # Break, then ~90s of closing talk, then the file stops — keep the close
+        assert detector._find_last_sound([break_13min], break_13min[1] + 90.0) == break_13min[1] + 90.0
+
+    def test_find_last_sound_trailing_tail_still_cuts(self):
+        """Rec 184 / 91: digital silence that actually belongs to EOF is still outro."""
+        from video_processing_module.audio_detector import AudioDetector
+
+        detector = AudioDetector()
+        assert detector._find_last_sound([(0.0, 144.1), (3306.4, 9960.1)], 9960.2) == 3306.4
+        assert detector._find_last_sound([(0.0, 147.9), (6877.9, 24654.9)], 24655.3) == 6877.9
 
     @pytest.mark.asyncio
     async def test_get_duration(self):

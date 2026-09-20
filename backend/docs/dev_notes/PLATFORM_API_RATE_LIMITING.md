@@ -1,8 +1,12 @@
 # Polite API & Jitter — План Rate Limiting для внешних платформ
 
+**Статус:** частично superseded (сентябрь 2026). MTS Link (2 req/s) и VK (`error_code` 6, 3 req/s) теперь режутся per-credential в Redis (`ext-rl:{platform}:{credential_id}`), с in-client retry + jitter и коротким Celery countdown. См. [MTS_LINK_GUIDE.md](../guides/MTS_LINK_GUIDE.md) и [VK_INTEGRATION.md](../guides/VK_INTEGRATION.md). Код: `api/helpers/external_retry.py`.
+
+Ниже — исходный черновик (февраль 2026). Circuit breaker, отдельные очереди и лимитеры для YouTube/Zoom/DeepSeek **не** реализованы.
+
 **Актуализация:** 27 февраля 2026
 **Предыдущее обсуждение:** транскрипт чата 7bd73c82 (VK rate limit, 29 jan 2026)
-**Статус:** В планах, не реализовано
+**Статус (черновик):** В планах, не реализовано
 
 ---
 

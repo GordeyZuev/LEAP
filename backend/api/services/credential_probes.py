@@ -36,6 +36,7 @@ class ProbeContext:
     credential_id: int
     credentials: dict[str, Any]
     session: AsyncSession
+    user_id: str
 
 
 def _ok(detail: str) -> CredentialCheckResult:
@@ -81,6 +82,7 @@ async def _probe_yandex_disk(ctx: ProbeContext) -> CredentialCheckResult:
             ctx.credential_id,
             UserCredentialRepository(ctx.session),
             get_encryption(),
+            user_id=ctx.user_id,
         )
     except Exception as e:
         logger.warning(f"Yandex Disk refresh during check failed | {format_details(error=str(e))}")
@@ -100,10 +102,14 @@ async def _probe_yandex_disk(ctx: ProbeContext) -> CredentialCheckResult:
 
 async def _probe_mts_link(ctx: ProbeContext) -> CredentialCheckResult:
     from api.mts_link_api import MtsLinkAPIError, MtsLinkAuthenticationError
+    from api.shared.exceptions import ExternalRateLimitError
     from models.mts_link_auth import create_mts_link_client, create_mts_link_credentials
 
     try:
-        api = create_mts_link_client(create_mts_link_credentials(ctx.credentials))
+        api = create_mts_link_client(
+            create_mts_link_credentials(ctx.credentials),
+            credential_id=ctx.credential_id,
+        )
     except ValueError as e:
         return _rejected(f"Stored MTS Link credentials are incomplete: {e}")
 
@@ -112,6 +118,8 @@ async def _probe_mts_link(ctx: ProbeContext) -> CredentialCheckResult:
     except MtsLinkAuthenticationError as e:
         return _rejected(str(e))
     except MtsLinkAPIError as e:
+        return _unavailable(str(e))
+    except ExternalRateLimitError as e:
         return _unavailable(str(e))
     return _ok("MTS Link accepted the API key")
 
@@ -129,6 +137,7 @@ async def _probe_youtube(ctx: ProbeContext) -> CredentialCheckResult:
         ctx.credential_id,
         get_encryption(),
         UserCredentialRepository(ctx.session),
+        ctx.user_id,
     )
     google_credentials = await provider.get_google_credentials(list(get_platform_config("youtube").scopes))
     if google_credentials is None:

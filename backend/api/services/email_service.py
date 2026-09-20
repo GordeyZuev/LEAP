@@ -55,6 +55,18 @@ class EmailService:
         )
         await self._send(to, "Подтвердите ваш email — LEAP", html)
 
+    async def send_email_changed_notice(self, to: str, new_email: str, full_name: str | None = None) -> None:
+        """Notify the previous address that the account email was changed."""
+        from html import escape
+
+        greeting = escape(full_name) if full_name else "Здравствуйте"
+        html = (
+            f"<p>{greeting},</p>"
+            f"<p>Email вашего аккаунта LEAP был изменён на <strong>{escape(new_email)}</strong>.</p>"
+            f"<p>Если это были не вы, немедленно смените пароль и напишите в поддержку.</p>"
+        )
+        await self._send(to, "Ваш email в LEAP был изменён", html)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
