@@ -147,4 +147,7 @@ async def promote_template_to_default(
 
     target.is_default = True
     await repo.update(target)
+    from api.repositories.recording_repos import sync_user_inherited_retention
+
+    await sync_user_inherited_retention(session, user_id)
     return target

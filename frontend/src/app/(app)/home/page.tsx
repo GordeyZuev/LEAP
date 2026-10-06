@@ -165,7 +165,12 @@ export default function HomePage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <h2 id="home-activity-title" className="text-base font-semibold text-foreground">Activity</h2>
-                <p className="text-xs text-muted-foreground" title={`${range.from} – ${range.to} · UTC`}>Last 7 days · UTC</p>
+                <p className="text-xs text-muted-foreground" title={`${range.from} – ${range.to} · UTC`}>
+                  Last 7 days · UTC
+                  {analytics.data?.summary.transcription_includes_estimate
+                    ? " · older hours use segment length, not the AssemblyAI invoice"
+                    : ""}
+                </p>
               </div>
               <Link className={linkClass} href="/settings?tab=usage">View analytics <ArrowRight size={16} aria-hidden /></Link>
             </div>
@@ -175,7 +180,7 @@ export default function HomePage() {
                 {[
                   { label: "Video views", value: analytics.data.summary.share_views, unit: "" },
                   { label: "Recordings added", value: analytics.data.summary.recordings_created, unit: "" },
-                  { label: "Transcribed", value: Number((analytics.data.summary.transcription_minutes / 60).toFixed(1)), unit: " h" },
+                  { label: "Processed", value: Number((analytics.data.summary.transcription_minutes / 60).toFixed(1)), unit: " h" },
                 ].map((item) => <div key={item.label} className="flex min-w-0 flex-col gap-2">
                   <dt className="text-xs text-muted-foreground">{item.label}</dt>
                   <dd title={`${item.value}${item.unit}`} className="mt-auto whitespace-nowrap text-lg font-semibold tabular-nums text-foreground sm:text-2xl">

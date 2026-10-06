@@ -7,7 +7,7 @@ import { cn, formatDateTimeShort } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW, TABLE_SCROLL } from "@/lib/table-classes";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
 import { AffectedRecordingsList } from "@/components/automation/affected-recordings";
@@ -77,6 +77,7 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
       </div>
 
       <div className={TABLE_CARD}>
+        <div className={TABLE_SCROLL}>
         <table className="w-full min-w-[560px]">
           <thead>
             <tr className="border-b border-border">
@@ -142,6 +143,7 @@ export function JobRunHistory({ jobId }: { jobId: number }) {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Modal

@@ -40,6 +40,10 @@ class AnalyticsSummary(BaseModel):
         None, description="Platform-only: distinct users with ≥1 recording created in period"
     )
     uploads_total: int = 0
+    transcription_includes_estimate: bool = Field(
+        False,
+        description="Period minutes include segment-end estimates, not only AssemblyAI audio_duration.",
+    )
 
 
 class AnalyticsBreakdown(BaseModel):

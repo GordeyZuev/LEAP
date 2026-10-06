@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, TypedDict
 
@@ -401,8 +401,8 @@ async def list_recordings(
     include_deleted: bool = Query(False, description="Include deleted recordings"),
     from_date: str | None = Query(None, description="Filter: start_time >= from_date (YYYY-MM-DD)"),
     to_date: str | None = Query(None, description="Filter: start_time <= to_date (YYYY-MM-DD)"),
-    sort_by: Literal["created_at", "updated_at", "start_time", "display_name", "status"] = Query(
-        "start_time", description="Sort field (created_at, updated_at, start_time, display_name, status)"
+    sort_by: Literal["created_at", "updated_at", "start_time", "display_name", "status", "view_count"] = Query(
+        "start_time", description="Sort field (created_at, updated_at, start_time, display_name, status, view_count)"
     ),
     sort_order: Literal["asc", "desc"] = Query("desc", description="Sort direction"),
     page: int = Query(1, ge=1),
@@ -464,6 +464,9 @@ async def list_recordings(
     total_pages = (total + per_page - 1) // per_page if total > 0 else 1
 
     poster_urls = await _poster_urls(ctx.session, ctx.user_id, recordings) if include_posters else {}
+    from api.services.retention import effective_retention_exempt, template_retention_flags
+
+    retention_flags = await template_retention_flags(ctx.session, recordings)
 
     items = []
     for r in recordings:
@@ -492,9 +495,14 @@ async def list_recordings(
                 soft_deleted_at=r.soft_deleted_at,
                 hard_delete_at=r.hard_delete_at,
                 expire_at=r.expire_at,
+                retention_exempt=r.retention_exempt,
+                retention_exempt_effective=effective_retention_exempt(
+                    r.retention_exempt, retention_flags.get(r.id, False)
+                ),
                 share_token=r.share_token,
                 share_enabled=bool(r.share_enabled),
                 share_stats=build_share_stats_summary(r),
+                view_count=r.share_view_count or 0,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
             )
@@ -845,6 +853,13 @@ async def get_recording(
             detail=f"Recording {recording_id} not found or you don't have access",
         )
 
+    from api.services.retention import effective_retention_exempt, template_retention_flags
+
+    retention_flags = await template_retention_flags(ctx.session, [recording])
+    retention_effective = effective_retention_exempt(
+        recording.retention_exempt, retention_flags.get(recording.id, False)
+    )
+
     if not detailed:
         return RecordingListItem(
             **_poster_fields(await _poster_urls(ctx.session, ctx.user_id, [recording]), recording.id),
@@ -870,6 +885,8 @@ async def get_recording(
             soft_deleted_at=recording.soft_deleted_at,
             hard_delete_at=recording.hard_delete_at,
             expire_at=recording.expire_at,
+            retention_exempt=recording.retention_exempt,
+            retention_exempt_effective=retention_effective,
             share_token=recording.share_token,
             share_enabled=bool(recording.share_enabled),
             share_stats=build_share_stats_summary(recording),
@@ -950,6 +967,8 @@ async def get_recording(
         "soft_deleted_at": recording.soft_deleted_at,
         "hard_delete_at": recording.hard_delete_at,
         "expire_at": recording.expire_at,
+        "retention_exempt": recording.retention_exempt,
+        "retention_exempt_effective": retention_effective,
         "share_token": recording.share_token,
         "share_enabled": bool(recording.share_enabled),
         "share_stats": build_share_stats_for_detail(recording),
@@ -1122,13 +1141,27 @@ async def update_recording(
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    exempt = updates.pop("retention_exempt", None)
+    for field, value in updates.items():
         setattr(recording, field, value)
+    if "retention_exempt" in data.model_fields_set:
+        user_config = await UserConfigRepository(ctx.session).get_effective_config(ctx.user_id)
+        await recording_repo.assign_retention_exempt(
+            recording, exempt if isinstance(exempt, bool) else None, user_config
+        )
 
     await recording_repo.update(recording)
     await ctx.session.commit()
 
     logger.info(f"Updated recording metadata | {format_details(rec=recording_id)}")
+
+    from api.services.retention import effective_retention_exempt, template_retention_flags
+
+    retention_flags = await template_retention_flags(ctx.session, [recording])
+    retention_effective = effective_retention_exempt(
+        recording.retention_exempt, retention_flags.get(recording.id, False)
+    )
 
     return RecordingListItem(
         **_poster_fields(await _poster_urls(ctx.session, ctx.user_id, [recording]), recording.id),
@@ -1154,6 +1187,8 @@ async def update_recording(
         soft_deleted_at=recording.soft_deleted_at,
         hard_delete_at=recording.hard_delete_at,
         expire_at=recording.expire_at,
+        retention_exempt=recording.retention_exempt,
+        retention_exempt_effective=retention_effective,
         share_token=recording.share_token,
         share_enabled=bool(recording.share_enabled),
         share_stats=build_share_stats_summary(recording),
@@ -3482,9 +3517,11 @@ async def get_recording_config(
         template_id=config_data["template_id"],
         template_name=config_data["template_name"],
         has_manual_override=config_data["has_manual_override"],
+        manual_override_sections=config_data["manual_override_sections"],
         processing_config=config_data["processing_config"],
         output_config=config_data["output_config"],
         metadata_config=config_data["metadata_config"],
+        inherited=config_data["inherited"],
     )
 
 
@@ -3573,23 +3610,24 @@ async def reset_to_template(
     recording_id: int,
     ctx: ServiceContext = Depends(get_service_context),
 ) -> ConfigSaveResponse:
-    """Reset user config overrides and return to template configuration."""
+    """Drop this recording's overrides. The confirmation lists which ones."""
+    from api.helpers.stage_sync import sync_stages_with_config
     from api.services.config_resolver import ConfigResolver
 
     recording_repo = RecordingRepository(ctx.session)
 
-    # Get recording from DB
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
     if not recording:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording {recording_id} not found")
 
-    # Clear overrides
     recording.processing_preferences = None
-    await ctx.session.commit()
+    user_config = await UserConfigRepository(ctx.session).get_effective_config(ctx.user_id)
+    await recording_repo.assign_retention_exempt(recording, None, user_config)
 
-    # Get effective config (from template)
     config_resolver = ConfigResolver(ctx.session)
     effective_config = await config_resolver.resolve_processing_config(recording, ctx.user_id)
+    await sync_stages_with_config(recording, effective_config)
+    await ctx.session.commit()
 
     logger.info(f"Reset to template configuration | {format_details(rec=recording_id)}")
 
@@ -3702,40 +3740,10 @@ async def reset_recording(
     deleted_files = []
     errors = []
 
-    # Delete files via storage backend (works for both LOCAL and S3).
     if delete_files:
-        from file_storage.factory import get_storage_backend as _storage_for_reset
-        from file_storage.path_builder import to_storage_key as _to_key
-
-        storage = _storage_for_reset()
-
-        async def _delete_key(label: str, key: str | None) -> None:
-            if not key:
-                return
-            try:
-                if await storage.exists(key) and await storage.delete(key):
-                    deleted_files.append({"type": label, "path": key, "is_dir": False})
-            except Exception as exc:
-                errors.append({"type": label, "path": key, "error": str(exc)})
-                logger.error(f"Failed to delete | {format_details(type=label, path=key, error=str(exc))}")
-
-        await _delete_key("local_video", recording.local_video_path)
-        if recording.processed_video_path and recording.processed_video_path != recording.local_video_path:
-            await _delete_key("processed_video", recording.processed_video_path)
-        await _delete_key("processed_audio_file", recording.processed_audio_path)
-
-        # Transcription artifacts are a prefix (master.json, extracted.json, cache/*).
-        if recording.transcription_dir:
-            tx_prefix = _to_key(recording.transcription_dir)
-            try:
-                for k in await storage.list_keys(tx_prefix):
-                    if await storage.delete(k):
-                        deleted_files.append({"type": "transcription_artifact", "path": k, "is_dir": False})
-            except Exception as exc:
-                errors.append({"type": "transcription_dir", "path": tx_prefix, "error": str(exc)})
-                logger.error(
-                    f"Failed to delete transcription prefix | {format_details(prefix=tx_prefix, error=str(exc))}"
-                )
+        wiped, wipe_errors = await recording_repo.wipe_recording_storage(recording)
+        deleted_files.extend(wiped)
+        errors.extend(wipe_errors)
 
     # If pipeline is active, revoke it before resetting so no orphan tasks run.
     if recording.on_air and recording.pipeline_task_id:
@@ -3744,12 +3752,6 @@ async def reset_recording(
         celery_app.control.revoke(recording.pipeline_task_id, terminate=False)
         logger.info(f"Reset: revoked active chain | rec={recording_id} task={recording.pipeline_task_id}")
 
-    # Clear recording metadata
-    if delete_files:
-        recording.local_video_path = None
-        recording.processed_video_path = None
-        recording.processed_audio_path = None
-        recording.transcription_dir = None
     recording.topic_timestamps = None
     recording.main_topics = None
     recording.transcription_info = None
@@ -3792,10 +3794,8 @@ async def reset_recording(
     user_config_repo = UserConfigRepository(ctx.session)
     user_config = await user_config_repo.get_effective_config(ctx.user_id)
 
-    retention = user_config.get("retention", {})
-    auto_expire_days = retention.get("auto_expire_days", 90)
-    if auto_expire_days:
-        recording.expire_at = datetime.now(UTC) + timedelta(days=auto_expire_days)
+    recording.expire_at = None
+    await recording_repo.sync_retention_deadline(recording, user_config)
 
     # Delete output_targets
     await ctx.session.execute(delete(OutputTargetModel).where(OutputTargetModel.recording_id == recording_id))
@@ -3852,6 +3852,9 @@ async def bind_template_to_recording(
 
     if reset_preferences:
         recording.processing_preferences = None
+
+    user_config = await UserConfigRepository(ctx.session).get_effective_config(ctx.user_id)
+    await recording_repo.sync_retention_deadline(recording, user_config)
 
     if recording.status == ProcessingStatus.SKIPPED:
         recording.status = ProcessingStatus.INITIALIZED

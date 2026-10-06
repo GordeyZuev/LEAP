@@ -23,6 +23,7 @@ import { TagInput } from "@/components/ui/tag-input";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { Modal } from "@/components/ui/modal";
 import { Toggle } from "@/components/ui/toggle";
 import { Disclosure } from "@/components/ui/disclosure";
@@ -103,6 +104,7 @@ interface ProcessingConfig {
   vocabulary: string[];
   prompt: string;
   trimming: ProcessingFormFields["trimming"];
+  retention_exempt: boolean;
 }
 
 interface MetadataConfig {
@@ -176,6 +178,7 @@ const DEFAULT_FORM: TemplateFormData = {
     vocabulary: [],
     prompt: "",
     trimming: { ...DEFAULT_TRIMMING },
+    retention_exempt: false,
   },
   metadata_config: {
     title_template: "",
@@ -303,6 +306,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
           vocabulary: pc?.vocabulary ?? [],
           prompt: typeof pc?.prompt === "string" ? pc.prompt : "",
           trimming: trimmingFromApi(existing.processing_config?.trimming),
+          retention_exempt: pc?.retention_exempt ?? false,
         };
       })(),
       metadata_config: {
@@ -413,6 +417,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
             questions_count: data.processing_config.questions_count,
             vocabulary: data.processing_config.vocabulary.length > 0 ? data.processing_config.vocabulary : undefined,
             prompt: data.processing_config.prompt.trim() || undefined,
+            retention_exempt: data.processing_config.retention_exempt,
           },
           trimming: data.processing_config.trimming,
         },
@@ -893,6 +898,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 vocabulary: form.processing_config.vocabulary,
                 prompt: form.processing_config.prompt,
                 trimming: form.processing_config.trimming,
+                retention_exempt: form.processing_config.retention_exempt,
               }}
               onChange={(patch) =>
                 setForm((f) => {
@@ -907,6 +913,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   if (patch.vocabulary != null) pc.vocabulary = patch.vocabulary;
                   if (patch.prompt != null) pc.prompt = patch.prompt;
                   if (patch.trimming != null) pc.trimming = patch.trimming;
+                  if (patch.retention_exempt != null) pc.retention_exempt = patch.retention_exempt;
                   return { ...f, processing_config: pc };
                 })
               }
@@ -1227,7 +1234,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
         open={matchPreviewOpen}
         onClose={() => setMatchPreviewOpen(false)}
         labelledBy={matchPreviewTitleId}
-        panelClassName="max-w-lg"
+        panelClassName="max-w-lg overflow-hidden"
       >
           <div className="flex max-h-[85vh] flex-col">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -1236,7 +1243,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                 <X size={16} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-5">
+            <InsetScroll frameClassName="flex min-h-0 flex-1 flex-col" insetTop="0" className="min-h-0 flex-1 p-5">
               {matchPreviewLoading && (
                 <div className="flex items-center justify-center py-12">
                   <RefreshCw size={20} className="animate-spin text-muted-foreground" />
@@ -1286,7 +1293,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
                   )}
                 </>
               )}
-            </div>
+            </InsetScroll>
           </div>
       </Modal>
 

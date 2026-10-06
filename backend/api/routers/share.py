@@ -359,6 +359,7 @@ async def _build_public_recording_response(
             duration=display_duration_seconds(recording),
             start_time=recording.start_time,
             status=recording.status,
+            view_count=recording.share_view_count or 0,
             topic_timestamps=topic_timestamps,
             main_topics=main_topics,
             summary=summary,
@@ -704,7 +705,7 @@ def _public_playlist_items(
     titles: dict[int, str] | None = None,
 ) -> list[PublicPlaylistItem]:
     items: list[PublicPlaylistItem] = []
-    for item in sorted(playlist.items, key=lambda i: i.position):
+    for position, item in enumerate(sorted(playlist.items, key=lambda i: (i.position, i.id))):
         rec = _owned_playlist_recording(playlist, item)
         reason = item_unavailable_reason(rec) if rec else "deleted"
         if rec is not None and titles and rec.id in titles:
@@ -714,7 +715,7 @@ def _public_playlist_items(
         items.append(
             PublicPlaylistItem(
                 id=item.id,
-                position=item.position,
+                position=position,
                 group_id=item.group_id,
                 title=title,
                 duration=display_duration_seconds(rec) if rec else 0.0,
@@ -725,6 +726,7 @@ def _public_playlist_items(
                 poster_asset_key=previews[rec.id].asset_key or None
                 if previews and rec is not None and rec.id in previews
                 else None,
+                view_count=(rec.share_view_count or 0) if rec else 0,
             )
         )
     return items

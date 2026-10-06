@@ -11,6 +11,7 @@ import { ActionButton } from "@/components/ui/action-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { CreatePlaceholder } from "@/components/ui/create-placeholder";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { Modal } from "@/components/ui/modal";
 import { Toggle } from "@/components/ui/toggle";
 import { PageHeader } from "@/components/ui/page-header";
@@ -518,9 +519,9 @@ export default function SourcesPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         labelledBy={sourceModalTitleId}
-        panelClassName="max-w-md max-h-[90vh] overflow-y-auto"
+        panelClassName="max-w-md overflow-hidden"
       >
-          <div>
+          <InsetScroll className="max-h-[min(90vh,calc(100dvh-2rem))]">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
               <h2 id={sourceModalTitleId} className="text-base font-semibold text-foreground">{editingSource ? "Edit source" : "Add source"}</h2>
               <button type="button" onClick={() => setModalOpen(false)} aria-label="Close dialog" className="p-1.5 rounded-lg hover:bg-muted"><X size={16} /></button>
@@ -646,7 +647,7 @@ export default function SourcesPage() {
                 Save
               </ActionButton>
             </div>
-          </div>
+          </InsetScroll>
       </Modal>
 
       <ConfirmDialog

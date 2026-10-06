@@ -29,6 +29,11 @@ from logger import get_logger
 logger = get_logger()
 
 
+def _override(custom, plan):
+    """A numeric override of 0 is a real limit. ``or`` would turn it into the plan or unlimited."""
+    return custom if custom is not None else plan
+
+
 class QuotaExceededError(Exception):
     """Raised when a hard quota blocks an action inside a Celery task. Non-retryable."""
 
@@ -67,13 +72,15 @@ class QuotaService:
             raise ValueError(f"Plan {subscription.plan_id} not found")
 
         return {
-            "max_recordings_per_month": subscription.custom_max_recordings_per_month
-            or plan.included_recordings_per_month,
-            "max_storage_gb": subscription.custom_max_storage_gb or plan.included_storage_gb,
-            "max_concurrent_tasks": subscription.custom_max_concurrent_tasks or plan.max_concurrent_tasks,
-            "max_automation_jobs": subscription.custom_max_automation_jobs or plan.max_automation_jobs,
-            "min_automation_interval_hours": subscription.custom_min_automation_interval_hours
-            or plan.min_automation_interval_hours,
+            "max_recordings_per_month": _override(
+                subscription.custom_max_recordings_per_month, plan.included_recordings_per_month
+            ),
+            "max_storage_gb": _override(subscription.custom_max_storage_gb, plan.included_storage_gb),
+            "max_concurrent_tasks": _override(subscription.custom_max_concurrent_tasks, plan.max_concurrent_tasks),
+            "max_automation_jobs": _override(subscription.custom_max_automation_jobs, plan.max_automation_jobs),
+            "min_automation_interval_hours": _override(
+                subscription.custom_min_automation_interval_hours, plan.min_automation_interval_hours
+            ),
             "max_transcriptions_per_month": plan.max_transcriptions_per_month,
             "max_processing_per_month": plan.max_processing_per_month,
             "max_templates": subscription.custom_max_templates

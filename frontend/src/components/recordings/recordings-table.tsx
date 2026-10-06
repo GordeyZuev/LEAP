@@ -4,11 +4,12 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { ExternalLink, MoreHorizontal, Pause, Play, RotateCcw, Settings2, Trash2, ArchiveRestore } from "lucide-react";
 import { cn, formatDate, formatDuration, stripLeadingTimestamp, collapseWhitespace } from "@/lib/utils";
+import { formatCompactNumber, formatExactViewCount } from "@/lib/format-compact-number";
 import { formatShareStatsSummary } from "@/lib/share-stats";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { RecordingPoster, RECORDING_TABLE_POSTER } from "@/components/recordings/recording-poster";
 import { CHECKBOX } from "@/lib/filter-field-classes";
-import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW, TABLE_ROW_CORNERS } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW, TABLE_ROW_CORNERS, TABLE_SCROLL } from "@/lib/table-classes";
 import { type RecordingCardData } from "./recording-card";
 import { PipelineStatusButton } from "@/components/recordings/pipeline-popover";
 import { formatFailedStage } from "@/components/recordings/pipeline-stages";
@@ -230,6 +231,7 @@ export function RecordingsTable({
   // header can stick; below that, horizontal scrolling wins.
   return (
     <div className={TABLE_CARD}>
+      <div className={TABLE_SCROLL}>
       <table className="w-full min-w-[800px] border-collapse text-xs">
         <thead>
           <tr className="border-b border-border">
@@ -255,6 +257,7 @@ export function RecordingsTable({
             <SortableTh sticky className="px-3 py-3 w-24" label="Source" />
             <SortableTh sticky className="px-3 py-3 w-16" label="Duration" />
             <SortableTh sticky className="px-3 py-3 w-28" label="Date" field="start_time" {...sortProps} />
+            <SortableTh sticky className="px-3 py-3 w-16" label="Views" field="view_count" {...sortProps} />
             <SortableTh sticky className="px-3 py-3 w-32" label="Platforms" />
             <SortableTh sticky className="px-3 py-3 w-20" label="Actions" />
           </tr>
@@ -334,6 +337,14 @@ export function RecordingsTable({
 
                 {/* Date */}
                 <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{formatDate(r.start_time)}</td>
+
+                {/* Views */}
+                <td
+                  className="whitespace-nowrap px-3 py-2.5 tabular-nums text-muted-foreground"
+                  title={r.view_count ? formatExactViewCount(r.view_count) : undefined}
+                >
+                  {r.view_count ? formatCompactNumber(r.view_count) : "—"}
+                </td>
 
                 {/* Platforms */}
                 <td className="px-3 py-2.5">
@@ -455,6 +466,7 @@ export function RecordingsTable({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

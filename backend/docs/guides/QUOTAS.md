@@ -40,7 +40,7 @@ DEFAULT_QUOTAS (config/settings.py)    ← дефолты в коде
 | Счётчик | Когда инкрементируется |
 | --- | --- |
 | `recordings_count` | при создании записи через `POST /add-url`, `/add-playlist`, локальную загрузку |
-| `transcriptions_count` | при завершении транскрибации (standalone и в пайплайне) |
+| `transcriptions_count` | при успешном сохранении транскрипта (standalone и в пайплайне). Это лимит числа запусков, не минуты обработки |
 | `processing_count` | при старте пайплайна обработки |
 | `uploads_count` | при успешной загрузке на платформу |
 | `storage_bytes` | **не используется для гейта** — объём считается на лету из хранилища |
@@ -57,7 +57,14 @@ named `recording_templates` без default, `user_credentials`); см. `GET /use
 ### Storage — на лету из S3
 `max_storage_gb` сверяется с реальным объёмом папки пользователя
 `users/user_{slug:06d}/` через `storage.get_prefix_size()` (Yandex Object
-Storage / MinIO), а не с локального диска и не из хранимого счётчика.
+Storage / MinIO), включая объекты в корзине, пока hard delete их не стёр.
+Числовой оверрайд `0` (`custom_max_storage_gb` и остальные числовые
+`custom_max_*`) запрещает ресурс: в `get_effective_quotas` пустое значение
+отличается через `is not None`, ноль не подменяется планом.
+
+Минуты обработки живут в `resource_ledger` (`audio_seconds` AssemblyAI) и не
+равны `transcriptions_count`. Раз в час Beat пишет `storage_snapshot` с тем же
+префиксом; текущая квота по-прежнему читает живой размер, не снимок.
 
 ### Concurrent tasks — из флага `on_air`
 `max_concurrent_tasks` сверяется с числом записей, у которых `on_air = true`

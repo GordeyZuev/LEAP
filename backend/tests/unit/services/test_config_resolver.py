@@ -64,3 +64,37 @@ class TestConfigResolverOutput:
         output = await resolver.resolve_output_config(recording, "user_1")
         assert output.get("auto_upload") is True
         assert output.get("preset_ids") == [3]
+
+    @pytest.mark.asyncio
+    async def test_ignore_preferences_keeps_the_template_merge(self, mock_db_session) -> None:
+        from api.services.config_resolver import ResolveContext
+
+        resolver = ConfigResolver(mock_db_session)
+        resolver.user_config_repo.get_effective_config = AsyncMock(return_value={})
+        template = MagicMock()
+        template.id = 1
+        template.processing_config = {"transcription": {"language": "en", "retention_exempt": False}}
+        template.output_config = {"preset_ids": [1], "publish_leap": True}
+        template.metadata_config = {"title_template": "Lecture"}
+        resolver.template_repo.find_default_by_user = AsyncMock(return_value=template)
+
+        recording = MagicMock()
+        recording.template_id = None
+        recording.processing_preferences = {
+            "processing_config": {"transcription": {"language": "de"}},
+            "output_config": {"preset_ids": [9]},
+            "metadata_config": {"title_template": "Override"},
+        }
+
+        effective = await resolver.resolve(ResolveContext(user_id="user_1", recording=recording))
+        inherited = await resolver.resolve(
+            ResolveContext(user_id="user_1", recording=recording, ignore_preferences=True)
+        )
+
+        assert effective.processing["transcription"]["language"] == "de"
+        assert effective.output["preset_ids"] == [9]
+        assert effective.metadata["title_template"] == "Override"
+        assert inherited.processing["transcription"]["language"] == "en"
+        assert inherited.processing["transcription"]["retention_exempt"] is False
+        assert inherited.output["preset_ids"] == [1]
+        assert inherited.metadata["title_template"] == "Lecture"

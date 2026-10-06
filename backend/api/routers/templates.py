@@ -550,6 +550,9 @@ async def replace_template_endpoint(
 
     try:
         template = await replace_template(session, current_user.id, template_id, data)
+        from api.repositories.recording_repos import sync_user_inherited_retention
+
+        await sync_user_inherited_retention(session, current_user.id)
     except TemplateBundleError as exc:
         message = str(exc)
         status_code = status.HTTP_409_CONFLICT if "already exists" in message else status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -640,6 +643,10 @@ async def update_template(
         setattr(template, field, value)
 
     await repo.update(template)
+    if "processing_config" in update_data:
+        from api.repositories.recording_repos import sync_user_inherited_retention
+
+        await sync_user_inherited_retention(session, current_user.id)
     await session.commit()
 
     return template

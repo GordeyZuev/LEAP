@@ -49,7 +49,8 @@ export function AffectedRecordingsList({
           <h2 id="affected-all-title" className="text-base font-semibold text-foreground">
             Recordings ({recordings.length})
           </h2>
-          <div className="overflow-x-auto rounded-xl border border-border">
+          <div className="overflow-hidden rounded-xl border border-border">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
@@ -70,6 +71,7 @@ export function AffectedRecordingsList({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
           <div className="flex justify-end">
             <ActionButton variant="secondary" onClick={() => setAllOpen(false)}>

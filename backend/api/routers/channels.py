@@ -13,6 +13,7 @@ from api.core.context import ServiceContext
 from api.core.dependencies import get_service_context
 from api.dependencies import get_db_session
 from api.helpers.catalog_blurb import excerpt, recording_catalog_blurb
+from api.helpers.catalog_sort import natural_key, video_name_key
 from api.helpers.channel_description import render_channel_description
 from api.helpers.image_upload import presign_storage_keys, read_image_upload
 from api.helpers.leap_publication import publication_looks_for_recordings
@@ -43,7 +44,7 @@ from logger import format_details, get_logger
 
 router = APIRouter(tags=["Channels"])
 logger = get_logger()
-CHANNEL_SORT_FIELDS = {"created_at", "updated_at", "name", "slug"}
+CHANNEL_SORT_FIELDS = {"created_at", "updated_at", "name", "slug", "view_count"}
 
 
 def _hidden_video_reason(*, share_enabled: bool, playable: bool, rec_reason: str | None) -> str | None:
@@ -72,6 +73,8 @@ async def _to_channel_response(channel: ChannelModel, repo: ChannelRepository) -
         share_enabled=channel.share_enabled,
         video_count=videos,
         playlist_count=playlists,
+        video_sort=channel.video_sort,
+        playlist_sort=channel.playlist_sort,
         banner_url=await _banner_url(channel),
         created_at=channel.created_at,
         updated_at=channel.updated_at,
@@ -95,6 +98,7 @@ async def list_channels(
     total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
     ids = [c.id for c in channels]
     counts = await svc.repo.membership_counts(ids)
+    views = await svc.repo.view_totals(ids)
     banners = await presign_storage_keys([c.banner_key for c in channels])
     return ChannelListResponse(
         items=[
@@ -106,6 +110,7 @@ async def list_channels(
                 share_enabled=c.share_enabled,
                 video_count=counts.get(c.id, (0, 0))[0],
                 playlist_count=counts.get(c.id, (0, 0))[1],
+                view_count=views.get(c.id, 0),
                 banner_url=banners.get(c.banner_key) if c.banner_key else None,
                 created_at=c.created_at,
                 updated_at=c.updated_at,
@@ -157,6 +162,10 @@ async def update_channel(
         slug=dumped.get("slug"),
         description=dumped.get("description", UNSET),
     )
+    if "video_sort" in dumped:
+        await svc.set_video_sort(channel, data.video_sort)
+    if "playlist_sort" in dumped:
+        await svc.set_playlist_sort(channel, data.playlist_sort)
     await ctx.session.commit()
     return await _to_channel_response(channel, svc.repo)
 
@@ -261,6 +270,7 @@ async def list_channel_videos(
                 poster_url=preview.url if preview else None,
                 poster_asset_key=preview.asset_key if preview else None,
                 share_token=token,
+                view_count=(rec.share_view_count or 0) if rec else 0,
             )
         )
     page_items, total, total_pages = paginate_list(
@@ -328,7 +338,7 @@ async def list_channel_playlists_endpoint(
     for row in rows:
         pl = row.playlist
         share_on = bool(pl and pl.share_enabled and pl.share_token)
-        video_count, duration_sum = stats.get(row.playlist_id, (0, 0.0))
+        video_count, duration_sum, view_count = stats.get(row.playlist_id, (0, 0.0, 0))
         poster_url = None
         poster_asset_key = None
         cover_key = pl.cover_key if pl else None
@@ -348,6 +358,7 @@ async def list_channel_playlists_endpoint(
                 name=pl.name if pl else "Unknown",
                 video_count=video_count,
                 duration_sum=duration_sum,
+                view_count=view_count,
                 share_enabled=share_on,
                 public_visible=share_on,
                 hidden_reason=None if share_on else "Share off",
@@ -433,6 +444,7 @@ async def _public_channel_order_page(
                 poster_asset_key=previews[rec.id].asset_key if rec.id in previews else None,
                 share_token=str(rec.share_token),
                 blurb=recording_catalog_blurb(rec),
+                view_count=rec.share_view_count or 0,
             )
             for _membership, rec in rows
         ]
@@ -447,7 +459,7 @@ async def _public_channel_order_page(
         previews = await poster_preview_map(session, channel.user_id, recs, looks=looks)
         covers = await presign_storage_keys([pl.cover_key for _membership, pl in rows])
         for _membership, pl in rows:
-            video_count, duration_sum = stats.get(pl.id, (0, 0.0))
+            video_count, duration_sum, view_count = stats.get(pl.id, (0, 0.0, 0))
             first_rec = first.get(pl.id)
             preview = previews.get(first_rec.id) if first_rec else None
             playlists.append(
@@ -455,6 +467,7 @@ async def _public_channel_order_page(
                     name=pl.name,
                     video_count=video_count,
                     duration_sum=duration_sum,
+                    view_count=view_count,
                     poster_url=covers.get(pl.cover_key) if pl.cover_key else (preview.url if preview else None),
                     poster_asset_key=pl.cover_key if pl.cover_key else (preview.asset_key if preview else None),
                     share_token=str(pl.share_token),
@@ -493,7 +506,7 @@ async def get_public_channel(
     page: int = Query(1, ge=1),
     per_page: int = Query(24, ge=1, le=60),
     q: str | None = Query(None, max_length=120),
-    sort: Literal["order", "newest", "oldest", "name", "duration", "videos"] = Query("order"),
+    sort: Literal["order", "newest", "oldest", "name", "duration", "videos", "views"] = Query("order"),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicChannelResponse:
     svc = ChannelService(session, user_id="")
@@ -528,18 +541,20 @@ async def get_public_channel(
                 poster_asset_key=None,
                 share_token=str(rec.share_token),
                 blurb=recording_catalog_blurb(rec),
+                view_count=rec.share_view_count or 0,
             )
         )
     playlists = []
     for _row, pl in playlist_rows:
         if pl.share_token is None:
             continue
-        video_count, duration_sum = stats.get(pl.id, (0, 0.0))
+        video_count, duration_sum, view_count = stats.get(pl.id, (0, 0.0, 0))
         playlists.append(
             PublicChannelPlaylist(
                 name=pl.name,
                 video_count=video_count,
                 duration_sum=duration_sum,
+                view_count=view_count,
                 poster_url=None,
                 poster_asset_key=pl.cover_key,
                 share_token=str(pl.share_token),
@@ -574,18 +589,22 @@ async def get_public_channel(
         elif sort == "oldest":
             videos.sort(key=lambda v: (v.start_time is None, v.start_time or datetime.max.replace(tzinfo=UTC)))
         elif sort == "name":
-            videos.sort(key=lambda v: v.title.casefold())
+            videos.sort(key=lambda v: video_name_key(v.title))
         elif sort == "duration":
             videos.sort(key=lambda v: v.duration, reverse=True)
+        elif sort == "views":
+            videos.sort(key=lambda v: v.view_count, reverse=True)
     elif kind == "playlists":
         if needle:
             playlists = [p for p in playlists if needle in p.name.casefold() or needle in (p.blurb or "").casefold()]
         if sort == "name":
-            playlists.sort(key=lambda p: p.name.casefold())
+            playlists.sort(key=lambda p: natural_key(p.name))
         elif sort == "videos":
             playlists.sort(key=lambda p: p.video_count, reverse=True)
         elif sort == "duration":
             playlists.sort(key=lambda p: p.duration_sum, reverse=True)
+        elif sort == "views":
+            playlists.sort(key=lambda p: p.view_count, reverse=True)
 
     if kind == "all":
         page_videos, page_playlists = videos, playlists

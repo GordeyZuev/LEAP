@@ -108,15 +108,20 @@ class MetadataConfig(BaseModel):
 
 
 class RetentionConfig(BaseModel):
-    soft_delete_days: int = Field(default=3, ge=1)
-    hard_delete_days: int = Field(default=30, ge=1)
-    auto_expire_days: int = Field(default=90, ge=1)
+    """Auto-hide and how long a hidden recording stays before the prefix and the row are removed."""
 
-    @model_validator(mode="after")
-    def validate_retention_logic(self):
-        if self.hard_delete_days < self.soft_delete_days:
-            raise ValueError("hard_delete_days must be >= soft_delete_days")
-        return self
+    model_config = ConfigDict(extra="ignore")
+
+    hard_delete_days: int = Field(
+        default=30,
+        ge=1,
+        description="Days from deleted_at until the recording prefix and the row are removed.",
+    )
+    auto_expire_days: int = Field(
+        default=90,
+        ge=1,
+        description="Days before an active recording is hidden, unless the template or recording keeps it.",
+    )
 
 
 class YouTubePlatformSettings(BaseModel):

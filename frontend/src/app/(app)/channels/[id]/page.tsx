@@ -20,14 +20,17 @@ import {
   removeChannelVideo,
   reorderChannelPlaylists,
   reorderChannelVideos,
+  SAVED_PLAYLIST_SORTS,
   updateChannel,
   uploadChannelBanner,
+  type ChannelDetail,
   type ChannelPlaylistRow,
+  type SavedPlaylistSort,
 } from "@/api/channels";
 import { apiClient } from "@/api/client";
-import { listPlaylists } from "@/api/playlists";
+import { listPlaylists, SAVED_VIDEO_SORTS, type SavedVideoSort } from "@/api/playlists";
 import { SearchInput } from "@/components/filters/search-input";
-import { OrderSelect, ownerOrderOptions } from "@/components/filters/order-select";
+import { isSavedSort, OrderSelect, ownerOrderOptions } from "@/components/filters/order-select";
 import { StablePosterImage } from "@/components/recordings/recording-poster";
 import { PlaylistStackPoster } from "@/components/playlists/playlist-stack-poster";
 import { ShareAnalyticsPanel } from "@/components/recordings/share-analytics-panel";
@@ -45,13 +48,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { CARD_SHELL, SectionCard } from "@/components/ui/section-card";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { Toast } from "@/components/ui/toast";
+import { ViewCount } from "@/components/ui/view-count";
 import { useToast } from "@/hooks/use-toast";
 import { CHANNEL_BANNER_FRAME, CHANNEL_BANNER_IMG, LEAP_CATALOG_CAP, PER_PAGE_RECORDINGS_PICKER } from "@/lib/constants";
 import {
   CHANNEL_PLAYLIST_SORT,
   CHANNEL_VIDEO_SORT,
-  sortChannelPlaylists,
-  sortChannelVideos,
   type ChannelPlaylistSort,
   type ChannelVideoSort,
 } from "@/lib/channel-catalog";
@@ -73,6 +75,28 @@ interface RecordingPick {
 function playlistShareUrl(token: string): string {
   if (typeof window === "undefined") return `/share/p/${token}`;
   return `${window.location.origin}/share/p/${token}`;
+}
+
+/** `ids` with `fromId` moved onto `targetId`'s place, or null when nothing moves. */
+function dropIds(ids: number[], fromId: number | undefined, targetId: number): number[] | null {
+  if (!fromId || fromId === targetId) return null;
+  const from = ids.indexOf(fromId);
+  const to = ids.indexOf(targetId);
+  if (from < 0 || to < 0) return null;
+  const next = [...ids];
+  next.splice(from, 1);
+  next.splice(to, 0, fromId);
+  return next;
+}
+
+/** `ids` with `id` swapped with its neighbour, or null at the edge. */
+function swapIds(ids: number[], id: number, dir: -1 | 1): number[] | null {
+  const idx = ids.indexOf(id);
+  const other = idx + dir;
+  if (idx < 0 || other < 0 || other >= ids.length) return null;
+  const next = [...ids];
+  [next[idx], next[other]] = [next[other], next[idx]];
+  return next;
 }
 
 type PageTab = "content" | "channel" | "analytics";
@@ -133,8 +157,6 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
   const [copied, setCopied] = useState(false);
   const [copiedPlaylistId, setCopiedPlaylistId] = useState<number | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
-  const [videoOrder, setVideoOrder] = useState<ChannelVideoSort>("order");
-  const [playlistOrder, setPlaylistOrder] = useState<ChannelPlaylistSort>("order");
   const [orderBusy, setOrderBusy] = useState(false);
   const orderBusyRef = useRef(false);
 
@@ -169,6 +191,8 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
 
   const videos = useMemo(() => videosQuery.data?.items ?? [], [videosQuery.data?.items]);
   const playlists = useMemo(() => playlistsQuery.data?.items ?? [], [playlistsQuery.data?.items]);
+  const videoOrder: ChannelVideoSort = channel?.video_sort ?? "order";
+  const playlistOrder: ChannelPlaylistSort = channel?.playlist_sort ?? "order";
   const publicUrl = channel ? channelUrl(channel.slug) : null;
 
   const recordingsQuery = useQuery({
@@ -252,126 +276,69 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
     setTimeout(() => setCopiedPlaylistId(null), 2000);
   }
 
-  async function dropVideo(targetId: number, fromId?: number) {
-    if (!fromId || fromId === targetId) return;
-    const ids = videos.map((v) => v.recording_id);
-    const fromIdx = ids.indexOf(fromId);
-    const toIdx = ids.indexOf(targetId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, fromId);
+  /** A hand-made order replaces the saved rule (the server clears it on reorder). */
+  async function saveHandOrder(kind: "videos" | "playlists", ids: number[]) {
     if (!beginOrder()) return;
+    const listKey = kind === "videos" ? "channel-videos" : "channel-playlists";
     try {
-      await reorderChannelVideos(channelId, ids);
-      setVideoOrder("order");
-      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
-    } catch (e) {
-      show("error", extractApiError(e, "Could not update order."));
-    } finally {
-      endOrder();
-    }
-  }
-
-  async function dropPlaylist(targetId: number, fromId?: number) {
-    if (!fromId || fromId === targetId) return;
-    const ids = playlists.map((p) => p.playlist_id);
-    const fromIdx = ids.indexOf(fromId);
-    const toIdx = ids.indexOf(targetId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, fromId);
-    if (!beginOrder()) return;
-    try {
-      await reorderChannelPlaylists(channelId, ids);
-      setPlaylistOrder("order");
-      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
-    } catch (e) {
-      show("error", extractApiError(e, "Could not update order."));
-    } finally {
-      endOrder();
-    }
-  }
-
-  async function applyVideoOrder(sort: ChannelVideoSort) {
-    if (sort === "order" || videos.length < 2) return;
-    if (!beginOrder()) return;
-    try {
-      const sorted = sortChannelVideos(videos, sort);
-      qc.setQueryData(
-        ["channel-videos", channelId],
-        (old: { items: typeof videos } | undefined) => (old ? { ...old, items: sorted } : old),
+      if (kind === "videos") await reorderChannelVideos(channelId, ids);
+      else await reorderChannelPlaylists(channelId, ids);
+      qc.setQueryData(["channel", channelId], (old: ChannelDetail | undefined) =>
+        old ? { ...old, [kind === "videos" ? "video_sort" : "playlist_sort"]: null } : old,
       );
-      await reorderChannelVideos(channelId, sorted.map((row) => row.recording_id));
-      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
+    } catch (e) {
+      show("error", extractApiError(e, "Could not update order."));
+    } finally {
+      void qc.invalidateQueries({ queryKey: [listKey, channelId] });
+      endOrder();
+    }
+  }
+
+  async function saveOrderRule(
+    rule: { video_sort: SavedVideoSort | null } | { playlist_sort: SavedPlaylistSort | null },
+  ) {
+    if (!beginOrder()) return;
+    try {
+      qc.setQueryData(["channel", channelId], await updateChannel(channelId, rule));
+      await qc.invalidateQueries({ queryKey: ["video_sort" in rule ? "channel-videos" : "channel-playlists", channelId] });
       show("success", "Order updated");
     } catch (e) {
-      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
       show("error", extractApiError(e, "Could not update order."));
     } finally {
       endOrder();
     }
   }
 
-  async function applyPlaylistOrder(sort: ChannelPlaylistSort) {
-    if (sort === "order" || playlists.length < 2) return;
-    if (!beginOrder()) return;
-    try {
-      const sorted = sortChannelPlaylists(playlists, sort);
-      qc.setQueryData(
-        ["channel-playlists", channelId],
-        (old: { items: typeof playlists } | undefined) => (old ? { ...old, items: sorted } : old),
-      );
-      await reorderChannelPlaylists(channelId, sorted.map((row) => row.playlist_id));
-      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
-      show("success", "Order updated");
-    } catch (e) {
-      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
-      show("error", extractApiError(e, "Could not update order."));
-    } finally {
-      endOrder();
-    }
+  function applyVideoOrder(sort: ChannelVideoSort) {
+    if (sort === videoOrder) return;
+    if (sort === "order") void saveOrderRule({ video_sort: null });
+    else if (isSavedSort(SAVED_VIDEO_SORTS, sort)) void saveOrderRule({ video_sort: sort });
   }
 
-  async function moveVideo(id: number, dir: -1 | 1) {
-    if (!beginOrder()) return;
-    const ids = videos.map((v) => v.recording_id);
-    const idx = ids.indexOf(id);
-    const next = idx + dir;
-    if (idx < 0 || next < 0 || next >= ids.length) {
-      endOrder();
-      return;
-    }
-    [ids[idx], ids[next]] = [ids[next], ids[idx]];
-    try {
-      await reorderChannelVideos(channelId, ids);
-      setVideoOrder("order");
-      void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
-    } catch (e) {
-      show("error", extractApiError(e, "Could not update order."));
-    } finally {
-      endOrder();
-    }
+  function applyPlaylistOrder(sort: ChannelPlaylistSort) {
+    if (sort === playlistOrder) return;
+    if (sort === "order") void saveOrderRule({ playlist_sort: null });
+    else if (isSavedSort(SAVED_PLAYLIST_SORTS, sort)) void saveOrderRule({ playlist_sort: sort });
   }
 
-  async function movePlaylist(id: number, dir: -1 | 1) {
-    if (!beginOrder()) return;
-    const ids = playlists.map((p) => p.playlist_id);
-    const idx = ids.indexOf(id);
-    const next = idx + dir;
-    if (idx < 0 || next < 0 || next >= ids.length) {
-      endOrder();
-      return;
-    }
-    [ids[idx], ids[next]] = [ids[next], ids[idx]];
-    try {
-      await reorderChannelPlaylists(channelId, ids);
-      setPlaylistOrder("order");
-      void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
-    } catch (e) {
-      show("error", extractApiError(e, "Could not update order."));
-    } finally {
-      endOrder();
-    }
+  function dropVideo(targetId: number, fromId?: number) {
+    const ids = dropIds(videos.map((v) => v.recording_id), fromId, targetId);
+    if (ids) void saveHandOrder("videos", ids);
+  }
+
+  function dropPlaylist(targetId: number, fromId?: number) {
+    const ids = dropIds(playlists.map((p) => p.playlist_id), fromId, targetId);
+    if (ids) void saveHandOrder("playlists", ids);
+  }
+
+  function moveVideo(id: number, dir: -1 | 1) {
+    const ids = swapIds(videos.map((v) => v.recording_id), id, dir);
+    if (ids) void saveHandOrder("videos", ids);
+  }
+
+  function movePlaylist(id: number, dir: -1 | 1) {
+    const ids = swapIds(playlists.map((p) => p.playlist_id), id, dir);
+    if (ids) void saveHandOrder("playlists", ids);
   }
 
   if (isLoading) return <div className="p-8 text-sm text-muted-foreground">Loading channel…</div>;
@@ -476,19 +443,19 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
             {(tab === "playlists" ? playlists.length : videos.length) > 1 ? (
               tab === "playlists" ? (
                 <OrderSelect
-                  label="Order"
+                  label="Playlist order"
                   className="min-w-0 sm:w-[15rem]"
                   value={playlistOrder}
-                  options={ownerOrderOptions(CHANNEL_PLAYLIST_SORT)}
+                  options={ownerOrderOptions(CHANNEL_PLAYLIST_SORT, SAVED_PLAYLIST_SORTS)}
                   onChange={applyPlaylistOrder}
                   disabled={orderBusy}
                 />
               ) : (
                 <OrderSelect
-                  label="Order"
+                  label="Video order"
                   className="min-w-0 sm:w-[15rem]"
                   value={videoOrder}
-                  options={ownerOrderOptions(CHANNEL_VIDEO_SORT)}
+                  options={ownerOrderOptions(CHANNEL_VIDEO_SORT, SAVED_VIDEO_SORTS)}
                   onChange={applyVideoOrder}
                   disabled={orderBusy}
                 />
@@ -548,9 +515,10 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                     <Link href={`/recordings/${item.recording_id}`} className="block truncate text-sm font-medium hover:underline">
                       {item.title}
                     </Link>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                       {formatDate(item.start_time)}
                       {item.duration ? ` · ${formatDurationCompact(item.duration)}` : ""}
+                      <ViewCount count={item.view_count} />
                     </p>
                     <HiddenLink reason={item.hidden_reason} href={`/recordings/${item.recording_id}`} />
                   </div>
@@ -559,7 +527,6 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                     aria-label="Remove from channel"
                     onClick={() =>
                       void removeChannelVideo(channelId, item.recording_id).then(() => {
-                        setVideoOrder("order");
                         void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
                       })
                     }
@@ -630,7 +597,10 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                     <Link href={`/playlists/${item.playlist_id}`} className="block truncate text-sm font-medium hover:underline">
                       {item.name}
                     </Link>
-                    <p className="text-xs text-muted-foreground">{item.video_count} videos</p>
+                    <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                      {item.video_count} videos
+                      <ViewCount count={item.view_count} hint="across all videos in this playlist" />
+                    </p>
                     <HiddenLink reason={item.hidden_reason} href={`/playlists/${item.playlist_id}`} />
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
@@ -649,7 +619,6 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                       className="inline-flex min-h-11 items-center rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-danger-fg"
                     onClick={() =>
                       void removeChannelPlaylist(channelId, item.playlist_id).then(() => {
-                        setPlaylistOrder("order");
                         void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
                       })
                     }
@@ -866,7 +835,6 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 void addChannelVideos(channelId, [...addSelected]).then(() => {
                   setAddVideosOpen(false);
                   setAddSelected(new Set());
-                  setVideoOrder("order");
                   void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
                   void qc.invalidateQueries({ queryKey: ["channel", channelId] });
                 });
@@ -912,7 +880,6 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                 void addChannelPlaylists(channelId, [...addSelected]).then(() => {
                   setAddPlaylistsOpen(false);
                   setAddSelected(new Set());
-                  setPlaylistOrder("order");
                   void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
                   void qc.invalidateQueries({ queryKey: ["channel", channelId] });
                 });

@@ -254,7 +254,7 @@ export function ThumbnailPicker({
         ) : null}
       </div>
 
-      <Modal open={open} onClose={close} labelledBy={titleId} panelClassName="max-w-lg">
+      <Modal open={open} onClose={close} labelledBy={titleId} panelClassName="max-w-lg overflow-hidden">
         <div className="flex h-[min(90vh,40rem)] flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <h2 id={titleId} className="text-sm font-semibold text-foreground">
@@ -282,7 +282,7 @@ export function ThumbnailPicker({
             />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
             {isLoading && (
               <div className="flex items-center justify-center py-12">
                 <Loader2 size={20} className="animate-spin text-muted-foreground" />

@@ -547,21 +547,16 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    A[active] --> S[soft: файлы] --> H[hard: из БД]
+    A[active] -->|manual delete or expire_at| S[soft hidden]
+    S -->|restore| A
+    S -->|hard_delete_at| X[prefix and row gone]
 ```
 
-**Подробно:**
+**Soft** ставит `deleted`, файлы остаются, публичные страницы отдают 404, синк по `source_key` не создаёт копию. **Hard** стирает префикс `recordings/{id}/` и строку. `hard_delete_at = deleted_at + hard_delete_days`. Поле `soft_delete_days` больше не читается.
 
-```mermaid
-flowchart LR
-    A[active] -->|DELETE / expire_at| S[soft]
-    S -->|soft_deleted_at (maintenance)| H[hard]
-    H -->|hard_delete_at (maintenance)| X[deleted from DB]
+`recordings.retention_exempt` — оверрайд записи: `NULL` следует шаблону, `true`/`false` главнее шаблона. Сброс processing override колонку не трогает. Включение очистки ставит `expire_at = NULL`. Выключение ставит дату только если её ещё нет: `now + auto_expire_days`. Уже стоящая дата при смене числа дней не переписывается. Ручное удаление флаг не обходит.
 
-    S -.->|/restore| A
-```
-
-**Триггеры:** `expire_at` — auto_expire_recordings_task (3:30 UTC). `soft_deleted_at` — cleanup_recordings_task (удаление файлов). `hard_delete_at` — hard_delete_recordings_task (5:00 UTC).
+**Триггеры:** `expire_at` — `auto_expire_recordings` (3:30 UTC) по эффективному флагу (оверрайд или шаблон). Если запись хранится, дата очищается. Если даты нет и запись не хранится, ночь ставит дату и не скрывает в этот заход. `hard_delete_at` — `hard_delete_recordings` (5:00 UTC), включая старые строки с `delete_state=hard`. Перед стиранием строка перечитывается.
 
 ---
 

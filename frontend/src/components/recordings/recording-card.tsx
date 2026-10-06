@@ -7,6 +7,7 @@ import { cn, formatDate, stripLeadingTimestamp, collapseWhitespace } from "@/lib
 import { formatShareStatsSummary, type ShareStatsSummary } from "@/lib/share-stats";
 import { type ProcessingStatus } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
+import { formatExactViewCount, formatViewCount } from "@/lib/format-compact-number";
 import { RecordingPoster, RECORDING_CARD_POSTER } from "@/components/recordings/recording-poster";
 import { PipelineStatusButton } from "@/components/recordings/pipeline-popover";
 import {
@@ -42,7 +43,11 @@ export interface RecordingCardData {
   share_token?: string | null;
   share_enabled?: boolean;
   share_stats?: ShareStatsSummary | null;
+  view_count?: number;
   soft_deleted_at?: string | null;
+  hard_delete_at?: string | null;
+  expire_at?: string | null;
+  retention_exempt?: boolean | null;
   processing_stages?: PipelineStage[];
   failed_at_stage?: string | null;
 }
@@ -309,10 +314,14 @@ export function RecordingCard({
         </div>
 
         <div className="mt-2 flex flex-col gap-2">
-          <p className="min-w-0 truncate text-xs text-muted-foreground">
-            <span title={r.source?.type ?? undefined}>{r.source?.type ?? "—"}</span>
-            {" · "}
-            <span className="tabular-nums">{formatDate(r.start_time)}</span>
+          <p className="flex min-w-0 items-center text-xs text-muted-foreground">
+            <span className="min-w-0 truncate" title={r.source?.type ?? undefined}>{r.source?.type ?? "—"}</span>
+            <span className="shrink-0 whitespace-pre tabular-nums">{` · ${formatDate(r.start_time)}`}</span>
+            {r.view_count != null && r.view_count > 0 && (
+              <span className="shrink-0 whitespace-pre tabular-nums" title={formatExactViewCount(r.view_count)}>
+                {` · ${formatViewCount(r.view_count)}`}
+              </span>
+            )}
           </p>
 
           {(uploads.length > 0 || shareActive || leapReady) && (

@@ -19,6 +19,7 @@ import { apiClient } from "@/api/client";
 import { Toast } from "@/components/ui/toast";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { Modal } from "@/components/ui/modal";
 import { PasswordInput } from "@/components/ui/password-input";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -30,7 +31,7 @@ import { FilterChips, type FilterChipItem } from "@/components/filters/filter-ch
 import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW, TABLE_SCROLL } from "@/lib/table-classes";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -445,6 +446,7 @@ export default function CredentialsPage() {
 
       {/* Table */}
       <div className={TABLE_CARD}>
+        <div className={TABLE_SCROLL}>
         {showSkeleton ? (
           <table className="w-full min-w-[680px]">
             <tbody className={TABLE_BODY}>
@@ -474,7 +476,6 @@ export default function CredentialsPage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
           <table className="w-full min-w-[680px]">
             <thead>
               <tr className="border-b border-border">
@@ -560,8 +561,8 @@ export default function CredentialsPage() {
               })}
             </tbody>
           </table>
-          </div>
         )}
+        </div>
       </div>
 
       {listData && (
@@ -580,9 +581,9 @@ export default function CredentialsPage() {
         open={addStep === "platform"}
         onClose={closeAddModal}
         labelledBy={`${idPrefix}-platform-title`}
-        panelClassName="max-w-md max-h-[90vh] overflow-y-auto"
+        panelClassName="max-w-md overflow-hidden"
       >
-        <div className="bg-card">
+        <InsetScroll className="max-h-[min(90vh,calc(100dvh-2rem))] bg-card">
           <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
             <h2 id={`${idPrefix}-platform-title`} className="text-base font-semibold text-foreground">Add connection</h2>
             <button
@@ -610,7 +611,7 @@ export default function CredentialsPage() {
               ))}
             </div>
           </div>
-        </div>
+        </InsetScroll>
       </Modal>
 
       {/* Add modal — Step 2: connect */}
@@ -622,9 +623,9 @@ export default function CredentialsPage() {
             open
             onClose={closeAddModal}
             labelledBy={`${idPrefix}-connect-title`}
-            panelClassName="max-w-md max-h-[90vh] overflow-y-auto"
+            panelClassName="max-w-md overflow-hidden"
           >
-            <div className="bg-card">
+            <InsetScroll className="max-h-[min(90vh,calc(100dvh-2rem))] bg-card">
               <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
                 <div className="flex items-center gap-2">
                   <button
@@ -759,7 +760,7 @@ export default function CredentialsPage() {
                   </>
                 )}
               </div>
-            </div>
+            </InsetScroll>
           </Modal>
         );
       })()}
@@ -775,9 +776,9 @@ export default function CredentialsPage() {
             open
             onClose={closeRenameModal}
             labelledBy={`${idPrefix}-detail-title`}
-            panelClassName="max-w-sm max-h-[90vh] overflow-y-auto"
+            panelClassName="max-w-sm overflow-hidden"
           >
-            <div className="bg-card">
+            <InsetScroll className="max-h-[min(90vh,calc(100dvh-2rem))] bg-card">
               <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-card">
                 <h2 id={`${idPrefix}-detail-title`} className="text-base font-semibold text-foreground">Connection details</h2>
                 <button
@@ -877,7 +878,7 @@ export default function CredentialsPage() {
                   </ActionButton>
                 </div>
               </div>
-            </div>
+            </InsetScroll>
           </Modal>
         );
       })()}

@@ -1319,10 +1319,50 @@ async def _async_transcribe_recording(
         try:
             task_self.update_progress(user_id, 30, "Transcribing audio...", step="transcribe")
 
+            from api.services.resource_ledger import (
+                AssemblyAILedgerHooks,
+                RecordingAttemptHooks,
+                ResourceLedgerService,
+                resume_transcript_id,
+            )
+
+            ledger = ResourceLedgerService(session)
+            task_id = str(getattr(task_self.request, "id", None) or "")
+            open_submitted = await ledger.open_transcription_job_id(recording_id)
+            attempt_job_id = await ledger.open_attempt_job_id(task_id)
+            if not attempt_job_id:
+                attempt_job_id = await timing_service.provider_job_for_task(recording_id, task_id)
+            attempt_status = None
+            if attempt_job_id and attempt_job_id != open_submitted:
+                existing = await ledger.repo.get_by_job_id(attempt_job_id)
+                status_value = existing.status if existing is not None else None
+                attempt_status = status_value if isinstance(status_value, str) else None
+            open_job_id = resume_transcript_id(open_submitted, attempt_job_id, attempt_status)
+            if not open_job_id:
+                stored_url = await ledger.attempt_audio_url(task_id)
+                if stored_url:
+                    recovered = await aai_service.find_transcript_id_by_audio_url(stored_url)
+                    if recovered:
+                        logger.warning(f"AssemblyAI | Resuming lost submit | rec={recording_id} | id={recovered}")
+                        open_job_id = recovered
             transcription_result = await aai_service.transcribe_audio(
                 audio_storage_key=audio_storage_key,
                 language=language,
                 keyterms=keyterms,
+                hooks=RecordingAttemptHooks(
+                    inner=AssemblyAILedgerHooks(
+                        user_id=user_id,
+                        recording_id=recording_id,
+                        model=aai_model,
+                        language=language,
+                        speech_models=list(aai_config.settings.speech_models or []),
+                        celery_task_id=task_id,
+                    ),
+                    session=session,
+                    timing=timing,
+                    celery_task_id=task_id,
+                ),
+                resume_transcript_id=open_job_id,
             )
 
             task_self.update_progress(user_id, 70, "Saving transcription...", step="transcribe")
@@ -2168,6 +2208,16 @@ async def _async_extract_topics(
             deepseek_config = DeepSeekConfig.from_file("config/deepseek_creds.json")
             topic_extractor = TopicExtractor(deepseek_config)
 
+            from api.services.resource_ledger import commit_topic_usage
+
+            async def _record_topic_usage(usage: dict) -> None:
+                await commit_topic_usage(
+                    user_id=user_id,
+                    recording_id=recording_id,
+                    model=deepseek_config.model,
+                    usage=usage,
+                )
+
             topics_result = await topic_extractor.extract_topics_from_file(
                 segments_file_path=str(segments_path),
                 recording_topic=recording.display_name,
@@ -2175,6 +2225,7 @@ async def _async_extract_topics(
                 language=transcript_language,
                 questions_count=questions_count,
                 user_id=str(user_slug),
+                on_usage=_record_topic_usage,
             )
             model_used = "deepseek"
             logger.info("Topics extracted with deepseek")

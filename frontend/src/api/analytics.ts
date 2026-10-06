@@ -25,6 +25,7 @@ export interface AnalyticsSummary {
   failed_recordings: number;
   active_users_unique?: number | null;
   uploads_total: number;
+  transcription_includes_estimate?: boolean;
 }
 
 export interface TemplateBreakdown {

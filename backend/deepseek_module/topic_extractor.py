@@ -3,6 +3,7 @@
 import json
 import math
 import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -109,6 +110,7 @@ class TopicExtractor:
         language: str | None = None,
         questions_count: int = 3,
         user_id: str | None = None,
+        on_usage: Callable[[dict[str, int]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """
         Extract topics from transcription via DeepSeek.
@@ -149,6 +151,7 @@ class TopicExtractor:
             language=language,
             questions_count=questions_count,
             user_id=user_id,
+            on_usage=on_usage,
         )
 
         main_topics = result.get("main_topics", [])
@@ -188,6 +191,7 @@ class TopicExtractor:
         language: str | None = None,
         questions_count: int = 3,
         user_id: str | None = None,
+        on_usage: Callable[[dict[str, int]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Extract topics from segments.txt file."""
         segments_path = Path(segments_file_path)
@@ -210,6 +214,7 @@ class TopicExtractor:
             language=language,
             questions_count=questions_count,
             user_id=user_id,
+            on_usage=on_usage,
         )
 
     def _format_transcript_with_timestamps(self, segments: list[dict]) -> str:
@@ -314,6 +319,7 @@ class TopicExtractor:
         language: str | None = None,
         questions_count: int = 3,
         user_id: str | None = None,
+        on_usage: Callable[[dict[str, int]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Call DeepSeek JSON mode and parse the object."""
         summary_language = (language or "").strip().lower() or "ru"
@@ -419,6 +425,9 @@ class TopicExtractor:
         logger.debug(
             f"Response: length={len(content)} | preview={content[:500]}..." + (f" | tokens={usage}" if usage else "")
         )
+
+        if usage is not None and on_usage is not None:
+            await on_usage(usage)
 
         parsed = self._parse_json_response(content, total_duration, questions_count)
         parsed["long_pauses"] = long_pauses

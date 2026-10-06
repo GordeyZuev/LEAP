@@ -18,7 +18,6 @@ const COMPANION_COL =
 const COMPANION_PANEL = cn(CARD_SHELL, "flex min-h-0 flex-col overflow-hidden");
 const COMPANION_SHELL = "flex min-h-0 flex-1 flex-col overflow-hidden";
 export const COMPANION_TABS_ROW = "shrink-0 border-b border-border px-5 pb-3 pt-3";
-export const COMPANION_BODY = "min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 pt-4";
 /** Chapters / transcript: search stays put, the list scrolls. */
 export const COMPANION_BODY_PINNED =
   "flex min-h-0 flex-1 flex-col overflow-hidden overscroll-contain px-5 pb-5 pt-4";

@@ -24,7 +24,8 @@ from models.recording import ProcessingStatus, SourceType, TargetStatus
 
 logger = get_logger()
 
-RECORDING_SORT_FIELDS = frozenset({"created_at", "updated_at", "start_time", "display_name", "status"})
+RECORDING_SORT_FIELDS = frozenset({"created_at", "updated_at", "start_time", "display_name", "status", "view_count"})
+_RECORDING_SORT_COLUMNS = {"view_count": "share_view_count"}
 DEFAULT_RECORDING_SORT = "start_time"
 UNTITLED_DISPLAY_NAME = "Untitled"
 
@@ -37,7 +38,7 @@ def _normalized_display_name(display_name: str) -> str:
 def _recording_order_clause(sort_by: str, sort_order: str):
     """Primary sort plus a stable id tie-break. Nulls always sort last."""
     field = sort_by if sort_by in RECORDING_SORT_FIELDS else DEFAULT_RECORDING_SORT
-    column = getattr(RecordingModel, field)
+    column = getattr(RecordingModel, _RECORDING_SORT_COLUMNS.get(field, field))
     descending = sort_order == "desc"
     primary = column.desc().nulls_last() if descending else column.asc().nulls_last()
     tie = RecordingModel.id.desc() if descending else RecordingModel.id.asc()
@@ -499,6 +500,7 @@ class RecordingRepository:
             duration=duration,
             status=kwargs.get("status", ProcessingStatus.INITIALIZED),
             is_mapped=kwargs.get("is_mapped", False),
+            template_id=kwargs.get("template_id"),
             video_file_size=kwargs.get("video_file_size"),
             expire_at=expire_at,
             delete_state="active",
@@ -521,6 +523,7 @@ class RecordingRepository:
 
         self.session.add(source)
         await self.session.flush()
+        await self.sync_retention_deadline(recording, user_config)
 
         logger.info(f"Created recording | {format_details(id=recording.id, source=input_source_id)}")
 
@@ -1063,67 +1066,81 @@ class RecordingRepository:
 
         self.session.add(source)
         await self.session.flush()
+        await self.sync_retention_deadline(recording, user_config)
 
         logger.info(f"Created recording | {format_details(rec=recording.id, mapped=is_mapped, status=status)}")
 
         return recording, True
 
-    async def soft_delete(self, recording: RecordingModel, user_config: dict) -> None:
-        """
-        Soft delete recording - mark as manually deleted by user.
+    async def sync_retention_deadline(self, recording: RecordingModel, user_config: dict | None) -> None:
+        """Apply the effective flag. Does not write an override."""
+        from api.services.retention import apply_retention_deadline, template_retention_flags
 
-        Sets delete_state to "soft", schedules file cleanup and hard delete based on user retention.
-
-        Args:
-            recording: Recording to soft delete
-            user_config: User configuration containing retention settings
-        """
-        now = datetime.now(UTC)
-        recording.deleted = True
-        recording.delete_state = "soft"
-        recording.deletion_reason = "manual"
-        recording.deleted_at = now
-        recording.expire_at = None  # Cancel auto-expiration
-        recording.updated_at = now
-
-        # Schedule both cleanup dates immediately (both in future)
-        retention = user_config.get("retention", {})
-        soft_days = retention.get("soft_delete_days", 3)
-        hard_days = retention.get("hard_delete_days", 30)
-        recording.soft_deleted_at = now + timedelta(days=soft_days)  # When files will be deleted
-        recording.hard_delete_at = now + timedelta(days=soft_days + hard_days)  # When DB record deleted
-
+        flags = await template_retention_flags(self.session, [recording])
+        apply_retention_deadline(recording, flags.get(recording.id, False), user_config or {})
         await self.session.flush()
 
+    async def assign_retention_exempt(
+        self, recording: RecordingModel, override: bool | None, user_config: dict
+    ) -> None:
+        """Store the recording override. None follows the template again."""
+        recording.retention_exempt = override
+        recording.updated_at = datetime.now(UTC)
+        await self.sync_retention_deadline(recording, user_config)
+
+    async def sync_inherited_retention(self, user_id: str, user_config: dict) -> None:
+        """Refresh auto-hide dates for this user's recordings that follow a template."""
+        from sqlalchemy import select
+
+        from api.services.retention import apply_retention_deadline, template_retention_flags
+
+        recordings = list(
+            (
+                await self.session.execute(
+                    select(RecordingModel).where(
+                        RecordingModel.user_id == user_id,
+                        RecordingModel.retention_exempt.is_(None),
+                        RecordingModel.deleted.is_(False),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        flags = await template_retention_flags(self.session, recordings)
+        for recording in recordings:
+            apply_retention_deadline(recording, flags.get(recording.id, False), user_config)
+        await self.session.flush()
+
+    def _hide(self, recording: RecordingModel, user_config: dict, reason: str) -> None:
+        from api.services.retention import hard_delete_deadline, revoke_pipeline
+
+        now = datetime.now(UTC)
+        revoke_pipeline(recording)
+        recording.deleted = True
+        recording.delete_state = "soft"
+        recording.deletion_reason = reason
+        recording.deleted_at = now
+        recording.expire_at = None
+        recording.updated_at = now
+        hard_days = int((user_config.get("retention") or {}).get("hard_delete_days") or 30)
+        recording.soft_deleted_at = now
+        recording.hard_delete_at = hard_delete_deadline(now, hard_days)
+
+    async def soft_delete(self, recording: RecordingModel, user_config: dict) -> None:
+        """Hide a recording the user deleted. Files stay until hard_delete_at."""
+        self._hide(recording, user_config, "manual")
+        await self.session.flush()
         logger.info(f"Soft deleted recording | {format_details(rec=recording.id)}")
 
-    async def auto_expire(self, recording: RecordingModel, user_config: dict) -> None:
-        """
-        Mark recording as auto-expired (expire_at reached).
+    async def auto_expire(self, recording: RecordingModel, user_config: dict, *, template_exempt: bool = False) -> None:
+        """Hide a recording whose auto-hide date passed. An effective exemption skips it."""
+        from api.services.retention import effective_retention_exempt
 
-        Sets delete_state to "soft", schedules file cleanup and hard delete based on user retention.
-
-        Args:
-            recording: Recording to expire
-            user_config: User configuration containing retention settings
-        """
-        now = datetime.now(UTC)
-        recording.deleted = True
-        recording.delete_state = "soft"
-        recording.deletion_reason = "expired"
-        recording.deleted_at = now
-        recording.expire_at = None  # Already expired
-        recording.updated_at = now
-
-        # Schedule both cleanup dates immediately (both in future)
-        retention = user_config.get("retention", {})
-        soft_days = retention.get("soft_delete_days", 3)
-        hard_days = retention.get("hard_delete_days", 30)
-        recording.soft_deleted_at = now + timedelta(days=soft_days)  # When files will be deleted
-        recording.hard_delete_at = now + timedelta(days=soft_days + hard_days)  # When DB record deleted
-
+        if effective_retention_exempt(recording.retention_exempt, template_exempt) or recording.deleted:
+            return
+        self._hide(recording, user_config, "expired")
         await self.session.flush()
-
         logger.info(f"Auto-expired recording | {format_details(rec=recording.id)}")
 
     async def restore(self, recording: RecordingModel, user_config: dict) -> None:
@@ -1150,11 +1167,11 @@ class RecordingRepository:
         recording.hard_delete_at = None
         recording.soft_deleted_at = None
 
-        # Set new expire_at from user config
-        retention = user_config.get("retention", {})
-        auto_expire_days = retention.get("auto_expire_days", 90)
-        if auto_expire_days:
-            recording.expire_at = datetime.now(UTC) + timedelta(days=auto_expire_days)
+        from api.services.retention import apply_retention_deadline, template_retention_flags
+
+        flags = await template_retention_flags(self.session, [recording])
+        recording.expire_at = None
+        apply_retention_deadline(recording, flags.get(recording.id, False), user_config)
 
         recording.updated_at = datetime.now(UTC)
 
@@ -1162,108 +1179,88 @@ class RecordingRepository:
 
         logger.info(f"Restored recording | {format_details(rec=recording.id)}")
 
-    async def cleanup_recording_files(self, recording: RecordingModel) -> int:
-        """
-        Delete large files (videos, audio) for recording.
-        Keeps: master.json, extracted.json (transcription_dir), DB metadata.
-
-        Used by maintenance tasks and hard delete.
-
-        Args:
-            recording: Recording to clean up
-
-        Returns:
-            Total bytes freed
-        """
-        # CRITICAL: Check state before cleanup to prevent race conditions
-        if recording.delete_state != "soft":
-            logger.warning(
-                f"Skipped cleanup: unexpected delete_state | {format_details(rec=recording.id, state=recording.delete_state)}"
-            )
-            return 0
-
+    async def wipe_recording_storage(
+        self, recording: RecordingModel
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Delete every object under the recording prefix, plus any path stored outside it."""
         from file_storage.factory import get_storage_backend
+        from file_storage.path_builder import StoragePathBuilder, to_storage_key
 
         storage = get_storage_backend()
-        total_bytes = 0
+        deleted: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        prefixes: list[str] = []
 
-        async def _delete_storage_key(label: str, key: str | None) -> int:
-            """Delete a single storage object, return bytes freed (0 on miss/error)."""
-            if not key:
-                return 0
+        owner = recording.owner
+        if owner is None and recording.user_id:
+            from database.auth_models import UserModel
+
+            owner = await self.session.get(UserModel, recording.user_id)
+        if owner is not None and owner.user_slug is not None:
+            root = to_storage_key(StoragePathBuilder().recording_root(owner.user_slug, recording.id))
+            prefixes.append(root.rstrip("/") + "/")
+        if recording.transcription_dir:
+            tx_prefix = to_storage_key(recording.transcription_dir).rstrip("/") + "/"
+            if tx_prefix not in prefixes:
+                prefixes.append(tx_prefix)
+
+        seen: set[str] = set()
+        for prefix in prefixes:
             try:
-                if not await storage.exists(key):
-                    return 0
-                size = await storage.get_size(key)
-                await storage.delete(key)
-                logger.debug(f"Deleted {label}: {key} ({size} bytes)")
-                return size
-            except Exception as e:
-                logger.warning(f"Failed to delete {label}: key={key} | error={e}")
-                return 0
+                keys = await storage.list_keys(prefix)
+            except Exception as exc:
+                errors.append({"type": "prefix", "path": prefix, "error": str(exc)})
+                logger.warning(f"Failed to list recording prefix | prefix={prefix} | error={exc}")
+                continue
+            for key in keys:
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    if await storage.delete(key):
+                        deleted.append({"type": "object", "path": key, "is_dir": False})
+                except Exception as exc:
+                    errors.append({"type": "object", "path": key, "error": str(exc)})
+                    logger.warning(f"Failed to delete object | key={key} | error={exc}")
 
-        total_bytes += await _delete_storage_key("local_video_path", recording.local_video_path)
-        # processed video may share the source key (no-trim case) — skip duplicate delete.
-        if recording.processed_video_path and recording.processed_video_path != recording.local_video_path:
-            total_bytes += await _delete_storage_key("processed_video_path", recording.processed_video_path)
-        total_bytes += await _delete_storage_key("processed_audio_path", recording.processed_audio_path)
+        for label, key in (
+            ("local_video", recording.local_video_path),
+            ("processed_video", recording.processed_video_path),
+            ("processed_audio", recording.processed_audio_path),
+        ):
+            if not key or key in seen:
+                continue
+            try:
+                if await storage.exists(key) and await storage.delete(key):
+                    deleted.append({"type": label, "path": key, "is_dir": False})
+            except Exception as exc:
+                errors.append({"type": label, "path": key, "error": str(exc)})
 
-        # Clear paths in DB
-        recording.local_video_path = None
-        recording.processed_video_path = None
-        recording.processed_audio_path = None
-
-        # Update state (soft_deleted_at already set, just change state)
-        recording.delete_state = "hard"
-        recording.updated_at = datetime.now(UTC)
-
-        return total_bytes
+        error_paths = {str(item["path"]) for item in errors if item.get("path")}
+        # A failed prefix listing must keep transcription_dir so the next wipe can retry it.
+        # A stray key that failed to delete stays on the row; False from delete means it is already gone.
+        if not any(item.get("type") == "prefix" for item in errors):
+            recording.transcription_dir = None
+        for attr in ("local_video_path", "processed_video_path", "processed_audio_path"):
+            current = getattr(recording, attr)
+            if current and current in error_paths:
+                continue
+            setattr(recording, attr, None)
+        return deleted, errors
 
     async def delete(self, recording: RecordingModel) -> None:
-        """
-        Hard delete recording - complete removal from DB.
-
-        Deletes all files (if not cleaned yet) and removes DB record.
-        Used by hard delete maintenance task and account deletion.
-
-        Args:
-            recording: Recording to delete
-        """
-        total_bytes = 0
-
-        # Delete large files if not cleaned yet
-        if recording.delete_state != "hard":
-            total_bytes += await self.cleanup_recording_files(recording)
-
-        # Delete transcription directory (master.json, extracted.json, cache/*) via storage.
-        # transcription_dir is stored as a builder path like ``storage/users/.../transcriptions``;
-        # normalize to a storage key prefix and bulk-delete every object underneath.
-        if recording.transcription_dir:
-            from file_storage.factory import get_storage_backend
-            from file_storage.path_builder import to_storage_key
-
-            storage = get_storage_backend()
-            tx_prefix = to_storage_key(recording.transcription_dir)
-            try:
-                keys = await storage.list_keys(tx_prefix)
-                for key in keys:
-                    try:
-                        size = await storage.get_size(key)
-                        if await storage.delete(key):
-                            total_bytes += size
-                    except Exception as exc:
-                        logger.debug(f"Skipped {key} during transcription cleanup: {exc}")
-                logger.debug(f"Deleted transcription prefix: {tx_prefix} ({total_bytes} bytes total after dir)")
-            except Exception as e:
-                logger.warning(f"Failed to delete transcription_dir: prefix={tx_prefix} | error={e}")
-
-        # Delete from DB
+        """Remove the recording prefix and the database row. Account deletion uses this too."""
+        _deleted, errors = await self.wipe_recording_storage(recording)
+        if errors:
+            raise RuntimeError(f"Recording {recording.id} storage wipe failed: {errors[0].get('error')}")
         await self.session.delete(recording)
         await self.session.flush()
+        logger.info(f"Hard deleted recording | {format_details(rec=recording.id)}")
 
-        # TODO: Update quota (placeholder for now)
-        # if total_bytes > 0 and recording.user_id:
-        #     quota_service = QuotaService(self.session)
-        #     await quota_service.track_storage_removed(recording.user_id, total_bytes)
 
-        logger.info(f"Hard deleted recording | {format_details(rec=recording.id, freed_bytes=total_bytes)}")
+async def sync_user_inherited_retention(session: AsyncSession, user_id: str) -> None:
+    """Apply the live template flag to every recording of this user that has no override."""
+    from api.repositories.config_repos import UserConfigRepository
+
+    user_config = await UserConfigRepository(session).get_effective_config(user_id)
+    await RecordingRepository(session).sync_inherited_retention(user_id, user_config)

@@ -1,9 +1,9 @@
 """Celery tasks for system maintenance."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
 from api.celery_app import celery_app
@@ -77,21 +77,34 @@ def auto_expire_recordings_task():
             expired_count = 0
             errors = []
 
-            # Find active recordings where expire_at passed
+            now = datetime.now(UTC)
             async with session_maker() as session:
                 query = (
                     select(RecordingModel)
                     .where(
                         RecordingModel.deleted == False,  # noqa: E712
-                        RecordingModel.expire_at.isnot(None),
-                        RecordingModel.expire_at < datetime.now(UTC),
+                        RecordingModel.retention_exempt.is_not(True),
+                        or_(
+                            RecordingModel.expire_at.is_(None),
+                            RecordingModel.expire_at < now,
+                            RecordingModel.retention_exempt.is_(None),
+                        ),
                     )
                     .options(selectinload(RecordingModel.owner))
                 )
                 result = await session.execute(query)
                 recordings = result.scalars().all()
 
-            logger.info(f"Found {len(recordings)} recordings to auto-expire")
+            logger.info(f"Found {len(recordings)} recordings to check for auto-expire")
+
+            from api.services.retention import (
+                apply_retention_deadline,
+                effective_retention_exempt,
+                template_retention_flags,
+            )
+
+            async with session_maker() as session:
+                flags = await template_retention_flags(session, recordings)
 
             # Process each in separate transaction
             for recording in recordings:
@@ -100,16 +113,26 @@ def auto_expire_recordings_task():
                         recording_repo = RecordingRepository(tx_session)
                         user_config_repo = UserConfigRepository(tx_session)
 
-                        # Refetch recording
                         rec = await tx_session.get(RecordingModel, recording.id)
-                        if not rec:
+                        if not rec or rec.deleted:
+                            continue
+                        template_exempt = flags.get(rec.id, False)
+                        if effective_retention_exempt(rec.retention_exempt, template_exempt):
+                            if rec.expire_at is not None:
+                                rec.expire_at = None
+                                await tx_session.commit()
                             continue
 
-                        # Get user config (merged with defaults)
+                        checked_at = datetime.now(UTC)
+                        if rec.expire_at is not None and rec.expire_at >= checked_at:
+                            continue
                         user_config = await user_config_repo.get_effective_config(rec.user_id)
+                        if rec.expire_at is None:
+                            apply_retention_deadline(rec, template_exempt, user_config, checked_at)
+                            await tx_session.commit()
+                            continue
 
-                        # Auto-expire
-                        await recording_repo.auto_expire(rec, user_config)
+                        await recording_repo.auto_expire(rec, user_config, template_exempt=template_exempt)
                         await tx_session.commit()
                         expired_count += 1
 
@@ -143,113 +166,6 @@ def auto_expire_recordings_task():
 
 
 @celery_app.task(
-    name="maintenance.cleanup_recording_files",
-    max_retries=settings.celery.maintenance_max_retries,
-    default_retry_delay=settings.celery.maintenance_retry_delay,
-)
-def cleanup_recording_files_task():
-    """
-    Level 1: Clean up files for soft deleted recordings.
-
-    Deletes videos/audio, keeps master.json and extracted.json.
-    Runs daily at 4:00 UTC (configured in Celery Beat).
-    """
-    try:
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
-
-        from api.repositories.recording_repos import RecordingRepository
-        from database.models import RecordingModel
-
-        logger.info("Starting cleanup of recording files...")
-
-        async def cleanup():
-            session_maker = get_async_session_maker()
-
-            cleaned_count = 0
-            errors = []
-
-            # Get all soft deleted recordings with owner
-            async with session_maker() as session:
-                query = (
-                    select(RecordingModel)
-                    .where(RecordingModel.delete_state == "soft")
-                    .options(selectinload(RecordingModel.owner))
-                )
-                result = await session.execute(query)
-                recordings = result.scalars().all()
-
-            logger.info(f"Found {len(recordings)} soft deleted recordings")
-
-            # Check scheduled cleanup time
-            for recording in recordings:
-                try:
-                    # CRITICAL: Check soft_deleted_at is not None
-                    if not recording.soft_deleted_at:
-                        logger.warning(
-                            f"Recording {recording.id} has delete_state='soft' but soft_deleted_at is None, skipping"
-                        )
-                        continue
-
-                    # Check if cleanup time has passed
-                    if recording.soft_deleted_at >= datetime.now(UTC):
-                        logger.debug(
-                            f"Skipping recording {recording.id}: cleanup scheduled for {recording.soft_deleted_at}"
-                        )
-                        continue
-
-                    async with session_maker() as tx_session:
-                        recording_repo = RecordingRepository(tx_session)
-                        rec = await tx_session.get(RecordingModel, recording.id)
-                        if not rec:
-                            continue
-
-                        # CRITICAL: Re-check state after refetch (race condition protection)
-                        if rec.delete_state != "soft":
-                            logger.debug(f"Skipping recording {rec.id}: state changed to {rec.delete_state}")
-                            continue
-
-                        logger.debug(f"Cleaning files for recording {rec.id} (soft_deleted_at={rec.soft_deleted_at})")
-
-                        # Cleanup files (has internal state check)
-                        freed_bytes = await recording_repo.cleanup_recording_files(rec)
-                        if freed_bytes > 0:
-                            await tx_session.commit()
-                            cleaned_count += 1
-                            logger.info(f"Cleaned files for recording {rec.id}, freed {freed_bytes} bytes")
-                        else:
-                            logger.debug(f"No files cleaned for recording {rec.id}")
-
-                except Exception as e:
-                    error_msg = f"Failed to cleanup files for recording {recording.id}: {e}"
-                    logger.error(error_msg)
-                    errors.append(error_msg)
-
-            return cleaned_count, errors
-
-        # Execute async function
-        # Use asyncio.run() for proper event loop isolation
-        cleaned_count, errors = asyncio.run(cleanup())
-
-        if errors:
-            logger.warning(f"Files cleanup completed with {len(errors)} errors")
-
-        logger.info(f"Files cleanup completed: {cleaned_count} recordings cleaned")
-
-        return {
-            "status": "success" if not errors else "partial_success",
-            "files_cleaned": cleaned_count,
-            "errors_count": len(errors),
-            "errors": errors[:10] if errors else [],
-            "message": f"Cleaned files for {cleaned_count} recordings",
-        }
-
-    except Exception as e:
-        logger.opt(exception=True).error("Failed to cleanup recording files: {}", e)
-        return {"status": "error", "error": str(e)}
-
-
-@celery_app.task(
     name="maintenance.hard_delete_recordings",
     max_retries=settings.celery.maintenance_max_retries,
     default_retry_delay=settings.celery.maintenance_retry_delay,
@@ -272,9 +188,14 @@ def hard_delete_recordings_task():
 
             # Find recordings where hard_delete_at passed
             async with session_maker() as session:
-                query = select(RecordingModel).where(
-                    RecordingModel.hard_delete_at.isnot(None),
-                    RecordingModel.hard_delete_at < datetime.now(UTC),
+                query = (
+                    select(RecordingModel)
+                    .where(
+                        RecordingModel.hard_delete_at.isnot(None),
+                        RecordingModel.hard_delete_at < datetime.now(UTC),
+                        RecordingModel.delete_state.in_(("soft", "hard")),
+                    )
+                    .options(selectinload(RecordingModel.owner))
                 )
                 result = await session.execute(query)
                 recordings = result.scalars().all()
@@ -291,6 +212,11 @@ def hard_delete_recordings_task():
                         rec = await tx_session.get(RecordingModel, recording.id)
                         if not rec:
                             logger.warning(f"Recording {recording.id} not found, skipping")
+                            continue
+                        from api.services.retention import still_due_for_hard_delete
+
+                        if not still_due_for_hard_delete(rec, datetime.now(UTC)):
+                            logger.info(f"Skipping hard delete | rec={recording.id} no longer due")
                             continue
 
                         logger.debug(
@@ -495,4 +421,133 @@ def reset_stale_active_recordings_task(stale_hours: float = 2.0):
         return {"status": "success", "reset": reset_count}
     except Exception as e:
         logger.opt(exception=True).error(f"Failed to reset stale active recordings: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@celery_app.task(
+    name="maintenance.reconcile_transcription_ledger",
+    max_retries=settings.celery.maintenance_max_retries,
+    default_retry_delay=settings.celery.maintenance_retry_delay,
+)
+def reconcile_transcription_ledger_task():
+    """Close AssemblyAI rows left in submitted, and copy DeepSeek usage from live files once."""
+    try:
+
+        async def reconcile():
+            from api.services.resource_ledger import ResourceLedgerService, backfill_topic_tokens
+            from assemblyai_module.config import AssemblyAIConfig
+            from assemblyai_module.service import AssemblyAITranscriptionService
+
+            session_maker = get_async_session_maker()
+            closed = 0
+            cutoff = datetime.now(UTC) - timedelta(hours=3)
+            async with session_maker() as session:
+                rows = await ResourceLedgerService(session).repo.submitted_transcriptions(cutoff)
+                pending: list[tuple[str, int | None, str]] = []
+                for row in rows:
+                    job_id = row.provider_job_id
+                    user_id = row.user_id
+                    if not isinstance(job_id, str) or not job_id or not isinstance(user_id, str):
+                        continue
+                    recording_id = row.recording_id if isinstance(row.recording_id, int) else None
+                    pending.append((user_id, recording_id, job_id))
+
+            service = None
+            try:
+                service = AssemblyAITranscriptionService(AssemblyAIConfig.from_file("config/assemblyai_creds.json"))
+            except Exception as exc:
+                logger.warning(f"AssemblyAI reconcile skipped | error={exc}")
+
+            if service is not None:
+                for user_id, recording_id, job_id in pending:
+                    if not job_id:
+                        continue
+                    try:
+                        data = await service.fetch_transcript(job_id)
+                    except Exception as exc:
+                        logger.warning(f"AssemblyAI reconcile fetch failed | job={job_id} | error={exc}")
+                        continue
+                    status = data.get("status")
+                    async with session_maker() as session:
+                        ledger = ResourceLedgerService(session)
+                        if status == "completed":
+                            raw = data.get("audio_duration")
+                            seconds = float(raw) if raw is not None else None
+                            if seconds is None:
+                                continue
+                            model_used = data.get("speech_model_used")
+                            await ledger.mark_transcription_completed(
+                                user_id=user_id,
+                                recording_id=recording_id,
+                                provider_job_id=job_id,
+                                audio_seconds=seconds,
+                                model=model_used if isinstance(model_used, str) else None,
+                            )
+                            closed += 1
+                        elif status == "error":
+                            await ledger.mark_transcription_failed(provider_job_id=job_id)
+                            closed += 1
+                        await session.commit()
+
+                async with session_maker() as session:
+                    from api.services.resource_ledger import import_untracked_transcripts
+
+                    imported = await import_untracked_transcripts(session, service)
+                    await session.commit()
+                    closed += imported
+
+            async with session_maker() as session:
+                await backfill_topic_tokens(session)
+                await session.commit()
+            return closed
+
+        closed = asyncio.run(reconcile())
+        logger.info(f"Transcription ledger reconcile closed {closed} rows")
+        return {"status": "success", "closed": closed}
+    except Exception as e:
+        logger.opt(exception=True).error("Failed to reconcile transcription ledger: {}", e)
+        return {"status": "error", "error": str(e)}
+
+
+@celery_app.task(
+    name="maintenance.snapshot_storage_usage",
+    max_retries=settings.celery.maintenance_max_retries,
+    default_retry_delay=settings.celery.maintenance_retry_delay,
+)
+def snapshot_storage_usage_task():
+    """Hourly prefix size for users who have recordings. Quota itself still reads the live prefix."""
+    try:
+        from sqlalchemy import select
+
+        from api.services.resource_ledger import ResourceLedgerService
+        from database.auth_models import UserModel
+        from file_storage.factory import get_storage_backend
+
+        async def snapshot():
+            session_maker = get_async_session_maker()
+            hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+            storage = get_storage_backend()
+            written = 0
+            async with session_maker() as session:
+                result = await session.execute(
+                    select(UserModel.id, UserModel.user_slug).where(
+                        UserModel.id.in_(select(RecordingModel.user_id).distinct())
+                    )
+                )
+                users = result.all()
+                ledger = ResourceLedgerService(session)
+                for user_id, user_slug in users:
+                    if user_slug is None:
+                        continue
+                    size = await storage.get_prefix_size(f"users/user_{user_slug:06d}/")
+                    await ledger.record_storage_snapshot(user_id=user_id, stored_bytes=int(size), hour=hour)
+                    written += 1
+                await session.commit()
+            return written
+
+        written = asyncio.run(snapshot())
+        logger.info(f"Storage snapshots written | users={written}")
+        return {"status": "success", "users": written}
+    except Exception as e:
+        logger.opt(exception=True).error("Failed to snapshot storage: {}", e)
         return {"status": "error", "error": str(e)}

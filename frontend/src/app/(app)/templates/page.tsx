@@ -21,7 +21,7 @@ import { ResultCount } from "@/components/ui/result-count";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { usePageSize } from "@/hooks/use-page-size";
-import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW, TABLE_SCROLL } from "@/lib/table-classes";
 import { PER_PAGE_TEMPLATES, PER_PAGE_TEMPLATES_OPTIONS } from "@/lib/constants";
 import { BaseTemplateBanner } from "@/components/settings/base-template-banner";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
@@ -212,6 +212,7 @@ function TemplatesContent() {
 
       {/* Table */}
       <div className={TABLE_CARD}>
+        <div className={TABLE_SCROLL}>
         <table className="w-full min-w-[640px]">
           <thead>
             <tr className="border-b border-border">
@@ -300,6 +301,7 @@ function TemplatesContent() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {data && (

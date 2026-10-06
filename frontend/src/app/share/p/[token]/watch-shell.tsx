@@ -37,14 +37,17 @@ import { VIDEO_PLAYER_FRAME, VideoPlayerLoading } from "@/components/ui/video-pl
 import { FilterSelect } from "@/components/filters/filter-select";
 import { SearchInput } from "@/components/filters/search-input";
 import { CARD_SHELL, CollapsibleCard } from "@/components/ui/section-card";
-import { COMPANION_BODY, COMPANION_BODY_PINNED, COMPANION_TABS_ROW, WATCH_BELOW, WatchStage } from "@/components/ui/watch-stage";
+import { InsetScroll } from "@/components/ui/inset-scroll";
+import { COMPANION_BODY_PINNED, COMPANION_TABS_ROW, WATCH_BELOW, WatchStage } from "@/components/ui/watch-stage";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Pagination } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { FormattedText } from "@/components/ui/formatted-text";
+import { ViewCount } from "@/components/ui/view-count";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
+import { formatViewCount } from "@/lib/format-compact-number";
 import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
 import { useShareEngagement } from "@/hooks/use-share-engagement";
 import { useShareVtt } from "@/hooks/use-share-vtt";
@@ -588,6 +591,7 @@ export function WatchShell({
 
   const nextItem = current ? nextPlayable(items, current.id) : firstPlayable(items);
   const durationSum = items.reduce((sum, item) => sum + (item.duration || 0), 0);
+  const viewSum = items.reduce((sum, item) => sum + (item.view_count ?? 0), 0);
   const ended = endedId !== null && endedId === current?.id;
 
   useEffect(() => {
@@ -832,6 +836,12 @@ export function WatchShell({
                   <>
                     <span aria-hidden> · </span>
                     <span className="tabular-nums">{formatPlaylistDuration(durationSum)}</span>
+                  </>
+                )}
+                {viewSum > 0 && (
+                  <>
+                    <span aria-hidden> · </span>
+                    <span className="tabular-nums">{formatViewCount(viewSum)}</span>
                   </>
                 )}
               </p>
@@ -1327,17 +1337,27 @@ function WatchLayout({
               {sidePanelTabs[0]?.label}
             </h2>
           )}
-          <div
-            role="tabpanel"
-            id={companionPanelId}
-            aria-labelledby={sidePanelTabs.length > 1 ? `${companionPanelId}-tab-${activeTab}` : undefined}
-            className={cn(
-              activeTab === "videos" ? COMPANION_BODY : COMPANION_BODY_PINNED,
-              activeTab === "videos" && "px-3",
-            )}
-          >
-            {companionBody}
-          </div>
+          {activeTab === "videos" ? (
+            <InsetScroll
+              frameClassName="flex min-h-0 flex-1 flex-col"
+              insetTop="0"
+              role="tabpanel"
+              id={companionPanelId}
+              aria-labelledby={sidePanelTabs.length > 1 ? `${companionPanelId}-tab-${activeTab}` : undefined}
+              className="min-h-0 flex-1 px-3 pb-5 pt-4"
+            >
+              {companionBody}
+            </InsetScroll>
+          ) : (
+            <div
+              role="tabpanel"
+              id={companionPanelId}
+              aria-labelledby={sidePanelTabs.length > 1 ? `${companionPanelId}-tab-${activeTab}` : undefined}
+              className={COMPANION_BODY_PINNED}
+            >
+              {companionBody}
+            </div>
+          )}
         </>
       }
       below={below}
@@ -1392,9 +1412,10 @@ function VideoList({
               <span className={cn("line-clamp-2 text-sm font-medium leading-snug text-foreground", !item.playable && "text-muted-foreground")}>
                 {item.title}
               </span>
-              {(date !== "—" || status) && (
+              {(date !== "—" || status || (item.view_count ?? 0) > 0) && (
                 <span className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                   {date !== "—" ? <span className="tabular-nums">{date}</span> : null}
+                  <ViewCount count={item.view_count} />
                   {status && <span>{status}</span>}
                 </span>
               )}
@@ -1446,12 +1467,17 @@ function VideoList({
       aria-label="Videos"
       className={cn(
         CARD_SHELL,
-        "min-w-0 p-3 sm:p-4",
-        sticky && "lg:sticky lg:top-6 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-y-auto",
+        "min-w-0",
+        sticky && "lg:sticky lg:top-6 lg:max-h-[calc(100dvh-7.5rem)] lg:overflow-hidden",
       )}
     >
-      <h2 className="mb-3 px-1 text-sm font-semibold text-foreground">Videos</h2>
-      {list}
+      <InsetScroll
+        frameClassName={sticky ? "lg:max-h-[inherit]" : undefined}
+        className={cn("p-3 sm:p-4", sticky && "lg:max-h-[inherit]")}
+      >
+        <h2 className="mb-3 px-1 text-sm font-semibold text-foreground">Videos</h2>
+        {list}
+      </InsetScroll>
     </section>
   );
 }

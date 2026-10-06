@@ -120,3 +120,24 @@ class TimingService:
     ) -> None:
         """Record substep failure."""
         await self.fail_stage(timing, error)
+
+    async def provider_job_for_task(self, recording_id: int, celery_task_id: str) -> str | None:
+        """Latest AssemblyAI job id this Celery task already submitted for the recording."""
+        if not celery_task_id:
+            return None
+        job_id = StageTimingModel.meta["provider_job_id"].astext
+        task_id = StageTimingModel.meta["celery_task_id"].astext
+        result = await self.session.execute(
+            select(job_id)
+            .where(
+                StageTimingModel.recording_id == recording_id,
+                StageTimingModel.stage_type == "TRANSCRIBE",
+                StageTimingModel.substep.is_(None),
+                task_id == celery_task_id,
+                job_id.is_not(None),
+            )
+            .order_by(StageTimingModel.started_at.desc())
+            .limit(1)
+        )
+        value = result.scalar_one_or_none()
+        return value if isinstance(value, str) and value else None

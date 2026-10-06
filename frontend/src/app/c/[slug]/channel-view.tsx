@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, ChevronRight, Clock, LayoutGrid, List, ListVideo, Radio } from "lucide-react";
+import { Calendar, ChevronRight, Clock, Eye, LayoutGrid, List, ListVideo, Radio } from "lucide-react";
 
 import { getPublicChannel, sendChannelPageBeacon } from "@/api/share";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -19,6 +19,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { ExpandableFormattedText, FormattedText } from "@/components/ui/formatted-text";
 import { Tabs } from "@/components/ui/tabs";
 import { CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
+import { ViewCount } from "@/components/ui/view-count";
 import {
   CHANNEL_PLAYLIST_SORT,
   CHANNEL_VIDEO_SORT,
@@ -31,6 +32,7 @@ import {
 import { CHANNEL_BANNER_FRAME, CHANNEL_BANNER_IMG } from "@/lib/constants";
 import { CATALOG_PAGE_SIZE, parseCatalogPage } from "@/lib/catalog-page";
 import { FILTER_LABEL } from "@/lib/filter-field-classes";
+import { formatViewCount } from "@/lib/format-compact-number";
 import { cn, formatDate, formatDurationCompact, httpStatus } from "@/lib/utils";
 
 const CATALOG_CARD = cn("flex flex-col overflow-hidden p-4", CARD_SHELL, CARD_INTERACTIVE);
@@ -337,16 +339,20 @@ export function ChannelPublicView({ slug }: { slug: string }) {
                               items={[
                                 ...(date !== "—" ? [{ icon: Calendar, text: date }] : []),
                                 ...(duration ? [{ icon: Clock, text: duration }] : []),
+                                ...(v.view_count ? [{ icon: Eye, text: formatViewCount(v.view_count) }] : []),
                               ]}
                             />
                             <ListBlurb text={v.blurb} />
                           </>
-                        ) : date !== "—" || duration ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {date !== "—" ? <span className="tabular-nums">{date}</span> : null}
-                            {date !== "—" && duration ? " · " : null}
-                            {duration}
-                          </p>
+                        ) : date !== "—" || duration || v.view_count ? (
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <p className="min-w-0 truncate text-xs text-muted-foreground">
+                              {date !== "—" ? <span className="tabular-nums">{date}</span> : null}
+                              {date !== "—" && duration ? " · " : null}
+                              {duration}
+                            </p>
+                            <ViewCount count={v.view_count} />
+                          </div>
                         ) : null}
                       </div>
                       {list ? (
@@ -395,12 +401,16 @@ export function ChannelPublicView({ slug }: { slug: string }) {
                               items={[
                                 { icon: ListVideo, text: videoLabel },
                                 ...(duration ? [{ icon: Clock, text: duration }] : []),
+                                ...(p.view_count ? [{ icon: Eye, text: formatViewCount(p.view_count) }] : []),
                               ]}
                             />
                             <ListBlurb text={p.blurb} />
                           </>
-                        ) : duration ? (
-                          <p className="mt-1 text-xs text-muted-foreground">{duration}</p>
+                        ) : duration || p.view_count ? (
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <p className="min-w-0 truncate text-xs text-muted-foreground">{duration}</p>
+                            <ViewCount count={p.view_count} hint="across all videos in this playlist" />
+                          </div>
                         ) : null}
                       </div>
                       {list ? (

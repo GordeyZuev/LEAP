@@ -440,7 +440,7 @@ GET /templates/{id}/stats - Template statistics
 ```
 GET /recordings/{id}/config - Get resolved config (user → template → override)
 PUT /recordings/{id}/config - Set override config
-DELETE /recordings/{id}/config - Reset to template config
+DELETE /recordings/{id}/config - Reset to template config, including the retention override
 POST /recordings/{id}/config/save-as-template - Create template from config
 ```
 

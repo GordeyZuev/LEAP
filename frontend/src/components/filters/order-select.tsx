@@ -5,10 +5,21 @@ import { cn } from "@/lib/utils";
 import { FILTER_LABEL } from "@/lib/filter-field-classes";
 import { FilterSelect, type FilterSelectOption } from "./filter-select";
 
+export function isSavedSort<S extends string>(saved: readonly S[], value: string): value is S {
+  return (saved as readonly string[]).includes(value);
+}
+
+/**
+ * Rules the server can keep, plus Custom order (keep the current sequence, no rule).
+ * Views, counts and durations drift on their own, so they stay a view-only Sort by.
+ */
 export function ownerOrderOptions<V extends string>(
   options: readonly FilterSelectOption<V>[],
+  saved: readonly string[],
 ): FilterSelectOption<V>[] {
-  return options.map((o) => (o.value === "order" ? { ...o, label: "Current order" } : o));
+  return options
+    .filter((o) => o.value === "order" || isSavedSort(saved, o.value))
+    .map((o) => (o.value === "order" ? { ...o, label: "Custom order" } : o));
 }
 
 /** Writes saved membership order. Public catalogs use view-only Sort by. */

@@ -136,6 +136,10 @@ html { color-scheme: light; }
 html.dark { color-scheme: dark; }
 .theme-light { color-scheme: light; }
 
+/* Leave scrollbars to the system. Setting ::-webkit-scrollbar { width } switches
+   macOS off overlay mode: the bar stays visible and steals layout width.
+   A dialog that must keep the thumb off a rounded corner uses InsetScroll. */
+
 body {
   background: var(--background);
   color: var(--foreground);

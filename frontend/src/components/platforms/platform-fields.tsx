@@ -13,6 +13,7 @@ import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker"
 import { Field } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { AboutFormatting } from "@/components/ui/about-formatting";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { AdvancedBlock, ToggleGrid } from "@/components/ui/disclosure";
 import { useLanguages } from "@/hooks/use-references";
 import { insertJinjaVar, useJinjaCombobox } from "@/hooks/use-jinja-combobox";
@@ -284,10 +285,11 @@ export function TemplateField({
         />
 
         {ac.acOpen && ac.filtered.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+          <InsetScroll inset="1.25rem" className="max-h-44">
           <ul
             id={listboxId}
             role="listbox"
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-border bg-card shadow-lg"
           >
             {ac.filtered.map((v) => (
               <li
@@ -314,6 +316,8 @@ export function TemplateField({
               </li>
             ))}
           </ul>
+          </InsetScroll>
+          </div>
         )}
       </div>
       <AboutFormatting multiline={multiline} />

@@ -42,7 +42,7 @@ class AppSettings(BaseSettings):
     )
 
     name: str = Field(default="LEAP API", description="Application name")
-    version: str = Field(default="0.11.1.0", description="Application version")
+    version: str = Field(default="0.11.1.1", description="Application version")
     description: str = Field(
         default="AI-powered platform for intelligent educational video content processing",
         description="Application description",
@@ -691,19 +691,14 @@ class RetentionSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="RETENTION_",
         case_sensitive=False,
+        extra="ignore",
     )
 
-    soft_delete_days: int = Field(
-        default=3,
-        ge=1,
-        le=90,
-        description="Days before files cleanup after deletion",
-    )
     hard_delete_days: int = Field(
         default=30,
         ge=1,
         le=365,
-        description="Days before DB removal (from deleted_at)",
+        description="Days before storage and DB removal, counted from deleted_at",
     )
     auto_expire_days: int = Field(
         default=90,
@@ -1014,7 +1009,6 @@ DEFAULT_USER_CONFIG = {
         },
     },
     "retention": {
-        "soft_delete_days": 3,
         "hard_delete_days": 30,
         "auto_expire_days": 90,
     },

@@ -479,12 +479,15 @@ async def test_reset_without_deletion_keeps_media_paths(mocker):
     recording.source.meta = {}
     repo = mocker.patch("api.routers.recordings.RecordingRepository").return_value
     repo.get_by_id = AsyncMock(return_value=recording)
+    repo.sync_retention_deadline = AsyncMock()
     config = mocker.patch("api.routers.recordings.UserConfigRepository").return_value
     config.get_effective_config = AsyncMock(return_value={"retention": {}})
     ctx = ServiceContext(session=AsyncMock(), user_id="user")
 
     await reset_recording(42, delete_files=False, ctx=ctx)
 
+    repo.sync_retention_deadline.assert_awaited_once_with(recording, {"retention": {}})
+    assert recording.expire_at is None
     assert recording.local_video_path == "source.mp4"
     assert recording.processed_video_path == "video.mp4"
     assert recording.processed_audio_path == "audio.mp3"

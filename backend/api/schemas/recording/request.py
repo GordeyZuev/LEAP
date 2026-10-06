@@ -749,6 +749,10 @@ class RecordingUpdateRequest(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=500)
     allow_video_download: bool | None = Field(None, description="Allow public video download on share pages")
     allow_files_download: bool | None = Field(None, description="Allow public file downloads on share pages")
+    retention_exempt: bool | None = Field(
+        None,
+        description="Override. True keeps the recording, false schedules it, null follows the template.",
+    )
 
     @field_validator("display_name")
     @classmethod

@@ -33,8 +33,9 @@ import { AdminQuotaByPlanSection } from "@/components/admin/admin-quota-by-plan-
 import { UserActivitySection } from "@/components/admin/user-activity-section";
 import { Toggle } from "@/components/ui/toggle";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_HEAD_CELL, TABLE_ROW, TABLE_SCROLL } from "@/lib/table-classes";
 import { ActionButton } from "@/components/ui/action-button";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { Modal } from "@/components/ui/modal";
 import { ModalSection } from "@/components/ui/section-card";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -529,6 +530,7 @@ function AdminDashboard() {
           </div>
 
           <div className={TABLE_CARD}>
+          <div className={TABLE_SCROLL}>
           {plansQuery.isLoading ? (
             <div className="flex h-24 items-center justify-center">
               <Loader2 size={18} className="animate-spin text-muted-foreground" />
@@ -614,6 +616,7 @@ function AdminDashboard() {
               </table>
           )}
           </div>
+          </div>
         </div>
         )}
 
@@ -648,6 +651,7 @@ function AdminDashboard() {
           />
 
           <div className={cn(TABLE_CARD, "mt-4")}>
+            <div className={TABLE_SCROLL}>
             {usersQuery.isLoading ? (
               <div className="flex h-40 items-center justify-center">
                 <Loader2 size={20} className="animate-spin text-muted-foreground" />
@@ -767,6 +771,7 @@ function AdminDashboard() {
                   </tbody>
                 </table>
             )}
+            </div>
           </div>
 
           {totalPages > 1 && (
@@ -890,7 +895,7 @@ function EditPlanModal({
       open
       onClose={onClose}
       label={isNew ? "New plan" : `Edit plan — ${plan?.display_name}`}
-      panelClassName="max-w-xl"
+      panelClassName="max-w-xl overflow-hidden"
     >
       <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-foreground">
@@ -906,7 +911,7 @@ function EditPlanModal({
           </button>
         </div>
 
-        <div className="max-h-[78vh] overflow-y-auto">
+        <InsetScroll insetTop="0" className="max-h-[min(78vh,calc(100dvh-2rem))]">
           <div className="px-6 pt-5 pb-4 space-y-5">
 
             <ModalSection title="Identity">
@@ -971,7 +976,7 @@ function EditPlanModal({
               {isNew ? "Create plan" : "Save changes"}
             </ActionButton>
           </div>
-        </div>
+        </InsetScroll>
     </Modal>
   );
 }
@@ -1054,7 +1059,7 @@ function EditUserModal({
   });
 
   return (
-    <Modal open onClose={onClose} label={`Edit ${user.email}`} panelClassName="max-w-xl">
+    <Modal open onClose={onClose} label={`Edit ${user.email}`} panelClassName="max-w-xl overflow-hidden">
         {/* Header */}
         <div className="flex items-start justify-between px-6 py-4 border-b border-border">
           <div className="min-w-0 pr-4">
@@ -1079,7 +1084,7 @@ function EditUserModal({
           </button>
         </div>
 
-        <div className="max-h-[75vh] overflow-y-auto">
+        <InsetScroll insetTop="0" className="max-h-[min(75vh,calc(100dvh-2rem))]">
           <div className="px-6 pt-5 pb-4 space-y-4">
 
             {/* Account */}
@@ -1346,7 +1351,7 @@ function EditUserModal({
               Save changes
             </ActionButton>
           </div>
-        </div>
+        </InsetScroll>
     </Modal>
   );
 }

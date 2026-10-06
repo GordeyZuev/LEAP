@@ -8,14 +8,14 @@ import {
 } from "./channel-catalog.ts";
 
 const videos = [
-  { title: "2026-01-02 Intro", duration: 10, start_time: "2026-01-02T10:00:00Z" },
+  { title: "2026-01-02 Intro", duration: 10, start_time: "2026-01-02T10:00:00Z", view_count: 5 },
   { title: "Middle lecture", duration: 30, start_time: "2026-01-01T10:00:00Z" },
-  { title: "Zeta wrap", duration: 20, start_time: "2026-01-03T10:00:00Z" },
+  { title: "Zeta wrap", duration: 20, start_time: "2026-01-03T10:00:00Z", view_count: 12 },
 ];
 
 const playlists = [
-  { name: "Zeta", video_count: 2, duration_sum: 40 },
-  { name: "Alpha", video_count: 8, duration_sum: 10 },
+  { name: "Zeta", video_count: 2, duration_sum: 40, view_count: 7 },
+  { name: "Alpha", video_count: 8, duration_sum: 10, view_count: 30 },
   { name: "Mu", video_count: 3, duration_sum: 90 },
 ];
 
@@ -53,6 +53,25 @@ describe("channel catalog", () => {
     assert.deepEqual(
       sortChannelPlaylists(playlists, "duration").map((p) => p.duration_sum),
       [90, 40, 10],
+    );
+  });
+
+  it("sorts numbered playlist names naturally, like the saved order", () => {
+    const numbered = ["Module 10", "module 2"].map((name) => ({ name, video_count: 1, duration_sum: 1 }));
+    assert.deepEqual(
+      sortChannelPlaylists(numbered, "name").map((p) => p.name),
+      ["module 2", "Module 10"],
+    );
+  });
+
+  it("sorts by views with unviewed items last", () => {
+    assert.deepEqual(
+      sortChannelVideos(videos, "views").map((v) => v.title),
+      ["Zeta wrap", "2026-01-02 Intro", "Middle lecture"],
+    );
+    assert.deepEqual(
+      sortChannelPlaylists(playlists, "views").map((p) => p.name),
+      ["Alpha", "Zeta", "Mu"],
     );
   });
 });

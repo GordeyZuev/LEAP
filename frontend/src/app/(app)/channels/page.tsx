@@ -21,6 +21,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { Field } from "@/components/ui/field";
 import { CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
+import { ViewCount } from "@/components/ui/view-count";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { CHANNEL_BANNER_FRAME, CHANNEL_BANNER_IMG, PER_PAGE_CHANNELS } from "@/lib/constants";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
@@ -31,6 +32,7 @@ const SORT_OPTIONS = [
   { value: "updated_at", label: "Updated" },
   { value: "created_at", label: "Created" },
   { value: "name", label: "Name" },
+  { value: "view_count", label: "Views" },
 ];
 const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 const SHARE_ACTION =
@@ -100,25 +102,32 @@ function ChannelCard({ channel: c }: { channel: ChannelListItem }) {
         {" · "}
         {c.playlist_count} {c.playlist_count === 1 ? "playlist" : "playlists"}
       </p>
-      {publicShare && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={SHARE_ACTION}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span className="size-1.5 shrink-0 rounded-full bg-success-fg" aria-hidden />
-            <span className="sr-only">{c.name}: </span>
-            LEAP
-            <span className="sr-only"> public page (active)</span>
-            <ExternalLink size={9} strokeWidth={2} className="opacity-40" aria-hidden />
-          </a>
-          <button type="button" onClick={onCopy} className={SHARE_ACTION}>
-            {copied ? "Copied" : "Copy link"}
-            <span className="sr-only"> for {c.name}</span>
-          </button>
+      {(publicShare || (c.view_count ?? 0) > 0) && (
+        <div className="mt-auto flex items-center justify-between gap-3 pt-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            {publicShare && (
+              <>
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={SHARE_ACTION}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <span className="size-1.5 shrink-0 rounded-full bg-success-fg" aria-hidden />
+                  <span className="sr-only">{c.name}: </span>
+                  LEAP
+                  <span className="sr-only"> public page (active)</span>
+                  <ExternalLink size={9} strokeWidth={2} className="opacity-40" aria-hidden />
+                </a>
+                <button type="button" onClick={onCopy} className={SHARE_ACTION}>
+                  {copied ? "Copied" : "Copy link"}
+                  <span className="sr-only"> for {c.name}</span>
+                </button>
+              </>
+            )}
+          </div>
+          <ViewCount count={c.view_count} hint="across all videos on this channel, including its playlists" />
         </div>
       )}
     </article>

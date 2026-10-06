@@ -557,7 +557,7 @@ export default function DocsPage() {
               (<code className="text-xs">/share/p/…</code>). Create one under <strong>Playlists</strong>,
               optionally upload a custom cover, and attach it to one or more <strong>Channels</strong>.
               Then add recordings from the playlist editor or from <strong>Publications</strong> on a recording.
-              On Content, <strong>Order</strong> (newest or oldest lecture, name, duration) writes the watch order; drag also works. That stored sequence is the public playlist order.
+              On Content, <strong>Video order</strong> (newest or oldest first by lecture date, or name) is remembered: videos added later land in place. Dragging, or picking Custom order, keeps your own sequence. Viewers see that sequence as Author order.
               Named templates and Run can assign LEAP courses without copy-upload presets – membership is applied after processing finishes (same moment as LEAP publication), not when you bind a template. Manual add from the playlist editor or Publications still adds immediately.
               Enable / Disable / Rotate work like recording share. Deleting a playlist kills the link; recordings stay.
               The landing page is a cover with a play control and the video list (search and sort, like a channel’s Videos tab; default order is the course order). Opening a video goes to watch
@@ -577,7 +577,7 @@ export default function DocsPage() {
               Enable when the showcase is ready; Disable keeps the same address. Changing the slug 404s the old URL
               (no redirect). Viewers can search, sort, and switch grid or list; list rows show date, duration, and a
               short blurb. Cards open the existing lecture and course players. Hidden items stay in the editor until
-              share is on. On Content, <strong>Order</strong> (or drag) writes the public channel order.
+              share is on. On Content, <strong>Playlist order</strong> and <strong>Video order</strong> are remembered for new members; drag or Custom order keeps your own sequence. Viewers see it as Author order.
               Templates can add a recording to Videos after processing; that does not enable the share
               link.
             </P>
@@ -837,7 +837,8 @@ export default function DocsPage() {
             <P>
               <strong>Import / download</strong> use a bundle envelope:
             </P>
-            <div className="overflow-x-auto rounded-xl border border-border bg-muted p-4">
+            <div className="overflow-hidden rounded-xl border border-border bg-muted">
+              <div className="overflow-x-auto p-4">
               <pre className="font-mono text-xs leading-relaxed text-foreground">
 {`{
   "leap_template_bundle": 1,
@@ -845,6 +846,7 @@ export default function DocsPage() {
   "templates": [ { "name": "...", ... } ]
 }`}
               </pre>
+              </div>
             </div>
             <P>
               <code className="text-xs">reference</code> is for humans only (names next to ids). Import ignores it.

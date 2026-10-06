@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     Sequence,
@@ -275,3 +276,44 @@ class UsageEventModel(Base):
 
     def __repr__(self):
         return f"<UsageEvent(id={self.id}, user_id={self.user_id}, type={self.event_type})>"
+
+
+class ResourceLedgerModel(Base):
+    """Provider spend. Account deletion must not erase these rows.
+
+    ``user_id`` is a plain string with no foreign key. ``recording_id`` is set
+    null when the recording row is removed. There is no ORM relationship back
+    to the user or the recording, so a cascade cannot wipe the journal.
+    """
+
+    __tablename__ = "resource_ledger"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_resource_ledger_idempotency"),
+        # PostgreSQL unique allows many NULLs, so DeepSeek and storage rows can omit a job id.
+        UniqueConstraint("provider_job_id", name="uq_resource_ledger_provider_job"),
+        Index("ix_resource_ledger_user_occurred", "user_id", "occurred_at"),
+        Index("ix_resource_ledger_occurred", "occurred_at"),
+        Index("ix_resource_ledger_recording", "recording_id"),
+    )
+
+    id = Column(String(26), primary_key=True, default=lambda: str(ULID()))
+    user_id = Column(String(26), nullable=False)
+    recording_id = Column(Integer, ForeignKey("recordings.id", ondelete="SET NULL"), nullable=True)
+    provider = Column(String(32), nullable=False)
+    operation = Column(String(32), nullable=False)
+    provider_job_id = Column(String(128), nullable=True)
+    status = Column(String(20), nullable=False)
+    audio_seconds = Column(Float, nullable=True)
+    stored_bytes = Column("bytes", BigInteger, nullable=True)
+    prompt_tokens = Column(Integer, nullable=True)
+    completion_tokens = Column(Integer, nullable=True)
+    cache_hit_tokens = Column(Integer, nullable=True)
+    cache_miss_tokens = Column(Integer, nullable=True)
+    model = Column(String(128), nullable=True)
+    occurred_at = Column(DateTime(timezone=True), nullable=False)
+    idempotency_key = Column(String(200), nullable=False)
+    details = Column("metadata", JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+
+    def __repr__(self):
+        return f"<ResourceLedger(id={self.id}, user_id={self.user_id}, provider={self.provider}, status={self.status})>"

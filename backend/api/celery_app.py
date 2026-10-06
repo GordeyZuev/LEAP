@@ -14,6 +14,7 @@ import celery_sqlalchemy_scheduler.models as _csm_models  # noqa: E402
 from celery import Celery  # noqa: E402
 from celery.signals import (  # noqa: E402
     after_setup_logger,
+    beat_init,
     before_task_publish,
     task_failure,
     task_postrun,
@@ -203,9 +204,13 @@ celery_app.conf.beat_schedule = {
         "task": "maintenance.auto_expire_recordings",
         "schedule": crontab(hour=3, minute=30),
     },
-    "cleanup-recording-files": {
-        "task": "maintenance.cleanup_recording_files",
-        "schedule": crontab(hour=4, minute=0),
+    "reconcile-transcription-ledger": {
+        "task": "maintenance.reconcile_transcription_ledger",
+        "schedule": crontab(minute=45),
+    },
+    "snapshot-storage-usage": {
+        "task": "maintenance.snapshot_storage_usage",
+        "schedule": crontab(minute=5),
     },
     "hard-delete-recordings": {
         "task": "maintenance.hard_delete_recordings",
@@ -220,6 +225,58 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute="*/30"),
     },
 }
+
+# DatabaseScheduler loads every enabled celery_periodic_task row. Removing a name
+# from beat_schedule does not delete that row, so the old file-cleanup task would
+# keep firing after this deploy.
+_RETIRED_BEAT_TASKS = frozenset({"maintenance.cleanup_recording_files"})
+
+
+def _beat_entry_task(entry: object) -> str | None:
+    task = getattr(entry, "task", None)
+    return task if isinstance(task, str) else None
+
+
+def disable_retired_beat_tasks(scheduler: object) -> list[str]:
+    """Turn off periodic rows whose task was removed from beat_schedule, and drop them from memory."""
+    session = getattr(scheduler, "session", None)
+    if session is None:
+        return []
+    names: list[str] = []
+    changed = False
+    for row in session.query(_csm_models.PeriodicTask).all():
+        if getattr(row, "task", None) not in _RETIRED_BEAT_TASKS:
+            continue
+        row_name = getattr(row, "name", None)
+        if isinstance(row_name, str) and row_name:
+            names.append(row_name)
+        if getattr(row, "enabled", False):
+            row.enabled = False
+            changed = True
+    if changed:
+        # Commit fires PeriodicTask.after_update, which bumps the schedule
+        # timestamp. The next Beat tick reloads and leaves disabled rows out.
+        session.commit()
+    schedule = getattr(scheduler, "schedule", None)
+    if isinstance(schedule, dict):
+        for name in list(schedule):
+            if name in names or _beat_entry_task(schedule[name]) in _RETIRED_BEAT_TASKS:
+                schedule.pop(name, None)
+    return names
+
+
+@beat_init.connect
+def _disable_retired_beat_tasks(sender=None, **_kwargs):
+    scheduler = getattr(sender, "scheduler", None)
+    if scheduler is None:
+        return
+    try:
+        names = disable_retired_beat_tasks(scheduler)
+    except Exception as exc:
+        logger.warning(f"Could not disable retired beat tasks | error={exc}")
+        return
+    if names:
+        logger.info(f"Disabled retired beat tasks | names={names}")
 
 
 # Loguru handlers created before Celery forks become invalid after daemonization.

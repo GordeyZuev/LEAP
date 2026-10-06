@@ -55,6 +55,42 @@ class TestQuotaServiceEffectiveQuotas:
         assert quotas["max_automation_jobs"] == 10  # plan default
         assert quotas["min_automation_interval_hours"] == 1  # plan default
 
+    @pytest.mark.asyncio
+    async def test_zero_numeric_override_is_not_unlimited(self, mock_db_session):
+        from api.services.quota_service import QuotaService
+
+        service = QuotaService(mock_db_session)
+        mock_subscription = MagicMock()
+        mock_subscription.plan_id = 2
+        mock_subscription.custom_max_recordings_per_month = 0
+        mock_subscription.custom_max_storage_gb = 0
+        mock_subscription.custom_max_concurrent_tasks = 0
+        mock_subscription.custom_max_automation_jobs = 0
+        mock_subscription.custom_min_automation_interval_hours = None
+        mock_subscription.custom_max_templates = None
+        mock_subscription.custom_max_credentials = None
+        service.subscription_repo.get_by_user_id = AsyncMock(return_value=mock_subscription)
+
+        mock_plan = MagicMock()
+        mock_plan.included_recordings_per_month = 100
+        mock_plan.included_storage_gb = 50
+        mock_plan.max_concurrent_tasks = 5
+        mock_plan.max_automation_jobs = 10
+        mock_plan.min_automation_interval_hours = 1
+        mock_plan.max_transcriptions_per_month = None
+        mock_plan.max_processing_per_month = None
+        mock_plan.max_templates = 3
+        mock_plan.max_credentials = 2
+        service.plan_repo.get_by_id = AsyncMock(return_value=mock_plan)
+
+        quotas = await service.get_effective_quotas("user_123")
+
+        assert quotas["max_recordings_per_month"] == 0
+        assert quotas["max_storage_gb"] == 0
+        assert quotas["max_concurrent_tasks"] == 0
+        assert quotas["max_automation_jobs"] == 0
+        assert quotas["min_automation_interval_hours"] == 1
+
 
 @pytest.mark.unit
 class TestQuotaServiceChecks:

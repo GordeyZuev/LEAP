@@ -30,6 +30,25 @@ from logger import get_logger
 logger = get_logger()
 
 
+def _edit_bundle(resolved: ResolvedConfig) -> dict[str, Any]:
+    """Nest flat processing the way GET /recordings/{id}/config returns it."""
+    processing_config = resolved.processing
+    if "transcription" in processing_config or "trimming" in processing_config:
+        nested: dict[str, Any] = {}
+        if "transcription" in processing_config:
+            nested["transcription"] = processing_config["transcription"]
+        if "trimming" in processing_config:
+            nested["trimming"] = processing_config["trimming"]
+        if "transcription_vocabulary" in processing_config:
+            nested["transcription_vocabulary"] = processing_config["transcription_vocabulary"]
+        processing_config = nested
+    return {
+        "processing_config": processing_config,
+        "output_config": resolved.output,
+        "metadata_config": resolved.metadata,
+    }
+
+
 def extract_thumbnail_name_from_metadata(metadata: dict[str, Any]) -> str | None:
     """Pick a thumbnail filename from resolved metadata_config for UI preview.
 
@@ -114,6 +133,7 @@ class ResolveContext:
     manual_override: dict[str, Any] | None = None
     include_layers: bool = False
     user_config: dict[str, Any] | None = None
+    ignore_preferences: bool = False
 
 
 class ConfigResolver:
@@ -136,7 +156,8 @@ class ConfigResolver:
         preferences: dict[str, Any] = {}
 
         if ctx.recording:
-            preferences = ctx.recording.processing_preferences or {}
+            if not ctx.ignore_preferences:
+                preferences = ctx.recording.processing_preferences or {}
             if ctx.recording.template_id:
                 bound_tpl = await self.template_repo.find_by_id(ctx.recording.template_id, ctx.user_id)
 
@@ -293,30 +314,34 @@ class ConfigResolver:
         return resolved.processing
 
     async def get_base_config_for_edit(self, recording: RecordingModel, user_id: str) -> dict[str, Any]:
-        """Resolved bundles for GET /recordings/{id}/config."""
+        """Resolved bundles for GET /recordings/{id}/config.
+
+        ``inherited`` is the same merge without this recording's overrides, so the
+        edit dialog can show what Reset to template will restore.
+        """
         resolved = await self.resolve(ResolveContext(user_id=user_id, recording=recording))
+        inherited = await self.resolve(ResolveContext(user_id=user_id, recording=recording, ignore_preferences=True))
         template_name = None
         if recording.template_id:
             template = await self.template_repo.find_by_id(recording.template_id, user_id)
             if template:
                 template_name = template.name
 
-        processing_config = resolved.processing
-        if "transcription" in processing_config or "trimming" in processing_config:
-            nested = {}
-            if "transcription" in processing_config:
-                nested["transcription"] = processing_config["transcription"]
-            if "trimming" in processing_config:
-                nested["trimming"] = processing_config["trimming"]
-            if "transcription_vocabulary" in processing_config:
-                nested["transcription_vocabulary"] = processing_config["transcription_vocabulary"]
-            processing_config = nested
+        prefs = recording.processing_preferences if isinstance(recording.processing_preferences, dict) else {}
+        sections: list[str] = []
+        if prefs.get("processing_config"):
+            sections.append("processing")
+        if prefs.get("output_config"):
+            sections.append("output")
+        if prefs.get("metadata_config"):
+            sections.append("text")
 
+        effective = _edit_bundle(resolved)
         return {
-            "processing_config": processing_config,
-            "output_config": resolved.output,
-            "metadata_config": resolved.metadata,
-            "has_manual_override": bool(recording.processing_preferences),
+            **effective,
+            "inherited": _edit_bundle(inherited),
+            "has_manual_override": bool(prefs),
+            "manual_override_sections": sections,
             "template_name": template_name,
             "template_id": recording.template_id,
         }

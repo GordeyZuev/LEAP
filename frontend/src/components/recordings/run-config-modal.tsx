@@ -3,12 +3,13 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Eye, Loader2, Play, Save, X } from "lucide-react";
+import { ExternalLink, Eye, Loader2, Play, RotateCcw, Save, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { runToastMessage, type RunOperationResponse } from "@/lib/run-response";
 import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/api/client";
 import { Modal } from "@/components/ui/modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ActionButton } from "@/components/ui/action-button";
 import { Field } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -60,6 +61,7 @@ import { LeapConfigFields } from "@/components/platforms/leap-config-section";
 import { UploadCopyFields } from "@/components/platforms/upload-copy-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
 import { formatBaseTemplateLabel } from "@/lib/base-template";
+import { configResetChanges, type ConfigResetDraft } from "@/lib/config-reset-diff";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,6 +87,12 @@ interface RecordingConfigResponse {
   template_id: number | null;
   template_name: string | null;
   has_manual_override: boolean;
+  manual_override_sections?: string[];
+  inherited?: {
+    processing_config?: RecordingConfigResponse["processing_config"];
+    output_config?: RecordingConfigResponse["output_config"];
+    metadata_config?: RecordingConfigResponse["metadata_config"];
+  };
   processing_config: {
     transcription?: {
       language?: string;
@@ -92,6 +100,7 @@ interface RecordingConfigResponse {
       enable_transcription?: boolean;
       enable_topics?: boolean;
       enable_subtitles?: boolean;
+      retention_exempt?: boolean;
       allow_errors?: boolean;
       questions_count?: number;
       vocabulary?: string[];
@@ -163,6 +172,12 @@ export interface RunConfigModalProps {
   submitMode?: "run" | "save";
   /** Open this accordion when the modal appears (e.g. Add platform). */
   focusSection?: "upload";
+  /** Recording column. Null follows the template. Save mode only. */
+  initialRetentionExempt?: boolean | null;
+  /** Template value, known when the recording does not override it. */
+  retentionFromTemplate?: boolean;
+  /** Save mode. Clears saved overrides after the user confirms. */
+  onResetToTemplate?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,6 +195,9 @@ export function RunConfigModal({
   onSuccess,
   submitMode = "run",
   focusSection,
+  initialRetentionExempt = null,
+  retentionFromTemplate,
+  onResetToTemplate,
 }: RunConfigModalProps) {
   const qc = useQueryClient();
   const { show: showToast } = useToast();
@@ -206,6 +224,10 @@ export function RunConfigModal({
   const [vocabulary, setVocabulary] = useState<string[]>([]);
   const [prompt, setPrompt] = useState("");
   const [trimming, setTrimming] = useState(DEFAULT_TRIMMING);
+  const [retentionExempt, setRetentionExempt] = useState<boolean | null>(initialRetentionExempt);
+  const [retentionTouched, setRetentionTouched] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [configReady, setConfigReady] = useState(false);
 
   // ── Output ────────────────────────────────────────────────────────────────
   const [leapOutputEnabled, setLeapOutputEnabled] = useState(false);
@@ -395,7 +417,11 @@ export function RunConfigModal({
         } else if (thumbnailTouched) {
           patch.metadata_config = { thumbnail_name: globalThumbnail };
         }
-        return apiClient.patch(`/recordings/${recordingId}/config`, patch);
+        const saved = await apiClient.patch(`/recordings/${recordingId}/config`, patch);
+        if (retentionTouched) {
+          await apiClient.patch(`/recordings/${recordingId}`, { retention_exempt: retentionExempt });
+        }
+        return saved;
       }
 
       if (mode === "single") {
@@ -433,6 +459,10 @@ export function RunConfigModal({
     setBindTemplate(true);
     setProcessingEnabled(false);
     setProcessingOpen(false);
+    setRetentionExempt(initialRetentionExempt);
+    setRetentionTouched(false);
+    setResetConfirmOpen(false);
+    setConfigReady(false);
     setLanguage("ru");
     setGranularity("long");
     setEnableTranscription(true);
@@ -517,10 +547,111 @@ export function RunConfigModal({
       setOutputEnabled(true);
       setMetadataEnabled(true);
     }
+    setConfigReady(true);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, existingConfig, isSave]);
 
   const overrideEnabledHint = isSave ? "saved on this recording" : undefined;
+  const inheritedRetention = existingConfig?.inherited?.processing_config?.transcription?.retention_exempt;
+  const templateRetention = typeof inheritedRetention === "boolean"
+    ? inheritedRetention
+    : (retentionFromTemplate ?? false);
+  const retentionChecked = retentionExempt ?? templateRetention;
+  const resetRows = useMemo(
+    () => {
+      const inherited = existingConfig?.inherited;
+      if (!configReady || !inherited) return [];
+      const transcription = inherited.processing_config?.transcription;
+      const output = inherited.output_config;
+      const metadata = inherited.metadata_config;
+      const templateDraft: ConfigResetDraft = {
+        language: transcription?.language ?? "ru",
+        granularity: transcription?.granularity ?? "long",
+        enableTranscription: transcription?.enable_transcription ?? true,
+        enableTopics: transcription?.enable_topics ?? true,
+        enableSubtitles: transcription?.enable_subtitles ?? true,
+        allowErrors: transcription?.allow_errors ?? false,
+        questionsCount: transcription?.questions_count ?? 3,
+        vocabulary: transcription?.vocabulary ?? [],
+        prompt: transcription?.prompt ?? "",
+        trimming: trimmingFromApi(inherited.processing_config?.trimming),
+        retentionChecked: templateRetention,
+        publishLeap: output?.publish_leap ?? true,
+        autoUpload: output?.auto_upload ?? true,
+        uploadCaptions: output?.upload_captions ?? true,
+        presetIds: output?.preset_ids ?? [],
+        playlistIds: output?.playlist_ids ?? [],
+        channelIds: output?.channel_ids ?? [],
+        titleTemplate: metadata?.title_template ?? "",
+        descriptionTemplate: metadata?.description_template ?? "",
+        thumbnail: metadata?.thumbnail_name ?? "",
+        topicsDisplay: fromDisplayPayload(metadata?.topics_display, "topics"),
+        questionsDisplay: fromDisplayPayload(metadata?.questions_display, "questions"),
+        leap: metadata?.leap ? leapFieldsFromApi(metadata.leap) : { ...DEFAULT_LEAP_FIELDS },
+        youtube: metadata?.youtube ? youtubeFieldsFromApi(metadata.youtube) : { ...DEFAULT_YOUTUBE_FIELDS },
+        yandex: metadata?.yandex_disk ? yandexFieldsFromApi(metadata.yandex_disk) : { ...DEFAULT_YANDEX_DISK_FIELDS },
+      };
+      const formDraft: ConfigResetDraft = {
+        language,
+        granularity,
+        enableTranscription,
+        enableTopics,
+        enableSubtitles,
+        allowErrors,
+        questionsCount,
+        vocabulary,
+        prompt,
+        trimming,
+        retentionChecked,
+        publishLeap,
+        autoUpload,
+        uploadCaptions,
+        presetIds: selectedPresetIds,
+        playlistIds: selectedPlaylistIds,
+        channelIds: selectedChannelIds,
+        titleTemplate,
+        descriptionTemplate,
+        thumbnail: globalThumbnail,
+        topicsDisplay,
+        questionsDisplay,
+        leap: leapFields,
+        youtube: ytFields,
+        yandex: ydFields,
+      };
+      return configResetChanges(formDraft, templateDraft, presetsData?.items ?? []);
+    },
+    [
+      configReady,
+      existingConfig?.inherited,
+      language,
+      granularity,
+      enableTranscription,
+      enableTopics,
+      enableSubtitles,
+      allowErrors,
+      questionsCount,
+      vocabulary,
+      prompt,
+      trimming,
+      retentionChecked,
+      templateRetention,
+      publishLeap,
+      autoUpload,
+      uploadCaptions,
+      selectedPresetIds,
+      selectedPlaylistIds,
+      selectedChannelIds,
+      titleTemplate,
+      descriptionTemplate,
+      globalThumbnail,
+      topicsDisplay,
+      questionsDisplay,
+      leapFields,
+      ytFields,
+      ydFields,
+      presetsData?.items,
+    ],
+  );
   const count = mode === "bulk" ? (recordingIds?.length ?? 0) : 1;
   const title = isSave
     ? `Edit configuration${recordingName ? `: "${recordingName}"` : recordingId ? ` #${recordingId}` : ""}`
@@ -603,8 +734,9 @@ export function RunConfigModal({
     <Modal
       open={open}
       onClose={onClose}
+      closeOnEsc={!resetConfirmOpen}
       labelledBy={titleId}
-      panelClassName="flex max-h-[92vh] w-full sm:max-w-2xl flex-col bg-card"
+      panelClassName="flex max-h-[min(92vh,calc(100dvh-2rem))] w-full sm:max-w-2xl flex-col overflow-hidden bg-card"
     >
       <>
         {/* Header */}
@@ -622,7 +754,7 @@ export function RunConfigModal({
 
         {/* Body. Sections are already background-separated cards, so spacing
             carries the grouping and the divider lines are just noise. */}
-        <div className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-6 py-4">
           {configLoading ? (
             <div className="flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground">
               <Loader2 size={16} className="animate-spin text-primary" />
@@ -707,6 +839,18 @@ export function RunConfigModal({
             open={processingOpen}
             onOpenChange={setProcessingOpen}
             enabledHint={overrideEnabledHint}
+            footer={isSave ? (
+              <div className="border-t border-border px-4 pb-4 pt-4">
+                <Toggle
+                  label="Do not delete on a schedule"
+                  checked={retentionChecked}
+                  onChange={(value) => {
+                    setRetentionExempt(value === templateRetention ? null : value);
+                    setRetentionTouched(true);
+                  }}
+                />
+              </div>
+            ) : undefined}
           >
             <ProcessingFields
               value={{
@@ -917,22 +1061,58 @@ export function RunConfigModal({
               {runError}
             </p>
           )}
-          <div className="flex items-center justify-end gap-3">
-            <ActionButton variant="secondary" onClick={onClose}>
-              Cancel
-            </ActionButton>
-            <ActionButton
-              onClick={() => runMutation.mutate()}
-              isPending={runMutation.isPending}
-              isSuccess={runMutation.isSuccess}
-              icon={isSave ? <Save /> : <Play />}
-              pendingLabel={isSave ? "Saving…" : "Running…"}
-            >
-              {isSave ? "Save" : "Run"}
-            </ActionButton>
+          <div className="flex items-center justify-between gap-3">
+            {isSave && onResetToTemplate ? (
+              <ActionButton
+                variant="secondary"
+                onClick={() => setResetConfirmOpen(true)}
+                disabled={resetRows.length === 0}
+                icon={<RotateCcw />}
+                title={resetRows.length ? "Replace these settings with the template" : "Already using the template"}
+              >
+                Reset to template
+              </ActionButton>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-3">
+              <ActionButton variant="secondary" onClick={onClose}>
+                Cancel
+              </ActionButton>
+              <ActionButton
+                onClick={() => runMutation.mutate()}
+                isPending={runMutation.isPending}
+                isSuccess={runMutation.isSuccess}
+                icon={isSave ? <Save /> : <Play />}
+                pendingLabel={isSave ? "Saving…" : "Running…"}
+              >
+                {isSave ? "Save" : "Run"}
+              </ActionButton>
+            </div>
           </div>
         </div>
       </>
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        title="Reset to template?"
+        description="These settings will match the template."
+        confirmLabel="Reset to template"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          setResetConfirmOpen(false);
+          onResetToTemplate?.();
+        }}
+        onCancel={() => setResetConfirmOpen(false)}
+      >
+        <ul className="space-y-2 text-sm">
+          {resetRows.map((row) => (
+            <li key={row.label}>
+              <p className="font-medium text-foreground">{row.label}</p>
+              <p className="text-muted-foreground">{row.from} → {row.to}</p>
+            </li>
+          ))}
+        </ul>
+      </ConfirmDialog>
     </Modal>
   );
 }

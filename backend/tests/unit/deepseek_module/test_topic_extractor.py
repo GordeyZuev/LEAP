@@ -230,6 +230,36 @@ def test_skip_completed_requires_chapters() -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_usage_is_reported_before_json_parse_failure() -> None:
+    ext = _extractor()
+    usage = SimpleNamespace(
+        prompt_tokens=3,
+        completion_tokens=4,
+        total_tokens=7,
+        prompt_cache_hit_tokens=1,
+        prompt_cache_miss_tokens=2,
+        prompt_tokens_details=None,
+    )
+    response = SimpleNamespace(
+        error=None,
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"main_topics": []}'))],
+        usage=usage,
+    )
+    ext.client.chat.completions.create = AsyncMock(return_value=response)
+    seen: list[dict] = []
+
+    async def on_usage(payload: dict) -> None:
+        seen.append(payload)
+
+    ext._parse_json_response = MagicMock(side_effect=DeepSeekError("bad json"))
+    with pytest.raises(DeepSeekError):
+        await ext._analyze_full_transcript("hello", 600.0, segments=[], on_usage=on_usage)
+    assert seen and seen[0]["prompt_tokens"] == 3
+    assert seen[0]["completion_tokens"] == 4
+
+
+@pytest.mark.unit
 def test_granularity_config_has_no_split_keys() -> None:
     from deepseek_module.prompts import GRANULARITY_CONFIG
 

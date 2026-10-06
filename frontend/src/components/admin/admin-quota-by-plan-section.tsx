@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchAdminQuotaStats } from "@/api/admin";
 import { COUNT_FORMATTER } from "@/components/settings/format";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW, TABLE_SCROLL } from "@/lib/table-classes";
 import { extractApiError } from "@/lib/utils";
 import { SortableTh } from "@/components/ui/sortable-th";
 
@@ -57,6 +57,7 @@ export function AdminQuotaByPlanSection() {
 
       {data && data.plans.length > 0 && (
         <div className={TABLE_CARD}>
+          <div className={TABLE_SCROLL}>
           <table className="w-full min-w-[560px]">
             <thead>
               <tr className="border-b border-border">
@@ -83,6 +84,7 @@ export function AdminQuotaByPlanSection() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>

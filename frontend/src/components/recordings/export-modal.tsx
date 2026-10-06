@@ -4,6 +4,7 @@ import { useCallback, useId, useState } from "react";
 import { Download, X } from "lucide-react";
 import { parseOperationalState } from "@/lib/operational-state";
 import { apiClient } from "@/api/client";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { Modal } from "@/components/ui/modal";
 import { ActionButton } from "@/components/ui/action-button";
 import { SegmentedField } from "@/components/ui/segmented-field";
@@ -146,9 +147,9 @@ export function ExportModal({
       open={open}
       onClose={handleClose}
       labelledBy={titleId}
-      panelClassName="w-full sm:max-w-sm max-h-[90vh] overflow-y-auto"
+      panelClassName="w-full overflow-hidden sm:max-w-sm"
     >
-      <div className="bg-card">
+      <InsetScroll className="max-h-[min(90vh,calc(100dvh-2rem))] bg-card">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <h2 id={titleId} className="text-sm font-semibold text-foreground">Export recordings</h2>
@@ -231,7 +232,7 @@ export function ExportModal({
             Export
           </ActionButton>
         </div>
-      </div>
+      </InsetScroll>
     </Modal>
   );
 }

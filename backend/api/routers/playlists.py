@@ -47,7 +47,7 @@ from logger import format_details, get_logger
 router = APIRouter(prefix="/api/v1/playlists", tags=["Playlists"])
 logger = get_logger()
 
-PLAYLIST_SORT_FIELDS = {"created_at", "updated_at", "name"}
+PLAYLIST_SORT_FIELDS = {"created_at", "updated_at", "name", "view_count"}
 
 
 def _counts(playlist: PlaylistModel) -> tuple[int, float]:
@@ -85,6 +85,7 @@ def _to_response(
         share_enabled=playlist.share_enabled,
         share_created_at=playlist.share_created_at,
         has_custom_cover=bool(playlist.cover_key),
+        item_sort=playlist.item_sort,
         poster_url=poster_url,
         poster_asset_key=poster_asset_key or _cover_asset_key(playlist),
         created_at=playlist.created_at,
@@ -112,6 +113,7 @@ def _to_list_item(
     item_titles: dict[int, str] | None = None,
     video_count: int | None = None,
     duration_sum: float | None = None,
+    view_count: int = 0,
     ordered_titles: list[str] | None = None,
 ) -> PlaylistListItem:
     if video_count is None or duration_sum is None:
@@ -129,6 +131,7 @@ def _to_list_item(
         ),
         video_count=video_count,
         duration_sum=duration_sum,
+        view_count=view_count,
         share_token=playlist.share_token,
         share_enabled=playlist.share_enabled,
         poster_url=poster_url,
@@ -140,8 +143,15 @@ def _to_list_item(
     )
 
 
+def _item_ranks(playlist: PlaylistModel) -> dict[int, int]:
+    """0-based index per item id. Stored positions keep gaps after removals and recording deletes."""
+    ordered = sorted(playlist.items or [], key=lambda i: (i.position, i.id))
+    return {item.id: index for index, item in enumerate(ordered)}
+
+
 def _to_item_response(
     item: PlaylistItemModel,
+    position: int,
     poster_url: str | None = None,
     poster_fallback_url: str | None = None,
     poster_asset_key: str | None = None,
@@ -155,7 +165,7 @@ def _to_item_response(
     return PlaylistItemResponse(
         id=item.id,
         recording_id=item.recording_id,
-        position=item.position,
+        position=position,
         group_id=item.group_id,
         display_name=display,
         title=title if title is not None else display,
@@ -169,6 +179,7 @@ def _to_item_response(
         poster_refresh_at_ms=poster_refresh_at_ms,
         deleted=bool(rec.deleted) if rec else True,
         blank_record=bool(rec.blank_record) if rec else False,
+        view_count=(rec.share_view_count or 0) if rec else 0,
     )
 
 
@@ -209,7 +220,7 @@ async def list_playlists(
     titles_by_pl = await svc.repo.item_titles_by_playlist(jinja_ids) if jinja_ids else {}
     out = []
     for p in playlists:
-        video_count, duration_sum = stats.get(p.id, (0, 0.0))
+        video_count, duration_sum, view_count = stats.get(p.id, (0, 0.0, 0))
         poster_url = None
         poster_asset_key = None
         poster_refresh_at_ms = None
@@ -233,6 +244,7 @@ async def list_playlists(
                 has_custom_cover=bool(p.cover_key),
                 video_count=video_count,
                 duration_sum=duration_sum,
+                view_count=view_count,
                 ordered_titles=ordered_titles,
             )
         )
@@ -298,6 +310,8 @@ async def update_playlist(
         name=dumped.get("name"),
         description=dumped.get("description", UNSET),
     )
+    if "item_sort" in dumped:
+        await svc.set_item_sort(playlist, data.item_sort)
     await ctx.session.commit()
     poster_url, poster_asset_key = await _owner_cover_preview(playlist, ctx)
     return _to_response(playlist, poster_url=poster_url, poster_asset_key=poster_asset_key)
@@ -485,7 +499,7 @@ async def list_playlist_items(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     svc = PlaylistService(ctx.session, ctx.user_id)
-    await svc.get_owned(playlist_id)
+    ranks = _item_ranks(await svc.get_owned(playlist_id))
     items = await svc.repo.list_items(playlist_id, q=q, from_date=from_dt, to_date=to_dt)
     page_items, total, total_pages = paginate_list(
         items, page, per_page, sort_by="position", sort_order="asc", allowed_sort_fields={"position"}
@@ -497,6 +511,7 @@ async def list_playlist_items(
         items=[
             _to_item_response(
                 i,
+                ranks[i.id],
                 poster_url=previews[i.recording_id].url if i.recording_id in previews else None,
                 poster_fallback_url=previews[i.recording_id].fallback_url if i.recording_id in previews else None,
                 poster_asset_key=previews[i.recording_id].asset_key or None if i.recording_id in previews else None,
@@ -528,9 +543,11 @@ async def add_playlist_items(
     looks = await publication_looks_for_recordings(ctx.session, ctx.user_id, recs)
     previews = await poster_preview_map(ctx.session, ctx.user_id, recs, looks=looks)
     by_id = {item.id: item for item in playlist.items}
+    ranks = _item_ranks(playlist)
     return [
         _to_item_response(
             by_id[item.id],
+            ranks[item.id],
             poster_url=previews[by_id[item.id].recording_id].url if by_id[item.id].recording_id in previews else None,
             poster_fallback_url=previews[by_id[item.id].recording_id].fallback_url
             if by_id[item.id].recording_id in previews

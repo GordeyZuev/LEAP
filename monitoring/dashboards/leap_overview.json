@@ -53,10 +53,10 @@
     {
       "type": "stat",
       "title": "Transcribed minutes",
-      "description": "Total audio/video minutes transcribed in the last 24 hours (sum of final_duration after TRANSCRIBE completed).",
+      "description": "Processing minutes in the last 24 hours (sum of resource_ledger audio_seconds for completed AssemblyAI jobs).",
       "gridPos": {"x": 15, "y": 1, "w": 3, "h": 4},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT ROUND(COALESCE(SUM(q.minutes), 0)::numeric, 1) AS value FROM (SELECT DISTINCT ON (st.recording_id) (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND st.completed_at > NOW() - INTERVAL '24 hours' AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, st.completed_at DESC) q;"}],
+      "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT ROUND(COALESCE(SUM(audio_seconds) / 60.0, 0)::numeric, 1) AS value FROM resource_ledger WHERE provider = 'assemblyai' AND operation = 'transcribe' AND status = 'completed' AND audio_seconds IS NOT NULL AND occurred_at > NOW() - INTERVAL '24 hours';"}],
       "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^value$/"}, "colorMode": "value", "graphMode": "none", "textMode": "value_and_name"},
       "fieldConfig": {"defaults": {"unit": "none", "decimals": 1, "custom": {"suffix": " min"}, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "purple", "value": null}]}}}
     },
@@ -95,10 +95,10 @@
     {
       "type": "timeseries",
       "title": "Transcribed minutes per day",
-      "description": "Minutes of content transcribed per day (final_duration after TRANSCRIBE completed).",
+      "description": "Processing minutes per day from resource_ledger (completed AssemblyAI audio_seconds, including segment-end estimates).",
       "gridPos": {"x": 8, "y": 6, "w": 8, "h": 8},
       "datasource": {"type": "postgres", "uid": "leap_db"},
-      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT sub.day AS time, ROUND(SUM(sub.minutes)::numeric, 1) AS value FROM (SELECT DISTINCT ON (st.recording_id, date_trunc('day', st.completed_at)) date_trunc('day', st.completed_at) AS day, (r.final_duration / 60.0) AS minutes FROM stage_timings st JOIN recordings r ON r.id = st.recording_id WHERE st.stage_type = 'TRANSCRIBE' AND st.status = 'COMPLETED' AND st.substep IS NULL AND $__timeFilter(st.completed_at) AND r.final_duration IS NOT NULL AND r.final_duration > 0 ORDER BY st.recording_id, date_trunc('day', st.completed_at), st.completed_at DESC) sub GROUP BY sub.day ORDER BY sub.day;"}],
+      "targets": [{"refId": "A", "format": "time_series", "rawSql": "SELECT date_trunc('day', occurred_at) AS time, ROUND(COALESCE(SUM(audio_seconds) / 60.0, 0)::numeric, 1) AS value FROM resource_ledger WHERE provider = 'assemblyai' AND operation = 'transcribe' AND status = 'completed' AND audio_seconds IS NOT NULL AND $__timeFilter(occurred_at) GROUP BY 1 ORDER BY 1;"}],
       "fieldConfig": {"defaults": {"unit": "none", "decimals": 1, "custom": {"suffix": " min", "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "barAlignment": 0}}},
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}}
     },

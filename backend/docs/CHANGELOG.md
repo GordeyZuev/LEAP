@@ -1,3 +1,186 @@
+## v0.11.1.1 (2026-10-06)
+
+Релиз: курс и канал помнят порядок видео; на карточках видны просмотры; срок хранения следует шаблону; Usage считает минуты транскрибации по журналу; удаление сначала скрывает запись. Ошибка тем или субтитров не помечает лекцию Failed и не обрывает ту же обработку. Повторный Run подхватывает упавший этап субтитров. Автоматизация обновляет публичную ссылку Яндекс Диска. На странице просмотра пробел ставит видео на паузу.
+
+**Развёртывание:** применить миграции **058**, **059** и **060** до запуска нового API и workers. **059** переводит существующий `retention_exempt = false` в NULL, и запись снова следует шаблону; уже заданный `true` остаётся своим решением. **060** оставляет текущую последовательность как свой порядок, пока правило не выбрано. После выкладки перезапустить Beat и worker `maintenance`, а также worker `async_operations`. Запись со старой ошибкой субтитров нужно запустить ещё раз.
+
+Подробности — **2026-10-05: Saved playlist and channel order**, **2026-10-05: Retention follows the template**, **2026-10-04: View counts on cards and sort by views**, **2026-10-04: Space pauses after a watch-stage click**, **2026-10-04: Resource ledger and two-step retention**, **2026-10-04: allow_errors continues the same chain**, **2026-10-04: Automation syncs public Yandex Disk links**, **2026-10-04: Run resumes a failed subtitle stage**, **2026-10-04: Pipeline failures keep the original error**.
+
+---
+
+## 2026-10-05: Saved playlist and channel order
+
+- **The order rule is saved** — picking **Newest first**, **Oldest first** or **Name A–Z** in **Video order** stores the rule on the playlist (and on the channel for its videos; the channel's **Playlist order** offers **Name A–Z**). The server sorts right away and again whenever videos or playlists are added, including automatic adds from a template, so new lectures land in place. Before, the order was sorted once and the field snapped back to **Current order**.
+- **Custom order** — a drag or arrow-key move keeps the hand-made sequence and clears the rule; the field then shows **Custom order**. Picking **Custom order** in the field keeps the current sequence and stops re-sorting new videos. Removing a video keeps the order as is.
+- **Author order for viewers** — public **Sort by** on a course or channel opens on **Author order** (the owner's sequence), formerly **Playlist order** / **Channel order**.
+- **View-only sorts** — **Most viewed**, **Longest first** and **Most videos** are no longer owner orders: views and playlist sizes change by themselves, so a stored order would silently go stale, and length is not a watch order. Public pages keep them under **Sort by**.
+- **Natural names** — **Name A–Z** puts "Lecture 2" before "Lecture 10" (saved order and public **Sort by**), ignoring case and a leading Zoom timestamp.
+- **Labels** — the field is **Video order** (and **Playlist order** on the channel's playlists tab) instead of a bare **Order**. **Newest lecture** / **Oldest lecture** are now **Newest first** / **Oldest first**; they still sort by lecture date. While search or dates filter the playlist, the field is hidden.
+- **API** — `PATCH /api/v1/playlists/{id}` accepts `item_sort` (`newest` | `oldest` | `name` | `null`); `PATCH /api/v1/channels/{id}` accepts `video_sort` (same values) and `playlist_sort` (`name` | `null`). A value re-sorts now; `null` keeps the current order as custom. Playlist and channel responses return the saved rule. `PUT …/items/order`, `PUT …/videos/order` and `PUT …/playlists/order` clear it.
+- **Row numbers** — `position` in `GET /api/v1/playlists/{id}/items`, `POST /api/v1/playlists/{id}/items` and public playlist items is now a gap-free 0-based index. Removing a video or deleting a recording used to leave holes such as 1, 2, 4.
+- **Migration `060`** — nullable `playlists.item_sort`, `channels.video_sort`, `channels.playlist_sort`. Existing playlists and channels start as **Custom order** and keep their sequence until a rule is picked. Apply the migration before deploying the code.
+
+### Files
+
+- `backend/alembic/versions/060_saved_membership_sort.py`
+- `backend/database/playlist_models.py`
+- `backend/database/channel_models.py`
+- `backend/api/helpers/catalog_sort.py`
+- `backend/api/services/playlist_service.py`
+- `backend/api/services/channel_service.py`
+- `backend/api/routers/playlists.py`
+- `backend/api/routers/channels.py`
+- `backend/api/routers/share.py`
+- `backend/api/schemas/playlist.py`
+- `backend/api/schemas/channel.py`
+- `backend/tests/unit/api/test_catalog_sort.py`
+- `backend/tests/unit/api/test_playlists.py`
+- `backend/tests/unit/api/test_channels.py`
+- `frontend/src/api/playlists.ts`
+- `frontend/src/api/channels.ts`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `frontend/src/components/filters/order-select.tsx`
+- `frontend/src/lib/playlist-catalog.ts`
+- `frontend/src/lib/playlist-catalog.test.ts`
+- `frontend/src/lib/channel-catalog.ts`
+- `frontend/src/lib/channel-catalog.test.ts`
+- `frontend/src/app/(app)/docs/page.tsx`
+- `backend/docs/guides/PLAYLISTS.md`
+- `backend/docs/guides/CHANNELS.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/DATABASE_DESIGN.md`
+
+## 2026-10-05: Retention follows the template
+
+- **Template is live** — a recording follows its template's "do not delete on a schedule" flag. Default template first, then the bound template, same order as the rest of processing. A per-recording override wins. Migration `059`: existing `true` stays an override; existing `false` becomes NULL and follows the template. Dates already set are not rewritten when the day count changes. Turning the effective flag on clears `expire_at`. Turning it off sets `expire_at` only when the recording has no date.
+- **API** — `PATCH /api/v1/recordings/{id}` `retention_exempt: null` follows the template again. `DELETE /api/v1/recordings/{id}/config` clears that override together with processing, output, and text. `GET /api/v1/recordings/{id}/config` adds `manual_override_sections` and `inherited` (the merge without this recording's overrides). Responses add `retention_exempt_effective`. Saving a template's processing config, replacing the template, or promoting the default refreshes inheriting recordings.
+- **Recording page** — configuration is grouped into Processing, Output, and Text. Title and description templates are full width and collapse when long. "Do not delete on a schedule" is a Processing field in Edit. Reset to template is only in that dialog. It turns on as soon as any field in the dialog differs from `inherited`, then asks and lists each change as current → template. Escape on that question closes only the question and leaves focus there. Reset also refreshes pending pipeline stages, the same way saving a config does. Details still shows the resulting auto-hide date. Cards and the table do not.
+- **Admin analytics** — platform charts failed with a database error because a null user filter had no SQL type. The filter is cast to text.
+
+### Files
+
+- `backend/alembic/versions/059_retention_exempt_follows_template.py`
+- `backend/database/models.py`
+- `backend/api/services/retention.py`
+- `backend/api/services/config_resolver.py`
+- `backend/api/schemas/recording/operations.py`
+- `backend/api/services/default_template.py`
+- `backend/api/repositories/recording_repos.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/templates.py`
+- `backend/api/tasks/maintenance.py`
+- `backend/api/schemas/recording/request.py`
+- `backend/api/schemas/recording/response.py`
+- `backend/api/schemas/template/processing_config.py`
+- `backend/api/schemas/config/user_config.py`
+- `backend/api/services/analytics_service.py`
+- `backend/tests/unit/services/test_retention_and_ledger.py`
+- `backend/tests/unit/services/test_config_resolver.py`
+- `frontend/src/lib/config-reset-diff.ts`
+- `frontend/src/lib/config-reset-diff.test.ts`
+- `backend/docs/ARCHITECTURE_SCHEMAS.md`
+- `backend/docs/TECHNICAL.md`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+- `frontend/src/components/recordings/run-config-modal.tsx`
+- `frontend/src/components/ui/disclosure.tsx`
+- `frontend/src/components/recordings/recording-card.tsx`
+- `frontend/src/components/recordings/recordings-table.tsx`
+- `frontend/src/components/platforms/processing-fields.tsx`
+- `frontend/src/components/settings/retention-section.tsx`
+
+## 2026-10-04: View counts on cards and sort by views
+
+- **Views everywhere** — recording cards and the table, playlist and channel cards, playlist and channel pages, the public channel, the public playlist, and the share page show all-time LEAP views. A count of 0 is hidden. A playlist shows the sum of its videos. A channel shows the sum of its videos and the videos of its playlists; a video in both is counted once. The number is the same as Views in share analytics, includes the owner's own opens, and stays after the link is disabled.
+- **API** — `view_count` on `GET /api/v1/recordings`, `GET /api/v1/playlists`, `GET /api/v1/channels` list items, on owner and public playlist/channel items, and on `GET /api/v1/share/{token}`. The owner lists accept `sort_by=view_count`; `GET /api/v1/c/{slug}` accepts `sort=views`. Totals count only recordings of the playlist or channel owner. No migration.
+- **Sort** — owner Recordings, Playlists, and Channels add **Views**, most viewed first. The public channel, the public playlist, and the channel order action add **Most viewed**.
+
+### Files
+
+- `backend/api/repositories/recording_repos.py`
+- `backend/api/repositories/playlist_repo.py`
+- `backend/api/repositories/channel_repo.py`
+- `backend/api/routers/recordings.py`
+- `backend/api/routers/playlists.py`
+- `backend/api/routers/channels.py`
+- `backend/api/routers/share.py`
+- `backend/api/schemas/recording/response.py`
+- `backend/api/schemas/playlist.py`
+- `backend/api/schemas/channel.py`
+- `backend/api/schemas/share.py`
+- `backend/tests/unit/api/test_channels.py`
+- `backend/tests/unit/api/test_playlists.py`
+- `backend/tests/unit/api/test_recording_sort.py`
+- `backend/docs/TECHNICAL.md`
+- `frontend/src/components/ui/view-count.tsx`
+- `frontend/src/lib/format-compact-number.ts`
+- `frontend/src/lib/channel-catalog.ts`
+- `frontend/src/lib/playlist-catalog.ts`
+- `frontend/src/api/playlists.ts`
+- `frontend/src/api/channels.ts`
+- `frontend/src/api/share.ts`
+- `frontend/src/components/recordings/recording-card.tsx`
+- `frontend/src/components/recordings/recordings-table.tsx`
+- `frontend/src/app/(app)/recordings/page.tsx`
+- `frontend/src/app/(app)/playlists/page.tsx`
+- `frontend/src/app/(app)/playlists/[id]/page.tsx`
+- `frontend/src/app/(app)/channels/page.tsx`
+- `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `frontend/src/app/c/[slug]/channel-view.tsx`
+- `frontend/src/app/share/p/[token]/watch-shell.tsx`
+- `frontend/src/app/share/[token]/share-view.tsx`
+
+---
+
+## 2026-10-04: Space pauses after a watch-stage click
+
+- **Watch playback** — while a video is open, a pointer click no longer leaves focus on the last control, including player buttons, chapters, the transcript, the sidebar, and the page header. The next Space plays or pauses. Tab to a control and Space still activates it once; the following Space plays or pauses. Space on a seek or volume slider also plays or pauses. The end card, open dialogs, and comboboxes keep focus.
+
+### Files
+
+- `frontend/src/components/ui/video-player-keys.ts`
+- `frontend/src/components/ui/watch-stage.tsx`
+- `frontend/src/lib/video-player-keys.test.ts`
+
+---
+
+## 2026-10-04: Resource ledger and two-step retention
+
+- **Processing minutes** — Usage, Home, admin analytics, and Grafana Overview sum `resource_ledger.audio_seconds` for completed AssemblyAI jobs. A provider `error` is `failed` and is excluded. An empty transcript is `completed` and the seconds are kept. A Celery retry or worker redelivery of the same task polls the job it already submitted, including after that row is `completed`, instead of opening a second invoice. The audio URL is stored before the provider accepts the job. A retry looks that URL up in AssemblyAI's list and polls the existing job before submitting another. A lost submit response is matched the same way. The hourly reconcile reads the newest transcript pages, then continues from a saved older page so a long list is not cut off. Ids already covered by a historical estimate are marked and are not added again. It imports any completed id still missing. A historical estimate blocks only its own recording, and only transcripts created at or before that estimate; a recording with no estimate is imported even when it is older. A completed payload without `audio_duration` stays `submitted` until a later fetch has the seconds. The model stored is `speech_model_used`. A new task (another transcription, including after reset) submits again. DeepSeek tokens are written before JSON parsing and are not converted into minutes. A second topic extraction does not add minutes.
+- **History** — migration `058` copies `usage_events.transcription_completed.duration_seconds`, then one `final_duration` estimate per recording that has no such event. Those rows use `metadata.basis=segment_end`. The Usage period says so when any estimate is in range. DeepSeek `usage` from live `extracted.json` is copied on the first `maintenance.reconcile_transcription_ledger` after deploy. Wiped files are not reconstructed. `quota_usage` counters are not recomputed.
+- **Storage** — the quota still reads the live user prefix, including trash. Beat writes an hourly `storage_snapshot` for users who have recordings. A numeric quota override of `0` is a real limit.
+- **Retention** — soft delete only hides the recording and revokes its pipeline. `hard_delete_at = deleted_at + hard_delete_days`. Hard delete removes the recording prefix and the row, including rows already marked `delete_state=hard`. `soft_delete_days` is ignored. `recordings.retention_exempt` blocks auto-hide only; manual delete still hides the recording. Turning the flag off sets `expire_at` to now plus `auto_expire_days`. The template field is copied at create and at bind with `reset_preferences`. Reset with `delete_files` wipes the same prefix.
+- **Deploy** — apply migration `058` before the new workers. Restart Beat and the maintenance worker. Beat disables the stored `maintenance.cleanup_recording_files` row on startup, because `DatabaseScheduler` keeps rows removed from `beat_schedule`, and installs the ledger tasks. `grafana_ro` is granted `SELECT` on `resource_ledger` when that role exists. A failed object delete during reset keeps that storage key on the recording so the next wipe can retry it.
+
+### Files
+
+- `backend/alembic/versions/058_resource_ledger_and_retention_exempt.py`
+- `backend/database/auth_models.py`
+- `backend/database/models.py`
+- `backend/api/services/resource_ledger.py`
+- `backend/api/services/retention.py`
+- `backend/api/services/analytics_service.py`
+- `backend/api/services/quota_service.py`
+- `backend/api/repositories/recording_repos.py`
+- `backend/api/tasks/maintenance.py`
+- `backend/api/tasks/processing.py`
+- `backend/api/services/timing_service.py`
+- `backend/api/celery_app.py`
+- `backend/assemblyai_module/service.py`
+- `backend/deepseek_module/topic_extractor.py`
+- `backend/docs/guides/USAGE_AND_ANALYTICS.md`
+- `backend/docs/guides/QUOTAS.md`
+- `backend/docs/guides/CELERY_WORKERS_GUIDE.md`
+- `backend/docs/guides/AUTOMATION_CELERY_BEAT.md`
+- `backend/docs/TECHNICAL.md`
+- `backend/docs/ARCHITECTURE_SCHEMAS.md`
+- `monitoring/dashboards/leap_overview.json`
+- `frontend/src/components/settings/retention-section.tsx`
+- `frontend/src/components/settings/usage-panel.tsx`
+- `frontend/src/app/(app)/recordings/[id]/page.tsx`
+
+---
+
 ## 2026-10-04: allow_errors continues the same chain
 
 - **allow_errors** — a transcription, topics, or subtitles error skips that stage and the rest of the same Celery chain, including upload, still runs. The recording is not marked Failed. Topics and subtitles are skipped only when transcription itself failed. A later task returns immediately only while there is still no transcript, so subtitles can be generated once a transcript exists. A quota block and a soft time limit still mark the recording Failed and stop the chain.
@@ -156,6 +339,7 @@
 - **Сброс:** диалоги на странице записи и в списке предупреждают об удалении оригинала; сброс с сохранением файлов оставляет ключи медиа для повторной обработки.
 - **Публичная тема:** запись, плейлист и канал следуют системной теме. Кнопка солнце/луна в шапке рядом с Copy link переключает вид; повторное нажатие снова следует системе. Тот же выбор, что в Settings.
 - **Развёртывание:** применить миграции **056–057** до запуска API. nginx принимает multipart запрос размером до 5001 MiB для файла до 5000 MiB. Workflow обновляет сгенерированный `nginx/nginx.conf` из шаблона и пересоздаёт nginx; при ручном обновлении сервера требуется тот же шаг.
+- **Уточнения того же выпуска** — **2026-10-02: Home welcome layout**, **2026-10-03: Product news, email subscriptions, and feedback**, **2026-10-03: Public share latency and analytics reliability audit**, **2026-10-04: Home recovery and readable API errors**, **2026-10-04: Home publication visibility and Settings hydration**.
 
 ---
 

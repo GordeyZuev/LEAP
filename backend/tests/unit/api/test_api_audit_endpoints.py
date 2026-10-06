@@ -26,6 +26,7 @@ def _stub_config_resolver(mocker, *, processing_config: dict | None = None, outp
             "processing_config": {},
             "output_config": {},
             "metadata_config": {},
+            "inherited": {"processing_config": {}, "output_config": {}, "metadata_config": {}},
         }
     )
     mocker.patch("api.services.config_utils.validate_effective_output_config", new_callable=AsyncMock)

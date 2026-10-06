@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
@@ -32,6 +32,30 @@ def playable_recording_clause():
         & (RecordingModel.blank_record.is_(False))
         & RecordingModel.processed_video_path.is_not(None)
         & (RecordingModel.processed_video_path != "")
+    )
+
+
+def _channel_views_subquery(channel_ids):
+    """channel_id -> all-time LEAP views of its videos plus attached playlist items, each recording once."""
+    scope = union(
+        select(
+            ChannelVideoModel.channel_id.label("channel_id"),
+            ChannelVideoModel.recording_id.label("recording_id"),
+        ).where(ChannelVideoModel.channel_id.in_(channel_ids)),
+        select(ChannelPlaylistModel.channel_id, PlaylistItemModel.recording_id)
+        .join(PlaylistItemModel, PlaylistItemModel.playlist_id == ChannelPlaylistModel.playlist_id)
+        .where(ChannelPlaylistModel.channel_id.in_(channel_ids)),
+    ).subquery()
+    return (
+        select(
+            scope.c.channel_id,
+            func.coalesce(func.sum(RecordingModel.share_view_count), 0).label("view_count"),
+        )
+        .join(RecordingModel, RecordingModel.id == scope.c.recording_id)
+        .join(ChannelModel, ChannelModel.id == scope.c.channel_id)
+        .where(RecordingModel.user_id == ChannelModel.user_id)
+        .group_by(scope.c.channel_id)
+        .subquery()
     )
 
 
@@ -70,11 +94,25 @@ class ChannelRepository:
             term = f"%{q.strip()}%"
             base = base.where(or_(ChannelModel.name.ilike(term), ChannelModel.slug.ilike(term)))
         total = int((await self.session.execute(select(func.count()).select_from(base.subquery()))).scalar_one())
-        order_col = getattr(ChannelModel, sort_by, ChannelModel.updated_at)
-        order = order_col.desc() if sort_order == "desc" else order_col.asc()
+        if sort_by == "view_count":
+            views = _channel_views_subquery(select(ChannelModel.id).where(ChannelModel.user_id == user_id))
+            base = base.outerjoin(views, views.c.channel_id == ChannelModel.id)
+            order_col = func.coalesce(views.c.view_count, 0)
+        else:
+            order_col = getattr(ChannelModel, sort_by, ChannelModel.updated_at)
+        descending = sort_order == "desc"
+        order = order_col.desc() if descending else order_col.asc()
+        tie = ChannelModel.id.desc() if descending else ChannelModel.id.asc()
         offset = (page - 1) * per_page
-        result = await self.session.execute(base.order_by(order).offset(offset).limit(per_page))
+        result = await self.session.execute(base.order_by(order, tie).offset(offset).limit(per_page))
         return list(result.scalars().unique().all()), total
+
+    async def view_totals(self, channel_ids: list[int]) -> dict[int, int]:
+        if not channel_ids:
+            return {}
+        views = _channel_views_subquery(channel_ids)
+        result = await self.session.execute(select(views.c.channel_id, views.c.view_count))
+        return {int(cid): int(n) for cid, n in result.all()}
 
     async def membership_counts(self, channel_ids: list[int]) -> dict[int, tuple[int, int]]:
         """channel_id -> (video_count, playlist_count)."""

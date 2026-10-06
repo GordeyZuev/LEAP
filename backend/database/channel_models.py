@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.models import Base
+from database.playlist_models import VideoSort
 
 if TYPE_CHECKING:
     from database.auth_models import UserModel
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
 MAX_CHANNELS_PER_USER = 20
 MAX_VIDEOS_PER_CHANNEL = 200
 MAX_PLAYLISTS_PER_CHANNEL = 200
+
+PlaylistSort = Literal["name"]
 
 
 class ChannelModel(Base):
@@ -39,6 +42,9 @@ class ChannelModel(Base):
     slug: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     share_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     banner_key: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Rules re-applied when members are added (see api.helpers.catalog_sort); NULL = hand-made order.
+    video_sort: Mapped[VideoSort | None] = mapped_column(String(16), nullable=True)
+    playlist_sort: Mapped[PlaylistSort | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

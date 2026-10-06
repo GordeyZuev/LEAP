@@ -266,11 +266,18 @@ class RecordingListItem(ReadyToUploadMixin, PipelineControlMixin):
     soft_deleted_at: datetime | None = None
     hard_delete_at: datetime | None = None
     expire_at: datetime | None = None
+    retention_exempt: bool | None = Field(
+        None, description="Null follows the template. True or false is this recording's override."
+    )
+    retention_exempt_effective: bool = Field(
+        False, description="Flag the nightly job uses: the override, or the template when there is no override."
+    )
 
     # --- Share ---
     share_token: uuid.UUID | None = None
     share_enabled: bool = False
     share_stats: ShareStatsSummary | None = None
+    view_count: int = Field(0, description="All-time LEAP page views; kept after the public link is revoked.")
 
     # --- Timestamps ---
     created_at: datetime
@@ -331,6 +338,8 @@ class RecordingResponse(ReadyToUploadMixin, PipelineControlMixin):
     soft_deleted_at: datetime | None = None
     hard_delete_at: datetime | None = None
     expire_at: datetime | None = None
+    retention_exempt: bool | None = None
+    retention_exempt_effective: bool = False
 
     # --- Share ---
     share_token: uuid.UUID | None = None

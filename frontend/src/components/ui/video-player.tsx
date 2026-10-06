@@ -6,7 +6,7 @@ import { AlertCircle, RotateCcw } from "lucide-react";
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
 import { VIDEO_PLAYER_FRAME } from "@/components/ui/video-player-frame";
-import { PLAYER_SHORTCUTS, PLAYER_SPEEDS, handlePlayerKey } from "@/components/ui/video-player-keys";
+import { PLAYER_SHORTCUTS, PLAYER_SPEEDS, bindPlaybackFocus, handlePlayerKey } from "@/components/ui/video-player-keys";
 import { applyHudAction, HUD_HIDE_MS, type HudView } from "@/lib/player-hud";
 import { cn } from "@/lib/utils";
 import { createResumeSaver, readResumeTime, resumeTimeWithinDuration, retryTimeWithinDuration } from "@/lib/video-resume";
@@ -515,6 +515,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         }
       };
       window.addEventListener("keydown", onKeyDown);
+      const releaseFocus = bindPlaybackFocus(document.body);
 
       return () => {
         cancelled = true;
@@ -525,6 +526,7 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
         if (hudHideRef.current) clearTimeout(hudHideRef.current);
         window.removeEventListener("pagehide", persistNow);
         window.removeEventListener("keydown", onKeyDown);
+        releaseFocus();
         document.removeEventListener("visibilitychange", onVisibilityChange);
         el.removeEventListener("enterpictureinpicture", onPiPChange);
         el.removeEventListener("leavepictureinpicture", onPiPChange);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { cn } from "@/lib/utils";
 import { StatusBadge, displayProcessingStatus, type ProcessingStatus } from "@/components/ui/status-badge";
 import {
@@ -162,10 +163,12 @@ export function PipelineStatusButton({
             maxHeight: coords.maxHeight,
             transformOrigin: coords.bottom != null ? "bottom" : "top",
           }}
-          className="animate-dropdown-in z-[100] overflow-auto rounded-2xl border border-border bg-card p-3 shadow-xl outline-none"
+          className="animate-dropdown-in z-[100] overflow-hidden rounded-2xl border border-border bg-card shadow-xl outline-none"
         >
-          <p className="mb-2 text-xs font-semibold text-foreground">Pipeline</p>
-          <PipelineStageList stages={ordered} showTimes={false} />
+          <InsetScroll frameClassName="max-h-[inherit]" className="max-h-[inherit] p-3">
+            <p className="mb-2 text-xs font-semibold text-foreground">Pipeline</p>
+            <PipelineStageList stages={ordered} showTimes={false} />
+          </InsetScroll>
         </div>,
         document.body,
       )}

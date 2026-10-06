@@ -1,4 +1,5 @@
 import { apiClient } from "@/api/client";
+import type { SavedVideoSort } from "@/api/playlists";
 import type { ShareAnalyticsResponse } from "@/api/share";
 
 export interface ChannelListItem {
@@ -9,6 +10,7 @@ export interface ChannelListItem {
   share_enabled: boolean;
   video_count: number;
   playlist_count: number;
+  view_count?: number;
   banner_url: string | null;
   created_at: string;
   updated_at: string;
@@ -22,7 +24,14 @@ export interface ChannelListResponse {
   total_pages: number;
 }
 
-export type ChannelDetail = ChannelListItem;
+/** Order rule the server keeps and re-applies to added playlists; `null` is a hand-made order. */
+export const SAVED_PLAYLIST_SORTS = ["name"] as const;
+export type SavedPlaylistSort = (typeof SAVED_PLAYLIST_SORTS)[number];
+
+export interface ChannelDetail extends ChannelListItem {
+  video_sort?: SavedVideoSort | null;
+  playlist_sort?: SavedPlaylistSort | null;
+}
 
 export interface ChannelShareResponse {
   slug: string;
@@ -49,6 +58,7 @@ export interface ChannelVideoRow {
   poster_url: string | null;
   poster_asset_key?: string | null;
   share_token: string | null;
+  view_count?: number;
 }
 
 export interface ChannelPlaylistRow {
@@ -64,6 +74,7 @@ export interface ChannelPlaylistRow {
   poster_asset_key?: string | null;
   share_token: string | null;
   has_custom_cover: boolean;
+  view_count?: number;
 }
 
 export interface ChannelMembershipListResponse<T> {
@@ -97,7 +108,13 @@ export async function getChannel(id: number): Promise<ChannelDetail> {
 
 export async function updateChannel(
   id: number,
-  body: { name?: string; slug?: string; description?: string | null },
+  body: {
+    name?: string;
+    slug?: string;
+    description?: string | null;
+    video_sort?: SavedVideoSort | null;
+    playlist_sort?: SavedPlaylistSort | null;
+  },
 ): Promise<ChannelDetail> {
   const res = await apiClient.patch<ChannelDetail>(`/channels/${id}`, body);
   return res.data;

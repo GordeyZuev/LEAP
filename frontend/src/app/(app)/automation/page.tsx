@@ -26,7 +26,7 @@ import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { Pagination } from "@/components/ui/pagination";
 import { ResultCount } from "@/components/ui/result-count";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW, TABLE_SCROLL } from "@/lib/table-classes";
 import { isInitialLoad, listQueryOptions, STALE_TIME } from "@/lib/react-query";
 
 interface AutomationJob {
@@ -186,6 +186,7 @@ function AutomationContent() {
       {/* Table — four columns, same density as Templates, so the card does not
           force a wide min-width and a horizontal scroll on a typical laptop. */}
       <div className={TABLE_CARD}>
+        <div className={TABLE_SCROLL}>
         <table className="w-full min-w-[640px]">
           <thead>
             <tr className="border-b border-border">
@@ -294,6 +295,7 @@ function AutomationContent() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {data && (

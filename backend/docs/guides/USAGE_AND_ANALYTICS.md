@@ -1,6 +1,6 @@
 # Usage, quotas, and product analytics
 
-**Product release:** v0.11.1.0 (October 2026)
+**Product release:** v0.11.1.1 (October 2026)
 
 This guide is the canonical reference for **in-app usage observability**: what users and admins see in the web UI, how it maps to API responses, and how it relates to `usage_events`, `quota_usage`, and share counters.
 
@@ -99,9 +99,9 @@ All endpoints require auth. Dates are inclusive `YYYY-MM-DD` (UTC day boundaries
 
 **Metric labels**
 
-- **`transcription_minutes`** — sum of processed content length (`final_duration`) for completed transcriptions in the period (deduped per recording per day; aligned with Grafana Overview logic).
-- **`transcription_jobs`** — count of completed transcription jobs in the period.
-- **Monthly quota transcriptions** — `quota_usage.transcriptions_count` via `/users/me/quota` (not the same as activity job count over an arbitrary range).
+- **`transcription_minutes`** — processing minutes: sum of `resource_ledger.audio_seconds / 60` for `provider=assemblyai`, `operation=transcribe`, `status=completed`. Each completed recognition counts, including a second run after reset. DeepSeek tokens are in the ledger and are not converted into these minutes. Rows with `metadata.basis=segment_end` are estimates from before AssemblyAI `audio_duration` was stored; `summary.transcription_includes_estimate` is true when the selected period contains any. Grafana Overview uses the same ledger filter.
+- **`transcription_jobs`** — count of those completed ledger rows (not deduped per recording).
+- **Monthly quota transcriptions** — `quota_usage.transcriptions_count` via `/users/me/quota`. That counter is how many transcription jobs were allowed to finish saving, not the billable minutes.
 
 ---
 
@@ -110,7 +110,8 @@ All endpoints require auth. Dates are inclusive `YYYY-MM-DD` (UTC day boundaries
 | Store | Purpose |
 | --- | --- |
 | **`quota_usage`** | Monthly counters (`period` = `YYYYMM`): recordings, transcriptions, processing, uploads |
-| **`usage_events`** | Immutable audit log for admin timeline (`recording_created`, `processing_started`, …) |
+| **`resource_ledger`** | Provider spend (migration **058**). AssemblyAI `audio_seconds`, DeepSeek token columns, hourly `storage_snapshot` bytes. `user_id` has no foreign key, so deleting an account does not erase the journal. `recording_id` is set null on hard delete. |
+| **`usage_events`** | Product audit log (`recording_created`, `processing_started`, …). Not used to price minutes. |
 | **`share_access_events`** + recording counters | Share views/downloads |
 | **`share_engagement_events`** (migration **053**) | Anonymous engagement on public watch (chapters, completion, navigation, stop point) |
 | **Live counts** | Storage (S3), concurrent tasks (`on_air`), automation jobs, templates, credentials |

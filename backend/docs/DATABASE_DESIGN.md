@@ -149,9 +149,9 @@ erDiagram
 
 | Таблица | Модель | Назначение |
 |---------|--------|------------|
-| `playlists` | `PlaylistModel` | `user_id`, уникальное `name` на пользователя, `description`, `cover_key` (nullable, **049**), `share_token`, `share_enabled`, `share_created_at`; лимит 200 на пользователя |
+| `playlists` | `PlaylistModel` | `user_id`, уникальное `name` на пользователя, `description`, `cover_key` (nullable, **049**), `share_token`, `share_enabled`, `share_created_at`, `item_sort` (nullable, **060**: сохранённое правило порядка, NULL — ручной порядок); лимит 200 на пользователя |
 | `playlist_items` | `PlaylistItemModel` | `playlist_id`, `recording_id`, `position`; UNIQUE `(playlist_id, recording_id)`; лимит 200 пунктов |
-| `channels` | `ChannelModel` | `user_id`, уникальное `name` на пользователя, глобально уникальный `slug`, `description`, `share_enabled`, `banner_key`; лимит 20 на пользователя (**050**) |
+| `channels` | `ChannelModel` | `user_id`, уникальное `name` на пользователя, глобально уникальный `slug`, `description`, `share_enabled`, `banner_key`, `video_sort` / `playlist_sort` (nullable, **060**: сохранённые правила порядка, NULL — ручной порядок); лимит 20 на пользователя (**050**) |
 | `channel_videos` | `ChannelVideoModel` | UNIQUE `(channel_id, recording_id)`, `position`; лимит 200 |
 | `channel_playlists` | `ChannelPlaylistModel` | UNIQUE `(channel_id, playlist_id)` — один плейлист во многих каналах; `position` в каждом канале; лимит 200 слотов на канал |
 

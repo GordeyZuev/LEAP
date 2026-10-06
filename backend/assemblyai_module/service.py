@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -19,6 +19,25 @@ logger = get_logger()
 
 class EmptyTranscriptError(ValueError):
     """ASR returned no words — treat as a blank recording, not a provider outage."""
+
+    transcript_id: str | None = None
+    audio_seconds: float | None = None
+
+
+class AssemblyAIJobError(RuntimeError):
+    """AssemblyAI finished the job with status error. Minutes are not billed into the ledger."""
+
+    def __init__(self, message: str, transcript_id: str):
+        super().__init__(message)
+        self.transcript_id = transcript_id
+
+
+class TranscriptionLedgerHooks(Protocol):
+    async def submitted(self, transcript_id: str) -> None: ...
+
+    async def completed(self, transcript_id: str, audio_seconds: float | None, model: str | None = None) -> None: ...
+
+    async def failed(self, transcript_id: str) -> None: ...
 
 
 class AssemblyAITranscriptionService:
@@ -36,20 +55,119 @@ class AssemblyAITranscriptionService:
         audio_storage_key: str,
         language: str | None,
         keyterms: list[str],
+        *,
+        hooks: TranscriptionLedgerHooks | None = None,
+        resume_transcript_id: str | None = None,
     ) -> dict[str, Any]:
         """Transcribe audio from S3/storage key.
 
         Prod: generates presigned URL → passes as audio_url.
         Local dev: presigned returns relative path → downloads file → uploads via /v2/upload.
 
+        ``resume_transcript_id`` polls an existing job instead of submitting a second one.
+        The completed hook runs before normalization, including when the transcript has no words.
+
         Returns: {text, words, segments, language}
         """
-        audio_url = await self._resolve_audio_url(audio_storage_key)
+        if resume_transcript_id:
+            transcript_id = resume_transcript_id
+        else:
+            audio_url = await self._resolve_audio_url(audio_storage_key)
+            prepare = getattr(hooks, "preparing", None) if hooks is not None else None
+            if prepare is not None:
+                await prepare(audio_url)
+            try:
+                transcript_id = await self._submit(audio_url, language, keyterms)
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code < 500:
+                    raise
+                transcript_id = await self.find_transcript_id_by_audio_url(audio_url)
+                if transcript_id is None:
+                    raise
+                logger.warning(f"AssemblyAI | Recovered transcript after submit error | id={transcript_id}")
+            if hooks is not None:
+                await hooks.submitted(transcript_id)
 
-        transcript_id = await self._submit(audio_url, language, keyterms)
-        result = await self._poll(transcript_id)
-        raw_sentences = await self._fetch_sentences(transcript_id)
-        return self._normalize(result, language, raw_sentences)
+        try:
+            result = await self._poll(transcript_id)
+        except AssemblyAIJobError:
+            if hooks is not None:
+                await hooks.failed(transcript_id)
+            raise
+
+        raw_duration = result.get("audio_duration")
+        audio_seconds = float(raw_duration) if raw_duration is not None else None
+        model_used = result.get("speech_model_used")
+        model = model_used if isinstance(model_used, str) and model_used else None
+        if audio_seconds is None:
+            try:
+                fresh = await self.fetch_transcript(transcript_id)
+            except Exception as exc:
+                logger.warning(f"AssemblyAI | Duration refetch failed | id={transcript_id} | error={exc}")
+                fresh = None
+            if isinstance(fresh, dict):
+                raw_duration = fresh.get("audio_duration")
+                audio_seconds = float(raw_duration) if raw_duration is not None else None
+                fresh_model = fresh.get("speech_model_used")
+                if isinstance(fresh_model, str) and fresh_model:
+                    model = fresh_model
+                result = fresh
+        if hooks is not None and audio_seconds is not None:
+            await hooks.completed(transcript_id, audio_seconds, model)
+        elif audio_seconds is None:
+            logger.warning(f"AssemblyAI | Completed without audio_duration | id={transcript_id}")
+
+        try:
+            raw_sentences = await self._fetch_sentences(transcript_id)
+            return self._normalize(result, language, raw_sentences)
+        except EmptyTranscriptError as exc:
+            exc.transcript_id = transcript_id
+            exc.audio_seconds = audio_seconds
+            raise
+
+    async def list_transcripts(self, page_url: str | None = None) -> dict[str, Any]:
+        """One page of recent transcripts, newest first. The page has no audio_duration."""
+        url = page_url or f"{self.config.base_url}/v2/transcript?limit=100"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers={"Authorization": self.config.api_key})
+            response.raise_for_status()
+            data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError(f"AssemblyAI transcript list returned {type(data).__name__}")
+        return data
+
+    async def find_transcript_id_by_audio_url(self, audio_url: str) -> str | None:
+        """Newest transcript submitted with this exact audio URL, if the list already shows it."""
+        page_url: str | None = None
+        for _page in range(10):
+            try:
+                payload = await self.list_transcripts(page_url)
+            except Exception as exc:
+                logger.warning(f"AssemblyAI | Transcript list failed | error={exc}")
+                return None
+            items = payload.get("transcripts")
+            if not isinstance(items, list):
+                return None
+            for item in items:
+                if isinstance(item, dict) and item.get("audio_url") == audio_url and isinstance(item.get("id"), str):
+                    return item["id"]
+            page_details = payload.get("page_details")
+            prev = page_details.get("prev_url") if isinstance(page_details, dict) else None
+            if not isinstance(prev, str) or not prev:
+                return None
+            page_url = prev
+        return None
+
+    async def fetch_transcript(self, transcript_id: str) -> dict[str, Any]:
+        """One GET of a transcript, used to close ledger rows left in ``submitted``."""
+        poll_url = f"{self.config.base_url}/v2/transcript/{transcript_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(poll_url, headers={"Authorization": self.config.api_key})
+            response.raise_for_status()
+            data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError(f"AssemblyAI transcript {transcript_id} returned {type(data).__name__}")
+        return data
 
     async def _resolve_audio_url(self, audio_storage_key: str) -> str:
         """Return a public URL for the audio key, uploading via AssemblyAI if needed."""
@@ -152,7 +270,10 @@ class AssemblyAITranscriptionService:
                     return data
 
                 if status == "error":
-                    raise RuntimeError(f"AssemblyAI transcription failed: {data.get('error')} (id={transcript_id})")
+                    raise AssemblyAIJobError(
+                        f"AssemblyAI transcription failed: {data.get('error')} (id={transcript_id})",
+                        transcript_id,
+                    )
 
                 logger.debug(f"AssemblyAI | Polling | status={status} | elapsed={elapsed:.0f}s | attempt={attempt}")
                 await asyncio.sleep(settings.poll_interval)

@@ -14,7 +14,6 @@ import { TOAST_SHORT } from "@/lib/constants";
 import type { RetentionConfig, UserConfig } from "./types";
 
 const DEFAULT_RETENTION: RetentionConfig = {
-  soft_delete_days: 3,
   hard_delete_days: 30,
   auto_expire_days: 90,
 };
@@ -34,7 +33,6 @@ export function RetentionSection() {
     if (!userConfig?.config_data?.retention) return;
     const r = userConfig.config_data.retention;
     setRetention({
-      soft_delete_days: r.soft_delete_days ?? DEFAULT_RETENTION.soft_delete_days,
       hard_delete_days: r.hard_delete_days ?? DEFAULT_RETENTION.hard_delete_days,
       auto_expire_days: r.auto_expire_days ?? DEFAULT_RETENTION.auto_expire_days,
     });
@@ -56,31 +54,24 @@ export function RetentionSection() {
   return (
     <>
       <p className="mb-5 text-sm text-muted-foreground">
-        Account-level storage policy. Video processing defaults live in your base template.
+        A template decides this for its recordings. A recording can override it. Changing these
+        counts does not move a date that is already set.
       </p>
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <Field label="Soft delete (days)">
-          <NumberInput
-            integer
-            min={1}
-            value={retention.soft_delete_days}
-            onCommit={(v) => setRetention((c) => ({ ...c, soft_delete_days: v }))}
-          />
-        </Field>
-        <Field label="Hard delete (days)">
-          <NumberInput
-            integer
-            min={1}
-            value={retention.hard_delete_days}
-            onCommit={(v) => setRetention((c) => ({ ...c, hard_delete_days: v }))}
-          />
-        </Field>
-        <Field label="Auto-expire (days)">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <Field label="Auto-hide (days)">
           <NumberInput
             integer
             min={1}
             value={retention.auto_expire_days}
             onCommit={(v) => setRetention((c) => ({ ...c, auto_expire_days: v }))}
+          />
+        </Field>
+        <Field label="In trash until full removal (days)">
+          <NumberInput
+            integer
+            min={1}
+            value={retention.hard_delete_days}
+            onCommit={(v) => setRetention((c) => ({ ...c, hard_delete_days: v }))}
           />
         </Field>
       </div>

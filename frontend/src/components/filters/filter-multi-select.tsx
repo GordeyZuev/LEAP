@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { cn } from "@/lib/utils";
 import { CHECKBOX, FILTER_CONTROL, FILTER_CONTROL_FILLED, FILTER_LABEL } from "@/lib/filter-field-classes";
 
@@ -94,7 +95,8 @@ export function FilterMultiSelect<V extends string | number = number>({
         <ChevronDown size={16} className={cn("shrink-0 opacity-60 transition-transform", open && "rotate-180")} />
       </button>
       {open && (
-        <div className="animate-dropdown-in absolute left-0 top-full z-[50] mt-1.5 max-h-[min(22rem,70vh)] w-[min(100vw-2rem,17rem)] overflow-auto rounded-2xl border border-border bg-card p-2 shadow-xl">
+        <div className="animate-dropdown-in absolute left-0 top-full z-[50] mt-1.5 w-[min(100vw-2rem,17rem)] overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+          <InsetScroll className="max-h-[min(22rem,70vh)] p-2">
           {options.length === 0 ? (
             <p className="px-3 py-4 text-center text-xs text-muted-foreground">No options available</p>
           ) : (
@@ -117,6 +119,7 @@ export function FilterMultiSelect<V extends string | number = number>({
               </label>
             ))
           )}
+          </InsetScroll>
         </div>
       )}
     </div>

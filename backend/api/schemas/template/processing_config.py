@@ -60,6 +60,10 @@ class TranscriptionProcessingConfig(BaseModel):
     )
 
     enable_subtitles: bool = Field(True, description="Enable subtitles generation")
+    retention_exempt: bool = Field(
+        False,
+        description="Live template flag. Recordings follow it unless they store their own override.",
+    )
 
 
 TemplateProcessingConfig.model_rebuild()

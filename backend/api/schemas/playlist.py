@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 from api.schemas.common.pagination import PaginatedResponse
+from database.playlist_models import VideoSort
 
 
 class PlaylistCreate(BaseModel):
@@ -37,6 +38,9 @@ class PlaylistUpdate(BaseModel):
 
     name: str | None = Field(None, min_length=1, max_length=200)
     description: str | None = Field(None, max_length=4000)
+    item_sort: VideoSort | None = Field(
+        None, description="Saved order rule, applied now and to added videos; null keeps the current order as custom"
+    )
 
     @field_validator("name", mode="before")
     @classmethod
@@ -73,6 +77,7 @@ class PlaylistListItem(BaseModel):
     description: str | None = None
     video_count: int = 0
     duration_sum: float = 0
+    view_count: int = Field(0, description="Sum of all-time LEAP views of the playlist's videos.")
     share_token: uuid.UUID | None = Field(
         default=None,
         description="Owner token for /share/p/{uuid}. Public GET is 404 unless share_enabled.",
@@ -111,6 +116,7 @@ class PlaylistResponse(BaseModel):
     share_enabled: bool = False
     share_created_at: datetime | None = None
     has_custom_cover: bool = False
+    item_sort: VideoSort | None = Field(None, description="Saved order rule; null when the order is custom")
     poster_url: str | None = None
     poster_asset_key: str | None = None
     created_at: datetime
@@ -165,7 +171,7 @@ class PlaylistItemResponse(BaseModel):
 
     id: int
     recording_id: int
-    position: int
+    position: int = Field(description="0-based index in the whole playlist, without gaps; unaffected by filters")
     group_id: int | None = None
     display_name: str
     title: str
@@ -185,6 +191,7 @@ class PlaylistItemResponse(BaseModel):
     poster_refresh_at_ms: int | None = None
     deleted: bool = False
     blank_record: bool = False
+    view_count: int = 0
 
 
 class PlaylistItemsResponse(PaginatedResponse):
@@ -193,7 +200,7 @@ class PlaylistItemsResponse(PaginatedResponse):
 
 class PublicPlaylistItem(BaseModel):
     id: int
-    position: int
+    position: int = Field(description="0-based index in the whole playlist, without gaps")
     group_id: int | None = None
     title: str
     duration: float
@@ -205,6 +212,7 @@ class PublicPlaylistItem(BaseModel):
         None,
         description="Stable poster identity; unchanged when presigned URLs are refreshed.",
     )
+    view_count: int = 0
 
 
 class PublicPlaylistResponse(BaseModel):

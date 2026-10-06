@@ -32,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, type TabItem } from "@/components/ui/tabs";
 import { FormattedText } from "@/components/ui/formatted-text";
 import { cn, formatDate, formatDuration, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
+import { formatViewCount } from "@/lib/format-compact-number";
 import { lastIndexAtOrBefore } from "@/lib/playlist-playable";
 import { recordingResumeKey } from "@/lib/video-resume";
 import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
@@ -498,6 +499,12 @@ export function ShareView({ token }: { token: string }) {
                       <>
                         <span aria-hidden="true" className="text-border">·</span>
                         <span>{formatDuration(recording.duration) ?? "—"}</span>
+                      </>
+                    )}
+                    {(recording.view_count ?? 0) > 0 && (
+                      <>
+                        <span aria-hidden="true" className="text-border">·</span>
+                        <span className="tabular-nums">{formatViewCount(recording.view_count ?? 0)}</span>
                       </>
                     )}
                   </span>

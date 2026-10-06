@@ -114,8 +114,9 @@ export function Modal({
     return () => releaseScrollLock();
   }, [mounted]);
 
-  // ESC + focus management — gated on `open` so a closing dialog does not
-  // recapture focus.
+  // Focus management is gated on `open` only. Toggling `closeOnEsc` must not
+  // rerun it: a nested dialog (the reset question) would lose focus, and the
+  // cleanup would send focus back to whatever was focused when Edit opened.
   useEffect(() => {
     if (!open) return;
 
@@ -130,6 +131,19 @@ export function Modal({
     };
     const raf = requestAnimationFrame(focusInitial);
 
+    return () => {
+      cancelAnimationFrame(raf);
+      const prev = previouslyFocused.current;
+      if (prev && prev.isConnected && typeof prev.focus === "function") {
+        prev.focus({ preventScroll: true });
+      }
+      previouslyFocused.current = null;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (closeOnEsc && e.key === "Escape") {
         e.stopPropagation();
@@ -137,16 +151,7 @@ export function Modal({
       }
     }
     document.addEventListener("keydown", onKeyDown);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      document.removeEventListener("keydown", onKeyDown);
-      const prev = previouslyFocused.current;
-      if (prev && prev.isConnected && typeof prev.focus === "function") {
-        prev.focus({ preventScroll: true });
-      }
-      previouslyFocused.current = null;
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, closeOnEsc]);
 
   const handleKeyDownTrap = useCallback((e: KeyboardEvent<HTMLDivElement>) => {

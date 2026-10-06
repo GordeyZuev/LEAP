@@ -175,6 +175,10 @@ interface RecordingDetail {
   pipeline_started_at: string | null;
   pipeline_completed_at: string | null;
   soft_deleted_at?: string | null;
+  hard_delete_at?: string | null;
+  expire_at?: string | null;
+  retention_exempt?: boolean | null;
+  retention_exempt_effective?: boolean;
   pipeline_duration_seconds: number | null;
   is_mapped: boolean;
   template_id: number | null;
@@ -204,6 +208,7 @@ interface RecordingConfigResponse {
   template_id: number | null;
   template_name: string | null;
   has_manual_override: boolean;
+  manual_override_sections?: string[];
   processing_config: {
     transcription?: {
       language?: string;
@@ -873,8 +878,9 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
   const resetConfig = useMutation({
     mutationFn: () => apiClient.delete(`/recordings/${id}/config`),
     onSuccess: () => {
+      setConfigEditOpen(false);
       invalidateConfigQueries();
-      showToast("success", "Override removed");
+      showToast("success", "Reset to template");
     },
     onError: (e) => showToast("error", extractApiError(e, "Failed to reset config")),
   });
@@ -1490,71 +1496,51 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                 >
                   Edit
                 </ActionButton>
-                {recordingConfig.has_manual_override && (
-                  <ActionButton
-                    size="sm"
-                    variant="secondary"
-                    isPending={resetConfig.isPending}
-                    onClick={() => resetConfig.mutate()}
-                    icon={<RotateCcw size={12} />}
-                    pendingLabel="Resetting…"
-                  >
-                    Reset override
-                  </ActionButton>
-                )}
               </div>
               {/* Template is not repeated here — it is always visible in the
                   Details card, which never collapses. */}
-              <dl className="space-y-3">
-                {recordingConfig.has_manual_override && (
-                  <ConfigRow label="Override" value="Manual override active" highlight />
-                )}
-                {recordingConfig.processing_config?.transcription && (() => {
-                  const t = recordingConfig.processing_config!.transcription!;
-                  return (
-                    <>
-                      {t.language     && <ConfigRow label="Language"      value={t.language} />}
-                      {t.granularity  && <ConfigRow label="Granularity"   value={t.granularity} />}
-                      {t.enable_transcription != null && <ConfigRow label="Transcription" value={t.enable_transcription ? "On" : "Off"} />}
-                      {t.enable_topics    != null && <ConfigRow label="Topics"         value={t.enable_topics    ? "On" : "Off"} />}
-                      {t.enable_subtitles != null && <ConfigRow label="Subtitles"      value={t.enable_subtitles ? "On" : "Off"} />}
-                    </>
-                  );
+              <div className="space-y-6">
+                {(() => {
+                  const t = recordingConfig.processing_config?.transcription;
+                  const rows = [
+                    t?.language ? <ConfigRow key="language" label="Language" value={t.language} /> : null,
+                    t?.granularity ? <ConfigRow key="granularity" label="Granularity" value={t.granularity} /> : null,
+                    t?.enable_transcription != null ? <ConfigRow key="transcription" label="Transcription" value={t.enable_transcription ? "On" : "Off"} /> : null,
+                    t?.enable_topics != null ? <ConfigRow key="topics" label="Topics" value={t.enable_topics ? "On" : "Off"} /> : null,
+                    t?.enable_subtitles != null ? <ConfigRow key="subtitles" label="Subtitles" value={t.enable_subtitles ? "On" : "Off"} /> : null,
+                  ].filter(Boolean);
+                  if (!rows.length) return null;
+                  return <ConfigGroup title="Processing">{rows}</ConfigGroup>;
                 })()}
                 {recordingConfig.output_config && (() => {
                   const o = recordingConfig.output_config!;
                   const names = (o.preset_ids ?? []).map(
                     (pid) => presetsList?.items.find((p) => p.id === pid)?.name ?? `#${pid}`,
                   );
-                  const hasAny =
-                    o.auto_upload != null ||
-                    o.upload_captions != null ||
-                    (o.preset_ids?.length ?? 0) > 0;
-                  if (!hasAny) return null;
-                  return (
-                    <>
-                      {o.auto_upload    != null && <ConfigRow label="Auto-upload"      value={o.auto_upload    ? "On" : "Off"} />}
-                      {o.upload_captions != null && <ConfigRow label="Upload captions" value={o.upload_captions ? "On" : "Off"} />}
-                      {names.length ? <ConfigRow label="Presets" value={names.join(", ")} /> : null}
-                    </>
-                  );
+                  const rows = [
+                    o.auto_upload != null ? <ConfigRow key="auto" label="Auto-upload" value={o.auto_upload ? "On" : "Off"} /> : null,
+                    o.upload_captions != null ? <ConfigRow key="captions" label="Upload captions" value={o.upload_captions ? "On" : "Off"} /> : null,
+                    names.length ? <ConfigRow key="presets" label="Presets" value={names.join(", ")} /> : null,
+                  ].filter(Boolean);
+                  if (!rows.length) return null;
+                  return <ConfigGroup title="Output">{rows}</ConfigGroup>;
                 })()}
                 {recordingConfig.metadata_config && (() => {
                   const m = recordingConfig.metadata_config!;
-                  return (
-                    <>
-                      {m.title_template       && <ConfigRow label="Title template"       value={m.title_template}       mono />}
-                      {m.description_template && <ConfigRow label="Description template" value={m.description_template} mono />}
-                      {m.thumbnail_name       && <ConfigRow label="Thumbnail"            value={m.thumbnail_name}       mono />}
-                    </>
-                  );
+                  const blocks = [
+                    m.title_template ? <ConfigTemplate key="title" label="Title template" value={m.title_template} /> : null,
+                    m.description_template ? <ConfigTemplate key="description" label="Description template" value={m.description_template} /> : null,
+                    m.thumbnail_name ? <ConfigRow key="thumbnail" label="Thumbnail" value={m.thumbnail_name} mono /> : null,
+                  ].filter(Boolean);
+                  if (!blocks.length) return null;
+                  return <ConfigGroup title="Text">{blocks}</ConfigGroup>;
                 })()}
-              </dl>
+              </div>
               {!recordingConfig.has_manual_override &&
               !recordingConfig.processing_config?.transcription &&
               !recordingConfig.output_config &&
               !recordingConfig.metadata_config ? (
-                <p className="text-sm text-muted-foreground">Using the bound template. Edit to override.</p>
+                <p className="mt-6 text-sm text-muted-foreground">Using the bound template. Edit to override.</p>
               ) : null}
               </>
             )}
@@ -1725,6 +1711,20 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
               {recording.video_file_size ? (
                 <SidebarInfoRow label="File size" value={formatFileSize(recording.video_file_size)} />
               ) : null}
+              <SidebarInfoRow
+                label={recording.soft_deleted_at ? "Full removal" : "Auto-hide"}
+                value={
+                  recording.soft_deleted_at
+                    ? recording.hard_delete_at
+                      ? formatDate(recording.hard_delete_at)
+                      : "Hidden"
+                    : recording.retention_exempt_effective
+                      ? "Off"
+                      : recording.expire_at
+                        ? formatDate(recording.expire_at)
+                        : "Not scheduled"
+                }
+              />
             </dl>
           </SectionCard>
 
@@ -1849,7 +1849,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         onToast={(msg, variant) => showToast(variant === "error" ? "error" : "success", msg)}
       />
 
-      <Modal open={playlistPickerOpen} onClose={() => setPlaylistPickerOpen(false)} labelledBy="add-to-playlist-title" panelClassName="max-w-lg">
+      <Modal open={playlistPickerOpen} onClose={() => setPlaylistPickerOpen(false)} labelledBy="add-to-playlist-title" panelClassName="max-w-lg overflow-hidden">
         <div className="flex max-h-[90vh] flex-col overflow-hidden">
           <div className="border-b border-border px-5 py-4">
             <h2 id="add-to-playlist-title" className="text-sm font-semibold text-foreground">Add to playlist</h2>
@@ -1868,7 +1868,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         </div>
       </Modal>
 
-      <Modal open={channelPickerOpen} onClose={() => setChannelPickerOpen(false)} labelledBy="add-to-channel-title" panelClassName="max-w-lg">
+      <Modal open={channelPickerOpen} onClose={() => setChannelPickerOpen(false)} labelledBy="add-to-channel-title" panelClassName="max-w-lg overflow-hidden">
         <div className="flex max-h-[90vh] flex-col overflow-hidden">
           <div className="border-b border-border px-5 py-4">
             <h2 id="add-to-channel-title" className="text-sm font-semibold text-foreground">Add to channel</h2>
@@ -1939,6 +1939,11 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
         recordingId={Number(id)}
         recordingName={recording.display_name}
         focusSection={configEditFocus}
+        initialRetentionExempt={recording.retention_exempt ?? null}
+        retentionFromTemplate={
+          recording.retention_exempt == null ? !!recording.retention_exempt_effective : undefined
+        }
+        onResetToTemplate={() => resetConfig.mutate()}
         onSuccess={() => {
           qc.invalidateQueries({ queryKey: ["recording", id] });
           qc.invalidateQueries({ queryKey: ["recording-config", Number(id)] });
@@ -2198,29 +2203,53 @@ function SidebarInfoRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function ConfigGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <div className="space-y-2">{children}</div>
+    </section>
+  );
+}
+
+function ConfigTemplate({ label, value }: { label: string; value: string }) {
+  const [open, setOpen] = useState(false);
+  const long = value.length > 180 || value.includes("\n");
+  return (
+    <div className="space-y-1">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <pre
+        className={cn(
+          "m-0 whitespace-pre-wrap break-words text-left font-mono text-xs text-foreground",
+          long && !open && "line-clamp-4",
+        )}
+      >
+        {value}
+      </pre>
+      {long ? (
+        <button type="button" className="text-xs font-medium text-primary" onClick={() => setOpen((current) => !current)}>
+          {open ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function ConfigRow({
   label,
   value,
   mono,
-  highlight,
 }: {
   label: string;
   value: ReactNode;
   mono?: boolean;
-  highlight?: boolean;
 }) {
   return (
     <div className="flex justify-between gap-4">
-      <dt className="shrink-0 text-sm text-muted-foreground">{label}</dt>
-      <dd
-        className={cn(
-          "min-w-0 max-w-[70%] text-right text-sm",
-          highlight ? "font-medium text-warning-fg" : "text-foreground",
-          mono && "font-mono text-xs"
-        )}
-      >
+      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+      <span className={cn("min-w-0 max-w-[70%] text-right text-sm text-foreground", mono && "font-mono text-xs")}>
         {value}
-      </dd>
+      </span>
     </div>
   );
 }

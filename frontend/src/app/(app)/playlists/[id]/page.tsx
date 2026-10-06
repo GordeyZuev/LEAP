@@ -33,6 +33,7 @@ import {
   reorderPlaylistItems,
   renamePlaylistGroup,
   rotatePlaylistShare,
+  SAVED_VIDEO_SORTS,
   setPlaylistItemGroup,
   updatePlaylist,
   uploadPlaylistCover,
@@ -42,10 +43,10 @@ import {
 } from "@/api/playlists";
 import { apiClient } from "@/api/client";
 import { LEAP_CATALOG_CAP, PER_PAGE_RECORDINGS_PICKER } from "@/lib/constants";
-import { PLAYLIST_VIDEO_SORT, sortPlaylistItems, type PlaylistVideoSort } from "@/lib/playlist-catalog";
+import { PLAYLIST_VIDEO_SORT, type PlaylistVideoSort } from "@/lib/playlist-catalog";
 import { posterRefreshDelayMs, structuralSharingPreservePosters } from "@/lib/poster-stable";
 import { FilterChips, type FilterChipItem } from "@/components/filters/filter-chips";
-import { OrderSelect, ownerOrderOptions } from "@/components/filters/order-select";
+import { isSavedSort, OrderSelect, ownerOrderOptions } from "@/components/filters/order-select";
 import { SearchInput } from "@/components/filters/search-input";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -64,6 +65,7 @@ import { ShareAnalyticsPlaque } from "@/components/share/share-analytics-plaque"
 import { RecordingPoster, StablePosterImage } from "@/components/recordings/recording-poster";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toast } from "@/components/ui/toast";
+import { ViewCount } from "@/components/ui/view-count";
 import { useToast } from "@/hooks/use-toast";
 import { CHECKBOX, FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { interpolatePlaylistDescription, PLAYLIST_JINJA_VARS } from "@/lib/formatted-text";
@@ -136,7 +138,6 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   const [copied, setCopied] = useState(false);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [overId, setOverId] = useState<number | null>(null);
-  const [itemOrder, setItemOrder] = useState<PlaylistVideoSort>("order");
   const [orderBusy, setOrderBusy] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
@@ -182,6 +183,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   });
 
   const items = itemsQuery.data?.items ?? EMPTY_ITEMS;
+  const itemOrder: PlaylistVideoSort = playlist?.item_sort ?? "order";
   const groupsQuery = useQuery({
     queryKey: ["playlist-groups", playlistId],
     queryFn: () => listPlaylistGroups(playlistId),
@@ -269,7 +271,6 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   const removeItem = useMutation({
     mutationFn: (itemId: number) => removePlaylistItem(playlistId, itemId),
     onSuccess: () => {
-      setItemOrder("order");
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
       qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
     },
@@ -284,7 +285,6 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
       qc.invalidateQueries({ queryKey: ["playlist", playlistId] });
       show("success", "Recordings added");
-      setItemOrder("order");
     },
     onError: (e) => show("error", extractApiError(e, "Failed to add recordings")),
   });
@@ -328,10 +328,12 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   async function persistOrder(ids: number[]): Promise<boolean> {
     try {
       await reorderPlaylistItems(playlistId, ids);
+      qc.setQueryData(["playlist", playlistId], (old: PlaylistDetail | undefined) =>
+        old ? { ...old, item_sort: null } : old,
+      );
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
       return true;
     } catch (e) {
-      setItemOrder("order");
       show("error", extractApiError(e, "Item set does not match the playlist. Refresh and try again."));
       qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
       return false;
@@ -339,35 +341,15 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
   }
 
   async function applyItemOrder(sort: PlaylistVideoSort) {
-    if (sort === "order") return;
+    if (sort === itemOrder || (sort !== "order" && !isSavedSort(SAVED_VIDEO_SORTS, sort))) return;
     if (!beginOrder()) return;
     try {
-      const full = await listPlaylistItems(playlistId, { per_page: LEAP_CATALOG_CAP });
-      if (full.items.length < 2) return;
-      const sorted = sortPlaylistItems(
-        full.items.map((item) => ({ ...item, title: item.title || item.display_name })),
-        sort,
-      );
-      qc.setQueryData(
-        ["playlist-items", playlistId, q, fromDate, toDate],
-        (old: PlaylistItemsResponse | undefined) => {
-          if (!old?.items) return old;
-          const byId = new Map(old.items.map((row) => [row.id, row]));
-          const next = sorted
-            .map((row, i) => {
-              const cur = byId.get(row.id);
-              return cur ? { ...cur, position: i } : null;
-            })
-            .filter((row): row is PlaylistItem => row != null);
-          if (next.length !== old.items.length) return old;
-          return { ...old, items: next };
-        },
-      );
-      const ok = await persistOrder(sorted.map((item) => item.id));
-      if (ok) show("success", "Watch order updated");
+      const updated = await updatePlaylist(playlistId, { item_sort: sort === "order" ? null : sort });
+      qc.setQueryData(["playlist", playlistId], updated);
+      await qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
+      show("success", "Watch order updated");
     } catch (e) {
       show("error", extractApiError(e, "Could not update order."));
-      qc.invalidateQueries({ queryKey: ["playlist-items", playlistId] });
     } finally {
       endOrder();
     }
@@ -382,7 +364,6 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       const next = idx + dir;
       if (idx < 0 || next < 0 || next >= ids.length) return;
       [ids[idx], ids[next]] = [ids[next], ids[idx]];
-      setItemOrder("order");
       await persistOrder(ids);
     } finally {
       endOrder();
@@ -403,7 +384,7 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
       if (from < 0 || to < 0) return;
       ids.splice(from, 1);
       ids.splice(to, 0, sourceId);
-      setItemOrder("order");
+      await qc.cancelQueries({ queryKey: ["playlist-items", playlistId] });
       qc.setQueryData(
         ["playlist-items", playlistId, q, fromDate, toDate],
         (old: { items: PlaylistItem[] } | undefined) => {
@@ -779,14 +760,14 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                 />
               </div>
             </div>
-            {items.length >= 2 || filtered ? (
+            {items.length >= 2 && !filtered ? (
             <OrderSelect
-              label="Order"
+              label="Video order"
               className="min-w-0 sm:ml-auto sm:w-[15rem]"
               value={itemOrder}
-              options={ownerOrderOptions(PLAYLIST_VIDEO_SORT)}
+              options={ownerOrderOptions(PLAYLIST_VIDEO_SORT, SAVED_VIDEO_SORTS)}
               onChange={applyItemOrder}
-              disabled={orderBusy || itemsQuery.isLoading || filtered}
+              disabled={orderBusy || itemsQuery.isLoading}
             />
             ) : null}
           </div>
@@ -873,10 +854,11 @@ function PlaylistEditor({ params }: { params: Promise<{ id: string }> }) {
                     <Link href={`/recordings/${item.recording_id}`} className="line-clamp-1 text-sm font-medium text-foreground hover:underline">
                       {item.title || item.display_name}
                     </Link>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                       {formatDate(item.start_time)}
-                      {item.deleted && <span className="ms-2 text-danger-fg">Deleted</span>}
-                      {!item.playable && !item.deleted && <span className="ms-2 text-muted-foreground">Processing</span>}
+                      <ViewCount count={item.view_count} />
+                      {item.deleted && <span className="text-danger-fg">Deleted</span>}
+                      {!item.playable && !item.deleted && <span className="text-muted-foreground">Processing</span>}
                     </p>
                   </div>
                 </div>

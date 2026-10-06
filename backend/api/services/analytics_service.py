@@ -25,6 +25,23 @@ from utils.date_utils import parse_from_date_to_datetime, parse_to_date_to_datet
 
 MAX_ANALYTICS_RANGE_DAYS = 366
 
+# Completed AssemblyAI audio only. DeepSeek tokens and failed jobs stay out of the sum.
+_LEDGER_MINUTES_BY_DAY = """
+SELECT date_trunc('day', occurred_at)::date AS day,
+       ROUND(SUM(audio_seconds / 60.0)::numeric, 2) AS minutes,
+       COUNT(*)::int AS jobs
+FROM resource_ledger
+WHERE provider = 'assemblyai'
+  AND operation = 'transcribe'
+  AND status = 'completed'
+  AND audio_seconds IS NOT NULL
+  AND occurred_at >= :start_dt
+  AND occurred_at <= :end_dt
+  AND (CAST(:user_id AS text) IS NULL OR user_id = CAST(:user_id AS text))
+GROUP BY 1
+ORDER BY 1
+"""
+
 
 def default_analytics_range(days: int = 28) -> tuple[str, str]:
     """Return inclusive (from, to) ISO dates ending today (UTC)."""
@@ -80,6 +97,7 @@ class AnalyticsService:
         daily = self._build_daily_points(metrics_by_date, start_d, end_d, include_active_users=False)
         daily_uploads = await self._daily_uploads(user_id, start_dt, end_dt, start_d, end_d)
         summary = self._summarize(daily, daily_uploads)
+        summary.transcription_includes_estimate = await self._transcription_includes_estimate(user_id, start_dt, end_dt)
         breakdown = await self._breakdowns(user_id, start_dt, end_dt)
 
         return UserAnalyticsResponse(
@@ -98,6 +116,7 @@ class AnalyticsService:
         daily = self._build_daily_points(metrics_by_date, start_d, end_d, include_active_users=True)
         daily_uploads = await self._daily_uploads(None, start_dt, end_dt, start_d, end_d)
         summary = self._summarize(daily, daily_uploads)
+        summary.transcription_includes_estimate = await self._transcription_includes_estimate(None, start_dt, end_dt)
         unique_active = await self._unique_active_users(start_dt, end_dt)
         summary.active_users_unique = unique_active
         breakdown = await self._breakdowns(None, start_dt, end_dt)
@@ -165,63 +184,28 @@ class AnalyticsService:
     async def _transcription_by_day(
         self, user_id: str | None, start_dt: datetime, end_dt: datetime
     ) -> list[tuple[date, float, int]]:
-        if user_id:
-            sql = text(
-                """
-                SELECT sub.day::date AS day,
-                       ROUND(SUM(sub.minutes)::numeric, 2) AS minutes,
-                       COUNT(*)::int AS jobs
-                FROM (
-                    SELECT DISTINCT ON (st.recording_id, date_trunc('day', st.completed_at))
-                        date_trunc('day', st.completed_at) AS day,
-                        (r.final_duration / 60.0) AS minutes
-                    FROM stage_timings st
-                    JOIN recordings r ON r.id = st.recording_id
-                    WHERE st.stage_type = 'TRANSCRIBE'
-                      AND st.status = 'COMPLETED'
-                      AND st.substep IS NULL
-                      AND st.completed_at >= :start_dt
-                      AND st.completed_at <= :end_dt
-                      AND r.final_duration IS NOT NULL
-                      AND r.final_duration > 0
-                      AND r.deleted IS FALSE
-                      AND r.user_id = :user_id
-                    ORDER BY st.recording_id, date_trunc('day', st.completed_at), st.completed_at DESC
-                ) sub
-                GROUP BY sub.day
-                ORDER BY sub.day
-                """
-            )
-            params = {"start_dt": start_dt, "end_dt": end_dt, "user_id": user_id}
-        else:
-            sql = text(
-                """
-                SELECT sub.day::date AS day,
-                       ROUND(SUM(sub.minutes)::numeric, 2) AS minutes,
-                       COUNT(*)::int AS jobs
-                FROM (
-                    SELECT DISTINCT ON (st.recording_id, date_trunc('day', st.completed_at))
-                        date_trunc('day', st.completed_at) AS day,
-                        (r.final_duration / 60.0) AS minutes
-                    FROM stage_timings st
-                    JOIN recordings r ON r.id = st.recording_id
-                    WHERE st.stage_type = 'TRANSCRIBE'
-                      AND st.status = 'COMPLETED'
-                      AND st.substep IS NULL
-                      AND st.completed_at >= :start_dt
-                      AND st.completed_at <= :end_dt
-                      AND r.final_duration IS NOT NULL
-                      AND r.final_duration > 0
-                      AND r.deleted IS FALSE
-                    ORDER BY st.recording_id, date_trunc('day', st.completed_at), st.completed_at DESC
-                ) sub
-                GROUP BY sub.day
-                ORDER BY sub.day
-                """
-            )
-            params = {"start_dt": start_dt, "end_dt": end_dt}
-        result = await self.session.execute(sql, params)
+        sql = text(_LEDGER_MINUTES_BY_DAY)
+        result = await self.session.execute(sql, {"start_dt": start_dt, "end_dt": end_dt, "user_id": user_id})
         return [(row.day, float(row.minutes or 0), int(row.jobs or 0)) for row in result.all()]
+
+    async def _transcription_includes_estimate(self, user_id: str | None, start_dt: datetime, end_dt: datetime) -> bool:
+        sql = text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM resource_ledger
+                WHERE provider = 'assemblyai'
+                  AND operation = 'transcribe'
+                  AND status = 'completed'
+                  AND occurred_at >= :start_dt
+                  AND occurred_at <= :end_dt
+                  AND metadata->>'basis' = 'segment_end'
+                  AND (CAST(:user_id AS text) IS NULL OR user_id = CAST(:user_id AS text))
+            )
+            """
+        )
+        result = await self.session.execute(sql, {"start_dt": start_dt, "end_dt": end_dt, "user_id": user_id})
+        return bool(result.scalar())
 
     async def _share_by_day(
         self, user_id: str | None, start_dt: datetime, end_dt: datetime

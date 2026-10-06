@@ -70,6 +70,8 @@ class RecordingModel(Base):
     deletion_reason: Mapped[str | None] = mapped_column(String(20))
     soft_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     hard_delete_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # NULL follows the template. True or false is this recording's override.
+    retention_exempt: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     # --- File paths & storage ---
     local_video_path: Mapped[str | None] = mapped_column(String(1000))

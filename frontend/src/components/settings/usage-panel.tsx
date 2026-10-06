@@ -140,7 +140,7 @@ function UsagePanelContent() {
     return [
       { label: "Recordings", value: COUNT_FORMATTER.format(data.summary.recordings_created) },
       {
-        label: "Transcribed content",
+        label: "Processing minutes",
         value: `${data.summary.transcription_minutes.toFixed(1)} min`,
       },
       {
@@ -213,6 +213,11 @@ function UsagePanelContent() {
             ) : (
               periodSummary.length > 0 && <AnalyticsSummaryCards items={periodSummary} />
             )}
+            {data?.summary.transcription_includes_estimate ? (
+              <p className="text-xs text-muted-foreground">
+                Some minutes in this period are the end of the last transcript segment, not the seconds on the AssemblyAI invoice.
+              </p>
+            ) : null}
 
             <ChartCard
               title={`Recordings per ${chartPeriodLabel}`}
@@ -234,8 +239,8 @@ function UsagePanelContent() {
 
             <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
               <ChartCard
-                title={`Transcribed content per ${chartPeriodLabel}`}
-                description="Minutes of content after transcription"
+                title={`Processing minutes per ${chartPeriodLabel}`}
+                description="Processing minutes from completed recognition"
                 isLoading={analyticsQuery.isPending}
                 isError={analyticsQuery.isError}
                 error={analyticsQuery.error}

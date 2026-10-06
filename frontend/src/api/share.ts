@@ -33,6 +33,7 @@ export interface PublicRecordingResponse {
   duration: number;
   start_time: string;
   status: string;
+  view_count?: number;
   topic_timestamps: unknown | null;
   main_topics: unknown | null;
   summary: string | null;
@@ -68,6 +69,7 @@ export interface PublicPlaylistItem {
   unavailable_reason: string | null;
   poster_url: string | null;
   poster_asset_key?: string | null;
+  view_count?: number;
 }
 
 export interface PublicPlaylistGroup {
@@ -208,12 +210,14 @@ export interface PublicChannelVideo {
   poster_asset_key?: string | null;
   share_token: string;
   blurb?: string | null;
+  view_count?: number;
 }
 
 export interface PublicChannelPlaylist {
   name: string;
   video_count: number;
   duration_sum: number;
+  view_count?: number;
   poster_url: string | null;
   poster_asset_key?: string | null;
   share_token: string;

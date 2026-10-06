@@ -8,6 +8,7 @@ import { apiClient } from "@/api/client";
 import { ShareAnalyticsPanel } from "@/components/recordings/share-analytics-panel";
 import { ActionButton } from "@/components/ui/action-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { Modal } from "@/components/ui/modal";
 import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
@@ -137,9 +138,9 @@ export function ShareModal({
         open={open}
         onClose={onClose}
         label="Share recording"
-        panelClassName={showAnalytics ? "max-w-lg" : "max-w-md"}
+        panelClassName={cn("overflow-hidden", showAnalytics ? "max-w-lg" : "max-w-md")}
       >
-        <div className="max-h-[min(90vh,44rem)] overflow-y-auto p-6">
+        <InsetScroll className="max-h-[min(calc(100dvh-2rem),44rem)] p-6">
           <h2 className="mb-1 text-sm font-semibold text-foreground">Share recording</h2>
           <p className="mb-4 text-xs text-muted-foreground">
             Anyone with the link can view the video, chapters, and download files.
@@ -241,7 +242,7 @@ export function ShareModal({
               Close
             </ActionButton>
           </div>
-        </div>
+        </InsetScroll>
       </Modal>
 
       <ConfirmDialog

@@ -39,8 +39,104 @@ export type PlayerKeysTarget = {
 };
 
 const TEXT_ENTRY = "input, textarea, select, [contenteditable='true']";
-const ACTIVATE_TARGET = "button, a, [role='tab'], [role='menuitem']";
+const ACTIVATE_TARGET = "button, a, [role='button'], [role='tab'], [role='menuitem'], [role='menuitemradio']";
 const ARROW_WIDGET = "[role='tablist'], [role='menu'], [role='listbox'], [role='slider'], [role='radiogroup']";
+const SKIP_PLAYBACK_FOCUS = ".plyr__leap-overlay, [role='dialog'], [aria-modal='true'], [role='combobox']";
+const PLAYBACK_FOCUS_CONTROL = ACTIVATE_TARGET;
+const PLAYBACK_RANGE = "input[type='range']";
+
+type Focusable = {
+  closest(selector: string): Focusable | null;
+  blur(): void;
+};
+
+function asFocusable(target: EventTarget | null): { closest(selector: string): Focusable | null } | null {
+  if (!target || typeof (target as unknown as Focusable).closest !== "function") return null;
+  return target as unknown as { closest(selector: string): Focusable | null };
+}
+
+function canBlur(node: Focusable | null): node is Focusable {
+  return Boolean(node && typeof node.blur === "function");
+}
+
+/** Control that should not keep pointer focus, so the next Space plays or pauses. */
+export function playbackFocusControl(target: EventTarget | null): Focusable | null {
+  const node = asFocusable(target);
+  if (!node || node.closest(SKIP_PLAYBACK_FOCUS)) return null;
+  const control = node.closest(PLAYBACK_FOCUS_CONTROL);
+  return canBlur(control) ? control : null;
+}
+
+/** Seek and volume sliders. Released on pointer-up so a drag still works. */
+export function playbackRangeControl(target: EventTarget | null): Focusable | null {
+  const node = asFocusable(target);
+  if (!node || node.closest(SKIP_PLAYBACK_FOCUS)) return null;
+  const range = node.closest(PLAYBACK_RANGE);
+  return canBlur(range) ? range : null;
+}
+
+/**
+ * While a video is mounted, drop pointer focus from controls on the page.
+ * Tab keeps keyboard focus, so the next Space still activates that control;
+ * Space or Enter then drops it. Dialogs, the end card, and comboboxes stay
+ * focused. Blur waits until after the click so the control's action still runs.
+ */
+export function bindPlaybackFocus(root: HTMLElement): () => void {
+  let keyboard = false;
+  const pending = new Set<number>();
+
+  const schedule = (control: HTMLElement, keepKeyboardFocus = true) => {
+    const id = window.setTimeout(() => {
+      pending.delete(id);
+      if (keepKeyboardFocus && keyboard) return;
+      if (document.activeElement === control) control.blur();
+    }, 0);
+    pending.add(id);
+  };
+
+  const release = (target: EventTarget | null) => {
+    if (keyboard) return;
+    const control = playbackFocusControl(target);
+    if (control instanceof HTMLElement && root.contains(control)) schedule(control);
+  };
+
+  const onKeyDown = () => {
+    keyboard = true;
+  };
+  const onPointerDown = () => {
+    keyboard = false;
+  };
+  const onFocusIn = (event: FocusEvent) => release(event.target);
+  // Space/Enter already activated the focused control. Drop it afterwards so the
+  // next Space plays or pauses. Tab and arrows keep focus for keyboard users.
+  const onKeyUp = (event: KeyboardEvent) => {
+    if (event.key !== " " && event.key !== "Enter") return;
+    const control = playbackFocusControl(document.activeElement);
+    if (control instanceof HTMLElement && root.contains(control)) schedule(control, false);
+  };
+  const onPointerUp = () => {
+    if (keyboard) return;
+    const active = document.activeElement;
+    const range = playbackRangeControl(active);
+    if (range instanceof HTMLElement && root.contains(range)) schedule(range);
+    else release(active);
+  };
+
+  window.addEventListener("keydown", onKeyDown, true);
+  window.addEventListener("keyup", onKeyUp, true);
+  window.addEventListener("pointerdown", onPointerDown, true);
+  root.addEventListener("focusin", onFocusIn);
+  window.addEventListener("pointerup", onPointerUp, true);
+
+  return () => {
+    for (const id of pending) window.clearTimeout(id);
+    window.removeEventListener("keydown", onKeyDown, true);
+    window.removeEventListener("keyup", onKeyUp, true);
+    window.removeEventListener("pointerdown", onPointerDown, true);
+    root.removeEventListener("focusin", onFocusIn);
+    window.removeEventListener("pointerup", onPointerUp, true);
+  };
+}
 
 function targetClosest(event: KeyboardEvent, selector: string): boolean {
   const t = event.target;
@@ -59,8 +155,16 @@ export function shortcutsBlocked(event: KeyboardEvent): boolean {
   return false;
 }
 
+/** Keyboard focus only. Pointer clicks, and Space/Enter after they activate a control, drop it. */
 export function spaceActivateBlocked(event: KeyboardEvent): boolean {
   return targetClosest(event, ACTIVATE_TARGET);
+}
+
+/** Seek/volume sliders are inputs, but Space on them still plays or pauses. */
+export function playerRangeFocused(event: KeyboardEvent): boolean {
+  const node = asFocusable(event.target);
+  if (!node?.closest(".plyr")) return false;
+  return Boolean(node.closest(PLAYBACK_RANGE));
 }
 
 export function arrowWidgetBlocked(event: KeyboardEvent): boolean {
@@ -100,6 +204,13 @@ export function handlePlayerKey(
     if (shortcutsBlocked(event) && !help.isOpen()) return;
     event.preventDefault();
     help.toggle();
+    return;
+  }
+
+  if (key === " " && playerRangeFocused(event)) {
+    if (typeof document !== "undefined" && document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
+    event.preventDefault();
+    void player.togglePlay();
     return;
   }
 

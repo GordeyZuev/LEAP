@@ -29,13 +29,20 @@ class TestPromoteTemplateToDefault:
         session.execute = AsyncMock()
         session.flush = AsyncMock()
 
-        with patch("api.repositories.template_repos.RecordingTemplateRepository", return_value=repo):
+        with (
+            patch("api.repositories.template_repos.RecordingTemplateRepository", return_value=repo),
+            patch(
+                "api.repositories.recording_repos.sync_user_inherited_retention",
+                new=AsyncMock(),
+            ) as sync_retention,
+        ):
             result = await promote_template_to_default(session, "user-1", 100)
 
         assert result is target
         assert target.is_default is True
         session.execute.assert_awaited_once()
         repo.update.assert_awaited_once_with(target)
+        sync_retention.assert_awaited_once_with(session, "user-1")
 
     @pytest.mark.asyncio
     async def test_rejects_draft(self) -> None:

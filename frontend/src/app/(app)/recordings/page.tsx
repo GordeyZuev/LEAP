@@ -105,6 +105,7 @@ const SORT_OPTIONS = [
   { value: "updated_at",  label: "Updated" },
   { value: "display_name", label: "Name" },
   { value: "status",       label: "Status" },
+  { value: "view_count",   label: "Views" },
 ];
 
 const STATUS_LABEL_BY_VALUE = new Map<string, string>(STATUS_OPTIONS.map((o) => [o.value, o.label]));

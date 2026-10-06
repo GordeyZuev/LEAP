@@ -7,6 +7,7 @@ import { dailyMetric, fetchAdminUserAnalytics, fetchAdminUserEvents } from "@/ap
 import { ChartCard } from "@/components/charts/chart-card";
 import { DailyBarChart } from "@/components/charts/daily-bar-chart";
 import { DateRangeFilter } from "@/components/filters/date-range-filter";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { ModalSection } from "@/components/ui/section-card";
 import { defaultAnalyticsRange, type AnalyticsDateRange, type DateRangePreset, presetRange, validateRange } from "@/lib/analytics-date-range";
 import { formatRelative } from "@/lib/utils";
@@ -117,7 +118,9 @@ export function UserActivitySection({ userId }: { userId: string }) {
             {eventsQuery.isPending ? (
               <p className="text-xs text-muted-foreground">Loading events…</p>
             ) : eventsQuery.data && eventsQuery.data.length > 0 ? (
-              <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-border px-3 py-2">
+              <div className="overflow-hidden rounded-xl border border-border">
+              <InsetScroll inset="1.25rem" className="max-h-48 px-3 py-2">
+              <ul className="space-y-2">
                 {eventsQuery.data.map((event) => (
                   <li key={event.id} className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
                     <span className="font-medium text-foreground">
@@ -137,6 +140,8 @@ export function UserActivitySection({ userId }: { userId: string }) {
                   </li>
                 ))}
               </ul>
+              </InsetScroll>
+              </div>
             ) : (
               <p className="rounded-xl border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
                 No events in this period

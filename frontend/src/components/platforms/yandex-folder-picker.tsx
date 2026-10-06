@@ -201,7 +201,7 @@ export function YandexFolderPicker({
         <CreatePlaceholder className="mt-2" href="/credentials" label="Add credentials" />
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId} panelClassName="max-w-lg">
+      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId} panelClassName="max-w-lg overflow-hidden">
         <div className="flex max-h-[min(85vh,640px)] flex-col">
           <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
             <h2 id={titleId} className="text-sm font-semibold text-foreground">
@@ -266,7 +266,7 @@ export function YandexFolderPicker({
           <div className="relative min-h-[16rem] flex-1">
             <div
               className={cn(
-                "h-full max-h-[min(24rem,45vh)] overflow-y-auto px-3 py-2 transition-opacity duration-200",
+                "h-full max-h-[min(24rem,45vh)] overflow-y-auto overscroll-contain px-3 py-2 transition-opacity duration-200",
                 isRefreshing && "pointer-events-none opacity-60",
               )}
               aria-busy={isFetching}

@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { TableRowsSkeleton } from "@/components/ui/list-skeleton";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { TABLE_BODY, TABLE_CARD, TABLE_ROW } from "@/lib/table-classes";
+import { TABLE_BODY, TABLE_CARD, TABLE_ROW, TABLE_SCROLL } from "@/lib/table-classes";
 
 interface AuditEntry {
   id: number;
@@ -81,6 +81,7 @@ export function AdminAuditLog() {
       </div>
 
       <div className={TABLE_CARD}>
+        <div className={TABLE_SCROLL}>
         <table className="w-full min-w-[760px]">
           <thead>
             <tr className="border-b border-border">
@@ -119,6 +120,7 @@ export function AdminAuditLog() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {data && (

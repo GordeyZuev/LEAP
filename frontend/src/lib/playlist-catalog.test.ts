@@ -8,9 +8,9 @@ import {
 } from "./playlist-catalog.ts";
 
 const items = [
-  { title: "2026-01-02 Intro", duration: 10, start_time: "2026-01-02T10:00:00Z" },
+  { title: "2026-01-02 Intro", duration: 10, start_time: "2026-01-02T10:00:00Z", view_count: 9 },
   { title: "Middle lecture", duration: 30, start_time: "2026-01-01T10:00:00Z" },
-  { title: "Zeta wrap", duration: 20, start_time: "2026-01-03T10:00:00Z" },
+  { title: "Zeta wrap", duration: 20, start_time: "2026-01-03T10:00:00Z", view_count: 40 },
 ];
 
 describe("playlist catalog", () => {
@@ -47,6 +47,25 @@ describe("playlist catalog", () => {
     assert.deepEqual(
       catalogPlaylistItems(items, "", "duration").map((i) => i.duration),
       [30, 20, 10],
+    );
+  });
+
+  it("sorts most viewed first, unviewed last", () => {
+    assert.deepEqual(
+      catalogPlaylistItems(items, "", "views").map((i) => i.title),
+      ["Zeta wrap", "2026-01-02 Intro", "Middle lecture"],
+    );
+  });
+
+  it("sorts numbered names naturally, like the saved order", () => {
+    const numbered = ["lecture 10", "Lecture 2", "Lecture 1"].map((title) => ({
+      title,
+      duration: 1,
+      start_time: "2026-01-01T10:00:00Z",
+    }));
+    assert.deepEqual(
+      catalogPlaylistItems(numbered, "", "name").map((i) => i.title),
+      ["Lecture 1", "Lecture 2", "lecture 10"],
     );
   });
 

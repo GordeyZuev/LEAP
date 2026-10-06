@@ -37,7 +37,7 @@ function AdminAnalyticsSectionContent() {
     ? [
         { label: "Recordings", value: COUNT_FORMATTER.format(data.summary.recordings_created) },
         {
-          label: "Transcribed content",
+          label: "Processing minutes",
           value: `${data.summary.transcription_minutes.toFixed(1)} min`,
         },
         {

@@ -50,7 +50,7 @@ Automation jobs schedule **sync + template matching + processing** for the sourc
 
 ### Two sources of periodic work
 
-1. **`celery_app.conf.beat_schedule`** (`api/celery_app.py`) — maintenance tasks (UTC crontabs): `maintenance.cleanup_expired_tokens`, `maintenance.auto_expire_recordings`, `maintenance.cleanup_recording_files`, `maintenance.hard_delete_recordings`. Routed to queue **`maintenance`**.
+1. **`celery_app.conf.beat_schedule`** (`api/celery_app.py`) — maintenance tasks (UTC crontabs): `maintenance.cleanup_expired_tokens`, `maintenance.auto_expire_recordings`, `maintenance.hard_delete_recordings`, plus hourly `maintenance.reconcile_transcription_ledger` and `maintenance.snapshot_storage_usage`. Routed to queue **`maintenance`**. `cleanup_recording_files` is no longer in `beat_schedule`. Soft delete only hides the row, and hard delete removes the storage prefix together with the row. `DatabaseScheduler` does not delete a row that left the dict, so Beat disables `maintenance.cleanup_recording_files` in `celery_periodic_task` on startup and drops it from the in-memory schedule.
 
 2. **User automation** — rows written only by **`sync_job_to_beat`**: task **`automation.run_job`**, queue **`async_operations`**.
 

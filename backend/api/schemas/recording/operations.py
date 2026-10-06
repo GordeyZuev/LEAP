@@ -70,6 +70,14 @@ class MappingStatusResponse(BaseModel):
     template_name: str | None = None
 
 
+class RecordingConfigBundle(BaseModel):
+    """Processing, output, and metadata as returned for one recording."""
+
+    processing_config: dict | None = None
+    output_config: dict | None = None
+    metadata_config: dict | None = None
+
+
 class RecordingConfigResponse(BaseModel):
     """Full configuration for recording."""
 
@@ -78,9 +86,14 @@ class RecordingConfigResponse(BaseModel):
     template_id: int | None = None
     template_name: str | None = None
     has_manual_override: bool = False
+    manual_override_sections: list[str] = Field(default_factory=list)
     processing_config: dict | None = None
     output_config: dict | None = None
     metadata_config: dict | None = None
+    inherited: RecordingConfigBundle = Field(
+        default_factory=RecordingConfigBundle,
+        description="The same merge without this recording's overrides.",
+    )
 
 
 class ConfigUpdateResponse(BaseModel):

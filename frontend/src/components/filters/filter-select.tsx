@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { cn } from "@/lib/utils";
 import { FILTER_CONTROL, FILTER_CONTROL_FILLED } from "@/lib/filter-field-classes";
 
@@ -252,8 +253,9 @@ export function FilterSelect<V extends string | number = string>({
           id={listboxId}
           role="listbox"
           aria-label={ariaLabel}
-          className="animate-dropdown-in z-[100] overflow-auto rounded-2xl border border-border bg-card p-2 shadow-xl"
+          className="animate-dropdown-in z-[100] overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
         >
+          <InsetScroll frameClassName="max-h-[inherit]" className="max-h-[inherit] p-2">
           {options.map((opt, i) => (
             <div
               key={String(opt.value)}
@@ -279,6 +281,7 @@ export function FilterSelect<V extends string | number = string>({
               {opt.value === value && <Check size={14} className="shrink-0" />}
             </div>
           ))}
+          </InsetScroll>
         </div>,
         document.body
       )}

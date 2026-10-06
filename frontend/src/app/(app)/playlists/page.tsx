@@ -25,6 +25,7 @@ import { DescriptionEditor } from "@/components/ui/description-editor";
 import { Field } from "@/components/ui/field";
 import { CARD_INTERACTIVE, CARD_SHELL } from "@/components/ui/section-card";
 import { FormattedText } from "@/components/ui/formatted-text";
+import { ViewCount } from "@/components/ui/view-count";
 import { useUrlListState } from "@/hooks/use-url-list-state";
 import { PER_PAGE_PLAYLISTS } from "@/lib/constants";
 import { PLAYLIST_JINJA_VARS } from "@/lib/formatted-text";
@@ -38,6 +39,7 @@ const SORT_OPTIONS = [
   { value: "updated_at", label: "Updated" },
   { value: "created_at", label: "Created" },
   { value: "name", label: "Name" },
+  { value: "view_count", label: "Views" },
 ];
 const SORT_ALLOWED = SORT_OPTIONS.map((o) => o.value);
 
@@ -109,24 +111,31 @@ function PlaylistCard({ playlist: p }: { playlist: PlaylistListItem }) {
         {" · "}
         {formatPlaylistDuration(p.duration_sum)}
       </p>
-      {publicShare && p.share_token && (
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-          <a
-            href={playlistShareHref(p.share_token)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={SHARE_ACTION}
-          >
-            <span className="size-1.5 shrink-0 rounded-full bg-success-fg" aria-hidden />
-            <span className="sr-only">{p.name}: </span>
-            LEAP
-            <span className="sr-only"> public page (active)</span>
-            <ExternalLink size={9} strokeWidth={2} className="opacity-40" aria-hidden />
-          </a>
-          <button type="button" onClick={onCopy} className={SHARE_ACTION}>
-            {copied ? "Copied" : "Copy link"}
-            <span className="sr-only"> for {p.name}</span>
-          </button>
+      {((publicShare && p.share_token) || (p.view_count ?? 0) > 0) && (
+        <div className="mt-auto flex items-center justify-between gap-3 pt-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            {publicShare && p.share_token && (
+              <>
+                <a
+                  href={playlistShareHref(p.share_token)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={SHARE_ACTION}
+                >
+                  <span className="size-1.5 shrink-0 rounded-full bg-success-fg" aria-hidden />
+                  <span className="sr-only">{p.name}: </span>
+                  LEAP
+                  <span className="sr-only"> public page (active)</span>
+                  <ExternalLink size={9} strokeWidth={2} className="opacity-40" aria-hidden />
+                </a>
+                <button type="button" onClick={onCopy} className={SHARE_ACTION}>
+                  {copied ? "Copied" : "Copy link"}
+                  <span className="sr-only"> for {p.name}</span>
+                </button>
+              </>
+            )}
+          </div>
+          <ViewCount count={p.view_count} hint="across all videos in this playlist" />
         </div>
       )}
     </article>

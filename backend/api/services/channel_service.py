@@ -9,8 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.helpers.catalog_sort import natural_key, video_sort_key
 from api.helpers.channel_slug import suggest_slug, validate_channel_slug
 from api.helpers.image_upload import delete_key_silent, save_bytes
+from api.helpers.leap_publication import publication_looks_for_recordings
 from api.repositories.channel_repo import ChannelRepository
 from api.services.playlist_service import SHARE_NOT_FOUND, UNSET
 from database.channel_models import (
@@ -20,9 +22,10 @@ from database.channel_models import (
     ChannelModel,
     ChannelPlaylistModel,
     ChannelVideoModel,
+    PlaylistSort,
 )
 from database.models import RecordingModel
-from database.playlist_models import PlaylistModel
+from database.playlist_models import PlaylistModel, VideoSort
 from file_storage.path_builder import StoragePathBuilder, to_storage_key
 from logger import get_logger
 
@@ -103,6 +106,20 @@ class ChannelService:
             ) from exc
         return channel
 
+    async def set_video_sort(self, channel: ChannelModel, sort: VideoSort | None) -> None:
+        """Save the video order rule and apply it now; None keeps the current order as a hand-made one."""
+        channel.video_sort = sort
+        channel.updated_at = datetime.now(UTC)
+        await self.apply_video_sort(channel)
+        await self.session.flush()
+
+    async def set_playlist_sort(self, channel: ChannelModel, sort: PlaylistSort | None) -> None:
+        """Save the playlist order rule and apply it now; None keeps the current order as a hand-made one."""
+        channel.playlist_sort = sort
+        channel.updated_at = datetime.now(UTC)
+        await self.apply_playlist_sort(channel)
+        await self.session.flush()
+
     async def delete(self, channel: ChannelModel) -> None:
         banner = channel.banner_key
         await self.session.delete(channel)
@@ -176,13 +193,45 @@ class ChannelService:
         next_pos = (max_pos + 1) if max_pos is not None else 0
         created: list[ChannelVideoModel] = []
         for rid in owned:
-            row = ChannelVideoModel(channel_id=channel.id, recording_id=rid, position=next_pos)
+            row = ChannelVideoModel(channel_id=channel.id, recording=found[rid], position=next_pos)
             self.session.add(row)
             created.append(row)
             next_pos += 1
         channel.updated_at = datetime.now(UTC)
         await self.session.flush()
+        await self.apply_video_sort(channel)
         return created
+
+    async def apply_video_sort(self, channel: ChannelModel) -> None:
+        """Rewrite video positions (dense, 0-based) by the saved rule; ties keep their current order."""
+        sort = channel.video_sort
+        if sort is None:
+            return
+        rows = await self.repo.list_videos(channel.id)
+        recs = [row.recording for row in rows]
+        looks = await publication_looks_for_recordings(self.session, self.user_id, recs) if sort == "name" else {}
+
+        def key(row: ChannelVideoModel):
+            rec = row.recording
+            look = looks.get(rec.id)
+            return video_sort_key(
+                sort,
+                title=(look.title if look else "") or rec.display_name,
+                start_time=rec.start_time,
+            )
+
+        for position, row in enumerate(sorted(rows, key=key)):
+            row.position = position
+        await self.session.flush()
+
+    async def apply_playlist_sort(self, channel: ChannelModel) -> None:
+        """Rewrite playlist positions (dense, 0-based) by the saved rule; ties keep their current order."""
+        if channel.playlist_sort is None:
+            return
+        rows = await self.repo.list_channel_playlists(channel.id)
+        for position, row in enumerate(sorted(rows, key=lambda row: natural_key(row.playlist.name))):
+            row.position = position
+        await self.session.flush()
 
     async def add_videos_from_ids(self, recording: RecordingModel, channel_ids: list[int] | None) -> None:
         if not channel_ids or not recording.user_id:
@@ -235,6 +284,7 @@ class ChannelService:
         by_id = {row.recording_id: row for row in rows}
         for position, rid in enumerate(recording_ids):
             by_id[rid].position = position
+        channel.video_sort = None
         channel.updated_at = datetime.now(UTC)
         await self.session.flush()
 
@@ -273,7 +323,7 @@ class ChannelService:
         next_pos = (max_pos + 1) if max_pos is not None else 0
         created: list[ChannelPlaylistModel] = []
         for pid in owned:
-            row = ChannelPlaylistModel(channel_id=channel.id, playlist_id=pid, position=next_pos)
+            row = ChannelPlaylistModel(channel_id=channel.id, playlist=found[pid], position=next_pos)
             self.session.add(row)
             created.append(row)
             next_pos += 1
@@ -286,6 +336,7 @@ class ChannelService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail="This playlist is already on the channel.",
             ) from exc
+        await self.apply_playlist_sort(channel)
         return created
 
     async def remove_playlist(self, channel: ChannelModel, playlist_id: int) -> None:
@@ -313,6 +364,7 @@ class ChannelService:
         by_id = {row.playlist_id: row for row in rows}
         for position, pid in enumerate(playlist_ids):
             by_id[pid].position = position
+        channel.playlist_sort = None
         channel.updated_at = datetime.now(UTC)
         await self.session.flush()
 

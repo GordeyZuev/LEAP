@@ -8,7 +8,6 @@ export interface UserMe {
 }
 
 export interface RetentionConfig {
-  soft_delete_days: number;
   hard_delete_days: number;
   auto_expire_days: number;
 }

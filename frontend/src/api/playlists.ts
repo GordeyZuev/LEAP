@@ -13,6 +13,7 @@ export interface PlaylistListItem {
   description: string | null;
   video_count: number;
   duration_sum: number;
+  view_count?: number;
   share_token: string | null;
   share_enabled: boolean;
   poster_url: string | null;
@@ -30,6 +31,10 @@ export interface PlaylistListResponse {
   total_pages: number;
 }
 
+/** Order rule the server keeps and re-applies to added videos; `null` is a hand-made order. */
+export const SAVED_VIDEO_SORTS = ["newest", "oldest", "name"] as const;
+export type SavedVideoSort = (typeof SAVED_VIDEO_SORTS)[number];
+
 export interface PlaylistDetail {
   id: number;
   name: string;
@@ -40,6 +45,7 @@ export interface PlaylistDetail {
   share_enabled: boolean;
   share_created_at: string | null;
   has_custom_cover?: boolean;
+  item_sort?: SavedVideoSort | null;
   poster_url?: string | null;
   poster_asset_key?: string | null;
   created_at: string;
@@ -63,6 +69,7 @@ export interface PlaylistItem {
   poster_refresh_at_ms?: number | null;
   deleted: boolean;
   blank_record: boolean;
+  view_count?: number;
 }
 
 export interface PlaylistGroup {
@@ -108,7 +115,7 @@ export async function createPlaylist(body: { name: string; description?: string 
 
 export async function updatePlaylist(
   id: number,
-  body: { name?: string; description?: string | null },
+  body: { name?: string; description?: string | null; item_sort?: SavedVideoSort | null },
 ): Promise<PlaylistDetail> {
   const res = await apiClient.patch<PlaylistDetail>(`/playlists/${id}`, body);
   return res.data;

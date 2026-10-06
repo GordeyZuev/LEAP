@@ -91,7 +91,7 @@ function ChecklistPickerPanel<V extends string | number>({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
         {filtered.length === 0 ? (
           <p className="px-3 py-8 text-center text-sm text-muted-foreground">
             {items.length === 0 ? "None yet" : "Nothing matches"}
@@ -229,7 +229,7 @@ export function ChecklistPicker<V extends string | number = number>({
         </span>
       </button>
 
-      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId} panelClassName="max-w-lg">
+      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId} panelClassName="max-w-lg overflow-hidden">
         <div className="flex h-[min(90vh,40rem)] flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div>

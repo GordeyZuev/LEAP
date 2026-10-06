@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from api.core.context import ServiceContext
 from api.repositories.playlist_repo import PlaylistRepository
-from api.routers.playlists import _cover_asset_key, set_playlist_item_group
+from api.routers.playlists import _cover_asset_key, _item_ranks, set_playlist_item_group
 from api.schemas.playlist import PlaylistCreate, PlaylistItemGroupUpdate, PlaylistUpdate, PublicChannelLink
 from api.services.playlist_service import (
     SHARE_NOT_FOUND,
@@ -22,6 +22,13 @@ from api.services.playlist_service import (
     item_unavailable_reason,
 )
 from tests.fixtures.factories import create_mock_recording
+
+
+@pytest.mark.unit
+def test_item_ranks_close_gaps_left_by_removed_items() -> None:
+    playlist = MagicMock(items=[MagicMock(id=7, position=5), MagicMock(id=3, position=0), MagicMock(id=9, position=2)])
+
+    assert _item_ranks(playlist) == {3: 0, 9: 1, 7: 2}
 
 
 @pytest.mark.unit
@@ -43,6 +50,25 @@ async def test_public_playlist_aggregate_queries_require_recording_owner(client)
     title_sql = str(session.execute.await_args.args[0].compile(dialect=postgresql.dialect()))
 
     assert all("recordings.user_id = playlists.user_id" in sql for sql in (stats_sql, poster_sql, title_sql))
+    assert "sum(recordings.share_view_count)" in stats_sql
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_playlist_list_sorts_by_owned_item_views(client) -> None:
+    from sqlalchemy.dialects import postgresql
+
+    session = AsyncMock()
+    result = MagicMock()
+    result.scalar_one.return_value = 0
+    result.scalars.return_value.unique.return_value.all.return_value = []
+    session.execute.return_value = result
+
+    await PlaylistRepository(session).list_page("owner", q=None, page=1, per_page=20, sort_by="view_count")
+    sql = str(session.execute.await_args.args[0].compile(dialect=postgresql.dialect()))
+
+    assert "ORDER BY (SELECT coalesce(sum(recordings.share_view_count)" in sql
+    assert "recordings.user_id = playlists.user_id" in sql
 
 
 @pytest.mark.unit
@@ -132,6 +158,7 @@ def _playlist(*, name="Course", user_id="user_123", items=None, token=None, enab
     pl.created_at = now
     pl.updated_at = now
     pl.cover_key = None
+    pl.item_sort = None
     return pl
 
 
@@ -241,6 +268,19 @@ class TestPlaylistOwnerApi:
         assert response.status_code == 201
         assert response.json()["name"] == "Algorp"
 
+    def test_patch_custom_order_clears_rule_only_when_sent(self, client, mocker) -> None:
+        pl = _playlist()
+        pl.item_sort = "name"
+        mocker.patch("api.routers.playlists.PlaylistService.get_owned", new=AsyncMock(return_value=pl))
+        mocker.patch("api.routers.playlists.PlaylistService.update", new=AsyncMock(return_value=pl))
+        mocker.patch("api.routers.playlists._owner_cover_preview", new=AsyncMock(return_value=(None, None)))
+        set_sort = mocker.patch("api.routers.playlists.PlaylistService.set_item_sort", new=AsyncMock())
+
+        assert client.patch("/api/v1/playlists/1", json={"name": "Renamed"}).status_code == 200
+        set_sort.assert_not_awaited()
+        assert client.patch("/api/v1/playlists/1", json={"item_sort": None}).status_code == 200
+        set_sort.assert_awaited_once_with(pl, None)
+
     def test_list_playlists(self, client, mocker) -> None:
         token = uuid.uuid4()
         pl = _playlist(name="Algorp", token=token, enabled=True)
@@ -251,7 +291,7 @@ class TestPlaylistOwnerApi:
         )
         mocker.patch(
             "api.services.playlist_service.PlaylistRepository.aggregate_stats",
-            new=AsyncMock(return_value={3: (0, 0.0)}),
+            new=AsyncMock(return_value={3: (0, 0.0, 5)}),
         )
         mocker.patch(
             "api.services.playlist_service.PlaylistRepository.first_playable_recordings",
@@ -267,6 +307,7 @@ class TestPlaylistOwnerApi:
         assert item["name"] == "Algorp"
         assert item["share_enabled"] is True
         assert item["share_token"] == str(token)
+        assert item["view_count"] == 5
 
     def test_list_playlists_skips_auto_cover_query_for_custom_covers(self, client, mocker) -> None:
         covered = _playlist(name="Covered")

@@ -76,6 +76,7 @@ class PublicRecordingResponse(BaseModel):
     )
     start_time: datetime
     status: ProcessingStatus
+    view_count: int = 0
 
     # AI content — active topic version
     topic_timestamps: Any | None = None

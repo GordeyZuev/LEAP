@@ -111,15 +111,31 @@ class PlaylistRepository:
         count_stmt = select(func.count()).select_from(base.subquery())
         total = int((await self.session.execute(count_stmt)).scalar_one())
 
-        order_col = getattr(PlaylistModel, sort_by, PlaylistModel.updated_at)
-        order = order_col.desc() if sort_order == "desc" else order_col.asc()
+        if sort_by == "view_count":
+            order_col = (
+                select(func.coalesce(func.sum(RecordingModel.share_view_count), 0))
+                .join(PlaylistItemModel, PlaylistItemModel.recording_id == RecordingModel.id)
+                .where(
+                    PlaylistItemModel.playlist_id == PlaylistModel.id, RecordingModel.user_id == PlaylistModel.user_id
+                )
+                .correlate(PlaylistModel)
+                .scalar_subquery()
+            )
+        else:
+            order_col = getattr(PlaylistModel, sort_by, PlaylistModel.updated_at)
+        descending = sort_order == "desc"
+        order = order_col.desc() if descending else order_col.asc()
+        tie = PlaylistModel.id.desc() if descending else PlaylistModel.id.asc()
         offset = (page - 1) * per_page
-        data_stmt = base.order_by(order).offset(offset).limit(per_page)
+        data_stmt = base.order_by(order, tie).offset(offset).limit(per_page)
         result = await self.session.execute(data_stmt)
         return list(result.scalars().unique().all()), total
 
-    async def aggregate_stats(self, playlist_ids: list[int]) -> dict[int, tuple[int, float]]:
-        """Return playlist_id -> (item_count, duration_sum) without hydrating items."""
+    async def aggregate_stats(self, playlist_ids: list[int]) -> dict[int, tuple[int, float, int]]:
+        """Return playlist_id -> (item_count, duration_sum, view_count) without hydrating items.
+
+        ``view_count`` sums all-time LEAP views of the items, wherever they were watched.
+        """
         if not playlist_ids:
             return {}
         duration = func.coalesce(RecordingModel.final_duration, RecordingModel.duration, 0.0)
@@ -128,13 +144,14 @@ class PlaylistRepository:
                 PlaylistItemModel.playlist_id,
                 func.count(PlaylistItemModel.id),
                 func.coalesce(func.sum(duration), 0.0),
+                func.coalesce(func.sum(RecordingModel.share_view_count), 0),
             )
             .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
             .join(PlaylistModel, PlaylistModel.id == PlaylistItemModel.playlist_id)
             .where(PlaylistItemModel.playlist_id.in_(playlist_ids), RecordingModel.user_id == PlaylistModel.user_id)
             .group_by(PlaylistItemModel.playlist_id)
         )
-        return {int(pid): (int(count), float(total)) for pid, count, total in result.all()}
+        return {int(pid): (int(count), float(total), int(views)) for pid, count, total, views in result.all()}
 
     async def first_playable_recordings(self, playlist_ids: list[int]) -> dict[int, RecordingModel]:
         """First course item per playlist (watch order), one query. Used for auto cover."""

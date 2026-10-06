@@ -112,6 +112,7 @@ export function OverrideSection({
   enabledHint,
   disabledHint = "inherits effective config",
   children,
+  footer,
 }: {
   title: string;
   switchLabel: string;
@@ -122,6 +123,8 @@ export function OverrideSection({
   enabledHint?: string;
   disabledHint?: string;
   children: ReactNode;
+  /** Shown with the section open, and not disabled when the override switch is off. */
+  footer?: ReactNode;
 }) {
   const titleId = useId();
   const bodyId = useId();
@@ -163,14 +166,17 @@ export function OverrideSection({
       </div>
 
       {open && (
-        <fieldset
-          id={bodyId}
-          disabled={!enabled}
-          className="space-y-4 border-t border-border px-4 pb-4 pt-4 disabled:opacity-50"
-        >
-          <legend className="sr-only">{title}</legend>
-          {children}
-        </fieldset>
+        <>
+          <fieldset
+            id={bodyId}
+            disabled={!enabled}
+            className="space-y-4 border-t border-border px-4 pb-4 pt-4 disabled:opacity-50"
+          >
+            <legend className="sr-only">{title}</legend>
+            {children}
+          </fieldset>
+          {footer}
+        </>
       )}
     </div>
   );

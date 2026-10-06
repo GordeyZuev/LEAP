@@ -35,6 +35,8 @@ export interface ProcessingFormFields {
   vocabulary: string[];
   prompt: string;
   trimming: TrimmingForm;
+  /** Present on the template form. Omitted on run and automation, which do not copy this flag. */
+  retention_exempt?: boolean;
 }
 
 export function trimmingFromApi(raw: unknown): TrimmingForm {
@@ -192,6 +194,16 @@ export function ProcessingFields({
           <TagInput tags={value.vocabulary} onChange={(vocabulary) => onChange({ vocabulary })} placeholder="Add term…" />
         </Field>
       </AdvancedBlock>
+
+      {"retention_exempt" in value ? (
+        <div className="border-t border-border pt-4">
+          <Toggle
+            label="Do not delete on a schedule"
+            checked={!!value.retention_exempt}
+            onChange={(v) => onChange({ retention_exempt: v })}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

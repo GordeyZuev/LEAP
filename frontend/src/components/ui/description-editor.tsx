@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { FILTER_CONTROL, FILTER_LABEL } from "@/lib/filter-field-classes";
 import { applyDescriptionHotkey, isDescriptionFormatHotkey } from "@/lib/formatted-text";
 import { AboutFormatting } from "@/components/ui/about-formatting";
+import { InsetScroll } from "@/components/ui/inset-scroll";
 import { insertJinjaVar, useJinjaCombobox } from "@/hooks/use-jinja-combobox";
 
 export type JinjaVar = { value: string; description: string };
@@ -144,10 +145,11 @@ export function DescriptionEditor({
           )}
         />
         {ac.acOpen && ac.filtered.length > 0 && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+          <InsetScroll inset="1.25rem" className="max-h-44">
           <ul
             id={listboxId}
             role="listbox"
-            className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-xl border border-border bg-card shadow-lg"
           >
             {ac.filtered.map((v) => (
               <li
@@ -174,6 +176,8 @@ export function DescriptionEditor({
               </li>
             ))}
           </ul>
+          </InsetScroll>
+          </div>
         )}
       </div>
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}

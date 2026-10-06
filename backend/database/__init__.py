@@ -2,6 +2,7 @@ from .audit_models import AdminAuditLogModel, AuditAction
 from .auth_models import (
     QuotaUsageModel,
     RefreshTokenModel,
+    ResourceLedgerModel,
     SubscriptionPlanModel,
     UserCredentialModel,
     UserModel,
@@ -58,6 +59,7 @@ __all__ = [
     "RecordingModel",
     "RecordingTemplateModel",
     "RefreshTokenModel",
+    "ResourceLedgerModel",
     "SourceMetadataModel",
     "StageTimingModel",
     "SubscriptionPlanModel",

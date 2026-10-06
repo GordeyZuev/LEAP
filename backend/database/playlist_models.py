@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 MAX_PLAYLISTS_PER_USER = 200
 MAX_ITEMS_PER_PLAYLIST = 200
+
+VideoSort = Literal["newest", "oldest", "name"]
 
 
 class PlaylistModel(Base):
@@ -40,6 +42,8 @@ class PlaylistModel(Base):
     share_token: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     share_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     share_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Rule re-applied when items are added (see api.helpers.catalog_sort); NULL = hand-made order.
+    item_sort: Mapped[VideoSort | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )

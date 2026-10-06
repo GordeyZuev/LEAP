@@ -10,10 +10,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.helpers.catalog_sort import video_sort_key
+from api.helpers.leap_publication import publication_looks_for_recordings
 from api.repositories.playlist_repo import PlaylistRepository
 from api.schemas.playlist import PlaylistGroupResponse
 from database.models import RecordingModel
-from database.playlist_models import MAX_ITEMS_PER_PLAYLIST, MAX_PLAYLISTS_PER_USER, PlaylistItemModel, PlaylistModel
+from database.playlist_models import (
+    MAX_ITEMS_PER_PLAYLIST,
+    MAX_PLAYLISTS_PER_USER,
+    PlaylistItemModel,
+    PlaylistModel,
+    VideoSort,
+)
 from logger import get_logger
 
 logger = get_logger()
@@ -111,6 +119,13 @@ class PlaylistService:
             ) from exc
         return playlist
 
+    async def set_item_sort(self, playlist: PlaylistModel, sort: VideoSort | None) -> None:
+        """Save the order rule and apply it now; None keeps the current order as a hand-made one."""
+        playlist.item_sort = sort
+        await self.apply_item_sort(playlist)
+        playlist.updated_at = datetime.now(UTC)
+        await self.session.flush()
+
     async def delete(self, playlist: PlaylistModel) -> None:
         cover_key = playlist.cover_key
         await self.session.delete(playlist)
@@ -179,14 +194,36 @@ class PlaylistService:
         next_pos = (max_pos + 1) if max_pos is not None else 0
         created: list[PlaylistItemModel] = []
         for rid in to_add:
-            item = PlaylistItemModel(playlist_id=playlist.id, recording_id=rid, position=next_pos)
+            item = PlaylistItemModel(playlist_id=playlist.id, recording=found[rid], position=next_pos)
             self.session.add(item)
             playlist.items.append(item)
             created.append(item)
             next_pos += 1
+        await self.apply_item_sort(playlist)
         playlist.updated_at = datetime.now(UTC)
         await self.session.flush()
         return created
+
+    async def apply_item_sort(self, playlist: PlaylistModel) -> None:
+        """Rewrite positions (dense, 0-based) by the saved rule; ties keep their current order."""
+        sort = playlist.item_sort
+        if sort is None:
+            return
+        items = sorted(playlist.items, key=lambda i: (i.position, i.id or 0))
+        recs = [i.recording for i in items]
+        looks = await publication_looks_for_recordings(self.session, self.user_id, recs) if sort == "name" else {}
+
+        def key(item: PlaylistItemModel):
+            rec = item.recording
+            look = looks.get(rec.id)
+            return video_sort_key(
+                sort,
+                title=(look.title if look else "") or rec.display_name,
+                start_time=rec.start_time,
+            )
+
+        for position, item in enumerate(sorted(items, key=key)):
+            item.position = position
 
     async def remove_item(self, playlist: PlaylistModel, item_id: int) -> None:
         item = await self.repo.get_item(item_id, playlist.id)
@@ -206,6 +243,7 @@ class PlaylistService:
         by_id = {item.id: item for item in playlist.items}
         for position, item_id in enumerate(item_ids):
             by_id[item_id].position = position
+        playlist.item_sort = None
         playlist.updated_at = datetime.now(UTC)
         await self.session.flush()
 

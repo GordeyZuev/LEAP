@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, field_validator
 from api.helpers.channel_slug import validate_channel_slug
 from api.schemas.common import BASE_MODEL_CONFIG, ORM_MODEL_CONFIG, strip_and_validate_name
 from api.schemas.common.pagination import PaginatedResponse
+from database.channel_models import PlaylistSort
+from database.playlist_models import VideoSort
 
 
 class ChannelCreate(BaseModel):
@@ -46,6 +48,12 @@ class ChannelUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=200)
     slug: str | None = Field(None, min_length=5, max_length=64)
     description: str | None = Field(None, max_length=4000)
+    video_sort: VideoSort | None = Field(
+        None, description="Saved video order rule, applied now and to added videos; null keeps the order as custom"
+    )
+    playlist_sort: PlaylistSort | None = Field(
+        None, description="Saved playlist order rule, applied now and to added playlists; null keeps it custom"
+    )
 
     @field_validator("name", mode="before")
     @classmethod
@@ -90,6 +98,9 @@ class ChannelListItem(BaseModel):
     share_enabled: bool = False
     video_count: int = 0
     playlist_count: int = 0
+    view_count: int = Field(
+        0, description="All-time LEAP views of channel videos and attached playlist items, each recording once."
+    )
     banner_url: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -109,6 +120,10 @@ class ChannelResponse(BaseModel):
     share_enabled: bool = False
     video_count: int = 0
     playlist_count: int = 0
+    video_sort: VideoSort | None = Field(None, description="Saved video order rule; null when the order is custom")
+    playlist_sort: PlaylistSort | None = Field(
+        None, description="Saved playlist order rule; null when the order is custom"
+    )
     banner_url: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -140,6 +155,7 @@ class ChannelVideoRow(BaseModel):
     poster_url: str | None = None
     poster_asset_key: str | None = None
     share_token: str | None = None
+    view_count: int = 0
 
 
 class ChannelPlaylistRow(BaseModel):
@@ -148,6 +164,7 @@ class ChannelPlaylistRow(BaseModel):
     name: str
     video_count: int = 0
     duration_sum: float = 0
+    view_count: int = 0
     share_enabled: bool
     public_visible: bool
     hidden_reason: str | None = None
@@ -169,12 +186,14 @@ class PublicChannelVideo(BaseModel):
     poster_asset_key: str | None = None
     share_token: str
     blurb: str | None = None
+    view_count: int = 0
 
 
 class PublicChannelPlaylist(BaseModel):
     name: str
     video_count: int
     duration_sum: float
+    view_count: int = 0
     poster_url: str | None = None
     poster_asset_key: str | None = None
     share_token: str

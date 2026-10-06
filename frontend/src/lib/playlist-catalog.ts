@@ -2,11 +2,12 @@ import { stripLeadingTimestamp } from "./utils.ts";
 
 /** Catalog Sort by options. `newest`/`oldest` are lecture `start_time`, not date added. */
 export const PLAYLIST_VIDEO_SORT = [
-  { value: "order", label: "Playlist order" },
-  { value: "newest", label: "Newest lecture" },
-  { value: "oldest", label: "Oldest lecture" },
+  { value: "order", label: "Author order" },
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
   { value: "name", label: "Name A–Z" },
   { value: "duration", label: "Longest first" },
+  { value: "views", label: "Most viewed" },
 ] as const;
 
 export type PlaylistVideoSort = (typeof PLAYLIST_VIDEO_SORT)[number]["value"];
@@ -15,6 +16,7 @@ export interface PlaylistCatalogItem {
   title: string;
   duration: number;
   start_time: string;
+  view_count?: number;
 }
 
 export function visiblePlaylistFolderItems<T extends { group_id: number | null }>(
@@ -46,20 +48,21 @@ export function filterPlaylistItems<T extends PlaylistCatalogItem>(items: T[], q
   return items.filter((item) => playlistItemMatchesQuery(item.title, q));
 }
 
+/** Name and date sorts match the saved order in `backend/api/helpers/catalog_sort.py`. */
 export function sortPlaylistItems<T extends PlaylistCatalogItem>(items: T[], sort: PlaylistVideoSort): T[] {
   if (sort === "order") return items;
-  const copy = [...items];
-  copy.sort((a, b) => {
+  return [...items].sort((a, b) => {
     if (sort === "newest") return (b.start_time ?? "").localeCompare(a.start_time ?? "");
     if (sort === "oldest") return (a.start_time ?? "").localeCompare(b.start_time ?? "");
     if (sort === "name") {
       return playlistItemSearchName(a.title).localeCompare(playlistItemSearchName(b.title), undefined, {
+        numeric: true,
         sensitivity: "base",
       });
     }
+    if (sort === "views") return (b.view_count ?? 0) - (a.view_count ?? 0);
     return (b.duration ?? 0) - (a.duration ?? 0);
   });
-  return copy;
 }
 
 export function catalogPlaylistItems<T extends PlaylistCatalogItem>(
