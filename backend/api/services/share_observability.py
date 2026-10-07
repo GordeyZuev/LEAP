@@ -15,6 +15,8 @@ from ulid import ULID
 from api.dependencies import get_async_session_maker, get_redis
 from api.middleware.rate_limit import client_ip_for_rate_limit
 from api.observability.metrics import (
+    increment_metric,
+    observe_metric,
     share_downloads_total,
     share_event_queue_publish_errors_total,
     share_event_queue_publish_seconds,
@@ -42,10 +44,10 @@ async def enqueue_share_event_batch(payload: dict) -> None:
         # would only hold the public request open before that fallback runs.
         await asyncio.to_thread(persist_share_event_batch.apply_async, kwargs={"payload": payload}, retry=False)
     except Exception:
-        share_event_queue_publish_errors_total.inc()
+        increment_metric(share_event_queue_publish_errors_total)
         raise
     finally:
-        share_event_queue_publish_seconds.observe(time.perf_counter() - started)
+        observe_metric(share_event_queue_publish_seconds, time.perf_counter() - started)
 
 
 def visitor_key_for_request(subject: str, request: Request) -> str:
@@ -237,7 +239,7 @@ class ShareObservabilityService:
                         logger.warning("Share view Redis cleanup failed: {}", cleanup_exc)
                 return False
 
-        share_page_views_total.inc()
+        increment_metric(share_page_views_total)
         logger.info(
             "share_event | recording_id={} | type=page_view | view_count={}",
             recording.id,
@@ -323,7 +325,7 @@ class ShareObservabilityService:
                     except Exception as cleanup_exc:
                         logger.warning("Share surface Redis cleanup failed: {}", cleanup_exc)
                 return False
-        share_page_views_total.inc()
+        increment_metric(share_page_views_total)
         return True
 
     async def record_download(self, recording: RecordingModel, request: Request, artifact_type: str) -> None:
@@ -356,7 +358,7 @@ class ShareObservabilityService:
             if not persisted:
                 return
 
-        share_downloads_total.labels(artifact_type=artifact_type).inc()
+        increment_metric(share_downloads_total, artifact_type=artifact_type)
         logger.info(
             "share_event | recording_id={} | type=file_download | artifact={}",
             recording.id,

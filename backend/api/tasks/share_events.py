@@ -12,7 +12,12 @@ from sqlalchemy.dialects.postgresql import insert
 
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
-from api.observability.metrics import share_event_persisted_total, share_event_queue_lag_seconds
+from api.observability.metrics import (
+    increment_metric,
+    observe_metric,
+    share_event_persisted_total,
+    share_event_queue_lag_seconds,
+)
 from api.services.share_observability import _channel_id_from_slug
 from database.models import RecordingModel
 from database.share_models import ShareAccessEventModel, ShareEngagementEventModel
@@ -107,9 +112,9 @@ async def _persist_share_event_batch(payload: dict) -> dict:
             engagement_inserted_count = 0
         await session.commit()
     if isinstance(queued_at, (int, float)):
-        share_event_queue_lag_seconds.observe(max(0.0, time.time() - float(queued_at)))
+        observe_metric(share_event_queue_lag_seconds, max(0.0, time.time() - float(queued_at)))
     for _ in inserted_rows:
-        share_event_persisted_total.labels(kind="access").inc()
+        increment_metric(share_event_persisted_total, kind="access")
     for _ in range(engagement_inserted_count):
-        share_event_persisted_total.labels(kind="engagement").inc()
+        increment_metric(share_event_persisted_total, kind="engagement")
     return {"access_events": len(access_events), "engagement_events": len(engagement_events)}

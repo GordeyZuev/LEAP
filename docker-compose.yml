@@ -124,9 +124,10 @@ services:
       LOG_FILE: ${LOG_FILE:-/app/logs/app.log}
       ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/error.log}
       MONITORING_PROMETHEUS_ENABLED: ${MONITORING_PROMETHEUS_ENABLED:-true}
-      # Multiprocess Prometheus: all workers (api + celery) write metric files
-      # to this shared volume; /metrics reads and aggregates them all.
-      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc
+      # Separate writer directories prevent identical container-local PIDs from
+      # writing the same prometheus_client mmap file.
+      PROMETHEUS_MULTIPROC_ROOT: /tmp/prometheus-multiproc
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc/api
       # Transactional mail (verification / password reset). Defaults keep local
       # compose from sending. Prod .env / Lockbox must set EMAIL_ENABLED=true.
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
@@ -190,7 +191,8 @@ services:
       JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
       LOG_FILE: ${LOG_FILE:-/app/logs/celery-worker.log}
       ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/celery-worker.error.log}
-      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc
+      PROMETHEUS_MULTIPROC_ROOT: /tmp/prometheus-multiproc
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc/celery
     volumes:
       - ./backend/storage:/app/storage
       - ./backend/logs:/app/logs
@@ -472,11 +474,9 @@ volumes:
   grafana_data:
     external: true
     name: leap_grafana_data
-  # Ephemeral shared directory for prometheus_client multiprocess mode.
-  # Metric files written by all workers (api + celery) are aggregated by
-  # the API /metrics endpoint via MultiProcessCollector.
-  # NOT external — recreated on every `docker compose up`, which clears
-  # stale files from previous runs automatically.
+  # Shared tmpfs root for prometheus_client multiprocess mode. API and Celery
+  # write to separate subdirectories; /metrics aggregates them recursively.
+  # Each container clears only its own subdirectory when it starts.
   prometheus_multiproc:
     driver: local
     driver_opts:

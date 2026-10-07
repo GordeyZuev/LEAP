@@ -6,6 +6,16 @@
 # Postgres to be reachable, then execs the command from CMD.
 set -e
 
+if [ -n "${PROMETHEUS_MULTIPROC_DIR:-}" ]; then
+    mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+    # Remove stale files for this component without touching other live writers.
+    find "$PROMETHEUS_MULTIPROC_DIR" -maxdepth 1 -type f -name '*.db' -delete
+    # One-time-safe cleanup for files written at the shared root by older releases.
+    if [ -n "${PROMETHEUS_MULTIPROC_ROOT:-}" ] && [ "$PROMETHEUS_MULTIPROC_ROOT" != "$PROMETHEUS_MULTIPROC_DIR" ]; then
+        find "$PROMETHEUS_MULTIPROC_ROOT" -maxdepth 1 -type f -name '*.db' -delete
+    fi
+fi
+
 echo "⏳ Waiting for PostgreSQL..."
 while ! pg_isready -h "${DATABASE_HOST:-localhost}" -p "${DATABASE_PORT:-5432}" -U "${DATABASE_USERNAME:-postgres}" > /dev/null 2>&1; do
     sleep 2

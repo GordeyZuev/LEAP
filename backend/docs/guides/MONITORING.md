@@ -32,11 +32,13 @@ changes land without a manual step.
 Postgres (grafana_ro) ────────────────────────────────────────────┘
 ```
 
-`PROMETHEUS_MULTIPROC_DIR` is a shared tmpfs. API and Celery workers write
-histogram files there; `/metrics` on the API process aggregates them. Pipeline
-stage duration is visible in Prometheus. A torn `.db` (crash mid-write) is
-skipped with a warning so the scrape stays **200**; that process's in-flight
-histogram is missing until the worker rewrites the file.
+`PROMETHEUS_MULTIPROC_ROOT` is a shared tmpfs root. API and Celery write to
+separate `PROMETHEUS_MULTIPROC_DIR` subdirectories so equal container-local PIDs
+cannot collide; `/metrics` recursively aggregates both directories. Each
+container clears only its own stale `.db` files and legacy shared-root files on
+startup. A torn file is skipped so the scrape stays **200**, and LEAP custom
+metric writes are best-effort: a metrics failure is logged once per process and
+never fails the request or pipeline task.
 
 Loki chunks live in Object Storage (90 days). Prometheus TSDB is local (30 days).
 A dashboard window wider than 30 days is empty by design.
@@ -205,6 +207,8 @@ leap_queue_oldest_task_age_seconds
 | `LOG_FILE` / `ERROR_LOG_FILE`   | `/app/logs/app.log`         | Human ops files, not shipped         |
 | `LOG_LEVEL`                     | `INFO`                      | Console / Loguru                     |
 | `MONITORING_PROMETHEUS_ENABLED` | `true`                      | Mount `/metrics`                     |
+| `PROMETHEUS_MULTIPROC_ROOT`     | `/tmp/prometheus-multiproc` | Shared aggregation root              |
+| `PROMETHEUS_MULTIPROC_DIR`      | component subdirectory      | Isolated mmap writer directory       |
 | `LOKI_S3_BUCKET` + access keys  | —                           | Loki object storage                  |
 | `GRAFANA_RO_PASSWORD`           | —                           | Postgres datasource                  |
 | `GRAFANA_USER` / `GRAFANA_PASSWORD` | `admin`                 | Grafana login (htpasswd uses the same password) |
@@ -224,7 +228,7 @@ leap_queue_oldest_task_age_seconds
 | Pipeline stage fails with `KeyError('"handler"')` | Log message contained `{...}` and still had format arguments | Redeploy **api** and Celery workers together. After that the task log shows the original error |
 | Loki panels empty                            | App not writing `structured.json`                  | Check `JSON_LOG_FILE` in the container                              |
 | `leap-api` Prometheus target DOWN            | `/metrics` off                                     | `MONITORING_PROMETHEUS_ENABLED=true` on **api**                     |
-| `/metrics` 500, `UnicodeDecodeError` / `0x98` | Torn mmap `.db` in `PROMETHEUS_MULTIPROC_DIR`     | Code skips the file (warning). Optional: restart api/celery to rewrite mmap files |
+| Prometheus mmap `UnicodeDecodeError` / `0x98` | Torn mmap `.db` or legacy API/Celery PID collision | Metric writes fail open and scrapes skip the file. Recreate **api** and **celery_worker** together to activate isolated directories |
 | `celery_queue_length` always 0               | Workers not sending events                         | `-E` + `worker_send_task_events=True` (already in compose)          |
 | Host (VM) panels **No data**                 | `node_exporter` down, stale dashboard JSON, or CPU panel before 5m of scrapes | `up{job="node"}`; memory: `100*node_memory_MemAvailable_bytes/node_memory_MemTotal_bytes`; disk: `node_filesystem_avail_bytes{mountpoint="/"}` (not `/host`); `git pull` + `docker compose restart grafana` |
 | Host (VM) **stale numbers** (Prometheus OK)  | Provisioned Overview **copied in Grafana DB** (`allowUiUpdates` was true)     | Explore → same PromQL → if correct: delete **LEAP Overview** in UI (re-provisions in ~30s from `monitoring/dashboards/`), or `docker compose restart grafana` after `git pull`; provisioning has `allowUiUpdates: false` |

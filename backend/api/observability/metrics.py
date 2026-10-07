@@ -8,7 +8,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import redis
 from fastapi import FastAPI
@@ -31,10 +31,10 @@ _EXCLUDED_PATHS: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # Custom LEAP metrics
 # ---------------------------------------------------------------------------
-# Multiprocess mode: when PROMETHEUS_MULTIPROC_DIR is set, all processes
-# (uvicorn workers + Celery workers) write metric observations to files in that
-# shared directory. The /metrics endpoint reads and aggregates all files via
-# MultiProcessCollector. Without the env var, single-process mode is used.
+# Multiprocess mode: uvicorn and Celery workers write to isolated directories
+# under PROMETHEUS_MULTIPROC_ROOT. The /metrics endpoint recursively aggregates
+# all files via MultiProcessCollector. Without PROMETHEUS_MULTIPROC_DIR,
+# single-process mode is used.
 
 # Pipeline stage duration: download / trim / transcribe / extract_topics /
 # generate_subtitles / upload. `status` is "success" or "failure".
@@ -102,6 +102,38 @@ _STALE_ENQUEUE_SECONDS = 7 * 24 * 3600
 # Keep very new members (publish vs LLEN race); drop the rest if they are not pending.
 _ORPHAN_ENQUEUE_SECONDS = 30
 _BROKER_SCAN_LIMIT = 500
+_reported_metric_failures: set[tuple[str, str, str]] = set()
+
+
+def _metric_name(metric: Any) -> str:
+    return str(getattr(metric, "_name", type(metric).__name__))
+
+
+def _warn_metric_failure(operation: str, metric: Any, exc: Exception) -> None:
+    """Log each metric/operation/error combination once per process."""
+    key = (operation, _metric_name(metric), type(exc).__name__)
+    if key in _reported_metric_failures:
+        return
+    _reported_metric_failures.add(key)
+    logger.warning("Prometheus metric {} failed for {} (ignored): {}", operation, key[1], exc)
+
+
+def observe_metric(metric: Any, value: float, **labels: str) -> None:
+    """Record a histogram observation without affecting business logic."""
+    try:
+        target = metric.labels(**labels) if labels else metric
+        target.observe(value)
+    except Exception as exc:
+        _warn_metric_failure("observe", metric, exc)
+
+
+def increment_metric(metric: Any, amount: float = 1.0, **labels: str) -> None:
+    """Increment a counter without affecting business logic."""
+    try:
+        target = metric.labels(**labels) if labels else metric
+        target.inc(amount)
+    except Exception as exc:
+        _warn_metric_failure("increment", metric, exc)
 
 
 def _task_id_from_broker_payload(raw: object) -> str | None:
@@ -146,7 +178,7 @@ def prune_enqueue_tracker(client: redis.Redis, queue: str, now: float) -> float:
             if task_id:
                 pending_ids.add(task_id)
 
-    members = cast("list[tuple[object, float]]", client.zrange(key, 0, -1, withscores=True) or [])
+    members = cast("list[tuple[str, float]]", client.zrange(key, 0, -1, withscores=True) or [])
     for member, score in members:
         member_s = str(member)
         age = now - float(score)
@@ -155,7 +187,7 @@ def prune_enqueue_tracker(client: redis.Redis, queue: str, now: float) -> float:
         if llen == 0 or (pending_ids and member_s not in pending_ids):
             client.zrem(key, member)
 
-    oldest = cast("list[tuple[object, float]]", client.zrange(key, 0, 0, withscores=True) or [])
+    oldest = cast("list[tuple[str, float]]", client.zrange(key, 0, 0, withscores=True) or [])
     if not oldest:
         return 0.0
     return max(0.0, now - float(oldest[0][1]))
@@ -196,12 +228,12 @@ class _QueueAgeCollector:
 _queue_age_collector = _QueueAgeCollector()
 
 
-def _merge_multiproc_files(multiproc_dir: str):
+def _merge_multiproc_files(multiproc_root: str):
     """Merge mmap files, skipping any torn .db so /metrics does not 500."""
     from prometheus_client.multiprocess import MultiProcessCollector
 
     usable: list[str] = []
-    for path in Path(multiproc_dir).glob("*.db"):
+    for path in Path(multiproc_root).rglob("*.db"):
         file = str(path)
         try:
             MultiProcessCollector.merge([file], accumulate=False)
@@ -216,7 +248,7 @@ def _merge_multiproc_files(multiproc_dir: str):
 
 class _SafeMultiProcessCollector:
     def collect(self):
-        path = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+        path = os.environ.get("PROMETHEUS_MULTIPROC_ROOT") or os.environ.get("PROMETHEUS_MULTIPROC_DIR")
         return _merge_multiproc_files(path) if path else []
 
 
@@ -239,7 +271,13 @@ def track_pipeline_stage(stage: str, platform: str = "n/a") -> Iterator[None]:
         raise
     finally:
         elapsed = time.perf_counter() - start
-        pipeline_stage_duration_seconds.labels(stage=stage, platform=platform, status=status).observe(elapsed)
+        observe_metric(
+            pipeline_stage_duration_seconds,
+            elapsed,
+            stage=stage,
+            platform=platform,
+            status=status,
+        )
 
 
 @contextmanager
@@ -249,7 +287,7 @@ def track_handler_section(section: str) -> Iterator[None]:
     try:
         yield
     finally:
-        handler_section_duration_seconds.labels(section=section).observe(time.perf_counter() - start)
+        observe_metric(handler_section_duration_seconds, time.perf_counter() - start, section=section)
 
 
 @contextmanager
@@ -264,14 +302,20 @@ def track_external_api(provider: str, endpoint: str) -> Iterator[None]:
         raise
     finally:
         elapsed = time.perf_counter() - start
-        external_api_duration_seconds.labels(provider=provider, endpoint=endpoint, status=status).observe(elapsed)
+        observe_metric(
+            external_api_duration_seconds,
+            elapsed,
+            provider=provider,
+            endpoint=endpoint,
+            status=status,
+        )
 
 
 def _build_metrics_response() -> Response:
     """Aggregate metrics from all processes and return a Prometheus text response.
 
-    In multiprocess mode (PROMETHEUS_MULTIPROC_DIR is set), reads metric files
-    written by all uvicorn workers and Celery workers from the shared directory.
+    In multiprocess mode, recursively reads metric files written by all uvicorn
+    and Celery workers under PROMETHEUS_MULTIPROC_ROOT.
     The _QueueAgeCollector is always added — it generates live Redis data and
     is only meaningful from the API process.
 
@@ -297,8 +341,8 @@ def setup_prometheus(app: FastAPI, *, enabled: bool) -> None:
     (``/api/v1/recordings/{id}``) so Prometheus cardinality stays bounded.
 
     When PROMETHEUS_MULTIPROC_DIR is set, the /metrics endpoint aggregates
-    metric files from all processes (API workers + Celery workers) via
-    MultiProcessCollector, making pipeline stage durations visible.
+    metric files from all component directories under PROMETHEUS_MULTIPROC_ROOT,
+    making pipeline stage durations visible.
     """
     if not enabled:
         logger.info("Prometheus instrumentation disabled")

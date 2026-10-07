@@ -8,6 +8,23 @@
 
 ---
 
+## 2026-10-07: Prometheus metrics cannot stop recording automation
+
+- **Isolated multiprocess files** — API and Celery now write Prometheus mmap files to separate subdirectories under the shared tmpfs root. This prevents equal container-local PIDs from corrupting the same file; `/metrics` aggregates both directories recursively.
+- **Fail-open custom metrics** — wrapped pipeline, handler, and share metric failures are logged and ignored, so a corrupt metrics file cannot interrupt recording preparation, pipeline stages, or share analytics.
+- **Safe startup cleanup** — each container removes its own stale mmap files and legacy shared-root files before starting. Torn files are still skipped during a scrape.
+- **Deployment** — no database migration. Recreate **api** and **celery_worker** together so both use the isolated directories.
+
+### Files
+
+- `docker-compose.yml`
+- `backend/entrypoint.sh`
+- `backend/api/observability/metrics.py`
+- `backend/api/services/share_observability.py`
+- `backend/api/tasks/share_events.py`
+- `backend/tests/unit/api/observability/test_metrics_mmap.py`
+- `backend/docs/guides/MONITORING.md`
+
 ## 2026-10-05: Saved playlist and channel order
 
 - **The order rule is saved** — picking **Newest first**, **Oldest first** or **Name A–Z** in **Video order** stores the rule on the playlist (and on the channel for its videos; the channel's **Playlist order** offers **Name A–Z**). The server sorts right away and again whenever videos or playlists are added, including automatic adds from a template, so new lectures land in place. Before, the order was sorted once and the field snapped back to **Current order**.
