@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # Daily Redis RDB backup → Yandex Object Storage backups bucket.
 #
-# Redis holds the Celery broker, result backend and beat schedule cache.
-# Losing /data wipes all in-flight tasks; AOF on the named volume is fine for
-# container restarts but doesn't survive VM destruction. Nightly RDB snapshot
-# to S3 plugs that gap.
-#
 # Invoked from cron on the VM (cloud-init installs the schedule); also available
 # on demand via `make deploy-backup-redis`.
 #
@@ -22,15 +17,13 @@ TMP=/tmp/leap_redis_${TS}.rdb.gz
 
 echo "[redis_backup] $(date -Iseconds) starting snapshot"
 
-# BGSAVE forks Redis to write /data/dump.rdb without blocking; we then copy it
-# out of the container. SAVE would block the whole event loop.
+# Read LASTSAVE before BGSAVE: a small dataset finishes before the next redis-cli call.
+prev=$(docker exec leap_redis redis-cli LASTSAVE | tr -d '[:space:]')
 docker exec leap_redis redis-cli BGSAVE >/dev/null
 
-# Wait for the BGSAVE to finish (max 60s). LASTSAVE returns the unix timestamp
-# of the last successful background save.
-prev=$(docker exec leap_redis redis-cli LASTSAVE)
+cur=$prev
 for _ in $(seq 1 60); do
-  cur=$(docker exec leap_redis redis-cli LASTSAVE)
+  cur=$(docker exec leap_redis redis-cli LASTSAVE | tr -d '[:space:]')
   if [ "$cur" != "$prev" ]; then
     break
   fi

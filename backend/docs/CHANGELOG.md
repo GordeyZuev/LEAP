@@ -8,6 +8,15 @@
 
 ---
 
+## 2026-10-09: Redis backup waits for the save it just started
+
+- **Fix** — `scripts/redis_backup.sh` read `LASTSAVE` after `BGSAVE`. A small Redis finishes the save before that read, so the script waited 60s for a second save and exited with `BGSAVE did not complete in 60s`. The timestamp is now taken before `BGSAVE`.
+- **Deploy** — cron runs `/opt/leap/scripts/redis_backup.sh` from the VM checkout. The fix arrives with the deploy that contains this commit.
+
+### Files
+
+- `scripts/redis_backup.sh`
+
 ## 2026-10-07: Prometheus metrics cannot stop recording automation
 
 - **Isolated multiprocess files** — API and Celery now write Prometheus mmap files to separate subdirectories under the shared tmpfs root. This prevents equal container-local PIDs from corrupting the same file; `/metrics` aggregates both directories recursively.
