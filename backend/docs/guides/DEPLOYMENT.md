@@ -365,14 +365,19 @@ Cron entries are installed by `scripts/vm-init.sh`. Re-run
 `make deploy-vm-init` after editing the script to refresh the crontab.
 
 **Restoring Postgres** (point-in-time-recovery is out of scope; this is a
-full dump restore):
+full dump restore). On a new host, follow
+[Selectel compute cutover](#selectel-compute-cutover-2026-10-11): empty the
+database first (`DROP`/`CREATE`), do not pass `--clean`, and do not restore
+Redis. The one-liner below is only for an already-empty `leap_platform`.
 
 ```bash
 yc storage s3 cp s3://leap-backups/postgres/leap_<TS>.sql.gz - | gunzip \
-  | docker exec -i leap_postgres psql -U postgres leap_platform
+  | docker exec -i leap_postgres psql -U postgres -d leap_platform
 ```
 
-**Restoring Redis:**
+**Restoring Redis:** skip this on the Selectel cutover. An empty broker is
+intentional there. Use the commands below only when you mean to put the old
+queue back.
 
 ```bash
 docker compose stop redis
@@ -394,6 +399,80 @@ VM can read the full history with zero migration:
 
 The `leap_loki_data` named volume only holds the local TSDB shipper buffer
 and compactor working dir (≤ 100 MB, rebuildable). Losing it is a no-op.
+
+## Selectel compute cutover (2026-10-11)
+
+Production compute is a Selectel VM in ru-9. The public name stays
+`https://leap-platform.ru`. Yandex Cloud still holds the data plane and
+identity; the Yandex VM, its disk, and its reserved address stay where they
+are.
+
+| Stays on Yandex | Role |
+| --- | --- |
+| Object Storage | Media (`leap-platform-storage`), Postgres/Redis backups (`leap-backups`), Loki chunks (`leap-logs`) |
+| Container Registry | Backend and frontend images (`cr.yandex/<id>/...`) |
+| Lockbox | Production secrets, materialized on the VM by `scripts/vm-init.sh` |
+| IAM | Service accounts for the VM and for CI |
+| DNS | Zone and the A record for the domain |
+
+### DNS
+
+Flip the A record to the Selectel address only after the database checks
+pass: user and recording counts against the dump, a sample recording opens,
+`/api/v1/health/ready` is OK. Until that flip, clients still hit the previous
+host.
+
+### Postgres
+
+The restore source is a plain `pg_dump` gzip (`leap_<TS>.sql.gz`), not
+`pg_restore --clean`.
+
+1. Stop the API and Celery workers so nothing writes during the load.
+2. `DROP DATABASE` and `CREATE DATABASE` for `leap_platform` so the target is
+   empty. Do not load into a database that already has tables, and do not pass
+   `--clean`.
+3. Load with `psql`:
+
+```bash
+gunzip -c leap_<TS>.sql.gz | docker exec -i leap_postgres psql -U postgres -d leap_platform
+```
+
+4. Check counts, then flip DNS.
+
+Do not commit dump files. `leap_*.sql.gz` is a backup, not source.
+
+### Redis
+
+Do not restore the Redis RDB. The broker and the result backend start empty,
+so tasks that were queued on the old host are gone. The Beat schedule lives
+in Postgres (`celery_periodic_task`) and fires again from `last_run_at`.
+Missed automation runs catch up on the first Beat tick after boot. If a
+provider window is shorter than the outage, sync that source from the
+Sources page (`POST /api/v1/sources/{id}/sync`, or
+`POST /api/v1/sources/bulk/sync`).
+
+### Metrics and logs
+
+A new VM has a new Prometheus volume. Prometheus panels (API traffic, host
+CPU/memory/disk, Celery rates) are empty before that process started. Loki
+history is not on that disk: chunks stay in the logs bucket, and Grafana
+Explore → Loki with `{app="leap"}` still sees them. The **LEAP Errors & Logs**
+dashboard queries Loki with that label. Host, API, and worker charts query
+Prometheus.
+
+### Flower and `make deploy-ssh`
+
+The Flower service needs `env_file: .env` in `docker-compose.yml`. A GitHub
+Actions deploy runs `git reset --hard` on the VM, so a line that exists only
+on the server is dropped on the next deploy. Commit the compose change.
+
+`make deploy-ssh` connects to the hostname from Terraform `domain_url`, not
+to the Yandex `vm_public_ip` output. After the A record moves, the old host
+key in `~/.ssh/known_hosts` no longer matches. Remove it with
+`ssh-keygen -R leap-platform.ru` (and `www` if that name is present), check
+the new ED25519 fingerprint with `ssh-keyscan -t ed25519`, then connect.
+Leave `StrictHostKeyChecking` on. The GitHub Actions workflow does not pin
+`known_hosts`, so CI is unaffected.
 
 ---
 

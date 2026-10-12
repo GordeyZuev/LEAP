@@ -24,8 +24,9 @@ DOCKER_COMPOSE := $(DOCKER_COMPOSE_BIN) -f $(COMPOSE_FILE)
 # Tokens are valid for ~12 hours which is more than enough for one session.
 YC_TOKEN_CMD := YC_TOKEN=$$(yc iam create-token)
 TF := $(YC_TOKEN_CMD) terraform -chdir=$(TERRAFORM_DIR)
-VM_IP_CMD := $(TF) output -raw vm_public_ip 2>/dev/null
 DOMAIN_CMD := $(TF) output -raw domain_url 2>/dev/null | sed -e 's|https://||'
+# SSH follows DNS. The Yandex VM address in terraform state is the pre-outage host.
+VM_IP_CMD := $(DOMAIN_CMD)
 
 .DEFAULT_GOAL := help
 

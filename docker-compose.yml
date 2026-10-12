@@ -265,6 +265,7 @@ services:
     # Skip entrypoint.sh (waits for postgres; flower doesn't need DB).
     entrypoint: ["python", "-m", "celery"]
     command: ["-A", "api.celery_app", "flower", "--port=5555", "--url_prefix=flower"]
+    env_file: .env
     environment:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0

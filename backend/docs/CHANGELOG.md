@@ -8,6 +8,19 @@
 
 ---
 
+## 2026-10-11: Selectel compute recovery notes
+
+- **Runbook** — `DEPLOYMENT.md` describes the cutover: Selectel is the compute host; Yandex still holds Object Storage (media, backups, Loki), Container Registry, Lockbox, IAM, and DNS. Flip the A record only after database checks. Restore Postgres from the gzip dump into an empty database (`DROP`/`CREATE` first, no `--clean`). Do not restore Redis. A new VM starts with an empty Prometheus TSDB; Loki history stays in the logs bucket. Flower needs `env_file: .env` or the next GitHub deploy (`git reset --hard`) drops that line. `make deploy-ssh` follows the domain, and `known_hosts` must be refreshed when the host key changes. Do not commit dump files.
+- **Deploy** — no migration and no version bump. Commit the Flower `env_file` line and the Makefile domain SSH change together with this note.
+
+### Files
+
+- `backend/docs/guides/DEPLOYMENT.md`
+- `docker-compose.yml`
+- `Makefile`
+
+---
+
 ## 2026-10-09: Redis backup waits for the save it just started
 
 - **Fix** — `scripts/redis_backup.sh` read `LASTSAVE` after `BGSAVE`. A small Redis finishes the save before that read, so the script waited 60s for a second save and exited with `BGSAVE did not complete in 60s`. The timestamp is now taken before `BGSAVE`.

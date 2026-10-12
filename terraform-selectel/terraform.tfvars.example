@@ -1,0 +1,3 @@
+selectel_domain_name = "123456"
+selectel_username    = "leap-terraform"
+selectel_password    = "replace-with-the-service-user-password"
