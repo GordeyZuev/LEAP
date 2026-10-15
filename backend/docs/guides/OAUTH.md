@@ -59,6 +59,12 @@
 }
 ```
 
+**Для выбора, создания и редактирования плейлистов отдельный YouTube API key не нужен.** Эти запросы выполняются от имени подключённого пользователя через OAuth 2.0. Нужны Google Cloud project с включённым **YouTube Data API v3** и OAuth client ID/secret веб-приложения. Приложение читает их из `YOUTUBE_OAUTH_CONFIG` (по умолчанию `config/oauth_google.json`); если файла или значений в нём нет, используются серверные `OAUTH_YOUTUBE_CLIENT_ID` и `OAUTH_YOUTUBE_CLIENT_SECRET`. Клиентский секрет нельзя помещать во frontend.
+
+YouTube OAuth запрашивает `youtube.upload` для загрузки видео и `youtube.force-ssl` для операций с плейлистами; дополнительных scopes для этой функции нет. Redirect URI в Google Cloud должен точно совпадать с `{OAUTH_REDIRECT_BASE_URL}/api/v1/oauth/youtube/callback` (для локальной разработки — `http://localhost:8000/api/v1/oauth/youtube/callback`). Если в JSON задан `redirect_uris`, приложение выбирает URI, содержащий `OAUTH_REDIRECT_BASE_URL`, либо первый URI из файла.
+
+Для OAuth consent screen в режиме **Testing** добавьте аккаунты в Test users. У Google есть ограничение до 100 тестовых пользователей, а авторизация с YouTube scopes и refresh token в этом режиме истекает через 7 дней — это ограничение Google, отдельный API key его не исправляет. Для публичного использования настройте Publishing status и пройдите требуемую Google проверку scopes.
+
 ### ⏱️ Шаг 2: VK Application (10 мин)
 
 **VK Video API setup:**
@@ -197,6 +203,8 @@ DELETE /api/v1/credentials/{id} - Revoke credentials
 **Scopes:**
 - `https://www.googleapis.com/auth/youtube.upload`
 - `https://www.googleapis.com/auth/youtube.force-ssl`
+
+`youtube.force-ssl` is used for YouTube playlist selection and management as well as upload-related playlist operations. Older saved tokens that lack this scope must be re-authorized when the picker reports missing permissions; the OAuth flow requests both scopes for new and reconnected credentials. When Google returns the granted scopes, LEAP stores that response rather than assuming every requested scope was approved.
 
 **Configuration:**
 ```python
@@ -532,6 +540,17 @@ POST /api/v1/oauth/vk/token/submit - VK Implicit Flow token submit
 GET /api/v1/oauth/zoom/authorize - Start Zoom OAuth
 GET /api/v1/oauth/zoom/callback - Zoom OAuth callback
 ```
+
+YouTube playlist operations use the selected credential and the same `youtube.force-ssl` authorization:
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/v1/credentials/{credential_id}/youtube/playlists?q=&page_token=` | List playlists or search all channel pages by title/description |
+| `GET` | `/api/v1/credentials/{credential_id}/youtube/playlists/{playlist_id}` | Read one playlist for the selected-value field |
+| `POST` | `/api/v1/credentials/{credential_id}/youtube/playlists` | Create with title, description, and `privacy_status` |
+| `PATCH` | `/api/v1/credentials/{credential_id}/youtube/playlists/{playlist_id}` | Update title, description, and/or `privacy_status` |
+
+The credential must belong to the signed-in user and be an active YouTube credential. A YouTube authorization failure returns `403` with a reconnect message and marks the credential as needing re-authorization; `401` remains reserved for an expired LEAP session. Network timeouts return `504`; playlist search has a 25-second total deadline, OAuth refresh is bounded, and provider calls run outside the event loop with finite HTTP timeouts. Search is global to the channel because YouTube Data API does not provide text search for the playlist list endpoint; each debounced search scans all channel pages again. `playlists.list` costs 1 quota unit per request; playlist creation and update cost 50 units each. Google currently documents a default 10,000 units/day for most YouTube Data API methods, shared by this Cloud project with its other API calls. Check the project's Quotas page and Google's [current quota documentation](https://developers.google.com/youtube/v3/determine_quota_cost) before scaling usage.
 
 ### Credentials Management
 

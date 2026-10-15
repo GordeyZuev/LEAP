@@ -12,8 +12,9 @@ from api.repositories.auth_repos import RefreshTokenRepository
 from api.repositories.config_repos import UserConfigRepository
 from api.repositories.recording_repos import RecordingRepository
 from config.settings import get_settings
-from database.models import RecordingModel
+from database.models import OutputTargetModel, ProcessingStageModel, RecordingModel
 from logger import get_logger
+from models.recording import TargetStatus
 
 logger = get_logger()
 settings = get_settings()
@@ -344,19 +345,52 @@ def cleanup_temp_files_task(max_age_hours: int = 6):
         return {"status": "error", "error": str(e)}
 
 
+def _has_recent_pipeline_activity(recording: RecordingModel, threshold: datetime) -> bool:
+    """A pipeline can span hours while later stages are still making progress."""
+    if recording.updated_at >= threshold:
+        return True
+    return any(stage.updated_at >= threshold for stage in recording.processing_stages)
+
+
+def _stale_active_recordings_query(threshold: datetime):
+    """Apply the batch limit only after excluding pipelines with recent stage writes."""
+    return (
+        select(RecordingModel)
+        .where(RecordingModel.on_air.is_(True))
+        .where(RecordingModel.updated_at < threshold)
+        .where(
+            ~select(ProcessingStageModel.id)
+            .where(
+                ProcessingStageModel.recording_id == RecordingModel.id,
+                ProcessingStageModel.updated_at >= threshold,
+            )
+            .exists()
+        )
+        .where(
+            or_(
+                RecordingModel.pipeline_started_at < threshold,
+                RecordingModel.pipeline_started_at.is_(None),
+            )
+        )
+        .options(selectinload(RecordingModel.processing_stages))
+        .order_by(RecordingModel.updated_at)
+        .limit(500)
+    )
+
+
 @celery_app.task(
+    bind=True,
     name="maintenance.reset_stale_active_recordings",
     max_retries=settings.celery.maintenance_max_retries,
     default_retry_delay=settings.celery.maintenance_retry_delay,
 )
-def reset_stale_active_recordings_task(stale_hours: float = 2.0):
+def reset_stale_active_recordings_task(self, stale_hours: float = 2.0):
     """
-    Periodic task to reset on_air=True recordings whose pipeline has been
-    running longer than `stale_hours`. Protects against worker crashes that
-    leave on_air stuck without a live Celery task.
+    Reset old on_air pipelines only when neither the recording nor any stage
+    has changed for `stale_hours`. Total pipeline runtime alone is not stale.
 
     Rolls back status to the nearest stable state and clears on_air /
-    pipeline_task_id so smart_run can re-launch the pipeline cleanly.
+    pipeline_task_id so a later manual or automation run can resume cleanly.
 
     Runs every 30 minutes (configured in Celery Beat).
     """
@@ -365,29 +399,25 @@ def reset_stale_active_recordings_task(stale_hours: float = 2.0):
     from models.recording import ProcessingStageStatus, ProcessingStatus
 
     async def _reset():
+        from redis.asyncio import from_url
+
         session_maker = get_async_session_maker()
         threshold = datetime.now(UTC) - timedelta(hours=stale_hours)
+
+        # A chain can spend hours queued behind other long jobs without
+        # changing its DB row. Do not clear its ownership while pipeline
+        # messages are still waiting in the broker.
+        async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+            for queue in ("downloads", "processing_cpu", "async_operations", "celery"):
+                if await redis.llen(queue):
+                    logger.info("Stale pipeline reset deferred while {} has backlog", queue)
+                    return 0
 
         async with session_maker() as session:
             # Also catch recordings where pipeline_started_at IS NULL — this happens when
             # a worker died before the orchestrator task had a chance to set it. Use
             # updated_at as the fallback staleness signal in that case.
-            from sqlalchemy import or_
-
-            result = await session.execute(
-                select(RecordingModel)
-                .where(RecordingModel.on_air.is_(True))
-                .where(
-                    or_(
-                        RecordingModel.pipeline_started_at < threshold,
-                        (RecordingModel.pipeline_started_at.is_(None)) & (RecordingModel.updated_at < threshold),
-                    )
-                )
-                .options(
-                    selectinload(RecordingModel.processing_stages),
-                    selectinload(RecordingModel.outputs),
-                )
-            )
+            result = await session.execute(_stale_active_recordings_query(threshold).with_for_update(of=RecordingModel))
             stale = result.scalars().all()
 
             if not stale:
@@ -399,7 +429,10 @@ def reset_stale_active_recordings_task(stale_hours: float = 2.0):
                 ProcessingStatus.UPLOADING: ProcessingStatus.PROCESSED,
             }
 
+            reset_count = 0
             for rec in stale:
+                if _has_recent_pipeline_activity(rec, threshold):
+                    continue
                 rec.status = _rollback_map.get(rec.status, rec.status)
                 for stage in rec.processing_stages:
                     if stage.status == ProcessingStageStatus.IN_PROGRESS:
@@ -407,13 +440,14 @@ def reset_stale_active_recordings_task(stale_hours: float = 2.0):
                         stage.started_at = None
                 rec.on_air = False
                 rec.pipeline_task_id = None
+                reset_count += 1
                 logger.warning(
                     f"Stale pipeline reset | rec={rec.id} user={rec.user_id} "
                     f"started={rec.pipeline_started_at} new_status={rec.status}"
                 )
 
             await session.commit()
-            return len(stale)
+            return reset_count
 
     try:
         reset_count = asyncio.run(_reset())
@@ -421,7 +455,210 @@ def reset_stale_active_recordings_task(stale_hours: float = 2.0):
         return {"status": "success", "reset": reset_count}
     except Exception as e:
         logger.opt(exception=True).error(f"Failed to reset stale active recordings: {e}")
-        return {"status": "error", "error": str(e)}
+        raise self.retry(exc=e) from e
+
+
+@celery_app.task(
+    bind=True,
+    name="maintenance.requeue_stale_video_previews",
+    max_retries=settings.celery.maintenance_max_retries,
+    default_retry_delay=settings.celery.maintenance_retry_delay,
+)
+def requeue_stale_video_previews_task(self) -> dict:
+    """Recover preview jobs whose worker died after marking the stage running."""
+    try:
+        return asyncio.run(_requeue_stale_video_previews())
+    except Exception as exc:
+        logger.opt(exception=True).error("Failed to recover stale video previews: {}", exc)
+        raise self.retry(exc=exc) from exc
+
+
+async def _requeue_stale_video_previews() -> dict:
+    from redis.asyncio import from_url
+
+    from api.services.video_previews import (
+        PREVIEW_MAX_ATTEMPTS,
+        enqueue_video_previews,
+        mark_preview_maker_stage,
+        release_preview_queue_lock,
+    )
+    from database.models import PreviewMakerStageModel
+
+    now = datetime.now(UTC)
+    orphan_threshold = now - timedelta(minutes=70)
+    failure_threshold = now - timedelta(minutes=5)
+    queued = 0
+    errors = 0
+    checked = 0
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+        # An old PENDING message can be valid while a queue is backlogged.
+        # Recover it only when the broker queue is empty and the claim expired.
+        include_pending = not await redis.llen("previews")
+        conditions = [
+            (PreviewMakerStageModel.status == "IN_PROGRESS") & (PreviewMakerStageModel.started_at < orphan_threshold),
+            (PreviewMakerStageModel.status == "FAILED")
+            & (PreviewMakerStageModel.failed_at < failure_threshold)
+            & (PreviewMakerStageModel.attempt_count < PREVIEW_MAX_ATTEMPTS),
+        ]
+        if include_pending:
+            conditions.append(
+                (PreviewMakerStageModel.status == "PENDING") & (PreviewMakerStageModel.queued_at < orphan_threshold)
+            )
+        async with get_async_session_maker()() as session:
+            result = await session.execute(
+                select(
+                    PreviewMakerStageModel.recording_id,
+                    RecordingModel.user_id,
+                    PreviewMakerStageModel.run_token,
+                    PreviewMakerStageModel.status,
+                    PreviewMakerStageModel.attempt_count,
+                )
+                .join(RecordingModel, RecordingModel.id == PreviewMakerStageModel.recording_id)
+                .where(
+                    or_(*conditions),
+                    PreviewMakerStageModel.run_token.is_not(None),
+                    RecordingModel.deleted.is_(False),
+                    RecordingModel.processed_video_path.is_not(None),
+                )
+                .order_by(PreviewMakerStageModel.recording_id)
+                .limit(25)
+            )
+            candidates = result.all()
+
+        checked = len(candidates)
+        for recording_id, user_id, old_token, old_status, attempts in candidates:
+            try:
+                # Compare-and-delete only the orphan's claim; never remove a
+                # newer run's lock. The subsequent DB token check closes races.
+                await release_preview_queue_lock(redis, recording_id, old_token)
+                if attempts >= PREVIEW_MAX_ATTEMPTS:
+                    await mark_preview_maker_stage(
+                        recording_id,
+                        user_id,
+                        "FAILED",
+                        old_token,
+                        error="Automatic preview retry limit reached",
+                        expected_status=old_status,
+                    )
+                    continue
+                queued += bool(
+                    await enqueue_video_previews(
+                        redis,
+                        recording_id,
+                        user_id,
+                        force=True,
+                        expected_run_token=old_token,
+                        expected_status=old_status,
+                    )
+                )
+            except Exception:
+                errors += 1
+                logger.exception("Could not requeue stale video preview for recording {}", recording_id)
+
+    if errors:
+        raise RuntimeError(f"Could not requeue {errors} stale video preview jobs")
+    return {"status": "success", "checked": checked, "queued": queued}
+
+
+@celery_app.task(
+    bind=True,
+    name="maintenance.reconcile_upload_dispatches",
+    max_retries=settings.celery.maintenance_max_retries,
+    default_retry_delay=settings.celery.maintenance_retry_delay,
+)
+def reconcile_upload_dispatches_task(self) -> dict:
+    """Republish saved upload intents left without a running consumer."""
+    try:
+        return asyncio.run(_reconcile_upload_dispatches())
+    except Exception as exc:
+        logger.opt(exception=True).error("Failed to reconcile upload dispatches: {}", exc)
+        raise self.retry(exc=exc) from exc
+
+
+async def _reconcile_upload_dispatches() -> dict:
+    from redis.asyncio import from_url
+
+    from api.helpers.status_manager import update_aggregate_status
+    from api.services.upload_dispatch import publish_upload_dispatch
+
+    now = datetime.now(UTC)
+    pending_threshold = now - timedelta(minutes=5)
+    published_threshold = now - timedelta(minutes=70)
+    uncertain_threshold = now - timedelta(seconds=settings.celery.task_time_limit + 600)
+    uncertain = 0
+    async with get_async_session_maker()() as session:
+        result = await session.execute(
+            select(OutputTargetModel)
+            .where(
+                OutputTargetModel.dispatch_task_id.is_not(None),
+                OutputTargetModel.dispatch_finished_at.is_(None),
+                OutputTargetModel.status == TargetStatus.UPLOADING,
+                OutputTargetModel.started_at < uncertain_threshold,
+            )
+            .order_by(OutputTargetModel.started_at)
+            .limit(25)
+            .with_for_update(skip_locked=True)
+        )
+        uncertain_recording_ids = set()
+        for target in result.scalars():
+            target.status = TargetStatus.FAILED
+            target.failed = True
+            target.failed_at = now
+            target.dispatch_finished_at = now
+            target.failed_reason = "Upload outcome unknown; verify the platform before retrying"
+            uncertain += 1
+            uncertain_recording_ids.add(target.recording_id)
+            logger.warning(
+                "Upload outcome requires manual verification | target={} recording={}",
+                target.id,
+                target.recording_id,
+            )
+        if uncertain_recording_ids:
+            recordings = await session.execute(
+                select(RecordingModel)
+                .where(RecordingModel.id.in_(uncertain_recording_ids))
+                .options(selectinload(RecordingModel.outputs), selectinload(RecordingModel.processing_stages))
+            )
+            for recording in recordings.scalars():
+                update_aggregate_status(recording)
+        await session.commit()
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+        conditions = [
+            (OutputTargetModel.dispatch_published_at.is_(None))
+            & (OutputTargetModel.dispatch_requested_at < pending_threshold)
+        ]
+        # A queued upload may simply be waiting behind other work. Only
+        # republish old accepted messages after the broker queue drains.
+        if not await redis.llen("uploads"):
+            conditions.append(OutputTargetModel.dispatch_published_at < published_threshold)
+        async with get_async_session_maker()() as session:
+            result = await session.execute(
+                select(OutputTargetModel.id, OutputTargetModel.dispatch_task_id)
+                .join(RecordingModel, RecordingModel.id == OutputTargetModel.recording_id)
+                .where(
+                    or_(*conditions),
+                    OutputTargetModel.dispatch_task_id.is_not(None),
+                    OutputTargetModel.dispatch_finished_at.is_(None),
+                    OutputTargetModel.status == TargetStatus.NOT_UPLOADED,
+                    OutputTargetModel.failed.is_(False),
+                    RecordingModel.deleted.is_(False),
+                )
+                .order_by(OutputTargetModel.dispatch_requested_at)
+                .limit(25)
+            )
+            candidates = result.all()
+
+    published = 0
+    errors = 0
+    for target_id, task_id in candidates:
+        try:
+            published += bool(await publish_upload_dispatch(target_id, task_id))
+        except Exception:
+            errors += 1
+            logger.exception("Could not republish upload intent for target {}", target_id)
+    if errors:
+        raise RuntimeError(f"Could not republish {errors} upload intents")
+    return {"status": "success", "checked": len(candidates), "published": published, "uncertain": uncertain}
 
 
 @celery_app.task(

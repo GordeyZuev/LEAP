@@ -58,7 +58,7 @@ async function performLogout() {
   } catch {
     // Ignored — proceed to /login regardless.
   }
-  window.location.href = "/login";
+  window.location.replace("/login");
 }
 
 interface SidebarProps {

@@ -215,6 +215,13 @@ body {
   outline: 2px solid var(--plyr-color-main);
   outline-offset: 2px;
 }
+.plyr__preview-thumb__image-container {
+  width: 144px;
+  height: 81px;
+}
+.plyr__preview-scrubbing {
+  display: none;
+}
 .plyr__chapter-label {
   overflow: hidden;
   margin-inline-start: var(--plyr-control-spacing, 10px);

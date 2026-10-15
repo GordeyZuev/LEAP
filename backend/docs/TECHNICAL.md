@@ -589,7 +589,9 @@ video_upload_module/
 
 #### YouTube (YouTube Data API v3)
 - Video upload с metadata
-- Playlist management
+- Playlist management through `YouTubePlaylistManager`
+- **Playlist picker API** — credential-scoped list/search/create/read/update routes under `/api/v1/credentials/{credential_id}/youtube/playlists`; text search walks all channel pages
+- The picker uses the existing `youtube.force-ssl` scope; reconnect the credential if YouTube rejects playlist access
 - Subtitle upload (SRT, VTT)
 - Thumbnail upload
 - Privacy settings
@@ -697,6 +699,7 @@ run_recording_task(recording_id, user_id)
 # Chain (каждый шаг на любом свободном worker)
 download_task.s()      # queue: downloads
   | trim_task.s()      # queue: processing_cpu
+  | enqueue_video_previews.s()  # queue: async_operations; launches an independent previews job
   | transcribe_task.s()
   | topics_task.s()
   | subtitles_task.s()
@@ -707,7 +710,8 @@ download_task.s()      # queue: downloads
 - `downloads` — Zoom/yt-dlp/Yandex Disk downloads (threads, isolated)
 - `uploads` — YouTube/VK/Yandex Disk uploads (threads, isolated)
 - `async_operations` — transcription, topics, subtitles, orchestration (threads)
-- `processing_cpu` — FFmpeg trimming (prefork)
+- `processing_cpu` — FFmpeg trimming (shared Celery worker)
+- `previews` — seek-frame extraction (dedicated Celery worker, concurrency 1 by default)
 - `maintenance` — periodic cleanup (prefork)
 
 **Benefits:**
@@ -902,23 +906,34 @@ Share links allow unauthenticated access to a single recording's public page.
 POST   /api/v1/recordings/{id}/share          # Enable (mint if empty) → { share_token, share_enabled }
 DELETE /api/v1/recordings/{id}/share          # Disable (token kept, public 404)
 POST   /api/v1/recordings/{id}/share/rotate   # new UUID; previous URL 404
+GET    /api/v1/recordings/{id}/preview.vtt     # owner-only seek storyboard
+GET    /api/v1/recordings/{id}/preview/{sheet}.jpg  # owner-only JPEG sprite
 
 # Public: no auth required
 POST   /api/v1/share/{token}/beacon            # page view (204); CSRF skipped (sendBeacon)
-GET    /api/v1/share/{token}[?view=full|player]  # full metadata (default) or player payload with play_url / vtt_url
-GET    /api/v1/share/{token}/poster           # 302 to presigned poster (Open Graph / Telegram)
+GET    /api/v1/share/{token}[?view=full|player][&embed=true]  # embed=true with player omits file inventory/source extras/original presign
+GET    /api/v1/share/{token}/poster           # 302 to presigned poster (player artwork; chat preview uses a fixed PNG)
 GET    /api/v1/share/{token}/media?type=processed|original  # presigned video URL
 GET    /api/v1/share/{token}/media?type=processed&download=true  # download URL (tracked)
 GET    /api/v1/share/{token}/files/{file_type} # artifact download (srt|vtt|transcript_json|transcript_txt|transcript_words)
+GET    /api/v1/share/{token}/preview.vtt       # seek storyboard for enabled share
+GET    /api/v1/share/{token}/preview/{sheet}.jpg  # preview JPEG sprite
 
 # Playlist (course) public share — same 404 text when disabled or unknown
 GET    /api/v1/share/p/{token}[?view=full|catalog]  # full: item posters presigned; catalog: no poster presign (poster_url null)
-GET    /api/v1/share/p/{token}/poster          # 302 to first item poster (Open Graph / Telegram)
+GET    /api/v1/share/p/{token}/poster          # 302 to first item poster (player artwork; chat preview uses a fixed PNG)
+GET    /api/v1/share/p/{token}/posters?item_ids=…  # up to 25 requested item posters; owner-scoped batch
 GET    /api/v1/share/p/{token}/items/{itemId}[?view=full|player]  # full metadata or player payload (play_url, vtt_url)
 POST   /api/v1/share/p/{token}/items/{itemId}/beacon  # page view (204); CSRF skipped (sendBeacon)
 GET    /api/v1/share/p/{token}/items/{itemId}/media?type=processed|original[&download=true]
 GET    /api/v1/share/p/{token}/items/{itemId}/files/{file_type}[&inline=true]
+GET    /api/v1/share/p/{token}/items/{itemId}/preview.vtt
+GET    /api/v1/share/p/{token}/items/{itemId}/preview/{sheet}.jpg
 ```
+
+The preview VTT returns `200` only when both the object and a completed `PREVIEW_MAKER` stage for the current video revision exist; it returns `202` with `Retry-After` otherwise. A dispatch step after `TRIM` and on-demand generation share one Redis queue lock; the CPU job runs on the separate `previews` worker without delaying transcription. `PREVIEW_MAKER` is stored in `preview_maker_stages` and excluded from required-stage readiness and the UI. This table is the sole persisted status source; Redis only holds the expiring queue claim. Failed builds of the same source have a five-minute retry cooldown. VTT duration comes from ffprobe on the downloaded processed video; the same downloaded file supplies a midpoint poster frame. A worker discards its output if the trim completion revision changes while it runs. The JPEG route returns bytes for LOCAL storage or `302` to a short-lived signed S3 URL. Owner, enabled recording share, and playable playlist item checks run before the preview lookup; a revoked share returns `404`. The browser uses the same public share beacon for `/share/{token}` and `/embed/{token}`, so their views share one 30-minute repeat rule. Only the frontend `/embed/` page is frameable by configured `EMBED_ALLOWED_ORIGINS`; see [VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) for UI, caching, and rollout details.
+
+The iframe calls `view=player&embed=true`. This skips the full file inventory and source attachments, retains edited chapter timestamps, and signs only the processed media and subtitle URLs. The `embed` query flag is optional: an old API during rollback ignores it and still serves the existing `view=player` contract. The catalog poster endpoint validates the enabled playlist, fetches only up to 25 requested items with tenant scope, and batches owner and publication-look reads. Extraction reads avoid a separate Object Storage HEAD before GET. A completed storyboard is browser-cacheable for 60 seconds; pending (`202`) responses are not cached, and the browser pauses retries in a hidden tab.
 
 Course watch fetches VTT via presigned URL (`vtt_url` on `view=player`). If that fetch fails (bucket CORS), the client loads `GET …/files/vtt?inline=true`, which **streams VTT through the API** (not a 302 to S3) and attaches a blob URL. Files, Summary & questions, and Created Overview on watch follow `allow_video_download` / `allow_files_download` like recording share (locked rows, not hidden). The landing page has no Files panel.
 
@@ -1012,7 +1027,7 @@ GET        /api/v1/c/{slug}
 POST       /api/v1/c/{slug}/beacon
 ```
 
-Saved order rules (`item_sort`, `video_sort`, `playlist_sort`, returned on owner playlist/channel responses) re-sort right away and on every add, including template auto-adds; `PUT …/order` keeps the given order and clears the rule.
+Saved order rules (`item_sort`, `video_sort`, `playlist_sort`, returned on owner playlist/channel responses) re-sort right away and on every add, including template auto-adds; `PUT …/order` keeps the given order and clears the rule. `POST …/videos` and `POST …/playlists` skip ids already on the channel, including a concurrent duplicate, and return `201` with `added` equal to the number of new rows.
 
 Public channel 404 if missing or `share_enabled` is false (`SHARE_NOT_FOUND`). Videos/playlists on the public payload are already share-visible (at most 200 each; one GET, client search/sort, UI pages of 24). Each public video has `title` = recording `display_name`, `duration`, `start_time`, poster fields, `share_token`, and optional `blurb` from DB `main_topics` (not `extracted.json`). Playlists include optional `blurb` from the rendered description. Guide: [CHANNELS.md](guides/CHANNELS.md).
 

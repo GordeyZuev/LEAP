@@ -283,6 +283,15 @@ class OutputTargetModel(Base):
     failed_reason: Mapped[str | None] = mapped_column(String(1000))
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # Durable intent for auto-upload dispatch. Reusing the task id makes an
+    # ambiguous broker publish safe to repeat when the worker claims this row.
+    dispatch_task_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    dispatch_platform: Mapped[str | None] = mapped_column(String(50))
+    dispatch_metadata_override: Mapped[Any | None] = mapped_column(JSONB)
+    dispatch_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    dispatch_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatch_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # --- Timestamps ---
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
@@ -342,6 +351,31 @@ class ProcessingStageModel(Base):
             f"<ProcessingStage(id={self.id}, recording_id={self.recording_id}, "
             f"stage_type={self.stage_type}, status={self.status})>"
         )
+
+
+class PreviewMakerStageModel(Base):
+    """Optional PREVIEW_MAKER stage, separate from required processing stages."""
+
+    __tablename__ = "preview_maker_stages"
+    __table_args__ = (
+        Index("ix_preview_maker_stages_status_started_at", "status", "started_at"),
+        Index("ix_preview_maker_stages_status_queued_at", "status", "queued_at"),
+        Index("ix_preview_maker_stages_status_failed_at", "status", "failed_at"),
+    )
+
+    recording_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("recordings.id", ondelete="CASCADE"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    run_token: Mapped[str | None] = mapped_column(String(64))
+    source_video_path: Mapped[str | None] = mapped_column(String(1000))
+    source_trimmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_reason: Mapped[str | None] = mapped_column(String(1000))
 
 
 class StageTimingModel(Base):

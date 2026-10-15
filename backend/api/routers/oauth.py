@@ -137,6 +137,11 @@ def _build_oauth_credentials(platform: str, token_data: dict, config: OAuthPlatf
     expiry_str = expiry.isoformat().replace("+00:00", "Z")
 
     if platform == "youtube":
+        # Google may return the actual granted scopes (which can differ from
+        # the request when consent is partial). Preserve that provider result
+        # instead of recording the requested scopes as though they were granted.
+        granted_scopes = token_data.get("scope")
+        scopes = granted_scopes.split() if isinstance(granted_scopes, str) else config.scopes
         return {
             "client_secrets": {
                 "web": {
@@ -155,7 +160,7 @@ def _build_oauth_credentials(platform: str, token_data: dict, config: OAuthPlatf
                 "token_uri": config.token_url,
                 "client_id": config.client_id,
                 "client_secret": config.client_secret,
-                "scopes": config.scopes,
+                "scopes": scopes,
                 "expiry": expiry_str,
             },
         }

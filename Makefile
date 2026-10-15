@@ -51,10 +51,10 @@ help:
 	@echo "  make deploy-ssh              — SSH to the VM"
 	@echo "  make deploy-logs             — tail VM cloud-init bootstrap log"
 	@echo "  make deploy-app-logs         — tail docker compose logs on the VM"
-	@echo "  make deploy-refresh-env      — re-fetch Lockbox secrets, restart stack"
+	@echo "  make deploy-refresh-env      — re-fetch Lockbox files without restarting slots"
 	@echo "  make deploy-smoke-test       — curl https://<domain>/api/v1/health/ready"
 	@echo "  make deploy-grafana-pw       — print Grafana admin password"
-	@echo "  make deploy-rollback IMAGE_TAG=<sha>  — roll back to a previous image tag"
+	@echo "  make deploy-rollback       — switch nginx back to the previous healthy slot"
 	@echo "  make deploy-backup-pg        — pg_dump on demand, upload to backups bucket"
 	@echo "  make deploy-backup-redis     — redis BGSAVE on demand, upload to backups bucket"
 	@echo "  make deploy-safe-down        — stop services WITHOUT wiping volumes"
@@ -219,7 +219,7 @@ deploy-app-logs:
 deploy-refresh-env:
 	@ip=$$($(VM_IP_CMD)); \
 	test -n "$$ip" || { echo "VM not provisioned yet"; exit 1; }; \
-	ssh ubuntu@$$ip 'sudo /opt/leap/refresh-env.sh && cd /opt/leap && docker compose up -d'
+	ssh ubuntu@$$ip 'sudo /opt/leap/refresh-env.sh'
 
 deploy-smoke-test:
 	@domain=$$($(DOMAIN_CMD)); \
@@ -230,13 +230,11 @@ deploy-smoke-test:
 deploy-grafana-pw:
 	@$(TF) output -raw grafana_admin_password; echo
 
-# Rollback: requires IMAGE_TAG=<sha> argument
+# Repoint nginx to the previous healthy API/frontend slot.
 deploy-rollback:
-	@test -n "$(IMAGE_TAG)" || { echo "Usage: make deploy-rollback IMAGE_TAG=<git-sha>"; exit 1; }
 	@ip=$$($(VM_IP_CMD)); \
 	test -n "$$ip" || { echo "VM not provisioned yet"; exit 1; }; \
-	echo "Rolling back to image tag: $(IMAGE_TAG)"; \
-	ssh ubuntu@$$ip "cd /opt/leap && sed -i 's/^IMAGE_TAG=.*/IMAGE_TAG=$(IMAGE_TAG)/' .env && docker compose pull && docker compose up -d"
+	ssh ubuntu@$$ip 'cd /opt/leap && bash scripts/deploy-blue-green.sh --rollback'
 
 # On-demand Postgres backup → leap-backups bucket (same script as nightly cron)
 deploy-backup-pg:

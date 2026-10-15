@@ -121,6 +121,55 @@ class TestSharePlayerView:
         build.assert_awaited_once()
         assert build.await_args.kwargs["view"] == "player"
 
+    def test_embed_view_skips_file_scan_and_attachment_signing(self, client, mocker) -> None:
+        rec = create_mock_recording(
+            record_id=8,
+            processed_video_path="users/u/8/video.mp4",
+            local_video_path="users/u/8/original.mp4",
+        )
+        rec.owner = MagicMock(user_slug=1)
+        rec.share_artifact_files = None
+        rec.allow_files_download = True
+        mocker.patch("api.routers.share._get_recording_by_share_token", new=AsyncMock(return_value=rec))
+
+        storage = MagicMock()
+
+        @asynccontextmanager
+        async def _shared():
+            yield
+
+        storage.shared_operations = _shared
+        storage.exists = AsyncMock()
+        storage.presigned_url = AsyncMock(side_effect=lambda path, **_kw: f"https://cdn.example/{path.split('/')[-1]}")
+        mocker.patch("file_storage.factory.get_storage_backend", return_value=storage)
+        mocker.patch(
+            "api.helpers.leap_publication.publication_looks_for_recordings",
+            new=AsyncMock(return_value={8: MagicMock(title="Lecture", description_template=None)}),
+        )
+        tx = MagicMock()
+        tx.get_active_extracted = AsyncMock(
+            return_value={"topic_timestamps": [{"topic": "Edited chapter", "start": 0}]}
+        )
+        mocker.patch("transcription_module.manager.get_transcription_manager", return_value=tx)
+        scan = mocker.patch("api.helpers.share_artifacts.resolve_share_available_files", new=AsyncMock())
+        extras = mocker.patch("api.helpers.source_extras.list_source_extras", new=AsyncMock())
+
+        response = client.get(f"/api/v1/share/{uuid.uuid4()}?view=player&embed=true")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["play_url"].endswith("video.mp4")
+        assert body["vtt_url"].endswith("subtitles.vtt")
+        assert body["topic_timestamps"] == [{"topic": "Edited chapter", "start": 0}]
+        assert body["available_files"] == []
+        assert body["source_extras"] is None
+        assert body["original_play_url"] is None
+        assert body["has_original_video"] is False
+        storage.exists.assert_not_awaited()
+        assert storage.presigned_url.await_count == 2
+        scan.assert_not_awaited()
+        extras.assert_not_awaited()
+
     def test_public_recording_passes_only_context_channel(self, client, mocker) -> None:
         rec = create_mock_recording(record_id=8, processed_video_path="k.mp4")
         mocker.patch("api.routers.share._get_recording_by_share_token", new=AsyncMock(return_value=rec))
@@ -348,6 +397,14 @@ class TestSharePlaylistCatalogView:
         assert "Private title" not in body["description"]
         assert body["items"][0]["title"] == "Unknown"
         assert body["items"][0]["playable"] is False
+        mocker.patch(
+            "api.routers.share.PlaylistRepository.get_public_surface_by_share_token",
+            new=AsyncMock(return_value=(7, "owner")),
+        )
+        mocker.patch(
+            "api.routers.share.PlaylistRepository.get_public_items_for_posters",
+            new=AsyncMock(return_value=[]),
+        )
         posters = client.get(f"/api/v1/share/p/{uuid.uuid4()}/posters?item_ids=7")
         assert posters.status_code == 200
         assert posters.json() == {}

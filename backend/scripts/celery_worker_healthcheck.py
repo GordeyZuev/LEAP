@@ -1,23 +1,18 @@
-"""Docker healthcheck for celery_worker: process alive, Redis up, queues not stuck."""
+"""Docker healthcheck for a Celery worker or Beat process and its dependencies."""
 
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
-import time
-from pathlib import Path
 
 import redis
 
-QUEUES = ("async_operations", "downloads", "processing_cpu", "uploads", "maintenance", "celery")
-MARKER = Path("/tmp/celery_worker_health_queue")
-STUCK_SEC = int(os.getenv("CELERY_HEALTH_STUCK_SEC", "300"))
-
 
 def main() -> None:
+    worker_pattern = os.getenv("CELERY_HEALTH_WORKER_PATTERN", r"celery -A api.celery_app worker")
     if subprocess.call(
-        ["/usr/bin/pgrep", "-f", r"celery -A api.celery_app worker"],
+        ["/usr/bin/pgrep", "-f", worker_pattern],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     ):
@@ -27,28 +22,18 @@ def main() -> None:
     client = redis.from_url(url, socket_connect_timeout=3)
     client.ping()
 
-    depth = sum(int(client.llen(q)) for q in QUEUES)
-    now = time.time()
-    if depth == 0:
-        MARKER.unlink(missing_ok=True)
-        sys.exit(0)
-
-    if MARKER.exists():
-        try:
-            prev_depth, since = MARKER.read_text().split()
-            prev_depth, since = int(float(prev_depth)), float(since)
-        except (OSError, ValueError):
-            MARKER.write_text(f"{depth} {now}")
-            sys.exit(0)
-        if depth < prev_depth:
-            MARKER.write_text(f"{depth} {now}")
-            sys.exit(0)
-        if now - since >= STUCK_SEC:
-            sys.exit(1)
-        sys.exit(0)
-
-    MARKER.write_text(f"{depth} {now}")
-    sys.exit(0)
+    # Queue depth is a saturation signal, not liveness: long jobs can keep it
+    # unchanged while the worker is healthy. Monitor it outside Docker health.
+    database_host = os.environ.get("DATABASE_HOST", "postgres")
+    database_port = os.environ.get("DATABASE_PORT", "5432")
+    database_user = os.environ.get("DATABASE_USERNAME", "postgres")
+    if subprocess.call(
+        ["/usr/bin/pg_isready", "-h", database_host, "-p", database_port, "-U", database_user],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=3,
+    ):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -134,7 +134,7 @@ export default function UpdatesPage() {
         </section>
         {latest && <p className="mt-8 text-center text-xs text-muted-foreground"><Link href="#top" className="inline-flex items-center gap-1 hover:text-primary">Back to top <ArrowRight size={12} className="-rotate-90" /></Link></p>}
       </main>
-      <Footer variant="public" />
+      <Footer />
     </div>
   );
 }

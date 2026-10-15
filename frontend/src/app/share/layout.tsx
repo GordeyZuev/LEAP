@@ -6,7 +6,7 @@ export default function ShareLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <div className="flex-1">{children}</div>
-      <Footer variant="public" />
+      <Footer />
     </div>
   );
 }

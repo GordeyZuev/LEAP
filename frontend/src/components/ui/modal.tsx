@@ -5,6 +5,7 @@ import {
   useEffect,
   useId,
   useRef,
+  type RefObject,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -20,6 +21,8 @@ interface ModalProps {
   /** Accessible name. Either pass `labelledBy` (id of an in-content <h2>) or `label`. */
   label?: string;
   labelledBy?: string;
+  /** Focus this visible control when the dialog opens instead of the first control in DOM order. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
   /** Close when the backdrop is clicked. Default true. */
   closeOnBackdrop?: boolean;
   /** Close on ESC. Default true. Disable if the dialog contains nested popovers that should handle ESC first. */
@@ -87,6 +90,7 @@ export function Modal({
   onClose,
   label,
   labelledBy,
+  initialFocusRef,
   closeOnBackdrop = true,
   closeOnEsc = true,
   className,
@@ -125,6 +129,11 @@ export function Modal({
     const focusInitial = () => {
       const panel = panelRef.current;
       if (!panel) return;
+      const preferred = initialFocusRef?.current;
+      if (preferred && panel.contains(preferred) && isVisible(preferred)) {
+        preferred.focus({ preventScroll: true });
+        return;
+      }
       const focusables = getFocusable(panel);
       const target = focusables[0] ?? panel;
       target.focus({ preventScroll: true });
@@ -139,7 +148,7 @@ export function Modal({
       }
       previouslyFocused.current = null;
     };
-  }, [open]);
+  }, [open, initialFocusRef]);
 
   useEffect(() => {
     if (!open) return;

@@ -46,10 +46,11 @@ class UploaderFactory:
             with credentials_file.open("w", encoding="utf-8") as f:
                 json.dump(creds, f, ensure_ascii=False, indent=2)
 
+        stored_token = creds.get("token") or {}
         config = YouTubeConfig(
             client_secrets_file=str(client_secrets_file),
             credentials_file=str(credentials_file),
-            scopes=creds.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"]),
+            scopes=creds.get("scopes") or stored_token.get("scopes") or YouTubeConfig().scopes,
             playlist_id=creds.get("playlist_id"),
             default_privacy=creds.get("default_privacy", "unlisted"),
             default_category=creds.get("default_category", "22"),
@@ -109,7 +110,7 @@ class UploaderFactory:
         if not preset.credential_id:
             raise ValueError(f"Output preset {preset_id} has no credential configured")
 
-        platform_map = {
+        platform_map: dict[str, Literal["youtube", "vk"]] = {
             "YOUTUBE": "youtube",
             "VK": "vk",
         }

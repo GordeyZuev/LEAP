@@ -52,6 +52,7 @@ import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
 import { useShareEngagement } from "@/hooks/use-share-engagement";
 import { useShareVtt } from "@/hooks/use-share-vtt";
 import { useWatchTheater } from "@/hooks/use-watch-theater";
+import { useVideoPreviews, type PreviewFrame } from "@/hooks/use-video-previews";
 import { WatchVideoVariantChrome } from "@/components/ui/watch-video-variant-chrome";
 import { readPlaylistAutoplayNext, writePlaylistAutoplayNext } from "@/lib/playlist-autoplay";
 import { cn, formatDate, formatDuration, formatDurationCompact, httpStatus, scrollPlayerIntoView } from "@/lib/utils";
@@ -182,6 +183,7 @@ function PlaylistVideoPlayer({
   itemFetching,
   onItemRefetch,
   markers,
+  previewVttUrl,
   vttBlobUrl,
   videoRef,
   onTimeUpdate,
@@ -202,6 +204,7 @@ function PlaylistVideoPlayer({
   itemFetching: boolean;
   onItemRefetch: (variant: "processed" | "original") => Promise<string | null>;
   markers: VideoPlayerMarker[];
+  previewVttUrl?: string | null;
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onTimeUpdate?: (time: number) => void;
@@ -264,6 +267,7 @@ function PlaylistVideoPlayer({
       resumeKey={playlistResumeKey(token, itemId, variant)}
       onReload={refreshMedia}
       markers={markers}
+      previewVttUrl={variant === "processed" ? previewVttUrl : null}
       vttBlobUrl={variant === "processed" ? vttBlobUrl : null}
       onTimeUpdate={onTimeUpdate}
       onEnded={onEnded}
@@ -443,6 +447,7 @@ export function WatchShell({
 
   const itemRecording = recording && !isPlaceholderData ? recording : undefined;
   const currentId = current?.id;
+  const previews = useVideoPreviews(watching && currentId != null ? `/share/p/${token}/items/${currentId}` : null);
   const vttFallback =
     currentId && itemRecording?.available_files?.includes("vtt")
       ? getPlaylistShareFileUrl(token, currentId, "vtt", true)
@@ -723,6 +728,8 @@ export function WatchShell({
               ended={ended}
               nextItem={nextItem}
               markers={playerMarkers}
+              previewVttUrl={previews?.url}
+              previewFrames={previews?.frames}
               vttBlobUrl={vttBlobUrl}
               videoRef={videoRef}
               companionPanelId={companionPanelId}
@@ -1001,6 +1008,8 @@ function WatchLayout({
   ended,
   nextItem,
   markers,
+  previewVttUrl,
+  previewFrames,
   vttBlobUrl,
   videoRef,
   companionPanelId,
@@ -1049,6 +1058,8 @@ function WatchLayout({
   ended: boolean;
   nextItem: PublicPlaylistItem | undefined;
   markers: VideoPlayerMarker[];
+  previewVttUrl?: string | null;
+  previewFrames?: PreviewFrame[];
   vttBlobUrl: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   companionPanelId: string;
@@ -1168,6 +1179,7 @@ function WatchLayout({
         readOnly
         sections={["chapters"]}
         embeddedInPanel
+        previewFrames={previewFrames}
       />
     ) : activeTab === "transcript" && hasTranscript ? (
       <TranscriptPanel
@@ -1237,6 +1249,7 @@ function WatchLayout({
       itemFetching={itemFetching}
       onItemRefetch={onItemRefetch}
       markers={markers}
+      previewVttUrl={previewVttUrl}
       vttBlobUrl={vttBlobUrl}
       videoRef={videoRef}
       onTimeUpdate={onTimeUpdate}

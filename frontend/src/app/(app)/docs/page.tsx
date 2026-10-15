@@ -376,6 +376,7 @@ export default function DocsPage() {
                     <>
                       In <strong>Presets</strong>, create one preset per destination – e.g. «My YouTube channel»
                       or «Course folder on Yandex Disk». A preset stores the account, privacy, and platform-specific options.
+                      For YouTube, choose a channel playlist from the searchable picker or create/edit one there.
                     </>
                   ),
                 },
@@ -536,9 +537,12 @@ export default function DocsPage() {
           </Sub>
           <Sub title="Share links">
             <P>
-              On a recording detail page, use <strong>Share</strong> for a public link (no login required).
+              On a recording detail page, open <strong>Publications → LEAP Link → Manage</strong> (or <strong>Create link</strong>) for a public link (no login required).
               Enable mints the URL once; Disable keeps it (the public page is 404 until you Enable again);
               Rotate issues a new URL. Viewers can watch the processed video in the browser.
+              Use <strong>Embed player → Copy iframe code</strong> in that dialog to place a compact player on a page that accepts HTML.
+              Its <strong>Open in LEAP</strong> link leads to the recording&apos;s chapters, transcript, and files.
+              Both pages use the same share link and view counter.
               The player remembers the last position in this browser after a refresh.
               Shortcuts match common video sites: <kbd>J</kbd>/<kbd>L</kbd> skip 10 seconds,
               arrows skip 5, <kbd>C</kbd> captions (also in the gear menu), <kbd>?</kbd> lists every key.
@@ -655,7 +659,7 @@ export default function DocsPage() {
           <Sub title="Platform notes">
             <List
               items={[
-                <><strong>YouTube</strong> – token lasts 1 hour and refreshes automatically on upload. Re-authorization is not needed.</>,
+                <><strong>YouTube</strong> – tokens refresh automatically. If playlist management reports missing permissions, reconnect the account from Credentials.</>,
                 <><strong>Zoom</strong> – uses Server-to-Server OAuth. Authorized once at the account level.</>,
                 <><strong>Yandex Disk</strong> – token valid for up to 1 year. Can be used both as a recording source and an upload destination.</>,
                 <><strong>MTS Link</strong> – organization API key (Credentials → Manual). Not OAuth. Lecturers to sync are listed as emails on the source.</>,
@@ -897,7 +901,7 @@ export default function DocsPage() {
               items={[
                 <>
                   <strong>youtube</strong> / <strong>vk</strong> / <strong>yandex_disk</strong> – optional overrides
-                  when that copy preset is selected (privacy, playlist on YouTube preset, Disk folder, etc.). An empty{" "}
+                  when that copy preset is selected (privacy, searchable YouTube playlist picker, Disk folder, etc.). An empty{" "}
                   <code className="text-xs">{"{}"}</code> means “no template-level override — use the preset”.
                 </>,
                 <>

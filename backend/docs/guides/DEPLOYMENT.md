@@ -1,16 +1,16 @@
 # LEAP — production deployment
 
-End-to-end deployment to Yandex Cloud in **one Make target**:
-
-```bash
-make deploy
-```
-
-That runs `terraform apply` which creates everything: VM, Object Storage,
-Container Registry, Lockbox, DNS zone, IAM. The VM bootstraps itself via
-cloud-init: docker stack, certbot, Grafana, the works.
+Production compute runs on a Selectel VM; Yandex Cloud still provides Object
+Storage, Container Registry, Lockbox, IAM, and DNS. For an application release,
+use the CI and blue/green deployment flow in [section 6](#6-continuous-deployment).
+`make deploy` runs `terraform apply` for infrastructure and is **not** the
+application release command. The one-time Yandex VM provisioning steps below
+describe the original infrastructure setup; the current compute cutover is
+documented in [Selectel compute cutover](#selectel-compute-cutover-2026-10-11).
 
 Most operational commands are Make targets — see `make help`.
+
+PostgreSQL and Redis are published on `127.0.0.1` only for host-side maintenance and local development. Compose services use their internal service names; no external access to ports 5432 or 6379 is required. When applying this change to an existing host, Compose recreates these two containers, so schedule it with a short database and broker interruption in mind.
 
 ---
 
@@ -115,9 +115,9 @@ Defaults for everything else (VM size, region, DNS zone) are sensible.
 ## 3. Deploy
 
 ```bash
-make init       # ~30 sec  — downloads providers from YC mirror
-make plan       # preview (should show "Plan: ~22 to add, 0 to change")
-make deploy     # ~5 min   — creates all YC resources
+make deploy-init  # download Terraform providers from the YC mirror
+make deploy-plan  # review the actual infrastructure diff
+make deploy      # apply the reviewed infrastructure plan
 
 make deploy-gh-secrets # push Terraform outputs to GitHub Actions secrets
 ```
@@ -185,15 +185,98 @@ run triggers `.github/workflows/deploy.yml` for that same commit:
    Or: repo **Settings → Environments → production → Required reviewers**.
    Until reviewers are set, the job does not wait.
 4. After approval, skip the run if `main` has moved on; otherwise sync that
-   commit to the VM, refresh secrets, run migrations, and start the worker
-   before the API.
+   commit to the VM and run `scripts/deploy-blue-green.sh`. It refreshes
+   secrets, runs migrations, updates all four Celery workers, waits for Beat, and starts the inactive
+   API/frontend slot. It checks API readiness and a 200 response from the
+   frontend `/login` page before switching nginx. The same paths are checked
+   through nginx after the switch; a failed check switches nginx back.
+   Monitoring services are updated without their Compose dependencies so the
+   deploy does not restart Redis between API readiness and the nginx checks.
+   The migration container also starts without Compose dependencies, after an
+   explicit PostgreSQL readiness check, so it does not recreate the live DB.
+   Failed checks log the path, HTTP status, and slot header for diagnosis.
+
+The blue slot is `api`/`frontend`; green is `api_green`/`frontend_green`.
+Green services use a Compose profile, so a plain `docker compose up` does not
+start a second application copy on a development machine. The deploy script
+targets the inactive services explicitly.
+Both stay running after a successful deploy so `make deploy-rollback` can
+switch nginx back without pulling images. `nginx/active/` is runtime state
+and is excluded from rsync. The slot switch replaces one config file
+atomically. `confirmed-slot` records the last version that passed the nginx
+smoke checks; an interrupted switch is restored on the next deploy attempt.
+`rollback-slot` records the other slot only after it has passed a previous
+switch. Starting a deployment clears that marker before overwriting the target;
+`make deploy-rollback` refuses to send traffic to an unconfirmed slot after a
+failed deploy.
+Nginx also serves hashed `/_next/static/` assets from the previous frontend
+when they are absent in the active slot. Prometheus scrapes the active API through nginx
+port 8080, which is only exposed to the Docker network.
+
+The first blue/green rollout recreates nginx once to add the runtime config
+mount. Later rollouts reload nginx without replacing its container. The
+shared I/O, CPU, preview, and maintenance workers still restart during deploys.
+An in-flight Celery task can be interrupted during that restart and delivered
+again; late acknowledgement and database recovery reduce loss, but external
+uploads remain at-least-once operations and uncertain results need review.
+All four workers and Beat must pass their healthchecks before
+the inactive API/frontend slot starts. Healthchecks verify process and Redis/
+PostgreSQL reachability. They do not infer liveness from queue depth: a valid
+long task can leave it unchanged. Docker's `restart: unless-stopped` restarts an
+exited process, but does not restart a process solely because it is unhealthy.
+Monitor queue age and failed tasks after the switch. `celery_worker` runs six
+prefork processes by default with a 2-CPU/3-GB limit for I/O queues;
+`celery_cpu_worker` runs one process with 1.5 CPU/2 GB for trimming;
+`celery_preview_worker` runs one process with 1 CPU/2 GB;
+`celery_maintenance_worker` runs one process with 0.5 CPU/512 MB.
+Beat is one scheduler process. The two app
+slots and these workers share one 8-vCPU/16-GB VM, so increasing concurrency
+requires checking real CPU, memory, and scratch-disk headroom first.
+All database migrations must be compatible with both API versions for the rollback window; switching
+nginx back does not reverse a migration or worker change. This setup reduces
+release downtime but does not protect against failure of the single VM.
+
+The SSH action allows 30 minutes for the deploy. A failed command before the
+switch makes the job red and leaves the old API/frontend slot active. Migrations
+and the Celery workers/Beat may already have changed by then; inspect and
+restore those separately if they failed. A failed nginx smoke check makes the
+job red and reloads the old API/frontend slot. A forced termination between
+the config replacement and confirmation may briefly leave the new slot
+serving; the next run restores `confirmed-slot` and stops with an error so
+an operator can inspect it before retrying. The first rollout must recreate
+nginx once to install the new mount and may briefly interrupt requests.
+After a failed deployment, rerun the corrected deployment; `deploy-rollback`
+does not promote the failed inactive slot.
+
+The readiness and `/login` smoke checks detect startup failures, not every API
+contract regression. API and frontend slots switch together, but browser tabs
+loaded before the switch can still call the new API. Keep existing response
+fields and request semantics compatible for at least the rollback window; add
+contract tests for any changed endpoint. A new database migration must also
+work with the old API, and updated workers must accept messages published by
+the old code. If an incompatibility is discovered after deployment, nginx can
+restore the old API/frontend slot, but this does not roll back the migration,
+workers, or data written by the new version. Repair or roll those back
+separately before relying on the old slot.
+
+Migrations **061** (`preview_maker_stages`) and **062** (preview recovery state and durable upload dispatch)
+must complete before the new workers start. Both migrations add nullable state
+and are compatible with the previous API during the rollback window. A saved
+upload dispatch is published with the same Celery task ID on recovery; an
+`UPLOADING` target with no confirmed result is marked failed after the hard task
+limit plus ten minutes and requires checking the external platform before a
+manual retry. A failed dispatch does not silently become a successful pipeline
+step: `launch_uploads` retries and eventually fails visibly. Watch the
+`maintenance` and `uploads` queues after deployment.
 
 Reject the deployment in the Actions UI to leave production on the previous
 compose revision (images for the rejected SHA stay in Container Registry).
-Jobs run only on `main`. Manual `workflow_dispatch` can start a deploy without
-a preceding CI run, but still requires production approval.
+Jobs run only on `main`. Manual `workflow_dispatch` requires a successful push
+CI run for the selected commit and still requires production approval.
 
-PRs run `.github/workflows/ci.yml`: `ruff` + `ty` + backend `pytest tests/unit` + frontend `pnpm lint && pnpm build`.
+PRs run `.github/workflows/ci.yml`: deploy-script failure checks,
+`ruff` + `ty` + backend `pytest tests/unit` + frontend `pnpm lint`, `pnpm test`,
+and `pnpm build`.
 
 ---
 
@@ -212,13 +295,15 @@ To inspect / change without re-running Terraform:
 ```bash
 yc lockbox payload get --id $(terraform -chdir=terraform output -raw lockbox_secret_id) --format json | jq
 
-# After updating: bump version on VM (no compose restart needed if value is read fresh)
-make refresh-env
+# After updating: refresh files on VM; restart affected containers for values read at startup
+make deploy-refresh-env
 ```
 
 Full env var reference: [backend/.env.example](../../.env.example).
 
 **CORS:** default origin is `http://localhost:3000`. Production must set `SERVER_CORS_ORIGINS` to the frontend origin (see `scripts/vm-init.sh`). Startup rejects `*` together with cookie credentials.
+
+**Video iframe:** set `embed_allowed_origins` in Terraform to the comma-separated exact HTTPS origins of trusted host websites and any outer frame hosts. Multiple origins are supported; do not use a wildcard. `terraform apply` writes `EMBED_ALLOWED_ORIGINS` to Lockbox; `make deploy-refresh-env` materializes it in `/opt/leap/.env`. Recreate the frontend slot containers through the normal deployment procedure so Compose passes the new value to Next.js. The default empty value permits same-origin frames only. Verify the `/embed/{token}` response has the expected `Content-Security-Policy: frame-ancestors ...` and no `X-Frame-Options` at nginx, while other pages keep `X-Frame-Options: SAMEORIGIN`. See [VIDEO_DELIVERY.md](VIDEO_DELIVERY.md) for the user flow and token behavior.
 
 **Rate limit / proxies:** keys are per client IP (`rl:ip:{ip}:h:{bucket}`). nginx must send `X-Real-IP` (`$remote_addr`). The API trusts that header (and `X-Forwarded-For`) when `SECURITY_TRUST_X_FORWARDED_FOR=true` **or** when the TCP peer is private/loopback (Docker nginx → `api`). Without that, every browser shares the nginx container IP and the hourly cap returns **429** for `/auth/login` too.
 
@@ -267,8 +352,9 @@ make deploy-status        # everything Terraform knows about the deploy
 make deploy-ssh           # ssh ubuntu@<vm-ip>
 make deploy-logs          # tail bootstrap log
 make deploy-app-logs      # tail docker compose logs api celery_worker frontend
-make deploy-refresh-env   # pull latest secrets from Lockbox + compose up -d
+make deploy-refresh-env   # pull latest secrets from Lockbox without restarting slots
 make deploy-smoke-test    # GET /api/v1/health/ready
+make deploy-rollback      # switch nginx to the previous healthy API/frontend slot
 make deploy-grafana-pw    # print Grafana admin password
 
 # Backups
@@ -276,6 +362,11 @@ make deploy-backup-pg     # ad-hoc pg_dump → s3://leap-backups/postgres/
 make deploy-backup-redis  # ad-hoc Redis RDB → s3://leap-backups/redis/
 make deploy-safe-down     # stop services WITHOUT wiping volumes (no -v)
 ```
+
+`make deploy-refresh-env` updates files on disk. Values read only at process
+startup require a normal blue/green deployment to take effect. Avoid a plain
+`docker compose up -d` for routine updates: `.env` still has `IMAGE_TAG=latest`
+and that command can recreate both application slots at once.
 
 ## Volume safety & recovery
 
@@ -516,7 +607,7 @@ MinIO console: http://localhost:9001 (minioadmin / minioadmin).
 | OAuth callback returns `redirect_uri_mismatch` | Production URI not whitelisted in provider's console | Add `https://<domain>/api/v1/oauth/<provider>/callback` to each provider's allowed callback list |
 | `docker compose pull` fails on VM | YC service account missing `images.puller` role | Re-run `terraform apply` — the IAM module enforces it |
 | Grafana login fails | Forgot the auto-generated password | `make grafana-pw` |
-| Want to rotate a secret without Terraform | — | `yc lockbox secret add-version --id <id> --payload-from-file=...` then `make refresh-env` |
+| Want to rotate a secret without Terraform | — | `yc lockbox secret add-version --id <id> --payload-from-file=...` then `make deploy-refresh-env` |
 
 ---
 

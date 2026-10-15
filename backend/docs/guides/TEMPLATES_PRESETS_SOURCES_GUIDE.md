@@ -227,6 +227,8 @@ Presets define upload targets and platform metadata (title/description templates
 | `publish_at` | null | ISO 8601 scheduled publish |
 | `disable_comments`, `rating_disabled`, `notify_subscribers` | see schema | |
 
+In the UI, the **YouTube playlist** field opens a picker for the preset's linked YouTube credential. It searches playlist titles and descriptions across the channel, pages through results, and lets you create or edit a playlist (title, description, visibility) without leaving LEAP. Templates and Run overrides use the first selected YouTube preset's credential; the saved setting remains the playlist ID. LEAP course `playlist_ids` are separate from YouTube playlists.
+
 ### VK preset metadata (`VKPresetMetadata`)
 
 `privacy_view` / `privacy_comment` (0–3), `group_id`, `album_id`, `thumbnail_name`, `topics_display`, `questions_display`, `repeat`, `compression`, `wallpost`, `disable_comments` — full field list in `preset_metadata.py`.

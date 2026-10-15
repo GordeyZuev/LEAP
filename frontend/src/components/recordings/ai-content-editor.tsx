@@ -7,6 +7,8 @@ import { cn, scrollIntoViewWithin } from "@/lib/utils";
 import { apiClient } from "@/api/client";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TemplateField } from "@/components/platforms/platform-fields";
+import { PreviewFrameImage } from "@/components/ui/preview-frame";
+import type { PreviewFrame } from "@/hooks/use-video-previews";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +52,7 @@ interface AIContentEditorProps {
   chaptersListClassName?: string;
   /** Share-page sidebar: tab rail carries section names; drop duplicate labels and inner scroll. */
   embeddedInPanel?: boolean;
+  previewFrames?: PreviewFrame[];
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +118,7 @@ function ChapterItem({
   disabled,
   itemRef,
   wrapLabels = false,
+  previewFrames,
 }: {
   item: TopicTimestamp;
   isActive: boolean;
@@ -125,6 +129,7 @@ function ChapterItem({
   disabled?: boolean;
   itemRef?: (el: HTMLButtonElement | null) => void;
   wrapLabels?: boolean;
+  previewFrames?: PreviewFrame[];
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.topic);
@@ -145,7 +150,7 @@ function ChapterItem({
     setEditing(true);
   }
 
-  const dot = (
+  const dot = !previewFrames?.length && (
     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isActive ? "bg-primary" : "bg-border")} />
   );
   const time = (
@@ -162,6 +167,7 @@ function ChapterItem({
   if (editing && canRename) {
     return (
       <div className="flex w-full items-start gap-3 rounded-lg px-2 py-1.5">
+        <PreviewFrameImage frames={previewFrames} time={item.start} />
         <span className="flex shrink-0 items-center gap-3 pt-1.5">
           {dot}
           <button
@@ -225,6 +231,7 @@ function ChapterItem({
           onClick={() => onSeek(item.start)}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
+          <PreviewFrameImage frames={previewFrames} time={item.start} />
           <span className="flex shrink-0 items-center gap-3">
             {dot}
             <span className={cn("w-[3.25rem] font-mono text-xs leading-5 tabular-nums transition-colors group-hover:text-primary", isActive ? "font-semibold text-primary" : "text-muted-foreground")}>
@@ -258,6 +265,7 @@ function ChapterItem({
         onClick={() => onSeek(item.start)}
         className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
       >
+        <PreviewFrameImage frames={previewFrames} time={item.start} />
         <span className="flex shrink-0 items-center gap-3">
           {dot}
           {time}
@@ -313,6 +321,7 @@ export function AIContentEditor({
   sections,
   chaptersListClassName,
   embeddedInPanel = false,
+  previewFrames,
   onRetryExtraction,
   retryExtractionPending = false,
 }: AIContentEditorProps) {
@@ -939,6 +948,7 @@ export function AIContentEditor({
                     else chapterItemRefs.current.delete(index);
                   }}
                   wrapLabels
+                  previewFrames={previewFrames}
                 />
             ))}
           </div>

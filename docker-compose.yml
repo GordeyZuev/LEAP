@@ -31,7 +31,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -50,7 +50,7 @@ services:
     # Required so Celery tasks that were in-flight or scheduled survive a deploy.
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -99,7 +99,7 @@ services:
         limits:
           memory: 512M
 
-  api:
+  api: &api_service
     image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
     build:
       context: ./backend
@@ -108,7 +108,7 @@ services:
     restart: unless-stopped
     command: python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
     env_file: .env
-    environment:
+    environment: &api_environment
       DATABASE_HOST: postgres
       DATABASE_PORT: 5432
       DATABASE_DATABASE: leap_platform
@@ -178,7 +178,7 @@ services:
     restart: unless-stopped
     # Keep the default queue during rollout so tasks stranded by older routing
     # are drained; all current application tasks have explicit routes.
-    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=downloads,uploads,async_operations,processing_cpu,maintenance,celery --concurrency=8
+    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=downloads,uploads,async_operations,celery --concurrency=${CELERY_WORKER_CONCURRENCY:-6}
     env_file: .env
     environment:
       DATABASE_HOST: postgres
@@ -214,11 +214,158 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
-          # Leave 3 cores of headroom on an 8-CPU VM for postgres, redis,
-          # nginx, frontend, loki, promtail, grafana, celery_beat (none of
-          # which are CPU-limited individually).
-          cpus: '3.0'
+          memory: 3G
+          cpus: '2.0'
+
+  celery_cpu_worker:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: leap_celery_cpu_worker
+    restart: unless-stopped
+    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=processing_cpu --concurrency=${CELERY_CPU_CONCURRENCY:-1} --hostname=cpu@%h
+    env_file: .env
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_DATABASE: leap_platform
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_HEALTH_WORKER_PATTERN: "celery.*--queues=processing_cpu"
+      JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
+      LOG_FILE: ${LOG_FILE:-/app/logs/celery-cpu-worker.log}
+      ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/celery-cpu-worker.error.log}
+      PROMETHEUS_MULTIPROC_ROOT: /tmp/prometheus-multiproc
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc/celery_cpu
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/logs:/app/logs
+      - ./backend/config:/app/config:ro
+      - prometheus_multiproc:/tmp/prometheus-multiproc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/celery_worker_healthcheck.py"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.5'
+
+  celery_maintenance_worker:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: leap_celery_maintenance_worker
+    restart: unless-stopped
+    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=maintenance --concurrency=1 --hostname=maintenance@%h
+    env_file: .env
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_DATABASE: leap_platform
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_HEALTH_WORKER_PATTERN: "celery.*--queues=maintenance"
+      JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
+      LOG_FILE: ${LOG_FILE:-/app/logs/celery-maintenance-worker.log}
+      ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/celery-maintenance-worker.error.log}
+      PROMETHEUS_MULTIPROC_ROOT: /tmp/prometheus-multiproc
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc/celery_maintenance
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/logs:/app/logs
+      - ./backend/config:/app/config:ro
+      - prometheus_multiproc:/tmp/prometheus-multiproc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/celery_worker_healthcheck.py"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  celery_preview_worker:
+    image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: leap_celery_preview_worker
+    restart: unless-stopped
+    command: python -m celery -A api.celery_app worker --loglevel=info -E --queues=previews --concurrency=${PREVIEW_WORKER_CONCURRENCY:-1} --hostname=previews@%h
+    env_file: .env
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_DATABASE: leap_platform
+      DATABASE_USERNAME: postgres
+      DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_HEALTH_WORKER_PATTERN: "celery.*--queues=previews"
+      JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
+      LOG_FILE: ${LOG_FILE:-/app/logs/celery-preview-worker.log}
+      ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/celery-preview-worker.error.log}
+      PROMETHEUS_MULTIPROC_ROOT: /tmp/prometheus-multiproc
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc/celery_preview
+    volumes:
+      - ./backend/storage:/app/storage
+      - ./backend/logs:/app/logs
+      - ./backend/config:/app/config:ro
+      - prometheus_multiproc:/tmp/prometheus-multiproc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/celery_worker_healthcheck.py"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: ${PREVIEW_WORKER_MEMORY:-2G}
+          cpus: '${PREVIEW_WORKER_CPUS:-1.0}'
+
+  # The inactive slot is started before nginx switches traffic to it.
+  api_green:
+    <<: *api_service
+    profiles: ["blue-green"]
+    container_name: leap_api_green
+    environment:
+      <<: *api_environment
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus-multiproc/api_green
 
   celery_beat:
     image: cr.yandex/${YC_REGISTRY_ID}/leap-backend:${IMAGE_TAG:-latest}
@@ -237,6 +384,7 @@ services:
       DATABASE_PASSWORD: ${DB_PASSWORD:-postgres}
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_HEALTH_WORKER_PATTERN: "celery.* beat "
       JSON_LOG_FILE: ${JSON_LOG_FILE:-/app/logs/structured.json}
       LOG_FILE: ${LOG_FILE:-/app/logs/celery-beat.log}
       ERROR_LOG_FILE: ${ERROR_LOG_FILE:-/app/logs/celery-beat.error.log}
@@ -250,6 +398,12 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "/app/scripts/celery_worker_healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -274,21 +428,38 @@ services:
     depends_on:
       - redis
 
-  frontend:
+  frontend: &frontend_service
     image: cr.yandex/${YC_REGISTRY_ID}/leap-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: leap_frontend
     restart: unless-stopped
-    environment:
+    environment: &frontend_environment
       NODE_ENV: production
       # Next generateMetadata / opengraph-image run in this container — not the browser.
       API_INTERNAL_URL: http://api:8000
+      EMBED_ALLOWED_ORIGINS: ${EMBED_ALLOWED_ORIGINS:-}
     expose:
       - "3000"
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/login', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend_green:
+    <<: *frontend_service
+    profiles: ["blue-green"]
+    container_name: leap_frontend_green
+    environment:
+      <<: *frontend_environment
+      API_INTERNAL_URL: http://api_green:8000
+    depends_on:
+      - api_green
 
   # ============================================================================
   # Reverse proxy
@@ -304,6 +475,7 @@ services:
       # On the very first deploy, mount nginx.bootstrap.conf instead until
       # certbot has issued the first certificate; then swap back. See nginx/README.md.
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/active:/etc/nginx/leap-active:ro
       - ./nginx/htpasswd:/etc/nginx/htpasswd:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./certbot:/var/www/certbot:ro

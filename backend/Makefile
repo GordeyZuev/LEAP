@@ -33,11 +33,12 @@ api-prod:
 	$(UV_PY) -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
 
 # ==================== Production Workers (Optimized) ====================
-# Architecture: 5 specialized workers, isolated by I/O profile (per BATCH_TESTING.md)
+# Architecture: 6 specialized workers, isolated by I/O profile (per BATCH_TESTING.md)
 #   downloads      – Zoom/yt-dlp downloads      (threads, 20)
 #   uploads        – VK/YouTube/YaDisk uploads   (threads, 20)
 #   async_operations – transcription, topics, etc (threads, 28)
 #   processing_cpu – FFmpeg trimming             (prefork, 6)
+#   previews       – FFmpeg seek frames/poster   (prefork, 1)
 #   maintenance    – periodic cleanup            (prefork, 1)
 
 # Downloads: Network-bound Zoom/yt-dlp downloads (threads, 20 workers)
@@ -76,6 +77,14 @@ celery-cpu:
 		--max-tasks-per-child=20 \
 		-n cpu@%h
 
+# Preview extraction: separate CPU queue so it cannot block TRIM or transcription.
+.PHONY: celery-previews
+celery-previews:
+	PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app worker \
+		--loglevel=info -Q previews \
+		--pool=prefork --concurrency=1 \
+		-n previews@%h
+
 # Maintenance: Periodic cleanup tasks (prefork, 1 worker)
 .PHONY: celery-maintenance
 celery-maintenance:
@@ -98,7 +107,7 @@ celery-beat:
 celery-dev:
 	PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app worker --beat \
 		--loglevel=info \
-		--queues=processing_cpu,async_operations,downloads,uploads,maintenance \
+		--queues=processing_cpu,async_operations,downloads,uploads,maintenance,previews \
 		--pool=prefork --concurrency=4
 
 # All-in-One: Start all production workers in background
@@ -113,10 +122,11 @@ celery-start:
 	@PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app worker -Q uploads --pool=threads --concurrency=20 -n uploads@%h --loglevel=info --logfile=logs/celery-uploads.log --detach --pidfile=logs/celery-uploads.pid
 	@PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app worker -Q async_operations --pool=threads --concurrency=28 -n async@%h --loglevel=info --logfile=logs/celery-async.log --detach --pidfile=logs/celery-async.pid
 	@PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app worker -Q processing_cpu --pool=prefork --concurrency=6 --max-tasks-per-child=20 -n cpu@%h --loglevel=info --logfile=logs/celery-cpu.log --detach --pidfile=logs/celery-cpu.pid
+	@PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app worker -Q previews --pool=prefork --concurrency=1 -n previews@%h --loglevel=info --logfile=logs/celery-previews.log --detach --pidfile=logs/celery-previews.pid
 	@PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app worker -Q maintenance --pool=prefork --concurrency=1 -n maintenance@%h --loglevel=info --logfile=logs/celery-maintenance.log --detach --pidfile=logs/celery-maintenance.pid
 	@PYTHONPATH=$$PWD:$$PYTHONPATH $(UV_PY) -m celery -A api.celery_app beat --loglevel=info --logfile=logs/celery-beat.log --detach --pidfile=logs/celery-beat.pid --scheduler celery_sqlalchemy_scheduler.schedulers:DatabaseScheduler
 	@echo "✅ All workers started! Check logs/ folder for output"
-	@echo "   downloads (20 threads) | uploads (20 threads) | async (28 threads) | cpu (6 prefork) | maintenance (1)"
+	@echo "   downloads (20 threads) | uploads (20 threads) | async (28 threads) | cpu (6 prefork) | previews (1 prefork) | maintenance (1)"
 	@echo "📊 Use 'make celery-stop' to stop all workers"
 	@echo "📊 Use 'make celery-status' to check workers"
 

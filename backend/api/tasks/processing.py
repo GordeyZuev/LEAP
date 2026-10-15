@@ -1,11 +1,13 @@
 """Celery tasks for processing recordings with multi-tenancy support."""
 
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 from celery import chain, group
 from celery.exceptions import Ignore, SoftTimeLimitExceeded
 from openai import APIStatusError, AuthenticationError
+from sqlalchemy import select
 
 from api.celery_app import celery_app
 from api.dependencies import get_async_session_maker
@@ -1064,6 +1066,18 @@ async def _async_process_video(
             await recording_repo.update(recording)
             await session.commit()
 
+            # A re-trim can replace the video under the same storage key. Hide the old storyboard immediately.
+            try:
+                from api.services.video_previews import preview_key
+                from file_storage.path_builder import to_storage_key
+
+                await storage_backend.delete(preview_key(user_slug, recording_id, "storyboard.vtt"))
+                await storage_backend.delete(
+                    to_storage_key(storage_builder.recording_root(user_slug, recording_id) / "poster.jpg")
+                )
+            except Exception as exc:
+                logger.warning("Could not invalidate video previews for recording {}: {}", recording_id, exc)
+
             logger.debug(f"Trim output | video={output_video_key} • audio={output_audio_key}")
 
             return {
@@ -1453,7 +1467,8 @@ async def _async_transcribe_recording(
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.finalize_pipeline",
-    max_retries=0,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def _finalize_pipeline_task(self, recording_id: int, user_id: str) -> dict:
     """
@@ -1471,6 +1486,8 @@ def _finalize_pipeline_task(self, recording_id: int, user_id: str) -> dict:
             rec = await repo.get_by_id(recording_id, user_id)
             if not rec:
                 logger.warning(f"finalize_pipeline: recording {recording_id} not found — skipping")
+                return
+            if not rec.on_air and rec.pipeline_completed_at is not None:
                 return
             # If the recording was paused while the pipeline was running, the pause
             # handler already cleared on_air and rolled back status. Running
@@ -1499,7 +1516,10 @@ def _finalize_pipeline_task(self, recording_id: int, user_id: str) -> dict:
             await session.commit()
             await _track_event(user_id, "processing_completed", recording_id=recording_id, duration_seconds=duration)
 
-    self.run_async(_finalize())
+    try:
+        self.run_async(_finalize())
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
     return self.build_result(user_id=user_id, status="completed", recording_id=recording_id)
 
 
@@ -1507,7 +1527,8 @@ def _finalize_pipeline_task(self, recording_id: int, user_id: str) -> dict:
     bind=True,
     base=ProcessingTask,
     name="api.tasks.processing.launch_uploads",
-    max_retries=0,
+    max_retries=settings.celery.processing_max_retries,
+    default_retry_delay=settings.celery.processing_retry_delay,
 )
 def _launch_uploads_task(
     self,
@@ -1533,7 +1554,7 @@ def _launch_uploads_task(
     Returns:
         Dict with launched upload task IDs
     """
-    from api.tasks.upload import platform_to_target_type, upload_enqueue_skip_reason, upload_recording_to_platform
+    from api.services.upload_dispatch import prepare_upload_dispatch, publish_upload_dispatch
 
     # leap stays in the list: it is a real target (share + playlists), not a copy upload.
 
@@ -1547,23 +1568,6 @@ def _launch_uploads_task(
             if not recording:
                 return False
             return bool(recording.on_pause or _waiting_for_external_source(recording))
-
-    async def _output_skip_reason(platform: str) -> str | None:
-        async with session_maker() as session:
-            recording_repo = RecordingRepository(session)
-            recording = await recording_repo.get_by_id(recording_id, user_id)
-            if not recording:
-                return "Recording not found"
-
-            target_type = platform_to_target_type(platform)
-            preset_id = preset_map.get(platform)
-            output_target = await recording_repo.get_or_create_output_target(
-                recording=recording,
-                target_type=target_type,
-                preset_id=preset_id,
-            )
-            await session.commit()
-            return upload_enqueue_skip_reason(output_target)
 
     with logger.contextualize(
         task_id=short_task_id(self.request.id),
@@ -1582,39 +1586,47 @@ def _launch_uploads_task(
         logger.info(f"Launching uploads | {format_details(platforms=platforms)}")
 
         upload_task_ids = []
+        publish_errors = []
         for platform in platforms:
             try:
-                skip_reason = self.run_async(_output_skip_reason(platform))
-                if skip_reason:
-                    logger.info(f"Upload launch skipped | {format_details(platform=platform, reason=skip_reason)}")
+                intent = self.run_async(
+                    prepare_upload_dispatch(
+                        recording_id, user_id, platform, preset_map.get(platform), metadata_override
+                    )
+                )
+                if intent.reason:
+                    logger.info(f"Upload launch skipped | {format_details(platform=platform, reason=intent.reason)}")
                     upload_task_ids.append(
                         {
                             "platform": platform,
-                            "task_id": None,
+                            "task_id": intent.task_id,
                             "preset_id": preset_map.get(platform),
                             "status": "skipped",
-                            "reason": skip_reason,
+                            "reason": intent.reason,
                         }
                     )
                     continue
 
-                preset_id = preset_map.get(platform)
-                upload_task = upload_recording_to_platform.delay(
-                    recording_id, user_id, platform, preset_id, None, metadata_override
-                )
+                if intent.target_id is None or intent.task_id is None:
+                    raise RuntimeError(f"Missing upload dispatch intent for {platform}")
+                self.run_async(publish_upload_dispatch(intent.target_id, intent.task_id))
 
                 upload_task_ids.append(
                     {
                         "platform": platform,
-                        "task_id": upload_task.id,
-                        "preset_id": preset_id,
+                        "task_id": intent.task_id,
+                        "preset_id": preset_map.get(platform),
                     }
                 )
                 logger.info(
-                    f"Upload task launched | {format_details(platform=platform, upload_task=short_task_id(upload_task.id))}"
+                    f"Upload task launched | {format_details(platform=platform, upload_task=short_task_id(intent.task_id))}"
                 )
             except Exception as e:
                 logger.error(f"Failed to launch upload | {format_details(platform=platform, error=e)}")
+                publish_errors.append(platform)
+
+        if publish_errors:
+            raise self.retry(exc=RuntimeError(f"Upload dispatch failed for: {', '.join(publish_errors)}"))
 
         return self.build_result(
             user_id=user_id,
@@ -1659,6 +1671,7 @@ def run_recording_task(
         user_id=short_user_id(user_id),
     )
     _ctx.__enter__()
+    chain_reserved = False
     try:
         logger.info("Orchestrating pipeline")
 
@@ -1682,6 +1695,33 @@ def run_recording_task(
                 status="paused",
                 recording_id=recording_id,
                 result={"message": "Pipeline paused by user"},
+            )
+
+        async def _claim_orchestration():
+            async with session_maker() as session:
+                await session.execute(
+                    select(RecordingModel.id)
+                    .where(RecordingModel.id == recording_id, RecordingModel.user_id == user_id)
+                    .with_for_update()
+                )
+                rec = await RecordingRepository(session).get_by_id(recording_id, user_id)
+                if rec is None:
+                    return "missing"
+                if rec.on_air and rec.pipeline_task_id and rec.pipeline_task_id != self.request.id:
+                    return rec.pipeline_task_id
+                rec.on_air = True
+                rec.pipeline_task_id = self.request.id
+                await session.commit()
+                return None
+
+        existing_chain = self.run_async(_claim_orchestration())
+        if existing_chain:
+            logger.info("Pipeline already claimed | rec={} task={}", recording_id, existing_chain)
+            return self.build_result(
+                user_id=user_id,
+                status="skipped" if existing_chain == "missing" else "launched",
+                recording_id=recording_id,
+                result={"chain_id": existing_chain},
             )
 
         # Hard limit: gate the whole pipeline. The manual /run endpoint returns a fast
@@ -1879,6 +1919,7 @@ def run_recording_task(
 
         if trim_enabled:
             task_chain.append(trim_video_task.si(recording_id, user_id, manual_override))
+            task_chain.append(enqueue_video_previews_task.s(recording_id, user_id))
 
         if transcribe_enabled:
             task_chain.append(transcribe_recording_task.si(recording_id, user_id, manual_override))
@@ -1954,38 +1995,45 @@ def run_recording_task(
 
         # Launch chain
         chain_signature = chain(*task_chain)
+        chain_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"leap-pipeline:{self.request.id}"))
+        chain_signature.freeze(_id=chain_id)
+
+        async def _reserve_chain_id():
+            async with session_maker() as session:
+                await session.execute(
+                    select(RecordingModel.id)
+                    .where(RecordingModel.id == recording_id, RecordingModel.user_id == user_id)
+                    .with_for_update()
+                )
+                rec = await RecordingRepository(session).get_by_id(recording_id, user_id)
+                if rec is None or rec.on_pause or not rec.on_air or rec.pipeline_task_id != self.request.id:
+                    return False
+                rec.pipeline_task_id = chain_id
+                await session.commit()
+                return True
+
+        reservation = self.run_async(_reserve_chain_id())
+        if reservation is False:
+            return self.build_result(user_id=user_id, status="skipped", recording_id=recording_id)
+        chain_reserved = True
         chain_result = chain_signature.apply_async()
+        if str(chain_result.id) != chain_id:
+            logger.error("Unexpected Celery chain id | reserved={} returned={}", chain_id, chain_result.id)
         # chain.apply_async() does not go through BaseTask.apply_async; bind the
         # result id (last task) so GET /tasks/{id} is not 403 while PENDING.
         try:
-            bind_task_owner(str(chain_result.id), user_id)
+            bind_task_owner(chain_id, user_id)
         except Exception as exc:
-            logger.warning(f"Failed to bind pipeline chain owner | task={chain_result.id} | {exc}")
+            logger.warning(f"Failed to bind pipeline chain owner | task={chain_id} | {exc}")
 
-        # Store the actual chain ID so pause can revoke it
-        async def _store_chain_id():
-            async with session_maker() as session:
-                repo = RecordingRepository(session)
-                rec = await repo.get_by_id(recording_id, user_id)
-                if rec:
-                    rec.pipeline_task_id = chain_result.id
-                    await session.commit()
-
-        try:
-            self.run_async(_store_chain_id())
-        except Exception as exc:
-            logger.opt(exception=True).error(f"Failed to store pipeline chain id | {exc!r}")
-
-        logger.info(
-            f"Pipeline launched | {format_details(tasks=len(task_chain), chain_id=short_task_id(chain_result.id))}"
-        )
+        logger.info(f"Pipeline launched | {format_details(tasks=len(task_chain), chain_id=short_task_id(chain_id))}")
 
         return self.build_result(
             user_id=user_id,
             status="launched",
             recording_id=recording_id,
             result={
-                "chain_id": chain_result.id,
+                "chain_id": chain_id,
                 "chain_tasks": len(task_chain),
                 "upload_enabled": upload_enabled,
                 "platforms": launch_platforms,
@@ -1994,6 +2042,8 @@ def run_recording_task(
 
     except Exception as exc:
         logger.opt(exception=True).error(f"Pipeline orchestration failed: {exc!r}")
+        if not chain_reserved:
+            raise self.retry(exc=exc) from exc
         raise
     finally:
         _ctx.__exit__(None, None, None)
@@ -2494,12 +2544,54 @@ async def _async_generate_subtitles(task_self, recording_id: int, user_id: str, 
 # Poster frame
 # ============================================================================
 
-# Take the frame a little way in, so a deck of lectures doesn't come back as a
-# wall of identical title slides — but cap it, because a 3-hour recording does
-# not need a frame 18 minutes deep.
-_POSTER_SEEK_FRACTION = 0.1
-_POSTER_SEEK_MAX_SECONDS = 120.0
+# Use the middle frame of the processed video for its generated poster.
+_POSTER_SEEK_FRACTION = 0.5
 _POSTER_WIDTH = 640
+
+
+async def _communicate_preview_ffmpeg(process, *, timeout: float) -> tuple[bytes, bytes]:
+    """Reap FFmpeg even when a task is cancelled or reaches its soft limit."""
+    import asyncio
+    from contextlib import suppress
+
+    try:
+        return await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except BaseException:
+        if process.returncode is None:
+            with suppress(ProcessLookupError):
+                process.kill()
+            await process.communicate()
+        raise
+
+
+async def _extract_midpoint_poster(source: Path, output: Path, duration: float) -> None:
+    import asyncio
+
+    process = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{duration * _POSTER_SEEK_FRACTION:.3f}",
+        "-i",
+        str(source),
+        "-frames:v",
+        "1",
+        "-vf",
+        f"scale={_POSTER_WIDTH}:-2",
+        "-q:v",
+        "4",
+        "-y",
+        str(output),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _stdout, stderr = await _communicate_preview_ffmpeg(process, timeout=300)
+    if process.returncode != 0 or not output.exists() or output.stat().st_size == 0:
+        detail = (stderr or b"").decode("utf-8", "replace")[:2000]
+        raise RuntimeError(f"ffmpeg poster extraction failed: {detail}")
 
 
 @celery_app.task(
@@ -2508,8 +2600,10 @@ _POSTER_WIDTH = 640
     name="api.tasks.processing.generate_poster",
     max_retries=2,
     default_retry_delay=60,
+    time_limit=min(settings.celery.task_time_limit, 3450),
+    soft_time_limit=min(settings.celery.task_soft_time_limit, 3300),
 )
-def generate_poster(self, recording_id: int, user_id: str) -> dict:
+def generate_poster(self, recording_id: int, user_id: str, lock_token: str | None = None) -> dict:
     """Extract a single frame and store it as the recording's poster.
 
     Cosmetic and best-effort: it deliberately does not use ``ProcessingTask``,
@@ -2517,18 +2611,48 @@ def generate_poster(self, recording_id: int, user_id: str) -> dict:
     never mark a recording failed — the UI just keeps its placeholder.
     """
     with logger.contextualize(recording_id=recording_id):
+        claimed = False
         try:
+            if lock_token:
+                claimed = self.run_async(_start_poster_queue_lock(recording_id, lock_token))
+                if not claimed:
+                    return {"success": True, "skipped": "newer or running poster task"}
             return self.run_async(_async_generate_poster(recording_id, user_id))
         except Exception as exc:
             logger.warning(f"Poster generation failed: {exc!r}")
             return {"success": False, "error": str(exc)}
+        finally:
+            if lock_token and claimed:
+                try:
+                    self.run_async(_release_poster_queue_lock(recording_id, lock_token))
+                except Exception as exc:
+                    logger.warning("Could not release poster queue lock for {}: {}", recording_id, exc)
+
+
+async def _start_poster_queue_lock(recording_id: int, token: str) -> bool:
+    from redis.asyncio import from_url
+
+    from api.services.video_previews import start_poster_queue_lock
+
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+        return await start_poster_queue_lock(redis, recording_id, token)
+
+
+async def _release_poster_queue_lock(recording_id: int, token: str) -> None:
+    from redis.asyncio import from_url
+
+    from api.services.video_previews import release_poster_queue_lock
+
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+        await release_poster_queue_lock(redis, recording_id, token)
 
 
 async def _async_generate_poster(recording_id: int, user_id: str) -> dict:
-    import asyncio
+    from sqlalchemy import select
 
     from file_storage.factory import get_storage_backend
     from file_storage.path_builder import get_path_builder, to_storage_key
+    from video_processing_module.audio_detector import AudioDetector
 
     session_maker = get_async_session_maker()
     async with session_maker() as session:
@@ -2540,8 +2664,9 @@ async def _async_generate_poster(recording_id: int, user_id: str) -> dict:
             return {"success": False, "error": "recording not found"}
 
         user_slug = recording.owner.user_slug
-        duration = float(recording.duration or 0)
+        duration = float(recording.final_duration or recording.duration or 0)
         video_key = recording.processed_video_path or recording.local_video_path
+        source_revision = _preview_source_revision(recording)
 
     if not video_key:
         return {"success": False, "error": "no video"}
@@ -2553,45 +2678,29 @@ async def _async_generate_poster(recording_id: int, user_id: str) -> dict:
     if await storage.exists(poster_key):
         return {"success": True, "skipped": "already exists"}
 
-    seek = min(duration * _POSTER_SEEK_FRACTION, _POSTER_SEEK_MAX_SECONDS) if duration > 0 else 0.0
-
     # Pipeline pattern: pull the key to temp, run FFmpeg, push the result back,
     # and clean the temps up in `finally` regardless of outcome.
     temp_video = builder.create_temp_file(prefix=f"poster_src_{recording_id}_", suffix=Path(video_key).suffix)
     temp_poster = builder.create_temp_file(prefix=f"poster_{recording_id}_", suffix=".jpg")
     try:
         await storage.download_to_file(video_key, temp_video)
+        probed_duration = await AudioDetector().get_duration_seconds(str(temp_video))
+        await _extract_midpoint_poster(temp_video, temp_poster, float(probed_duration or duration))
 
-        cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-nostats",
-            "-loglevel",
-            "error",
-            # -ss before -i seeks by keyframe, which is what makes this cheap.
-            "-ss",
-            f"{seek:.3f}",
-            "-i",
-            str(temp_video),
-            "-frames:v",
-            "1",
-            "-vf",
-            f"scale={_POSTER_WIDTH}:-2",
-            "-q:v",
-            "4",
-            "-y",
-            str(temp_poster),
-        ]
-        process = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        _stdout, stderr = await process.communicate()
-
-        if process.returncode != 0 or not temp_poster.exists() or temp_poster.stat().st_size == 0:
-            detail = (stderr or b"").decode("utf-8", "replace")[:2000]
-            raise RuntimeError(f"ffmpeg poster extraction failed: {detail}")
-
-        await storage.save_file(poster_key, temp_poster)
+        async with session_maker() as session:
+            await session.execute(
+                select(RecordingModel.id)
+                .where(RecordingModel.id == recording_id, RecordingModel.user_id == user_id)
+                .with_for_update()
+            )
+            current = await RecordingRepository(session).get_by_id(recording_id, user_id)
+            if not current or _preview_source_revision(current) != source_revision:
+                return {"success": False, "stale": True}
+            if (current.processed_video_path or current.local_video_path) != video_key:
+                return {"success": False, "stale": True}
+            if await storage.exists(poster_key):
+                return {"success": True, "skipped": "already exists"}
+            await storage.save_file(poster_key, temp_poster)
         logger.info(f"Poster stored at {poster_key}")
         return {"success": True, "key": poster_key}
     finally:
@@ -2600,3 +2709,383 @@ async def _async_generate_poster(recording_id: int, user_id: str) -> dict:
                 tmp.unlink(missing_ok=True)
             except OSError as exc:
                 logger.debug(f"Could not remove temp {tmp}: {exc}")
+
+
+@celery_app.task(
+    bind=True,
+    base=BaseTask,
+    name="api.tasks.processing.generate_video_previews",
+    max_retries=0,
+    time_limit=min(settings.celery.task_time_limit, 3450),
+    soft_time_limit=min(settings.celery.task_soft_time_limit, 3300),
+)
+def generate_video_previews(
+    self, recording_id: int, user_id: str, force: bool = False, lock_token: str | None = None
+) -> dict:
+    """Create a bounded storyboard for new and previously published recordings."""
+    if lock_token:
+        try:
+            owns_lock = self.run_async(_claim_video_preview_lock(recording_id, lock_token))
+            if not owns_lock:
+                # A newer claim owns this recording; it will run independently.
+                return {"success": False, "stale": True}
+            started = self.run_async(_set_preview_maker_stage(recording_id, user_id, "IN_PROGRESS", lock_token))
+        except Exception as exc:
+            logger.warning("Could not mark PREVIEW_MAKER running for {}: {}", recording_id, exc)
+            try:
+                self.run_async(_release_video_preview_lock(recording_id, lock_token))
+            except Exception as release_exc:
+                logger.warning("Could not release video preview lock for {}: {}", recording_id, release_exc)
+            raise
+        if started is None:
+            # Redelivery while the original worker runs: keep its live claim.
+            return {"success": False, "stale": True}
+        if not started:
+            # A duplicate delivery or changed source must not overwrite a storyboard.
+            self.run_async(_release_video_preview_lock(recording_id, lock_token))
+            return {"success": False, "stale": True}
+    try:
+        result = self.run_async(_run_video_preview_job(recording_id, user_id, force=force, lock_token=lock_token))
+    except Exception as exc:
+        logger.warning("Video previews failed for recording {}: {}", recording_id, exc)
+        result = {"success": False, "error": str(exc)}
+    stage_completed = True
+    if not result.get("stale"):
+        preview_error = result.get("error")
+        if lock_token:
+            try:
+                stage_completed = self.run_async(
+                    _set_preview_maker_stage(
+                        recording_id,
+                        user_id,
+                        "COMPLETED" if result.get("success") else "FAILED",
+                        lock_token,
+                        error=preview_error if isinstance(preview_error, str) else None,
+                    )
+                )
+            except Exception as exc:
+                stage_completed = False
+                logger.warning("Could not update PREVIEW_MAKER stage for {}: {}", recording_id, exc)
+    if lock_token:
+        try:
+            self.run_async(_release_video_preview_lock(recording_id, lock_token))
+        except Exception as exc:
+            logger.warning("Could not release video preview lock for {}: {}", recording_id, exc)
+    if result.get("stale") or (result.get("success") and not stage_completed):
+        try:
+            self.run_async(_queue_video_previews(recording_id, user_id, force=True))
+        except Exception as exc:
+            logger.warning("Could not requeue changed video previews for {}: {}", recording_id, exc)
+    if not result.get("success") and not result.get("stale"):
+        raise RuntimeError(str(result.get("error") or "Video preview generation failed"))
+    return result
+
+
+@celery_app.task(
+    bind=True,
+    base=BaseTask,
+    name="api.tasks.processing.enqueue_video_previews",
+    max_retries=0,
+)
+def enqueue_video_previews_task(self, trim_result: dict, recording_id: int, user_id: str) -> dict:
+    """Dispatch an optional preview branch after TRIM without blocking transcription."""
+    if not trim_result.get("result", {}).get("success"):
+        return {"success": True, "queued": False, "reason": "trim did not produce a new video"}
+    try:
+        queued = self.run_async(_enqueue_processed_video_previews(recording_id, user_id))
+        return {"success": True, "queued": queued}
+    except Exception as exc:
+        logger.warning("Could not queue video previews for recording {}: {}", recording_id, exc)
+        return {"success": True, "queued": False, "preview_error": str(exc)}
+
+
+async def _enqueue_processed_video_previews(recording_id: int, user_id: str) -> bool:
+    async with get_async_session_maker()() as session:
+        recording = await RecordingRepository(session).get_by_id(recording_id, user_id)
+        if not recording or not recording.processed_video_path:
+            return False
+    return await _queue_video_previews(recording_id, user_id, force=True)
+
+
+async def _queue_video_previews(recording_id: int, user_id: str, *, force: bool) -> bool:
+    from redis.asyncio import from_url
+
+    from api.services.video_previews import enqueue_video_previews
+
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+        return await enqueue_video_previews(redis, recording_id, user_id, force=force)
+
+
+async def _set_preview_maker_stage(
+    recording_id: int, user_id: str, status: str, token: str, *, error: str | None = None
+) -> bool | None:
+    from api.services.video_previews import mark_preview_maker_stage
+
+    return await mark_preview_maker_stage(recording_id, user_id, status, token, error=error)
+
+
+async def _release_video_preview_lock(recording_id: int, token: str) -> None:
+    from redis.asyncio import from_url
+
+    from api.services.video_previews import release_preview_queue_lock
+
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+        await release_preview_queue_lock(redis, recording_id, token)
+
+
+async def _claim_video_preview_lock(recording_id: int, token: str) -> bool:
+    from redis.asyncio import from_url
+
+    from api.services.video_previews import claim_preview_queue_lock
+
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+        return await claim_preview_queue_lock(redis, recording_id, token)
+
+
+async def _run_video_preview_job(recording_id: int, user_id: str, *, force: bool, lock_token: str | None) -> dict:
+    """Keep the queue claim alive through download, FFmpeg, and upload."""
+    import asyncio
+    from contextlib import suppress
+
+    from redis.asyncio import from_url
+
+    from api.services.video_previews import renew_preview_queue_lock
+
+    if lock_token is None:
+        return await _async_generate_video_previews(recording_id, user_id, force=force)
+
+    async with from_url(settings.celery.broker_url, decode_responses=True) as redis:
+
+        async def owns_lock() -> bool:
+            return await renew_preview_queue_lock(redis, recording_id, lock_token)
+
+        if not await owns_lock():
+            return {"success": False, "stale": True}
+
+        lost = asyncio.Event()
+
+        async def heartbeat() -> None:
+            while True:
+                await asyncio.sleep(30)
+                try:
+                    if not await owns_lock():
+                        lost.set()
+                        return
+                except Exception:
+                    lost.set()
+                    logger.exception("Lost video preview queue claim for {}", recording_id)
+                    return
+
+        async def check_lock() -> bool:
+            return not lost.is_set() and await owns_lock()
+
+        heartbeat_task = asyncio.create_task(heartbeat())
+        try:
+            return await _async_generate_video_previews(recording_id, user_id, force=force, check_lock=check_lock)
+        finally:
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
+
+
+def _preview_source_revision(recording: RecordingModel) -> tuple[str | None, datetime | None]:
+    from api.services.video_previews import preview_source_revision
+
+    return preview_source_revision(recording)
+
+
+async def _preview_can_skip_nonkey_frames(source: Path, duration: float, step: int) -> bool:
+    """Use keyframes only when every preview stays close to its cue time."""
+    import asyncio
+    from itertools import pairwise
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-skip_frame",
+            "nokey",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "frame=best_effort_timestamp_time",
+            "-of",
+            "csv=p=0",
+            str(source),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await _communicate_preview_ffmpeg(process, timeout=60)
+    except (OSError, TimeoutError):
+        return False
+    if process.returncode != 0:
+        return False
+    try:
+        timestamps = [float(line) for line in stdout.splitlines() if line.strip()]
+    except ValueError:
+        return False
+    if not timestamps:
+        return False
+    max_gap = step / 2 + 0.1
+    return (
+        0 <= timestamps[0] <= max_gap
+        and duration - max_gap <= timestamps[-1] <= duration + max_gap
+        and all(0 <= later - earlier <= max_gap for earlier, later in pairwise(timestamps))
+    )
+
+
+def _preview_ffmpeg_command(
+    source: Path, output: Path, step: int, duration: float, *, keyframes_only: bool = False
+) -> list[str]:
+    import math
+
+    from api.services.video_previews import (
+        PREVIEW_CELLS,
+        PREVIEW_COLUMNS,
+        PREVIEW_HEIGHT,
+        PREVIEW_MAX_FRAMES,
+        PREVIEW_ROWS,
+        PREVIEW_WIDTH,
+    )
+
+    # fps can emit no frame when the video is shorter than one interval. The
+    # first tpad guarantees an initial sample; the second fills the last tile.
+    filter_graph = (
+        f"tpad=stop_duration={step}:stop_mode=clone,fps=1/{step},"
+        f"scale={PREVIEW_WIDTH}:{PREVIEW_HEIGHT}:force_original_aspect_ratio=decrease,"
+        f"pad={PREVIEW_WIDTH}:{PREVIEW_HEIGHT}:(ow-iw)/2:(oh-ih)/2,"
+        f"tpad=stop={PREVIEW_CELLS - 1}:stop_mode=clone,"
+        f"tile={PREVIEW_COLUMNS}x{PREVIEW_ROWS}"
+    )
+    sheet_count = min(PREVIEW_MAX_FRAMES // PREVIEW_CELLS, math.ceil(duration / step / PREVIEW_CELLS))
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "error",
+        *(["-skip_frame", "nokey"] if keyframes_only else []),
+        "-i",
+        str(source),
+        "-vf",
+        filter_graph,
+        "-q:v",
+        "5",
+        "-frames:v",
+        str(sheet_count),
+        "-pix_fmt",
+        "yuvj420p",
+        "-y",
+        str(output),
+    ]
+
+
+async def _async_generate_video_previews(
+    recording_id: int,
+    user_id: str,
+    *,
+    force: bool = False,
+    check_lock=None,
+) -> dict:
+    import asyncio
+    import tempfile
+
+    from sqlalchemy import select
+
+    from api.helpers.blank_record import positive_duration_seconds
+    from api.services.video_previews import (
+        preview_key,
+        preview_step,
+        preview_vtt,
+    )
+    from file_storage.factory import get_storage_backend
+    from file_storage.path_builder import get_path_builder, to_storage_key
+    from video_processing_module.audio_detector import AudioDetector
+
+    async with get_async_session_maker()() as session:
+        recording = await RecordingRepository(session).get_by_id(recording_id, user_id)
+        if not recording or not recording.processed_video_path:
+            return {"success": False, "error": "processed video not found"}
+        user_slug = recording.owner.user_slug
+        video_key = recording.processed_video_path
+        source_revision = _preview_source_revision(recording)
+
+    storage = get_storage_backend()
+    vtt_key = preview_key(user_slug, recording_id, "storyboard.vtt")
+    if check_lock is not None and not await check_lock():
+        return {"success": False, "stale": True}
+    if not force and await storage.exists(vtt_key):
+        return {"success": True, "skipped": "already exists"}
+    if force:
+        await storage.delete(vtt_key)
+
+    temp_root = get_path_builder().temp_dir()
+    temp_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"previews_{recording_id}_", dir=temp_root) as temp_name:
+        temp_dir = Path(temp_name)
+        source = temp_dir / f"source{Path(video_key).suffix}"
+        await storage.download_to_file(video_key, source)
+        duration = positive_duration_seconds(await AudioDetector().get_duration_seconds(str(source)))
+        if duration is None:
+            return {"success": False, "error": "processed video duration not available"}
+        step = preview_step(duration)
+        keyframes_only = await _preview_can_skip_nonkey_frames(source, duration, step)
+        logger.info(
+            "Preview extraction mode for recording {}: {}", recording_id, "keyframes" if keyframes_only else "full"
+        )
+        output = temp_dir / "sprite-%03d.jpg"
+        process = await asyncio.create_subprocess_exec(
+            *_preview_ffmpeg_command(source, output, step, duration, keyframes_only=keyframes_only),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _stdout, stderr = await _communicate_preview_ffmpeg(
+                process, timeout=max(30, min(3000, settings.celery.task_soft_time_limit - 300))
+            )
+        except TimeoutError:
+            raise RuntimeError("ffmpeg preview extraction timed out") from None
+        sheets = sorted(temp_dir.glob("sprite-*.jpg"))
+        if process.returncode != 0 or not sheets:
+            detail = (stderr or b"").decode("utf-8", "replace")[:1000]
+            raise RuntimeError(f"ffmpeg preview extraction failed: {detail}")
+        poster = temp_dir / "poster.jpg"
+        await _extract_midpoint_poster(source, poster, duration)
+        async with get_async_session_maker()() as session:
+            current = await RecordingRepository(session).get_by_id(recording_id, user_id)
+            if not current:
+                return {"success": False, "error": "processed video no longer available"}
+            if _preview_source_revision(current) != source_revision:
+                # A re-trim may have replaced the object while FFmpeg was running.
+                return {"success": False, "stale": True}
+        for index, sheet in enumerate(sheets):
+            if check_lock is not None and not await check_lock():
+                return {"success": False, "stale": True}
+            await storage.save_file(preview_key(user_slug, recording_id, f"{index}.jpg"), sheet)
+        async with get_async_session_maker()() as session:
+            current = await RecordingRepository(session).get_by_id(recording_id, user_id)
+            if not current:
+                return {"success": False, "error": "processed video no longer available"}
+            if _preview_source_revision(current) != source_revision:
+                return {"success": False, "stale": True}
+        poster_key = to_storage_key(get_path_builder().recording_root(user_slug, recording_id) / "poster.jpg")
+        # Serialize final publication with TRIM's recording update. If TRIM commits
+        # afterward, its invalidation removes this index before the new one queues.
+        async with get_async_session_maker()() as session:
+            await session.execute(
+                select(RecordingModel.id)
+                .where(RecordingModel.id == recording_id, RecordingModel.user_id == user_id)
+                .with_for_update()
+            )
+            current = await RecordingRepository(session).get_by_id(recording_id, user_id)
+            if not current:
+                return {"success": False, "error": "processed video no longer available"}
+            if _preview_source_revision(current) != source_revision:
+                return {"success": False, "stale": True}
+            if check_lock is not None and not await check_lock():
+                return {"success": False, "stale": True}
+            # The VTT is the completion marker; readers never see a partial set.
+            await storage.save_file(poster_key, poster)
+            await storage.save(vtt_key, preview_vtt(duration, step).encode())
+    return {"success": True, "sheets": len(sheets)}

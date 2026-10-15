@@ -1,50 +1,31 @@
 import Link from "next/link";
-import { Fragment } from "react";
 
 import { APP_VERSION } from "@/lib/app-version";
-import { AgeRatingBadge } from "@/components/ui/age-rating-badge";
 
 const VERSION = APP_VERSION;
 
-const links = [
-  { label: "News & Updates", href: "/updates", external: false },
-  { label: "Feedback", href: "/updates/feedback", external: false },
-  { label: "Subscribe", href: "/updates/subscribe", external: false },
-  { label: "Documentation", href: "/docs", external: false },
-  { label: "Contact", href: "mailto:gordey.zuev@gmail.com", external: true },
-];
+const LINKS = [
+  { label: "News & Updates", href: "/updates" },
+  { label: "Contact & Feedback", href: "/updates/feedback" },
+] as const;
 
-const PUBLIC_LINKS = [
-  { label: "News & Updates", href: "/updates", external: false },
-  { label: "Feedback", href: "/updates/feedback", external: false },
-  { label: "Subscribe", href: "/updates/subscribe", external: false },
-  { label: "Contact", href: "mailto:gordey.zuev@gmail.com", external: true },
-];
-
-export function Footer({ variant = "app" }: { variant?: "app" | "public" }) {
-  const items = variant === "public" ? PUBLIC_LINKS : links;
+export function Footer() {
   return (
     <footer className="border-t border-border bg-card">
-      <div className="px-8 py-4 flex flex-wrap items-center justify-center gap-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 px-5 py-4 text-xs text-muted-foreground">
         <span>© {new Date().getFullYear()} LEAP</span>
-        <span className="text-gray-200">·</span>
-        <AgeRatingBadge />
-        <span className="text-gray-200">·</span>
-        <span className="text-gray-300">v{VERSION}</span>
-        <span className="text-gray-200">·</span>
-        {items.map(({ label, href, external }, i) => (
-          <Fragment key={label}>
-            {external ? (
-              <a href={href} className="hover:text-primary transition-colors">
-                {label}
-              </a>
-            ) : (
-              <Link href={href} className="hover:text-primary transition-colors">
-                {label}
-              </Link>
-            )}
-            {i < items.length - 1 && <span className="text-gray-200">·</span>}
-          </Fragment>
+        <span className="text-muted-foreground/40" aria-hidden>·</span>
+        <span>12+</span>
+        <span className="text-muted-foreground/40" aria-hidden>·</span>
+        <span>v{VERSION}</span>
+        <span className="text-muted-foreground/40" aria-hidden>·</span>
+        {LINKS.map(({ label, href }, index) => (
+          <span key={href} className="contents">
+            {index > 0 && <span className="text-muted-foreground/40" aria-hidden>·</span>}
+            <Link href={href} className="transition-colors hover:text-primary">
+              {label}
+            </Link>
+          </span>
         ))}
       </div>
     </footer>

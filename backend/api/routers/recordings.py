@@ -669,7 +669,8 @@ async def generate_recording_poster(
     this once; the frame then exists for every later page view. That keeps the
     feature working for recordings that predate it without a backfill pass.
     """
-    from api.tasks.processing import generate_poster
+    from api.dependencies import get_redis
+    from api.services.video_previews import enqueue_poster
 
     recording_repo = RecordingRepository(ctx.session)
     recording = await recording_repo.get_by_id(recording_id, ctx.user_id)
@@ -691,8 +692,35 @@ async def generate_recording_poster(
     if await get_storage_backend().exists(poster_key):
         return {"status": "ready"}
 
-    generate_poster.delay(recording_id, ctx.user_id)
+    await enqueue_poster(await get_redis(), recording_id, ctx.user_id)
     return {"status": "queued"}
+
+
+@router.get("/{recording_id}/preview.vtt")
+async def get_recording_preview_vtt(
+    recording_id: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> Response:
+    from api.services.video_previews import serve_preview_vtt
+
+    recording = await RecordingRepository(ctx.session).get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return await serve_preview_vtt(recording)
+
+
+@router.get("/{recording_id}/preview/{sheet}.jpg")
+async def get_recording_preview_sheet(
+    recording_id: int,
+    sheet: int,
+    ctx: ServiceContext = Depends(get_service_context),
+) -> Response:
+    from api.services.video_previews import redirect_preview_sheet
+
+    recording = await RecordingRepository(ctx.session).get_by_id(recording_id, ctx.user_id)
+    if not recording:
+        raise HTTPException(status_code=404, detail="Recording not found")
+    return await redirect_preview_sheet(recording, sheet)
 
 
 @router.get("/{recording_id}/source-extras", response_model=SourceExtrasResponse)

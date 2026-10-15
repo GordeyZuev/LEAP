@@ -222,6 +222,14 @@ LOCKBOX_SECRET_ID="${LOCKBOX_SECRET_ID:?}" bash "$REPO_DIR/refresh-env.sh"
 
 # --- 7. nginx: HTTP-only until certbot succeeds --------------------------
 cd "$REPO_DIR"
+install -d -o ubuntu -g ubuntu nginx/active
+if [ ! -f nginx/active/slot.conf ]; then
+  # nginx variables are literal here.
+  # shellcheck disable=SC2016
+  printf 'set $api_upstream "http://api:8000";\nset $frontend_upstream "http://frontend:3000";\nset $previous_frontend_upstream "http://frontend:3000";\nset $leap_slot "blue";\n' \
+    > nginx/active/slot.conf
+  chown ubuntu:ubuntu nginx/active/slot.conf
+fi
 if [ ! -L /etc/letsencrypt/live/leap ]; then
   cp nginx/nginx.bootstrap.conf nginx/nginx.conf
 else
@@ -265,7 +273,7 @@ EOF
 # --- 8. Pull images + start the stack ------------------------------------
 sudo -u ubuntu docker compose pull
 sudo -u ubuntu docker compose up -d \
-  postgres redis api celery_worker celery_beat flower frontend \
+  postgres redis api celery_worker celery_cpu_worker celery_maintenance_worker celery_preview_worker celery_beat flower frontend \
   loki promtail grafana
 sudo -u ubuntu docker compose up -d nginx
 

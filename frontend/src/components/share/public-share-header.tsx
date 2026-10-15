@@ -75,8 +75,8 @@ export function PublicShareHeader({ children }: { children?: ReactNode }) {
               target="_blank"
               rel="noreferrer"
               onClick={() => markProductNewsSeen(latestNews.id)}
-              aria-label={newsUnread ? "News & Updates, new release" : "News & Updates"}
-              title="News & Updates from LEAP"
+              aria-label={newsUnread ? "News & Feedback, new release" : "News & Feedback"}
+              title="News & Feedback from LEAP"
               className={cn(
                 COPY_LINK_CHIP,
                 "max-w-[38vw] sm:max-w-[18rem]",
@@ -84,7 +84,7 @@ export function PublicShareHeader({ children }: { children?: ReactNode }) {
                 "border-primary/15 bg-primary/[0.045] text-secondary-foreground hover:border-primary/30 hover:bg-primary/[0.08]",
               )}
             >
-              <span className="shrink-0 text-xs font-semibold text-primary">News &amp; Updates</span>
+              <span className="shrink-0 text-xs font-semibold text-primary">News &amp; Feedback</span>
               {newsUnread && <span className="size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />}
             </Link>
           )}

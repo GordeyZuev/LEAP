@@ -31,6 +31,8 @@ It is multi-tenant. Queries and storage are scoped to the owning user. Credentia
 
 Processing defaults live in the base template, not in Settings. Settings keep profile, theme, sessions, and retention.
 
+For YouTube, choose a channel playlist in the preset, template, or Run settings. The picker searches the linked channel and can create or edit a playlist's title, description, and visibility. If YouTube reports missing permissions, reconnect that account under **Credentials**.
+
 ## How does the pipeline run?
 
 Celery chain, roughly: download → trim (FFmpeg) → transcribe (AssemblyAI) → topics (DeepSeek) → subtitles → optional upload.

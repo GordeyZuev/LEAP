@@ -1,10 +1,12 @@
 """Token error handler with automatic refresh for YouTube and VK."""
 
+import asyncio
 import functools
+import json
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import Request
 
 from logger import get_logger
@@ -12,6 +14,40 @@ from logger import get_logger
 logger = get_logger()
 
 T = TypeVar("T")
+GOOGLE_AUTH_REFRESH_TIMEOUT_SECONDS = 10
+GOOGLE_BLOCKING_WORK_TIMEOUT_SECONDS = 12
+GOOGLE_API_HTTP_TIMEOUT_SECONDS = 15
+
+
+async def refresh_youtube_credentials(credentials: Any) -> None:
+    """Refresh OAuth credentials off the event loop with a finite HTTP timeout."""
+    request = Request()
+
+    def bounded_request(url: str, **kwargs: Any) -> Any:
+        kwargs["timeout"] = GOOGLE_AUTH_REFRESH_TIMEOUT_SECONDS
+        return request(url, **kwargs)
+
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(credentials.refresh, bounded_request),
+            timeout=GOOGLE_BLOCKING_WORK_TIMEOUT_SECONDS,
+        )
+    except (TimeoutError, TransportError) as exc:
+        raise TimeoutError("YouTube OAuth token refresh timed out") from exc
+
+
+async def build_youtube_service(credentials: Any) -> Any:
+    """Build the bundled YouTube API client off the event loop and bound API calls."""
+    from googleapiclient.discovery import build
+
+    service = await asyncio.wait_for(
+        asyncio.to_thread(build, "youtube", "v3", credentials=credentials, static_discovery=True),
+        timeout=GOOGLE_BLOCKING_WORK_TIMEOUT_SECONDS,
+    )
+    transport = getattr(getattr(service, "_http", None), "http", None)
+    if transport is not None and hasattr(transport, "timeout"):
+        transport.timeout = GOOGLE_API_HTTP_TIMEOUT_SECONDS
+    return service
 
 
 class TokenRefreshError(Exception):
@@ -24,14 +60,21 @@ class TokenRefreshError(Exception):
 
 
 def is_youtube_auth_error(error: Exception) -> bool:
-    """Check if error is YouTube auth error (401/403)."""
+    """Check whether a YouTube response may succeed after refreshing its access token."""
     try:
         from googleapiclient.errors import HttpError
 
         if isinstance(error, HttpError) and error.resp:
-            return error.resp.status in (401, 403)
+            if error.resp.status == 401:
+                return True
+            if error.resp.status == 403:
+                body = json.loads(error.content.decode("utf-8", errors="replace"))
+                reasons = {str(row.get("reason", "")) for row in body.get("error", {}).get("errors", [])}
+                return bool(reasons & {"authError", "invalidCredentials"})
     except ImportError:
         pass
+    except (AttributeError, json.JSONDecodeError, TypeError):
+        return False
     return False
 
 
@@ -85,20 +128,20 @@ def requires_valid_token(max_retries: int = 1):
                         if not self.credentials.refresh_token:
                             raise TokenRefreshError("youtube", "No refresh_token", original_error=e) from e
 
-                        self.credentials.refresh(Request())
+                        await refresh_youtube_credentials(self.credentials)
 
                         if hasattr(self, "credential_provider") and self.credential_provider:
                             await self.credential_provider.update_google_credentials(self.credentials)
 
                         if hasattr(self, "service") and self.service:
-                            from googleapiclient.discovery import build
-
-                            self.service = build("youtube", "v3", credentials=self.credentials)
+                            self.service = await build_youtube_service(self.credentials)
 
                         logger.info("YouTube token refreshed")
                         continue
 
-                    except RefreshError as refresh_err:
+                    except TimeoutError:
+                        raise
+                    except (RefreshError, TransportError) as refresh_err:
                         raise TokenRefreshError(
                             "youtube", "Refresh failed", original_error=refresh_err
                         ) from refresh_err
@@ -127,8 +170,10 @@ def requires_valid_vk_token(max_retries: int = 1):
                     # VK may return result with error inside
                     if isinstance(result, dict) and is_vk_auth_error(result):
                         if attempt >= max_retries:
-                            error_info = result.get("error", {})
-                            error_msg = error_info.get("error_msg", "Unknown")
+                            error_info = cast("dict[str, Any]", result).get("error")
+                            error_msg = (
+                                error_info.get("error_msg", "Unknown") if isinstance(error_info, dict) else "Unknown"
+                            )
                             logger.error(f"VK auth failed after {max_retries} retries: {error_msg}")
                             raise TokenRefreshError("vk", f"Token invalid: {error_msg}")
 

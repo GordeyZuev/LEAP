@@ -1,6 +1,6 @@
 # Usage, quotas, and product analytics
 
-**Product release:** v0.11.1.1 (October 2026)
+**Product release:** v0.11.2.0 (October 2026)
 
 This guide is the canonical reference for **in-app usage observability**: what users and admins see in the web UI, how it maps to API responses, and how it relates to `usage_events`, `quota_usage`, and share counters.
 
@@ -75,6 +75,7 @@ Activity totals come from **`GET /api/v1/users/me/analytics`**.
 | **Channel** | `/channels/{id}?tab=analytics` | Same catalog aggregates + **Engagement** across channel videos |
 
 - Supports **`from` / `to`** (presets 7 / 28 / 90 days) or legacy rolling `days=7|28`.
+- A recording's `/share/{token}` page and `/embed/{token}` iframe use the same page-view beacon and counter. Repeated views follow the existing 30-minute rule. These numbers are page views, not unique people or concurrent viewers; the dashboard does not split them by source.
 - Same share analytics API as views/downloads; engagement metrics use the selected date range.
 - Course and channel analytics include **downloads by file type** for lectures currently in the catalog (same `FILE_DOWNLOAD` events as the daily chart).
 - Counting runs on public watch pages only (single share and lecture inside a course); not mixed into Settings → Usage or Admin → Analytics.

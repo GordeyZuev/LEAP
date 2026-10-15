@@ -33,8 +33,6 @@ from video_upload_module.uploader_factory import create_uploader_from_db
 logger = get_logger()
 settings = get_settings()
 
-_UPLOAD_STALE_BUFFER_SECONDS = 300
-
 
 def _vk_upload_params_from_metadata(preset_metadata: dict[str, Any]) -> dict[str, Any]:
     """Build VK video.save kwargs from flat or nested ``metadata_config.vk`` fields."""
@@ -76,12 +74,12 @@ def platform_to_target_type(platform: str) -> str:
 def upload_enqueue_skip_reason(
     output_target,
     *,
-    now: datetime | None = None,
     allow_active_upload: bool = False,
 ) -> str | None:
-    if output_target.status == TargetStatus.UPLOADED and output_target.target_meta:
-        if output_target.target_meta.get("video_id"):
+    if output_target.status == TargetStatus.UPLOADED:
+        if (output_target.target_meta or {}).get("video_id"):
             return "Already uploaded"
+        return "Uploaded target has no remote ID; review before retry"
 
     if output_target.status != TargetStatus.UPLOADING:
         return None
@@ -89,19 +87,8 @@ def upload_enqueue_skip_reason(
     if allow_active_upload:
         return None
 
-    if not output_target.started_at:
-        return "Upload in progress"
-
-    started = output_target.started_at
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=UTC)
-
-    now = now or datetime.now(UTC)
-    stale_after = settings.celery.task_time_limit + _UPLOAD_STALE_BUFFER_SECONDS
-    if (now - started).total_seconds() < stale_after:
-        return "Upload in progress"
-
-    return None
+    # Age alone cannot prove that the remote platform rejected an upload.
+    return "Upload in progress"
 
 
 def _upload_skip_result(output_target, reason: str) -> dict:
@@ -114,6 +101,13 @@ def _upload_skip_result(output_target, reason: str) -> dict:
             "reason": reason,
         }
     return {"success": True, "skipped": True, "reason": reason}
+
+
+def _supersede_saved_dispatch(output_target, dispatch_task_id: str | None) -> None:
+    """An explicit upload takes ownership before an old automatic message can run."""
+    if dispatch_task_id is None and output_target.dispatch_task_id:
+        output_target.dispatch_task_id = None
+        output_target.dispatch_finished_at = datetime.now(UTC)
 
 
 # Platform limits (API constraints)
@@ -286,6 +280,7 @@ def upload_recording_to_platform(
     preset_id: int | None = None,
     credential_id: int | None = None,
     metadata_override: dict | None = None,
+    dispatch_task_id: str | None = None,
 ) -> dict:
     """
     Upload one recording to platform with user credentials.
@@ -319,13 +314,29 @@ def upload_recording_to_platform(
                         preset_id=preset_id,
                         credential_id=credential_id,
                         metadata_override=metadata_override,
-                        allow_active_upload=self.request.retries > 0,
+                        # A previous attempt may have completed at the remote
+                        # platform before losing its local DB write. Replaying
+                        # that side effect automatically can create duplicates.
+                        allow_active_upload=False,
+                        is_retry=self.request.retries > 0,
+                        dispatch_task_id=dispatch_task_id,
+                    )
+                )
+
+            if dispatch_task_id:
+                from api.services.upload_dispatch import finish_upload_dispatch
+
+                self.run_async(finish_upload_dispatch(recording_id, user_id, platform, dispatch_task_id, result))
+            elif result.get("status") == "failed":
+                self.run_async(
+                    self._handle_upload_failure_async(
+                        recording_id, user_id, platform, RuntimeError(result.get("reason", "Upload outcome unknown"))
                     )
                 )
 
             return self.build_result(
                 user_id=user_id,
-                status="completed",
+                status="failed" if result.get("status") == "failed" or result.get("success") is False else "completed",
                 recording_id=recording_id,
                 platform=platform,
                 result=result,
@@ -341,6 +352,14 @@ def upload_recording_to_platform(
 
         except TokenRefreshError as exc:
             logger.error("Token refresh failed - re-authentication needed")
+            if dispatch_task_id:
+                from api.services.upload_dispatch import finish_upload_dispatch
+
+                self.run_async(
+                    finish_upload_dispatch(
+                        recording_id, user_id, platform, dispatch_task_id, {"status": "failed", "reason": str(exc)}
+                    )
+                )
             return self.build_result(
                 user_id=user_id,
                 status="failed",
@@ -352,6 +371,14 @@ def upload_recording_to_platform(
 
         except CredentialError as exc:
             logger.error(f"Credential error: {exc.reason}")
+            if dispatch_task_id:
+                from api.services.upload_dispatch import finish_upload_dispatch
+
+                self.run_async(
+                    finish_upload_dispatch(
+                        recording_id, user_id, platform, dispatch_task_id, {"status": "failed", "reason": exc.reason}
+                    )
+                )
             return self.build_result(
                 user_id=user_id,
                 status="failed",
@@ -363,6 +390,14 @@ def upload_recording_to_platform(
 
         except ResourceNotFoundError as exc:
             logger.error(f"Resource not found | {format_details(type=exc.resource_type, id=exc.resource_id)}")
+            if dispatch_task_id:
+                from api.services.upload_dispatch import finish_upload_dispatch
+
+                self.run_async(
+                    finish_upload_dispatch(
+                        recording_id, user_id, platform, dispatch_task_id, {"status": "failed", "reason": str(exc)}
+                    )
+                )
             return self.build_result(
                 user_id=user_id,
                 status="failed",
@@ -386,6 +421,8 @@ async def _async_upload_recording(
     credential_id: int | None = None,
     metadata_override: dict | None = None,
     allow_active_upload: bool = False,
+    dispatch_task_id: str | None = None,
+    is_retry: bool = False,
 ) -> dict:
     """
     Async function for uploading recording.
@@ -423,6 +460,8 @@ async def _async_upload_recording(
             target_type=target_type,
             preset_id=preset_id,
         )
+        if dispatch_task_id and output_target.dispatch_task_id != dispatch_task_id:
+            return {"success": True, "skipped": True, "reason": "Superseded upload dispatch"}
 
         if is_leap_platform(platform):
             from api.services.config_utils import resolve_full_config
@@ -433,10 +472,16 @@ async def _async_upload_recording(
                 publish_leap_recording,
             )
 
+            await session.refresh(output_target, with_for_update=True)
+            if dispatch_task_id and output_target.dispatch_task_id != dispatch_task_id:
+                return {"success": True, "skipped": True, "reason": "Superseded upload dispatch"}
             skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
             if skip_reason:
                 logger.info(f"Skipped: {skip_reason.lower()}")
+                if is_retry and skip_reason == "Upload in progress":
+                    return {"status": "failed", "reason": "Previous upload outcome unknown; verify LEAP before retry"}
                 return _upload_skip_result(output_target, skip_reason)
+            _supersede_saved_dispatch(output_target, dispatch_task_id)
 
             if recording.blank_record:
                 logger.info("Skipped: blank record")
@@ -474,6 +519,8 @@ async def _async_upload_recording(
         skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
         if skip_reason:
             logger.info(f"Skipped: {skip_reason.lower()}")
+            if is_retry and skip_reason == "Upload in progress":
+                return {"status": "failed", "reason": "Previous upload outcome unknown; verify platform before retry"}
             return _upload_skip_result(output_target, skip_reason)
 
         # Check video file exists BEFORE marking as uploading
@@ -759,11 +806,19 @@ async def _async_upload_recording(
             stage_name = f"UPLOAD:{target_type}"
             timing = await timing_service.start_stage(recording_id, user_id, stage_name)
 
-            await session.refresh(output_target)
+            await session.refresh(output_target, with_for_update=True)
+            if dispatch_task_id and output_target.dispatch_task_id != dispatch_task_id:
+                return {"success": True, "skipped": True, "reason": "Superseded upload dispatch"}
             skip_reason = upload_enqueue_skip_reason(output_target, allow_active_upload=allow_active_upload)
             if skip_reason:
                 logger.info(f"Skipped before upload start: {skip_reason.lower()}")
+                if is_retry and skip_reason == "Upload in progress":
+                    return {
+                        "status": "failed",
+                        "reason": "Previous upload outcome unknown; verify platform before retry",
+                    }
                 return _upload_skip_result(output_target, skip_reason)
+            _supersede_saved_dispatch(output_target, dispatch_task_id)
 
             old_status = output_target.status
             output_target.started_at = datetime.now(UTC)
@@ -915,40 +970,48 @@ def batch_upload_recordings(
     Returns:
         Result with status and list of queued subtasks
     """
+    from api.services.upload_dispatch import prepare_upload_dispatch, publish_upload_dispatch
+
     with logger.contextualize(
         task_id=short_task_id(self.request.id),
         user_id=short_user_id(user_id),
     ):
-        try:
-            logger.info(f"Batch upload | {format_details(recordings=len(recording_ids), platforms=platforms)}")
-
-            results = []
-            for recording_id in recording_ids:
-                for platform in platforms:
-                    preset_id = preset_ids.get(platform) if preset_ids else None
-
-                    subtask_result = upload_recording_to_platform.delay(
-                        recording_id=recording_id,
-                        user_id=user_id,
-                        platform=platform,
-                        preset_id=preset_id,
-                    )
-
+        logger.info(f"Batch upload | {format_details(recordings=len(recording_ids), platforms=platforms)}")
+        results = []
+        errors = []
+        for recording_id in recording_ids:
+            for platform in platforms:
+                preset_id = preset_ids.get(platform) if preset_ids else None
+                try:
+                    intent = self.run_async(prepare_upload_dispatch(recording_id, user_id, platform, preset_id, None))
+                    if intent.reason:
+                        results.append(
+                            {
+                                "recording_id": recording_id,
+                                "platform": platform,
+                                "task_id": intent.task_id,
+                                "status": "skipped",
+                                "reason": intent.reason,
+                            }
+                        )
+                        continue
+                    if intent.target_id is None or intent.task_id is None:
+                        raise RuntimeError("Missing upload dispatch intent")
+                    self.run_async(publish_upload_dispatch(intent.target_id, intent.task_id))
                     results.append(
                         {
                             "recording_id": recording_id,
                             "platform": platform,
-                            "task_id": subtask_result.id,
+                            "task_id": intent.task_id,
                             "status": "queued",
                         }
                     )
+                except Exception as exc:
+                    errors.append(f"{recording_id}:{platform}")
+                    logger.opt(exception=True).error(
+                        "Batch upload dispatch failed: {}:{}: {}", recording_id, platform, exc
+                    )
 
-            return self.build_result(
-                user_id=user_id,
-                status="dispatched",
-                subtasks=results,
-            )
-
-        except Exception as exc:
-            logger.opt(exception=True).error(f"Error in batch upload: {exc}")
-            raise
+        if errors:
+            raise self.retry(exc=RuntimeError(f"Batch upload dispatch failed for: {', '.join(errors)}"))
+        return self.build_result(user_id=user_id, status="dispatched", subtasks=results)

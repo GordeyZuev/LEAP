@@ -84,6 +84,31 @@ class PlaylistRepository:
         )
         return result.one_or_none()
 
+    async def get_public_items_for_posters(
+        self, playlist_id: int, owner_user_id: str, item_ids: list[int]
+    ) -> list[tuple[PlaylistItemModel, RecordingModel]]:
+        """Load only the requested public poster items, with owners in one batch."""
+        result = await self.session.execute(
+            select(PlaylistItemModel, RecordingModel)
+            .join(RecordingModel, RecordingModel.id == PlaylistItemModel.recording_id)
+            .options(
+                noload(PlaylistItemModel.playlist),
+                noload(PlaylistItemModel.recording),
+                selectinload(RecordingModel.owner),
+                noload(RecordingModel.input_source),
+                noload(RecordingModel.template),
+                noload(RecordingModel.source),
+                noload(RecordingModel.outputs),
+                noload(RecordingModel.processing_stages),
+            )
+            .where(
+                PlaylistItemModel.playlist_id == playlist_id,
+                PlaylistItemModel.id.in_(item_ids),
+                RecordingModel.user_id == owner_user_id,
+            )
+        )
+        return [(item, recording) for item, recording in result.all()]
+
     async def list_by_user(self, user_id: str) -> list[PlaylistModel]:
         result = await self.session.execute(
             select(PlaylistModel)

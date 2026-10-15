@@ -71,8 +71,8 @@ def create_youtube_config() -> OAuthPlatformConfig:
         platform_id="youtube",
         authorization_url=config.get("auth_uri", "https://accounts.google.com/o/oauth2/auth"),
         token_url=config.get("token_uri", "https://oauth2.googleapis.com/token"),
-        client_id=config.get("client_id", ""),
-        client_secret=config.get("client_secret", ""),
+        client_id=config.get("client_id") or os.getenv("OAUTH_YOUTUBE_CLIENT_ID", ""),
+        client_secret=config.get("client_secret") or os.getenv("OAUTH_YOUTUBE_CLIENT_SECRET", ""),
         scopes=[
             "https://www.googleapis.com/auth/youtube.upload",
             "https://www.googleapis.com/auth/youtube.force-ssl",

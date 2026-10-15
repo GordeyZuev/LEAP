@@ -175,7 +175,9 @@ celery_app.conf.update(
 
 celery_app.conf.task_routes = {
     "api.tasks.processing.trim_video": {"queue": "processing_cpu"},
-    "api.tasks.processing.generate_poster": {"queue": "processing_cpu"},
+    "api.tasks.processing.generate_poster": {"queue": "previews"},
+    "api.tasks.processing.generate_video_previews": {"queue": "previews"},
+    "api.tasks.processing.enqueue_video_previews": {"queue": "async_operations"},
     "api.tasks.processing.download_recording": {"queue": "downloads"},
     "api.tasks.upload.*": {"queue": "uploads"},
     "api.tasks.processing.transcribe_recording": {"queue": "async_operations"},
@@ -223,6 +225,14 @@ celery_app.conf.beat_schedule = {
     "reset-stale-active-recordings": {
         "task": "maintenance.reset_stale_active_recordings",
         "schedule": crontab(minute="*/30"),
+    },
+    "requeue-stale-video-previews": {
+        "task": "maintenance.requeue_stale_video_previews",
+        "schedule": crontab(minute="*/15"),
+    },
+    "reconcile-upload-dispatches": {
+        "task": "maintenance.reconcile_upload_dispatches",
+        "schedule": crontab(minute="*/5"),
     },
 }
 

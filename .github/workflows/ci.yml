@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     branches: [main]
@@ -12,6 +15,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deploy:
+    name: Deployment script failure checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check shell syntax and switch/rollback behavior
+        run: |
+          bash -n scripts/deploy-blue-green.sh scripts/vm-init.sh
+          python3 -m unittest scripts.tests.test_deploy_blue_green -v
+
   backend:
     name: Backend (lint + typecheck + unit tests)
     runs-on: ubuntu-latest
@@ -116,6 +129,9 @@ jobs:
 
       - name: Lint
         run: pnpm run lint
+
+      - name: Unit tests
+        run: pnpm run test
 
       - name: Build (smoke test)
         run: pnpm run build

@@ -6,9 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
@@ -17,7 +15,7 @@ from logger import get_logger
 from ...config_factory import YouTubeConfig
 from ...core.base import BaseUploader, UploadResult
 from ...credentials_provider import CredentialProvider, FileCredentialProvider
-from .token_handler import TokenRefreshError, requires_valid_token
+from .token_handler import TokenRefreshError, build_youtube_service, refresh_youtube_credentials, requires_valid_token
 
 logger = get_logger()
 
@@ -57,12 +55,14 @@ class YouTubeUploader(BaseUploader):
                 if self.credentials and self.credentials.refresh_token:
                     try:
                         logger.info("Refreshing YouTube access token...")
-                        self.credentials.refresh(Request())
+                        await refresh_youtube_credentials(self.credentials)
                         refreshed_successfully = True
 
                         await self.credential_provider.update_google_credentials(self.credentials)
                         logger.info("YouTube token refreshed and saved successfully")
 
+                    except TimeoutError:
+                        raise
                     except Exception as e:
                         logger.warning(f"Failed to refresh token: {e}")
                         self.credentials = None
@@ -95,12 +95,14 @@ class YouTubeUploader(BaseUploader):
                     )
                     return False
 
-            self.service = build("youtube", "v3", credentials=self.credentials)
+            self.service = await build_youtube_service(self.credentials)
             self._authenticated = True
 
             logger.info("YouTube authentication successful")
             return True
 
+        except TimeoutError:
+            raise
         except Exception as e:
             logger.error(f"YouTube authentication error: {e}")
             return False

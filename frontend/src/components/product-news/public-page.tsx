@@ -27,7 +27,7 @@ export function ProductNewsPage({ title, description, children }: {
         </div>
         {children}
       </main>
-      <Footer variant="public" />
+      <Footer />
     </div>
   );
 }

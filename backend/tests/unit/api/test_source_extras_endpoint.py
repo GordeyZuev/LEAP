@@ -1,12 +1,15 @@
 """Source companion files: manifest parsing and download URLs (mocked storage)."""
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 
+from api.helpers.source_extras import list_source_extras
 from api.routers.recordings import get_recording_source_extras
 
 
@@ -29,12 +32,21 @@ class _FakeStorage:
     def __init__(self, present: dict[str, bytes]):
         self.present = present
         self.signed: list[tuple[str, str | None]] = []
+        self.heads: list[str] = []
+
+    @asynccontextmanager
+    async def shared_operations(self):
+        yield
 
     async def exists(self, key: str) -> bool:
+        self.heads.append(key)
         return key in self.present
 
     async def load(self, key: str) -> bytes:
-        return self.present[key]
+        try:
+            return self.present[key]
+        except KeyError as exc:
+            raise FileNotFoundError(key) from exc
 
     async def presigned_url(self, key: str, expires_in: int = 3600, *, download_filename: str | None = None) -> str:
         self.signed.append((key, download_filename))
@@ -54,6 +66,33 @@ def _run(storage: _FakeStorage, recording=None):
 @pytest.mark.unit
 class TestSourceExtrasEndpoint:
     @pytest.mark.asyncio
+    async def test_manifest_lookups_are_bounded_and_keep_order(self):
+        keys = [f"users/user_000001/recordings/42/source_extras/files/{i}.pdf" for i in range(12)]
+        manifest = [{"storage_key": key, "name": f"{i}.pdf"} for i, key in enumerate(keys)]
+
+        class TrackingStorage(_FakeStorage):
+            active = 0
+            max_active = 0
+
+            async def exists(self, key: str) -> bool:
+                if key in keys:
+                    self.active += 1
+                    self.max_active = max(self.max_active, self.active)
+                    try:
+                        await asyncio.sleep(0.001)
+                    finally:
+                        self.active -= 1
+                return await super().exists(key)
+
+        storage = TrackingStorage({MANIFEST_KEY: json.dumps(manifest).encode(), **dict.fromkeys(keys, b"pdf")})
+        with patch("file_storage.factory.get_storage_backend", return_value=storage):
+            result = await list_source_extras(_recording())
+
+        assert [file.name for file in result.files] == [f"{i}.pdf" for i in range(12)]
+        assert 1 < storage.max_active <= 8
+        assert MANIFEST_KEY not in storage.heads
+
+    @pytest.mark.asyncio
     async def test_missing_recording_is_404(self):
         repo = AsyncMock()
         repo.get_by_id.return_value = None
@@ -72,6 +111,7 @@ class TestSourceExtrasEndpoint:
 
         assert result.chat is None
         assert result.files == []
+        assert MANIFEST_KEY not in storage.heads
 
     @pytest.mark.asyncio
     async def test_chat_and_manifest_files_get_download_urls(self):

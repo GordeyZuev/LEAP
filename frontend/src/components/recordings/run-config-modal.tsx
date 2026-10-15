@@ -57,6 +57,7 @@ import {
   leapPresetMetadataFromApi,
 } from "@/components/platforms/leap-config-section";
 import { usePresetDetails } from "@/hooks/use-preset-details";
+import { firstCredentialForPlatform } from "@/lib/preset-credentials";
 import { LeapConfigFields } from "@/components/platforms/leap-config-section";
 import { UploadCopyFields } from "@/components/platforms/upload-copy-fields";
 import { useGranularities, useLanguages } from "@/hooks/use-references";
@@ -687,15 +688,8 @@ export function RunConfigModal({
     });
   }
 
-  const yandexBrowseCredentialId = useMemo(() => {
-    for (const pid of selectedPresetIds) {
-      const preset = presetDetails[pid];
-      if (preset?.platform === "yandex_disk" && preset.credential_id != null) {
-        return preset.credential_id;
-      }
-    }
-    return "" as const;
-  }, [selectedPresetIds, presetDetails]);
+  const yandexBrowseCredentialId = firstCredentialForPlatform(selectedPresetIds, presetDetails, "yandex_disk") ?? "";
+  const youtubeBrowseCredentialId = firstCredentialForPlatform(selectedPresetIds, presetDetails, "youtube");
 
   async function handleMetadataPreview() {
     setMetadataPreviewLoading(true);
@@ -1017,6 +1011,7 @@ export function RunConfigModal({
                 <YouTubeFields
                   value={ytFields}
                   onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
+                  credentialId={youtubeBrowseCredentialId}
                   showThumbnail
                   showMadeForKids
                   showExtended

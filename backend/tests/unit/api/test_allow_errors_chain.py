@@ -123,5 +123,5 @@ def test_run_recording_failure_clears_on_air(mocker):
 
     ProcessingTask.on_failure(task, RuntimeError("boom"), "task-id", [7, "user"], {}, None)
 
-    task._clear_on_air_async.assert_called_once_with(7, "user")
+    task._clear_on_air_async.assert_called_once_with(7, "user", expected_task_id="task-id")
     ran.assert_called_once()

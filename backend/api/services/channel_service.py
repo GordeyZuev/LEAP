@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -155,7 +156,21 @@ class ChannelService:
         await self.session.flush()
         await delete_key_silent(old)
 
-    async def add_videos(self, channel: ChannelModel, recording_ids: list[int]) -> list[ChannelVideoModel]:
+    async def _insert_missing(
+        self,
+        model: type[ChannelVideoModel] | type[ChannelPlaylistModel],
+        rows: list[dict[str, int | datetime]],
+        *,
+        constraint: str,
+    ) -> int:
+        """Insert membership rows. A concurrent duplicate of the same pair is skipped."""
+        if not rows:
+            return 0
+        stmt = pg_insert(model).values(rows).on_conflict_do_nothing(constraint=constraint).returning(model.id)
+        inserted = (await self.session.execute(stmt)).scalars().all()
+        return len(inserted)
+
+    async def add_videos(self, channel: ChannelModel, recording_ids: list[int]) -> int:
         unique: list[int] = []
         seen: set[int] = set()
         for rid in recording_ids:
@@ -166,7 +181,7 @@ class ChannelService:
         existing = {row.recording_id for row in await self.repo.list_videos(channel.id)}
         to_add = [rid for rid in unique if rid not in existing]
         if not to_add:
-            return []
+            return 0
         current = await self.repo.video_count(channel.id)
         if current + len(to_add) > MAX_VIDEOS_PER_CHANNEL:
             raise HTTPException(
@@ -188,19 +203,21 @@ class ChannelService:
         }
         owned = [rid for rid in to_add if rid in found]
         if not owned:
-            return []
+            return 0
         max_pos = await self.repo.max_video_position(channel.id)
         next_pos = (max_pos + 1) if max_pos is not None else 0
-        created: list[ChannelVideoModel] = []
-        for rid in owned:
-            row = ChannelVideoModel(channel_id=channel.id, recording=found[rid], position=next_pos)
-            self.session.add(row)
-            created.append(row)
-            next_pos += 1
-        channel.updated_at = datetime.now(UTC)
+        now = datetime.now(UTC)
+        rows = [
+            {"channel_id": channel.id, "recording_id": rid, "position": next_pos + offset, "created_at": now}
+            for offset, rid in enumerate(owned)
+        ]
+        inserted = await self._insert_missing(ChannelVideoModel, rows, constraint="uq_channel_videos_channel_recording")
+        if not inserted:
+            return 0
+        channel.updated_at = now
         await self.session.flush()
         await self.apply_video_sort(channel)
-        return created
+        return inserted
 
     async def apply_video_sort(self, channel: ChannelModel) -> None:
         """Rewrite video positions (dense, 0-based) by the saved rule; ties keep their current order."""
@@ -288,7 +305,7 @@ class ChannelService:
         channel.updated_at = datetime.now(UTC)
         await self.session.flush()
 
-    async def add_playlists(self, channel: ChannelModel, playlist_ids: list[int]) -> list[ChannelPlaylistModel]:
+    async def add_playlists(self, channel: ChannelModel, playlist_ids: list[int]) -> int:
         unique: list[int] = []
         seen: set[int] = set()
         for pid in playlist_ids:
@@ -299,7 +316,7 @@ class ChannelService:
         existing = {row.playlist_id for row in await self.repo.list_channel_playlists(channel.id)}
         to_add = [pid for pid in unique if pid not in existing]
         if not to_add:
-            return []
+            return 0
         current = await self.repo.playlist_count(channel.id)
         if current + len(to_add) > MAX_PLAYLISTS_PER_CHANNEL:
             raise HTTPException(
@@ -318,26 +335,23 @@ class ChannelService:
         }
         owned = [pid for pid in to_add if pid in found]
         if not owned:
-            return []
+            return 0
         max_pos = await self.repo.max_playlist_position(channel.id)
         next_pos = (max_pos + 1) if max_pos is not None else 0
-        created: list[ChannelPlaylistModel] = []
-        for pid in owned:
-            row = ChannelPlaylistModel(channel_id=channel.id, playlist=found[pid], position=next_pos)
-            self.session.add(row)
-            created.append(row)
-            next_pos += 1
-        channel.updated_at = datetime.now(UTC)
-        try:
-            await self.session.flush()
-        except IntegrityError as exc:
-            await self.session.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="This playlist is already on the channel.",
-            ) from exc
+        now = datetime.now(UTC)
+        rows = [
+            {"channel_id": channel.id, "playlist_id": pid, "position": next_pos + offset, "created_at": now}
+            for offset, pid in enumerate(owned)
+        ]
+        inserted = await self._insert_missing(
+            ChannelPlaylistModel, rows, constraint="uq_channel_playlists_channel_playlist"
+        )
+        if not inserted:
+            return 0
+        channel.updated_at = now
+        await self.session.flush()
         await self.apply_playlist_sort(channel)
-        return created
+        return inserted
 
     async def remove_playlist(self, channel: ChannelModel, playlist_id: int) -> None:
         result = await self.session.execute(

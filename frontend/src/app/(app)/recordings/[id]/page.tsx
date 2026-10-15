@@ -45,6 +45,7 @@ import { Toast } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { usePresignedMediaRefresh } from "@/hooks/use-presigned-media";
+import { useVideoPreviews } from "@/hooks/use-video-previews";
 
 const VideoPlayer = dynamic(
   () => import("@/components/ui/video-player").then((m) => m.VideoPlayer),
@@ -616,8 +617,9 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
   variant: "processed" | "original";
   vttBlobUrl?: string | null;
   markers?: VideoPlayerMarker[];
+  previewVttUrl?: string | null;
   onTimeUpdate?: (currentTime: number) => void;
-}>(function RecordingVideoPlayer({ recordingId, variant, vttBlobUrl, markers, onTimeUpdate }, ref) {
+}>(function RecordingVideoPlayer({ recordingId, variant, vttBlobUrl, markers, previewVttUrl, onTimeUpdate }, ref) {
   const { data: media, dataUpdatedAt, isLoading: loading, isError, error, refetch } = useQuery({
     queryKey: ["recording-media", recordingId, variant],
     queryFn: () => fetchRecordingMediaUrl(recordingId, variant),
@@ -664,6 +666,8 @@ const RecordingVideoPlayer = forwardRef<HTMLVideoElement, {
       onReload={refreshMedia}
       vttBlobUrl={vttBlobUrl}
       markers={markers}
+      previewVttUrl={variant === "processed" ? previewVttUrl : null}
+      previewWithCredentials
       onTimeUpdate={onTimeUpdate}
       className="rounded-none outline-none"
     />
@@ -740,6 +744,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
     },
     staleTime: 10_000,
   });
+  const previews = useVideoPreviews(recording?.videos?.processed?.exists ? `/recordings/${id}` : null);
 
   interface PipelineStatusPayload {
     id: number;
@@ -1169,6 +1174,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
             ? topicTimestamps.map((t) => ({ time: t.start, label: t.topic }))
             : []
         }
+        previewVttUrl={previews?.url}
         onTimeUpdate={handleTimeUpdate}
       />
     </div>
@@ -1304,6 +1310,7 @@ export default function RecordingDetailPage({ params }: { params: Promise<{ id: 
                     <AIContentEditor
                       recordingId={Number(id)}
                       version={activeTopicVersion}
+                      previewFrames={previews?.frames}
                       onUpdated={() => {
                         qc.invalidateQueries({ queryKey: ["recording", id] });
                       }}

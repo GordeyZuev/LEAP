@@ -292,3 +292,67 @@ class TestChannelOwnerApi:
 
         assert "recordings.user_id = channels.user_id" in video_sql
         assert "playlists.user_id = channels.user_id" in playlist_sql
+
+
+@pytest.mark.unit
+class TestChannelMembershipInsert:
+    @pytest.mark.asyncio
+    async def test_add_playlists_skips_concurrent_duplicate(self, client) -> None:
+        from sqlalchemy.dialects import postgresql
+
+        from api.services.channel_service import ChannelService
+
+        assert client.app is not None  # Registers ORM relationships before the insert is compiled.
+
+        playlist = MagicMock()
+        playlist.id = 7
+        found = MagicMock()
+        found.scalars.return_value.all.return_value = [playlist]
+        skipped = MagicMock()
+        skipped.scalars.return_value.all.return_value = []
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[found, skipped])
+        svc = ChannelService(session, "user_123")
+        svc.repo.list_channel_playlists = AsyncMock(return_value=[])
+        svc.repo.playlist_count = AsyncMock(return_value=0)
+        svc.repo.max_playlist_position = AsyncMock(return_value=None)
+        channel = _channel()
+        updated_at = channel.updated_at
+
+        assert await svc.add_playlists(channel, [7, 7, 0]) == 0
+
+        assert channel.updated_at == updated_at
+        session.flush.assert_not_awaited()
+        stmt = session.execute.await_args_list[1].args[0]
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        assert "ON CONFLICT ON CONSTRAINT uq_channel_playlists_channel_playlist DO NOTHING" in sql
+
+    @pytest.mark.asyncio
+    async def test_add_videos_counts_inserted_rows(self, client) -> None:
+        from sqlalchemy.dialects import postgresql
+
+        from api.services.channel_service import ChannelService
+
+        assert client.app is not None
+
+        recording = MagicMock()
+        recording.id = 9
+        found = MagicMock()
+        found.scalars.return_value.all.return_value = [recording]
+        inserted = MagicMock()
+        inserted.scalars.return_value.all.return_value = [1]
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=[found, inserted])
+        svc = ChannelService(session, "user_123")
+        svc.repo.list_videos = AsyncMock(return_value=[])
+        svc.repo.video_count = AsyncMock(return_value=0)
+        svc.repo.max_video_position = AsyncMock(return_value=4)
+        channel = _channel()
+
+        assert await svc.add_videos(channel, [9]) == 1
+
+        session.flush.assert_awaited()
+        stmt = session.execute.await_args_list[1].args[0]
+        sql = str(stmt.compile(dialect=postgresql.dialect()))
+        assert "ON CONFLICT ON CONSTRAINT uq_channel_videos_channel_recording DO NOTHING" in sql
+        assert "recording_id" in sql

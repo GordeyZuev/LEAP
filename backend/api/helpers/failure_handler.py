@@ -186,14 +186,17 @@ def _cascade_skip_dependent_stages(recording: RecordingModel, parent_stage: Proc
 
 async def handle_upload_failure(recording: RecordingModel, platform: str, error: str) -> None:
     """Handle upload failure: mark output as FAILED, recalculate status."""
+    from api.tasks.upload import platform_to_target_type
     from models.recording import TargetStatus
 
+    target_type = platform_to_target_type(platform)
     target_found = False
     for output in recording.outputs:
-        if output.target_type.lower() == platform.lower():
+        if output.target_type == target_type:
             old_status = output.status
             output.status = TargetStatus.FAILED
             output.failed = True
+            output.failed_at = datetime.now(UTC)
             output.failed_reason = error[:1000]
             target_found = True
             logger.error(

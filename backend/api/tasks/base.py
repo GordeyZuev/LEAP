@@ -177,7 +177,7 @@ class ProcessingTask(BaseTask):
             task_name = self.name.split(".")[-1] if self.name else "unknown"
             if task_name == "run_recording":
                 logger.error(f"Pipeline orchestration failed: {exc!r}")
-                asyncio.run(self._clear_on_air_async(recording_id, user_id))
+                asyncio.run(self._clear_on_air_async(recording_id, user_id, expected_task_id=task_id))
                 return
 
             # Determine task type and stage
@@ -239,7 +239,9 @@ class ProcessingTask(BaseTask):
             await repo.update(recording)
             await session.commit()
 
-    async def _clear_on_air_async(self, recording_id: int, user_id: str) -> None:
+    async def _clear_on_air_async(
+        self, recording_id: int, user_id: str, *, expected_task_id: str | None = None
+    ) -> None:
         """Clear on_air and pipeline_task_id without other status changes."""
         from api.dependencies import get_async_session_maker
         from api.repositories.recording_repos import RecordingRepository
@@ -248,6 +250,8 @@ class ProcessingTask(BaseTask):
             repo = RecordingRepository(session)
             recording = await repo.get_by_id(recording_id, user_id)
             if recording:
+                if expected_task_id and recording.pipeline_task_id not in (None, expected_task_id):
+                    return
                 recording.on_air = False
                 recording.pipeline_task_id = None
                 await repo.update(recording)
@@ -259,9 +263,13 @@ class UploadTask(BaseTask):
 
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Handle upload failure: mark output as FAILED, recalculate status."""
+        if self.name != "api.tasks.upload.upload_recording_to_platform":
+            logger.error("Upload batch task failed: {}", exc)
+            return
         recording_id = args[0] if len(args) > 0 else kwargs.get("recording_id", "unknown")
         user_id = args[1] if len(args) > 1 else kwargs.get("user_id", "unknown")
         platform = args[2] if len(args) > 2 else kwargs.get("platform", "unknown")
+        dispatch_task_id = args[6] if len(args) > 6 else kwargs.get("dispatch_task_id")
 
         with logger.contextualize(
             task_id=short_task_id(task_id),
@@ -269,14 +277,23 @@ class UploadTask(BaseTask):
             user_id=short_user_id(user_id),
             platform=platform,
         ):
-            asyncio.run(self._handle_upload_failure_async(recording_id, user_id, platform, exc))
+            asyncio.run(self._handle_upload_failure_async(recording_id, user_id, platform, exc, dispatch_task_id))
             logger.error(f"Upload failed: {exc}")
 
-    async def _handle_upload_failure_async(self, recording_id: int, user_id: str, platform: str, exc: Exception):
+    async def _handle_upload_failure_async(
+        self, recording_id: int, user_id: str, platform: str, exc: Exception, dispatch_task_id: str | None = None
+    ):
         """Mark output target as FAILED and recalculate recording status."""
+        from datetime import UTC, datetime
+
+        from sqlalchemy import select
+
         from api.dependencies import get_async_session_maker
         from api.helpers import failure_handler
         from api.repositories.recording_repos import RecordingRepository
+        from api.tasks.upload import platform_to_target_type
+        from database.models import OutputTargetModel
+        from models.recording import TargetStatus
 
         session_maker = get_async_session_maker()
 
@@ -288,11 +305,28 @@ class UploadTask(BaseTask):
                 logger.warning(f"Recording {recording_id} not found during upload failure handling")
                 return
 
+            target = await session.scalar(
+                select(OutputTargetModel)
+                .where(
+                    OutputTargetModel.recording_id == recording_id,
+                    OutputTargetModel.target_type == platform_to_target_type(platform),
+                )
+                .with_for_update()
+            )
+            if target is not None:
+                await session.refresh(target, with_for_update=True)
+            if target is None or target.status == TargetStatus.UPLOADED:
+                return
+            if dispatch_task_id and target.dispatch_task_id != dispatch_task_id:
+                return
+            if dispatch_task_id and target.dispatch_finished_at is not None:
+                return
+
             error_msg = str(exc)
             await failure_handler.handle_upload_failure(recording, platform, error_msg)
+            if dispatch_task_id:
+                target.dispatch_finished_at = datetime.now(UTC)
 
-            recording.on_air = False
-            recording.pipeline_task_id = None
             await repo.update(recording)
             await session.commit()
 

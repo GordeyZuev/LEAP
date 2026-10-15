@@ -84,6 +84,10 @@ variable "domain" {
   type        = string
   description = "Public site host, used for EMAIL_BASE_URL (https://<domain>)"
 }
+variable "embed_allowed_origins" {
+  type        = string
+  description = "Exact HTTPS parent origins allowed to embed public videos"
+}
 variable "email_smtp_user" {
   type        = string
   sensitive   = true
@@ -316,6 +320,10 @@ resource "yandex_lockbox_secret_version" "v1" {
   entries {
     key        = "EMAIL_BASE_URL"
     text_value = "https://${var.domain}"
+  }
+  entries {
+    key        = "EMBED_ALLOWED_ORIGINS"
+    text_value = var.embed_allowed_origins
   }
   entries {
     key        = "EMAIL_SMTP_USER"

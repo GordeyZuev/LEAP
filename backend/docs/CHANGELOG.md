@@ -1,3 +1,152 @@
+## 2026-10-15: Preview backfill for existing recordings
+
+- **Bulk generation** — `scripts/backfill_recording_previews.py` scans active recordings with processed video, skips previews completed for the current trim revision, and submits missing previews to the existing `previews` queue one at a time. Dry-run is the default. The command is safe to rerun after interruption and reports records that did not finish. No full video pipeline rerun or migration is needed.
+- **Faster preview extraction** — after downloading the processed video, FFprobe checks keyframe spacing. When every keyframe gap stays within half a VTT cue, FFmpeg decodes keyframes only; sparse or unprobeable sources use the original full-decode path. This preserves the existing sprite and VTT layout while avoiding a full video decode for typical lectures.
+- **Public preview correctness** — share and playlist lookups intentionally omit `processing_stages`; their VTT and JPEG routes now compare the saved preview revision with the current video path and TRIM completion directly in one database query. This prevents a completed public preview from being treated as stale and queued again on every visit.
+
+### Files
+
+- `backend/scripts/backfill_recording_previews.py`, `backend/tests/unit/scripts/test_backfill_recording_previews.py`, `backend/api/tasks/processing.py`, `backend/api/services/video_previews.py`, `backend/tests/unit/api/test_video_previews.py`, `backend/docs/guides/VIDEO_DELIVERY.md`
+
+---
+
+## 2026-10-15: Deploy smoke check and dependency restarts
+
+- **Blue-green switch** — the nginx smoke check now accepts HTTP/2's lowercase `x-leap-slot` response header and strips CRLF from the status line. The failed production run had ten `200` API responses but never reached `/login` because its case-sensitive header check rejected each response. Failures now report the path, status, and slot header.
+- **Availability** — the migration and monitoring Compose commands start without dependencies. The failed run had recreated PostgreSQL before migration and Redis while updating monitoring; both retain their named volumes, but the restarts interrupted live services. Migration first checks that the existing PostgreSQL container is ready.
+- **Rollback safety** — a failed deployment invalidates the target as a manual rollback destination. `--rollback` now requires a previously confirmed inactive slot.
+- **CI** — frontend unit tests now run before the production build; deployment tests cover HTTP/2 headers and no-dependency migrations. Manual deploys require a successful push CI run for the same commit. The SSH Actions that receive the VPS key are pinned to commits, and both workflows request read-only repository and Actions access.
+
+### Files
+
+- `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `scripts/deploy-blue-green.sh`, `scripts/tests/test_deploy_blue_green.py`, `backend/docs/guides/DEPLOYMENT.md`
+
+---
+
+## 2026-10-15: Footer news and contact
+
+- **Footer** — one centered line in the app and on public pages: `©`, plain `12+`, version, **News & Updates**, **Contact & Feedback**. Subscribe and the news page itself are unchanged. Documentation stays in the sidebar.
+- **Contact & Feedback** — `/updates/feedback` shows the form, then an **Or write to us directly** button. The address stays in the mail link, not on the page. The shared-player chip above the video is **News & Feedback**.
+
+### Files
+
+- `frontend/src/components/layout/footer.tsx`
+- `frontend/src/components/share/public-share-header.tsx`
+- `frontend/src/app/updates/feedback/page.tsx`
+- `frontend/src/app/updates/page.tsx`, `frontend/src/app/updates/subscription-action.tsx`, `frontend/src/components/product-news/public-page.tsx`
+- `frontend/src/app/share/layout.tsx`, `frontend/src/app/c/[slug]/layout.tsx`
+
+---
+
+## 2026-10-15: Shared link preview image
+
+- **Telegram preview** — public channel (`/c/{slug}`), recording (`/share/{token}`), and playlist (`/share/p/{token}`) links use one fixed 1200×630 PNG served by the site. Title and description stay specific to the page. The temporary channel-banner URL is no longer placed in `og:image`. Chat cards no longer depend on a poster frame.
+- **Absolute image URL** — Next would otherwise publish `og:image` as `http://localhost:3000/...` on this self-hosted app. The image URL now uses the request `Host` and `X-Forwarded-Proto`, so behind nginx it is `https://leap-platform.ru/...`.
+
+### Files
+
+- `frontend/src/app/c/[slug]/opengraph-image.png`, `frontend/src/app/c/[slug]/page.tsx`
+- `frontend/src/app/share/[token]/opengraph-image.png`, `frontend/src/app/share/p/[token]/opengraph-image.png`
+- `frontend/src/app/layout.tsx`, `frontend/src/lib/metadata-base.ts`, `frontend/src/lib/metadata-base.test.ts`
+
+---
+
+## 2026-10-15: YouTube playlist picker and management
+
+- **Creator workflow** — presets, templates, and Run settings now use one credential-scoped picker to search the whole YouTube channel, select playlists, and create or edit title, description, and visibility. The existing `playlist_id` metadata remains unchanged.
+- **API and authorization** — credential routes list, search, read, create, and update playlists. Ownership and active status are checked; YouTube authorization failures use `403` so they cannot trigger LEAP session refresh, missing permissions mark the credential for reconnection, and provider calls/search have bounded timeouts. OAuth stores scopes actually granted by Google, and playlist edits preserve existing language and podcast metadata.
+- **Google Cloud setup** — no YouTube API key is needed. Enable YouTube Data API v3 and configure the existing OAuth web client with `youtube.upload` and `youtube.force-ssl`; server environment values now work as a fallback when the OAuth JSON file is absent or omits the client ID/secret. The OAuth guide documents test-mode expiry and shared quota costs.
+- **Verification** — focused backend route/service tests, frontend TypeScript, ESLint, and production build cover the new flow. No database migration is required.
+
+### Files
+
+- `backend/api/routers/credentials.py`, `backend/api/services/youtube_playlists.py`, `backend/api/schemas/credentials/youtube_playlists.py`, `backend/video_upload_module/platforms/youtube/playlist_manager.py`
+- `backend/video_upload_module/platforms/youtube/token_handler.py`, `backend/api/services/oauth_platforms.py`
+- `backend/tests/unit/api/test_youtube_playlists.py`, `backend/tests/unit/api/test_youtube_playlist_routes.py`, `backend/tests/unit/api/services/test_youtube_oauth_config.py`
+- `frontend/src/api/youtube-playlists.ts`, `frontend/src/components/platforms/youtube-playlist-picker.tsx`, `frontend/src/components/platforms/platform-fields.tsx`
+- `frontend/src/app/(app)/presets/[id]/page.tsx`, `frontend/src/app/(app)/templates/[id]/page.tsx`, `frontend/src/components/recordings/run-config-modal.tsx`
+- `frontend/src/lib/preset-credentials.ts`, `frontend/src/lib/preset-credentials.test.ts`
+- `backend/docs/TECHNICAL.md`, `backend/docs/FAQ.md`, `backend/docs/guides/OAUTH.md`, `backend/docs/guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md`, `backend/docs/UPDATES.md`, `README.md`, `frontend/src/app/(app)/docs/page.tsx`
+
+---
+
+## 2026-10-15: Celery startup and recovery audit
+
+- **Deployment gate** — all four workers and Beat must pass process, Redis, and PostgreSQL healthchecks before the inactive API/frontend pair starts. The worker healthcheck no longer fails solely because queue depth stays unchanged during a long job. A failed worker or Beat startup leaves the existing slot active and makes the deploy job red.
+- **Pipeline recovery** — stale `on_air` cleanup now checks recent recording and stage activity before resetting a pipeline; total elapsed time alone cannot reset later stages of a long chain. It processes at most 500 oldest candidates per run and retries database failures. The orchestrator builds `download → trim → preview dispatch → transcribe → parallel topics/subtitles → optional upload dispatch → finalize`, according to enabled settings; the preview CPU task and platform uploads run independently.
+- **Preview recovery** — Beat checks at most 25 `PREVIEW_MAKER` rows every 15 minutes. It retries `FAILED` after five minutes, `IN_PROGRESS` after 70 minutes, and old `PENDING` when the previews queue is empty. The source revision gets three automatic attempts. Migration 062 adds timestamps, attempt count, and recovery indexes to the table created in 061; it gives existing queued rows a recovery timestamp.
+- **Upload dispatch** — migration 062 saves each automatic or batch upload intent and Celery task ID before publication. Partial publication failure makes the launcher retry and fail visibly after its retry limit. Beat republishes orphaned intents with the same task ID; a consumer checks the output target before uploading. A stale `UPLOADING` result is marked uncertain and needs platform verification before manual retry.
+- **Pipeline** — orchestrator redelivery cannot publish a second chain after its ID is reserved; finalization retries transient failures and is safe to redeliver. Publication after the DB reservation remains an ambiguous boundary that the stale-pipeline runbook must reconcile.
+- **Capacity** — Compose isolates trimming (one prefork process), previews (one), and maintenance (one) from the six-process I/O worker. Queue backlog, VM headroom, and task ages require production measurements before increasing concurrency.
+- **Known limits** — task delivery is at least once. PostgreSQL, Redis, and external video platforms cannot commit a single atomic transaction; an external upload with an unknown result is deliberately held for review to avoid duplicates. A healthy worker process does not prove that queues are draining.
+- **Frontend build** — the production build script uses Next.js webpack mode after Turbopack failed locally while processing Plyr CSS; the same webpack build completed. CI and Docker use the shared `pnpm build` script.
+
+### Files
+
+- `backend/api/celery_app.py`, `backend/api/services/video_previews.py`, `backend/api/services/upload_dispatch.py`, `backend/api/tasks/maintenance.py`, `backend/api/tasks/processing.py`, `backend/api/tasks/upload.py`, `backend/database/models.py`, `backend/alembic/versions/061_preview_maker_stage.py`, `backend/alembic/versions/062_upload_dispatch_intent.py`
+- `backend/scripts/celery_worker_healthcheck.py`, `backend/Makefile`, `docker-compose.yml`, `scripts/deploy-blue-green.sh`
+- `backend/tests/unit/api/test_celery_healthcheck.py`, `backend/tests/unit/api/tasks/test_stale_pipeline_activity.py`, `backend/tests/unit/api/tasks/test_celery_routes.py`, `backend/tests/unit/api/tasks/test_pipeline_chain_shape.py`, `backend/tests/unit/api/tasks/test_upload_dispatch.py`, `backend/tests/unit/api/test_video_previews.py`, `scripts/tests/test_deploy_blue_green.py`
+- `backend/docs/guides/CELERY_WORKERS_GUIDE.md`, `backend/docs/guides/DEPLOYMENT.md`, `backend/docs/guides/VIDEO_DELIVERY.md`, `backend/docs/guides/DEPENDENCY_AUDIT.md`, `README.md`
+
+---
+
+## 2026-10-14: Repeated channel add no longer conflicts
+
+- **Каналы** — галочка курса или видео на канале переключается сразу. Повторный клик, пока запрос ещё идёт, не отправляет второй `POST`. `POST /api/v1/channels/{id}/playlists` и `POST /api/v1/channels/{id}/videos` пропускают id, которые уже на канале, в том числе при одновременных запросах, и отвечают `201`. Поле `added` — число новых строк. Ответ `409` «already on the channel» для этого случая больше не возвращается.
+- **Развёртывание** — миграция не нужна.
+
+### Файлы
+
+- `backend/api/services/channel_service.py`, `backend/api/routers/channels.py`
+- `backend/tests/unit/api/test_channels.py`
+- `frontend/src/components/playlists/channel-picker.tsx`, `frontend/src/components/ui/checklist-picker.tsx`, `frontend/src/app/(app)/channels/[id]/page.tsx`
+- `backend/docs/TECHNICAL.md`, `backend/docs/guides/CHANNELS.md`
+
+---
+
+## v0.11.2.0 (2026-10-12)
+
+Релиз: YouTube-плейлисты можно искать, выбирать, создавать и настраивать из пресета, шаблона или запуска; публичную запись можно встроить на несколько разрешённых сайтов; просмотры iframe и страницы записи учитываются вместе. Кадры превью помогают искать момент на шкале и в главах. Зависимости с известными production-уязвимостями обновлены. Развёртывание API и frontend использует два слота с проверкой перед переключением.
+
+**Развёртывание:** до запуска новых воркеров применить миграции **061** (таблица внутреннего этапа `PREVIEW_MAKER`) и **062** (восстановление превью и сохранение намерений выгрузки). Они добавляют состояние, совместимое со старым API во время blue/green переключения. Задать точные HTTPS origins в Terraform `embed_allowed_origins`, если требуется встраивание с других сайтов; применить конфигурацию и обновить `.env` из Lockbox. Затем собрать и развернуть новые backend/frontend образы. Выделенный `celery_preview_worker` должен пройти healthcheck до запуска кода, публикующего в очередь `previews`; деплой-скрипт соблюдает этот порядок. Старые публичные записи получат превью по запросу. Первый переход на два слота пересоздаёт nginx для нового mount и может кратковременно прервать запросы; дальнейшие переключения проходят через проверку готовности. Подробнее — [VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md), [DEPLOYMENT.md](guides/DEPLOYMENT.md), [DEPENDENCY_AUDIT.md](guides/DEPENDENCY_AUDIT.md).
+
+**YouTube playlists:** no database migration is required. Existing OAuth credentials use the already requested `youtube.force-ssl` scope; if YouTube rejects a saved token, reconnect the credential before using playlist management.
+
+### YouTube playlist picker
+
+- **Selection and search** — YouTube fields in presets, templates, and Run settings use the credential attached to the selected YouTube preset. The picker searches titles/descriptions across all channel pages and pages through unfiltered results. A selected playlist is fetched by ID so its title stays visible even when it is beyond the first page.
+- **Create and edit** — create or update a playlist's title, description, and visibility (`public`, `unlisted`, `private`) without leaving LEAP. The stored `playlist_id` format and upload configuration remain unchanged.
+- **API** — `GET /api/v1/credentials/{credential_id}/youtube/playlists` lists or globally searches; `GET …/playlists/{playlist_id}` reads a selected item; `POST …/playlists` creates; `PATCH …/playlists/{playlist_id}` updates. Every operation checks ownership and active YouTube credential status. Missing scopes or expired authorization return a reconnect message and mark the credential for re-authorization. Text search walks every YouTube page and therefore makes one API list request per page for each search.
+
+### Встраивание и предпросмотр
+
+- **Iframe** — Publications даёт код и предварительный просмотр компактного плеера. Только `/embed/{token}` принимает разрешённые `frame-ancestors`; остальные страницы сохраняют прежнее ограничение. Выключение или смена публичной ссылки закрывает старый iframe. Несколько точных HTTPS origins задаются через `EMBED_ALLOWED_ORIGINS`. На узких iframe список глав ограничен высотой области видео и прокручивается, чтобы рамка его не обрезала.
+- **Просмотры** — iframe отправляет тот же beacon, что и страница записи; в аналитике действует существующее правило повтора через 30 минут. Счётчик не показывает уникальных или одновременно смотрящих людей.
+- **Кадры** — после `TRIM` короткий шаг цепочки ставит отдельную CPU-задачу в очередь `previews`, а транскрибация продолжается. Выделенный worker создаёт JPEG sprites, WebVTT и постер из середины обработанного видео; параллелизм по умолчанию равен одному. Внутренний этап `PREVIEW_MAKER` хранится в отдельной таблице БД, не влияет на готовность записи и не показывается в UI. Длительность VTT определяется по обработанному файлу; постановка после trim и при первом запросе разделяет одну продлеваемую Redis-блокировку, а результат устаревшей обработки не публикуется. Даже короткое видео получает JPEG sprite; ошибка генерации делает отдельную задачу Celery красной, не прерывая транскрибацию. Доступ к VTT/JPEG проверяется по владельцу, действующей ссылке или доступному элементу курса. Отсутствие превью не мешает воспроизведению.
+- **Надёжность очереди** — повторная доставка задачи не запускает второй FFmpeg и не снимает блокировку работающего worker. После ошибки повтор того же источника ограничен пятью минутами; ожидавшая в очереди задача может вернуть свою истёкшую блокировку. Статус этапа хранится только в БД, а публикация из API не блокирует event loop.
+- **Качество кадров и постер** — кадры для наведения на шкалу увеличены до 320 × 180; крупный размытый overlay при перетаскивании шкалы скрыт. Кадры не используются как обложка самого `<video>`: отдельный постер 640 px сейчас показывается в карточках. Запросы на его старую отдельную генерацию дедуплицируются между API-инстансами через Redis.
+- **Доступ к данным** — порты PostgreSQL и Redis доступны с хоста только через `127.0.0.1`; внутренние контейнеры продолжают использовать сеть Compose. Изменение порта применяется при пересоздании контейнеров баз данных.
+- **Главы** — компактный список внутри iframe показывает названия, время и доступные кадры; он прокручивается и поддерживает клавиатуру. Кадры появились также на шкале видео и в списках глав. Разрешение и битрейт исходного воспроизведения не изменены.
+- **Проверка задержек (2026-10-13)** — iframe использует `view=player&embed=true`: API пропускает проверку полного списка артефактов и ссылок на исходные вложения, а также не подписывает исходное видео. Необязательный параметр `embed` игнорируется старым API при откате blue/green. `extracted.json` и манифест вложений читаются одним GET без предварительного HEAD. Постеры каталога загружаются только для запрошенных `item_ids` (не более 25) через выборку с проверкой владельца; related owner подгружается пакетом, отдельного запроса на каждый item нет. На полной публичной странице проверки вложений используют один S3-клиент и ограниченный параллелизм. Браузер может брать cacheable VTT из кеша при загрузке кадров Plyr; ожидание долгой генерации превью продолжается до 65 минут и приостанавливается в скрытой вкладке. Локальные тесты проверяют границы доступа и число запросов; фактические p95 API/Object Storage и время первого кадра нужно измерить после выкладки.
+
+### Зависимости и выкладка
+
+- **Зависимости** — Next.js, Axios и уязвимые production-пакеты backend обновлены в lockfiles. На дату проверки production-аудит frontend и аудит установленного backend-окружения не нашли известных advisory; полный frontend-аудит ещё показывает одну уязвимость в инструментах разработки. Детали и команды повторной проверки — в [DEPENDENCY_AUDIT.md](guides/DEPENDENCY_AUDIT.md).
+- **Два слота** — скрипт выкладки запускает неактивные API/frontend, проверяет готовность, переключает nginx и возвращает прежний слот при неуспешной проверке. Основной worker остаётся общим, превью обслуживает выделенный worker; миграции должны быть совместимы с обоими слотами во время окна отката.
+
+### Files
+
+- `backend/api/routers/recordings.py`, `backend/api/routers/share.py`, `backend/api/services/video_previews.py`, `backend/api/tasks/processing.py`, `backend/api/celery_app.py`, `backend/database/models.py`, `backend/alembic/versions/061_preview_maker_stage.py`
+- `backend/tests/unit/api/test_video_previews.py`, `backend/scripts/generate_recording_previews.py`, `backend/uv.lock`
+- `frontend/src/app/embed/[token]/`, `frontend/src/proxy.ts`, `frontend/src/components/recordings/share-modal.tsx`, `frontend/src/components/ui/video-player.tsx`, `frontend/src/hooks/use-video-previews.ts`
+- `frontend/package.json`, `frontend/pnpm-lock.yaml`, `frontend/pnpm-workspace.yaml`, `frontend/.env.example`, `frontend/.gitignore`
+- `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `Makefile`, `docker-compose.yml`, `nginx/nginx.https.conf`, `nginx/nginx.bootstrap.conf`, `monitoring/prometheus.yml`, `scripts/deploy-blue-green.sh`, `scripts/tests/test_deploy_blue_green.py`, `scripts/vm-init.sh`, `terraform/main.tf`, `terraform/variables.tf`, `terraform/modules/compute/main.tf`, `terraform/modules/secrets/main.tf`
+- `backend/docs/guides/VIDEO_DELIVERY.md`, `backend/docs/guides/DEPLOYMENT.md`, `backend/docs/guides/USAGE_AND_ANALYTICS.md`, `backend/docs/guides/DEPENDENCY_AUDIT.md`, `backend/docs/TECHNICAL.md`, `backend/docs/INDEX.md`
+- `backend/api/routers/credentials.py`, `backend/api/services/youtube_playlists.py`, `backend/api/schemas/credentials/youtube_playlists.py`, `backend/video_upload_module/platforms/youtube/playlist_manager.py`, `backend/tests/unit/api/test_youtube_playlists.py`, `backend/tests/unit/api/test_youtube_playlist_routes.py`, `frontend/src/api/youtube-playlists.ts`, `frontend/src/components/platforms/youtube-playlist-picker.tsx`, `frontend/src/components/platforms/platform-fields.tsx`
+- `backend/.version`, `backend/api/__init__.py`, `backend/config/settings.py`, `backend/pyproject.toml`, `frontend/src/lib/app-version.ts`, `frontend/.env.example`
+
+---
+
 ## v0.11.1.1 (2026-10-06)
 
 Релиз: курс и канал помнят порядок видео; на карточках видны просмотры; срок хранения следует шаблону; Usage считает минуты транскрибации по журналу; удаление сначала скрывает запись. Ошибка тем или субтитров не помечает лекцию Failed и не обрывает ту же обработку. Повторный Run подхватывает упавший этап субтитров. Автоматизация обновляет публичную ссылку Яндекс Диска. На странице просмотра пробел ставит видео на паузу.

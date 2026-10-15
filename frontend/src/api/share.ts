@@ -266,11 +266,15 @@ export async function fetchPublicChannelForMetadata(slug: string): Promise<Publi
 
 export async function getPublicRecording(
   token: string,
-  view: "full" | "player" = "full",
+  view: "full" | "player" | "embed" = "full",
   fromSlug: string | null = null,
 ): Promise<PublicRecordingResponse> {
   const res = await publicClient.get<PublicRecordingResponse>(`/share/${token}`, {
-    params: { ...(view === "player" ? { view: "player" } : {}), ...(fromSlug ? { from: fromSlug } : {}) },
+    params: {
+      ...(view !== "full" ? { view: "player" } : {}),
+      ...(view === "embed" ? { embed: true } : {}),
+      ...(fromSlug ? { from: fromSlug } : {}),
+    },
   });
   return res.data;
 }

@@ -276,6 +276,7 @@ async def _build_public_recording_response(
     include_original: bool,
     navigation_channel: PublicChannelLink | None = None,
     view: ShareViewMode = "full",
+    embed: bool = False,
 ) -> PublicRecordingResponse:
     from api.observability import track_handler_section
     from file_storage.factory import get_storage_backend
@@ -287,9 +288,12 @@ async def _build_public_recording_response(
         user_slug = recording.owner.user_slug
         recording_id = recording.id
         player_mode = view == "player"
+        embed_mode = embed and player_mode
 
         storage = get_storage_backend()
-        available_files = await resolve_share_available_files(recording, user_slug, storage)
+        # The iframe only needs the signed subtitle URL; scanning all files and
+        # signing source attachments delays its first playable frame.
+        available_files = [] if embed_mode else await resolve_share_available_files(recording, user_slug, storage)
 
         from api.helpers.template_renderer import TemplateRenderer, render_jinja
 
@@ -337,7 +341,7 @@ async def _build_public_recording_response(
 
         allow_files_download = bool(getattr(recording, "allow_files_download", True))
         source_extras = None
-        if allow_files_download:
+        if allow_files_download and not embed_mode:
             from api.helpers.source_extras import list_source_extras
 
             source_extras = await list_source_extras(recording)
@@ -544,7 +548,8 @@ async def share_page_engagement(
 async def get_public_recording(
     share_token: uuid.UUID,
     request: Request,
-    view: ShareViewMode = Query("full", description="full metadata or player-focused payload with play_url"),
+    view: ShareViewMode = Query("full", description="full metadata or player payload with play_url"),
+    embed: bool = Query(False, description="omit file inventory and source extras for an embedded player"),
     session: AsyncSession = Depends(get_db_session),
 ) -> PublicRecordingResponse:
     """Return public recording metadata for the share page."""
@@ -553,7 +558,12 @@ async def get_public_recording(
         session, request, owner_user_id=cast("str", recording.user_id), recording_id=recording.id
     )
     return await _build_public_recording_response(
-        recording, session, include_original=True, navigation_channel=channel, view=view
+        recording,
+        session,
+        include_original=not (embed and view == "player"),
+        navigation_channel=channel,
+        view=view,
+        embed=embed,
     )
 
 
@@ -565,6 +575,55 @@ async def get_share_poster(
     """Presigned poster for Open Graph / Telegram. Revoked links 404 like other public share routes."""
     recording = await _get_recording_by_share_token(share_token, session)
     return await _redirect_to_poster(session, cast("str", recording.user_id), [recording])
+
+
+@router.get("/api/v1/share/{share_token}/preview.vtt")
+async def get_share_preview_vtt(
+    share_token: uuid.UUID,
+    session: AsyncSession = Depends(get_db_session),
+) -> Response:
+    """Serve a storyboard, queuing generation for older recordings on first use."""
+    from api.services.video_previews import serve_preview_vtt
+
+    recording = await _get_recording_by_share_token(share_token, session)
+    return await serve_preview_vtt(recording)
+
+
+@router.get("/api/v1/share/{share_token}/preview/{sheet}.jpg")
+async def get_share_preview_sheet(
+    share_token: uuid.UUID,
+    sheet: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> Response:
+    from api.services.video_previews import redirect_preview_sheet
+
+    recording = await _get_recording_by_share_token(share_token, session)
+    return await redirect_preview_sheet(recording, sheet)
+
+
+@router.get("/api/v1/share/p/{share_token}/items/{item_id}/preview.vtt")
+async def get_playlist_item_preview_vtt(
+    share_token: uuid.UUID,
+    item_id: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> Response:
+    from api.services.video_previews import serve_preview_vtt
+
+    _playlist, _item, recording = await _public_playlist_item_or_404(share_token, item_id, session)
+    return await serve_preview_vtt(recording)
+
+
+@router.get("/api/v1/share/p/{share_token}/items/{item_id}/preview/{sheet}.jpg")
+async def get_playlist_item_preview_sheet(
+    share_token: uuid.UUID,
+    item_id: int,
+    sheet: int,
+    session: AsyncSession = Depends(get_db_session),
+) -> Response:
+    from api.services.video_previews import redirect_preview_sheet
+
+    _playlist, _item, recording = await _public_playlist_item_or_404(share_token, item_id, session)
+    return await redirect_preview_sheet(recording, sheet)
 
 
 @router.get("/api/v1/share/{share_token}/media")
@@ -845,18 +904,19 @@ async def get_playlist_share_posters(
     """Resolve poster URLs only for the currently visible public catalog page."""
     from api.services.playlist_service import poster_preview_map
 
-    playlist = await _get_enabled_playlist(share_token, session)
-    requested = set(item_ids)
-    selected = [item for item in playlist.items if item.id in requested and _owned_playlist_recording(playlist, item)]
-    recs = [item.recording for item in selected]
-    looks = await publication_looks_for_recordings(session, playlist.user_id, recs)
-    previews = await poster_preview_map(session, playlist.user_id, recs, looks=looks)
+    repo = PlaylistRepository(session)
+    surface = await repo.get_public_surface_by_share_token(share_token)
+    if surface is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SHARE_NOT_FOUND)
+    playlist_id, owner_user_id = surface
+    selected = await repo.get_public_items_for_posters(playlist_id, owner_user_id, list(set(item_ids)))
+    recs = [recording for _item, recording in selected]
+    looks = await publication_looks_for_recordings(session, owner_user_id, recs)
+    previews = await poster_preview_map(session, owner_user_id, recs, looks=looks)
     return {
-        item.id: PublicPosterResponse(
-            url=previews[item.recording_id].url, asset_key=previews[item.recording_id].asset_key
-        )
-        for item in selected
-        if item.recording_id in previews
+        item.id: PublicPosterResponse(url=previews[recording.id].url, asset_key=previews[recording.id].asset_key)
+        for item, recording in selected
+        if recording.id in previews
     }
 
 

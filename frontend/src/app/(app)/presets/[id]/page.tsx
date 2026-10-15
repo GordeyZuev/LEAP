@@ -398,6 +398,7 @@ export default function PresetEditorPage({ params }: { params: Promise<{ id: str
             <YouTubeFields
               value={meta as YouTubeFieldsValue}
               onChange={patchMeta}
+              credentialId={typeof credId === "number" ? credId : null}
               showThumbnail
               showMadeForKids
               showExtended

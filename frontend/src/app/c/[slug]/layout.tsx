@@ -6,7 +6,7 @@ export default function ChannelPublicLayout({ children }: { children: React.Reac
     <div className="flex min-h-screen flex-col bg-background">
       <PublicShareHeader />
       <div className="flex-1">{children}</div>
-      <Footer variant="public" />
+      <Footer />
     </div>
   );
 }

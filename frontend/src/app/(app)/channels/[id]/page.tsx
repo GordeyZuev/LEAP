@@ -152,6 +152,8 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
   const [addPlaylistsOpen, setAddPlaylistsOpen] = useState(false);
   const [addSearch, setAddSearch] = useState("");
   const [addSelected, setAddSelected] = useState<Set<number>>(new Set());
+  const [addBusy, setAddBusy] = useState(false);
+  const addBusyRef = useRef(false);
   const [disableConfirm, setDisableConfirm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -306,6 +308,27 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
       show("error", extractApiError(e, "Could not update order."));
     } finally {
       endOrder();
+    }
+  }
+
+  async function applyMembership(kind: "videos" | "playlists") {
+    if (addBusyRef.current || addSelected.size === 0) return;
+    addBusyRef.current = true;
+    setAddBusy(true);
+    try {
+      const ids = [...addSelected];
+      if (kind === "videos") await addChannelVideos(channelId, ids);
+      else await addChannelPlaylists(channelId, ids);
+      if (kind === "videos") setAddVideosOpen(false);
+      else setAddPlaylistsOpen(false);
+      setAddSelected(new Set());
+      void qc.invalidateQueries({ queryKey: [kind === "videos" ? "channel-videos" : "channel-playlists", channelId] });
+      void qc.invalidateQueries({ queryKey: ["channel", channelId] });
+    } catch (e) {
+      show("error", extractApiError(e, "Could not add to this channel."));
+    } finally {
+      addBusyRef.current = false;
+      setAddBusy(false);
     }
   }
 
@@ -809,6 +832,7 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                     type="checkbox"
                     className={CHECKBOX}
                     checked={addSelected.has(r.id)}
+                    disabled={addBusy}
                     onChange={(e) => {
                       setAddSelected((prev) => {
                         const next = new Set(prev);
@@ -831,14 +855,9 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
             <ActionButton type="button" variant="secondary" onClick={() => setAddVideosOpen(false)}>Cancel</ActionButton>
             <ActionButton
               disabled={addSelected.size === 0}
-              onClick={() => {
-                void addChannelVideos(channelId, [...addSelected]).then(() => {
-                  setAddVideosOpen(false);
-                  setAddSelected(new Set());
-                  void qc.invalidateQueries({ queryKey: ["channel-videos", channelId] });
-                  void qc.invalidateQueries({ queryKey: ["channel", channelId] });
-                });
-              }}
+              isPending={addBusy}
+              pendingLabel="Adding…"
+              onClick={() => void applyMembership("videos")}
             >
               Apply
             </ActionButton>
@@ -859,6 +878,7 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
                     type="checkbox"
                     className={CHECKBOX}
                     checked={addSelected.has(p.id)}
+                    disabled={addBusy}
                     onChange={(e) => {
                       setAddSelected((prev) => {
                         const next = new Set(prev);
@@ -876,14 +896,9 @@ function ChannelEditor({ params }: { params: Promise<{ id: string }> }) {
             <ActionButton type="button" variant="secondary" onClick={() => setAddPlaylistsOpen(false)}>Cancel</ActionButton>
             <ActionButton
               disabled={addSelected.size === 0}
-              onClick={() => {
-                void addChannelPlaylists(channelId, [...addSelected]).then(() => {
-                  setAddPlaylistsOpen(false);
-                  setAddSelected(new Set());
-                  void qc.invalidateQueries({ queryKey: ["channel-playlists", channelId] });
-                  void qc.invalidateQueries({ queryKey: ["channel", channelId] });
-                });
-              }}
+              isPending={addBusy}
+              pendingLabel="Adding…"
+              onClick={() => void applyMembership("playlists")}
             >
               Apply
             </ActionButton>

@@ -89,6 +89,23 @@ async def test_public_playlist_surface_lookup_requires_enabled_token(client) -> 
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_public_poster_query_is_bounded_and_owner_scoped() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    session = AsyncMock()
+    result = MagicMock()
+    result.all.return_value = []
+    session.execute.return_value = result
+
+    assert await PlaylistRepository(session).get_public_items_for_posters(7, "owner", [11, 12]) == []
+    sql = str(session.execute.await_args.args[0].compile(dialect=postgresql.dialect()))
+    assert "playlist_items.playlist_id =" in sql
+    assert "playlist_items.id IN" in sql
+    assert "recordings.user_id =" in sql
+
+
+@pytest.mark.unit
 class TestPlaylistDescriptionSchema:
     def test_keeps_line_breaks_and_indent(self) -> None:
         body = "Intro\n  indented\nthird"
@@ -592,7 +609,14 @@ class TestShareDownloadFlags:
                 MagicMock(id=12, recording_id=9, recording=second),
             ],
         )
-        mocker.patch("api.routers.share._get_enabled_playlist", new=AsyncMock(return_value=pl))
+        surface = mocker.patch(
+            "api.routers.share.PlaylistRepository.get_public_surface_by_share_token",
+            new=AsyncMock(return_value=(pl.id, pl.user_id)),
+        )
+        selected = mocker.patch(
+            "api.routers.share.PlaylistRepository.get_public_items_for_posters",
+            new=AsyncMock(return_value=[(pl.items[0], first)]),
+        )
         mocker.patch("api.routers.share.publication_looks_for_recordings", new=AsyncMock(return_value={}))
         previews = mocker.patch(
             "api.services.playlist_service.poster_preview_map",
@@ -604,6 +628,8 @@ class TestShareDownloadFlags:
         assert response.status_code == 200
         assert response.json() == {"11": {"url": "https://cdn.example/8.jpg", "asset_key": "8.jpg"}}
         assert [rec.id for rec in previews.await_args.args[2]] == [8]
+        surface.assert_awaited_once_with(pl.share_token)
+        selected.assert_awaited_once_with(pl.id, pl.user_id, [11])
 
     def test_playlist_poster_uses_first_item(self, client, mocker) -> None:
         rec = create_mock_recording(record_id=9)

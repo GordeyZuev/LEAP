@@ -13,7 +13,7 @@ scrape_configs:
   - job_name: leap-api
     metrics_path: /metrics
     static_configs:
-      - targets: ["api:8000"]
+      - targets: ["nginx:8080"]
         labels:
           service: api
 

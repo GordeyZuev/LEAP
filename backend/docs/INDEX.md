@@ -44,7 +44,7 @@ Root product overview: repository [`README.md`](../../README.md).
 - [guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md](guides/TEMPLATES_PRESETS_SOURCES_GUIDE.md)
 - [guides/TEMPLATE_JSON.md](guides/TEMPLATE_JSON.md) – export/import JSON bundles, PUT full replace
 - [guides/JINJA_METADATA_TEMPLATES.md](guides/JINJA_METADATA_TEMPLATES.md) – Jinja variables, Timestamps vs `topics_display`, preview API
-- [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) – browser playback, presigned URLs, MP4 faststart
+- [guides/VIDEO_DELIVERY.md](guides/VIDEO_DELIVERY.md) – browser playback, iframe embedding, seek previews, presigned URLs, MP4 faststart
 - [guides/FRONTEND_UI.md](guides/FRONTEND_UI.md) – motion, `.pressable`, reduced-motion
 
 ---
@@ -54,6 +54,7 @@ Root product overview: repository [`README.md`](../../README.md).
 - [guides/DEPLOYMENT.md](guides/DEPLOYMENT.md)
 - [guides/OAUTH.md](guides/OAUTH.md)
 - [guides/CREDENTIAL_SECURITY.md](guides/CREDENTIAL_SECURITY.md)
+- [guides/DEPENDENCY_AUDIT.md](guides/DEPENDENCY_AUDIT.md) – dated dependency scan and remaining findings
 - [guides/SESSIONS.md](guides/SESSIONS.md)
 - [guides/QUOTAS.md](guides/QUOTAS.md)
 - [guides/QUOTA_AND_ADMIN_API.md](guides/QUOTA_AND_ADMIN_API.md)
@@ -121,7 +122,7 @@ ASR in production is **AssemblyAI**. Notes about Fireworks Batch API are histori
 ## Developer conventions
 
 - From `backend/`: **`make lint`**, **`make typecheck`**, **`make test`** (or **`make tests-mock`**); **`uv run …`** for one-off commands.
-- In **`CHANGELOG.md`**, paths in **Files** blocks are relative to **`backend/`**.
+- In **`CHANGELOG.md`**, paths in **Files** blocks are relative to the repository root.
 
 ---
 

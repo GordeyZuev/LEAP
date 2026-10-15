@@ -125,7 +125,7 @@ export function ShareAnalyticsPanel({
           <p className="mt-0.5 text-xs text-muted-foreground">
             {resolved?.kind === "channel" || resolved?.kind === "playlist"
               ? "Opens of this page, plus views and downloads of lectures in the current set"
-              : "Anonymous views and file downloads"}
+              : "Views from LEAP and embedded players, plus file downloads. Views are not unique people."}
           </p>
         </div>
       )}

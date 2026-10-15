@@ -10,6 +10,7 @@ import { PlaylistPicker } from "@/components/playlists/playlist-picker";
 import { ChannelPicker } from "@/components/playlists/channel-picker";
 import { ThumbnailPicker } from "@/components/platforms/thumbnail-picker";
 import { YandexFolderPicker } from "@/components/platforms/yandex-folder-picker";
+import { YouTubePlaylistPicker } from "@/components/platforms/youtube-playlist-picker";
 import { Field } from "@/components/ui/field";
 import { Toggle } from "@/components/ui/toggle";
 import { AboutFormatting } from "@/components/ui/about-formatting";
@@ -521,6 +522,7 @@ const YT_LICENSE_OPTIONS = [
 export function YouTubeFields({
   value,
   onChange,
+  credentialId = null,
   showThumbnail = false,
   showMadeForKids = false,
   showExtended = false,
@@ -528,6 +530,7 @@ export function YouTubeFields({
 }: {
   value: YouTubeFieldsValue;
   onChange: (patch: Partial<YouTubeFieldsValue>) => void;
+  credentialId?: number | null;
   showThumbnail?: boolean;
   showMadeForKids?: boolean;
   showExtended?: boolean;
@@ -572,16 +575,11 @@ export function YouTubeFields({
           />
         </div>
       </div>
-      <div className="space-y-1">
-        <span className={FILTER_LABEL}>Playlist ID</span>
-        <input
-          type="text"
-          value={value.playlist_id}
-          onChange={(e) => onChange({ playlist_id: e.target.value })}
-          placeholder="PLxxxxxxxxxxxxxxxx"
-          className={FILTER_CONTROL}
-        />
-      </div>
+      <YouTubePlaylistPicker
+        credentialId={credentialId}
+        value={value.playlist_id}
+        onChange={(playlist_id) => onChange({ playlist_id })}
+      />
       {showThumbnail && (
         <ThumbnailPicker
           value={value.thumbnail_name}

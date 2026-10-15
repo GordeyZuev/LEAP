@@ -24,6 +24,8 @@ interface VideoPlayerProps {
   resumeKey?: string;
   vttBlobUrl?: string | null;
   markers?: VideoPlayerMarker[];
+  previewVttUrl?: string | null;
+  previewWithCredentials?: boolean;
   onTimeUpdate?: (currentTime: number) => void;
   /** Fired once when playback reaches the end. */
   onEnded?: () => void;
@@ -162,7 +164,7 @@ const PlyrMount = memo(function PlyrMount({
 
 export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
   function VideoPlayer(
-    { src, resumeKey, vttBlobUrl, markers, onTimeUpdate, onEnded, onMarkerSeek, onReload,
+    { src, resumeKey, vttBlobUrl, markers, previewVttUrl, previewWithCredentials = false, onTimeUpdate, onEnded, onMarkerSeek, onReload,
       autoPlayRequested, onAutoPlayAttempt, overlay, className },
     forwardedRef,
   ) {
@@ -586,6 +588,14 @@ export const VideoPlayer = forwardRef<HTMLVideoElement, VideoPlayerProps>(
       el?.addEventListener("loadedmetadata", apply);
       return () => el?.removeEventListener("loadedmetadata", apply);
     }, [markersKey, ready]);
+
+    useEffect(() => {
+      const player = playerRef.current;
+      if (!player || !ready) return;
+      player.setPreviewThumbnails(previewVttUrl
+        ? { enabled: true, src: previewVttUrl, withCredentials: previewWithCredentials }
+        : { enabled: false, src: "", withCredentials: false });
+    }, [previewVttUrl, previewWithCredentials, ready]);
 
     useEffect(() => {
       const el = localRef.current;

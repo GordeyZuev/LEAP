@@ -26,7 +26,6 @@ export async function generateMetadata({
       title: channel.name,
       description,
       siteName: "LEAP",
-      images: channel.banner_url ? [{ url: channel.banner_url }] : undefined,
     },
   };
 }

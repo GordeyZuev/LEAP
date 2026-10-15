@@ -81,7 +81,7 @@ export function SubscriptionActionPage({ action }: { action: "confirm" | "unsubs
           <ActionContent action={action} />
         </Suspense>
       </main>
-      <Footer variant="public" />
+      <Footer />
     </div>
   );
 }
@@ -156,7 +156,7 @@ export function SubscriptionPreferencesPage() {
         <Link href="/updates" className="flex items-center gap-2 text-sm font-semibold tracking-wider text-primary"><Image src="/logo_symb.svg" alt="" width={24} height={24} /> LEAP</Link><PublicThemeButton />
       </div></header>
       <main className="flex flex-1 items-center justify-center px-5 py-10"><Suspense fallback={<p role="status" className="text-sm text-muted-foreground">Loading…</p>}><PreferencesContent /></Suspense></main>
-      <Footer variant="public" />
+      <Footer />
     </div>
   );
 }

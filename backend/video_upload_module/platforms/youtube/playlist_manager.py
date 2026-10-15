@@ -33,16 +33,7 @@ class YouTubePlaylistManager:
     async def create_playlist(self, title: str, description: str = "", privacy_status: str = "unlisted") -> str | None:
         """Create playlist."""
         try:
-            body = {
-                "snippet": {"title": title, "description": description},
-                "status": {"privacyStatus": privacy_status},
-            }
-
-            request = self.service.playlists().insert(part="snippet,status", body=body)
-
-            loop = asyncio.get_event_loop()
-            response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
-
+            response = await self.create_playlist_record(title, description, privacy_status)
             playlist_id = response["id"]
             playlist_url = f"https://www.youtube.com/playlist?list={playlist_id}"
 
@@ -58,6 +49,82 @@ class YouTubePlaylistManager:
         except HttpError as e:
             logger.error(f"Playlist creation error: {e}")
             return None
+
+    @requires_valid_token(max_retries=1)
+    async def list_playlists(self, *, page_token: str | None = None) -> dict[str, Any]:
+        """List the authenticated channel's playlists, preserving YouTube pagination."""
+        request = self.service.playlists().list(
+            part="snippet,contentDetails,status",
+            mine=True,
+            maxResults=50,
+            pageToken=page_token,
+        )
+        loop = asyncio.get_running_loop()
+        return await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
+
+    @requires_valid_token(max_retries=1)
+    async def get_playlist_record(self, playlist_id: str) -> dict[str, Any] | None:
+        """Get one playlist resource from the authenticated channel."""
+        request = self.service.playlists().list(
+            part="snippet,contentDetails,status",
+            id=playlist_id,
+            maxResults=1,
+        )
+        loop = asyncio.get_running_loop()
+        response = await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
+        items = response.get("items") or []
+        return items[0] if items else None
+
+    @requires_valid_token(max_retries=1)
+    async def create_playlist_record(
+        self, title: str, description: str = "", privacy_status: str = "unlisted"
+    ) -> dict[str, Any]:
+        """Create a playlist and return the provider response."""
+        body = {
+            "snippet": {"title": title, "description": description},
+            "status": {"privacyStatus": privacy_status},
+        }
+        request = self.service.playlists().insert(part="snippet,status", body=body)
+        loop = asyncio.get_running_loop()
+        return await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
+
+    @requires_valid_token(max_retries=1)
+    async def update_playlist_record(
+        self,
+        playlist_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        privacy_status: str | None = None,
+    ) -> dict[str, Any]:
+        """Update playlist fields and return the updated YouTube resource."""
+        current_request = self.service.playlists().list(
+            part="snippet,status",
+            id=playlist_id,
+            maxResults=1,
+        )
+        loop = asyncio.get_running_loop()
+        current_response = await asyncio.wait_for(loop.run_in_executor(None, current_request.execute), timeout=30.0)
+        items = current_response.get("items") or []
+        if not items:
+            raise ValueError("YouTube playlist not found")
+        current = items[0]
+        snippet = current.get("snippet") or {}
+        current_status = current.get("status") or {}
+        body: dict[str, Any] = {
+            "id": playlist_id,
+            "snippet": {
+                "title": title if title is not None else snippet.get("title", ""),
+                "description": description if description is not None else snippet.get("description", ""),
+            },
+            "status": {"privacyStatus": privacy_status or current_status.get("privacyStatus", "private")},
+        }
+        if "defaultLanguage" in snippet:
+            body["snippet"]["defaultLanguage"] = snippet["defaultLanguage"]
+        if "podcastStatus" in current_status:
+            body["status"]["podcastStatus"] = current_status["podcastStatus"]
+        request = self.service.playlists().update(part="snippet,status", body=body)
+        return await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
 
     @requires_valid_token(max_retries=1)
     async def add_video_to_playlist(self, playlist_id: str, video_id: str) -> bool:
@@ -179,29 +246,35 @@ class YouTubePlaylistManager:
             logger.error(f"Error getting playlist videos: {e}")
             return []
 
-    async def update_playlist(self, playlist_id: str, title: str | None = None, description: str | None = None) -> bool:
+    async def update_playlist(
+        self,
+        playlist_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        privacy_status: str | None = None,
+    ) -> bool:
         """Update playlist."""
         try:
-            body = {"id": playlist_id, "snippet": {}}
-
-            if title:
-                body["snippet"]["title"] = title
-            if description:
-                body["snippet"]["description"] = description
-
-            request = self.service.playlists().update(part="snippet", body=body)
-
-            loop = asyncio.get_event_loop()
-            await asyncio.wait_for(loop.run_in_executor(None, request.execute), timeout=30.0)
-
+            await self.update_playlist_record(
+                playlist_id,
+                title=title,
+                description=description,
+                privacy_status=privacy_status,
+            )
             logger.info(f"Playlist updated: {playlist_id}")
             return True
 
         except TimeoutError:
             logger.error(f"Timeout updating playlist {playlist_id}")
             return False
+        except TokenRefreshError as e:
+            logger.error(f"Token error updating playlist {playlist_id}: {e}")
+            return False
         except HttpError as e:
             logger.error(f"Playlist update error: {e}")
+            return False
+        except ValueError as e:
+            logger.error(f"Playlist update failed: {e}")
             return False
 
     async def delete_playlist(self, playlist_id: str) -> bool:

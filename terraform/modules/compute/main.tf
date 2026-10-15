@@ -71,10 +71,10 @@ resource "yandex_vpc_network" "main" {
 
 resource "yandex_vpc_subnet" "main" {
   folder_id      = var.folder_id
-  name           = "${var.project_prefix}-subnet"
+  name           = "${var.project_prefix}-subnet-d"
   zone           = var.zone
   network_id     = yandex_vpc_network.main.id
-  v4_cidr_blocks = ["10.10.0.0/24"]
+  v4_cidr_blocks = ["10.10.1.0/24"]
 }
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ data "yandex_compute_image" "boot" {
 # ---------------------------------------------------------------------------
 resource "yandex_vpc_address" "main" {
   folder_id = var.folder_id
-  name      = "${var.project_prefix}-prod-ip"
+  name      = "${var.project_prefix}-prod-ip-d"
 
   external_ipv4_address {
     zone_id = var.zone
@@ -143,7 +143,7 @@ resource "yandex_vpc_address" "main" {
 # ---------------------------------------------------------------------------
 resource "yandex_compute_disk" "data" {
   folder_id = var.folder_id
-  name      = "${var.project_prefix}-prod-data"
+  name      = "${var.project_prefix}-prod-data-d"
   zone      = var.zone
   type      = "network-ssd"
   # Start at 50GB; Yandex supports online grow without downtime —
@@ -161,7 +161,7 @@ resource "yandex_compute_disk" "data" {
 # ---------------------------------------------------------------------------
 resource "yandex_compute_instance" "vm" {
   folder_id   = var.folder_id
-  name        = "${var.project_prefix}-prod-01"
+  name        = "${var.project_prefix}-prod-02"
   zone        = var.zone
   platform_id = var.platform_id
 

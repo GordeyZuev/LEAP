@@ -34,6 +34,8 @@ GET        /api/v1/c/{slug}
 POST       /api/v1/c/{slug}/beacon
 ```
 
+`POST …/videos` and `POST …/playlists` skip ids already on the channel, including a concurrent duplicate. The response stays `201`; `added` is the number of new rows.
+
 Owner `GET /channels/{id}` is metadata plus counts. Tab membership is `GET …/videos` and `GET …/playlists`. Description Jinja: `video_count`, `playlist_count`, `duration_hm`, `items`, `playlists` (see [JINJA_METADATA_TEMPLATES.md](JINJA_METADATA_TEMPLATES.md)). Description source is at most **4000** characters. The public page shows **four lines** with a light fade, then **Show more**. List view includes a two-line **blurb**: video `main_topics` from the recording row, playlist description (Jinja rendered with counts, not the full `{{ items }}` list). Viewers can search (title and blurb), sort (channel order / date / name / duration), and switch grid or list (`?q=` `?sort=` `?view=`). Banner upload is `multipart/form-data` field `file`.
 
 Owner UI: **Content** / **Settings** / **Analytics** (`?tab=`). Compact analytics plaque with **View analytics**. Playlist rows can copy `/share/p/{token}` when the course is shared. `/channels/{id}/analytics` redirects to `?tab=analytics`. Public `/c/{slug}` uses the same header as share watch (LEAP, 12+, Copy link). The banner is the full uploaded image below the `lg` breakpoint (no crop) and a `6:1` cover strip on large screens.

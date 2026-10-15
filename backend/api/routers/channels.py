@@ -287,9 +287,9 @@ async def add_channel_videos(
 ):
     svc = ChannelService(ctx.session, ctx.user_id)
     channel = await svc.get_owned(channel_id)
-    created = await svc.add_videos(channel, data.ids)
+    added = await svc.add_videos(channel, data.ids)
     await ctx.session.commit()
-    return {"added": len(created)}
+    return {"added": added}
 
 
 @router.delete("/api/v1/channels/{channel_id}/videos/{recording_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -382,9 +382,9 @@ async def add_channel_playlists(
 ):
     svc = ChannelService(ctx.session, ctx.user_id)
     channel = await svc.get_owned(channel_id)
-    created = await svc.add_playlists(channel, data.ids)
+    added = await svc.add_playlists(channel, data.ids)
     await ctx.session.commit()
-    return {"added": len(created)}
+    return {"added": added}
 
 
 @router.delete("/api/v1/channels/{channel_id}/playlists/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT)

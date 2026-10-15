@@ -75,6 +75,7 @@ import {
   leapPresetMetadataFromApi,
 } from "@/components/platforms/leap-config-section";
 import { usePresetDetails } from "@/hooks/use-preset-details";
+import { firstCredentialForPlatform } from "@/lib/preset-credentials";
 import { OutputSettingsFields } from "@/components/platforms/output-settings-fields";
 import { TemplateJsonModal } from "@/components/templates/template-json-modal";
 import { downloadBundle, formatReplaceEditorJson, slugifyFilename, type TemplateBundle } from "@/lib/template-bundle";
@@ -221,15 +222,8 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
   const [globalThumbnail, setGlobalThumbnail] = useState("");
   const presetDetails = usePresetDetails(form.output_config.preset_ids);
 
-  const yandexBrowseCredentialId = useMemo(() => {
-    for (const pid of form.output_config.preset_ids) {
-      const preset = presetDetails[pid];
-      if (preset?.platform === "yandex_disk" && preset.credential_id) {
-        return preset.credential_id;
-      }
-    }
-    return "" as const;
-  }, [form.output_config.preset_ids, presetDetails]);
+  const yandexBrowseCredentialId = firstCredentialForPlatform(form.output_config.preset_ids, presetDetails, "yandex_disk") ?? "";
+  const youtubeBrowseCredentialId = firstCredentialForPlatform(form.output_config.preset_ids, presetDetails, "youtube");
 
   const [savedSnapshot, setSavedSnapshot] = useState(() =>
     JSON.stringify({
@@ -1043,6 +1037,7 @@ export default function TemplateEditorPage({ params }: { params: Promise<{ id: s
               <YouTubeFields
                 value={ytFields}
                 onChange={(patch) => setYtFields((f) => ({ ...f, ...patch }))}
+                credentialId={youtubeBrowseCredentialId}
                 showThumbnail
                 showMadeForKids
                 showExtended

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from googleapiclient.errors import HttpError
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,9 +30,23 @@ from api.schemas.credentials import (
     YouTubeCredentialsManual,
     ZoomCredentialsManual,
 )
+from api.schemas.credentials.youtube_playlists import (
+    YouTubePlaylist,
+    YouTubePlaylistCreateRequest,
+    YouTubePlaylistListResponse,
+    YouTubePlaylistUpdateRequest,
+)
 from api.services.quota_service import QuotaService
 from api.services.yandex_disk_credentials import get_yandex_disk_client_for_credential
+from api.services.youtube_playlists import (
+    _playlist,
+    get_playlist,
+    get_playlist_manager,
+    list_playlists,
+    map_youtube_playlist_error,
+)
 from logger import format_details, get_logger
+from video_upload_module.platforms.youtube.token_handler import TokenRefreshError
 from yandex_disk_module.client import YandexDiskError
 from yandex_disk_module.paths import normalize_disk_path
 
@@ -251,6 +266,88 @@ async def browse_yandex_disk(
         offset=offset,
         limit=limit,
     )
+
+
+@router.get("/{credential_id}/youtube/playlists", response_model=YouTubePlaylistListResponse)
+async def browse_youtube_playlists(
+    credential_id: int,
+    q: str | None = Query(None, max_length=100, description="Search playlist titles and descriptions"),
+    page_token: str | None = Query(None, max_length=512),
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """List YouTube playlists; search scans all playlist pages on the channel."""
+    manager = await get_playlist_manager(credential_id, current_user.id, session)
+    try:
+        return await list_playlists(manager, q, page_token)
+    except (HttpError, TokenRefreshError, TimeoutError) as exc:
+        raise await map_youtube_playlist_error(exc, credential_id, current_user.id, session) from exc
+
+
+@router.post(
+    "/{credential_id}/youtube/playlists",
+    response_model=YouTubePlaylist,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_youtube_playlist(
+    credential_id: int,
+    data: YouTubePlaylistCreateRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Create a playlist on the credential's YouTube channel."""
+    manager = await get_playlist_manager(credential_id, current_user.id, session)
+    try:
+        return _playlist(await manager.create_playlist_record(data.title, data.description, data.privacy_status))
+    except (HttpError, TokenRefreshError, TimeoutError) as exc:
+        raise await map_youtube_playlist_error(exc, credential_id, current_user.id, session) from exc
+
+
+@router.get(
+    "/{credential_id}/youtube/playlists/{playlist_id}",
+    response_model=YouTubePlaylist,
+)
+async def get_youtube_playlist(
+    credential_id: int,
+    playlist_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get a playlist on the credential's YouTube channel."""
+    manager = await get_playlist_manager(credential_id, current_user.id, session)
+    try:
+        return await get_playlist(manager, playlist_id)
+    except (HttpError, TokenRefreshError, TimeoutError) as exc:
+        raise await map_youtube_playlist_error(exc, credential_id, current_user.id, session) from exc
+
+
+@router.patch(
+    "/{credential_id}/youtube/playlists/{playlist_id}",
+    response_model=YouTubePlaylist,
+)
+async def update_youtube_playlist(
+    credential_id: int,
+    playlist_id: str,
+    data: YouTubePlaylistUpdateRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Update playlist metadata on the credential's YouTube channel."""
+    if data.title is None and data.description is None and data.privacy_status is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="At least one field is required")
+    manager = await get_playlist_manager(credential_id, current_user.id, session)
+    try:
+        updated = await manager.update_playlist_record(
+            playlist_id,
+            title=data.title,
+            description=data.description,
+            privacy_status=data.privacy_status,
+        )
+        return _playlist(updated)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (HttpError, TokenRefreshError, TimeoutError) as exc:
+        raise await map_youtube_playlist_error(exc, credential_id, current_user.id, session) from exc
 
 
 def _validate_credentials(platform: str, credentials: dict[str, Any]) -> None:

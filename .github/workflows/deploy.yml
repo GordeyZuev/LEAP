@@ -1,5 +1,9 @@
 name: Deploy
 
+permissions:
+  contents: read
+  actions: read
+
 on:
   workflow_run:
     workflows: [CI]
@@ -19,7 +23,7 @@ concurrency:
 #   YC_SA_JSON_CREDENTIALS  — service account auth key JSON (full file, base64 not required)
 #                              IAM role: container-registry.images.pusher
 #   YC_REGISTRY_ID          — e.g. crp1234567890abcdef
-#   VPS_HOST                — public IP/DNS of the YC Compute VM
+#   VPS_HOST                — public IP/DNS of the Selectel production VM
 #   VPS_USER                — SSH user (e.g. ubuntu)
 #   VPS_SSH_KEY             — SSH private key for the VPS_USER
 #   VPS_DEPLOY_PATH         — absolute path on VPS where the repo is checked out
@@ -39,6 +43,17 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.DEPLOY_SHA }}
+
+      - name: Verify CI for manual deployment
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh run list --workflow CI --commit "$DEPLOY_SHA" --event push --status success --limit 1 --json databaseId --jq 'length')
+          if [ "$passed" -ne 1 ]; then
+            echo "No successful push CI run for $DEPLOY_SHA; refusing manual deployment" >&2
+            exit 1
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -124,20 +139,22 @@ jobs:
       # the version that built the images.
       - name: Sync deploy artifacts to VPS
         if: steps.current.outputs.deploy == 'true'
-        uses: easingthemes/ssh-deploy@main
+        # Pin the action that receives the VPS SSH key (main as of 2026-10-15).
+        uses: easingthemes/ssh-deploy@2cc5b27bf3029d0455dd5e09fe02633904031447
         env:
           SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
           # Excludes runtime artifacts owned by vm-init.sh / refresh-env.sh —
           # rsync --delete would wipe them and break nginx, OAuth, certbot.
-          ARGS: "-rlgoDzvc -i --delete --exclude=.git --exclude=__pycache__ --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
+          ARGS: "-rlgoDzvc -i --delete --exclude=.git --exclude=__pycache__ --exclude=.env --exclude=.env.static --exclude=refresh-env.sh --exclude=storage --exclude=logs --exclude=node_modules --exclude=.next --exclude=.venv --exclude=nginx/nginx.conf --exclude=nginx/active --exclude=nginx/htpasswd --exclude=certbot --exclude=letsencrypt --exclude=backend/config/oauth_*.json --exclude=backend/config/*_creds.json"
           SOURCE: "./"
           REMOTE_HOST: ${{ secrets.VPS_HOST }}
           REMOTE_USER: ${{ secrets.VPS_USER }}
           TARGET: ${{ secrets.VPS_DEPLOY_PATH }}
 
-      - name: Restart stack on VPS
+      - name: Deploy inactive slot on VPS
         if: steps.current.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@v1
+        # Pin the action that executes the remote deployment (v1 as of 2026-10-15).
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -145,6 +162,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: GITHUB_TOKEN
+          command_timeout: 30m
           script: |
             set -euo pipefail
             cd ${{ secrets.VPS_DEPLOY_PATH }}
@@ -156,47 +174,4 @@ jobs:
             auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w 0)
             git -c "http.extraheader=AUTHORIZATION: basic ${auth}" fetch --quiet origin main
             git reset --hard ${{ env.DEPLOY_SHA }}
-            yc container registry configure-docker
-            if [ -x /opt/leap/refresh-env.sh ]; then
-              /opt/leap/refresh-env.sh
-            fi
-            export IMAGE_TAG=${{ env.DEPLOY_SHA }}
-            docker compose pull api celery_worker celery_beat flower frontend
-            # Run migrations synchronously BEFORE recreating app containers.
-            # `--no-deps` below defeats depends_on, so migrations must be run
-            # explicitly. `run --rm` waits for completion and bubbles the
-            # exit code — if migrations fail, the deploy fails here before
-            # the new code ever sees traffic.
-            docker compose run --rm migrate
-            # New API versions can publish task names unknown to an old worker.
-            # Wait for the new worker's healthcheck before exposing the API.
-            docker compose up --wait --wait-timeout 300 --no-deps celery_worker
-            docker compose up -d --no-deps celery_beat flower
-            docker compose up --wait --wait-timeout 180 --no-deps api
-            docker compose up -d --no-deps frontend
-            # --force-recreate so bind-mounted config files (prometheus.yml,
-            # promtail.yml, grafana_datasources.yml, dashboards/*.json, nginx
-            # conf + htpasswd) re-load. `up -d` alone only detects YAML-spec
-            # drift, not file-content drift. Loki excluded — it owns ingestion
-            # state and its config is stable.
-            docker compose up -d loki
-            docker compose up -d --force-recreate prometheus celery_exporter promtail grafana
-            # nginx.conf is an ignored runtime file, excluded from rsync.
-            # Refresh it from the tracked template before recreating nginx.
-            # Certbot stores the cert under live/<domain>. live/leap is only a
-            # symlink. A plain [ -L ] is false when that symlink is missing or
-            # hidden from ubuntu, and the HTTP-only bootstrap config then
-            # drops port 443.
-            if ! sudo test -f /etc/letsencrypt/live/leap/fullchain.pem; then
-              domain_cert=$(sudo find /etc/letsencrypt/live -mindepth 2 -maxdepth 2 -name fullchain.pem -print -quit || true)
-              if [ -n "$domain_cert" ]; then
-                sudo ln -sfn "$(dirname "$domain_cert")" /etc/letsencrypt/live/leap
-              fi
-            fi
-            if sudo test -f /etc/letsencrypt/live/leap/fullchain.pem; then
-              sudo cp nginx/nginx.https.conf nginx/nginx.conf
-            else
-              sudo cp nginx/nginx.bootstrap.conf nginx/nginx.conf
-            fi
-            docker compose up -d --no-deps --force-recreate nginx
-            docker compose ps
+            bash scripts/deploy-blue-green.sh ${{ env.DEPLOY_SHA }}

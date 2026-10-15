@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Check, ExternalLink, Link as LinkIcon } from "lucide-react";
+import { Check, Code2, ExternalLink, Link as LinkIcon } from "lucide-react";
 
 import { disableShareLink, enableShareLink, rotateShareLink } from "@/api/share";
 import { apiClient } from "@/api/client";
@@ -50,6 +50,7 @@ export function ShareModal({
   const [enabled, setEnabled] = useState(initialEnabled);
   const [isEnabling, setIsEnabling] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+  const [isEmbedCopied, setIsEmbedCopied] = useState(false);
   const [rotateConfirm, setRotateConfirm] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const [sourceSnapshot, setSourceSnapshot] = useState({
@@ -67,7 +68,8 @@ export function ShareModal({
     setEnabled(initialEnabled);
   }
 
-  const shareUrl = token ? `${window.location.origin}/share/${token}` : null;
+  const shareUrl = token ? `/share/${token}` : null;
+  const embedUrl = token ? `/embed/${token}` : null;
   const active = enabled && !!token;
   const showAnalytics =
     Boolean(token) ||
@@ -99,7 +101,7 @@ export function ShareModal({
   const handleCopy = useCallback(async () => {
     if (!shareUrl) return;
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(`${window.location.origin}${shareUrl}`);
       setIsCopied(true);
       onToast("Link copied to clipboard", "success");
       setTimeout(() => setIsCopied(false), 2000);
@@ -107,6 +109,19 @@ export function ShareModal({
       onToast("Failed to copy", "error");
     }
   }, [shareUrl, onToast]);
+
+  const handleCopyEmbed = useCallback(async () => {
+    if (!embedUrl) return;
+    const code = `<iframe src="${window.location.origin}${embedUrl}" title="LEAP video" width="560" height="350" style="border:0;max-width:100%" loading="lazy" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>`;
+    try {
+      await navigator.clipboard.writeText(code);
+      setIsEmbedCopied(true);
+      onToast("Embed code copied", "success");
+      setTimeout(() => setIsEmbedCopied(false), 2000);
+    } catch {
+      onToast("Failed to copy embed code", "error");
+    }
+  }, [embedUrl, onToast]);
 
   const handleDisable = useCallback(async () => {
     try {
@@ -143,7 +158,7 @@ export function ShareModal({
         <InsetScroll className="max-h-[min(calc(100dvh-2rem),44rem)] p-6">
           <h2 className="mb-1 text-sm font-semibold text-foreground">Share recording</h2>
           <p className="mb-4 text-xs text-muted-foreground">
-            Anyone with the link can view the video, chapters, and download files.
+            Anyone with the link can watch the video and browse chapters. Downloads follow the settings below.
           </p>
 
           <div className="rounded-xl border border-border px-3 py-3">
@@ -172,10 +187,10 @@ export function ShareModal({
                       {isCopied ? (
                         <>
                           <Check size={10} aria-hidden />
-                          Copied
+                          Link copied
                         </>
                       ) : (
-                        "Copy"
+                        "Copy link"
                       )}
                     </button>
                     <a href={shareUrl} target="_blank" rel="noopener noreferrer" className={ACCESS_LINK}>
@@ -195,11 +210,30 @@ export function ShareModal({
             )}
             <p className="mt-3 text-xs leading-snug text-muted-foreground">
               {active
-                ? "Students watch this recording here. Disable keeps the same URL."
+                ? "People with the link can watch this recording. Disabling keeps the same URL."
                 : token
                   ? "Enabling again uses the same URL."
                   : "One URL for this recording."}
             </p>
+            {active && (
+              <div className="mt-3 border-t border-border pt-3">
+                <p className="text-xs font-medium text-foreground">Embed player</p>
+                <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                  Add the video to a page that accepts HTML.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <button type="button" onClick={handleCopyEmbed} className={ACCESS_LINK}>
+                    {isEmbedCopied ? <Check size={12} aria-hidden /> : <Code2 size={12} aria-hidden />}
+                    {isEmbedCopied ? "Code copied" : "Copy iframe code"}
+                  </button>
+                  {embedUrl && (
+                    <a href={embedUrl} target="_blank" rel="noopener noreferrer" className={ACCESS_LINK}>
+                      Preview player <ExternalLink size={10} aria-hidden />
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 space-y-1 rounded-xl border border-border px-3 py-2">

@@ -183,10 +183,10 @@ class TranscriptionManager:
     async def load_extracted(self, recording_id: int, user_slug: int) -> dict:
         """Load extraction data from extracted.json."""
         key = self._extracted_key(recording_id, user_slug)
-        storage = get_storage_backend()
-        if not await storage.exists(key):
-            raise FileNotFoundError(f"extracted.json not found for recording {recording_id}: {key}")
-        return json.loads(await storage.load(key))
+        try:
+            return json.loads(await get_storage_backend().load(key))
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(f"extracted.json not found for recording {recording_id}: {key}") from exc
 
     async def get_active_extracted(self, recording_id: int, user_slug: int) -> dict | None:
         """Return active extraction version (topics, summary) or None if not found."""

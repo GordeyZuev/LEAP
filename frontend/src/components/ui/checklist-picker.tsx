@@ -32,6 +32,7 @@ function ChecklistPickerPanel<V extends string | number>({
   searchPlaceholder,
   footer,
   showClear,
+  disabled = false,
 }: {
   items: ChecklistItem<V>[];
   value: V[];
@@ -39,6 +40,7 @@ function ChecklistPickerPanel<V extends string | number>({
   searchPlaceholder: string;
   footer?: ReactNode;
   showClear: boolean;
+  disabled?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState<string | null>(null);
@@ -102,10 +104,16 @@ function ChecklistPickerPanel<V extends string | number>({
               const checked = selected.has(it.value);
               return (
                 <li key={String(it.value)}>
-                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted">
+                  <label
+                    className={cn(
+                      "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2",
+                      disabled ? "cursor-not-allowed" : "cursor-pointer hover:bg-muted",
+                    )}
+                  >
                     <input
                       type="checkbox"
                       checked={checked}
+                      disabled={disabled}
                       onChange={() =>
                         onChange(checked ? value.filter((x) => x !== it.value) : [...value, it.value])
                       }
@@ -127,8 +135,9 @@ function ChecklistPickerPanel<V extends string | number>({
         <div className="border-t border-border px-5 py-2">
           <button
             type="button"
+            disabled={disabled}
             onClick={() => onChange([])}
-            className="min-h-11 text-sm font-medium text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+            className="min-h-11 text-sm font-medium text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Clear
           </button>
@@ -186,6 +195,7 @@ export function ChecklistPicker<V extends string | number = number>({
       searchPlaceholder={searchPlaceholder}
       footer={footer}
       showClear
+      disabled={disabled}
     />
   );
 

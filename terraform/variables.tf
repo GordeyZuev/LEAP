@@ -40,6 +40,12 @@ variable "domain" {
   type        = string
 }
 
+variable "embed_allowed_origins" {
+  description = "Comma-separated exact HTTPS origins allowed to frame the public video player; empty allows only LEAP."
+  type        = string
+  default     = ""
+}
+
 variable "cert_email" {
   description = "Email address Let's Encrypt sends expiry notices to."
   type        = string
